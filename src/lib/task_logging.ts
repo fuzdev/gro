@@ -2,8 +2,14 @@ import type {ArgSchema} from '@fuzdev/fuz_util/args.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {print_value} from '@fuzdev/fuz_util/print.js';
 import {plural} from '@fuzdev/fuz_util/string.js';
+import {
+	zod_to_subschema,
+	zod_to_schema_description,
+	zod_to_schema_default,
+} from '@fuzdev/fuz_util/zod.js';
 import {styleText as st} from 'node:util';
 import {z} from 'zod';
+
 import type {LoadedTasks, TaskModuleMeta} from './task.ts';
 import {print_path} from './paths.ts';
 
@@ -117,8 +123,8 @@ const to_arg_properties = (
 		const s = shape[name] as z.ZodType;
 		const schema: ArgSchema = {
 			type: to_args_schema_type(s),
-			description: to_args_schema_description(s) || '',
-			default: to_args_schema_default(s),
+			description: zod_to_schema_description(s) || '',
+			default: zod_to_schema_default(s) as ArgSchema['default'],
 		};
 		properties.push({name, schema});
 	}
@@ -184,11 +190,11 @@ const to_args_schema_type = (schema: z.ZodType): ArgSchema['type'] => {
 		case 'literal':
 			return (def as unknown as {values: Array<any>}).values.map((v) => print_value(v)).join(' | ');
 		case 'nullable': {
-			const subschema = to_subschema(def);
+			const subschema = zod_to_subschema(def);
 			return subschema ? to_args_schema_type(subschema) + ' | null' : 'nullable';
 		}
 		case 'optional': {
-			const subschema = to_subschema(def);
+			const subschema = zod_to_subschema(def);
 			return subschema ? to_args_schema_type(subschema) + ' | undefined' : 'optional';
 		}
 		case 'success':
@@ -214,42 +220,8 @@ const to_args_schema_type = (schema: z.ZodType): ArgSchema['type'] => {
 		// case 'prefault':
 		// case 'pipe':
 		default: {
-			const subschema = to_subschema(def);
+			const subschema = zod_to_subschema(def);
 			return subschema ? to_args_schema_type(subschema) : def.type;
 		}
 	}
-};
-
-const to_args_schema_description = (schema: z.ZodType): string | null => {
-	const meta = schema.meta();
-	if (meta?.description) {
-		return meta.description;
-	}
-	const subschema = to_subschema(schema.def);
-	if (subschema) {
-		return to_args_schema_description(subschema);
-	}
-	return null;
-};
-
-const to_args_schema_default = (schema: z.ZodType): any => {
-	const {def} = schema._zod;
-	if ('defaultValue' in def) {
-		return def.defaultValue;
-	}
-	const subschema = to_subschema(def);
-	if (subschema) {
-		return to_args_schema_default(subschema);
-	}
-};
-
-const to_subschema = (def: z.core.$ZodTypeDef): z.ZodType | undefined => {
-	if ('innerType' in def) {
-		return def.innerType as any;
-	} else if ('in' in def) {
-		return def.in as any;
-	} else if ('schema' in def) {
-		return def.schema as any;
-	}
-	return undefined;
 };
