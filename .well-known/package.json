@@ -1,6 +1,6 @@
 {
 	"name": "@fuzdev/gro",
-	"version": "0.195.2",
+	"version": "0.196.0",
 	"description": "task runner and toolkit extending SvelteKit",
 	"motto": "generate, run, optimize",
 	"glyph": "🌰",
@@ -59,7 +59,7 @@
 		"zod": "^4.3.6"
 	},
 	"peerDependencies": {
-		"@fuzdev/fuz_util": ">=0.52.0",
+		"@fuzdev/fuz_util": ">=0.52.1",
 		"@sveltejs/kit": "^2",
 		"esbuild": "^0.27.0",
 		"svelte": "^5",
@@ -83,7 +83,7 @@
 		"@fuzdev/fuz_code": "^0.45.1",
 		"@fuzdev/fuz_css": "^0.53.1",
 		"@fuzdev/fuz_ui": "^0.185.2",
-		"@fuzdev/fuz_util": "^0.52.0",
+		"@fuzdev/fuz_util": "^0.52.1",
 		"@jridgewell/trace-mapping": "^0.3.31",
 		"@ryanatkn/eslint-config": "^0.9.0",
 		"@sveltejs/adapter-static": "^3.0.10",

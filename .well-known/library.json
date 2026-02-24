@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/gro",
-		"version": "0.195.2",
+		"version": "0.196.0",
 		"description": "task runner and toolkit extending SvelteKit",
 		"motto": "generate, run, optimize",
 		"glyph": "🌰",
@@ -70,7 +70,7 @@
 			"zod": "^4.3.6"
 		},
 		"peerDependencies": {
-			"@fuzdev/fuz_util": ">=0.52.0",
+			"@fuzdev/fuz_util": ">=0.52.1",
 			"@sveltejs/kit": "^2",
 			"esbuild": "^0.27.0",
 			"svelte": "^5",
@@ -94,7 +94,7 @@
 			"@fuzdev/fuz_code": "^0.45.1",
 			"@fuzdev/fuz_css": "^0.53.1",
 			"@fuzdev/fuz_ui": "^0.185.2",
-			"@fuzdev/fuz_util": "^0.52.0",
+			"@fuzdev/fuz_util": "^0.52.1",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.9.0",
 			"@sveltejs/adapter-static": "^3.0.10",
@@ -160,7 +160,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/gro",
-		"version": "0.195.2",
+		"version": "0.196.0",
 		"modules": [
 			{
 				"path": "args.ts",
@@ -6042,7 +6042,7 @@
 					{
 						"name": "log_tasks",
 						"kind": "function",
-						"source_line": 10,
+						"source_line": 16,
 						"type_signature": "(log: Logger, loaded_tasks: LoadedTasks, log_intro?: boolean): void",
 						"return_type": "void",
 						"parameters": [
@@ -6064,7 +6064,7 @@
 					{
 						"name": "log_error_reasons",
 						"kind": "function",
-						"source_line": 46,
+						"source_line": 52,
 						"type_signature": "(log: Logger, reasons: string[]): void",
 						"return_type": "void",
 						"parameters": [
@@ -6081,7 +6081,7 @@
 					{
 						"name": "log_task_help",
 						"kind": "function",
-						"source_line": 54,
+						"source_line": 60,
 						"type_signature": "(log: Logger, meta: TaskModuleMeta): void",
 						"return_type": "void",
 						"parameters": [
