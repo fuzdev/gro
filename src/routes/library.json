@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/gro",
-		"version": "0.195.2",
+		"version": "0.196.0",
 		"description": "task runner and toolkit extending SvelteKit",
 		"motto": "generate, run, optimize",
 		"glyph": "🌰",
@@ -151,7 +151,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/gro",
-		"version": "0.195.2",
+		"version": "0.196.0",
 		"modules": [
 			{
 				"path": "args.ts",
