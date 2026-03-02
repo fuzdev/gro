@@ -2690,7 +2690,7 @@
 								"name": "search_filters",
 								"kind": "variable",
 								"type_signature": "Array<PathFilter>",
-								"doc_comment": "When searching the filsystem for tasks and genfiles,\ndirectories and files are included if they pass all of these filters."
+								"doc_comment": "When searching the filesystem for tasks and genfiles,\ndirectories and files are included if they pass all of these filters."
 							},
 							{
 								"name": "js_cli",
@@ -2801,16 +2801,10 @@
 						"type_signature": "RegExp"
 					},
 					{
-						"name": "EXPORTS_EXCLUDER_DEFAULT",
-						"kind": "variable",
-						"source_line": 157,
-						"type_signature": "RegExp"
-					},
-					{
 						"name": "cook_gro_config",
 						"kind": "function",
 						"doc_comment": "Transforms a `RawGroConfig` to the more strict `GroConfig`.\nThis allows users to provide a more relaxed config.\nHashes the `build_cache_config` and deletes the raw value for security.",
-						"source_line": 164,
+						"source_line": 162,
 						"type_signature": "(raw_config: RawGroConfig): Promise<GroConfig>",
 						"return_type": "Promise<GroConfig>",
 						"parameters": [
@@ -2823,7 +2817,7 @@
 					{
 						"name": "GroConfigModule",
 						"kind": "type",
-						"source_line": 213,
+						"source_line": 211,
 						"type_signature": "GroConfigModule",
 						"properties": [
 							{
@@ -2837,7 +2831,7 @@
 					{
 						"name": "load_gro_config",
 						"kind": "function",
-						"source_line": 217,
+						"source_line": 215,
 						"type_signature": "(dir?: string): Promise<GroConfig>",
 						"return_type": "Promise<GroConfig>",
 						"parameters": [
@@ -2851,7 +2845,7 @@
 					{
 						"name": "validate_gro_config_module",
 						"kind": "function",
-						"source_line": 240,
+						"source_line": 238,
 						"type_signature": "(config_module: any, config_path: string): asserts config_module is GroConfigModule",
 						"return_type": "void",
 						"parameters": [
@@ -5274,7 +5268,7 @@
 						"name": "SveltePackageOptions",
 						"kind": "type",
 						"doc_comment": "Options to the SvelteKit packaging CLI.",
-						"see_also": ["https://kit.svelte.dev/docs/packaging#options"],
+						"see_also": ["https://svelte.dev/docs/kit/packaging#options"],
 						"source_line": 104,
 						"type_signature": "SveltePackageOptions",
 						"properties": [
@@ -5414,25 +5408,25 @@
 						"see_also": [
 							"https://github.com/nodejs/loaders for details about the forthcoming virtual file support"
 						],
-						"source_line": 13,
+						"source_line": 14,
 						"type_signature": "false"
 					},
 					{
 						"name": "building",
 						"kind": "variable",
-						"source_line": 14,
+						"source_line": 15,
 						"type_signature": "false"
 					},
 					{
 						"name": "dev",
 						"kind": "variable",
-						"source_line": 15,
+						"source_line": 16,
 						"type_signature": "true"
 					},
 					{
 						"name": "version",
 						"kind": "variable",
-						"source_line": 16,
+						"source_line": 17,
 						"type_signature": "\"TODO\""
 					}
 				],
@@ -5444,13 +5438,13 @@
 					{
 						"name": "applyAction",
 						"kind": "variable",
-						"source_line": 11,
+						"source_line": 12,
 						"type_signature": "<Success extends Record<string, unknown> | undefined, Failure extends Record<string, unknown> | undefined>(result: ActionResult<Success, Failure>) => Promise<void>"
 					},
 					{
 						"name": "deserialize",
 						"kind": "function",
-						"source_line": 12,
+						"source_line": 13,
 						"type_signature": "<Success extends Record<string, unknown> | undefined, Failure extends Record<string, unknown> | undefined>(result: string): ActionResult<Success, Failure>",
 						"return_type": "ActionResult<Success, Failure>",
 						"parameters": [
@@ -5463,7 +5457,7 @@
 					{
 						"name": "enhance",
 						"kind": "function",
-						"source_line": 13,
+						"source_line": 14,
 						"type_signature": "<Success extends Record<string, unknown> | undefined, Failure extends Record<string, unknown> | undefined>(form_element: HTMLFormElement, submit?: SubmitFunction<Success, Failure> | undefined): { ...; }",
 						"return_type": "{ destroy(): void; }",
 						"parameters": [
@@ -5486,49 +5480,49 @@
 					{
 						"name": "afterNavigate",
 						"kind": "variable",
-						"source_line": 16,
+						"source_line": 17,
 						"type_signature": "(callback: (navigation: AfterNavigate) => void) => void"
 					},
 					{
 						"name": "beforeNavigate",
 						"kind": "variable",
-						"source_line": 17,
+						"source_line": 18,
 						"type_signature": "(callback: (navigation: BeforeNavigate) => void) => void"
 					},
 					{
 						"name": "disableScrollHandling",
 						"kind": "variable",
-						"source_line": 18,
+						"source_line": 19,
 						"type_signature": "() => void"
 					},
 					{
 						"name": "goto",
 						"kind": "variable",
-						"source_line": 19,
+						"source_line": 20,
 						"type_signature": "(url: string | URL, opts?: { replaceState?: boolean | undefined; noScroll?: boolean | undefined; keepFocus?: boolean | undefined; invalidateAll?: boolean | undefined; invalidate?: (string | ... 1 more ... | ((url: URL) => boolean))[] | undefined; state?: PageState | undefined; } | undefined) => Promise<...>"
 					},
 					{
 						"name": "invalidate",
 						"kind": "variable",
-						"source_line": 20,
+						"source_line": 21,
 						"type_signature": "(resource: string | URL | ((url: URL) => boolean)) => Promise<void>"
 					},
 					{
 						"name": "invalidateAll",
 						"kind": "variable",
-						"source_line": 21,
+						"source_line": 22,
 						"type_signature": "() => Promise<void>"
 					},
 					{
 						"name": "preloadCode",
 						"kind": "variable",
-						"source_line": 22,
+						"source_line": 23,
 						"type_signature": "(pathname: string) => Promise<void>"
 					},
 					{
 						"name": "preloadData",
 						"kind": "variable",
-						"source_line": 23,
+						"source_line": 24,
 						"type_signature": "(href: string) => Promise<{ type: \"loaded\"; status: number; data: Record<string, any>; } | { type: \"redirect\"; location: string; }>"
 					}
 				]
@@ -5539,20 +5533,20 @@
 					{
 						"name": "assets",
 						"kind": "variable",
-						"source_line": 20,
+						"source_line": 21,
 						"type_signature": "\"\""
 					},
 					{
 						"name": "base",
 						"kind": "variable",
 						"doc_comment": "",
-						"source_line": 22,
+						"source_line": 23,
 						"type_signature": "\"\""
 					},
 					{
 						"name": "resolve",
 						"kind": "function",
-						"source_line": 23,
+						"source_line": 24,
 						"type_signature": "<T extends RouteId | Pathname>(...args: ResolveArgs<T>): \"/\" | \"/about\" | \"/docs\" | \"/docs/api\" | \"/docs/library\" | \"/history\" | `${`/docs/api/${string}` & {}}` | `/${string}/` | `/${string}/about` | ... 4 more ... | `/${string}${`/docs/api/${string}` & {}}`",
 						"return_type": "\"/\" | \"/about\" | \"/docs\" | \"/docs/api\" | \"/docs/library\" | \"/history\" | `${`/docs/api/${string}` & {}}` | `/${string}/` | `/${string}/about` | `/${string}/docs` | `/${string}/docs/api` | `/${string}/docs/library` | `/${string}/history` | `/${string}${`/docs/api/${string}` & {}}`",
 						"parameters": [
@@ -5566,13 +5560,13 @@
 						"name": "resolveRoute",
 						"kind": "variable",
 						"doc_comment": "",
-						"source_line": 25,
+						"source_line": 26,
 						"type_signature": "<T extends RouteId | Pathname>(...args: ResolveArgs<T>) => \"/\" | \"/about\" | \"/docs\" | \"/docs/api\" | \"/docs/library\" | \"/history\" | `${`/docs/api/${string}` & {}}` | `/${string}/` | `/${string}/about` | ... 4 more ... | `/${string}${`/docs/api/${string}` & {}}`"
 					},
 					{
 						"name": "asset",
 						"kind": "function",
-						"source_line": 26,
+						"source_line": 27,
 						"type_signature": "(file: \"/.nojekyll\" | \"/CNAME\" | \"/favicon.png\" | \"/logo.svg\" | \"/robots.txt\" | (string & {})): string",
 						"return_type": "string",
 						"parameters": [
@@ -5591,19 +5585,19 @@
 					{
 						"name": "navigating",
 						"kind": "variable",
-						"source_line": 10,
+						"source_line": 11,
 						"type_signature": "Navigation | { from: null; to: null; type: null; willUnload: null; delta: null; complete: null; }"
 					},
 					{
 						"name": "page",
 						"kind": "variable",
-						"source_line": 19,
+						"source_line": 20,
 						"type_signature": "Page<{ module_path?: string | undefined; }, \"/\" | \"/about\" | \"/docs\" | \"/docs/api\" | \"/docs/api/[...module_path]\" | \"/docs/library\" | \"/history\" | null>"
 					},
 					{
 						"name": "updated",
 						"kind": "variable",
-						"source_line": 30,
+						"source_line": 31,
 						"type_signature": "{ readonly current: boolean; check(): Promise<boolean>; }"
 					}
 				]

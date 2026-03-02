@@ -26,7 +26,7 @@ export const base = ${JSON.stringify(base_url)};
 `;
 
 // TODO improve support
-// `dev` is not guaranteed to be the same as `MODE` - https://kit.svelte.dev/docs/modules#$app-environment-dev
+// `dev` is not guaranteed to be the same as `MODE` - https://svelte.dev/docs/kit/$app-environment
 // `version` is `config.kit.version.name` but I couldn't see how to load a SvelteKit `ValidatedConfig`
 // `building` is just being hardcoded, might be better (but still not correct) to be `!dev`
 export const render_sveltekit_shim_app_environment = (

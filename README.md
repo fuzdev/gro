@@ -42,7 +42,7 @@ It includes:
     [Svelte](https://github.com/sveltejs/svelte),
     and [SvelteKit](https://github.com/sveltejs/kit)
   - defers to SvelteKit and Vite for the frontend and
-    [`@sveltejs/package`](https://kit.svelte.dev/docs/packaging) for the library
+    [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging) for the library
   - exposes all of its internals in `$lib`
   - uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
   - provides a [Node loader](/src/lib/loader.ts) with a [register hook](/src/lib/register.ts)
@@ -82,7 +82,6 @@ It includes:
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- [`public` package](/src/docs/package_json.md#public-packages) features (nonstandard)
 - full [docs index](/src/docs#readme)
 
 ## install

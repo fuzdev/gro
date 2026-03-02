@@ -75,9 +75,6 @@ gro gen # runs codegen for all *.gen.* files in src/
 gro gen --check # exits with error code 1 if anything is new or different; no-op to the fs
 ```
 
-> in the following examples,
-> but it makes for a better DX
-
 ### generate arbitrary TypeScript
 
 Given `src/script.gen.ts`:
@@ -261,22 +258,34 @@ Gen files can declare dependencies to control when they regenerate in watch mode
 By default, they regenerate only when their imported dependencies or the file itself change.
 The `dependencies` option provides fine-grained control:
 
+Regenerate on all file changes:
+
 ```ts
 import type {GenConfig} from '@fuzdev/gro';
 
 export const gen: GenConfig = {
 	generate: () => 'returns generated contents',
-
-	// regenerate on all file changes
 	dependencies: 'all',
+};
+```
 
-	// static configuration
+Static configuration with patterns and files:
+
+```ts
+export const gen: GenConfig = {
+	generate: () => 'returns generated contents',
 	dependencies: {
 		patterns: [/\.json$/, /config\//], // regex patterns to match file paths
 		files: ['src/data/schema.ts', 'package.json'], // specific file paths
 	},
+};
+```
 
-	// dynamic resolver function
+Dynamic resolver function:
+
+```ts
+export const gen: GenConfig = {
+	generate: () => 'returns generated contents',
 	dependencies: (ctx) => {
 		return ctx.changed_file_id?.endsWith('.json')
 			? {files: ['package.json', ctx.changed_file_id]}

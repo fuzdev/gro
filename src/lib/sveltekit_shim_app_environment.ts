@@ -1,5 +1,6 @@
 // shim for $app/environment
 // @see https://github.com/sveltejs/kit/issues/1485
+// @see https://svelte.dev/docs/kit/$app-environment
 
 /**
  * This file is created dynamically by `render_sveltekit_shim_app_environment`

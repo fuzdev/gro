@@ -44,7 +44,7 @@ export interface ParsedSvelteConfig {
 	base_url: '' | `/${string}` | undefined;
 	assets_url: '' | `http://${string}` | `https://${string}` | undefined;
 
-	// TODO others, but maybe replace with a Zod schema? https://kit.svelte.dev/docs/configuration
+	// TODO others, but maybe replace with a Zod schema? https://svelte.dev/docs/kit/configuration
 	/**
 	 * Same as the SvelteKit `files.assets`.
 	 */

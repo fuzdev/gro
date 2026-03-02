@@ -23,15 +23,15 @@ Gro's builtin plugins:
 
 - [`@fuzdev/gro/gro_plugin_server.js`](../lib/gro_plugin_server.ts) - Node server support
 - [`@fuzdev/gro/gro_plugin_sveltekit_library.js`](../lib/gro_plugin_sveltekit_library.ts) -
-  for publishing from `$lib/` with [`svelte-package`](https://svelte.dev/docs/kit/packaging)
+  see [the docs](./gro_plugin_sveltekit_library.md)
 - [`@fuzdev/gro/gro_plugin_sveltekit_app.js`](../lib/gro_plugin_sveltekit_app.ts) -
   see [the docs](./gro_plugin_sveltekit_app.md)
 - [`@fuzdev/gro/gro_plugin_gen.js`](../lib/gro_plugin_gen.ts) - watch `src/`
   and efficiently run `gen` when genfiles or their deps change
 
-> TODO add docs for the above
+> server and gen plugin docs are not yet written
 
-Also see [`config.plugin` in the config docs](config.md#plugin)
+Also see [`config.plugins` in the config docs](config.md#plugins)
 and usage in [the default config](../lib/gro.config.default.ts).
 The default config detects which plugins are included by inspecting the current project.
 

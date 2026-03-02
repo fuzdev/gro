@@ -10,10 +10,10 @@ without required deps.
 > The [default config](/src/lib/gro.config.default.ts)
 > detects three types of projects that can coexist in one repo:
 > SvelteKit frontends,
-> Node libraries with [`@sveltejs/package`](https://kit.svelte.dev/docs/packaging),
+> Node libraries with [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging),
 > and Node servers.
 
-See [`src/lib/config.ts`](/src/lib/config.ts) for the config types and implementation.
+See [`src/lib/gro_config.ts`](/src/lib/gro_config.ts) for the config types and implementation.
 
 ## examples
 
@@ -122,7 +122,7 @@ See also [Gro's own internal config](/gro.config.ts).
 
 The `plugins` property is a function that returns an array of `Plugin` instances.
 Read more about plugins and the `Plugin` in
-[plugin.md](plugin.md), [dev.md](dev.md#plugin), and [build.md](build.md#plugin).
+[plugin.md](plugin.md), [dev.md](dev.md#plugin), and [build.md](build.md#plugins).
 
 ```ts
 export type PluginsCreateConfig<TPluginContext extends PluginContext = PluginContext> = (
@@ -146,7 +146,7 @@ To opt out, configure `map_package_json` to `null` or return `null` from it.
 The main purpose of `map_package_json` is to automate
 the `"exports"` property of your root `package.json`.
 The motivation is to streamline package publishing by supplementing
-[`@sveltejs/package`](https://kit.svelte.dev/docs/packaging).
+[`@sveltejs/package`](https://svelte.dev/docs/kit/packaging).
 
 By default `package_json.exports` uses subpath wildcard patterns to include everything from `$lib/`
 except for some ignored files like tests and markdown,
@@ -192,9 +192,9 @@ const config: GroConfig = {
 	},
 };
 
-export interface MapPackageJson {
-	(package_json: PackageJson): PackageJson | null | Promise<PackageJson | null>;
-}
+export type PackageJsonMapper = (
+	package_json: PackageJson,
+) => PackageJson | null | Promise<PackageJson | null>;
 ```
 
 ## `task_root_dirs`

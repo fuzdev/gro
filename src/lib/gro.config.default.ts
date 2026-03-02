@@ -13,8 +13,8 @@ import {package_json_load} from './package_json.ts';
  * if it exists in the current project, and if not, this is the final config.
  * It looks at the SvelteKit config and filesystem and tries to do the right thing:
  *
- * - if `src/routes`, assumes a SvelteKit frontend - respects `KitConfig.kit.files.routes`
- * - if `src/lib`, assumes a Node library - respects `KitConfig.kit.files.lib`
+ * - if `svelte.config.js`, assumes a SvelteKit frontend - respects `KitConfig.kit.files.routes`
+ * - if `src/lib` + `@sveltejs/package`, assumes a Node library - respects `KitConfig.kit.files.lib`
  * - if `src/lib/server/server.ts`, assumes a Node server - needs config
  */
 const config: CreateGroConfig = async (cfg, svelte_config) => {

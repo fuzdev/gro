@@ -9,12 +9,12 @@ import {SVELTE_PACKAGE_CLI} from './constants.ts';
 export interface GroPluginSveltekitLibraryOptions {
 	/**
 	 * The options passed to the SvelteKit packaging CLI.
-	 * @see https://kit.svelte.dev/docs/packaging#options
+	 * @see https://svelte.dev/docs/kit/packaging#options
 	 */
 	svelte_package_options?: SveltePackageOptions;
 	/**
 	 * The SvelteKit packaging CLI to use. Defaults to `svelte-package`.
-	 * @see https://kit.svelte.dev/docs/packaging
+	 * @see https://svelte.dev/docs/kit/packaging
 	 */
 	svelte_package_cli?: string;
 }

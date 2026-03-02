@@ -1,5 +1,6 @@
 // shim for $app/navigation
 // @see https://github.com/sveltejs/kit/issues/1485
+// @see https://svelte.dev/docs/kit/$app-navigation
 
 import type {
 	afterNavigate as base_afterNavigate,

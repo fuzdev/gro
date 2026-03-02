@@ -324,8 +324,8 @@ Hashes are computed via Node's `webcrypto.subtle.digest()`.
 `Plugin`s are objects that customize the behavior of `gro build` and `gro dev`.
 They try to defer to underlying tools as much as possible, and exist to glue everything together.
 For example, the library plugin internally uses
-[`svelte-package`](https://kit.svelte.dev/docs/packaging).
-See [plugin.md](plugin.md) to learn more.
+[`svelte-package`](https://svelte.dev/docs/kit/packaging).
+See [gro_plugin_sveltekit_library.md](gro_plugin_sveltekit_library.md) to learn more.
 
 ## deploying and publishing
 

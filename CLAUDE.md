@@ -77,6 +77,7 @@ interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
 	svelte_config: ParsedSvelteConfig;
+	filer: Filer;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -270,7 +271,7 @@ Builtin plugins:
 - `gro_plugin_sveltekit_app` - runs `vite dev` or `vite build` for SvelteKit
   frontends ([docs](src/docs/gro_plugin_sveltekit_app.md))
 - `gro_plugin_sveltekit_library` - runs `svelte-package` to publish from
-  `src/lib/`
+  `src/lib/` ([docs](src/docs/gro_plugin_sveltekit_library.md))
 - `gro_plugin_server` - runs Node servers with auto-restart on changes
 
 ### Configuration
@@ -283,8 +284,8 @@ config object. If absent, uses default config from
 
 Default config behavior: Auto-detects project type by checking filesystem:
 
-- `src/routes` → enables `gro_plugin_sveltekit_app`
-- `@sveltejs/package` in package.json → enables `gro_plugin_sveltekit_library`
+- `svelte.config.js` → enables `gro_plugin_sveltekit_app`
+- `svelte.config.js` + `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
 - `src/lib/server/server.ts` → enables `gro_plugin_server`
 - Always enables `gro_plugin_gen`
 
@@ -293,7 +294,7 @@ Config interface:
 ```typescript
 interface GroConfig {
 	plugins: PluginsCreateConfig; // Function returning array of plugins
-	map_package_json: MapPackageJson | null; // Hook for package.json automations
+	map_package_json: PackageJsonMapper | null; // Hook for package.json automations
 	task_root_dirs: Array<PathId>; // Where to search for tasks
 	search_filters: Array<PathFilter>; // Exclude patterns for discovery
 	js_cli: string; // Node-compatible CLI (default: 'node')
@@ -302,8 +303,7 @@ interface GroConfig {
 ```
 
 map_package_json: Runs during `gro sync` to auto-generate `"exports"` field in
-package.json using wildcard patterns. Excludes tests (`*.test.*`), markdown
-(`*.md`), and ignored files (`*.ignore.*`, `/test/`, `/ignore/`). Return `null`
+package.json using wildcard patterns for files in `src/lib/`. Return `null`
 to opt out.
 
 Example config:

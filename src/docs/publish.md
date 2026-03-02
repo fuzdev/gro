@@ -4,10 +4,11 @@ Here's how to publish a new version of a repo with Gro, including for Gro itself
 
 ## svelte-package
 
-Gro uses SvelteKit's [`@sveltejs/package`](https://kit.svelte.dev/docs/packaging)
+Gro uses SvelteKit's [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging)
 with the task `gro publish` to publish packages to npm.
 Gro's default config enables [`@fuzdev/gro/gro_plugin_sveltekit_library.js`](../lib/gro_plugin_sveltekit_library.ts)
 if it detects `@sveltejs/package` installed as a dependency in the package.json.
+See [the library plugin docs](gro_plugin_sveltekit_library.md) for full detection requirements and behavior.
 
 ```bash
 # enable `gro publish` to publish to npm:
@@ -126,7 +127,7 @@ gro publish --help # view the options
 gro publish -- svelte-package -w # forward options
 ```
 
-See [the SvelteKit packaging docs](https://kit.svelte.dev/docs/packaging) for more.
+See [the SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging) for more.
 
 If `changeset publish` fails during `gro publish`,
 the task exits without pushing anything to the remote origin.

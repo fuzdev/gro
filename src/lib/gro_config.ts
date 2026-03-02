@@ -50,7 +50,7 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	task_root_dirs: Array<PathId>;
 	/**
-	 * When searching the filsystem for tasks and genfiles,
+	 * When searching the filesystem for tasks and genfiles,
 	 * directories and files are included if they pass all of these filters.
 	 */
 	search_filters: Array<PathFilter>;
@@ -153,8 +153,6 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 	})($|/)`,
 	'u',
 );
-
-export const EXPORTS_EXCLUDER_DEFAULT = /(\.md|\.(test|ignore)\.|\/(test|ignore)\/)/;
 
 /**
  * Transforms a `RawGroConfig` to the more strict `GroConfig`.

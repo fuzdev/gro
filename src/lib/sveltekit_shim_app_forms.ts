@@ -1,5 +1,6 @@
 // shim for $app/forms
 // @see https://github.com/sveltejs/kit/issues/1485
+// @see https://svelte.dev/docs/kit/$app-forms
 
 import type {
 	applyAction as base_applyAction,

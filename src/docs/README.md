@@ -8,6 +8,7 @@
 - [dev](dev.md)
 - [gen](gen.md)
 - [gro_plugin_sveltekit_app](gro_plugin_sveltekit_app.md)
+- [gro_plugin_sveltekit_library](gro_plugin_sveltekit_library.md)
 - [plugin](plugin.md)
 - [publish](publish.md)
 - [task](task.md)

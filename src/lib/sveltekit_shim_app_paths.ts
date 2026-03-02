@@ -1,5 +1,6 @@
 // shim for $app/paths
 // @see https://github.com/sveltejs/kit/issues/1485
+// @see https://svelte.dev/docs/kit/$app-paths
 
 /**
  * This file is created dynamically by `render_sveltekit_shim_app_paths`

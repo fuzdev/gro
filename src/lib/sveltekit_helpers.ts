@@ -99,7 +99,7 @@ export const sveltekit_sync_if_obviously_needed = async (
 
 /**
  * Options to the SvelteKit packaging CLI.
- * @see https://kit.svelte.dev/docs/packaging#options
+ * @see https://svelte.dev/docs/kit/packaging#options
  */
 export interface SveltePackageOptions {
 	/**
