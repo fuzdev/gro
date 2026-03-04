@@ -35,7 +35,7 @@ export const find_cli = async (
 	if (await fs_exists(local_id)) {
 		return {name, id: local_id, kind: 'local'};
 	}
-	const {stdout} = await spawn_out('which', [name], options);
+	const {stdout} = await spawn_out('sh', ['-c', 'command -v "$1"', 'sh', name], options);
 	const global_id = stdout?.trim();
 	if (!global_id) return null;
 	return {name, id: global_id, kind: 'global'};
