@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Bug reports, feature requests, and questions!
+  - name: Questions, feature requests, problems, talk, etc
     url: https://github.com/fuzdev/gro/discussions/new/choose
-    about: Start here!
+    about: discussions
