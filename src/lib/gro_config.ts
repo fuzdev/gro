@@ -3,7 +3,7 @@ import {fs_exists} from '@fuzdev/fuz_util/fs.js';
 import {identity} from '@fuzdev/fuz_util/function.js';
 import type {PathFilter, PathId} from '@fuzdev/fuz_util/path.js';
 import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.js';
-import {hash_secure} from '@fuzdev/fuz_util/hash.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 
 import {GRO_DIST_DIR, IS_THIS_GRO, paths} from './paths.ts';
 import {
@@ -22,11 +22,11 @@ import type {ParsedSvelteConfig} from './svelte_config.ts';
 import type {FilerOptions} from './filer.ts';
 
 /**
- * SHA-256 hash of empty string, used for configs without build_cache_config.
+ * BLAKE3 hash of empty string, used for configs without build_cache_config.
  * This ensures consistent cache behavior when no custom config is provided.
  */
 export const EMPTY_BUILD_CACHE_CONFIG_HASH =
-	'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+	'af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262';
 
 /**
  * The config that users can extend via `gro.config.ts`.
@@ -186,7 +186,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 			typeof build_cache_config === 'function' ? await build_cache_config() : build_cache_config;
 
 		// Hash the JSON representation with deterministic key ordering
-		build_cache_config_hash = await hash_secure(json_stringify_deterministic(resolved));
+		build_cache_config_hash = hash_blake3(json_stringify_deterministic(resolved));
 	}
 
 	// Delete the raw value to ensure it doesn't persist in memory

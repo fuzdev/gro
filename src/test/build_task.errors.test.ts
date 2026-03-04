@@ -53,8 +53,8 @@ vi.mock('../lib/paths.ts', () => ({
 	},
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('build_task error handling', () => {

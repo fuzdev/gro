@@ -37,8 +37,8 @@ vi.mock('@fuzdev/fuz_util/fs.js', () => ({
 	fs_exists: vi.fn(),
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('is_build_cache_valid', () => {
@@ -50,7 +50,7 @@ describe('is_build_cache_valid', () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readFile} = vi.mocked(await import('node:fs/promises'));
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			git_commit: 'abc123',
@@ -60,7 +60,7 @@ describe('is_build_cache_valid', () => {
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('jkl012');
+		vi.mocked(hash_blake3).mockReturnValue('jkl012');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
@@ -112,7 +112,7 @@ describe('is_build_cache_valid', () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readFile} = vi.mocked(await import('node:fs/promises'));
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			git_commit: 'abc123',
@@ -122,7 +122,7 @@ describe('is_build_cache_valid', () => {
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('new_config_hash');
+		vi.mocked(hash_blake3).mockReturnValue('new_config_hash');
 
 		const config = await create_mock_config({
 			build_cache_config: {changed: true},

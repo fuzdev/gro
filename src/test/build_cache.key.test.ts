@@ -12,8 +12,8 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn(),
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('compute_build_cache_key', () => {
@@ -23,10 +23,10 @@ describe('compute_build_cache_key', () => {
 
 	test('returns consistent hash components for same inputs', async () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
@@ -41,10 +41,10 @@ describe('compute_build_cache_key', () => {
 
 	test('handles missing git repository', async () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue(null);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
@@ -57,10 +57,10 @@ describe('compute_build_cache_key', () => {
 
 	test('hashes build_cache_config when provided', async () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('custom_hash');
+		vi.mocked(hash_blake3).mockReturnValue('custom_hash');
 
 		const config = await create_mock_config({
 			build_cache_config: {api_url: 'https://fuz.dev'},
@@ -70,7 +70,7 @@ describe('compute_build_cache_key', () => {
 		const result = await compute_build_cache_key(config, log);
 
 		expect(result.build_cache_config_hash).toBeTruthy();
-		expect(hash_secure).toHaveBeenCalledWith(
+		expect(hash_blake3).toHaveBeenCalledWith(
 			json_stringify_deterministic({api_url: 'https://fuz.dev'}),
 		);
 	});

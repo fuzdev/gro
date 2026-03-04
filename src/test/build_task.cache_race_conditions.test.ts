@@ -51,8 +51,8 @@ vi.mock('../lib/paths.ts', () => ({
 	},
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('build_task cache race conditions', () => {
@@ -79,7 +79,7 @@ describe('build_task cache race conditions', () => {
 		const {is_build_cache_valid, save_build_cache_metadata} = vi.mocked(
 			await import('../lib/build_cache.ts'),
 		);
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 		const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
@@ -87,7 +87,7 @@ describe('build_task cache race conditions', () => {
 		// Workspace clean, cache invalid, so build will run
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		// Simulate commit happening during build:
 		// Initial call returns 'commit_a', after build check returns 'commit_b'
@@ -126,7 +126,7 @@ describe('build_task cache race conditions', () => {
 		);
 		const {is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata} =
 			vi.mocked(await import('../lib/build_cache.ts'));
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 		const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
@@ -134,7 +134,7 @@ describe('build_task cache race conditions', () => {
 		// Workspace clean, cache invalid
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		// Commit stays stable throughout build
 		vi.mocked(git_current_commit_hash).mockResolvedValue('stable_commit');
@@ -171,11 +171,11 @@ describe('build_task cache race conditions', () => {
 			await import('@fuzdev/fuz_util/git.js'),
 		);
 		const {is_build_cache_valid} = vi.mocked(await import('../lib/build_cache.ts'));
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		// Different commits before/after build
 		let call_count = 0;

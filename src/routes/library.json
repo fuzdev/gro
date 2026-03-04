@@ -70,6 +70,7 @@
 			"zod": "^4.3.6"
 		},
 		"peerDependencies": {
+			"@fuzdev/blake3_wasm": "^0.1.0",
 			"@fuzdev/fuz_util": ">=0.52.1",
 			"@sveltejs/kit": "^2",
 			"esbuild": "^0.27.0",
@@ -91,10 +92,11 @@
 		"devDependencies": {
 			"@changesets/changelog-git": "^0.2.1",
 			"@changesets/types": "^6.1.0",
+			"@fuzdev/blake3_wasm": "^0.1.0",
 			"@fuzdev/fuz_code": "^0.45.1",
-			"@fuzdev/fuz_css": "^0.54.0",
+			"@fuzdev/fuz_css": "^0.55.0",
 			"@fuzdev/fuz_ui": "^0.185.2",
-			"@fuzdev/fuz_util": "^0.52.1",
+			"@fuzdev/fuz_util": "^0.53.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.9.0",
 			"@sveltejs/adapter-static": "^3.0.10",
@@ -2655,9 +2657,9 @@
 					{
 						"name": "EMPTY_BUILD_CACHE_CONFIG_HASH",
 						"kind": "variable",
-						"doc_comment": "SHA-256 hash of empty string, used for configs without build_cache_config.\nThis ensures consistent cache behavior when no custom config is provided.",
+						"doc_comment": "BLAKE3 hash of empty string, used for configs without build_cache_config.\nThis ensures consistent cache behavior when no custom config is provided.",
 						"source_line": 28,
-						"type_signature": "\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\""
+						"type_signature": "\"af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\""
 					},
 					{
 						"name": "GroConfig",
