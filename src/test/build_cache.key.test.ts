@@ -5,8 +5,6 @@ import {compute_build_cache_key} from '../lib/build_cache.ts';
 
 import {create_mock_logger, create_mock_config} from './build_cache_test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn(),

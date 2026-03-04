@@ -133,6 +133,26 @@ describe('discover_build_output_dirs', () => {
 		expect(result).not.toContain('dist_config.json');
 	});
 
+	test('skips dist_ entry when stat fails during iteration', async () => {
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {readdir, stat} = vi.mocked(await import('node:fs/promises'));
+
+		vi.mocked(fs_exists).mockResolvedValue(false);
+		vi.mocked(readdir).mockResolvedValue(['dist_vanished', 'dist_ok'] as any);
+		vi.mocked(stat).mockImplementation((path: any) => {
+			if (String(path) === 'dist_vanished') {
+				return Promise.reject(new Error('ENOENT: no such file or directory'));
+			}
+			return Promise.resolve({isDirectory: () => true} as any);
+		});
+
+		const result = await discover_build_output_dirs();
+
+		// vanished entry is skipped, surviving entry is included
+		expect(result).toContain('dist_ok');
+		expect(result).not.toContain('dist_vanished');
+	});
+
 	test('skips non-dist_ prefixed directories', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readdir, stat} = vi.mocked(await import('node:fs/promises'));
@@ -158,6 +178,12 @@ describe('discover_build_output_dirs', () => {
 describe('collect_build_outputs', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+	});
+
+	test('returns empty array for empty dirs array', async () => {
+		const result = await collect_build_outputs([]);
+
+		expect(result).toEqual([]);
 	});
 
 	test('hashes all files in build directory', async () => {

@@ -5,8 +5,6 @@ import {task as build_task, GIT_SHORT_HASH_LENGTH} from '../lib/build.task.ts';
 
 import {create_mock_build_task_context, create_mock_plugins} from './build_task_test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),

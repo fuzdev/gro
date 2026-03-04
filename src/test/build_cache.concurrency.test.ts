@@ -52,7 +52,11 @@ describe('race condition: cache file modification during validation', () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
-		const initial_metadata = create_mock_build_cache_metadata({git_commit: 'abc123'});
+		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
+		const initial_metadata = create_mock_build_cache_metadata({
+			git_commit: 'abc123',
+			build_cache_config_hash: 'hash123',
+		});
 		const modified_metadata = create_mock_build_cache_metadata({git_commit: 'def456'});
 
 		// Simulate cache file being modified during validation
@@ -72,12 +76,12 @@ describe('race condition: cache file modification during validation', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		// This represents a very unlikely race condition, but system should handle gracefully
+		// Metadata is loaded once and used throughout validation,
+		// so later file modifications don't affect the result
 		const result = await is_build_cache_valid(config, log);
 
-		// Cache validation should happen with the initially loaded metadata
-		// The result depends on when the validation happens vs when file is modified
-		expect(typeof result).toBe('boolean');
+		// initial metadata matches current git commit, so cache is valid
+		expect(result).toBe(true);
 	});
 
 	test('handles concurrent cache writes', async () => {
@@ -86,19 +90,14 @@ describe('race condition: cache file modification during validation', () => {
 		const metadata1 = create_mock_build_cache_metadata({git_commit: 'commit1'});
 		const metadata2 = create_mock_build_cache_metadata({git_commit: 'commit2'});
 
-		let write_count = 0;
-		vi.mocked(writeFile).mockImplementation(() => {
-			write_count++;
-			// Simulate concurrent writes - not expected in practice but should not crash
-			return Promise.resolve();
-		});
+		vi.mocked(mkdir).mockResolvedValue(undefined);
+		vi.mocked(writeFile).mockResolvedValue(undefined);
 
-		// Try to save two different cache states
-		await save_build_cache_metadata(metadata1);
-		await save_build_cache_metadata(metadata2);
+		// actually concurrent writes via Promise.all
+		await Promise.all([save_build_cache_metadata(metadata1), save_build_cache_metadata(metadata2)]);
 
-		// Both should complete without throwing
-		expect(write_count).toBe(2);
+		// both should complete without throwing
+		expect(writeFile).toHaveBeenCalledTimes(2);
 		expect(mkdir).toHaveBeenCalledTimes(2);
 	});
 
@@ -108,7 +107,11 @@ describe('race condition: cache file modification during validation', () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
-		const metadata = create_mock_build_cache_metadata({git_commit: 'abc123'});
+		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
+		const metadata = create_mock_build_cache_metadata({
+			git_commit: 'abc123',
+			build_cache_config_hash: 'hash123',
+		});
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
@@ -118,19 +121,15 @@ describe('race condition: cache file modification during validation', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		// Simulate multiple concurrent cache validation operations
-		// In practice this shouldn't happen, but system should handle gracefully
+		// multiple concurrent validations should all succeed
 		const validations = await Promise.all([
 			is_build_cache_valid(config, log),
 			is_build_cache_valid(config, log),
 			is_build_cache_valid(config, log),
 		]);
 
-		// All validations should complete without throwing
-		expect(validations).toHaveLength(3);
-		validations.forEach((result) => {
-			expect(typeof result).toBe('boolean');
-		});
+		// all validations should return true since metadata matches
+		expect(validations).toEqual([true, true, true]);
 	});
 
 	// Note: Git commit changing during build is tested at the integration level

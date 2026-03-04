@@ -11,8 +11,6 @@ import {
 	setup_successful_spawn_mock,
 } from './deploy_task_test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.js')>();

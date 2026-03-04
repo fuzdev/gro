@@ -65,6 +65,8 @@ describe('validate_build_cache', () => {
 
 	test('returns false when output file is missing', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {stat, readFile} = vi.mocked(await import('node:fs/promises'));
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html')],
@@ -75,11 +77,16 @@ describe('validate_build_cache', () => {
 		const result = await validate_build_cache(metadata);
 
 		expect(result).toBe(false);
+		// should not attempt stat or hash for missing files
+		expect(stat).not.toHaveBeenCalled();
+		expect(readFile).not.toHaveBeenCalled();
+		expect(hash_blake3).not.toHaveBeenCalled();
 	});
 
 	test('returns false when output file size differs (fast path)', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
-		const {stat} = vi.mocked(await import('node:fs/promises'));
+		const {stat, readFile} = vi.mocked(await import('node:fs/promises'));
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html', {hash: 'expected_hash', size: 1024})],
@@ -91,6 +98,9 @@ describe('validate_build_cache', () => {
 		const result = await validate_build_cache(metadata);
 
 		expect(result).toBe(false);
+		// fast path: size mismatch skips expensive hashing
+		expect(readFile).not.toHaveBeenCalled();
+		expect(hash_blake3).not.toHaveBeenCalled();
 	});
 
 	test('returns false when output file hash does not match', async () => {
@@ -178,6 +188,14 @@ describe('validate_build_cache', () => {
 		const result = await validate_build_cache(metadata);
 
 		expect(result).toBe(false);
+	});
+
+	test('returns true when metadata has no outputs', async () => {
+		const metadata = create_mock_build_cache_metadata({outputs: []});
+
+		const result = await validate_build_cache(metadata);
+
+		expect(result).toBe(true);
 	});
 
 	test('returns false when file becomes inaccessible during hash validation', async () => {

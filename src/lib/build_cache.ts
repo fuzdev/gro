@@ -23,7 +23,7 @@ export const BuildOutputEntry = z.strictObject({
 	path: z
 		.string()
 		.meta({description: "relative path from project root (e.g., 'build/index.html')."}),
-	hash: z.string().meta({description: 'SHA-256 hash of file contents'}),
+	hash: z.string().meta({description: 'BLAKE3 hash of file contents'}),
 	size: z.number().meta({description: 'file size in bytes'}),
 	mtime: z.number().meta({description: 'modification time in milliseconds since epoch'}),
 	ctime: z.number().meta({

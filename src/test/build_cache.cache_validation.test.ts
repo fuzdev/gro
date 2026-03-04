@@ -108,6 +108,30 @@ describe('is_build_cache_valid', () => {
 		expect(log.debug).toHaveBeenCalledWith('Build cache invalid: git commit changed');
 	});
 
+	test('uses pre-computed git_commit and skips git_current_commit_hash', async () => {
+		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {readFile} = vi.mocked(await import('node:fs/promises'));
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+
+		const metadata = create_mock_build_cache_metadata({
+			git_commit: 'precomputed_abc',
+			build_cache_config_hash: 'jkl012',
+		});
+
+		vi.mocked(fs_exists).mockResolvedValue(true);
+		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(hash_blake3).mockReturnValue('jkl012');
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+
+		const result = await is_build_cache_valid(config, log, 'precomputed_abc');
+
+		expect(result).toBe(true);
+		expect(git_current_commit_hash).not.toHaveBeenCalled();
+	});
+
 	test('returns false when build_cache_config hash differs', async () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));

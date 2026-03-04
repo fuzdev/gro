@@ -3,9 +3,6 @@ import {test, assert, vi} from 'vitest';
 import type {WatchNodeFs} from '../lib/watch_dir.ts';
 import {Filer} from '../lib/filer.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-empty-function */
-
 // Create a simple mock watch_dir that simulates file discovery
 const create_mock_watch_dir = () => {
 	return vi.fn((options) => {

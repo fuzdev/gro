@@ -295,6 +295,35 @@ describe('create_build_cache_metadata', () => {
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Not in a git repository'));
 	});
 
+	test('uses pre-passed build_dirs and skips discovery', async () => {
+		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {readdir, stat, readFile} = vi.mocked(await import('node:fs/promises'));
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+
+		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
+		vi.mocked(fs_exists).mockResolvedValue(true);
+		vi.mocked(readdir).mockImplementation((path: any) => {
+			if (path === 'custom_out') {
+				return Promise.resolve([mock_file_entry('app.js')] as any);
+			}
+			return Promise.resolve([] as any);
+		});
+		vi.mocked(stat).mockResolvedValue(mock_file_stats());
+		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		vi.mocked(hash_blake3).mockReturnValue('hash_val');
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+
+		const result = await create_build_cache_metadata(config, log, 'abc123', ['custom_out']);
+
+		expect(result.outputs).toHaveLength(1);
+		expect(result.outputs[0]!.path).toBe('custom_out/app.js');
+		// readdir('.') is for discovery — should not be called when build_dirs is provided
+		expect(readdir).not.toHaveBeenCalledWith('.');
+	});
+
 	test('includes correct build_cache_config_hash', async () => {
 		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));

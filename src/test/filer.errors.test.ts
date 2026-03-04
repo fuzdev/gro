@@ -7,9 +7,6 @@ import type {Disknode} from '../lib/disknode.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
 
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-empty-function */
-
 const create_test_disknode = (id: string, contents: string | null = null): Disknode => ({
 	id,
 	contents,

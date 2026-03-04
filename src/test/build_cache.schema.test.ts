@@ -1,11 +1,51 @@
 import {describe, test, expect} from 'vitest';
 
-import {BuildCacheMetadata} from '../lib/build_cache.ts';
+import {BuildCacheMetadata, BuildOutputEntry} from '../lib/build_cache.ts';
 
 import {
 	create_mock_build_cache_metadata,
 	create_mock_output_entry,
 } from './build_cache_test_helpers.ts';
+
+describe('BuildOutputEntry schema', () => {
+	test('validates correct output entry', () => {
+		expect(() => BuildOutputEntry.parse(create_mock_output_entry())).not.toThrow();
+	});
+
+	test('rejects entry with missing hash', () => {
+		expect(() =>
+			BuildOutputEntry.parse({
+				path: 'build/file.js',
+				size: 1024,
+				mtime: 1729512000000,
+				ctime: 1729512000000,
+				mode: 33188,
+			}),
+		).toThrow();
+	});
+
+	test('rejects entry with wrong size type', () => {
+		expect(() =>
+			BuildOutputEntry.parse({
+				path: 'build/file.js',
+				hash: 'abc',
+				size: '1024', // should be number
+				mtime: 1729512000000,
+				ctime: 1729512000000,
+				mode: 33188,
+			}),
+		).toThrow();
+	});
+
+	test('rejects entry with extra fields', () => {
+		expect(() =>
+			BuildOutputEntry.parse({
+				...create_mock_output_entry(),
+				extra: 'bad',
+			}),
+		).toThrow();
+	});
+});
 
 describe('BuildCacheMetadata schema', () => {
 	test('validates correct metadata structure', () => {

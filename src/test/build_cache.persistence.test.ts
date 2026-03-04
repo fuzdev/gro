@@ -302,4 +302,19 @@ describe('save_build_cache_metadata', () => {
 		// Should not throw even without logger (log?.warn is safe)
 		await expect(save_build_cache_metadata(metadata)).resolves.not.toThrow();
 	});
+
+	test('does not throw when mkdir fails', async () => {
+		const {mkdir} = await import('node:fs/promises');
+
+		const metadata = create_mock_build_cache_metadata();
+		const log = create_mock_logger();
+
+		vi.mocked(mkdir).mockRejectedValue(new Error('EACCES: permission denied'));
+
+		await expect(save_build_cache_metadata(metadata, log)).resolves.not.toThrow();
+		expect(log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('Failed to save build cache'),
+			expect.stringContaining('permission denied'),
+		);
+	});
 });

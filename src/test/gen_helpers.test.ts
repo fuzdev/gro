@@ -1,11 +1,11 @@
 import {test, expect, vi, beforeEach} from 'vitest';
 import {resolve} from 'node:path';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Timings} from '@fuzdev/fuz_util/timings.js';
 
 import {should_trigger_gen} from '../lib/gen_helpers.ts';
 import type {Filer} from '../lib/filer.ts';
 import * as filer from '../lib/filer.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
 import type {GroConfig} from '../lib/gro_config.ts';
 import type {InvokeTask} from '../lib/task.ts';
 import type {Disknode} from '../lib/disknode.ts';
