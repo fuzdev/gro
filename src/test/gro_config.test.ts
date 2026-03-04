@@ -1,5 +1,5 @@
 import {test, expect, vi} from 'vitest';
-import {hash_secure} from '@fuzdev/fuz_util/hash.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 
 import {
 	SEARCH_EXCLUDER_DEFAULT,
@@ -82,6 +82,6 @@ test('SEARCH_EXCLUDER_DEFAULT', () => {
 });
 
 test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', async () => {
-	const computed_hash = await hash_secure('');
+	const computed_hash = hash_blake3('');
 	expect(EMPTY_BUILD_CACHE_CONFIG_HASH).toBe(computed_hash);
 });

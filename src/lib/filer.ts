@@ -7,7 +7,7 @@ import {UnreachableError} from '@fuzdev/fuz_util/error.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import type {FileFilter, PathId} from '@fuzdev/fuz_util/path.js';
-import {hash_secure} from '@fuzdev/fuz_util/hash.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 
 import {
 	watch_dir,
@@ -244,7 +244,7 @@ export class Filer {
 		}
 
 		// Compute hash for new contents
-		const new_hash = new_contents !== null ? await hash_secure(new_contents) : null;
+		const new_hash = new_contents !== null ? hash_blake3(new_contents) : null;
 
 		file.ctime = stats?.ctimeMs ?? null;
 		file.mtime = stats?.mtimeMs ?? null;

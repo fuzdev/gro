@@ -22,8 +22,8 @@ vi.mock('@fuzdev/fuz_util/fs.js', () => ({
 	fs_exists: vi.fn(),
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('validate_build_cache', () => {
@@ -34,7 +34,7 @@ describe('validate_build_cache', () => {
 	test('returns true when all output files match hashes and sizes', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -53,8 +53,7 @@ describe('validate_build_cache', () => {
 		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
 
 		let call_count = 0;
-		// eslint-disable-next-line @typescript-eslint/require-await
-		vi.mocked(hash_secure).mockImplementation(async () => {
+		vi.mocked(hash_blake3).mockImplementation(() => {
 			call_count++;
 			return call_count === 1 ? 'hash1' : 'hash2';
 		});
@@ -97,7 +96,7 @@ describe('validate_build_cache', () => {
 	test('returns false when output file hash does not match', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html', {hash: 'expected_hash'})],
@@ -106,7 +105,7 @@ describe('validate_build_cache', () => {
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(stat).mockResolvedValue(mock_file_stats());
 		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
-		vi.mocked(hash_secure).mockResolvedValue('different_hash');
+		vi.mocked(hash_blake3).mockReturnValue('different_hash');
 
 		const result = await validate_build_cache(metadata);
 
@@ -136,7 +135,7 @@ describe('validate_build_cache', () => {
 	test('returns false when parallel hash validation has mixed results', async () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_secure} = await import('@fuzdev/fuz_util/hash.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -151,8 +150,7 @@ describe('validate_build_cache', () => {
 		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
 
 		let call_count = 0;
-		// eslint-disable-next-line @typescript-eslint/require-await
-		vi.mocked(hash_secure).mockImplementation(async () => {
+		vi.mocked(hash_blake3).mockImplementation(() => {
 			call_count++;
 			return call_count <= 2 ? 'correct_hash' : 'wrong_hash';
 		});

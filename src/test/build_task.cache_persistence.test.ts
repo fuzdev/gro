@@ -53,8 +53,8 @@ vi.mock('../lib/paths.ts', () => ({
 	},
 }));
 
-vi.mock('@fuzdev/fuz_util/hash.js', () => ({
-	hash_secure: vi.fn(),
+vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
+	hash_blake3: vi.fn(),
 }));
 
 describe('build_task cache persistence', () => {
@@ -80,7 +80,7 @@ describe('build_task cache persistence', () => {
 		);
 		const {is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata} =
 			vi.mocked(await import('../lib/build_cache.ts'));
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 		const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
@@ -89,7 +89,7 @@ describe('build_task cache persistence', () => {
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const mock_metadata = {
 			version: '1',
@@ -129,12 +129,12 @@ describe('build_task cache persistence', () => {
 		const {save_build_cache_metadata, create_build_cache_metadata} = vi.mocked(
 			await import('../lib/build_cache.ts'),
 		);
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 
 		// Workspace is clean, force_build is true
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const mock_metadata = {
 			version: '1',
@@ -184,7 +184,7 @@ describe('build_task cache persistence', () => {
 		const {is_build_cache_valid, create_build_cache_metadata} = vi.mocked(
 			await import('../lib/build_cache.ts'),
 		);
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 
 		// Clean workspace
 		vi.mocked(git_check_clean_workspace).mockResolvedValueOnce(null);
@@ -192,7 +192,7 @@ describe('build_task cache persistence', () => {
 		vi.mocked(git_current_commit_hash).mockResolvedValueOnce('abc123');
 		vi.mocked(git_current_commit_hash).mockResolvedValueOnce('abc123');
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const mock_metadata = {
 			version: '1',
@@ -222,7 +222,7 @@ describe('build_task cache persistence', () => {
 		);
 		const {is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata} =
 			vi.mocked(await import('../lib/build_cache.ts'));
-		const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 		const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
@@ -231,7 +231,7 @@ describe('build_task cache persistence', () => {
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(git_current_commit_hash).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-		vi.mocked(hash_secure).mockResolvedValue('hash123');
+		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const mock_metadata = {
 			version: '1',
@@ -269,7 +269,7 @@ describe('build_task cache persistence', () => {
 			const {is_build_cache_valid, create_build_cache_metadata} = vi.mocked(
 				await import('../lib/build_cache.ts'),
 			);
-			const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+			const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 			const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
 			const mock_plugins = create_mock_plugins();
 			vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
@@ -278,7 +278,7 @@ describe('build_task cache persistence', () => {
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 			vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 			vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-			vi.mocked(hash_secure).mockResolvedValue('hash123');
+			vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 			// create_build_cache_metadata throws
 			const metadata_error = new Error('Failed to create cache metadata');
@@ -304,13 +304,13 @@ describe('build_task cache persistence', () => {
 			);
 			const {is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata} =
 				vi.mocked(await import('../lib/build_cache.ts'));
-			const {hash_secure} = vi.mocked(await import('@fuzdev/fuz_util/hash.js'));
+			const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
 
 			// Workspace is clean
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 			vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 			vi.mocked(is_build_cache_valid).mockResolvedValue(false);
-			vi.mocked(hash_secure).mockResolvedValue('hash123');
+			vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 			// Metadata creation throws
 			vi.mocked(create_build_cache_metadata).mockRejectedValue(

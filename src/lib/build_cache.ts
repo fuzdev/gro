@@ -6,7 +6,7 @@ import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {git_current_commit_hash} from '@fuzdev/fuz_util/git.js';
 import {fs_exists} from '@fuzdev/fuz_util/fs.js';
 import {map_concurrent} from '@fuzdev/fuz_util/async.js';
-import {hash_secure} from '@fuzdev/fuz_util/hash.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 
 import type {GroConfig} from './gro_config.ts';
 import {paths} from './paths.ts';
@@ -172,7 +172,7 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 	const results = await map_concurrent(metadata.outputs, 20, async (output) => {
 		try {
 			const contents = await readFile(output.path);
-			const actual_hash = await hash_secure(contents);
+			const actual_hash = hash_blake3(contents);
 			return actual_hash === output.hash;
 		} catch {
 			// File deleted/inaccessible between checks = cache invalid
@@ -245,7 +245,7 @@ export const collect_build_outputs = async (
 		cache_key: string;
 	}
 
-	const files_hash_secure: Array<FileEntry> = [];
+	const files_to_hash: Array<FileEntry> = [];
 
 	// Recursively collect files
 	const collect_files = async (
@@ -269,7 +269,7 @@ export const collect_build_outputs = async (
 				// eslint-disable-next-line no-await-in-loop
 				await collect_files(full_path, relative_path, dir_prefix);
 			} else if (entry.isFile()) {
-				files_hash_secure.push({full_path, cache_key});
+				files_to_hash.push({full_path, cache_key});
 			}
 			// Symlinks are intentionally ignored - we only hash regular files
 		}
@@ -287,12 +287,12 @@ export const collect_build_outputs = async (
 
 	// Hash files with controlled concurrency and collect stats (could be 10k+ files)
 	return map_concurrent(
-		files_hash_secure,
+		files_to_hash,
 		20,
 		async ({full_path, cache_key}): Promise<BuildOutputEntry> => {
 			const stats = await stat(full_path);
 			const contents = await readFile(full_path);
-			const hash = await hash_secure(contents);
+			const hash = hash_blake3(contents);
 
 			return {
 				path: cache_key,

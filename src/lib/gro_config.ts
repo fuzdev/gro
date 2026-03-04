@@ -3,7 +3,7 @@ import {fs_exists} from '@fuzdev/fuz_util/fs.js';
 import {identity} from '@fuzdev/fuz_util/function.js';
 import type {PathFilter, PathId} from '@fuzdev/fuz_util/path.js';
 import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.js';
-import {hash_secure} from '@fuzdev/fuz_util/hash.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 
 import {GRO_DIST_DIR, IS_THIS_GRO, paths} from './paths.ts';
 import {
@@ -186,7 +186,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 			typeof build_cache_config === 'function' ? await build_cache_config() : build_cache_config;
 
 		// Hash the JSON representation with deterministic key ordering
-		build_cache_config_hash = await hash_secure(json_stringify_deterministic(resolved));
+		build_cache_config_hash = hash_blake3(json_stringify_deterministic(resolved));
 	}
 
 	// Delete the raw value to ensure it doesn't persist in memory
