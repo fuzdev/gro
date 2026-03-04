@@ -1,5 +1,17 @@
 # @fuzdev/gro
 
+## 0.197.0
+
+### Minor Changes
+
+- switch to blake3 hashing, add peer dep `@fuzdev/blake3_wasm` ([#602](https://github.com/fuzdev/gro/pull/602))
+- remove unused `EXPORTS_EXCLUDER_DEFAULT` ([51ae165](https://github.com/fuzdev/gro/commit/51ae165))
+- upgrade fuz_util peer dep ([dac067d](https://github.com/fuzdev/gro/commit/dac067d))
+
+### Patch Changes
+
+- improve `find_cli` to use `command -v` instead of `which` ([643abf4](https://github.com/fuzdev/gro/commit/643abf4))
+
 ## 0.196.0
 
 ### Minor Changes
