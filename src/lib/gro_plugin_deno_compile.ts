@@ -128,7 +128,7 @@ export const gro_plugin_deno_compile = (options: GroPluginDenoCompileOptions): P
 			// Generate SHA-256 hash file for verification
 			if (generate_hash) {
 				const binary = await readFile(output_path);
-				const hash = await hash_sha256(binary, 'SHA-256');
+				const hash = await hash_sha256(binary);
 				const hash_path = `${output_path}.sha256`;
 				// Use sha256sum format: "<hash>  <filename>"
 				await writeFile(hash_path, `${hash}  ${output_name}\n`);
