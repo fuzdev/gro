@@ -22,11 +22,11 @@ import type {ParsedSvelteConfig} from './svelte_config.ts';
 import type {FilerOptions} from './filer.ts';
 
 /**
- * SHA-256 hash of empty string, used for configs without build_cache_config.
+ * BLAKE3 hash of empty string, used for configs without build_cache_config.
  * This ensures consistent cache behavior when no custom config is provided.
  */
 export const EMPTY_BUILD_CACHE_CONFIG_HASH =
-	'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+	'af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262';
 
 /**
  * The config that users can extend via `gro.config.ts`.
