@@ -358,7 +358,7 @@ build_cache_config: () => ({
 build_cache_config: async () => ({
   data_version: await fs.promises.readFile('data/version.txt', 'utf-8'),
   // hash large files instead of including content
-  schema_hash: await hash_secure(await fs.promises.readFile('schema.sql')),
+  schema_hash: hash_blake3(await fs.promises.readFile('schema.sql')),
 })
 ```
 
