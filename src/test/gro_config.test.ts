@@ -81,7 +81,7 @@ test('SEARCH_EXCLUDER_DEFAULT', () => {
 	assert_includes('grodist', true);
 });
 
-test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', async () => {
+test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', () => {
 	const computed_hash = hash_blake3('');
 	expect(EMPTY_BUILD_CACHE_CONFIG_HASH).toBe(computed_hash);
 });
