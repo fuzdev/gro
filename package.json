@@ -48,6 +48,7 @@
     "typescript"
   ],
   "dependencies": {
+    "@fuzdev/svelte-docinfo": "file:../private_svelte-docinfo",
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "esm-env": "^1.2.2",
