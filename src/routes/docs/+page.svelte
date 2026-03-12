@@ -5,7 +5,7 @@
 
 	const tomes_by_name = tomes_context.get();
 
-	const tomes = Array.from(tomes_by_name.values());
+	const tomes = $derived(Array.from(tomes_by_name().values()));
 
 	const library = library_context.get();
 </script>

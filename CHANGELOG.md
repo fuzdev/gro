@@ -1267,7 +1267,7 @@
 
 ### Patch Changes
 
-- add optional `motto` property to `PackageJson` ([600143f](https://github.com/fuzdev/gro/commit/600143f))
+- add optional `tagline` property to `PackageJson` ([600143f](https://github.com/fuzdev/gro/commit/600143f))
 
 ## 0.115.0
 
