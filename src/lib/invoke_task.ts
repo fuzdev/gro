@@ -30,10 +30,10 @@ import {Filer} from './filer.ts';
  * there are some subtle differences in the complex logical branches.
  * The comments describe each condition.
  *
- * @param task_name - The name of the task to invoke.
- * @param args - The CLI args to pass to the task.
- * @param config - The Gro configuration.
- * @param initial_timings - The timings to use for the top-level task, `null` for composed tasks.
+ * @param task_name - the name of the task to invoke
+ * @param args - the CLI args to pass to the task
+ * @param config - the Gro configuration
+ * @param initial_timings - the timings to use for the top-level task, `null` for composed tasks
  */
 export const invoke_task = async (
 	task_name: RawInputPath,

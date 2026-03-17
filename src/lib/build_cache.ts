@@ -54,9 +54,9 @@ export type BuildCacheMetadata = z.infer<typeof BuildCacheMetadata>;
  * Computes the cache key components for a build.
  * This determines whether a cached build can be reused.
  *
- * @param config Gro config (build_cache_config_hash is already computed during config load)
- * @param log Logger
- * @param git_commit Optional pre-computed git commit hash (optimization to avoid re-reading)
+ * @param config - Gro config (build_cache_config_hash is already computed during config load)
+ * @param log - Logger
+ * @param git_commit - optional pre-computed git commit hash (optimization to avoid re-reading)
  */
 export const compute_build_cache_key = async (
 	config: GroConfig,
@@ -186,9 +186,9 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
  * Main function to check if the build cache is valid.
  * Returns true if the cached build can be used, false if a fresh build is needed.
  *
- * @param config Gro config
- * @param log Logger
- * @param git_commit Optional pre-computed git commit hash (optimization)
+ * @param config - Gro config
+ * @param log - Logger
+ * @param git_commit - optional pre-computed git commit hash (optimization)
  */
 export const is_build_cache_valid = async (
 	config: GroConfig,
@@ -234,7 +234,7 @@ export const is_build_cache_valid = async (
  * Files are hashed in parallel for performance. For very large builds (10k+ files),
  * this may take several seconds but ensures complete cache validation.
  *
- * @param build_dirs Array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])
+ * @param build_dirs - array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])
  */
 export const collect_build_outputs = async (
 	build_dirs: Array<string>,
@@ -350,10 +350,10 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
  * Creates build cache metadata after a successful build.
  * Automatically discovers all build output directories (build/, dist/, dist_*).
  *
- * @param config Gro config
- * @param log Logger
- * @param git_commit Optional pre-computed git commit hash (optimization)
- * @param build_dirs Optional pre-discovered build directories (optimization to avoid redundant filesystem scans)
+ * @param config - Gro config
+ * @param log - Logger
+ * @param git_commit - optional pre-computed git commit hash (optimization)
+ * @param build_dirs - optional pre-discovered build directories (optimization to avoid redundant filesystem scans)
  */
 export const create_build_cache_metadata = async (
 	config: GroConfig,

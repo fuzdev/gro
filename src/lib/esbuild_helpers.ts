@@ -19,12 +19,12 @@ const import_meta_env = 'import.' + 'meta.env.'; // eslint-disable-line no-usele
 
 /**
  * Creates an esbuild `define` shim for Vite's `import.meta\.env`.
- * @see https://esbuild.github.io/api/#define
  * @param dev
  * @param base_url - best-effort shim from SvelteKit's `base` to Vite's `import.meta\.env.BASE_URL`
  * @param ssr
  * @param mode
  * @returns
+ * @see https://esbuild.github.io/api/#define
  */
 export const to_define_import_meta_env = (
 	dev: boolean,

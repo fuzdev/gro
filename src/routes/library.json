@@ -330,7 +330,7 @@
 								"name": "git_commit",
 								"type": "string | null | undefined",
 								"optional": true,
-								"description": "Optional pre-computed git commit hash (optimization to avoid re-reading)"
+								"description": "optional pre-computed git commit hash (optimization to avoid re-reading)"
 							}
 						]
 					},
@@ -398,7 +398,7 @@
 								"name": "git_commit",
 								"type": "string | null | undefined",
 								"optional": true,
-								"description": "Optional pre-computed git commit hash (optimization)"
+								"description": "optional pre-computed git commit hash (optimization)"
 							}
 						]
 					},
@@ -413,7 +413,7 @@
 							{
 								"name": "build_dirs",
 								"type": "string[]",
-								"description": "Array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])"
+								"description": "array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])"
 							}
 						]
 					},
@@ -448,13 +448,13 @@
 								"name": "git_commit",
 								"type": "string | null | undefined",
 								"optional": true,
-								"description": "Optional pre-computed git commit hash (optimization)"
+								"description": "optional pre-computed git commit hash (optimization)"
 							},
 							{
 								"name": "build_dirs",
 								"type": "string[] | undefined",
 								"optional": true,
-								"description": "Optional pre-discovered build directories (optimization to avoid redundant filesystem scans)"
+								"description": "optional pre-discovered build directories (optimization to avoid redundant filesystem scans)"
 							}
 						]
 					}
@@ -2890,7 +2890,7 @@
 						"kind": "function",
 						"doc_comment": "Runs a file using the Gro loader.\n\nUses conditional exports to correctly set up `esm-env` as development by default,\nso if you want production set `NODE_ENV=production`.",
 						"see_also": ["https://nodejs.org/api/packages.html#conditional-exports"],
-						"source_line": 83,
+						"source_line": 82,
 						"type_signature": "(loader_path: string, invoke_path: string, argv: string[], js_cli?: string): Promise<SpawnResult>",
 						"return_type": "Promise<SpawnResult>",
 						"parameters": [
@@ -3636,17 +3636,17 @@
 							{
 								"name": "task_name",
 								"type": "RawInputPath",
-								"description": "The name of the task to invoke."
+								"description": "the name of the task to invoke"
 							},
 							{
 								"name": "args",
 								"type": "Args | undefined",
-								"description": "The CLI args to pass to the task."
+								"description": "the CLI args to pass to the task"
 							},
 							{
 								"name": "config",
 								"type": "GroConfig",
-								"description": "The Gro configuration."
+								"description": "the Gro configuration"
 							},
 							{
 								"name": "initial_filer",
@@ -3657,7 +3657,7 @@
 								"name": "initial_timings",
 								"type": "Timings | null | undefined",
 								"optional": true,
-								"description": "The timings to use for the top-level task, `null` for composed tasks."
+								"description": "the timings to use for the top-level task, `null` for composed tasks"
 							},
 							{
 								"name": "parent_log",

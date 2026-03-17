@@ -75,10 +75,9 @@ export const resolve_gro_module_path = (path = ''): string => {
  * Uses conditional exports to correctly set up `esm-env` as development by default,
  * so if you want production set `NODE_ENV=production`.
  *
+ * @param loader_path - path to loader
+ * @param invoke_path - path to file to spawn with `node`
  * @see https://nodejs.org/api/packages.html#conditional-exports
- *
- * @param loader_path path to loader
- * @param invoke_path path to file to spawn with `node`
  */
 export const spawn_with_loader = (
 	loader_path: string,
