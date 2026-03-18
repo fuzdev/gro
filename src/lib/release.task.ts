@@ -22,10 +22,7 @@ export const Args = z.strictObject({
 	sync: z.boolean().meta({description: 'dual of no-sync'}).default(true),
 	'no-sync': z.boolean().meta({description: 'opt out of gro sync'}).default(false),
 	install: z.boolean().meta({description: 'dual of no-install'}).default(true),
-	'no-install': z
-		.boolean()
-		.meta({description: 'opt out of installing packages'})
-		.default(false),
+	'no-install': z.boolean().meta({description: 'opt out of installing packages'}).default(false),
 	gen: z.boolean().meta({description: 'dual of no-gen'}).default(true),
 	'no-gen': z.boolean().meta({description: 'opt out of gro gen in deploy build'}).default(false),
 	force_build: z
