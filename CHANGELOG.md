@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.197.1
+
+### Patch Changes
+
+- add args to `gro release` ([ebc372e](https://github.com/fuzdev/gro/commit/ebc372e))
+
 ## 0.197.0
 
 ### Minor Changes
