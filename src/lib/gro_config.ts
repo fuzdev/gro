@@ -22,7 +22,7 @@ import type {ParsedSvelteConfig} from './svelte_config.ts';
 import type {FilerOptions} from './filer.ts';
 
 /**
- * BLAKE3 hash of empty string, used for configs without build_cache_config.
+ * BLAKE3 hash of empty string, used for configs without `build_cache_config`.
  * This ensures consistent cache behavior when no custom config is provided.
  */
 export const EMPTY_BUILD_CACHE_CONFIG_HASH =
@@ -62,18 +62,18 @@ export interface GroConfig extends RawGroConfig {
 	 * The CLI to use that's compatible with `npm install` and `npm link`. Defaults to `'npm'`.
 	 */
 	pm_cli: string;
-	/** @default SVELTE_CONFIG_FILENAME */
+	/** @default `SVELTE_CONFIG_FILENAME` */
 	svelte_config_filename?: string;
 	/**
 	 * SHA-256 hash of the user's `build_cache_config` from `gro.config.ts`.
 	 * This is computed during config normalization and the raw value is immediately deleted.
 	 * If no `build_cache_config` was provided, this is the hash of an empty string.
-	 * @see RawGroConfig.build_cache_config
+	 * @see `RawGroConfig.build_cache_config`
 	 */
 	build_cache_config_hash: string;
 	/**
 	 * Options passed to the `Filer` for file watching and import resolution.
-	 * @see FilerOptions
+	 * @see `FilerOptions`
 	 */
 	filer_options: Partial<FilerOptions> | null;
 }
@@ -110,7 +110,7 @@ export interface RawGroConfig {
 		| (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	/**
 	 * Options passed to the `Filer` for file watching and import resolution.
-	 * @see FilerOptions
+	 * @see `FilerOptions`
 	 */
 	filer_options?: Partial<FilerOptions> | null;
 }

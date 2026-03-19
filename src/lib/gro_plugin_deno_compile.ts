@@ -4,12 +4,12 @@
  * Runs during the `adapt` phase (production build only).
  * Optionally generates a SHA-256 hash file for verification.
  *
- * To avoid bundling all npm devDependencies from package.json, we:
+ * To avoid bundling all npm devDependencies from `package.json`, we:
  * 1. Extract just the "imports" from root deno.json
  * 2. Rebase relative paths (e.g. `../fuz_app/` → `../../fuz_app/`) since
  *    compilation runs from the output subdirectory
  * 3. Write a minimal deno.json to the output directory
- * 4. Compile from that directory (which has no package.json)
+ * 4. Compile from that directory (which has no `package.json`)
  *
  * @module
  */

@@ -54,7 +54,7 @@ export type BuildCacheMetadata = z.infer<typeof BuildCacheMetadata>;
  * Computes the cache key components for a build.
  * This determines whether a cached build can be reused.
  *
- * @param config - Gro config (build_cache_config_hash is already computed during config load)
+ * @param config - Gro config (`build_cache_config_hash` is already computed during config load)
  * @param log - Logger
  * @param git_commit - optional pre-computed git commit hash (optimization to avoid re-reading)
  */

@@ -44,7 +44,7 @@ export interface GroPluginDenoServerOptions {
 	/**
 	 * Whether to watch for file changes and restart.
 	 * Uses Deno's built-in --watch flag.
-	 * @default true in dev
+	 * @default true in `dev`
 	 */
 	watch?: boolean;
 

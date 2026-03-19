@@ -319,7 +319,7 @@
 							{
 								"name": "config",
 								"type": "GroConfig",
-								"description": "Gro config (build_cache_config_hash is already computed during config load)"
+								"description": "Gro config (`build_cache_config_hash` is already computed during config load)"
 							},
 							{
 								"name": "log",
@@ -1949,7 +1949,7 @@
 							{
 								"name": "base_options",
 								"type": "Options | null | undefined",
-								"description": "defaults to the the cwd's package.json `prettier` value",
+								"description": "defaults to the cwd's `package.json` `prettier` value",
 								"default_value": "cached_base_options"
 							}
 						]
@@ -2659,7 +2659,7 @@
 					{
 						"name": "EMPTY_BUILD_CACHE_CONFIG_HASH",
 						"kind": "variable",
-						"doc_comment": "BLAKE3 hash of empty string, used for configs without build_cache_config.\nThis ensures consistent cache behavior when no custom config is provided.",
+						"doc_comment": "BLAKE3 hash of empty string, used for configs without `build_cache_config`.\nThis ensures consistent cache behavior when no custom config is provided.",
 						"source_line": 28,
 						"type_signature": "\"af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\""
 					},
@@ -2981,7 +2981,7 @@
 						]
 					}
 				],
-				"module_comment": "Gro build plugin for compiling TypeScript to a standalone binary via `deno compile`.\n\nRuns during the `adapt` phase (production build only).\nOptionally generates a SHA-256 hash file for verification.\n\nTo avoid bundling all npm devDependencies from package.json, we:\n1. Extract just the \"imports\" from root deno.json\n2. Rebase relative paths (e.g. `../fuz_app/` → `../../fuz_app/`) since\n   compilation runs from the output subdirectory\n3. Write a minimal deno.json to the output directory\n4. Compile from that directory (which has no package.json)",
+				"module_comment": "Gro build plugin for compiling TypeScript to a standalone binary via `deno compile`.\n\nRuns during the `adapt` phase (production build only).\nOptionally generates a SHA-256 hash file for verification.\n\nTo avoid bundling all npm devDependencies from `package.json`, we:\n1. Extract just the \"imports\" from root deno.json\n2. Rebase relative paths (e.g. `../fuz_app/` → `../../fuz_app/`) since\n   compilation runs from the output subdirectory\n3. Write a minimal deno.json to the output directory\n4. Compile from that directory (which has no `package.json`)",
 				"dependencies": ["task.ts"]
 			},
 			{
@@ -3989,7 +3989,7 @@
 					{
 						"name": "package_json_update",
 						"kind": "function",
-						"doc_comment": "Updates package.json. Writes to the filesystem only when contents change.",
+						"doc_comment": "Updates `package.json`. Writes to the filesystem only when contents change.",
 						"source_line": 104,
 						"type_signature": "(update: (package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null, dir?: string, write?: boolean): Promise<...>",
 						"return_type": "Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
@@ -4523,7 +4523,7 @@
 					{
 						"name": "paths",
 						"kind": "variable",
-						"doc_comment": "Paths for the user repo.",
+						"doc_comment": "`Paths` for the user repo.",
 						"source_line": 90,
 						"type_signature": "Paths"
 					},
@@ -4543,7 +4543,7 @@
 					{
 						"name": "gro_paths",
 						"kind": "variable",
-						"doc_comment": "Paths for the Gro package being used by the user repo.",
+						"doc_comment": "`Paths` for the Gro package being used by the user repo.",
 						"source_line": 109,
 						"type_signature": "Paths"
 					},
@@ -5304,7 +5304,7 @@
 								"name": "output",
 								"kind": "variable",
 								"type_signature": "string",
-								"doc_comment": "The output directory where the processed files are written to.\nYour package.json's exports should point to files inside there,\nand the files array should include that folder.\nDefaults to dist"
+								"doc_comment": "The output directory where the processed files are written to.\nYour `package.json`'s exports should point to files inside there,\nand the files array should include that folder.\nDefaults to dist"
 							},
 							{
 								"name": "o",

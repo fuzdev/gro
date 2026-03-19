@@ -99,7 +99,7 @@ export const package_json_serialize = (package_json: PackageJson): string =>
 	JSON.stringify(parse_package_json(PackageJson, package_json), null, 2) + '\n';
 
 /**
- * Updates package.json. Writes to the filesystem only when contents change.
+ * Updates `package.json`. Writes to the filesystem only when contents change.
  */
 export const package_json_update = async (
 	update: (package_json: PackageJson) => PackageJson | null | Promise<PackageJson | null>,

@@ -85,7 +85,7 @@ export const replace_extension = (path: string, new_extension: string): string =
 };
 
 /**
- * Paths for the user repo.
+ * `Paths` for the user repo.
  */
 export const paths = create_paths(process.cwd());
 
@@ -104,7 +104,7 @@ const gro_package_dir_path = join(
 );
 export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 /**
- * Paths for the Gro package being used by the user repo.
+ * `Paths` for the Gro package being used by the user repo.
  */
 export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path);
 /** @trailing_slash */

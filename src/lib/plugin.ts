@@ -90,7 +90,7 @@ export class Plugins<TPluginContext extends PluginContext> {
  * Throws if the plugin name cannot be found.
  * @param plugins - accepts the same types as the return value of `PluginsCreateConfig`
  * @param new_plugin
- * @param name - @default new_plugin.name
+ * @param name - @default `new_plugin.name`
  * @returns `plugins` with `new_plugin` at the index of the plugin with `name`
  */
 export const plugin_replace = (

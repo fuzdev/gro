@@ -67,7 +67,7 @@ export interface GroPluginServerOptions {
 	target?: string;
 	/**
 	 * Optionally map the esbuild options.
-	 * @default identity
+	 * @default `identity`
 	 */
 	esbuild_build_options?: (base_options: esbuild.BuildOptions) => esbuild.BuildOptions;
 	/**
@@ -84,7 +84,7 @@ export interface GroPluginServerOptions {
 	cli_command?: string;
 	/**
 	 * Whether to run the server or not after building.
-	 * @default dev
+	 * @default `dev`
 	 */
 	run?: boolean;
 }

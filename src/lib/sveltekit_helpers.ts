@@ -121,7 +121,7 @@ export interface SveltePackageOptions {
 	i?: string;
 	/**
 	 * The output directory where the processed files are written to.
-	 * Your package.json's exports should point to files inside there,
+	 * Your `package.json`'s exports should point to files inside there,
 	 * and the files array should include that folder.
 	 * Defaults to dist
 	 */

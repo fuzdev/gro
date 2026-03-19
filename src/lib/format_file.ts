@@ -9,7 +9,7 @@ let cached_base_options: prettier.Options | undefined;
  * Formats a file with Prettier.
  * @param content
  * @param options
- * @param base_options - defaults to the the cwd's package.json `prettier` value
+ * @param base_options - defaults to the cwd's `package.json` `prettier` value
  */
 export const format_file = async (
 	content: string,
