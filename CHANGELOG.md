@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.197.2
+
+### Patch Changes
+
+- fix publish task `access` arg ([b6f3035](https://github.com/fuzdev/gro/commit/b6f3035))
+
 ## 0.197.1
 
 ### Patch Changes
