@@ -116,8 +116,8 @@ export const task: Task<Args> = {
 			await spawn_cli(found_changeset_cli, ['init'], log);
 
 			const access =
-				access_arg
-					?? (package_json.private ? CHANGESET_RESTRICTED_ACCESS : CHANGESET_PUBLIC_ACCESS);
+				access_arg ??
+				(package_json.private ? CHANGESET_RESTRICTED_ACCESS : CHANGESET_PUBLIC_ACCESS);
 
 			const access_color = access === CHANGESET_RESTRICTED_ACCESS ? 'blue' : 'red';
 			log.info('initing changeset with ' + st(access_color, access) + ' access');
