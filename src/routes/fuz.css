@@ -1181,6 +1181,10 @@ a.chip {
 	color: var(--color_i_50);
 	--text_color: var(--color_i_50);
 }
+.color_j_50 {
+	color: var(--color_j_50);
+	--text_color: var(--color_j_50);
+}
 .border_radius_sm {
 	border-radius: var(--border_radius_sm);
 }
@@ -1226,6 +1230,9 @@ a.chip {
 }
 .pb_xl {
 	padding-bottom: var(--space_xl);
+}
+.pb_xl9 {
+	padding-bottom: var(--space_xl9);
 }
 .pl_lg {
 	padding-left: var(--space_lg);

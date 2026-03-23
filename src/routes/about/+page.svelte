@@ -8,7 +8,7 @@
 	const library = library_context.get();
 </script>
 
-<main class="width_atmost_md">
+<main class="width_atmost_md pb_xl9">
 	<section class="mt_xl3">
 		<header class="box">
 			<h1>{library.repo_name}</h1>
@@ -16,7 +16,7 @@
 		<Breadcrumb>{library.package_json.glyph}</Breadcrumb>
 	</section>
 	<EcosystemLinksPanel />
-	<section class="box width:100% mb_lg">
+	<section class="box width:100%">
 		<div class="panel p_md width_atmost_md">
 			<LibraryDetail {library} />
 		</div>
@@ -25,7 +25,7 @@
 		<nav class="mb_lg">
 			<Breadcrumb>{library.package_json.glyph}</Breadcrumb>
 		</nav>
-		<DocsFooter {library} />
+		<DocsFooter {library} root_url="https://www.fuz.dev/" />
 	</section>
 </main>
 
