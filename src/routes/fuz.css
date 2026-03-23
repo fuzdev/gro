@@ -10,7 +10,6 @@
 	--border_radius_md: 2.1rem;
 	--border_radius_sm: 1.3rem;
 	--border_radius_xs: 0.8rem;
-	--border_radius_xs2: 0.5rem;
 	--border_radius_xs3: 0.3rem;
 	--border_style: solid;
 	--border_width: var(--border_width_1);
@@ -95,6 +94,7 @@
 	--duration_1: 0.08s;
 	--duration_2: 0.2s;
 	--duration_3: 0.5s;
+	--fg_05: var(--darken_05);
 	--fg_10: var(--darken_10);
 	--fg_20: var(--darken_20);
 	--font_family_mono: ui-monospace, 'Fira Mono', monospace;
@@ -262,6 +262,7 @@
 	--color_j_10: hsl(var(--hue_j) 60% 12%);
 	--color_j_40: hsl(var(--hue_j) 55% 46%);
 	--color_j_50: hsl(var(--hue_j) 55% 54%);
+	--fg_05: var(--lighten_05);
 	--fg_10: var(--lighten_10);
 	--fg_20: var(--lighten_20);
 	--link_color: hsl(var(--hue_a) 61% 58%);
@@ -490,7 +491,7 @@ body {
 	-webkit-hyphens: none;
 	hyphens: none;
 	color: var(--text_color);
-	background-color: var(--fg_10);
+	background-color: var(--fg_05);
 	padding: 0 var(--space_xs2);
 	border-radius: var(--border_radius, var(--border_radius_xs));
 }
@@ -574,7 +575,7 @@ body {
 	height: var(--input_height_sm);
 	min-width: var(--input_height_sm);
 	min-height: var(--input_height_sm);
-	--border_radius: var(--border_radius_xs);
+	border-radius: var(--border_radius, var(--border_radius_xs));
 	--input_padding_x: 0;
 	--checkbox_content: var(--checkbox_content_empty, '');
 }
@@ -714,6 +715,7 @@ body {
 }
 
 :where(label:not(.unstyled)) {
+	display: block;
 	color: var(--text_color);
 	cursor: pointer;
 }
@@ -1016,8 +1018,8 @@ These are used as modifiers to buttons.
 	--border_color: transparent;
 }
 .menuitem {
-	--border_radius: 0;
 	--border_color: var(--border_color_30);
+	border-radius: 0;
 	position: relative;
 	z-index: 2;
 	cursor: pointer;
