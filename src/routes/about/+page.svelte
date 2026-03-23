@@ -41,7 +41,4 @@
 		align-items: baseline;
 		text-align: center;
 	}
-	section {
-		margin-bottom: var(--space_xl5);
-	}
 </style>
