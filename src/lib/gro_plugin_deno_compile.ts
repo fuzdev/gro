@@ -85,10 +85,12 @@ export const gro_plugin_deno_compile = (options: GroPluginDenoCompileOptions): P
 			// Relative paths are rebased to account for the output subdirectory.
 			const root_deno_json = JSON.parse(await readFile('deno.json', 'utf-8'));
 			const rebased_imports: Record<string, string> = {};
+			const depth = relative('.', output_dir).split('/').filter(Boolean).length;
+			const prefix = '../'.repeat(depth);
 			for (const [key, value] of Object.entries(root_deno_json.imports as Record<string, string>)) {
 				if (value.startsWith('./') || value.startsWith('../')) {
 					const trailing_slash = value.endsWith('/');
-					const rebased = join('..', value);
+					const rebased = join(prefix, value);
 					rebased_imports[key] = rebased + (trailing_slash ? '/' : '');
 				} else {
 					rebased_imports[key] = value;
