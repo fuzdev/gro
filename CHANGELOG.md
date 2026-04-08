@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.197.3
+
+### Patch Changes
+
+- fix: change `gro check --build` to build before typechecking and tests so there can be a dependency ([ae4a126](https://github.com/fuzdev/gro/commit/ae4a126))
+- support arbitrary depth in `gro_plugin_deno_compile` ([e8ba188](https://github.com/fuzdev/gro/commit/e8ba188))
+
 ## 0.197.2
 
 ### Patch Changes
