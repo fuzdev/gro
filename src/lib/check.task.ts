@@ -68,6 +68,12 @@ export const task: Task<Args> = {
 			}
 		}
 
+		// Build before typechecking and tests so there can be a dependency
+		if (build) {
+			// Skip sync/gen/install since check handles those separately
+			await invoke_task('build', {sync: false, gen: false, install: false, force_build});
+		}
+
 		if (typecheck) {
 			await invoke_task('typecheck');
 		}
@@ -98,11 +104,6 @@ export const task: Task<Args> = {
 		// but it's better for most usage.
 		if (lint) {
 			await invoke_task('lint');
-		}
-
-		if (build) {
-			// Skip sync/gen/install since check handles those separately
-			await invoke_task('build', {sync: false, gen: false, install: false, force_build});
 		}
 
 		// Disallow TODO*.md files in the project root on CI.
