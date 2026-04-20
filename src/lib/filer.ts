@@ -279,7 +279,7 @@ export class Filer {
 			// once we move to explicit extensions (Deno-compatible) - the .js→.ts Vite convention
 			// is the only reason resolve_specifier is still needed here
 			if (path[0] === '.' || path[0] === '/') {
-				const resolved = await resolve_specifier(path, dir); // eslint-disable-line no-await-in-loop
+				const resolved = await resolve_specifier(path, dir);
 				path_id = resolved.path_id;
 			} else {
 				const file_url = pathToFileURL(file.id);
@@ -366,7 +366,7 @@ export class Filer {
 	async #drain_queue(): Promise<void> {
 		// Wait for queue to be empty and no active processing
 		while (this.#change_queue.length > 0 || this.#processing_promise) {
-			await this.#process_queue(); // eslint-disable-line no-await-in-loop
+			await this.#process_queue();
 		}
 	}
 
@@ -395,7 +395,7 @@ export class Filer {
 			switch (change.type) {
 				case 'add':
 				case 'update': {
-					disknode = await this.#update(change.path); // eslint-disable-line no-await-in-loop
+					disknode = await this.#update(change.path);
 					break;
 				}
 				case 'delete': {

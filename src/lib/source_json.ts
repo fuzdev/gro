@@ -106,7 +106,7 @@ const collect_file_paths = async (
 		// Check if this is a pattern export
 		if (k.includes('*')) {
 			// Handle pattern exports by finding matching files in lib
-			// eslint-disable-next-line no-await-in-loop
+
 			const matching_files = await fs_search(lib_path, {
 				file_filter: (path) => {
 					const p = path.replace(ensure_end(lib_path, '/'), '');
@@ -139,7 +139,7 @@ const collect_file_paths = async (
 			}
 		} else {
 			// Handle explicit exports (non-patterns)
-			// eslint-disable-next-line no-await-in-loop
+
 			const source_file = await infer_source_from_export(k, lib_path);
 			if (source_file) {
 				file_paths.push({export_key: k, file_path: source_file});

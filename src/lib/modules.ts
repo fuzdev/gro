@@ -78,7 +78,7 @@ export const load_modules = async <
 	const reasons: Array<string> = [];
 	for (const resolved_input_file of resolved_input_files.values()) {
 		const {id, input_path} = resolved_input_file;
-		const result = await load_module(id, validate); // eslint-disable-line no-await-in-loop
+		const result = await load_module(id, validate);
 		if (result.ok) {
 			modules.push(map_module_meta(resolved_input_file, result.mod));
 		} else {

@@ -50,7 +50,7 @@ export class Plugins<TPluginContext extends PluginContext> {
 			if (!plugin.setup) continue;
 			log.debug('setup plugin', plugin.name);
 			const timing = timings.start(`setup:${plugin.name}`);
-			await plugin.setup(ctx); // eslint-disable-line no-await-in-loop
+			await plugin.setup(ctx);
 			timing();
 		}
 		timing_to_setup();
@@ -63,7 +63,7 @@ export class Plugins<TPluginContext extends PluginContext> {
 		for (const plugin of instances) {
 			if (!plugin.adapt) continue;
 			const timing = timings.start(`adapt:${plugin.name}`);
-			await plugin.adapt(ctx); // eslint-disable-line no-await-in-loop
+			await plugin.adapt(ctx);
 			timing();
 		}
 		timing_to_run_adapters();
@@ -78,7 +78,7 @@ export class Plugins<TPluginContext extends PluginContext> {
 			if (!plugin.teardown) continue;
 			log.debug('teardown plugin', plugin.name);
 			const timing = timings.start(`teardown:${plugin.name}`);
-			await plugin.teardown(ctx); // eslint-disable-line no-await-in-loop
+			await plugin.teardown(ctx);
 			timing();
 		}
 		timing_to_teardown();

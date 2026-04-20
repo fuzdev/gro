@@ -71,7 +71,7 @@
 		},
 		"peerDependencies": {
 			"@fuzdev/blake3_wasm": "^0.1.0",
-			"@fuzdev/fuz_util": ">=0.53.0",
+			"@fuzdev/fuz_util": ">=0.57.0",
 			"@sveltejs/kit": "^2",
 			"esbuild": "^0.27.0",
 			"svelte": "^5",
@@ -92,13 +92,13 @@
 		"devDependencies": {
 			"@changesets/changelog-git": "^0.2.1",
 			"@changesets/types": "^6.1.0",
-			"@fuzdev/blake3_wasm": "^0.1.0",
+			"@fuzdev/blake3_wasm": "^0.1.1",
 			"@fuzdev/fuz_code": "^0.45.1",
 			"@fuzdev/fuz_css": "^0.58.0",
-			"@fuzdev/fuz_ui": "^0.191.3",
-			"@fuzdev/fuz_util": "^0.55.0",
+			"@fuzdev/fuz_ui": "^0.191.4",
+			"@fuzdev/fuz_util": "^0.57.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
-			"@ryanatkn/eslint-config": "^0.10.1",
+			"@ryanatkn/eslint-config": "^0.11.0",
 			"@sveltejs/acorn-typescript": "^1.0.9",
 			"@sveltejs/adapter-static": "^3.0.10",
 			"@sveltejs/kit": "^2.55.0",
@@ -380,7 +380,7 @@
 						"name": "is_build_cache_valid",
 						"kind": "function",
 						"doc_comment": "Main function to check if the build cache is valid.\nReturns true if the cached build can be used, false if a fresh build is needed.",
-						"source_line": 193,
+						"source_line": 192,
 						"type_signature": "(config: GroConfig, log: Logger, git_commit?: string | null | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -406,7 +406,7 @@
 						"name": "collect_build_outputs",
 						"kind": "function",
 						"doc_comment": "Collects information about all files in build output directories.\nReturns an array of entries with path, hash, size, mtime, ctime, and mode.\n\nFiles are hashed in parallel for performance. For very large builds (10k+ files),\nthis may take several seconds but ensures complete cache validation.",
-						"source_line": 239,
+						"source_line": 238,
 						"type_signature": "(build_dirs: string[]): Promise<{ path: string; hash: string; size: number; mtime: number; ctime: number; mode: number; }[]>",
 						"return_type": "Promise<{ path: string; hash: string; size: number; mtime: number; ctime: number; mode: number; }[]>",
 						"parameters": [
@@ -421,7 +421,7 @@
 						"name": "discover_build_output_dirs",
 						"kind": "function",
 						"doc_comment": "Discovers all build output directories in the current working directory.\nReturns an array of directory names that exist: build/, dist/, dist_*",
-						"source_line": 313,
+						"source_line": 310,
 						"type_signature": "(): Promise<string[]>",
 						"return_type": "Promise<string[]>",
 						"parameters": []
@@ -430,7 +430,7 @@
 						"name": "create_build_cache_metadata",
 						"kind": "function",
 						"doc_comment": "Creates build cache metadata after a successful build.\nAutomatically discovers all build output directories (build/, dist/, dist_*).",
-						"source_line": 358,
+						"source_line": 355,
 						"type_signature": "(config: GroConfig, log: Logger, git_commit?: string | null | undefined, build_dirs?: string[] | undefined): Promise<{ version: string; git_commit: string | null; build_cache_config_hash: string; timestamp: string; outputs: { ...; }[]; }>",
 						"return_type": "Promise<{ version: string; git_commit: string | null; build_cache_config_hash: string; timestamp: string; outputs: { path: string; hash: string; size: number; mtime: number; ctime: number; mode: number; }[]; }>",
 						"parameters": [
@@ -3579,7 +3579,7 @@
 					{
 						"name": "ResolvedInputFiles",
 						"kind": "type",
-						"source_line": 177,
+						"source_line": 176,
 						"type_signature": "ResolvedInputFiles",
 						"properties": [
 							{
@@ -3603,7 +3603,7 @@
 						"name": "resolve_input_files",
 						"kind": "function",
 						"doc_comment": "Finds all of the matching files for the given input paths.\nDe-dupes source ids.",
-						"source_line": 187,
+						"source_line": 186,
 						"type_signature": "(resolved_input_paths: ResolvedInputPath[], search?: (dir: string) => Promise<ResolvedPath[]>): Promise<ResolvedInputFiles>",
 						"return_type": "Promise<ResolvedInputFiles>",
 						"parameters": [
@@ -3889,14 +3889,14 @@
 						"name": "PACKAGE_JSON_EMPTY",
 						"kind": "variable",
 						"source_line": 27,
-						"type_signature": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+						"type_signature": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 					},
 					{
 						"name": "package_json_load",
 						"kind": "function",
 						"source_line": 29,
-						"type_signature": "(dir?: string, cache?: Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined, parse?: boolean, log?: Logger | undefined): Promise<...>",
-						"return_type": "Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>",
+						"type_signature": "(dir?: string, cache?: Record<string, { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; ... 25 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined, parse?: boolean, log?: Logger | undefined): Promise<...>",
+						"return_type": "Promise<{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>",
 						"parameters": [
 							{
 								"name": "dir",
@@ -3905,7 +3905,7 @@
 							},
 							{
 								"name": "cache",
-								"type": "Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined",
+								"type": "Record<string, { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined",
 								"optional": true
 							},
 							{
@@ -3924,8 +3924,8 @@
 						"name": "package_json_sync",
 						"kind": "function",
 						"source_line": 54,
-						"type_signature": "(map_package_json: PackageJsonMapper, log: Logger, write?: boolean, dir?: string, exports_dir?: string): Promise<{ package_json: { [x: string]: unknown; name: string; version: string; ... 28 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
-						"return_type": "Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
+						"type_signature": "(map_package_json: PackageJsonMapper, log: Logger, write?: boolean, dir?: string, exports_dir?: string): Promise<{ package_json: { [x: string]: unknown; name: string; version?: string | undefined; ... 28 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
+						"return_type": "Promise<{ package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
 						"parameters": [
 							{
 								"name": "map_package_json",
@@ -3956,8 +3956,8 @@
 						"name": "package_json_load_for_gro",
 						"kind": "function",
 						"source_line": 88,
-						"type_signature": "(): Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>",
-						"return_type": "Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>",
+						"type_signature": "(): Promise<{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>",
+						"return_type": "Promise<{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>",
 						"parameters": []
 					},
 					{
@@ -3977,12 +3977,12 @@
 						"name": "package_json_serialize",
 						"kind": "function",
 						"source_line": 98,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): string",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): string",
 						"return_type": "string",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							}
 						]
 					},
@@ -3991,12 +3991,12 @@
 						"kind": "function",
 						"doc_comment": "Updates `package.json`. Writes to the filesystem only when contents change.",
 						"source_line": 104,
-						"type_signature": "(update: (package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null, dir?: string, write?: boolean): Promise<...>",
-						"return_type": "Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
+						"type_signature": "(update: (package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null, dir?: string, write?: boolean): Promise<...>",
+						"return_type": "Promise<{ package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>",
 						"parameters": [
 							{
 								"name": "update",
-								"type": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... |..."
+								"type": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null"
 							},
 							{
 								"name": "dir",
@@ -4027,12 +4027,12 @@
 						"name": "package_json_parse_repo_url",
 						"kind": "function",
 						"source_line": 180,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): { ...; } | undefined",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): { ...; } | undefined",
 						"return_type": "{ owner: string; repo: string; } | undefined",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							}
 						]
 					},
@@ -4040,7 +4040,7 @@
 						"name": "package_json_has_dependency",
 						"kind": "function",
 						"source_line": 228,
-						"type_signature": "(dep_name: string, package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): boolean",
+						"type_signature": "(dep_name: string, package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): boolean",
 						"return_type": "boolean",
 						"parameters": [
 							{
@@ -4049,7 +4049,7 @@
 							},
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							}
 						]
 					},
@@ -4075,12 +4075,12 @@
 						"name": "package_json_extract_dependencies",
 						"kind": "function",
 						"source_line": 238,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): PackageJsonDep[]",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): PackageJsonDep[]",
 						"return_type": "PackageJsonDep[]",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							}
 						]
 					}
@@ -4989,12 +4989,12 @@
 						"name": "source_json_create",
 						"kind": "function",
 						"source_line": 17,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, lib_path?: string | undefined, log?: Logger | undefined): Promise<...>",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, lib_path?: string | undefined, log?: Logger | undefined): Promise<...>",
 						"return_type": "Promise<{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: \"function\" | \"type\" | \"json\" | \"variable\" | \"class\" | \"constructor\" | \"component\" | \"css\"; ... 20 more ...; alias_of?: { ...; } | undefined; }[] | ...",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							},
 							{
 								"name": "lib_path",
@@ -5200,12 +5200,12 @@
 						"name": "has_sveltekit_library",
 						"kind": "function",
 						"source_line": 31,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, svelte_config?: ParsedSvelteConfig, dep_name?: string): Promise<...>",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, svelte_config?: ParsedSvelteConfig, dep_name?: string): Promise<...>",
 						"return_type": "Promise<Result<object, { message: string; }>>",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							},
 							{
 								"name": "svelte_config",
@@ -5336,12 +5336,12 @@
 						"name": "run_svelte_package",
 						"kind": "function",
 						"source_line": 150,
-						"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, options: SveltePackageOptions | undefined, cli: string | Cli, log: Logger, pm_cli: string): Promise<...>",
+						"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, options: SveltePackageOptions | undefined, cli: string | Cli, log: Logger, pm_cli: string): Promise<...>",
 						"return_type": "Promise<void>",
 						"parameters": [
 							{
 								"name": "package_json",
-								"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+								"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 							},
 							{
 								"name": "options",

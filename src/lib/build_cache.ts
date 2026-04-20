@@ -153,14 +153,13 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 	// Verify all tracked output files exist and have matching size
 	// Sequential checks with early return for performance
 	for (const output of metadata.outputs) {
-		// eslint-disable-next-line no-await-in-loop
 		if (!(await fs_exists(output.path))) {
 			return false;
 		}
 
 		// Fast negative check: size mismatch = definitely invalid
 		// This avoids expensive file reads and hashing for files that have clearly changed
-		// eslint-disable-next-line no-await-in-loop
+
 		const stats = await stat(output.path);
 		if (stats.size !== output.size) {
 			return false;
@@ -266,7 +265,6 @@ export const collect_build_outputs = async (
 			const cache_key = join(dir_prefix, relative_path);
 
 			if (entry.isDirectory()) {
-				// eslint-disable-next-line no-await-in-loop
 				await collect_files(full_path, relative_path, dir_prefix);
 			} else if (entry.isFile()) {
 				files_to_hash.push({full_path, cache_key});
@@ -277,11 +275,10 @@ export const collect_build_outputs = async (
 
 	// Collect files from all build directories sequentially
 	for (const build_dir of build_dirs) {
-		// eslint-disable-next-line no-await-in-loop
 		if (!(await fs_exists(build_dir))) {
 			continue; // Skip non-existent directories
 		}
-		// eslint-disable-next-line no-await-in-loop
+
 		await collect_files(build_dir, '', build_dir);
 	}
 

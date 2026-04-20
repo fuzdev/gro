@@ -53,7 +53,7 @@ const map_changelog = async (
 		if (matches) {
 			const commit_sha = matches[1]!;
 			const l = '- ' + line.substring(commit_sha.length + 4);
-			const prs = await github_fetch_commit_prs(owner, repo, commit_sha, token, log, cache); // eslint-disable-line no-await-in-loop
+			const prs = await github_fetch_commit_prs(owner, repo, commit_sha, token, log, cache);
 			if (prs?.length) {
 				mapped.push(`${l} (${prs.map((p) => `[#${p.number}](${p.html_url})`).join(', ')})`);
 			} else {

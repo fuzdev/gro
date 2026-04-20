@@ -70,7 +70,7 @@ export const invoke_task = async (
 	// Check if the caller just wants to see the version.
 	if (!task_name && (args?.version || args?.v)) {
 		const gro_package_json = await package_json_load_for_gro();
-		log.info(`${st('gray', 'v')}${st('cyan', gro_package_json.version)}`);
+		log.info(`${st('gray', 'v')}${st('cyan', gro_package_json.version ?? '[no version]')}`);
 		await finish();
 		return;
 	}

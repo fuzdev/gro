@@ -129,15 +129,14 @@ export const resolve_input_paths = async (
 	for (const input_path of input_paths) {
 		let found_file: [PathInfo, PossiblePath] | null = null;
 		let found_dirs: Array<[PathInfo, PossiblePath]> | null = null;
-		// eslint-disable-next-line no-await-in-loop
+
 		const possible_paths = await get_possible_paths(input_path, root_dirs, extensions);
 		possible_paths_by_input_path.set(input_path, possible_paths);
 
 		// Find the first existing file path or fallback to the first directory path.
 		for (const possible_path of possible_paths) {
-			// eslint-disable-next-line no-await-in-loop
 			if (!(await fs_exists(possible_path.id))) continue;
-			// eslint-disable-next-line no-await-in-loop
+
 			const stats = await stat(possible_path.id);
 			if (stats.isDirectory()) {
 				found_dirs ??= [];
@@ -204,7 +203,7 @@ export const resolve_input_files = async (
 		const {input_path, id, is_directory} = resolved_input_path;
 		if (is_directory) {
 			// Handle input paths that resolve to directories.
-			// eslint-disable-next-line no-await-in-loop
+
 			const files = await search(id);
 			if (!files.length) continue;
 			const path_ids: Array<PathId> = [];
