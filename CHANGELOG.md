@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.198.0
+
+### Minor Changes
+
+- chore: upgrade fuz_util ([019d954](https://github.com/fuzdev/gro/commit/019d954))
+
 ## 0.197.3
 
 ### Patch Changes

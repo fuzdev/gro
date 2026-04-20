@@ -1,6 +1,6 @@
 {
   "name": "@fuzdev/gro",
-  "version": "0.197.3",
+  "version": "0.198.0",
   "description": "task runner and toolkit extending SvelteKit",
   "tagline": "generate, run, optimize",
   "glyph": "🌰",
