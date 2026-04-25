@@ -31,7 +31,7 @@
 	},
 	"type": "module",
 	"engines": {
-		"node": ">=22.15"
+		"node": ">=24.14"
 	},
 	"bin": {
 		"gro": "dist/gro.js"
@@ -85,7 +85,7 @@
 		"@fuzdev/fuz_code": "^0.45.1",
 		"@fuzdev/fuz_css": "^0.58.0",
 		"@fuzdev/fuz_ui": "^0.191.4",
-		"@fuzdev/fuz_util": "^0.57.0",
+		"@fuzdev/fuz_util": "^0.59.0",
 		"@jridgewell/trace-mapping": "^0.3.31",
 		"@ryanatkn/eslint-config": "^0.11.0",
 		"@sveltejs/acorn-typescript": "^1.0.9",
