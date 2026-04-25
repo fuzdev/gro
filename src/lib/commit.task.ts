@@ -12,7 +12,7 @@ export const Args = z.strictObject({
 			description: 'the git commit message, the same as git commit -m or --message',
 		})
 		.default([]),
-	origin: GitOrigin.describe('git origin to commit to').default('origin'),
+	origin: GitOrigin.meta({description: 'git origin to commit to'}).default('origin'),
 });
 export type Args = z.infer<typeof Args>;
 

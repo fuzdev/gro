@@ -27,7 +27,7 @@ export const Args = z.strictObject({
 		})
 		.default([])
 		.transform((v) => (Array.isArray(v) ? v : [v])),
-	origin: GitOrigin.describe('git origin to deploy to').default('origin'),
+	origin: GitOrigin.meta({description: 'git origin to deploy to'}).default('origin'),
 	force: z.boolean().meta({description: 'if true, print out the planned upgrades'}).default(false),
 	pull: z.boolean().meta({description: 'dual of no-pull'}).default(true),
 	'no-pull': z.boolean().meta({description: 'opt out of git pull'}).default(false),

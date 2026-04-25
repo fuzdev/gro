@@ -21,7 +21,7 @@ export const Args = z.strictObject({
 				'run "git remote prune" to delete local branches referencing nonexistent remote branches',
 		})
 		.default(false),
-	git_origin: GitOrigin.describe('the origin to "git remote prune"').default('origin'),
+	git_origin: GitOrigin.meta({description: 'the origin to "git remote prune"'}).default('origin'),
 });
 export type Args = z.infer<typeof Args>;
 

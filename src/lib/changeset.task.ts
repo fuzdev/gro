@@ -37,9 +37,9 @@ export const Args = z.strictObject({
 	minor: z.boolean().meta({description: 'bump the minor version'}).default(false),
 	major: z.boolean().meta({description: 'bump the major version'}).default(false),
 	dir: z.string().meta({description: 'changeset dir'}).default(CHANGESET_DIR),
-	access: ChangesetAccess.describe(
-		"changeset 'access' config value, the default depends on package.json#private",
-	).optional(),
+	access: ChangesetAccess.meta({
+		description: "changeset 'access' config value, the default depends on package.json#private",
+	}).optional(),
 	changelog: z
 		.string()
 		.meta({description: 'changelog dep package name, used as changeset\'s "changelog" config'})
@@ -49,7 +49,7 @@ export const Args = z.strictObject({
 		.boolean()
 		.meta({description: 'opt out of installing the changelog package'})
 		.default(false),
-	origin: GitOrigin.describe('git origin to deploy to').default('origin'),
+	origin: GitOrigin.meta({description: 'git origin to deploy to'}).default('origin'),
 	changeset_cli: z.string().meta({description: 'the changeset CLI to use'}).default(CHANGESET_CLI),
 });
 export type Args = z.infer<typeof Args>;

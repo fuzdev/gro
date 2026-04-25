@@ -21,8 +21,8 @@ import {CHANGESET_CLI} from './changeset_helpers.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	branch: GitBranch.describe('branch to publish from').default('main'),
-	origin: GitOrigin.describe('git origin to publish from').default('origin'),
+	branch: GitBranch.meta({description: 'branch to publish from'}).default('main'),
+	origin: GitOrigin.meta({description: 'git origin to publish from'}).default('origin'),
 	changelog: z
 		.string()
 		.meta({description: 'file name and path of the changelog'})

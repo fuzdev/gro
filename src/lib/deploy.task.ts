@@ -41,9 +41,11 @@ const DANGEROUS_BRANCHES = [SOURCE_BRANCH, 'master'];
 
 /** @nodocs */
 export const Args = z.strictObject({
-	source: GitBranch.describe('git source branch to build and deploy from').default(SOURCE_BRANCH),
-	target: GitBranch.describe('git target branch to deploy to').default(TARGET_BRANCH),
-	origin: GitOrigin.describe('git origin to deploy to').default('origin'),
+	source: GitBranch.meta({description: 'git source branch to build and deploy from'}).default(
+		SOURCE_BRANCH,
+	),
+	target: GitBranch.meta({description: 'git target branch to deploy to'}).default(TARGET_BRANCH),
+	origin: GitOrigin.meta({description: 'git origin to deploy to'}).default('origin'),
 	deploy_dir: z.string().meta({description: 'the deploy output directory'}).default(DEPLOY_DIR),
 	build_dir: z
 		.string()
