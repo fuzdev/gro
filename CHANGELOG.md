@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.199.0
+
+### Minor Changes
+
+- upgrade fuz_util ([df23753](https://github.com/fuzdev/gro/commit/df23753))
+
 ## 0.198.0
 
 ### Minor Changes
