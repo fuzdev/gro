@@ -1,6 +1,6 @@
 {
 	"name": "@fuzdev/gro",
-	"version": "0.198.0",
+	"version": "0.199.0",
 	"description": "task runner and toolkit extending SvelteKit",
 	"tagline": "generate, run, optimize",
 	"glyph": "🌰",
@@ -84,7 +84,7 @@
 		"@fuzdev/blake3_wasm": "^0.1.1",
 		"@fuzdev/fuz_code": "^0.45.1",
 		"@fuzdev/fuz_css": "^0.58.0",
-		"@fuzdev/fuz_ui": "^0.191.4",
+		"@fuzdev/fuz_ui": "^0.192.0",
 		"@fuzdev/fuz_util": "^0.59.0",
 		"@jridgewell/trace-mapping": "^0.3.31",
 		"@ryanatkn/eslint-config": "^0.11.0",
