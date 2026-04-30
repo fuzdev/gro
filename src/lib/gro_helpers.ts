@@ -16,8 +16,8 @@ This module is intended to have minimal dependencies to avoid over-imports in th
  * Prefers any local installation of Gro and falls back to the current CLI context.
  *
  * Uses heuristics to find `path`, so may fail in some rare corner cases.
- * Currently looks for `gro.js` as a sibling to the `path` arg for detection.
- * If this fails for your usecases, rename `gro.js` or open an issue/PR!
+ * Currently looks for `gro.ts` as a sibling to the `path` arg for detection.
+ * If this fails for your usecases, rename `gro.ts` or open an issue/PR!
  *
  * Used by the CLI and `gro run`.
  *

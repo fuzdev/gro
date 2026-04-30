@@ -95,7 +95,7 @@
 			"@fuzdev/blake3_wasm": "^0.1.1",
 			"@fuzdev/fuz_code": "^0.45.1",
 			"@fuzdev/fuz_css": "^0.58.0",
-			"@fuzdev/fuz_ui": "^0.191.4",
+			"@fuzdev/fuz_ui": "^0.192.0",
 			"@fuzdev/fuz_util": "^0.59.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.11.0",
@@ -2873,7 +2873,7 @@
 					{
 						"name": "resolve_gro_module_path",
 						"kind": "function",
-						"doc_comment": "Resolves a path to an internal Gro file.\nPrefers any local installation of Gro and falls back to the current CLI context.\n\nUses heuristics to find `path`, so may fail in some rare corner cases.\nCurrently looks for `gro.js` as a sibling to the `path` arg for detection.\nIf this fails for your usecases, rename `gro.js` or open an issue/PR!\n\nUsed by the CLI and `gro run`.\n\ncase 1:\n\nWe're in a directory that has a local installation of Gro at `node_modules/.bin/gro`.\nUse this local version instead of the global.\n\ncase 2:\n\nWe're running Gro inside the Gro repo itself.\n\nIn this case, we use the build directory instead of dist.\nThere's a paradox here for using Gro inside itself -\nideally we use the dist directory because that's what's shipped,\nbut the build directory has all of the tests,\nand loading two instances of its modules causes problems\nlike `instanceof` checks failing.\nFor now we'll just run from build and see if it causes any problems.\nThere's probably a better design in here somewhere.\n\ncase 3:\n\nFall back to invoking Gro from wherever the CLI is being executed.\nWhen using the global CLI, this uses the global Gro installation.",
+						"doc_comment": "Resolves a path to an internal Gro file.\nPrefers any local installation of Gro and falls back to the current CLI context.\n\nUses heuristics to find `path`, so may fail in some rare corner cases.\nCurrently looks for `gro.ts` as a sibling to the `path` arg for detection.\nIf this fails for your usecases, rename `gro.ts` or open an issue/PR!\n\nUsed by the CLI and `gro run`.\n\ncase 1:\n\nWe're in a directory that has a local installation of Gro at `node_modules/.bin/gro`.\nUse this local version instead of the global.\n\ncase 2:\n\nWe're running Gro inside the Gro repo itself.\n\nIn this case, we use the build directory instead of dist.\nThere's a paradox here for using Gro inside itself -\nideally we use the dist directory because that's what's shipped,\nbut the build directory has all of the tests,\nand loading two instances of its modules causes problems\nlike `instanceof` checks failing.\nFor now we'll just run from build and see if it causes any problems.\nThere's probably a better design in here somewhere.\n\ncase 3:\n\nFall back to invoking Gro from wherever the CLI is being executed.\nWhen using the global CLI, this uses the global Gro installation.",
 						"source_line": 48,
 						"type_signature": "(path?: string): string",
 						"return_type": "string",

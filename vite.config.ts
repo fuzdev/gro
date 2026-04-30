@@ -4,4 +4,5 @@ import {vite_plugin_library_well_known} from '@fuzdev/fuz_ui/vite_plugin_library
 
 export default defineConfig({
 	plugins: [sveltekit(), vite_plugin_library_well_known()],
+	optimizeDeps: {exclude: ['@fuzdev/blake3_wasm']},
 });
