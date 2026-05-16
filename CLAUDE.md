@@ -10,6 +10,11 @@ architecture, and integrations with Vite, esbuild, Vitest, Prettier, ESLint, and
 Changesets. It's designed around conventions and the filesystem, not
 configuration files.
 
+## Committing
+
+`git add` and `git commit` are denied by `.claude/settings.local.json` in
+this repo — make the edits and stop, the user commits.
+
 ## Scope
 
 Gro is a **devDependency** - it runs at build time, not in production bundles.
