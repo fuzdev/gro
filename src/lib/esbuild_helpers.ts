@@ -15,7 +15,7 @@ export const print_build_result = (log: Logger, build_result: esbuild.BuildResul
 
 // This concatenates weirdly to avoid a SvelteKit warning,
 // because SvelteKit detects usage as a string and not the AST.
-const import_meta_env = 'import.' + 'meta.env.'; // eslint-disable-line no-useless-concat
+const import_meta_env = 'import.' + 'meta.env.';
 
 /**
  * Creates an esbuild `define` shim for Vite's `import.meta\.env`.

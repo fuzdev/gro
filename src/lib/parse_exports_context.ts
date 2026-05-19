@@ -281,7 +281,7 @@ export class ParseExportsContext {
 		});
 
 		// If explicitly marked as a type-only export, use that
-		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+
 		if (has_type_only_export) {
 			return true;
 		}

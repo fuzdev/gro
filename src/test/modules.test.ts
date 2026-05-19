@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {load_module} from '../lib/modules.ts';
 
 // TODO if we import directly, svelte-package generates types in `src/test/fixtures`
-/* eslint-disable no-useless-concat */
+
 const mod_test1 = await import('./fixtures/' + 'test1.foo.js');
 
 test('load_module basic behavior', async () => {

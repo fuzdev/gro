@@ -122,7 +122,6 @@ export const parse_imports = (
 					continue;
 				}
 
-				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 				if (node.source.type === 'Literal') {
 					const value = node.source.value;
 					if (value) {
