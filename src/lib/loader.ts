@@ -206,6 +206,7 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 	}
 
 	// Apply SvelteKit aliases (handles self-referencing packages like @fuzdev/fuz_util -> src/lib)
+	const original = s;
 	s = map_sveltekit_aliases(s, aliases);
 
 	// Bare specifiers (not starting with . or /) use Node's default resolution
@@ -219,10 +220,26 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(s, context);
 	}
 
+	// Fast path: parent inside `node_modules` and aliasing didn't transform the specifier.
+	// Defer to Node's default resolution and format detection — skips the fs.stat work in
+	// `resolve_specifier` and preserves CJS/ESM interop. e.g. `ws/wrapper.mjs` statically
+	// imports `./lib/permessage-deflate.js` (CJS) and reads its `default` export, which Node
+	// only synthesizes when the file is loaded as CommonJS.
+	if (s === original && parent_url.includes('/node_modules/')) {
+		return nextResolve(s, context);
+	}
+
 	const resolved = await resolve_specifier(s, dirname(fileURLToPath(parent_url)));
+	const url = pathToFileURL(resolved.path_id_with_querystring).href;
+
+	// Safety net for less common routes into `node_modules` (an alias that maps there, or
+	// project code doing `import './node_modules/...'`): same CJS interop reason as above.
+	if (url.includes('/node_modules/')) {
+		return {url, shortCircuit: true};
+	}
 
 	return {
-		url: pathToFileURL(resolved.path_id_with_querystring).href,
+		url,
 		format: 'module',
 		shortCircuit: true,
 	};

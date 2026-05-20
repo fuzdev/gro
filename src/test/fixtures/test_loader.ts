@@ -2,7 +2,7 @@
 // This runs in a separate Node.js process with the loader active
 
 import {resolve} from 'node:path';
-import {readFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 
 const JSON_FIXTURE = 'src/test/fixtures/modules/some_test_json.json';
 const JSON_WITHOUT_EXTENSION_FIXTURE = 'src/test/fixtures/modules/some_test_json_without_extension';
@@ -142,6 +142,25 @@ const run_tests = async () => {
 		assert(instance.a === 'ok', 'import .svelte.ts instance works');
 	} catch (error) {
 		assert(false, `import .svelte.ts failed: ${error.message}`);
+	}
+
+	// Test 12: An ESM file inside `node_modules` that statically imports a CJS sibling and
+	// reads `default` — the `ws/wrapper.mjs` pattern that regressed in PR #586. We mint
+	// the fixture into `node_modules/` at test time so the path contains `/node_modules/`
+	// (which is what triggers the resolve hook's node_modules branch) without depending on
+	// any third-party package's internal layout. The `.` prefix keeps npm from touching it.
+	try {
+		const fixture_dir = resolve('node_modules/.gro_loader_test_fixture');
+		mkdirSync(fixture_dir, {recursive: true});
+		writeFileSync(
+			`${fixture_dir}/index.mjs`,
+			"import x from './sibling.cjs';\nexport default x;\n",
+		);
+		writeFileSync(`${fixture_dir}/sibling.cjs`, "module.exports = {value: 'ok'};\n");
+		const imported = await import(`${fixture_dir}/index.mjs`);
+		assert(imported.default?.value === 'ok', 'node_modules ESM imports CJS sibling default works');
+	} catch (error) {
+		assert(false, `node_modules esm-imports-cjs default failed: ${error.message}`);
 	}
 
 	// console.log(`\nResults: ${passed} passed, ${failed} failed`);
