@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.199.1
+
+### Patch Changes
+
+- fix: scrub NODE_ENV and npm env vars from `gro sync` ([5f36188](https://github.com/fuzdev/gro/commit/5f36188))
+- fix: loader for cjs ([4b11c05](https://github.com/fuzdev/gro/commit/4b11c05))
+
 ## 0.199.0
 
 ### Minor Changes
