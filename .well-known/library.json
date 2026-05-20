@@ -98,7 +98,7 @@
 			"@fuzdev/fuz_ui": "^0.192.0",
 			"@fuzdev/fuz_util": "^0.59.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
-			"@ryanatkn/eslint-config": "^0.11.0",
+			"@ryanatkn/eslint-config": "^0.12.1",
 			"@sveltejs/acorn-typescript": "^1.0.9",
 			"@sveltejs/adapter-static": "^3.0.10",
 			"@sveltejs/kit": "^2.57.1",
@@ -6027,7 +6027,21 @@
 			},
 			{
 				"path": "sync.task.ts",
-				"declarations": [],
+				"declarations": [
+					{
+						"name": "sanitize_install_env",
+						"kind": "function",
+						"source_line": 25,
+						"type_signature": "(env: ProcessEnv): ProcessEnv",
+						"return_type": "ProcessEnv",
+						"parameters": [
+							{
+								"name": "env",
+								"type": "ProcessEnv"
+							}
+						]
+					}
+				],
 				"dependencies": [
 					"package_json.ts",
 					"sveltekit_helpers.ts",
