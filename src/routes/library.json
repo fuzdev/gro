@@ -5720,7 +5720,21 @@
 			},
 			{
 				"path": "sync.task.ts",
-				"declarations": [],
+				"declarations": [
+					{
+						"name": "sanitize_install_env",
+						"kind": "function",
+						"source_line": 25,
+						"type_signature": "(env: ProcessEnv): ProcessEnv",
+						"return_type": "ProcessEnv",
+						"parameters": [
+							{
+								"name": "env",
+								"type": "ProcessEnv"
+							}
+						]
+					}
+				],
 				"dependencies": ["package_json.ts", "sveltekit_helpers.ts", "task.ts"]
 			},
 			{
