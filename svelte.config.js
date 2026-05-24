@@ -4,6 +4,7 @@ import {svelte_preprocess_mdz} from '@fuzdev/fuz_ui/svelte_preprocess_mdz.js';
 import {svelte_preprocess_fuz_code} from '@fuzdev/fuz_code/svelte_preprocess_fuz_code.js';
 import {create_csp_directives} from '@fuzdev/fuz_ui/csp.js';
 import {csp_directives_of_fuzdev} from '@fuzdev/fuz_ui/csp_of_fuzdev.js';
+import {execSync} from 'node:child_process';
 
 /** @type {import('@sveltejs/kit').Config} */
 export default {
@@ -18,6 +19,9 @@ export default {
 			directives: create_csp_directives({
 				extend: [csp_directives_of_fuzdev],
 			}),
+		},
+		version: {
+			name: execSync('git rev-parse HEAD').toString().trim(),
 		},
 	},
 };
