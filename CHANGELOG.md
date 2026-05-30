@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.200.0
+
+### Minor Changes
+
+- feat: add `svelte-docinfo` and remove subsumed helpers ([fe31aae](https://github.com/fuzdev/gro/commit/fe31aae))
+- chore: remove well-known feature ([fe31aae](https://github.com/fuzdev/gro/commit/fe31aae))
+
 ## 0.199.1
 
 ### Patch Changes
