@@ -4,11 +4,8 @@
 
 	import ThemeRoot from '@fuzdev/fuz_ui/ThemeRoot.svelte';
 	import type {Snippet} from 'svelte';
-	import {Library, library_context} from '@fuzdev/fuz_ui/library.svelte.js';
-	import {library_json_from_modules} from '@fuzdev/fuz_util/library_json.js';
-	import {modules} from 'virtual:svelte-docinfo';
-
-	import package_json from '../../package.json' with {type: 'json'};
+	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.js';
+	import {logo_gro} from '@fuzdev/fuz_ui/logos.js';
 
 	// TODO add website, rewriting the markdown docs as Svelte
 
@@ -18,9 +15,13 @@
 		children: Snippet;
 	} = $props();
 
-	const library_json = library_json_from_modules(package_json, modules);
-
-	library_context.set(new Library(library_json));
+	site_context.set(
+		new SiteState({
+			icon: logo_gro,
+			glyph: '🌰',
+			repo_url: 'https://github.com/fuzdev/gro',
+		}),
+	);
 </script>
 
 <svelte:head>
