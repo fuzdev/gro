@@ -1,8 +1,8 @@
 import {defineConfig} from 'vite';
 import {sveltekit} from '@sveltejs/kit/vite';
-import {vite_plugin_library_well_known} from '@fuzdev/fuz_ui/vite_plugin_library_well_known.js';
+import svelte_docinfo from 'svelte-docinfo/vite.js';
 
 export default defineConfig({
-	plugins: [sveltekit(), vite_plugin_library_well_known()],
+	plugins: [sveltekit(), svelte_docinfo()],
 	optimizeDeps: {exclude: ['@fuzdev/blake3_wasm']},
 });

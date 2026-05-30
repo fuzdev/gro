@@ -97,16 +97,18 @@
 	--fg_05: var(--darken_05);
 	--fg_10: var(--darken_10);
 	--fg_20: var(--darken_20);
-	--font_family_mono: ui-monospace, 'Fira Mono', monospace;
+	--font_family_mono: ui-monospace, monospace;
 	--font_family_sans:
-		system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-	--font_family_serif: 'DM Serif Display', Georgia, serif;
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif,
+		'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+	--font_family_serif: Georgia, serif;
 	--font_size_lg: 2.04rem;
 	--font_size_md: 1.6rem;
 	--font_size_sm: 1.3rem;
 	--font_size_xl: 2.59rem;
 	--font_size_xl2: 3.29rem;
 	--font_size_xl3: 4.19rem;
+	--font_size_xs: 1rem;
 	--hue_a: 210;
 	--hue_b: 120;
 	--hue_c: 0;
@@ -120,10 +122,12 @@
 	--icon_size_lg: 80px;
 	--icon_size_md: 48px;
 	--icon_size_sm: 32px;
+	--icon_size_xl: 128px;
 	--icon_size_xl2: 192px;
+	--icon_size_xs: 18px;
 	--input_fill: var(--bg_80);
 	--input_height: var(--space_xl5);
-	--input_height_sm: var(--space_xl4);
+	--input_height_compact: var(--space_xl4);
 	--input_padding_x: var(--space_lg);
 	--input_padding_y: 0;
 	--input_width_min: 100px;
@@ -187,6 +191,7 @@
 	--space_xs2: 0.4rem;
 	--space_xs3: 0.3rem;
 	--space_xs4: 0.2rem;
+	--space_xs5: 0.1rem;
 	--text_05: hsl(var(--tint_hue) var(--tint_saturation) 94%);
 	--text_10: hsl(var(--tint_hue) var(--tint_saturation) 90%);
 	--text_50: hsl(var(--tint_hue) var(--tint_saturation) 50%);
@@ -571,10 +576,10 @@ body {
 
 :where(input[type='checkbox']:not(.unstyled)) {
 	cursor: pointer;
-	width: var(--input_height_sm);
-	height: var(--input_height_sm);
-	min-width: var(--input_height_sm);
-	min-height: var(--input_height_sm);
+	width: var(--input_height_compact);
+	height: var(--input_height_compact);
+	min-width: var(--input_height_compact);
+	min-height: var(--input_height_compact);
 	border-radius: var(--border_radius, var(--border_radius_xs));
 	--input_padding_x: 0;
 	--checkbox_content: var(--checkbox_content_empty, '');
@@ -603,11 +608,11 @@ body {
 
 :where(input[type='radio']:not(.unstyled)) {
 	cursor: pointer;
-	width: var(--input_height_sm);
-	height: var(--input_height_sm);
+	width: var(--input_height_compact);
+	height: var(--input_height_compact);
 	border-radius: 50%;
-	min-width: var(--input_height_sm);
-	min-height: var(--input_height_sm);
+	min-width: var(--input_height_compact);
+	min-height: var(--input_height_compact);
 	--input_padding_x: 0;
 }
 
@@ -744,7 +749,6 @@ body {
 }
 
 :where(button:not(.unstyled)) {
-	--min_height: var(--input_height);
 	--text_color: var(--text_70);
 	--button_text_color: var(--text_color);
 	--button_fill: color-mix(in hsl, var(--fill, var(--shade_50)) 8%, transparent);
@@ -766,7 +770,7 @@ body {
 	font-size: var(--font_size, inherit);
 	font-weight: 700;
 	line-height: normal;
-	min-height: var(--min_height);
+	min-height: var(--button_min_height, var(--input_height));
 	padding: 0 var(--input_padding_x);
 	box-shadow: var(--shadow, var(--button_shadow));
 	border-width: var(--border_width);
@@ -922,7 +926,8 @@ body {
 
 :where(button:not(.unstyled).inline, p button:not(.unstyled)) {
 	display: inline-block;
-	--min_height: var(--input_height_sm); /* TODO this increases paragraph line spacing */
+	/* TODO this increases paragraph line spacing */
+	min-height: var(--button_min_height, var(--input_height_compact));
 }
 
 :where(img, picture, canvas, svg, video) {
@@ -1024,7 +1029,7 @@ These are used as modifiers to buttons.
 	z-index: 2;
 	cursor: pointer;
 	width: 100%;
-	min-height: var(--min_height, var(--icon_size_sm));
+	min-height: var(--menuitem_min_height, var(--input_height_compact));
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -1077,8 +1082,8 @@ These are used as modifiers to buttons.
 .chip {
 	font-weight: 500;
 	font-size: var(--font_size, inherit);
-	padding-left: var(--space_xs);
-	padding-right: var(--space_xs);
+	padding-left: var(--chip_padding_x, var(--space_xs));
+	padding-right: var(--chip_padding_x, var(--space_xs));
 	background-color: var(--fg_10);
 	border-radius: var(--border_radius, var(--border_radius_xs));
 }
@@ -1270,9 +1275,6 @@ a.chip {
 }
 .mt_0 {
 	margin-top: 0;
-}
-.mt_lg {
-	margin-top: var(--space_lg);
 }
 .mt_xl3 {
 	margin-top: var(--space_xl3);

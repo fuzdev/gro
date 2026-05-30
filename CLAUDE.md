@@ -25,10 +25,9 @@ Key responsibilities:
 - Code generation system (`.gen.ts` files)
 - Node loader for TypeScript/Svelte without compilation step
 - Plugin system for dev/build workflows
-- `src_json` generation - analyzes TypeScript/Svelte source to produce metadata
-  consumed by fuz_ui's API documentation system
-- `.well-known/package.json` and `.well-known/src.json` publishing for package
-  metadata
+- library metadata loading (`library_load.ts`) - analyzes TypeScript/Svelte
+  source via `svelte-docinfo` to produce `LibraryJson` consumed by fuz_ui's API
+  documentation system, cached in `.gro/` keyed by git commit
 
 ## Core systems
 

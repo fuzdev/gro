@@ -22,5 +22,3 @@ export default config;
 In development (`gro dev`), spawns `vite dev` with watch mode.
 
 In production (`gro build`), runs `vite build`.
-
-For publishing `.well-known/` metadata, see [`vite_plugin_library_well_known`](https://ui.fuz.dev/docs/vite_plugin_library_well_known) (now in `@fuzdev/fuz_ui`).
