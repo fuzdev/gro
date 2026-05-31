@@ -86,7 +86,7 @@ It includes:
 
 ## install
 
-> depends on node >=20.12
+> depends on node >=24.14
 
 Typical usage installs [@fuzdev/gro](https://www.npmjs.com/package/@fuzdev/gro)
 as a dev dependency:
