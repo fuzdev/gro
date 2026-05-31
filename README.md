@@ -105,7 +105,8 @@ gro
 
 ## usage
 
-Gro has a task runner that discovers and runs TypeScript modules with the `.task.` subextension.
+Gro has a task runner that discovers TypeScript modules with the `.task.` subextension,
+and runs them in-process with explicit composition.
 Running `gro` with no args prints the tasks
 it finds in the current directory along with its builtin tasks:
 
