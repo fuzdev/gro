@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.201.0
+
+### Minor Changes
+
+- chore: upgrade esbuild@0.28 ([013086b](https://github.com/fuzdev/gro/commit/013086b))
+
 ## 0.200.0
 
 ### Minor Changes
