@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.201.1
+
+### Patch Changes
+
+- deps: loosen svelte-docinfo to >= ([1e4b726](https://github.com/fuzdev/gro/commit/1e4b726))
+
 ## 0.201.0
 
 ### Minor Changes
