@@ -60,11 +60,11 @@
   },
   "peerDependencies": {
     "@fuzdev/blake3_wasm": "^0.1.0",
-    "@fuzdev/fuz_util": ">=0.63.0",
+    "@fuzdev/fuz_util": ">=0.63.1",
     "@sveltejs/kit": "^2",
     "esbuild": "^0.28.0",
     "svelte": "^5",
-    "svelte-docinfo": "^0.2.0",
+    "svelte-docinfo": ">=0.2.0",
     "typescript": "^5",
     "vitest": "^3 || ^4"
   },
@@ -89,7 +89,7 @@
     "@fuzdev/fuz_code": "^0.45.1",
     "@fuzdev/fuz_css": "^0.61.1",
     "@fuzdev/fuz_ui": "^0.197.0",
-    "@fuzdev/fuz_util": "^0.63.0",
+    "@fuzdev/fuz_util": "^0.63.1",
     "@jridgewell/trace-mapping": "^0.3.31",
     "@ryanatkn/eslint-config": "^0.12.1",
     "@sveltejs/acorn-typescript": "^1.0.9",

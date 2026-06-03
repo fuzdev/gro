@@ -19,7 +19,7 @@ import {Filer} from './filer.ts';
  * When a task is invoked,
  * Gro first searches for tasks in the current working directory.
  * and falls back to searching Gro's directory, if the two are different.
- * See `src/lib/input_path.ts` for info about what "task_name" can refer to.
+ * See `input_path.ts` for info about what "task_name" can refer to.
  * If it matches a directory, all of the tasks within it are logged,
  * both in the current working directory and Gro.
  *

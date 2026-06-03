@@ -123,7 +123,7 @@ export type FindModulesFailure =
 	  };
 
 /**
- * Finds modules from input paths. (see `src/lib/input_path.ts` for more)
+ * Finds modules from input paths. (see `input_path.ts` for more)
  */
 export const find_tasks = async (
 	input_paths: Array<InputPath>,
