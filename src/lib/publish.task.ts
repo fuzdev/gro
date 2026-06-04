@@ -12,6 +12,7 @@ import {
 } from '@fuzdev/fuz_util/git.js';
 
 import {TaskError, type Task} from './task.ts';
+import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
 import {package_json_load, package_json_parse_repo_url} from './package_json.ts';
 import {find_cli, spawn_cli} from './cli.ts';
 import {has_sveltekit_library} from './sveltekit_helpers.ts';
@@ -168,10 +169,10 @@ export const task: Task<Args> = {
 
 			// Update package-lock.json to reflect the new version.
 			if (install) {
-				const install_result = await spawn(config.pm_cli, ['install']);
-				if (!install_result.ok) {
-					throw new TaskError(`Failed \`${config.pm_cli} install\` after version bump`);
-				}
+				await install_with_cache_healing_or_throw(config.pm_cli, {
+					log,
+					context: 'after version bump',
+				});
 			}
 
 			// Regenerate files that depend on package.json version.

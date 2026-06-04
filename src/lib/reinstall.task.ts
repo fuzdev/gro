@@ -1,8 +1,8 @@
 import {z} from 'zod';
-import {spawn} from '@fuzdev/fuz_util/process.js';
 import {rm} from 'node:fs/promises';
 
-import {TaskError, type Task} from './task.ts';
+import type {Task} from './task.ts';
+import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
 import {LOCKFILE_FILENAME, NODE_MODULES_DIRNAME} from './constants.ts';
 
 /** @nodocs */
@@ -15,31 +15,23 @@ export const task: Task<Args> = {
 	Args,
 	run: async ({log, config}): Promise<void> => {
 		log.info(`running the initial \`${config.pm_cli} install\``);
-		const initial_install_result = await spawn(config.pm_cli, ['install']);
-		if (!initial_install_result.ok) {
-			throw new TaskError(`Failed initial \`${config.pm_cli} install\``);
-		}
+		await install_with_cache_healing_or_throw(config.pm_cli, {log, context: '(initial)'});
 
 		// Deleting both the lockfile and node_modules upgrades to the latest minor/patch versions.
 		await Promise.all([rm(LOCKFILE_FILENAME), rm(NODE_MODULES_DIRNAME, {recursive: true})]);
 		log.info(
 			`running \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}, this can take a while...`,
 		);
-		const second_install_result = await spawn(config.pm_cli, ['install']);
-		if (!second_install_result.ok) {
-			throw new TaskError(
-				`Failed \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}`,
-			);
-		}
+		await install_with_cache_healing_or_throw(config.pm_cli, {
+			log,
+			context: `after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}`,
+		});
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// Deleting the lockfile and reinstalling cleans the lockfile of unnecessary dep noise,
 		// like esbuild's many packages for each platform.
 		await rm(LOCKFILE_FILENAME);
 		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
-		const final_install_result = await spawn(config.pm_cli, ['install']);
-		if (!final_install_result.ok) {
-			throw new TaskError(`Failed \`${config.pm_cli} install\``);
-		}
+		await install_with_cache_healing_or_throw(config.pm_cli, {log});
 	},
 };

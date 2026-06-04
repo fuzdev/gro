@@ -13,6 +13,7 @@ import {
 
 import {TaskError, type Task} from './task.ts';
 import {find_cli, spawn_cli} from './cli.ts';
+import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
 import {has_sveltekit_library} from './sveltekit_helpers.ts';
 import {
 	CHANGESET_CLI,
@@ -133,7 +134,10 @@ export const task: Task<Args> = {
 			await spawn('git', ['add', dir]);
 
 			if (dep) {
-				await spawn(config.pm_cli, ['install', '-D', changelog]);
+				await install_with_cache_healing_or_throw(config.pm_cli, {
+					install_args: ['-D', changelog],
+					log,
+				});
 			}
 		}
 

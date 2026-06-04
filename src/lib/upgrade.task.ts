@@ -1,11 +1,11 @@
 import {args_serialize} from '@fuzdev/fuz_util/args.js';
 import {GitOrigin, git_pull} from '@fuzdev/fuz_util/git.js';
-import {spawn} from '@fuzdev/fuz_util/process.js';
 import {rm} from 'node:fs/promises';
 import {z} from 'zod';
 
 import {to_forwarded_args} from './args.ts';
 import {spawn_cli} from './cli.ts';
+import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
 import {NODE_MODULES_DIRNAME} from './constants.ts';
 import {
 	package_json_extract_dependencies,
@@ -106,7 +106,7 @@ export const task: Task<Args> = {
 
 		log.info(`upgrading:`, upgrade_items.join(' '));
 
-		const install_args = ['install'].concat(upgrade_items);
+		const install_args = [...upgrade_items];
 		if (dry) {
 			install_args.push('--dry-run');
 			log.info(`deps`, deps);
@@ -115,14 +115,14 @@ export const task: Task<Args> = {
 			install_args.push('--force');
 		}
 		install_args.push(...args_serialize(to_forwarded_args(config.pm_cli)));
-		await spawn(config.pm_cli, install_args);
+		await install_with_cache_healing_or_throw(config.pm_cli, {install_args, log});
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// If we deleted the lockfile or node modules, `npm install` again
 		// to fix a recurring npm bug getting the lockfile to its final state.
 		if (!dry && (delete_node_modules || delete_lockfile)) {
 			log.info(`installing again to fix npm lockfile bugs`);
-			await spawn(config.pm_cli, ['install']);
+			await install_with_cache_healing_or_throw(config.pm_cli, {log});
 		}
 
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.

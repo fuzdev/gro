@@ -68,7 +68,7 @@ export const setup_successful_git_mocks = async () => {
 	vi.mocked(git_check_setting_pull_rebase).mockResolvedValue(true);
 	vi.mocked(git_local_branch_exists).mockResolvedValue(true);
 	vi.mocked(git_fetch).mockResolvedValue(undefined);
-	vi.mocked(git_checkout).mockResolvedValue(undefined);
+	vi.mocked(git_checkout).mockResolvedValue(null);
 	vi.mocked(git_pull).mockResolvedValue(undefined);
 	vi.mocked(git_remote_branch_exists).mockResolvedValue(true);
 	vi.mocked(git_clone_locally).mockResolvedValue(undefined);
