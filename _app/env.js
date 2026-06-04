@@ -1,1 +1,0 @@
-export const env={"PUBLIC_SOME_PUBLIC_ENV_VAR":"SOME_PUBLIC_ENV_VAR"}
