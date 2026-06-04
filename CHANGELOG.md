@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.202.0
+
+### Minor Changes
+
+- chore: fix peer deps ([a8642f4](https://github.com/fuzdev/gro/commit/a8642f4))
+- fix: add `install_with_cache_healing` that strips devDependency-pruning env vars and self-heals npm's stale-cache `ETARGET` failures ([97a0f94](https://github.com/fuzdev/gro/commit/97a0f94))
+
 ## 0.201.1
 
 ### Patch Changes
