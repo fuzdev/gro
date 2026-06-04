@@ -95,7 +95,7 @@ const create_mock_timings = (): Timings =>
 	}) as unknown as Timings;
 
 // Helper to create mock invoke_task
-const create_mock_invoke_task = (): InvokeTask => vi.fn() as unknown as InvokeTask;
+const create_mock_invoke_task = (): InvokeTask => vi.fn();
 
 beforeEach(() => {
 	vi.clearAllMocks();

@@ -251,7 +251,7 @@ describe('deploy_task deploy directory operations', () => {
 			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
-			vi.mocked(readdir).mockResolvedValue([] as any); // empty
+			vi.mocked(readdir).mockResolvedValue([]); // empty
 
 			const ctx = create_mock_deploy_task_context({dry: true});
 

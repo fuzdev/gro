@@ -114,7 +114,7 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 					NODE_ENV: 'development',
 					...extra_env,
 				},
-			} as object);
+			});
 
 			// Wait for spawn to complete
 			await server_process.spawned;

@@ -65,7 +65,7 @@ describe('discover_build_output_dirs', () => {
 		const {readdir} = vi.mocked(await import('node:fs/promises'));
 
 		vi.mocked(fs_exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([] as any);
+		vi.mocked(readdir).mockResolvedValue([]);
 
 		const result = await discover_build_output_dirs();
 

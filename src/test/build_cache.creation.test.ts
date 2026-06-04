@@ -39,7 +39,7 @@ describe('create_build_cache_metadata', () => {
 		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
 		const {readdir, stat} = vi.mocked(await import('node:fs/promises'));
 		vi.mocked(fs_exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([] as any);
+		vi.mocked(readdir).mockResolvedValue([]);
 		vi.mocked(stat).mockResolvedValue({isDirectory: () => true} as any);
 	});
 
@@ -51,7 +51,7 @@ describe('create_build_cache_metadata', () => {
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(fs_exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([] as any);
+		vi.mocked(readdir).mockResolvedValue([]);
 		vi.mocked(stat).mockResolvedValue(mock_dir_stats());
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
@@ -279,7 +279,7 @@ describe('create_build_cache_metadata', () => {
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue(null);
 		vi.mocked(fs_exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([] as any);
+		vi.mocked(readdir).mockResolvedValue([]);
 		vi.mocked(stat).mockResolvedValue(mock_dir_stats());
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
@@ -332,7 +332,7 @@ describe('create_build_cache_metadata', () => {
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(fs_exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([] as any);
+		vi.mocked(readdir).mockResolvedValue([]);
 		vi.mocked(stat).mockResolvedValue(mock_dir_stats());
 		vi.mocked(hash_blake3).mockReturnValue('custom_config_hash');
 

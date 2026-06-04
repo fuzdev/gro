@@ -68,12 +68,12 @@ export const get_possible_paths = async (
 			possible_paths.add({
 				id: (path.endsWith('/') || path.endsWith(TASK_FILE_SUFFIX_JS)
 					? path
-					: path + TASK_FILE_SUFFIX_JS) as PathId,
+					: path + TASK_FILE_SUFFIX_JS),
 				input_path,
 				root_dir,
 			});
 		} else {
-			possible_paths.add({id: path as PathId, input_path, root_dir});
+			possible_paths.add({id: path, input_path, root_dir});
 			if (!path.endsWith('/') && !extensions.some((e) => path.endsWith(e))) {
 				for (const extension of extensions) {
 					possible_paths.add({id: path + extension, input_path, root_dir});

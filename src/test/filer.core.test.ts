@@ -358,7 +358,7 @@ test('listeners can be added/removed during notification', async () => {
 	const filer = new Filer({watch_dir: mock_watch_dir});
 
 	const events: Array<string> = [];
-	let cleanup2: (() => void) | null = null as any;
+	let cleanup2: (() => void) | null = null;
 
 	// First listener adds a second listener on first event
 	const cleanup1 = await filer.watch(async (_change) => {

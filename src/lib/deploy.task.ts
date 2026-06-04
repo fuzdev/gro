@@ -195,7 +195,7 @@ export const task: Task<Args> = {
 			// It may not exist, or it may have been deleted after failing to sync above.
 			if (!(await fs_exists(resolved_deploy_dir))) {
 				const local_deploy_branch_exists = await git_local_branch_exists(target);
-				await git_fetch(origin, ('+' + target + ':' + target) as GitBranch); // fetch+merge and allow non-fastforward updates with the +
+				await git_fetch(origin, ('+' + target + ':' + target)); // fetch+merge and allow non-fastforward updates with the +
 				await git_clone_locally(origin, target, dir, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd
 				if (!local_deploy_branch_exists) {

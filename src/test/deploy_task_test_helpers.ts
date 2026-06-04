@@ -36,7 +36,7 @@ export const create_mock_deploy_task_context = (
 		force_build: false,
 		pull: true,
 		'no-pull': false,
-	} as Args);
+	});
 
 /**
  * Creates mock spawn options for deploy directory operations.

@@ -10,7 +10,7 @@ import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
 import type {GroConfig} from '../lib/gro_config.ts';
 import type {Filer} from '../lib/filer.ts';
 import type {ParsedSvelteConfig} from '../lib/svelte_config.ts';
-import type {TaskContext, InvokeTask} from '../lib/task.ts';
+import type {TaskContext} from '../lib/task.ts';
 
 /**
  * Creates a mock logger for testing.
@@ -326,5 +326,5 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	filer: create_mock_filer(),
 	log: create_mock_logger(),
 	timings: create_mock_timings(),
-	invoke_task: vi.fn() as unknown as InvokeTask,
+	invoke_task: vi.fn(),
 });

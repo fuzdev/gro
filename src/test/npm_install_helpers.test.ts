@@ -195,7 +195,7 @@ describe('install_with_cache_healing_or_throw', () => {
 			context: 'after version bump',
 		});
 		await expect(promise).rejects.toBeInstanceOf(TaskError);
-		await expect(promise).rejects.toThrowError(
+		await expect(promise).rejects.toThrow(
 			'Failed `npm install foo@latest` after version bump: code 1',
 		);
 	});
