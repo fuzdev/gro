@@ -66,9 +66,10 @@ export const get_possible_paths = async (
 		// Specifically for paths to the Gro package dist, optimize by only looking for `.task.js`.
 		if (path.startsWith(GRO_DIST_DIR)) {
 			possible_paths.add({
-				id: (path.endsWith('/') || path.endsWith(TASK_FILE_SUFFIX_JS)
-					? path
-					: path + TASK_FILE_SUFFIX_JS),
+				id:
+					path.endsWith('/') || path.endsWith(TASK_FILE_SUFFIX_JS)
+						? path
+						: path + TASK_FILE_SUFFIX_JS,
 				input_path,
 				root_dir,
 			});
