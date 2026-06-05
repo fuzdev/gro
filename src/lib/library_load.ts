@@ -20,12 +20,36 @@ import {GRO_DIRNAME} from './constants.ts';
 export const LIBRARY_CACHE_FILENAME = 'library.json';
 
 /**
- * On-disk shape of the `.gro/library.json` cache file.
- * The `hash` is the git-based cache key the `library_json` was computed at.
+ * Format version for the `.gro/library.json` cache. The cache key is the git
+ * commit hash, which does NOT change when the cached *shape* changes — so bump
+ * this whenever `LibraryCache`'s shape changes (e.g. the `LibraryJson` /
+ * `PkgJson` split, then slimming `LibraryJson` to the raw `pkg_json`/`source_json`
+ * pair) to self-invalidate stale caches across the ecosystem rather than serve
+ * old-shaped data at an unchanged commit.
  */
-export interface LibraryCache {
-	hash: string;
+export const LIBRARY_CACHE_VERSION = 1;
+
+/**
+ * Result of loading a repo's library metadata: the curated `LibraryJson`
+ * (carrying the publish-safe `pkg_json`) plus the repo's full `package.json`.
+ *
+ * The full `package_json` is kept alongside — not folded into `LibraryJson` —
+ * because tooling like fuz_gitops needs `dependencies`/`devDependencies`, which
+ * the curated `LibraryJson.pkg_json` deliberately omits.
+ */
+export interface LibraryLoadResult {
 	library_json: LibraryJson;
+	package_json: PackageJson;
+}
+
+/**
+ * On-disk shape of the `.gro/library.json` cache file.
+ * The `hash` is the git-based cache key the result was computed at; `version`
+ * is the `LIBRARY_CACHE_VERSION` it was written under.
+ */
+export interface LibraryCache extends LibraryLoadResult {
+	hash: string;
+	version: number;
 }
 
 export interface LibraryLoadOptions {
@@ -54,26 +78,27 @@ export const library_cache_key = async (repo_dir: string): Promise<string | null
 /**
  * Reads and validates the `.gro/library.json` cache at `cache_path`.
  *
- * Returns the cached `library_json` only when the file exists and its stored
- * `hash` matches `key`. Returns `null` on every miss - absent, stale (different
- * `hash`), or unreadable/corrupt - signalling the caller to re-analyze.
+ * Returns the cached `{library_json, package_json}` only when the file exists
+ * and its stored `hash` matches `key`. Returns `null` on every miss - absent,
+ * stale (different `hash`), or unreadable/corrupt - signalling the caller to
+ * re-analyze.
  *
  * @param cache_path - absolute path to the cache file
  * @param key - the expected cache key (a clean git commit hash)
- * @returns the cached `library_json`, or `null` on any miss
+ * @returns the cached result, or `null` on any miss
  */
 export const library_cache_read = async (
 	cache_path: string,
 	key: string,
 	log?: Logger,
-): Promise<LibraryJson | null> => {
+): Promise<LibraryLoadResult | null> => {
 	if (!(await fs_exists(cache_path))) return null;
 	try {
 		const contents = await readFile(cache_path, 'utf-8');
 		const parsed: LibraryCache = JSON.parse(contents);
-		if (parsed.hash === key) {
+		if (parsed.hash === key && parsed.version === LIBRARY_CACHE_VERSION) {
 			log?.debug('library cache hit', st('dim', `(${cache_path} @ ${key})`));
-			return parsed.library_json;
+			return {library_json: parsed.library_json, package_json: parsed.package_json};
 		}
 		log?.debug('library cache stale', st('dim', `(${cache_path})`));
 	} catch {
@@ -84,24 +109,26 @@ export const library_cache_read = async (
 };
 
 /**
- * Writes `library_json` to the `.gro/library.json` cache at `cache_path`, keyed
- * by `key`, creating the parent directory as needed.
+ * Writes `result` to the `.gro/library.json` cache at `cache_path`, keyed by
+ * `key` and stamped with the current `LIBRARY_CACHE_VERSION`, creating the
+ * parent directory as needed.
  *
  * Best effort: caching is optional, so write failures are logged as a warning
  * and swallowed rather than thrown.
  *
  * @param cache_path - absolute path to the cache file
  * @param key - the cache key to store (a clean git commit hash)
+ * @param result - the `{library_json, package_json}` to cache
  */
 export const library_cache_write = async (
 	cache_path: string,
 	key: string,
-	library_json: LibraryJson,
+	result: LibraryLoadResult,
 	log?: Logger,
 ): Promise<void> => {
 	try {
 		await mkdir(dirname(cache_path), {recursive: true});
-		const data: LibraryCache = {hash: key, library_json};
+		const data: LibraryCache = {hash: key, version: LIBRARY_CACHE_VERSION, ...result};
 		await writeFile(cache_path, JSON.stringify(data, null, '\t') + '\n', 'utf-8');
 		log?.debug('library cache written', st('dim', `(${cache_path})`));
 	} catch (error) {
@@ -117,19 +144,20 @@ export const library_cache_write = async (
  * keyed by git hash.
  *
  * Analyzes `repo_dir` with `analyzeFromFiles` and combines the result with the
- * repo's `package.json` into a `LibraryJson`. Results are cached at
- * `<repo_dir>/.gro/library.json` keyed by the current git `HEAD`, so repeated
- * loads at the same commit skip the (potentially slow) analysis. A dirty
- * working tree (or a non-git dir) is uncacheable, so analysis re-runs on every
- * load until the changes are committed - see `library_cache_key`.
+ * repo's `package.json` into a `LibraryJson`, returned alongside the full
+ * `package.json`. Results are cached at `<repo_dir>/.gro/library.json` keyed by
+ * the current git `HEAD`, so repeated loads at the same commit skip the
+ * (potentially slow) analysis. A dirty working tree (or a non-git dir) is
+ * uncacheable, so analysis re-runs on every load until the changes are
+ * committed - see `library_cache_key`.
  *
  * @param repo_dir - absolute path to the repo to analyze
- * @returns the repo's `LibraryJson`
+ * @returns the repo's `LibraryLoadResult` (`library_json` + full `package_json`)
  */
 export const library_load_from_repo = async (
 	repo_dir: string,
 	options?: LibraryLoadOptions,
-): Promise<LibraryJson> => {
+): Promise<LibraryLoadResult> => {
 	const {log, cache = true} = options ?? {};
 
 	const cache_path = join(repo_dir, GRO_DIRNAME, LIBRARY_CACHE_FILENAME);
@@ -159,11 +187,13 @@ export const library_load_from_repo = async (
 
 	const library_json = library_json_from_modules(package_json, modules);
 
+	const result: LibraryLoadResult = {library_json, package_json};
+
 	// Cache the result (best effort). Skip when there's no usable key, e.g. not a
 	// git repo or a dirty working tree.
 	if (key !== null) {
-		await library_cache_write(cache_path, key, library_json, log);
+		await library_cache_write(cache_path, key, result, log);
 	}
 
-	return library_json;
+	return result;
 };
