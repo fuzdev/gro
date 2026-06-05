@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.203.0
+
+### Minor Changes
+
+- fix: versioned library cache shape ([6e4fd64](https://github.com/fuzdev/gro/commit/6e4fd64))
+
 ## 0.202.0
 
 ### Minor Changes
