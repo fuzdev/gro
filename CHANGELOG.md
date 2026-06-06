@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.204.0
+
+### Minor Changes
+
+- chore: upgrade peer deps ([95d5b92](https://github.com/fuzdev/gro/commit/95d5b92))
+
 ## 0.203.0
 
 ### Minor Changes
