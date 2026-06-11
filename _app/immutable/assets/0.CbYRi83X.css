@@ -69,9 +69,7 @@
 	--disabled_opacity: 60%;
 	--distance_md: 800px;
 	--distance_sm: 320px;
-	--duration_1: 0.08s;
 	--duration_2: 0.2s;
-	--duration_3: 0.5s;
 	--fg_05: var(--darken_05);
 	--fg_10: var(--darken_10);
 	--fg_20: var(--darken_20);
@@ -96,6 +94,7 @@
 	--hue_j: 155;
 	--icon_size_lg: 80px;
 	--icon_size_md: 48px;
+	--icon_size_sm: 32px;
 	--icon_size_xl2: 192px;
 	--input_fill: var(--bg_80);
 	--input_height: var(--space_xl5);
@@ -162,6 +161,7 @@
 	--space_xs: 0.6rem;
 	--space_xs2: 0.4rem;
 	--space_xs3: 0.3rem;
+	--space_xs4: 0.2rem;
 	--text_05: hsl(var(--tint_hue) var(--tint_saturation) 94%);
 	--text_10: hsl(var(--tint_hue) var(--tint_saturation) 90%);
 	--text_50: hsl(var(--tint_hue) var(--tint_saturation) 50%);
@@ -876,6 +876,10 @@ body {
 	min-height: var(--button_min_height, var(--input_height_compact));
 }
 
+:where(small) {
+	font-size: var(--font_size_sm);
+}
+
 :where(img, picture, canvas, svg, video) {
 	display: block;
 	max-width: 100%; /* shrink to fit */
@@ -925,6 +929,15 @@ body {
 /* A panel is a box embedded into the page, useful for visually isolating content. */
 .panel { border-radius: var(--border_radius, var(--border_radius_xs));
 			background-color: var(--fg_10); }
+/* Smaller sizing, one step down from the default, cascading to children. Works on individual elements or containers. */
+.sm { --font_size: var(--font_size_sm);
+			--input_height: var(--space_xl4);
+			--input_height_compact: var(--space_xl3);
+			--input_padding_x: var(--space_md);
+			--chip_padding_x: var(--space_xs2);
+			--icon_size: var(--icon_size_sm);
+			--menuitem_padding: var(--space_xs4) var(--space_xs2);
+			--flow_margin: var(--space_md); }
 /*
 TODO other button variants?
 TODO this is slightly strange that it doesn't use --icon_size.
@@ -1109,6 +1122,7 @@ These are used as modifiers to buttons.
 .gap_md { gap: var(--space_md); }
 .display\:block { display: block; }
 .display\:flex { display: flex; }
+.flex-wrap\:wrap { flex-wrap: wrap; }
 .flex\:1 { flex: 1; }
 .font-weight\:500 { font-weight: 500; }
 .justify-content\:space-between { justify-content: space-between; }
