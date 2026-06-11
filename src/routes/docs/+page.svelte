@@ -6,7 +6,8 @@
 	const get_tomes_by_slug = tomes_context.get();
 	const tomes = $derived(Array.from(get_tomes_by_slug().values()));
 
-	const library = library_context.get();
+	const get_library = library_context.get();
+	const library = $derived(get_library());
 </script>
 
 <DocsContent {tomes} {library}>

@@ -6,7 +6,8 @@
 
 	const tome = tome_get_by_slug('library');
 
-	const library = library_context.get();
+	const get_library = library_context.get();
+	const library = $derived(get_library());
 </script>
 
 <TomeContent {tome}>
