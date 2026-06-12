@@ -1,6 +1,6 @@
 import {vitePreprocess} from '@sveltejs/vite-plugin-svelte';
 import adapter from '@sveltejs/adapter-static';
-import {svelte_preprocess_mdz} from '@fuzdev/fuz_ui/svelte_preprocess_mdz.js';
+import {svelte_preprocess_mdz} from '@fuzdev/mdz/svelte_preprocess_mdz.js';
 import {svelte_preprocess_fuz_code} from '@fuzdev/fuz_code/svelte_preprocess_fuz_code.js';
 import {create_csp_directives} from '@fuzdev/fuz_ui/csp.js';
 import {csp_directives_of_fuzdev} from '@fuzdev/fuz_ui/csp_of_fuzdev.js';
