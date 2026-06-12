@@ -87,7 +87,7 @@
     "@changesets/types": "^6.1.0",
     "@fuzdev/blake3_wasm": "^0.1.1",
     "@fuzdev/fuz_code": "^0.46.0",
-    "@fuzdev/fuz_css": "^0.62.0",
+    "@fuzdev/fuz_css": "^0.63.0",
     "@fuzdev/fuz_ui": "^0.205.0",
     "@fuzdev/fuz_util": "^0.65.1",
     "@fuzdev/mdz": "^0.1.0",
