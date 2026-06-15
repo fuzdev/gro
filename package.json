@@ -59,7 +59,7 @@
   },
   "peerDependencies": {
     "@fuzdev/blake3_wasm": "^0.1.0",
-    "@fuzdev/fuz_util": ">=0.65.1",
+    "@fuzdev/fuz_util": ">=0.65.2",
     "@sveltejs/kit": "^2",
     "esbuild": "^0.28.0",
     "svelte": "^5",
@@ -89,7 +89,7 @@
     "@fuzdev/fuz_code": "^0.46.1",
     "@fuzdev/fuz_css": "^0.63.2",
     "@fuzdev/fuz_ui": "^0.205.1",
-    "@fuzdev/fuz_util": "^0.65.1",
+    "@fuzdev/fuz_util": "^0.65.2",
     "@fuzdev/mdz": "^0.1.0",
     "@ryanatkn/eslint-config": "^0.12.1",
     "@sveltejs/acorn-typescript": "^1.0.9",

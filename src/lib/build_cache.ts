@@ -7,6 +7,7 @@ import {git_current_commit_hash} from '@fuzdev/fuz_util/git.js';
 import {fs_exists} from '@fuzdev/fuz_util/fs.js';
 import {map_concurrent} from '@fuzdev/fuz_util/async.js';
 import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
+import {to_error_message} from '@fuzdev/fuz_util/error.js';
 
 import type {GroConfig} from './gro_config.ts';
 import {paths} from './paths.ts';
@@ -139,7 +140,7 @@ export const save_build_cache_metadata = async (
 		// Cache writes are optional - log warning but don't fail the build
 		log?.warn(
 			st('yellow', 'Failed to save build cache'),
-			st('dim', `(${error instanceof Error ? error.message : String(error)})`),
+			st('dim', `(${to_error_message(error)})`),
 		);
 	}
 };

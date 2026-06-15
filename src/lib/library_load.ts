@@ -11,6 +11,7 @@ import {
 import {fs_exists} from '@fuzdev/fuz_util/fs.js';
 import {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import {to_error_message} from '@fuzdev/fuz_util/error.js';
 
 import {GRO_DIRNAME} from './constants.ts';
 
@@ -134,7 +135,7 @@ export const library_cache_write = async (
 	} catch (error) {
 		log?.warn(
 			st('yellow', 'failed to write library cache'),
-			st('dim', `(${error instanceof Error ? error.message : String(error)})`),
+			st('dim', `(${to_error_message(error)})`),
 		);
 	}
 };
