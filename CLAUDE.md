@@ -6,7 +6,7 @@
 Gro (`@fuzdev/gro`) is a dev tool for building TypeScript projects with
 SvelteKit, providing: convention-based task runner, Node loader for
 TypeScript/Svelte/SvelteKit modules, code generation system, plugin
-architecture, and integrations with Vite, esbuild, Vitest, Prettier, ESLint, and
+architecture, and integrations with Vite, esbuild, Vitest, tsv, ESLint, and
 Changesets. It's designed around conventions and the filesystem, not
 configuration files.
 
@@ -168,7 +168,7 @@ Naming convention:
 
 Return values:
 
-- String: default filename, auto-formatted with Prettier
+- String: default filename, auto-formatted with tsv
 - Object: `{content, filename?, format?}` for control
 - Array: multiple files from one genfile
 - `null`: no-op

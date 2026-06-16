@@ -195,7 +195,12 @@ export const resolve_input_files = async (
 	let remaining = resolved_input_paths.slice();
 	const handle_found = (input_path: InputPath, id: PathId) => {
 		remaining = remaining.filter(
-			(r) => !(r.id === id || r.input_path === input_path || r.input_path === id), // `r.input_path === id` may be unnecessary
+			(r) =>
+				!(
+					r.id === id ||
+					r.input_path === input_path ||
+					r.input_path === id
+				), // `r.input_path === id` may be unnecessary
 		);
 	};
 

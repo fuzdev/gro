@@ -449,7 +449,9 @@ export const filter_dependents = (
 			const dependent_disknode = get_by_id(dependent_id);
 			if (!dependent_disknode) {
 				log?.warn(
-					`[filer.filter_dependents] dependent source file ${dependent_id} not found for ${current.id}`,
+					`[filer.filter_dependents] dependent source file ${dependent_id} not found for ${
+						current.id
+					}`,
 				);
 				continue;
 			}

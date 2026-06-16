@@ -20,7 +20,9 @@ export const task: Task<Args> = {
 		// Deleting both the lockfile and node_modules upgrades to the latest minor/patch versions.
 		await Promise.all([rm(LOCKFILE_FILENAME), rm(NODE_MODULES_DIRNAME, {recursive: true})]);
 		log.info(
-			`running \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}, this can take a while...`,
+			`running \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${
+				NODE_MODULES_DIRNAME
+			}, this can take a while...`,
 		);
 		await install_with_cache_healing_or_throw(config.pm_cli, {
 			log,

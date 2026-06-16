@@ -23,7 +23,10 @@ import type {Filer} from './filer.ts';
 
 export interface Task<
 	TArgs = Args,
-	TArgsSchema extends z.ZodType<Args, Args> = z.ZodType<Args, Args>, // TODO improve type? separate input/output?
+	TArgsSchema extends z.ZodType<Args, Args> = z.ZodType<
+		Args,
+		Args
+	>, // TODO improve type? separate input/output?
 	TReturn = unknown,
 > {
 	run: (ctx: TaskContext<TArgs>) => TReturn | Promise<TReturn>; // TODO unused return value
@@ -110,7 +113,7 @@ export type FindModulesFailure =
 			input_paths: Array<InputPath>;
 			task_root_dirs: Array<PathId>;
 			reasons: Array<string>;
-	  }
+		}
 	| {
 			type: 'input_directories_with_no_files';
 			input_directories_with_no_files: Array<InputPath>;
@@ -120,7 +123,7 @@ export type FindModulesFailure =
 			input_paths: Array<InputPath>;
 			task_root_dirs: Array<PathId>;
 			reasons: Array<string>;
-	  };
+		};
 
 /**
  * Finds modules from input paths. (see `input_path.ts` for more)

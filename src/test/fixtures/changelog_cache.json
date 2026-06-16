@@ -10,7 +10,9 @@
 					"id": 1573508138,
 					"html_url": "https://github.com/fuzdev/gro/pull/429",
 					"number": 429,
-					"user": {"login": "ryanatkn"}
+					"user": {
+						"login": "ryanatkn"
+					}
 				}
 			],
 			"etag": "W/\"4912dcf67e17b0ea3e68ca2727dcfbedfd92983b2ff46b8ae58ce2b062a38c45\"",
@@ -28,7 +30,9 @@
 					"id": 1639829810,
 					"html_url": "https://github.com/fuzdev/gro/pull/437",
 					"number": 437,
-					"user": {"login": "ryanatkn"}
+					"user": {
+						"login": "ryanatkn"
+					}
 				}
 			],
 			"etag": "W/\"1fdf4fc5a79e58799d9ee4876aa55fa0534950f9cb2a56ced4b95df74879ad9d\"",
@@ -126,7 +130,9 @@
 					"id": 1593503608,
 					"html_url": "https://github.com/fuzdev/gro/pull/434",
 					"number": 434,
-					"user": {"login": "ryanatkn"}
+					"user": {
+						"login": "ryanatkn"
+					}
 				}
 			],
 			"etag": "W/\"b26ed2c9b5eb0e59fdb65c82dd7aa053651769f0438e3a1ab107524ace8b706f\"",

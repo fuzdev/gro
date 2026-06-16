@@ -125,7 +125,12 @@ export const task: Task<Args> = {
 
 		log.info(
 			format_gen_output(output_lines) +
-				`\n\n\t${new_count} ${st(new_count > 0 ? 'green' : 'gray', 'new')}, ${changed_count} ${st(changed_count > 0 ? 'cyan' : 'gray', 'changed')}, ${unchanged_count} ${st('gray', 'unchanged')}${error_count ? `, ${error_count} ${st('red', 'error' + plural(error_count))}` : ''} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`,
+				`\n\n\t${new_count} ${st(new_count > 0 ? 'green' : 'gray', 'new')}, ${changed_count} ${st(
+					changed_count > 0 ? 'cyan' : 'gray',
+					'changed',
+				)}, ${unchanged_count} ${st('gray', 'unchanged')}${
+					error_count ? `, ${error_count} ${st('red', 'error' + plural(error_count))}` : ''
+				} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`,
 		);
 
 		if (fail_count) {
@@ -200,7 +205,9 @@ const format_gen_output = (output_lines: Array<OutputLine>): string => {
 	for (const line of output_lines) {
 		const elapsed_text = line.elapsed.padStart(max_elapsed_length);
 		const source_text = line.source.padEnd(max_source_length);
-		log_result += `\n\t${st(line.status.color, line.status.symbol)}  ${elapsed_text}  ${source_text} → ${line.target}`;
+		log_result += `\n\t${st(line.status.color, line.status.symbol)}  ${elapsed_text}  ${
+			source_text
+		} → ${line.target}`;
 	}
 	return log_result;
 };

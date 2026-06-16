@@ -114,7 +114,9 @@ export const invoke_task = async (
 	if (loaded_tasks.modules.length !== 1) throw Error('expected one loaded task'); // run only one task at a time
 	const task = loaded_tasks.modules[0]!;
 	log.info(
-		`→ ${st('cyan', task.name)} ${(task.mod.task.summary && st('gray', task.mod.task.summary)) ?? ''}`,
+		`→ ${st('cyan', task.name)} ${
+			(task.mod.task.summary && st('gray', task.mod.task.summary)) ?? ''
+		}`,
 	);
 
 	const timing_to_run_task = timings.start('run task ' + task_name);

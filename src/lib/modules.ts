@@ -22,7 +22,7 @@ export type LoadModuleFailure =
 			id: PathId;
 			mod: Record<string, any>;
 			validation: string;
-	  };
+		};
 
 export const load_module = async <TModule extends Record<string, any>>(
 	id: PathId,

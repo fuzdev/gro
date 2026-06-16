@@ -15,12 +15,12 @@ export type RunTaskResult =
 	| {
 			ok: true;
 			output: unknown;
-	  }
+		}
 	| {
 			ok: false;
 			reason: string;
 			error: Error;
-	  };
+		};
 
 export const run_task = async (
 	task_meta: TaskModuleMeta,
@@ -44,7 +44,9 @@ export const run_task = async (
 		const parsed = args_parse(unparsed_args, task.Args);
 		if (!parsed.success) {
 			throw new TaskError(
-				`Failed task args validation for task '${task_meta.name}':\n${z.prettifyError(parsed.error)}`,
+				`Failed task args validation for task '${task_meta.name}':\n${z.prettifyError(
+					parsed.error,
+				)}`,
 			);
 		}
 		args = parsed.data;

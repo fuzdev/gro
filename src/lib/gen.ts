@@ -165,14 +165,18 @@ export const to_output_file_name = (filename: string): string => {
 	}
 	if (gen_pattern_index !== parts.lastIndexOf(GEN_FILE_PATTERN_TEXT)) {
 		throw Error(
-			`Invalid gen file name - multiple instances of '${GEN_FILE_PATTERN_TEXT}' found in '${filename}'`,
+			`Invalid gen file name - multiple instances of '${GEN_FILE_PATTERN_TEXT}' found in '${
+				filename
+			}'`,
 		);
 	}
 	if (gen_pattern_index < parts.length - 3) {
 		// This check is technically unneccessary,
 		// but ensures a consistent file naming convention.
 		throw Error(
-			`Invalid gen file name - only one additional extension is allowed to follow '${GEN_FILE_PATTERN}' in '${filename}'`,
+			`Invalid gen file name - only one additional extension is allowed to follow '${
+				GEN_FILE_PATTERN
+			}' in '${filename}'`,
 		);
 	}
 	const final_parts: Array<string> = [];
@@ -202,13 +206,13 @@ export type AnalyzedGenResult =
 			existing_content: string;
 			is_new: false;
 			has_changed: boolean;
-	  }
+		}
 	| {
 			file: GenFile;
 			existing_content: null;
 			is_new: true;
 			has_changed: true;
-	  };
+		};
 
 export const analyze_gen_results = async (
 	gen_results: GenResults,
@@ -276,7 +280,7 @@ export type FindGenfilesFailure =
 			unmapped_input_paths: Array<InputPath>;
 			resolved_input_paths: Array<ResolvedInputPath>;
 			reasons: Array<string>;
-	  }
+		}
 	| {
 			type: 'input_directories_with_no_files';
 			input_directories_with_no_files: Array<InputPath>;
@@ -284,7 +288,7 @@ export type FindGenfilesFailure =
 			resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
 			resolved_input_paths: Array<ResolvedInputPath>;
 			reasons: Array<string>;
-	  };
+		};
 
 /**
  * Finds modules from input paths. (see `input_path.ts` for more)
