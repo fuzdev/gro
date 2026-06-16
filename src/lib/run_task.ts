@@ -1,6 +1,6 @@
-import {args_parse, type Args} from '@fuzdev/fuz_util/args.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
+import {args_parse, type Args} from '@fuzdev/fuz_util/args.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {Timings} from '@fuzdev/fuz_util/timings.ts';
 import {styleText as st} from 'node:util';
 import {z} from 'zod';
 

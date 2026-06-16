@@ -1,6 +1,6 @@
-import {fs_search} from '@fuzdev/fuz_util/fs.js';
-import {map_concurrent} from '@fuzdev/fuz_util/async.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import {fs_search} from '@fuzdev/fuz_util/fs.ts';
+import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {readFile, writeFile} from 'node:fs/promises';
 
 import {SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME} from './constants.ts';

@@ -1,10 +1,10 @@
 import {test, expect} from 'vitest';
-import {Logger} from '@fuzdev/fuz_util/log.js';
+import {Logger} from '@fuzdev/fuz_util/log.ts';
 import {readFile, writeFile} from 'node:fs/promises';
-import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
+import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
 
-import {update_changelog} from '../lib/changelog.ts';
-import {load_from_env} from '../lib/env.ts';
+import {update_changelog} from '$lib/changelog.ts';
+import {load_from_env} from '$lib/env.ts';
 
 const log = new Logger();
 

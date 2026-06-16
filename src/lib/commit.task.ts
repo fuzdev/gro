@@ -1,6 +1,6 @@
-import {spawn} from '@fuzdev/fuz_util/process.js';
+import {spawn} from '@fuzdev/fuz_util/process.ts';
 import {z} from 'zod';
-import {GitOrigin, git_current_branch_name, git_push} from '@fuzdev/fuz_util/git.js';
+import {GitOrigin, git_current_branch_name, git_push} from '@fuzdev/fuz_util/git.ts';
 
 import type {Task} from './task.ts';
 

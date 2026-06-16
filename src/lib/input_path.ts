@@ -1,10 +1,10 @@
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 import {stat} from 'node:fs/promises';
-import {fs_exists, fs_search} from '@fuzdev/fuz_util/fs.js';
-import {strip_start} from '@fuzdev/fuz_util/string.js';
+import {fs_exists, fs_search} from '@fuzdev/fuz_util/fs.ts';
+import {strip_start} from '@fuzdev/fuz_util/string.ts';
 import {z} from 'zod';
-import type {Flavored} from '@fuzdev/fuz_util/types.js';
-import type {PathInfo, PathId, ResolvedPath} from '@fuzdev/fuz_util/path.js';
+import type {Flavored} from '@fuzdev/fuz_util/types.ts';
+import type {PathInfo, PathId, ResolvedPath} from '@fuzdev/fuz_util/path.ts';
 
 import {GRO_PACKAGE_DIR, GRO_DIST_DIR} from './paths.ts';
 import {TASK_FILE_SUFFIX_JS} from './task.ts';

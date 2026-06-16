@@ -1,5 +1,5 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.js';
-import {GitOrigin, git_pull} from '@fuzdev/fuz_util/git.js';
+import {args_serialize} from '@fuzdev/fuz_util/args.ts';
+import {GitOrigin, git_pull} from '@fuzdev/fuz_util/git.ts';
 import {rm} from 'node:fs/promises';
 import {z} from 'zod';
 

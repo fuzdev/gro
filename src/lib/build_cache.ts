@@ -2,12 +2,12 @@ import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {styleText as st} from 'node:util';
 import {z} from 'zod';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {git_current_commit_hash} from '@fuzdev/fuz_util/git.js';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import {map_concurrent} from '@fuzdev/fuz_util/async.js';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
-import {to_error_message} from '@fuzdev/fuz_util/error.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {git_current_commit_hash} from '@fuzdev/fuz_util/git.ts';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
+import {to_error_message} from '@fuzdev/fuz_util/error.ts';
 
 import type {GroConfig} from './gro_config.ts';
 import {paths} from './paths.ts';

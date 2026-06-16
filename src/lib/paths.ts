@@ -1,8 +1,8 @@
 import {join, extname, relative, basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {ensure_end, strip_end} from '@fuzdev/fuz_util/string.js';
+import {ensure_end, strip_end} from '@fuzdev/fuz_util/string.ts';
 import {styleText as st} from 'node:util';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
 
 import {
 	GRO_CONFIG_FILENAME,

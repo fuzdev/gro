@@ -1,8 +1,8 @@
 import {readdir} from 'node:fs/promises';
 import {z} from 'zod';
-import {spawn} from '@fuzdev/fuz_util/process.js';
+import {spawn} from '@fuzdev/fuz_util/process.ts';
 import {styleText as st} from 'node:util';
-import {git_check_clean_workspace} from '@fuzdev/fuz_util/git.js';
+import {git_check_clean_workspace} from '@fuzdev/fuz_util/git.ts';
 
 import {TaskError, type Task} from './task.ts';
 import {package_json_sync} from './package_json.ts';

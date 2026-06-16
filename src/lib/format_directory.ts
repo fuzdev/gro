@@ -1,6 +1,6 @@
-import {args_serialize, type Args} from '@fuzdev/fuz_util/args.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {SpawnResult} from '@fuzdev/fuz_util/process.js';
+import {args_serialize, type Args} from '@fuzdev/fuz_util/args.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {SpawnResult} from '@fuzdev/fuz_util/process.ts';
 
 import {spawn_cli, to_cli_name, type Cli} from './cli.ts';
 import {

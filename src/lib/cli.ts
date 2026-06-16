@@ -5,12 +5,12 @@ import {
 	spawn_process,
 	type SpawnResult,
 	type SpawnedProcess,
-} from '@fuzdev/fuz_util/process.js';
+} from '@fuzdev/fuz_util/process.ts';
 import {join} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
 import {fileURLToPath, type URL} from 'node:url';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
 
 import {NODE_MODULES_DIRNAME} from './constants.ts';
 import {print_command_args} from './args.ts';

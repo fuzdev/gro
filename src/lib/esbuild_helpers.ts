@@ -1,5 +1,5 @@
 import {styleText as st} from 'node:util';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import type * as esbuild from 'esbuild';
 
 import type {ParsedSvelteConfig} from './svelte_config.ts';

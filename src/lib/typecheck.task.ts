@@ -1,5 +1,5 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.js';
-import {print_spawn_result} from '@fuzdev/fuz_util/process.js';
+import {args_serialize} from '@fuzdev/fuz_util/args.ts';
+import {print_spawn_result} from '@fuzdev/fuz_util/process.ts';
 import {z} from 'zod';
 
 import {to_forwarded_args} from './args.ts';

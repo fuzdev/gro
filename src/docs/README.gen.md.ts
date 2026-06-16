@@ -1,5 +1,5 @@
 import {basename} from 'node:path';
-import {fs_search} from '@fuzdev/fuz_util/fs.js';
+import {fs_search} from '@fuzdev/fuz_util/fs.ts';
 
 import type {Gen} from '../lib/gen.ts';
 import {

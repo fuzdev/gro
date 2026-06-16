@@ -1,6 +1,6 @@
 import {describe, test, expect} from 'vitest';
 
-import {BuildCacheMetadata, BuildOutputEntry} from '../lib/build_cache.ts';
+import {BuildCacheMetadata, BuildOutputEntry} from '$lib/build_cache.ts';
 
 import {
 	create_mock_build_cache_metadata,

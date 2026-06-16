@@ -1,6 +1,6 @@
 import {test, expect} from 'vitest';
 
-import {parse_imports} from '../lib/parse_imports.js';
+import {parse_imports} from '$lib/parse_imports.ts';
 
 test('parse js imports', () => {
 	const parsed = parse_imports(

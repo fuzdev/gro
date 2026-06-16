@@ -7,8 +7,8 @@
  * @module
  */
 
-import {type RestartableProcess, spawn_restartable_process} from '@fuzdev/fuz_util/process.js';
-import type {Plugin} from './plugin.js';
+import {type RestartableProcess, spawn_restartable_process} from '@fuzdev/fuz_util/process.ts';
+import type {Plugin} from './plugin.ts';
 
 export interface GroPluginDenoServerOptions {
 	/**

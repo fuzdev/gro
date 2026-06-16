@@ -1,7 +1,7 @@
 import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
 import {resolve} from 'node:path';
 
-import {task as deploy_task} from '../lib/deploy.task.ts';
+import {task as deploy_task} from '$lib/deploy.task.ts';
 
 import {
 	create_mock_deploy_task_context,
@@ -12,7 +12,7 @@ import {
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.js')>();
+	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
 	return {
 		...actual,
 		git_check_clean_workspace: vi.fn(),
@@ -53,7 +53,7 @@ describe('deploy_task dry mode', () => {
 		await setup_successful_fs_mocks();
 		await setup_successful_spawn_mock();
 
-		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		vi.mocked(fs_empty_dir).mockResolvedValue(undefined);
 	});
 
@@ -63,11 +63,11 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode behavior', () => {
 		test('performs all steps except git commit and push', async () => {
-			const {git_checkout, git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_checkout, git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			const {cp} = await import('node:fs/promises');
-			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
@@ -102,7 +102,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('logs success message with deploy_dir path', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -121,7 +121,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('uses custom deploy_dir in success message', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -139,8 +139,8 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('returns early after logging success', async () => {
-			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({dry: true});
@@ -157,7 +157,7 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode with build failure', () => {
 		test('shows dry deploy failed message when build fails', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -174,7 +174,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('still shows no git changes message on build failure', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -198,7 +198,7 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode with missing build_dir', () => {
 		test('throws error when build_dir missing', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			// build_dir doesn't exist
 			vi.mocked(fs_exists).mockImplementation((path: any) => {
@@ -215,8 +215,8 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode integration', () => {
 		test('dry mode works with custom branches', async () => {
-			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -238,7 +238,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('dry mode works with no-build flag', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -259,8 +259,8 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('dry mode works with reset flag', async () => {
-			const {git_reset_branch_to_first_commit} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_reset_branch_to_first_commit} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -282,8 +282,8 @@ describe('deploy_task dry mode', () => {
 
 	describe('non-dry mode', () => {
 		test('performs commit and push when dry=false', async () => {
-			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({dry: false});
@@ -301,7 +301,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('logs deployed message when dry=false', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({dry: false});

@@ -1,12 +1,12 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {join, basename, dirname, isAbsolute} from 'node:path';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import type {Result} from '@fuzdev/fuz_util/result.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
+import type {Result} from '@fuzdev/fuz_util/result.ts';
+import type {Timings} from '@fuzdev/fuz_util/timings.ts';
 import {styleText as st} from 'node:util';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
-import {each_concurrent, map_concurrent} from '@fuzdev/fuz_util/async.js';
-import {fs_search} from '@fuzdev/fuz_util/fs.js';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import {each_concurrent, map_concurrent} from '@fuzdev/fuz_util/async.ts';
+import {fs_search} from '@fuzdev/fuz_util/fs.ts';
 
 import {print_path} from './paths.ts';
 import type {GroConfig} from './gro_config.ts';

@@ -167,7 +167,7 @@ Or programmatically:
 ```js
 // myfile.js
 import {register} from 'node:module';
-register('@fuzdev/gro/loader.js', import.meta.url);
+register('@fuzdev/gro/loader.ts', import.meta.url);
 await import('./foo.ts');
 ```
 

@@ -42,7 +42,7 @@ so CLI commands are available locally after building.
 ```ts
 // gro.config.ts
 import type {CreateGroConfig} from '@fuzdev/gro';
-import {gro_plugin_sveltekit_library} from '@fuzdev/gro/gro_plugin_sveltekit_library.js';
+import {gro_plugin_sveltekit_library} from '@fuzdev/gro/gro_plugin_sveltekit_library.ts';
 
 const config: CreateGroConfig = async (cfg) => {
 	cfg.plugins = async () => [

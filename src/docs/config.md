@@ -67,7 +67,7 @@ To define a user config that overrides the default plugins:
 
 ```ts
 import type {CreateGroConfig} from '@fuzdev/gro';
-import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.js';
+import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.ts';
 
 const config: CreateGroConfig = async (cfg) => {
 	// `cfg`, which has type `GroConfig` and is equal to `create_empty_gro_config()`,
@@ -102,7 +102,7 @@ export default config;
 You can also export a config object and use `create_empty_gro_config` to get the defaults:
 
 ```ts
-import {create_empty_gro_config} from '@fuzdev/gro/gro_config.js';
+import {create_empty_gro_config} from '@fuzdev/gro/gro_config.ts';
 
 const config = create_empty_gro_config();
 

@@ -1,8 +1,8 @@
 import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
 import {resolve} from 'node:path';
 
-import {task as deploy_task} from '../lib/deploy.task.ts';
-import {TaskError} from '../lib/task.ts';
+import {task as deploy_task} from '$lib/deploy.task.ts';
+import {TaskError} from '$lib/task.ts';
 
 import {
 	create_mock_deploy_task_context,
@@ -13,7 +13,7 @@ import {
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.js')>();
+	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
 	return {
 		...actual,
 		git_check_clean_workspace: vi.fn(),
@@ -54,7 +54,7 @@ describe('deploy_task source branch preparation', () => {
 		await setup_successful_fs_mocks();
 		await setup_successful_spawn_mock();
 
-		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		vi.mocked(fs_empty_dir).mockResolvedValue(undefined);
 	});
 
@@ -65,9 +65,9 @@ describe('deploy_task source branch preparation', () => {
 	describe('source branch fetching', () => {
 		test('fetches source branch when it does not exist locally', async () => {
 			const {git_local_branch_exists, git_fetch} = vi.mocked(
-				await import('@fuzdev/fuz_util/git.js'),
+				await import('@fuzdev/fuz_util/git.ts'),
 			);
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false); // source doesn't exist
 			vi.mocked(fs_exists).mockResolvedValue(true);
@@ -85,9 +85,9 @@ describe('deploy_task source branch preparation', () => {
 
 		test('skips fetch when source branch exists locally', async () => {
 			const {git_local_branch_exists, git_fetch} = vi.mocked(
-				await import('@fuzdev/fuz_util/git.js'),
+				await import('@fuzdev/fuz_util/git.ts'),
 			);
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(true); // source exists
 			vi.mocked(fs_exists).mockResolvedValue(true);
@@ -105,9 +105,9 @@ describe('deploy_task source branch preparation', () => {
 
 		test('uses custom origin when fetching', async () => {
 			const {git_local_branch_exists, git_fetch} = vi.mocked(
-				await import('@fuzdev/fuz_util/git.js'),
+				await import('@fuzdev/fuz_util/git.ts'),
 			);
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false);
 			vi.mocked(fs_exists).mockResolvedValue(true);
@@ -126,8 +126,8 @@ describe('deploy_task source branch preparation', () => {
 
 	describe('source branch checkout', () => {
 		test('checks out the source branch', async () => {
-			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -141,8 +141,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('checks out custom source branch', async () => {
-			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -157,9 +157,9 @@ describe('deploy_task source branch preparation', () => {
 
 		test('checks out after fetch when source was missing', async () => {
 			const {git_local_branch_exists, git_fetch, git_checkout} = vi.mocked(
-				await import('@fuzdev/fuz_util/git.js'),
+				await import('@fuzdev/fuz_util/git.ts'),
 			);
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false);
 			vi.mocked(fs_exists).mockResolvedValue(true);
@@ -184,8 +184,8 @@ describe('deploy_task source branch preparation', () => {
 
 	describe('source branch pulling', () => {
 		test('pulls source branch when pull=true', async () => {
-			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -200,8 +200,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('skips pull when pull=false', async () => {
-			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -221,8 +221,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('pulls after checkout', async () => {
-			const {git_checkout, git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_checkout, git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -244,8 +244,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('uses custom origin when pulling', async () => {
-			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
@@ -263,7 +263,7 @@ describe('deploy_task source branch preparation', () => {
 
 	describe('post-pull validation', () => {
 		test('detects rebase conflicts after pull', async () => {
-			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
+			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
 			// Clean initially, dirty after pull (rebase conflict)
 			let call_count = 0;
@@ -287,8 +287,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('succeeds when pull completes cleanly', async () => {
-			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 			vi.mocked(fs_exists).mockResolvedValue(true);
@@ -302,8 +302,8 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('skips post-pull check when pull=false', async () => {
-			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+			const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			// Only first call (initial check) should happen
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
@@ -327,7 +327,7 @@ describe('deploy_task source branch preparation', () => {
 	describe('error handling', () => {
 		test('propagates error when git_fetch fails', async () => {
 			const {git_local_branch_exists, git_fetch} = vi.mocked(
-				await import('@fuzdev/fuz_util/git.js'),
+				await import('@fuzdev/fuz_util/git.ts'),
 			);
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false);
@@ -339,7 +339,7 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('propagates error when git_checkout fails', async () => {
-			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
+			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
 			vi.mocked(git_checkout).mockRejectedValue(new Error('Branch not found'));
 
@@ -349,7 +349,7 @@ describe('deploy_task source branch preparation', () => {
 		});
 
 		test('propagates error when git_pull fails', async () => {
-			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.js'));
+			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
 			vi.mocked(git_pull).mockRejectedValue(new Error('Cannot pull with uncommitted changes'));
 

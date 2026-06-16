@@ -1,4 +1,4 @@
-import {args_serialize, argv_parse} from '@fuzdev/fuz_util/args.js';
+import {args_serialize, argv_parse} from '@fuzdev/fuz_util/args.ts';
 import {describe, test, expect} from 'vitest';
 
 import {
@@ -7,7 +7,7 @@ import {
 	to_raw_rest_args,
 	to_implicit_forwarded_args,
 	to_task_args,
-} from '../lib/args.ts';
+} from '$lib/args.ts';
 
 describe('to_forwarded_args_by_command', () => {
 	test('basic behavior', () => {

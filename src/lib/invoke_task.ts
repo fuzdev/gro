@@ -1,7 +1,7 @@
-import type {Args} from '@fuzdev/fuz_util/args.js';
-import {Logger} from '@fuzdev/fuz_util/log.js';
-import {print_ms, print_timings} from '@fuzdev/fuz_util/print.js';
-import {create_stopwatch, Timings} from '@fuzdev/fuz_util/timings.js';
+import type {Args} from '@fuzdev/fuz_util/args.ts';
+import {Logger} from '@fuzdev/fuz_util/log.ts';
+import {print_ms, print_timings} from '@fuzdev/fuz_util/print.ts';
+import {create_stopwatch, Timings} from '@fuzdev/fuz_util/timings.ts';
 import {styleText as st} from 'node:util';
 
 import {to_forwarded_args} from './args.ts';

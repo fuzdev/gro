@@ -1,13 +1,13 @@
-import {spawn_restartable_process, type RestartableProcess} from '@fuzdev/fuz_util/process.js';
+import {spawn_restartable_process, type RestartableProcess} from '@fuzdev/fuz_util/process.ts';
 import * as esbuild from 'esbuild';
 import type {Config as SvelteConfig} from '@sveltejs/kit';
 import {join, resolve} from 'node:path';
-import {identity} from '@fuzdev/fuz_util/function.js';
-import {strip_before, strip_end} from '@fuzdev/fuz_util/string.js';
-import type {Result} from '@fuzdev/fuz_util/result.js';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import {throttle} from '@fuzdev/fuz_util/throttle.js';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
+import {identity} from '@fuzdev/fuz_util/function.ts';
+import {strip_before, strip_end} from '@fuzdev/fuz_util/string.ts';
+import type {Result} from '@fuzdev/fuz_util/result.ts';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import {throttle} from '@fuzdev/fuz_util/throttle.ts';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
 
 import type {Plugin} from './plugin.ts';
 import {base_path_to_path_id, LIB_DIRNAME, paths} from './paths.ts';

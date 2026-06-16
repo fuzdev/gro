@@ -1,7 +1,7 @@
 import {parseSync, type ImportDeclaration} from 'oxc-parser';
-import type {Flavored} from '@fuzdev/fuz_util/types.js';
-import {UnreachableError} from '@fuzdev/fuz_util/error.js';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
+import type {Flavored} from '@fuzdev/fuz_util/types.ts';
+import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
 
 import {JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER} from './constants.ts';
 

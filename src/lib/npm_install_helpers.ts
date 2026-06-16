@@ -1,5 +1,5 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {spawn_process, spawn_result_to_message} from '@fuzdev/fuz_util/process.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {spawn_process, spawn_result_to_message} from '@fuzdev/fuz_util/process.ts';
 import {styleText as st} from 'node:util';
 
 import {TaskError} from './task.ts';

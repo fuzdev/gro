@@ -1,7 +1,7 @@
 import {resolve} from 'node:path';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
-import type {PathId} from '@fuzdev/fuz_util/path.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {Timings} from '@fuzdev/fuz_util/timings.ts';
+import type {PathId} from '@fuzdev/fuz_util/path.ts';
 
 import type {GroConfig} from './gro_config.ts';
 import {filter_dependents, type Filer} from './filer.ts';

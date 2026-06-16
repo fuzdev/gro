@@ -1,6 +1,6 @@
 import {describe, test, expect, vi, beforeEach} from 'vitest';
 
-import {is_build_cache_valid, save_build_cache_metadata} from '../lib/build_cache.ts';
+import {is_build_cache_valid, save_build_cache_metadata} from '$lib/build_cache.ts';
 
 import {
 	create_mock_logger,
@@ -47,10 +47,10 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles cache file being modified while reading', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile} = vi.mocked(await import('node:fs/promises'));
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
 		const initial_metadata = create_mock_build_cache_metadata({
@@ -102,10 +102,10 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles multiple concurrent build validation operations', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile} = vi.mocked(await import('node:fs/promises'));
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.js');
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
 		const metadata = create_mock_build_cache_metadata({

@@ -1,11 +1,11 @@
 import {test, expect, vi} from 'vitest';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import {
 	SEARCH_EXCLUDER_DEFAULT,
 	EMPTY_BUILD_CACHE_CONFIG_HASH,
 	load_gro_config,
-} from '../lib/gro_config.ts';
+} from '$lib/gro_config.ts';
 
 test('load_gro_config', async () => {
 	// Mock the dynamic import to avoid module resolution issues

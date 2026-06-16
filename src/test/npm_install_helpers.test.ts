@@ -7,8 +7,8 @@ import {
 	install_with_cache_healing_or_throw,
 	type NpmCommandResult,
 	type NpmCommandRunner,
-} from '../lib/npm_install_helpers.ts';
-import {TaskError} from '../lib/task.ts';
+} from '$lib/npm_install_helpers.ts';
+import {TaskError} from '$lib/task.ts';
 
 describe('sanitize_install_env', () => {
 	test('preserves unrelated vars, including near-miss names', () => {

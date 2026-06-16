@@ -1,5 +1,5 @@
 import type {ChildProcess} from 'node:child_process';
-import {strip_end} from '@fuzdev/fuz_util/string.js';
+import {strip_end} from '@fuzdev/fuz_util/string.ts';
 
 /**
  * Maps child process output through a transform function.

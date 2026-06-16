@@ -1,4 +1,4 @@
-import type {BuildCacheMetadata, BuildOutputEntry} from '../lib/build_cache.ts';
+import type {BuildCacheMetadata, BuildOutputEntry} from '$lib/build_cache.ts';
 
 export {
 	create_mock_logger,

@@ -2,8 +2,8 @@ import {test, expect} from 'vitest';
 import * as esbuild from 'esbuild';
 import {readFile, rm} from 'node:fs/promises';
 
-import {esbuild_plugin_svelte} from '../lib/esbuild_plugin_svelte.ts';
-import {default_svelte_config} from '../lib/svelte_config.ts';
+import {esbuild_plugin_svelte} from '$lib/esbuild_plugin_svelte.ts';
+import {default_svelte_config} from '$lib/svelte_config.ts';
 
 // TODO improve these tests to have automatic caching
 

@@ -1,6 +1,6 @@
 import {styleText as st} from 'node:util';
-import {print_ms, print_error} from '@fuzdev/fuz_util/print.js';
-import {plural} from '@fuzdev/fuz_util/string.js';
+import {print_ms, print_error} from '@fuzdev/fuz_util/print.ts';
+import {plural} from '@fuzdev/fuz_util/string.ts';
 import {z} from 'zod';
 
 import {TaskError, type Task} from './task.ts';

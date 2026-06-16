@@ -1,8 +1,8 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.js';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import type {Result} from '@fuzdev/fuz_util/result.js';
+import {args_serialize} from '@fuzdev/fuz_util/args.ts';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import type {Result} from '@fuzdev/fuz_util/result.ts';
 import {join} from 'node:path';
 
 import {to_forwarded_args} from './args.ts';

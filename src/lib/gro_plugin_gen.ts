@@ -1,7 +1,7 @@
-import type {Args} from '@fuzdev/fuz_util/args.js';
-import {UnreachableError} from '@fuzdev/fuz_util/error.js';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
-import {throttle} from '@fuzdev/fuz_util/throttle.js';
+import type {Args} from '@fuzdev/fuz_util/args.ts';
+import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
+import {throttle} from '@fuzdev/fuz_util/throttle.ts';
 
 import type {Plugin} from './plugin.ts';
 import {paths} from './paths.ts';

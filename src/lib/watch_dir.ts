@@ -1,9 +1,9 @@
 import {watch, type ChokidarOptions, type FSWatcher, type Matcher} from 'chokidar';
 import {relative} from 'node:path';
 import {statSync} from 'node:fs';
-import {create_deferred, type Deferred} from '@fuzdev/fuz_util/async.js';
-import type {PathFilter} from '@fuzdev/fuz_util/path.js';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
+import {create_deferred, type Deferred} from '@fuzdev/fuz_util/async.ts';
+import type {PathFilter} from '@fuzdev/fuz_util/path.ts';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
 
 const TMP_FILE_PATTERN = /\.tmp\./;
 

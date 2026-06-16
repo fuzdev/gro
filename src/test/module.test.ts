@@ -1,6 +1,6 @@
 import {describe, test, expect} from 'vitest';
 
-import {is_external_module} from '../lib/module.ts';
+import {is_external_module} from '$lib/module.ts';
 
 describe('is_external_module', () => {
 	test('internal browser module patterns', () => {

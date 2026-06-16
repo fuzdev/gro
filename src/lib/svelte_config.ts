@@ -1,7 +1,7 @@
 import type {Config as SvelteConfig} from '@sveltejs/kit';
 import type {CompileOptions, ModuleCompileOptions, PreprocessorGroup} from 'svelte/compiler';
 import {join} from 'node:path';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
 
 import {SVELTE_CONFIG_FILENAME} from './constants.ts';
 

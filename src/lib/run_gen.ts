@@ -1,8 +1,8 @@
 import {styleText as st} from 'node:util';
-import {print_error} from '@fuzdev/fuz_util/print.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {map_concurrent} from '@fuzdev/fuz_util/async.js';
+import {print_error} from '@fuzdev/fuz_util/print.ts';
+import type {Timings} from '@fuzdev/fuz_util/timings.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
 
 import {
 	type GenResults,

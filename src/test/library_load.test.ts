@@ -1,6 +1,6 @@
 import {describe, test, expect, vi, beforeEach} from 'vitest';
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
+import type {LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
 
 // Mock the git helpers so the cache-key/staleness logic can be tested in
 // isolation, without depending on the surrounding repo's git state.
@@ -25,16 +25,16 @@ import {
 	git_current_commit_hash,
 	git_check_workspace,
 	git_workspace_is_clean,
-} from '@fuzdev/fuz_util/git.js';
+} from '@fuzdev/fuz_util/git.ts';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
 
 import {
 	LIBRARY_CACHE_VERSION,
 	library_cache_key,
 	library_cache_read,
 	library_cache_write,
-} from '../lib/library_load.ts';
+} from '$lib/library_load.ts';
 
 const mocked_commit = vi.mocked(git_current_commit_hash);
 const mocked_workspace = vi.mocked(git_check_workspace);

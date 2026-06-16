@@ -234,7 +234,7 @@ export const task: Task = {
 	run: async ({args, invoke_task}) => {
 		await doSomethingFirst();
 		// As discussed in the `invoke_task` section above,
-		// it's possible to `import {task as groBuiltinTestTask} from '@fuzdev/gro/test.task.js'`
+		// it's possible to `import {task as groBuiltinTestTask} from '@fuzdev/gro/test.task.ts'`
 		// and then call `groBuiltinTestTask.run` directly,
 		// but that loses some important benefits.
 		// Still, the task is available to import if you want it for any reason!

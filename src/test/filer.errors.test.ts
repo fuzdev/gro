@@ -1,9 +1,9 @@
 import {test, assert, vi} from 'vitest';
 import {resolve} from 'node:path';
 
-import type {WatchNodeFs} from '../lib/watch_dir.ts';
-import {Filer, filter_dependents} from '../lib/filer.ts';
-import type {Disknode} from '../lib/disknode.ts';
+import type {WatchNodeFs} from '$lib/watch_dir.ts';
+import {Filer, filter_dependents} from '$lib/filer.ts';
+import type {Disknode} from '$lib/disknode.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
 

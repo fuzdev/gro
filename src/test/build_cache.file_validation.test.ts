@@ -1,6 +1,6 @@
 import {describe, test, expect, vi, beforeEach} from 'vitest';
 
-import {validate_build_cache} from '../lib/build_cache.ts';
+import {validate_build_cache} from '$lib/build_cache.ts';
 
 import {
 	create_mock_build_cache_metadata,
@@ -32,9 +32,9 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns true when all output files match hashes and sizes', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -64,9 +64,9 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when output file is missing', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {stat, readFile} = vi.mocked(await import('node:fs/promises'));
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html')],
@@ -84,9 +84,9 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when output file size differs (fast path)', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {stat, readFile} = vi.mocked(await import('node:fs/promises'));
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html', {hash: 'expected_hash', size: 1024})],
@@ -104,9 +104,9 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when output file hash does not match', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html', {hash: 'expected_hash'})],
@@ -123,7 +123,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when some files exist but others are missing', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -143,9 +143,9 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when parallel hash validation has mixed results', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.js');
+		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -171,7 +171,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when file is deleted between size check and hash validation', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
 
 		const metadata = create_mock_build_cache_metadata({
@@ -199,7 +199,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when file becomes inaccessible during hash validation', async () => {
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.js'));
+		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		const {readFile, stat} = vi.mocked(await import('node:fs/promises'));
 
 		const metadata = create_mock_build_cache_metadata({

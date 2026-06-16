@@ -2,16 +2,16 @@ import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {styleText as st} from 'node:util';
 import {analyzeFromFiles} from 'svelte-docinfo';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {
 	git_current_commit_hash,
 	git_check_workspace,
 	git_workspace_is_clean,
-} from '@fuzdev/fuz_util/git.js';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.js';
-import {to_error_message} from '@fuzdev/fuz_util/error.js';
+} from '@fuzdev/fuz_util/git.ts';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
+import {to_error_message} from '@fuzdev/fuz_util/error.ts';
 
 import {GRO_DIRNAME} from './constants.ts';
 

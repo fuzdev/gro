@@ -1,5 +1,5 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.js';
-import {spawn_result_to_message, type SpawnedProcess} from '@fuzdev/fuz_util/process.js';
+import {args_serialize} from '@fuzdev/fuz_util/args.ts';
+import {spawn_result_to_message, type SpawnedProcess} from '@fuzdev/fuz_util/process.ts';
 
 import {to_forwarded_args} from './args.ts';
 import {find_cli, spawn_cli, spawn_cli_process} from './cli.ts';

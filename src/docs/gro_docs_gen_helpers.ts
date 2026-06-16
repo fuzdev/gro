@@ -1,6 +1,6 @@
 import {dirname, relative, basename} from 'node:path';
-import {parse_path_parts, parse_path_segments} from '@fuzdev/fuz_util/path.js';
-import {strip_start} from '@fuzdev/fuz_util/string.js';
+import {parse_path_parts, parse_path_segments} from '@fuzdev/fuz_util/path.ts';
+import {strip_start} from '@fuzdev/fuz_util/string.ts';
 
 import {to_output_file_name} from '../lib/gen.ts';
 import {paths, base_path_to_path_id} from '../lib/paths.ts';

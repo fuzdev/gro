@@ -1,7 +1,7 @@
-import {spawn} from '@fuzdev/fuz_util/process.js';
+import {spawn} from '@fuzdev/fuz_util/process.ts';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitBranch,
 	GitOrigin,
@@ -9,7 +9,7 @@ import {
 	git_checkout,
 	git_fetch,
 	git_pull,
-} from '@fuzdev/fuz_util/git.js';
+} from '@fuzdev/fuz_util/git.ts';
 
 import {TaskError, type Task} from './task.ts';
 import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';

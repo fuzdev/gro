@@ -1,9 +1,9 @@
 import {test, expect} from 'vitest';
 import {resolve} from 'node:path';
 
-import {to_gen_result, find_genfiles, validate_gen_module} from '../lib/gen.ts';
-import {paths} from '../lib/paths.ts';
-import {create_empty_gro_config} from '../lib/gro_config.ts';
+import {to_gen_result, find_genfiles, validate_gen_module} from '$lib/gen.ts';
+import {paths} from '$lib/paths.ts';
+import {create_empty_gro_config} from '$lib/gro_config.ts';
 
 const origin_id = resolve('src/foo.gen.ts');
 

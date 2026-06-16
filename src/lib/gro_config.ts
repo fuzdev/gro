@@ -1,9 +1,9 @@
 import {join, resolve} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import {identity} from '@fuzdev/fuz_util/function.js';
-import type {PathFilter, PathId} from '@fuzdev/fuz_util/path.js';
-import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.js';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import {identity} from '@fuzdev/fuz_util/function.ts';
+import type {PathFilter, PathId} from '@fuzdev/fuz_util/path.ts';
+import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.ts';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import {GRO_DIST_DIR, IS_THIS_GRO, paths} from './paths.ts';
 import {

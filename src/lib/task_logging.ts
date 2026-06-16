@@ -1,12 +1,12 @@
-import type {ArgSchema} from '@fuzdev/fuz_util/args.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {print_value} from '@fuzdev/fuz_util/print.js';
-import {plural} from '@fuzdev/fuz_util/string.js';
+import type {ArgSchema} from '@fuzdev/fuz_util/args.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {print_value} from '@fuzdev/fuz_util/print.ts';
+import {plural} from '@fuzdev/fuz_util/string.ts';
 import {
 	zod_to_subschema,
 	zod_to_schema_description,
 	zod_to_schema_default,
-} from '@fuzdev/fuz_util/zod.js';
+} from '@fuzdev/fuz_util/zod.ts';
 import {styleText as st} from 'node:util';
 import {z} from 'zod';
 

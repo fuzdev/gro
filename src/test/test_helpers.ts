@@ -2,15 +2,15 @@ import {readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import ts from 'typescript';
 import {vi} from 'vitest';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {Timings} from '@fuzdev/fuz_util/timings.js';
-import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.js';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {Timings} from '@fuzdev/fuz_util/timings.ts';
+import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.ts';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import type {GroConfig} from '../lib/gro_config.ts';
-import type {Filer} from '../lib/filer.ts';
-import type {ParsedSvelteConfig} from '../lib/svelte_config.ts';
-import type {TaskContext} from '../lib/task.ts';
+import type {GroConfig} from '$lib/gro_config.ts';
+import type {Filer} from '$lib/filer.ts';
+import type {ParsedSvelteConfig} from '$lib/svelte_config.ts';
+import type {TaskContext} from '$lib/task.ts';
 
 /**
  * Creates a mock logger for testing.

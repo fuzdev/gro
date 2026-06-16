@@ -1,5 +1,5 @@
-import {attach_process_error_handler} from '@fuzdev/fuz_util/process.js';
-import {configure_print_colors} from '@fuzdev/fuz_util/print.js';
+import {attach_process_error_handler} from '@fuzdev/fuz_util/process.ts';
+import {configure_print_colors} from '@fuzdev/fuz_util/print.ts';
 
 import {invoke_task} from './invoke_task.ts';
 import {to_task_args} from './args.ts';

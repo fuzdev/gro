@@ -1,6 +1,6 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.js';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
-import {spawn_result_to_message} from '@fuzdev/fuz_util/process.js';
+import {args_serialize} from '@fuzdev/fuz_util/args.ts';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import {spawn_result_to_message} from '@fuzdev/fuz_util/process.ts';
 import {styleText as st} from 'node:util';
 import {z} from 'zod';
 

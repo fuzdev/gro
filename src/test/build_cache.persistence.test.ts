@@ -1,6 +1,6 @@
 import {describe, test, expect, vi, beforeEach} from 'vitest';
 
-import {load_build_cache_metadata, save_build_cache_metadata} from '../lib/build_cache.ts';
+import {load_build_cache_metadata, save_build_cache_metadata} from '$lib/build_cache.ts';
 
 import {create_mock_logger, create_mock_build_cache_metadata} from './build_cache_test_helpers.ts';
 
@@ -34,7 +34,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('loads valid metadata file', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(fs_exists).mockResolvedValue(true);
@@ -46,7 +46,7 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for non-existent file', async () => {
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(false);
 
@@ -57,7 +57,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('returns null for invalid JSON', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -69,7 +69,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('returns null for wrong schema version', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		const metadata = create_mock_build_cache_metadata({version: '999'});
 		vi.mocked(fs_exists).mockResolvedValue(true);
@@ -82,7 +82,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('deletes cache file on schema version mismatch', async () => {
 		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		const metadata = create_mock_build_cache_metadata({version: '999'});
 		vi.mocked(fs_exists).mockResolvedValue(true);
@@ -96,7 +96,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('deletes cache file on corrupted JSON', async () => {
 		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -109,7 +109,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('handles cleanup errors gracefully', async () => {
 		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -122,7 +122,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('returns null for empty file', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('');
@@ -134,7 +134,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('returns null for valid JSON with wrong version', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -148,7 +148,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('returns null for truncated JSON file', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		// Simulate truncated write (incomplete JSON)
 		const truncated = '{"version":"1","git_commit":"abc123","build_cache_config_hash":"hash","tim';
@@ -163,7 +163,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('rejects cache with missing required fields (Zod validation)', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -183,7 +183,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('rejects cache with wrong field types (Zod validation)', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -203,7 +203,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('rejects cache with unexpected extra fields (strictObject)', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -217,7 +217,7 @@ describe('load_build_cache_metadata', () => {
 
 	test('rejects cache with invalid outputs type', async () => {
 		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.js');
+		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(

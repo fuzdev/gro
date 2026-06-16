@@ -1,4 +1,4 @@
-import {print_spawn_result, spawn, spawn_result_to_message} from '@fuzdev/fuz_util/process.js';
+import {print_spawn_result, spawn, spawn_result_to_message} from '@fuzdev/fuz_util/process.ts';
 
 import type {Plugin} from './plugin.ts';
 import {TaskError} from './task.ts';

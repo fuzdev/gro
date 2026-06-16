@@ -1,4 +1,4 @@
-import {print_spawn_result} from '@fuzdev/fuz_util/process.js';
+import {print_spawn_result} from '@fuzdev/fuz_util/process.ts';
 import {z} from 'zod';
 
 import {to_implicit_forwarded_args} from './args.ts';

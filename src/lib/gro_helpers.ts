@@ -1,7 +1,7 @@
 import {realpathSync, existsSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {spawn, type SpawnResult} from '@fuzdev/fuz_util/process.js';
+import {spawn, type SpawnResult} from '@fuzdev/fuz_util/process.ts';
 
 import {JS_CLI_DEFAULT, NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME} from './constants.ts';
 

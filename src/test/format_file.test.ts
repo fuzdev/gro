@@ -1,6 +1,6 @@
 import {test, expect} from 'vitest';
 
-import {format_file} from '../lib/format_file.ts';
+import {format_file} from '$lib/format_file.ts';
 
 test('format ts', async () => {
 	const ts_unformatted = 'hey (1)';

@@ -1,5 +1,5 @@
 import {styleText as st} from 'node:util';
-import {argv_parse, type Args} from '@fuzdev/fuz_util/args.js';
+import {argv_parse, type Args} from '@fuzdev/fuz_util/args.ts';
 
 /**
  * Parses `task_name` and `args` from `process.argv`,

@@ -1,6 +1,6 @@
 import {test, expect} from 'vitest';
 import {resolve} from 'node:path';
-import type {ResolvedPath} from '@fuzdev/fuz_util/path.js';
+import type {ResolvedPath} from '@fuzdev/fuz_util/path.ts';
 
 import {
 	to_input_path,
@@ -9,8 +9,8 @@ import {
 	get_possible_paths,
 	type ResolvedInputPath,
 	type ResolvedInputFile,
-} from '../lib/input_path.ts';
-import {GRO_DIST_DIR, paths} from '../lib/paths.ts';
+} from '$lib/input_path.ts';
+import {GRO_DIST_DIR, paths} from '$lib/paths.ts';
 
 test('to_input_path', () => {
 	expect(to_input_path(resolve('foo.ts'))).toBe(resolve('foo.ts'));

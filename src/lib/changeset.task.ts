@@ -1,15 +1,15 @@
 import {z} from 'zod';
-import {spawn} from '@fuzdev/fuz_util/process.js';
+import {spawn} from '@fuzdev/fuz_util/process.ts';
 import {styleText as st} from 'node:util';
 import type {WrittenConfig} from '@changesets/types';
 import {readdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.js';
+import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitOrigin,
 	git_check_fully_staged_workspace,
 	git_push_to_create,
-} from '@fuzdev/fuz_util/git.js';
+} from '@fuzdev/fuz_util/git.ts';
 
 import {TaskError, type Task} from './task.ts';
 import {find_cli, spawn_cli} from './cli.ts';

@@ -7,7 +7,7 @@ import {
 	rewrite_relative_ts_imports,
 	rewrite_svelte_ts_imports,
 	rewrite_dist_imports,
-} from '../lib/dist_rewrite_imports.ts';
+} from '$lib/dist_rewrite_imports.ts';
 
 describe('rewrite_relative_ts_imports', () => {
 	test('rewrites relative `.ts` specifiers to `.js`', () => {

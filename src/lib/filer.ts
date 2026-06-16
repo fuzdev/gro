@@ -1,13 +1,13 @@
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
 import {readFile, stat} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
-import type {OmitStrict} from '@fuzdev/fuz_util/types.js';
+import type {OmitStrict} from '@fuzdev/fuz_util/types.ts';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {UnreachableError} from '@fuzdev/fuz_util/error.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import type {FileFilter, PathId} from '@fuzdev/fuz_util/path.js';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.js';
+import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import type {FileFilter, PathId} from '@fuzdev/fuz_util/path.ts';
+import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import {
 	watch_dir,

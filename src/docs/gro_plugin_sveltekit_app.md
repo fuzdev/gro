@@ -6,7 +6,7 @@ runs `vite dev` and `vite build` for SvelteKit projects.
 ```ts
 // gro.config.ts
 import type {CreateGroConfig} from '@fuzdev/gro';
-import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.js';
+import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.ts';
 
 const config: CreateGroConfig = async (cfg) => {
 	cfg.plugins = async () => [

@@ -1,7 +1,7 @@
 import {test, expect} from 'vitest';
 import {resolve} from 'node:path';
 
-import {load_module} from '../lib/modules.ts';
+import {load_module} from '$lib/modules.ts';
 
 // TODO if we import directly, svelte-package generates types in `src/test/fixtures`
 

@@ -1,12 +1,12 @@
 import {test, expect} from 'vitest';
-import {PackageJson, PackageJsonExports} from '@fuzdev/fuz_util/package_json.js';
+import {PackageJson, PackageJsonExports} from '@fuzdev/fuz_util/package_json.ts';
 
 import {
 	package_json_load,
 	package_json_parse_repo_url,
 	package_json_serialize,
 	package_json_to_exports,
-} from '../lib/package_json.ts';
+} from '$lib/package_json.ts';
 
 test('package_json_load', async () => {
 	const package_json = await package_json_load();

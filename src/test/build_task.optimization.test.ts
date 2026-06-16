@@ -1,6 +1,6 @@
 import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
 
-import {task as build_task} from '../lib/build.task.ts';
+import {task as build_task} from '$lib/build.task.ts';
 
 import {create_mock_build_task_context, create_mock_plugins} from './build_task_test_helpers.ts';
 
@@ -20,18 +20,18 @@ vi.mock('node:fs', () => ({
 	statSync: vi.fn(),
 }));
 
-vi.mock('../lib/clean_fs.ts', () => ({
+vi.mock('$lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn(),
 }));
 
-vi.mock('../lib/plugin.ts', () => ({
+vi.mock('$lib/plugin.ts', () => ({
 	Plugins: {
 		create: vi.fn(),
 	},
 }));
 
-vi.mock('../lib/build_cache.ts', async (import_original) => {
-	const original = await import_original<typeof import('../lib/build_cache.ts')>();
+vi.mock('$lib/build_cache.ts', async (import_original) => {
+	const original = await import_original<typeof import('$lib/build_cache.ts')>();
 	return {
 		...original,
 		is_build_cache_valid: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('../lib/build_cache.ts', async (import_original) => {
 	};
 });
 
-vi.mock('../lib/paths.ts', () => ({
+vi.mock('$lib/paths.ts', () => ({
 	paths: {
 		root: './',
 		source: './src/',
@@ -61,10 +61,10 @@ describe('build_task optimization', () => {
 
 		// Setup default mocks
 		const mock_plugins = create_mock_plugins();
-		const {Plugins} = vi.mocked(await import('../lib/plugin.ts'));
+		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
-		const {clean_fs} = vi.mocked(await import('../lib/clean_fs.ts'));
+		const {clean_fs} = vi.mocked(await import('$lib/clean_fs.ts'));
 		vi.mocked(clean_fs).mockResolvedValue(undefined);
 	});
 
@@ -74,10 +74,10 @@ describe('build_task optimization', () => {
 
 	test('batches initial git calls together', async () => {
 		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.js'),
+			await import('@fuzdev/fuz_util/git.ts'),
 		);
-		const {is_build_cache_valid} = vi.mocked(await import('../lib/build_cache.ts'));
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
+		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -119,12 +119,12 @@ describe('build_task optimization', () => {
 
 	test('passes pre-computed values to avoid re-reading git', async () => {
 		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.js'),
+			await import('@fuzdev/fuz_util/git.ts'),
 		);
 		const {is_build_cache_valid, create_build_cache_metadata} = vi.mocked(
-			await import('../lib/build_cache.ts'),
+			await import('$lib/build_cache.ts'),
 		);
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.js'));
+		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');

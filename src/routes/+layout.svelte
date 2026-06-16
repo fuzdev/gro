@@ -4,8 +4,8 @@
 
 	import ThemeRoot from '@fuzdev/fuz_ui/ThemeRoot.svelte';
 	import type {Snippet} from 'svelte';
-	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.js';
-	import {logo_gro} from '@fuzdev/fuz_ui/logos.js';
+	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.ts';
+	import {logo_gro} from '@fuzdev/fuz_ui/logos.ts';
 	import pkg_json from 'virtual:pkg.json';
 
 	// TODO add website, rewriting the markdown docs as Svelte
