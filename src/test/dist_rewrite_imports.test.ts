@@ -90,6 +90,11 @@ describe('rewrite_relative_ts_imports', () => {
 		assert.equal(rewrite_relative_ts_imports(input), input);
 	});
 
+	test('does not match member calls like `arr.from(\'./x.ts\')`', () => {
+		const input = `const a = Array.from('./x.ts');\nconst b = q.from('./y.ts');`;
+		assert.equal(rewrite_relative_ts_imports(input), input);
+	});
+
 	test('rewrites every specifier across a realistic `.d.ts` body', () => {
 		const input = [
 			`import { type ContextmenuRootBaseProps } from './contextmenu_helpers.ts';`,
@@ -147,6 +152,22 @@ describe('rewrite_svelte_ts_imports', () => {
 </script>
 <script lang="ts">
 	import {local} from './local.js';
+</script>
+`;
+		assert.equal(rewrite_svelte_ts_imports(input), expected);
+	});
+
+	test('preserves `$`-sequences ($$props, $:) while rewriting specifiers', () => {
+		const input = `<script lang="ts">
+	import {x} from './x.ts';
+	const props = $$props;
+	$: doubled = x;
+</script>
+`;
+		const expected = `<script lang="ts">
+	import {x} from './x.js';
+	const props = $$props;
+	$: doubled = x;
 </script>
 `;
 		assert.equal(rewrite_svelte_ts_imports(input), expected);

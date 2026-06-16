@@ -1,4 +1,5 @@
 import {fs_search} from '@fuzdev/fuz_util/fs.js';
+import {map_concurrent} from '@fuzdev/fuz_util/async.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {readFile, writeFile} from 'node:fs/promises';
 
@@ -37,11 +38,12 @@ This is intentionally parse-light; the long-term home for the rewrite is tsv.
  * and the path body so the trailing `.ts` can be swapped for `.js`.
  *
  * Anchored on a module-specifier introducer (`from`, `import`, `require`) so it
- * doesn't touch incidental relative-looking string literals, and on a `./`/`../`
- * prefix so bare specifiers like `@fuzdev/fuz_util/foo.ts` are left untouched.
+ * doesn't touch incidental relative-looking string literals, on a `./`/`../`
+ * prefix so bare specifiers like `@fuzdev/fuz_util/foo.ts` are left untouched, and
+ * on a `(?<!\.)` lookbehind so member calls like `arr.from('./x.ts')` are skipped.
  */
 const RELATIVE_TS_IMPORT_MATCHER =
-	/((?:\bfrom|\bimport|\brequire)\b\s*\(?\s*)(['"])(\.\.?\/[^'"\n]*?)\.ts\2/g;
+	/(?<!\.)((?:\bfrom|\bimport|\brequire)\b\s*\(?\s*)(['"])(\.\.?\/[^'"\n]*?)\.ts\2/g;
 
 /**
  * Rewrites relative `.ts` (and `.svelte.ts`) import specifiers to `.js` (and
@@ -61,7 +63,10 @@ export const rewrite_relative_ts_imports = (content: string): string =>
 export const rewrite_svelte_ts_imports = (content: string): string =>
 	content.replace(SVELTE_SCRIPT_MATCHER, (full: string, inner: string) => {
 		const rewritten = rewrite_relative_ts_imports(inner);
-		return rewritten === inner ? full : full.replace(inner, rewritten);
+		if (rewritten === inner) return full;
+		// replace via a function so `$`-sequences in the script (`$$props`, `$:`,
+		// `$&`, …) aren't interpreted as `String.prototype.replace` substitution patterns
+		return full.replace(inner, () => rewritten);
 	});
 
 export interface RewriteDistImportsResult {
@@ -70,6 +75,9 @@ export interface RewriteDistImportsResult {
 	/** Number of scanned files whose contents changed. */
 	rewritten: number;
 }
+
+/** Bounds open file descriptors while rewriting the dist tree. */
+const DIST_REWRITE_CONCURRENCY = 16;
 
 /**
  * Walks `dist_dir` and rewrites relative `.ts` import specifiers to `.js` in every
@@ -88,20 +96,17 @@ export const rewrite_dist_imports = async (
 		file_filter: (id) => id.endsWith('.d.ts') || id.endsWith('.svelte'),
 	});
 
-	let rewritten = 0;
-	await Promise.all(
-		found.map(async ({id, path}) => {
-			const content = await readFile(id, 'utf8');
-			const next = id.endsWith('.svelte')
-				? rewrite_svelte_ts_imports(content)
-				: rewrite_relative_ts_imports(content);
-			if (next !== content) {
-				await writeFile(id, next);
-				rewritten++;
-				log?.debug(`rewrote relative .ts import specifiers to .js in ${path}`);
-			}
-		}),
-	);
+	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({id, path}) => {
+		const content = await readFile(id, 'utf8');
+		const next = id.endsWith('.svelte')
+			? rewrite_svelte_ts_imports(content)
+			: rewrite_relative_ts_imports(content);
+		if (next === content) return false;
+		await writeFile(id, next);
+		log?.debug(`rewrote relative .ts import specifiers to .js in ${path}`);
+		return true;
+	});
+	const rewritten = changed.filter(Boolean).length;
 
 	if (found.length) {
 		log?.info(
