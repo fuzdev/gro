@@ -275,7 +275,8 @@ Builtin plugins:
 - `gro_plugin_sveltekit_app` - runs `vite dev` or `vite build` for SvelteKit
   frontends ([docs](src/docs/gro_plugin_sveltekit_app.md))
 - `gro_plugin_sveltekit_library` - runs `svelte-package` to publish from
-  `src/lib/` ([docs](src/docs/gro_plugin_sveltekit_library.md))
+  `src/lib/`, then rewrites relative `.ts`→`.js` import specifiers in the
+  emitted `.d.ts`/`.svelte` ([docs](src/docs/gro_plugin_sveltekit_library.md))
 - `gro_plugin_server` - runs Node servers with auto-restart on changes
 
 ### Configuration
