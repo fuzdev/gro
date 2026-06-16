@@ -20,7 +20,7 @@
   "bugs": "https://github.com/fuzdev/gro/issues",
   "funding": "https://www.ryanatkn.com/funding",
   "scripts": {
-    "bootstrap": "rm -rf .gro dist && svelte-kit sync && svelte-package && chmod +x ./dist/gro.js && npm link -f",
+    "bootstrap": "rm -rf .gro dist && svelte-kit sync && svelte-package && node -e \"import('./src/lib/dist_rewrite_imports.ts').then((m) => m.rewrite_dist_imports())\" && chmod +x ./dist/gro.js && npm link -f",
     "start": "gro dev",
     "dev": "gro dev",
     "build": "gro build",
