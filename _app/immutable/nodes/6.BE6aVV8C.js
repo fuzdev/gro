@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BORowJTq.js";export{e as component};
