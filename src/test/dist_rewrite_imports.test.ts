@@ -195,7 +195,7 @@ describe('rewrite_dist_imports', () => {
 		await rm(dir, {recursive: true, force: true});
 	});
 
-	test('rewrites `.d.ts`, `.svelte.d.ts`, and `.svelte`, leaving `.js` and maps alone', async () => {
+	test('rewrites `.js`, `.d.ts`, `.svelte.d.ts`, and `.svelte`, leaving maps alone', async () => {
 		await mkdir(join(dir, 'nested'), {recursive: true});
 		await writeFile(join(dir, 'a.d.ts'), `import type {B} from './b.ts';\n`);
 		await writeFile(join(dir, 'Comp.svelte.d.ts'), `import {type P} from './helpers.ts';\n`);
@@ -203,8 +203,12 @@ describe('rewrite_dist_imports', () => {
 			join(dir, 'Comp.svelte'),
 			`<script lang="ts">\n\timport {s} from './state.svelte.ts';\n</script>\n`,
 		);
-		// already emitted by tsc — must stay untouched
-		await writeFile(join(dir, 'a.js'), `import {b} from './b.js';\n`);
+		// runtime `.js`: a relative `.ts` specifier is rewritten, an already-`.js` one preserved
+		await writeFile(join(dir, 'a.js'), `import {b} from './b.ts';\nimport {c} from './c.js';\n`);
+		// compiled `.svelte.ts` → `.svelte.js`: its `.svelte.ts` specifier is rewritten too
+		await writeFile(join(dir, 'state.svelte.js'), `import {x} from './x.svelte.ts';\n`);
+		// source maps are skipped
+		await writeFile(join(dir, 'a.js.map'), `{"sources":["../src/lib/a.ts"]}\n`);
 		await writeFile(join(dir, 'a.d.ts.map'), `{"sources":["../src/lib/a.ts"]}\n`);
 		await writeFile(join(dir, 'nested', 'c.d.ts'), `export * from '../a.ts';\n`);
 
@@ -219,7 +223,18 @@ describe('rewrite_dist_imports', () => {
 			await readFile(join(dir, 'Comp.svelte'), 'utf8'),
 			`<script lang="ts">\n\timport {s} from './state.svelte.js';\n</script>\n`,
 		);
-		assert.equal(await readFile(join(dir, 'a.js'), 'utf8'), `import {b} from './b.js';\n`);
+		assert.equal(
+			await readFile(join(dir, 'a.js'), 'utf8'),
+			`import {b} from './b.js';\nimport {c} from './c.js';\n`,
+		);
+		assert.equal(
+			await readFile(join(dir, 'state.svelte.js'), 'utf8'),
+			`import {x} from './x.svelte.js';\n`,
+		);
+		assert.equal(
+			await readFile(join(dir, 'a.js.map'), 'utf8'),
+			`{"sources":["../src/lib/a.ts"]}\n`,
+		);
 		assert.equal(
 			await readFile(join(dir, 'a.d.ts.map'), 'utf8'),
 			`{"sources":["../src/lib/a.ts"]}\n`,
@@ -229,9 +244,10 @@ describe('rewrite_dist_imports', () => {
 			`export * from '../a.js';\n`,
 		);
 
-		// 4 files scanned (a.d.ts, Comp.svelte.d.ts, Comp.svelte, nested/c.d.ts); all 4 rewritten
-		assert.equal(result.scanned, 4);
-		assert.equal(result.rewritten, 4);
+		// 6 files scanned (a.d.ts, Comp.svelte.d.ts, Comp.svelte, a.js, state.svelte.js,
+		// nested/c.d.ts); the two `*.map` files are excluded. All 6 rewritten.
+		assert.equal(result.scanned, 6);
+		assert.equal(result.rewritten, 6);
 	});
 
 	test('returns zero rewrites for a missing directory', async () => {

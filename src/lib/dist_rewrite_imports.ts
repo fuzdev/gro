@@ -11,22 +11,30 @@ Post-`svelte-package` pass that rewrites relative `.ts` import specifiers to `.j
 in the published `dist` output.
 
 The ecosystem writes import specifiers with the real source extension
-(`./foo.ts`, `./bar.svelte.ts`) and relies on emit-only rewrites to make `dist`
-resolve for external consumers. `tsc`'s `rewriteRelativeImportExtensions` handles
-the `.ts`/`.svelte.ts` → `dist/*.js` emit, but two outputs are left untouched:
+(`./foo.ts`, `./bar.svelte.ts`) and relies on an emit-only rewrite to make `dist`
+resolve for external consumers. This pass owns that rewrite end-to-end, across
+every output `svelte-package` produces:
 
+- `.js` runtime files (including `.svelte.js` compiled from `.svelte.ts`),
 - `.svelte` files, which `svelte-package` ships verbatim (source `<script>` and
   its relative specifiers intact), and
-- `.d.ts` / `*.svelte.d.ts` declaration files, whose specifiers `svelte-package`'s
-  declaration emit leaves as `.ts`.
+- `.d.ts` / `*.svelte.d.ts` declaration files.
 
-This pass closes both gaps so a flagless external consumer (no
+This closes the gap so a flagless external consumer (no
 `allowImportingTsExtensions`) resolves the package's types and runtime.
+
+It deliberately does **not** rely on `tsc`'s `rewriteRelativeImportExtensions`:
+that flag rewrites only relative specifiers, so it can't carry a SvelteKit
+`$lib`/`$routes` alias — a non-relative `.ts` specifier is a hard error under it,
+which would force dissolving those aliases into relative paths. With the rewrite
+owned here, source keeps its aliases and the flag stays off. The pass is
+idempotent, so it's a safe no-op on any `.js` `tsc` did happen to rewrite.
 
 Only **relative** specifiers (`./`, `../`) are rewritten. Bare `@fuzdev/…ts`
 specifiers are left alone — the package `exports` `.js`/`.ts` mirror resolves them
-in both source and dist. `.svelte` component imports and specifiers already ending
-in `.js` are likewise untouched.
+in both source and dist. SvelteKit aliases (`$lib`, `$routes`) live only in
+non-published app/test code, never in `dist`. `.svelte` component imports and
+specifiers already ending in `.js` are likewise untouched.
 
 This is intentionally parse-light; the long-term home for the rewrite is tsv.
 
@@ -70,7 +78,7 @@ export const rewrite_svelte_ts_imports = (content: string): string =>
 	});
 
 export interface RewriteDistImportsResult {
-	/** Number of files scanned (`.d.ts` and `.svelte`). */
+	/** Number of files scanned (`.js`, `.d.ts`, and `.svelte`). */
 	scanned: number;
 	/** Number of scanned files whose contents changed. */
 	rewritten: number;
@@ -81,9 +89,8 @@ const DIST_REWRITE_CONCURRENCY = 16;
 
 /**
  * Walks `dist_dir` and rewrites relative `.ts` import specifiers to `.js` in every
- * `.d.ts` declaration file (whole-file) and `.svelte` file (`<script>` blocks
- * only). `.js` files are skipped — `tsc`'s `rewriteRelativeImportExtensions`
- * already rewrites those — as are source maps.
+ * `.js` runtime file and `.d.ts` declaration file (whole-file) and `.svelte` file
+ * (`<script>` blocks only). Source maps (`*.map`) are skipped.
  *
  * @param dist_dir - the packaged output directory; defaults to `dist`
  * @returns counts of files scanned and rewritten
@@ -93,7 +100,7 @@ export const rewrite_dist_imports = async (
 	log?: Logger,
 ): Promise<RewriteDistImportsResult> => {
 	const found = await fs_search(dist_dir, {
-		file_filter: (id) => id.endsWith('.d.ts') || id.endsWith('.svelte'),
+		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte'),
 	});
 
 	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({id, path}) => {

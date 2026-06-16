@@ -25,7 +25,7 @@
 		"checkJs": true,
 		"erasableSyntaxOnly": true,
 		"allowImportingTsExtensions": true,
-		"rewriteRelativeImportExtensions": true
+		"rewriteRelativeImportExtensions": false
 	},
 	"include": [
 		"*.js",
