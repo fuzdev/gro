@@ -19,7 +19,6 @@ export const GRO_DIR = GRO_DIRNAME + '/';
 /** @trailing_slash */
 export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
-export const README_FILENAME = 'README.md';
 export const SVELTE_CONFIG_FILENAME = 'svelte.config.js';
 export const VITE_CONFIG_FILENAME = 'vite.config.ts';
 export const NODE_MODULES_DIRNAME = 'node_modules';
@@ -29,7 +28,6 @@ export const SVELTEKIT_DEV_DIRNAME = '.svelte-kit'; // TODO use Svelte config va
 export const SVELTEKIT_BUILD_DIRNAME = 'build';
 export const SVELTEKIT_DIST_DIRNAME = 'dist';
 export const SVELTEKIT_VITE_CACHE_PATH = NODE_MODULES_DIRNAME + '/.vite';
-export const GITHUB_DIRNAME = '.github';
 export const GIT_DIRNAME = '.git';
 export const TSCONFIG_FILENAME = 'tsconfig.json';
 

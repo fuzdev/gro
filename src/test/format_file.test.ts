@@ -34,7 +34,11 @@ test('unsupported extension passes through unchanged', () => {
 	expect(format_file(md)).toBe(md);
 });
 
-test('invalid source passes through unchanged', () => {
-	const broken = 'const = =';
-	expect(format_file(broken, {filepath: 'foo.ts'})).toBe(broken);
+test('non-strict json (jsonc) passes through unchanged', () => {
+	const jsonc = '{\n\t// a comment\n\t"a": 1\n}';
+	expect(format_file(jsonc, {filepath: 'tsconfig.json'})).toBe(jsonc);
+});
+
+test('invalid source throws', () => {
+	expect(() => format_file('const = =', {filepath: 'foo.ts'})).toThrow();
 });

@@ -70,9 +70,10 @@ export const run_gen = async (
 			// Convert the module's return value to a normalized form.
 			const gen_result = to_gen_result(id, raw_gen_result);
 
-			// Format the files if needed.
+			// Format the files if needed. `format_file` is synchronous and throws
+			// on a real formatting error, so log and fall back to the unformatted file.
 			const files = format_file
-				? await map_concurrent(gen_result.files, 10, (file) => {
+				? gen_result.files.map((file) => {
 						if (!file.format) return file;
 						try {
 							return {...file, content: format_file(file.content, {filepath: file.id})};
