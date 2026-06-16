@@ -90,7 +90,7 @@ describe('rewrite_relative_ts_imports', () => {
 		assert.equal(rewrite_relative_ts_imports(input), input);
 	});
 
-	test('does not match member calls like `arr.from(\'./x.ts\')`', () => {
+	test("does not match member calls like `arr.from('./x.ts')`", () => {
 		const input = `const a = Array.from('./x.ts');\nconst b = q.from('./y.ts');`;
 		assert.equal(rewrite_relative_ts_imports(input), input);
 	});
