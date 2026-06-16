@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.205.0
+
+### Minor Changes
+
+- feat: rewrite `.ts` to `.js` in dist files ([#613](https://github.com/fuzdev/gro/pull/613))
+- delete `src/lib/gro_plugin_deno_compile.ts` ([2ed0206](https://github.com/fuzdev/gro/commit/2ed0206))
+
 ## 0.204.0
 
 ### Minor Changes
