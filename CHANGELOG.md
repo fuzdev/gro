@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.206.0
+
+### Minor Changes
+
+- feat: replace Prettier with [`tsv`](https://github.com/fuzdev/tsv) ([#614](https://github.com/fuzdev/gro/pull/614))
+
 ## 0.205.1
 
 ### Patch Changes
@@ -566,6 +572,7 @@
 ### Minor Changes
 
 - remove ts-morph dep and use the ts API instead ([#546](https://github.com/fuzdev/gro/pull/546))
+
   - add `typescript^5` peer dep
   - merge `svelte_helpers.ts` into `constants.ts`
   - add default declarations:
@@ -1198,6 +1205,7 @@
 ### Minor Changes
 
 - improve CLI handling ([#475](https://github.com/fuzdev/gro/pull/475))
+
   - change `find_cli` to return an object
   - remove `npx` usage
   - add a bunch of CLI customizability
@@ -1588,6 +1596,7 @@
   this is just a test commit for testing purposes
 
   because
+
   - changelog
   - other things
 
