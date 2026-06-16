@@ -22,7 +22,14 @@ npm i -D @sveltejs/package
 ## behavior
 
 In production (`gro build`), runs `svelte-package` during `setup`
-to compile `src/lib/` into `dist/`.
+to compile `src/lib/` into `dist/`, then rewrites relative `.ts` import
+specifiers to `.js` (and `.svelte.ts` to `.svelte.js`) in the emitted `.d.ts`
+declarations and `.svelte` `<script>` blocks
+(the two outputs `svelte-package` leaves on `.ts`)
+so the published `dist` resolves for consumers without
+`allowImportingTsExtensions`. Bare `@fuzdev/*.ts` specifiers (resolved by the
+package `exports` `.js`/`.ts` mirror), `.svelte` component imports, and
+already-`.js` specifiers are left untouched.
 
 In development (`gro dev`), does nothing — `svelte-package` is a build-time tool.
 
