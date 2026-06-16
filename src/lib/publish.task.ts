@@ -214,7 +214,9 @@ export const task: Task<Args> = {
 		const changeset_publish_result = await spawn_cli(found_changeset_cli, ['publish'], log);
 		if (!changeset_publish_result?.ok) {
 			throw new TaskError(
-				`\`${changeset_cli} publish\` failed - continue manually or try again after running \`git reset --hard\``,
+				`\`${
+					changeset_cli
+				} publish\` failed - continue manually or try again after running \`git reset --hard\``,
 			);
 		}
 

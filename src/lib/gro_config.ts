@@ -146,9 +146,13 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 	`(${
 		'(^|/)\\.[^/]+' + // exclude all `.`-prefixed directories
 		// TODO probably change to `pkg.name` instead of this catch-all (also `gro` below)
-		`|(^|/)${NODE_MODULES_DIRNAME}(?!/(@[^/]+/)?gro/${SVELTEKIT_DIST_DIRNAME})` + // exclude `node_modules` unless it's to the Gro directory
+		`|(^|/)${NODE_MODULES_DIRNAME}(?!/(@[^/]+/)?gro/${
+			SVELTEKIT_DIST_DIRNAME
+		})` + // exclude `node_modules` unless it's to the Gro directory
 		`|(^|/)${SVELTEKIT_BUILD_DIRNAME}` + // exclude the SvelteKit build directory
-		`|(^|/)(?<!(^|/)gro/)${SVELTEKIT_DIST_DIRNAME}` + // exclude the SvelteKit dist directory unless it's in the Gro directory
+		`|(^|/)(?<!(^|/)gro/)${
+			SVELTEKIT_DIST_DIRNAME
+		}` + // exclude the SvelteKit dist directory unless it's in the Gro directory
 		`|(^|/)${SERVER_DIST_PATH}` // exclude the Gro server plugin dist directory
 	})($|/)`,
 	'u',
@@ -244,7 +248,9 @@ export const validate_gro_config_module: (
 		throw Error(`Invalid Gro config module at ${config_path}: expected a default export`);
 	} else if (!(typeof config === 'function' || typeof config === 'object')) {
 		throw Error(
-			`Invalid Gro config module at ${config_path}: the default export must be a function or object`,
+			`Invalid Gro config module at ${
+				config_path
+			}: the default export must be a function or object`,
 		);
 	}
 };

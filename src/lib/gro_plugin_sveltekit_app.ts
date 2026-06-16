@@ -43,7 +43,9 @@ export const gro_plugin_sveltekit_app = ({
 				const spawned = await spawn_cli(found_vite_cli, serialized_args, log);
 				if (!spawned?.ok) {
 					throw new TaskError(
-						`${vite_cli} build failed: ${spawned ? spawn_result_to_message(spawned) : 'unknown error'}`,
+						`${vite_cli} build failed: ${
+							spawned ? spawn_result_to_message(spawned) : 'unknown error'
+						}`,
 					);
 				}
 			}

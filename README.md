@@ -67,7 +67,7 @@ It includes:
 - codegen by convention with [`gen`](/src/docs/gen.md)
 - linting with [ESLint](https://github.com/eslint/eslint)
   (I also maintain [`@feltjs/eslint-config`](https://github.com/feltjs/eslint-config))
-- formatting with [Prettier](https://github.com/prettier/prettier)
+- formatting with [`tsv`](https://github.com/fuzdev/tsv)
 
 ## docs
 
@@ -207,10 +207,10 @@ gro lint # eslint
 
 For a usage example see [the `check.yml` CI config](.github/workflows/check.yml).
 
-Formatting with [`prettier`](https://github.com/prettier/prettier):
+Formatting with [`tsv`](https://github.com/fuzdev/tsv):
 
 ```bash
-gro format # format all of the source files using Prettier
+gro format # format all of the source files using tsv
 gro format --check # check that all source files are formatted
 ```
 
@@ -274,7 +274,7 @@ Gro builds on
 [zod](https://github.com/colinhacks/zod) ∙
 [@fuzdev/fuz_util](https://github.com/fuzdev/fuz_util) ∙
 [ESLint](https://github.com/eslint/eslint) ∙
-[Prettier](https://github.com/prettier/prettier) ∙
+[tsv](https://github.com/fuzdev/tsv) ∙
 [svelte-check](https://github.com/sveltejs/language-tools/tree/master/packages/svelte-check) &
 [more](package.json)
 

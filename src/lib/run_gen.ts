@@ -72,10 +72,10 @@ export const run_gen = async (
 
 			// Format the files if needed.
 			const files = format_file
-				? await map_concurrent(gen_result.files, 10, async (file) => {
+				? await map_concurrent(gen_result.files, 10, (file) => {
 						if (!file.format) return file;
 						try {
-							return {...file, content: await format_file(file.content, {filepath: file.id})};
+							return {...file, content: format_file(file.content, {filepath: file.id})};
 						} catch (error) {
 							log.error(
 								st('red', `Error formatting ${print_path(file.id)} via ${print_path(id)}`),

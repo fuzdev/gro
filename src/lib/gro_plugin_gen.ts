@@ -74,7 +74,9 @@ export const gro_plugin_gen = ({
 					// run again?
 					if (queued_files.size > 0) {
 						log.info(
-							`[gen] re-running for ${queued_files.size} more queued file${queued_files.size === 1 ? '' : 's'}`,
+							`[gen] re-running for ${queued_files.size} more queued file${
+								queued_files.size === 1 ? '' : 's'
+							}`,
 						);
 						setTimeout(flush_gen_queue); // setTimeout is needed bc of throttle behavior
 					} else {

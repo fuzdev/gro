@@ -59,7 +59,9 @@ export const sveltekit_sync = async (
 	const result = await spawn_cli(sveltekit_cli, ['sync']);
 	if (!result) {
 		throw new TaskError(
-			`Failed to find SvelteKit CLI \`${to_cli_name(sveltekit_cli)}\`, do you need to run \`${pm_cli} install\`?`,
+			`Failed to find SvelteKit CLI \`${to_cli_name(sveltekit_cli)}\`, do you need to run \`${
+				pm_cli
+			} install\`?`,
 		);
 	} else if (!result.ok) {
 		throw new TaskError(`Failed ${to_cli_name(sveltekit_cli)} sync`);
@@ -164,7 +166,9 @@ export const run_svelte_package = async (
 	const found_svelte_package_cli = cli === cli_name ? await find_cli(cli) : (cli as Cli);
 	if (found_svelte_package_cli?.kind !== 'local') {
 		throw new TaskError(
-			`Failed to find SvelteKit packaging CLI \`${cli_name}\`, do you need to run \`${pm_cli} install\`?`,
+			`Failed to find SvelteKit packaging CLI \`${cli_name}\`, do you need to run \`${
+				pm_cli
+			} install\`?`,
 		);
 	}
 	const serialized_args = args_serialize({

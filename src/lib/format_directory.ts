@@ -1,65 +1,103 @@
-import {args_serialize, type Args} from '@fuzdev/fuz_util/args.ts';
+import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
+import {fs_search} from '@fuzdev/fuz_util/fs.ts';
 import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {SpawnResult} from '@fuzdev/fuz_util/process.ts';
+import type {PathFilter} from '@fuzdev/fuz_util/path.ts';
+import {globSync} from 'node:fs';
+import {readFile, writeFile} from 'node:fs/promises';
+import {isAbsolute, join, resolve} from 'node:path';
 
-import {spawn_cli, to_cli_name, type Cli} from './cli.ts';
 import {
-	GITHUB_DIRNAME,
-	README_FILENAME,
-	SVELTE_CONFIG_FILENAME,
-	VITE_CONFIG_FILENAME,
-	TSCONFIG_FILENAME,
 	GRO_CONFIG_FILENAME,
-	PM_CLI_DEFAULT,
-	PRETTIER_CLI_DEFAULT,
+	SVELTE_CONFIG_FILENAME,
+	TSCONFIG_FILENAME,
+	VITE_CONFIG_FILENAME,
 } from './constants.ts';
+import {format_file} from './format_file.ts';
 import {paths} from './paths.ts';
 
-const EXTENSIONS_DEFAULT = 'ts,js,json,svelte,html,css,md,yml';
-const ROOT_PATHS_DEFAULT = `${[
-	README_FILENAME,
+/** Matches the file extensions `format_file` knows how to format. */
+const FORMATTABLE_MATCHER = /\.(ts|mts|cts|js|mjs|cjs|svelte|css|json)$/;
+
+/**
+ * Root-level files formatted alongside `paths.source`.
+ * `package.json` is intentionally omitted — `gro sync` owns its serialization
+ * via `package_json_serialize` (2-space, matching the npm convention).
+ */
+const ROOT_FILES_DEFAULT = [
 	GRO_CONFIG_FILENAME,
 	SVELTE_CONFIG_FILENAME,
 	VITE_CONFIG_FILENAME,
 	TSCONFIG_FILENAME,
-	GITHUB_DIRNAME,
-].join(',')}/**/*`;
+];
+
+const FORMAT_CONCURRENCY = 16;
+
+export interface FormatDirectoryResult {
+	ok: boolean;
+	/** The files that were formatted (or, in `check` mode, that need formatting). */
+	formatted: Array<string>;
+}
 
 /**
- * Formats files on the filesystem.
- * When `patterns` is provided, formats those specific files/patterns.
- * Otherwise formats `dir` with default extensions, plus root files if `dir` is `paths.source`.
- * This is separated from `./format_file` to avoid importing all of the `prettier` code
- * inside modules that import this one. (which has a nontrivial cost)
+ * Formats files on the filesystem in-process via `format_file`.
+ * When `patterns` is provided, formats those specific files/globs.
+ * Otherwise formats `dir` (recursively, respecting `filter`) plus the root
+ * files when `dir` is `paths.source`.
+ *
+ * This is separated from `./format_file` so modules that only need directory
+ * traversal don't pull in the formatter (which loads the `tsv` WASM module).
+ *
+ * @param check - when `true`, reports unformatted files instead of writing them
+ * @param filter - directory filters (e.g. `config.search_filters`) to skip
  */
 export const format_directory = async (
 	log: Logger,
 	dir: string,
 	check = false,
-	extensions = EXTENSIONS_DEFAULT,
-	root_paths = ROOT_PATHS_DEFAULT,
-	prettier_cli: string | Cli = PRETTIER_CLI_DEFAULT,
-	pm_cli: string = PM_CLI_DEFAULT,
-	additional_args?: Args,
+	filter?: PathFilter | Array<PathFilter>,
 	patterns?: Array<string>,
-): Promise<SpawnResult> => {
-	const forwarded_args = {...additional_args};
-	if (forwarded_args.check === undefined && forwarded_args.write === undefined) {
-		forwarded_args[check ? 'check' : 'write'] = true;
+): Promise<FormatDirectoryResult> => {
+	const file_ids = patterns?.length
+		? globSync(patterns)
+				.filter((p) => FORMATTABLE_MATCHER.test(p))
+				.map((p) => (isAbsolute(p) ? p : resolve(p)))
+		: await collect_source_files(dir, filter);
+
+	const formatted: Array<string> = [];
+	await map_concurrent(file_ids, FORMAT_CONCURRENCY, async (id) => {
+		let content: string;
+		try {
+			content = await readFile(id, 'utf8');
+		} catch (_err) {
+			return; // a default root file that doesn't exist in this project
+		}
+		const next = format_file(content, {filepath: id});
+		if (next === content) return;
+		formatted.push(id);
+		if (!check) await writeFile(id, next);
+	});
+
+	if (check && formatted.length) {
+		log.error(`${formatted.length} file(s) need formatting:`);
+		for (const id of formatted) log.error(`  ${id}`);
 	}
-	const serialized_args = args_serialize(forwarded_args);
-	if (patterns?.length) {
-		serialized_args.push(...patterns);
-	} else {
-		serialized_args.push(`${dir}**/*.{${extensions}}`);
-		if (dir === paths.source) {
-			serialized_args.push(`${paths.root}{${root_paths}}`);
+
+	return {ok: !check || formatted.length === 0, formatted};
+};
+
+const collect_source_files = async (
+	dir: string,
+	filter?: PathFilter | Array<PathFilter>,
+): Promise<Array<string>> => {
+	const found = await fs_search(dir, {
+		filter,
+		file_filter: (path) => FORMATTABLE_MATCHER.test(path),
+	});
+	const file_ids = found.map((f) => f.id);
+	if (dir === paths.source) {
+		for (const name of ROOT_FILES_DEFAULT) {
+			file_ids.push(join(paths.root, name));
 		}
 	}
-	const spawned = await spawn_cli(prettier_cli, serialized_args, log);
-	if (!spawned)
-		throw Error(
-			`failed to find \`${to_cli_name(prettier_cli)}\` CLI locally or globally, do you need to run \`${pm_cli} install\`?`,
-		);
-	return spawned;
+	return file_ids;
 };

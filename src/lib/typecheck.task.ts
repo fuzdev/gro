@@ -75,7 +75,9 @@ export const task: Task<Args> = {
 		}
 
 		throw new TaskError(
-			`Failed to typecheck because neither \`${svelte_check_cli}\` nor \`${typescript_cli}\` was found`,
+			`Failed to typecheck because neither \`${svelte_check_cli}\` nor \`${
+				typescript_cli
+			}\` was found`,
 		);
 	},
 };

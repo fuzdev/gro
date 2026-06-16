@@ -98,7 +98,9 @@ export const task: Task<Args> = {
 
 		if (only.length && only.length !== deps.length) {
 			throw new TaskError(
-				`Some deps to upgrade were not found: ${only.filter((o) => !deps.find((d) => d.name === o)).join(', ')}`,
+				`Some deps to upgrade were not found: ${only
+					.filter((o) => !deps.find((d) => d.name === o))
+					.join(', ')}`,
 			);
 		}
 

@@ -48,12 +48,11 @@
     "typescript"
   ],
   "dependencies": {
+    "@fuzdev/tsv_wasm": "^0.1.0",
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "esm-env": "^1.2.2",
     "oxc-parser": "^0.99.0",
-    "prettier": "^3.7.4",
-    "prettier-plugin-svelte": "^3.5.1",
     "ts-blank-space": "^0.6.2",
     "tslib": "^2.8.1"
   },
@@ -114,23 +113,6 @@
     "vitest": "^4.1.8",
     "zimmerframe": "^1.1.4",
     "zod": "^4.3.6"
-  },
-  "prettier": {
-    "plugins": [
-      "prettier-plugin-svelte"
-    ],
-    "useTabs": true,
-    "printWidth": 100,
-    "singleQuote": true,
-    "bracketSpacing": false,
-    "overrides": [
-      {
-        "files": "package.json",
-        "options": {
-          "useTabs": false
-        }
-      }
-    ]
   },
   "sideEffects": [
     "**/*.css"

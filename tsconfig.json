@@ -1,7 +1,9 @@
 {
 	"extends": "./.svelte-kit/tsconfig.json",
 	"compilerOptions": {
-		"types": ["@sveltejs/kit"],
+		"types": [
+			"@sveltejs/kit"
+		],
 		"module": "nodenext",
 		"moduleResolution": "nodenext",
 		"strict": true,

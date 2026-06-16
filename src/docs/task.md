@@ -291,8 +291,7 @@ Some builtin Gro tasks call external commands like
 [`svelte-kit`](https://github.com/sveltejs/kit),
 [`vite`](https://github.com/vitejs/vite),
 [`vitest`](https://github.com/vitest-dev/vitest),
-[`tsc`](https://github.com/microsoft/typescript),
-and [`prettier`](https://github.com/prettier/prettier).
+and [`tsc`](https://github.com/microsoft/typescript).
 Gro supports generic agnostic args forwarding to these tasks via the `--` pattern:
 for example, to forward args to `svelte-kit` and `vitest`, no matter which task invokes them,
 use `gro taskname --taskname-arg -- vitest --arg1 neat --arg2 22 -- svelte-kit --arg3`.

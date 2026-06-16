@@ -47,7 +47,6 @@ export const EVERYTHING_MATCHER = /.*/;
 
 export const JS_CLI_DEFAULT = 'node';
 export const PM_CLI_DEFAULT = 'npm';
-export const PRETTIER_CLI_DEFAULT = 'prettier';
 export const SVELTEKIT_CLI = 'svelte-kit';
 export const SVELTE_CHECK_CLI = 'svelte-check';
 export const SVELTE_PACKAGE_CLI = 'svelte-package';

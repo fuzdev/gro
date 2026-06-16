@@ -22,7 +22,9 @@ async function runTest() {
 
 		if (fixture.exported_env_static_public !== VALUE) {
 			console.error(
-				`✗ Static import test failed: expected "${VALUE}", got "${fixture.exported_env_static_public}"`,
+				`✗ Static import test failed: expected "${VALUE}", got "${
+					fixture.exported_env_static_public
+				}"`,
 			);
 			process.exit(1);
 		}
@@ -34,7 +36,9 @@ async function runTest() {
 
 		if (!env_mod.PUBLIC_SOME_PUBLIC_ENV_VAR || env_mod.PUBLIC_SOME_PUBLIC_ENV_VAR !== VALUE) {
 			console.error(
-				`✗ Dynamic import test failed: expected "${VALUE}", got "${env_mod.PUBLIC_SOME_PUBLIC_ENV_VAR}"`,
+				`✗ Dynamic import test failed: expected "${VALUE}", got "${
+					env_mod.PUBLIC_SOME_PUBLIC_ENV_VAR
+				}"`,
 			);
 			process.exit(1);
 		}
