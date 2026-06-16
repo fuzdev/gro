@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.205.1
+
+### Patch Changes
+
+- fix: rewrite dist ts extensions expecting `allowImportingTsExtensions: false` ([8f1adce](https://github.com/fuzdev/gro/commit/8f1adce))
+
 ## 0.205.0
 
 ### Minor Changes
