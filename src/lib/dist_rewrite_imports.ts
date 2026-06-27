@@ -103,20 +103,20 @@ export const rewrite_dist_imports = async (
 		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte'),
 	});
 
-	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({id, path}) => {
+	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({id, path: _}) => {
 		const content = await readFile(id, 'utf8');
 		const next = id.endsWith('.svelte')
 			? rewrite_svelte_ts_imports(content)
 			: rewrite_relative_ts_imports(content);
 		if (next === content) return false;
 		await writeFile(id, next);
-		log?.debug(`rewrote relative .ts import specifiers to .js in ${path}`);
+		// log?.debug(`rewrote relative .ts import specifiers to .js in ${path}`);
 		return true;
 	});
 	const rewritten = changed.filter(Boolean).length;
 
 	if (found.length) {
-		log?.info(
+		log?.debug(
 			`rewrote relative .ts→.js import specifiers in ${rewritten}/${found.length} dist files`,
 		);
 	}
