@@ -22,6 +22,10 @@ target/
 *.pem
 id_rsa
 
+# Local (per-machine, never shared)
+*.local
+*.local.*
+
 # Ignore
 *.ignore
 *.ignore.*
