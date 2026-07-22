@@ -5,13 +5,13 @@ const run_test = async () => {
 	// console.log('Testing run_gen basic behavior...\n');
 
 	// Import what we need for the test
-	const {resolve} = await import('node:path');
-	const {Timings} = await import('@fuzdev/fuz_util/timings.ts');
-	const {Logger} = await import('@fuzdev/fuz_util/log.ts');
+	const { resolve } = await import('node:path');
+	const { Timings } = await import('@fuzdev/fuz_util/timings.ts');
+	const { Logger } = await import('@fuzdev/fuz_util/log.ts');
 
-	const {run_gen} = await import('$lib/run_gen.ts');
-	const {load_gro_config} = await import('$lib/gro_config.ts');
-	const {Filer} = await import('$lib/filer.ts');
+	const { run_gen } = await import('$lib/run_gen.ts');
+	const { load_gro_config } = await import('$lib/gro_config.ts');
+	const { Filer } = await import('$lib/filer.ts');
 
 	// console.log('✓ All imports work');
 
@@ -28,10 +28,10 @@ const run_test = async () => {
 				file_generated = true;
 				return {
 					filename: 'test_output.ts',
-					content: 'export const test = "ok";',
+					content: 'export const test = "ok";'
 				};
-			},
-		},
+			}
+		}
 	};
 
 	const gen_results = await run_gen(
@@ -40,7 +40,7 @@ const run_test = async () => {
 		new Filer(),
 		log,
 		new Timings(),
-		Function.prototype as any,
+		Function.prototype as any
 	);
 
 	if (gen_results.input_count !== 1) {

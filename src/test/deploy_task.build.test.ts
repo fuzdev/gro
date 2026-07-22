@@ -1,13 +1,13 @@
-import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import {task as deploy_task} from '$lib/deploy.task.ts';
-import {TaskError} from '$lib/task.ts';
+import { task as deploy_task } from '$lib/deploy.task.ts';
+import { TaskError } from '$lib/task.ts';
 
 import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock,
+	setup_successful_spawn_mock
 } from './deploy_task_test_helpers.ts';
 
 // Mock dependencies
@@ -26,24 +26,24 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn(),
+		git_reset_branch_to_first_commit: vi.fn()
 	};
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
+	spawn: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({
 	cp: vi.fn(),
 	mkdir: vi.fn(),
 	rm: vi.fn(),
-	readdir: vi.fn(),
+	readdir: vi.fn()
 }));
 
 vi.mock('@fuzdev/fuz_util/fs.js', () => ({
 	fs_exists: vi.fn(),
-	fs_empty_dir: vi.fn(),
+	fs_empty_dir: vi.fn()
 }));
 
 describe('deploy_task build integration', () => {
@@ -53,7 +53,7 @@ describe('deploy_task build integration', () => {
 		await setup_successful_fs_mocks();
 		await setup_successful_spawn_mock();
 
-		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		vi.mocked(fs_empty_dir).mockResolvedValue(undefined);
 	});
 
@@ -63,12 +63,12 @@ describe('deploy_task build integration', () => {
 
 	describe('build task invocation', () => {
 		test('invokes build task when build=true', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -77,17 +77,17 @@ describe('deploy_task build integration', () => {
 				sync: true,
 				gen: true,
 				install: true,
-				force_build: false,
+				force_build: false
 			});
 		});
 
 		test('skips build task when build=false', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: false,
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -96,13 +96,13 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('build happens after source and target branch preparation', async () => {
-			const {git_checkout} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { git_checkout } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -120,14 +120,14 @@ describe('deploy_task build integration', () => {
 
 	describe('build directory validation', () => {
 		test('checks that build_dir exists after building', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
 				build_dir: 'build',
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -139,7 +139,7 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('throws error when build_dir missing', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			// Everything exists except build_dir
 			vi.mocked(fs_exists).mockImplementation((path: any) => {
@@ -150,7 +150,7 @@ describe('deploy_task build integration', () => {
 			const ctx = create_mock_deploy_task_context({
 				build: true,
 				build_dir: 'build',
-				dry: true,
+				dry: true
 			});
 
 			// Should throw TaskError
@@ -158,7 +158,7 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('validates custom build_dir path', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockImplementation((path: any) => {
 				const path_str = String(path);
@@ -168,7 +168,7 @@ describe('deploy_task build integration', () => {
 			const ctx = create_mock_deploy_task_context({
 				build: true,
 				build_dir: 'dist',
-				dry: true,
+				dry: true
 			});
 
 			// Should throw TaskError mentioning dist
@@ -178,10 +178,10 @@ describe('deploy_task build integration', () => {
 
 	describe('build task failure handling', () => {
 		test('catches build error and throws TaskError', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({build: true});
+			const ctx = create_mock_deploy_task_context({ build: true });
 
 			// Mock build task failure
 			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed: TypeScript errors'));
@@ -191,10 +191,10 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('logs build failure with git safety message', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({build: true, dry: false});
+			const ctx = create_mock_deploy_task_context({ build: true, dry: false });
 
 			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed'));
 
@@ -205,16 +205,16 @@ describe('deploy_task build integration', () => {
 				expect.stringContaining('build failed'),
 				expect.anything(),
 				expect.stringContaining('no changes were made to git'),
-				expect.anything(),
+				expect.anything()
 			);
 		});
 
 		test('does not modify git when build fails', async () => {
-			const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({build: true, dry: false});
+			const ctx = create_mock_deploy_task_context({ build: true, dry: false });
 
 			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed'));
 
@@ -224,20 +224,20 @@ describe('deploy_task build integration', () => {
 			expect(spawn).not.toHaveBeenCalledWith(
 				'git',
 				['commit', '-m', 'deployment'],
-				expect.anything(),
+				expect.anything()
 			);
 			expect(spawn).not.toHaveBeenCalledWith(
 				'git',
 				expect.arrayContaining(['push']),
-				expect.anything(),
+				expect.anything()
 			);
 		});
 
 		test('shows different message in dry mode when build fails', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({build: true, dry: true});
+			const ctx = create_mock_deploy_task_context({ build: true, dry: true });
 
 			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed'));
 
@@ -250,16 +250,16 @@ describe('deploy_task build integration', () => {
 
 	describe('build task success scenarios', () => {
 		test('continues to file copying after successful build', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['index.html', 'assets'] as any);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
-				dry: true,
+				dry: true
 			});
 
 			ctx.invoke_task = vi.fn().mockResolvedValue(undefined);
@@ -271,13 +271,13 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('creates build_dir before checking if it exists', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
-				dry: true,
+				dry: true
 			});
 
 			ctx.invoke_task = vi.fn().mockResolvedValue(undefined);
@@ -289,21 +289,21 @@ describe('deploy_task build integration', () => {
 				sync: true,
 				gen: true,
 				install: true,
-				force_build: false,
+				force_build: false
 			});
 		});
 	});
 
 	describe('build-less deploy', () => {
 		test('skips build and uses existing build_dir when no-build=true', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {cp} = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { cp } = await import('node:fs/promises');
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				build: false,
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -316,7 +316,7 @@ describe('deploy_task build integration', () => {
 		});
 
 		test('fails gracefully when build_dir missing and no-build=true', async () => {
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			// build_dir doesn't exist, deploy_dir does
 			vi.mocked(fs_exists).mockImplementation((path: any) => {
@@ -326,7 +326,7 @@ describe('deploy_task build integration', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				build: false,
-				dry: true,
+				dry: true
 			});
 
 			// Should throw TaskError when build_dir doesn't exist

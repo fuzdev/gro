@@ -10,9 +10,9 @@
 	<p>
 		It was removed in <a href="https://github.com/fuzdev/gro/pull/321">PR #321</a> and is archived
 		here:
-		<a href="https://github.com/spiderspace/gro/tree/archive/devserver"
-			>https://github.com/spiderspace/gro/tree/archive/devserver</a
-		>
+		<a href="https://github.com/spiderspace/gro/tree/archive/devserver">
+			https://github.com/spiderspace/gro/tree/archive/devserver
+		</a>
 	</p>
 	<p>Vite plugins should be used going forward.</p>
 </div>

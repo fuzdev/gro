@@ -7,8 +7,8 @@
  * @module
  */
 
-import {type RestartableProcess, spawn_restartable_process} from '@fuzdev/fuz_util/process.ts';
-import type {Plugin} from './plugin.ts';
+import { type RestartableProcess, spawn_restartable_process } from '@fuzdev/fuz_util/process.ts';
+import type { Plugin } from './plugin.ts';
 
 export interface GroPluginDenoServerOptions {
 	/**
@@ -79,14 +79,14 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 		flags = [],
 		watch,
 		env_file = '.env.development',
-		env: extra_env = {},
+		env: extra_env = {}
 	} = options;
 
 	let server_process: RestartableProcess | undefined;
 
 	return {
 		name: 'gro_plugin_deno_server',
-		setup: async ({dev, log}) => {
+		setup: async ({ dev, log }) => {
 			if (!dev) return; // Only run in dev mode
 
 			const should_watch = watch ?? dev;
@@ -112,20 +112,20 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 					PORT: String(port),
 					HOST: host,
 					NODE_ENV: 'development',
-					...extra_env,
-				},
+					...extra_env
+				}
 			});
 
 			// Wait for spawn to complete
 			await server_process.spawned;
 			log.info('[gro_plugin_deno_server] deno server started');
 		},
-		teardown: async ({log}) => {
+		teardown: async ({ log }) => {
 			if (server_process) {
 				log.info('[gro_plugin_deno_server] stopping Deno server');
 				await server_process.kill();
 				server_process = undefined;
 			}
-		},
+		}
 	};
 };

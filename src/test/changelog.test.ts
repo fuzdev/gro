@@ -1,10 +1,10 @@
-import {test, expect} from 'vitest';
-import {Logger} from '@fuzdev/fuz_util/log.ts';
-import {readFile, writeFile} from 'node:fs/promises';
-import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
+import { test, expect } from 'vitest';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
+import { readFile, writeFile } from 'node:fs/promises';
+import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
-import {update_changelog} from '$lib/changelog.ts';
-import {load_from_env} from '$lib/env.ts';
+import { update_changelog } from '$lib/changelog.ts';
+import { load_from_env } from '$lib/env.ts';
 
 const log = new Logger();
 
@@ -18,7 +18,7 @@ const fixture_path = 'src/test/fixtures/changelog_example.md';
 // TODO ideally this is just a ts file, but there's a problem where building outputs a `.d.ts` file
 // when importing from src/test/fixtures (fix in SvelteKit/Vite/tsconfig?) and I want to keep it in src/test/fixtures
 const changelog_cache_fixture: FetchValueCache = new Map(
-	JSON.parse(await readFile('src/test/fixtures/changelog_cache.json', 'utf8')),
+	JSON.parse(await readFile('src/test/fixtures/changelog_cache.json', 'utf8'))
 );
 
 test('update_changelog', async () => {
@@ -29,7 +29,7 @@ test('update_changelog', async () => {
 		fixture_path,
 		token,
 		log,
-		changelog_cache_fixture,
+		changelog_cache_fixture
 	);
 	const updated = await readFile(fixture_path, 'utf8');
 	await writeFile(fixture_path, original, 'utf8');
@@ -128,6 +128,6 @@ test('update_changelog', async () => {
 ## 0.1.0
 
 - a
-`,
+`
 	);
 });

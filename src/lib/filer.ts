@@ -1,28 +1,28 @@
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
-import {readFile, stat} from 'node:fs/promises';
-import {dirname, resolve} from 'node:path';
-import type {OmitStrict} from '@fuzdev/fuz_util/types.ts';
-import {fileURLToPath, pathToFileURL} from 'node:url';
-import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
-import type {FileFilter, PathId} from '@fuzdev/fuz_util/path.ts';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
+import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import type { OmitStrict } from '@fuzdev/fuz_util/types.ts';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import type { FileFilter, PathId } from '@fuzdev/fuz_util/path.ts';
+import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import {
 	watch_dir,
 	type WatchNodeFs,
 	type WatcherChange,
 	type WatchDirOptions,
-	type WatcherChangeCallback,
+	type WatcherChangeCallback
 } from './watch_dir.ts';
-import {paths} from './paths.ts';
-import {parse_imports} from './parse_imports.ts';
-import {resolve_specifier} from './resolve_specifier.ts';
-import {default_svelte_config} from './svelte_config.ts';
-import {map_sveltekit_aliases} from './sveltekit_helpers.ts';
-import {SVELTEKIT_GLOBAL_SPECIFIER} from './constants.ts';
-import type {Disknode} from './disknode.ts';
+import { paths } from './paths.ts';
+import { parse_imports } from './parse_imports.ts';
+import { resolve_specifier } from './resolve_specifier.ts';
+import { default_svelte_config } from './svelte_config.ts';
+import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
+import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
+import type { Disknode } from './disknode.ts';
 
 const aliases = Object.entries(default_svelte_config.alias);
 
@@ -83,13 +83,13 @@ export class Filer {
 			mtime: null,
 			content_hash: null,
 			dependents: new Map(),
-			dependencies: new Map(),
+			dependencies: new Map()
 		};
 		this.files.set(id, file);
 		// Defer external file change notification to avoid reentrancy during queue processing
 		if (file.external) {
 			queueMicrotask(() => {
-				this.#on_change({type: 'add', path: file.id, is_directory: false});
+				this.#on_change({ type: 'add', path: file.id, is_directory: false });
 			});
 		}
 		return file;
@@ -136,7 +136,7 @@ export class Filer {
 		const watcher = this.#watch_dir({
 			...this.#watch_dir_options,
 			dir: this.root_dir,
-			on_change: this.#on_change,
+			on_change: this.#on_change
 		});
 
 		try {
@@ -201,7 +201,7 @@ export class Filer {
 			},
 			() => {
 				this.#closing = undefined;
-			},
+			}
 		);
 		return this.#closing;
 	}
@@ -331,7 +331,7 @@ export class Filer {
 	#sync_listener_with_files(listener: OnFilerChange): void {
 		for (const disknode of this.files.values()) {
 			try {
-				listener({type: 'add', path: disknode.id, is_directory: false}, disknode);
+				listener({ type: 'add', path: disknode.id, is_directory: false }, disknode);
 			} catch (error) {
 				this.#log?.error('[filer] Listener error during sync:', error);
 			}
@@ -421,7 +421,7 @@ export class Filer {
 	};
 
 	#is_external(id: PathId): boolean {
-		const {filter} = this.#watch_dir_options;
+		const { filter } = this.#watch_dir_options;
 		return !id.startsWith(this.root_dir + '/') || (!!filter && !filter(id, false));
 	}
 }
@@ -433,7 +433,7 @@ export const filter_dependents = (
 	filter?: FileFilter,
 	results: Set<PathId> = new Set(),
 	searched: Set<PathId> = new Set(),
-	log?: Logger,
+	log?: Logger
 ): Set<PathId> => {
 	// Use iterative approach to avoid stack overflow on deep dependency trees
 	const stack = [disknode];
@@ -451,7 +451,7 @@ export const filter_dependents = (
 				log?.warn(
 					`[filer.filter_dependents] dependent source file ${dependent_id} not found for ${
 						current.id
-					}`,
+					}`
 				);
 				continue;
 			}

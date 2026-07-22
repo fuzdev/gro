@@ -1,13 +1,13 @@
-import {dirname, isAbsolute, join, resolve} from 'node:path';
-import {stat} from 'node:fs/promises';
-import {fs_exists, fs_search} from '@fuzdev/fuz_util/fs.ts';
-import {strip_start} from '@fuzdev/fuz_util/string.ts';
-import {z} from 'zod';
-import type {Flavored} from '@fuzdev/fuz_util/types.ts';
-import type {PathInfo, PathId, ResolvedPath} from '@fuzdev/fuz_util/path.ts';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
+import { strip_start } from '@fuzdev/fuz_util/string.ts';
+import { z } from 'zod';
+import type { Flavored } from '@fuzdev/fuz_util/types.ts';
+import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
-import {GRO_PACKAGE_DIR, GRO_DIST_DIR} from './paths.ts';
-import {TASK_FILE_SUFFIX_JS} from './task.ts';
+import { GRO_PACKAGE_DIR, GRO_DIST_DIR } from './paths.ts';
+import { TASK_FILE_SUFFIX_JS } from './task.ts';
 
 // TODO Flavored doesn't work when used in schemas, use Zod brand instead? problem is ergonomics
 export const InputPath = z.string();
@@ -30,7 +30,7 @@ export type RawInputPath = Flavored<z.infer<typeof RawInputPath>, 'RawInputPath'
  */
 export const to_input_path = (
 	raw_input_path: RawInputPath,
-	root_path = process.cwd(), // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
+	root_path = process.cwd() // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
 ): InputPath => {
 	if (raw_input_path.startsWith(GRO_PACKAGE_DIR)) {
 		return GRO_DIST_DIR + strip_start(raw_input_path, GRO_PACKAGE_DIR);
@@ -42,7 +42,7 @@ export const to_input_path = (
 
 export const to_input_paths = (
 	raw_input_paths: Array<RawInputPath>,
-	root_path?: string, // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
+	root_path?: string // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
 ): Array<InputPath> => raw_input_paths.map((p) => to_input_path(p, root_path));
 
 export interface PossiblePath {
@@ -58,7 +58,7 @@ export interface PossiblePath {
 export const get_possible_paths = async (
 	input_path: InputPath,
 	root_dirs: Array<PathId>,
-	extensions: Array<string>,
+	extensions: Array<string>
 ): Promise<Array<PossiblePath>> => {
 	const possible_paths: Set<PossiblePath> = new Set();
 
@@ -71,13 +71,13 @@ export const get_possible_paths = async (
 						? path
 						: path + TASK_FILE_SUFFIX_JS,
 				input_path,
-				root_dir,
+				root_dir
 			});
 		} else {
-			possible_paths.add({id: path, input_path, root_dir});
+			possible_paths.add({ id: path, input_path, root_dir });
 			if (!path.endsWith('/') && !extensions.some((e) => path.endsWith(e))) {
 				for (const extension of extensions) {
-					possible_paths.add({id: path + extension, input_path, root_dir});
+					possible_paths.add({ id: path + extension, input_path, root_dir });
 				}
 			}
 		}
@@ -122,7 +122,7 @@ export interface ResolvedInputPaths {
 export const resolve_input_paths = async (
 	input_paths: Array<InputPath>,
 	root_dirs: Array<PathId>,
-	extensions: Array<string>,
+	extensions: Array<string>
 ): Promise<ResolvedInputPaths> => {
 	const resolved_input_paths: Array<ResolvedInputPath> = [];
 	const possible_paths_by_input_path: Map<InputPath, Array<PossiblePath>> = new Map();
@@ -141,9 +141,12 @@ export const resolve_input_paths = async (
 			const stats = await stat(possible_path.id);
 			if (stats.isDirectory()) {
 				found_dirs ??= [];
-				found_dirs.push([{id: possible_path.id, is_directory: stats.isDirectory()}, possible_path]);
+				found_dirs.push([
+					{ id: possible_path.id, is_directory: stats.isDirectory() },
+					possible_path
+				]);
 			} else {
-				found_file = [{id: possible_path.id, is_directory: stats.isDirectory()}, possible_path];
+				found_file = [{ id: possible_path.id, is_directory: stats.isDirectory() }, possible_path];
 				break;
 			}
 		}
@@ -152,7 +155,7 @@ export const resolve_input_paths = async (
 				input_path,
 				id: found_file[0].id,
 				is_directory: found_file[0].is_directory,
-				root_dir: found_file[1].root_dir,
+				root_dir: found_file[1].root_dir
 			});
 		} else if (found_dirs) {
 			for (const found_dir of found_dirs) {
@@ -160,7 +163,7 @@ export const resolve_input_paths = async (
 					input_path,
 					id: found_dir[0].id,
 					is_directory: found_dir[0].is_directory,
-					root_dir: found_dir[1].root_dir,
+					root_dir: found_dir[1].root_dir
 				});
 			}
 		} else {
@@ -170,7 +173,7 @@ export const resolve_input_paths = async (
 	return {
 		resolved_input_paths,
 		possible_paths_by_input_path,
-		unmapped_input_paths,
+		unmapped_input_paths
 	};
 };
 
@@ -186,7 +189,7 @@ export interface ResolvedInputFiles {
  */
 export const resolve_input_files = async (
 	resolved_input_paths: Array<ResolvedInputPath>,
-	search: (dir: string) => Promise<Array<ResolvedPath>> = fs_search,
+	search: (dir: string) => Promise<Array<ResolvedPath>> = fs_search
 ): Promise<ResolvedInputFiles> => {
 	const resolved_input_files: Array<ResolvedInputFile> = [];
 	// Add all input paths initially, and remove each when resolved to a file.
@@ -195,25 +198,20 @@ export const resolve_input_files = async (
 	let remaining = resolved_input_paths.slice();
 	const handle_found = (input_path: InputPath, id: PathId) => {
 		remaining = remaining.filter(
-			(r) =>
-				!(
-					r.id === id ||
-					r.input_path === input_path ||
-					r.input_path === id
-				), // `r.input_path === id` may be unnecessary
+			(r) => !(r.id === id || r.input_path === input_path || r.input_path === id) // `r.input_path === id` may be unnecessary
 		);
 	};
 
 	// TODO parallelize but would need to de-dupe and retain order
 	for (const resolved_input_path of resolved_input_paths) {
-		const {input_path, id, is_directory} = resolved_input_path;
+		const { input_path, id, is_directory } = resolved_input_path;
 		if (is_directory) {
 			// Handle input paths that resolve to directories.
 
 			const files = await search(id);
 			if (!files.length) continue;
 			const path_ids: Array<PathId> = [];
-			for (const {path, is_directory} of files) {
+			for (const { path, is_directory } of files) {
 				if (is_directory) continue;
 				const path_id = join(id, path);
 				if (!existing_path_ids.has(path_id)) {
@@ -228,7 +226,7 @@ export const resolve_input_files = async (
 				const resolved_input_file: ResolvedInputFile = {
 					id: path_id,
 					input_path,
-					resolved_input_path,
+					resolved_input_path
 				};
 				resolved_input_files.push(resolved_input_file);
 				resolved_input_files_for_input_path.push(resolved_input_file);
@@ -237,7 +235,7 @@ export const resolve_input_files = async (
 			if (!existing_path_ids.has(id)) {
 				// Handle input paths that resolve to files.
 				existing_path_ids.add(id);
-				const resolved_input_file: ResolvedInputFile = {id, input_path, resolved_input_path};
+				const resolved_input_file: ResolvedInputFile = { id, input_path, resolved_input_path };
 				resolved_input_files.push(resolved_input_file);
 			}
 			handle_found(input_path, id);
@@ -246,7 +244,7 @@ export const resolve_input_files = async (
 	return {
 		resolved_input_files,
 		resolved_input_files_by_root_dir: resolved_input_files.reduce((map, resolved_input_file) => {
-			const {root_dir} = resolved_input_file.resolved_input_path;
+			const { root_dir } = resolved_input_file.resolved_input_path;
 			if (map.has(root_dir)) {
 				map.get(root_dir)!.push(resolved_input_file);
 			} else {
@@ -254,6 +252,6 @@ export const resolve_input_files = async (
 			}
 			return map;
 		}, new Map<PathId, Array<ResolvedInputFile>>()),
-		input_directories_with_no_files: remaining.map((r) => r.input_path),
+		input_directories_with_no_files: remaining.map((r) => r.input_path)
 	};
 };

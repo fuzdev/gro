@@ -1,29 +1,29 @@
-import {z} from 'zod';
-import {spawn} from '@fuzdev/fuz_util/process.ts';
-import {styleText as st} from 'node:util';
-import type {WrittenConfig} from '@changesets/types';
-import {readdir, readFile, writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import { z } from 'zod';
+import { spawn } from '@fuzdev/fuz_util/process.ts';
+import { styleText as st } from 'node:util';
+import type { WrittenConfig } from '@changesets/types';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitOrigin,
 	git_check_fully_staged_workspace,
-	git_push_to_create,
+	git_push_to_create
 } from '@fuzdev/fuz_util/git.ts';
 
-import {TaskError, type Task} from './task.ts';
-import {find_cli, spawn_cli} from './cli.ts';
-import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
-import {has_sveltekit_library} from './sveltekit_helpers.ts';
+import { TaskError, type Task } from './task.ts';
+import { find_cli, spawn_cli } from './cli.ts';
+import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import {
 	CHANGESET_CLI,
 	CHANGESET_DIR,
 	ChangesetAccess,
 	ChangesetBump,
 	CHANGESET_PUBLIC_ACCESS,
-	CHANGESET_RESTRICTED_ACCESS,
+	CHANGESET_RESTRICTED_ACCESS
 } from './changeset_helpers.ts';
-import {package_json_load} from './package_json.ts';
+import { package_json_load } from './package_json.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
@@ -32,26 +32,26 @@ export const Args = z.strictObject({
 	 */
 	_: z
 		.array(z.string())
-		.meta({description: 'the message for the changeset and commit'})
+		.meta({ description: 'the message for the changeset and commit' })
 		.max(1)
 		.default([]),
-	minor: z.boolean().meta({description: 'bump the minor version'}).default(false),
-	major: z.boolean().meta({description: 'bump the major version'}).default(false),
-	dir: z.string().meta({description: 'changeset dir'}).default(CHANGESET_DIR),
+	minor: z.boolean().meta({ description: 'bump the minor version' }).default(false),
+	major: z.boolean().meta({ description: 'bump the major version' }).default(false),
+	dir: z.string().meta({ description: 'changeset dir' }).default(CHANGESET_DIR),
 	access: ChangesetAccess.meta({
-		description: "changeset 'access' config value, the default depends on package.json#private",
+		description: "changeset 'access' config value, the default depends on package.json#private"
 	}).optional(),
 	changelog: z
 		.string()
-		.meta({description: 'changelog dep package name, used as changeset\'s "changelog" config'})
+		.meta({ description: 'changelog dep package name, used as changeset\'s "changelog" config' })
 		.default('@changesets/changelog-git'),
-	dep: z.boolean().meta({description: 'dual of no-dep'}).default(true),
+	dep: z.boolean().meta({ description: 'dual of no-dep' }).default(true),
 	'no-dep': z
 		.boolean()
-		.meta({description: 'opt out of installing the changelog package'})
+		.meta({ description: 'opt out of installing the changelog package' })
 		.default(false),
-	origin: GitOrigin.meta({description: 'git origin to deploy to'}).default('origin'),
-	changeset_cli: z.string().meta({description: 'the changeset CLI to use'}).default(CHANGESET_CLI),
+	origin: GitOrigin.meta({ description: 'git origin to deploy to' }).default('origin'),
+	changeset_cli: z.string().meta({ description: 'the changeset CLI to use' }).default(CHANGESET_CLI)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -81,11 +81,11 @@ export const task: Task<Args> = {
 				changelog,
 				dep,
 				origin,
-				changeset_cli,
+				changeset_cli
 			},
 			log,
 			svelte_config,
-			config,
+			config
 		} = ctx;
 
 		if (!message && (minor || major)) throw new TaskError('cannot bump version without a message');
@@ -96,7 +96,7 @@ export const task: Task<Args> = {
 		const found_changeset_cli = await find_cli(changeset_cli);
 		if (!found_changeset_cli) {
 			throw new TaskError(
-				'changeset command not found: install @changesets/cli locally or globally',
+				'changeset command not found: install @changesets/cli locally or globally'
 			);
 		}
 
@@ -105,7 +105,7 @@ export const task: Task<Args> = {
 		const has_sveltekit_library_result = await has_sveltekit_library(package_json, svelte_config);
 		if (!has_sveltekit_library_result.ok) {
 			throw new TaskError(
-				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message,
+				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
 			);
 		}
 
@@ -124,7 +124,7 @@ export const task: Task<Args> = {
 			log.info('initing changeset with ' + st(access_color, access) + ' access');
 			if (access !== CHANGESET_RESTRICTED_ACCESS) {
 				await update_changeset_config(path, (config) => {
-					const updated = {...config};
+					const updated = { ...config };
 					updated.access = access;
 					updated.changelog = changelog;
 					return updated;
@@ -136,13 +136,13 @@ export const task: Task<Args> = {
 			if (dep) {
 				await install_with_cache_healing_or_throw(config.pm_cli, {
 					install_args: ['-D', changelog],
-					log,
+					log
 				});
 			}
 		}
 
 		// TODO small problem here where generated files don't get committed
-		await invoke_task('sync', {install: inited || !dep}); // after installing above, and in all cases
+		await invoke_task('sync', { install: inited || !dep }); // after installing above, and in all cases
 
 		if (message) {
 			// TODO see the helper below, simplify this to CLI flags when support is added to Changesets
@@ -157,7 +157,7 @@ export const task: Task<Args> = {
 			await spawn_cli(found_changeset_cli, [], log);
 			await spawn('git', ['add', dir]);
 		}
-	},
+	}
 };
 
 /**
@@ -168,7 +168,7 @@ const create_changeset_adder = async (
 	repo_name: string,
 	dir: string,
 	message: string,
-	bump: ChangesetBump,
+	bump: ChangesetBump
 ): Promise<() => Promise<void>> => {
 	const filenames_before = await readdir(dir);
 	return async () => {
@@ -190,7 +190,7 @@ const create_changeset_adder = async (
 const create_new_changeset = (
 	repo_name: string,
 	message: string,
-	bump: ChangesetBump,
+	bump: ChangesetBump
 ): string => `---
 "${repo_name}": ${bump}
 ---

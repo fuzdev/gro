@@ -1,4 +1,4 @@
-import type {TaskContext} from './task.ts';
+import type { TaskContext } from './task.ts';
 
 /**
  * Gro `Plugin`s enable custom behavior during `gro dev` and `gro build`.
@@ -12,7 +12,7 @@ export interface Plugin<TPluginContext extends PluginContext = PluginContext> {
 }
 
 export type PluginsCreateConfig<TPluginContext extends PluginContext = PluginContext> = (
-	ctx: TPluginContext,
+	ctx: TPluginContext
 ) => Array<Plugin<TPluginContext>> | Promise<Array<Plugin<TPluginContext>>>;
 
 export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
@@ -31,9 +31,9 @@ export class Plugins<TPluginContext extends PluginContext> {
 	}
 
 	static async create<TPluginContext extends PluginContext>(
-		ctx: TPluginContext,
+		ctx: TPluginContext
 	): Promise<Plugins<TPluginContext>> {
-		const {timings} = ctx;
+		const { timings } = ctx;
 		const timing_to_create = timings.start('plugins.create');
 		const instances: Array<Plugin> = await ctx.config.plugins(ctx);
 		const plugins = new Plugins(ctx, instances);
@@ -42,9 +42,9 @@ export class Plugins<TPluginContext extends PluginContext> {
 	}
 
 	async setup(): Promise<void> {
-		const {ctx, instances} = this;
+		const { ctx, instances } = this;
 		if (!instances.length) return;
-		const {timings, log} = ctx;
+		const { timings, log } = ctx;
 		const timing_to_setup = timings.start('plugins.setup');
 		for (const plugin of instances) {
 			if (!plugin.setup) continue;
@@ -57,8 +57,8 @@ export class Plugins<TPluginContext extends PluginContext> {
 	}
 
 	async adapt(): Promise<void> {
-		const {ctx, instances} = this;
-		const {timings} = ctx;
+		const { ctx, instances } = this;
+		const { timings } = ctx;
 		const timing_to_run_adapters = timings.start('plugins.adapt');
 		for (const plugin of instances) {
 			if (!plugin.adapt) continue;
@@ -70,9 +70,9 @@ export class Plugins<TPluginContext extends PluginContext> {
 	}
 
 	async teardown(): Promise<void> {
-		const {ctx, instances} = this;
+		const { ctx, instances } = this;
 		if (!instances.length) return;
-		const {timings, log} = ctx;
+		const { timings, log } = ctx;
 		const timing_to_teardown = timings.start('plugins.teardown');
 		for (const plugin of instances) {
 			if (!plugin.teardown) continue;
@@ -96,7 +96,7 @@ export class Plugins<TPluginContext extends PluginContext> {
 export const plugin_replace = (
 	plugins: Array<Plugin>,
 	new_plugin: Plugin,
-	name = new_plugin.name,
+	name = new_plugin.name
 ): Array<Plugin> => {
 	const index = plugins.findIndex((p) => p.name === name);
 	if (index === -1) throw Error('Failed to find plugin to replace: ' + name);

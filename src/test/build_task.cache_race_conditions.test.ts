@@ -1,13 +1,13 @@
-import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import {task as build_task} from '$lib/build.task.ts';
+import { task as build_task } from '$lib/build.task.ts';
 
-import {create_mock_build_task_context, create_mock_plugins} from './build_task_test_helpers.ts';
+import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn(),
+	git_current_commit_hash: vi.fn()
 }));
 
 vi.mock('node:fs', () => ({
@@ -17,17 +17,17 @@ vi.mock('node:fs', () => ({
 	readFileSync: vi.fn(),
 	writeFileSync: vi.fn(),
 	readdirSync: vi.fn(),
-	statSync: vi.fn(),
+	statSync: vi.fn()
 }));
 
 vi.mock('$lib/clean_fs.ts', () => ({
-	clean_fs: vi.fn(),
+	clean_fs: vi.fn()
 }));
 
 vi.mock('$lib/plugin.ts', () => ({
 	Plugins: {
-		create: vi.fn(),
-	},
+		create: vi.fn()
+	}
 }));
 
 vi.mock('$lib/build_cache.ts', async (import_original) => {
@@ -36,7 +36,7 @@ vi.mock('$lib/build_cache.ts', async (import_original) => {
 		...original,
 		is_build_cache_valid: vi.fn(),
 		create_build_cache_metadata: vi.fn(),
-		save_build_cache_metadata: vi.fn(),
+		save_build_cache_metadata: vi.fn()
 	};
 });
 
@@ -47,12 +47,12 @@ vi.mock('$lib/paths.ts', () => ({
 		lib: './src/lib/',
 		build: './.gro/',
 		build_dev: './.gro/dev/',
-		config: './gro.config.ts',
-	},
+		config: './gro.config.ts'
+	}
 }));
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
-	hash_blake3: vi.fn(),
+	hash_blake3: vi.fn()
 }));
 
 describe('build_task cache race conditions', () => {
@@ -61,10 +61,10 @@ describe('build_task cache race conditions', () => {
 
 		// Setup default mocks
 		const mock_plugins = create_mock_plugins();
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
-		const {clean_fs} = vi.mocked(await import('$lib/clean_fs.ts'));
+		const { clean_fs } = vi.mocked(await import('$lib/clean_fs.ts'));
 		vi.mocked(clean_fs).mockResolvedValue(undefined);
 	});
 
@@ -73,14 +73,14 @@ describe('build_task cache race conditions', () => {
 	});
 
 	test('detects commit change during build and skips cache save', async () => {
-		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts'),
+		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
+			await import('@fuzdev/fuz_util/git.ts')
 		);
-		const {is_build_cache_valid, save_build_cache_metadata} = vi.mocked(
-			await import('$lib/build_cache.ts'),
+		const { is_build_cache_valid, save_build_cache_metadata } = vi.mocked(
+			await import('$lib/build_cache.ts')
 		);
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
@@ -116,18 +116,18 @@ describe('build_task cache race conditions', () => {
 		expect(ctx.log.warn).toHaveBeenCalledWith(
 			expect.stringContaining('git commit changed during build'),
 			expect.stringContaining('commit_'), // "commit_a".slice(0, GIT_SHORT_HASH_LENGTH) = "commit_"
-			expect.stringContaining('cache not saved'),
+			expect.stringContaining('cache not saved')
 		);
 	});
 
 	test('saves cache when commit is stable throughout build', async () => {
-		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts'),
+		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
+			await import('@fuzdev/fuz_util/git.ts')
 		);
-		const {is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata} =
+		const { is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata } =
 			vi.mocked(await import('$lib/build_cache.ts'));
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
@@ -144,7 +144,7 @@ describe('build_task cache race conditions', () => {
 			git_commit: 'stable_commit',
 			build_cache_config_hash: 'hash123',
 			timestamp: '2025-10-21T10:00:00.000Z',
-			outputs: [],
+			outputs: []
 		};
 		vi.mocked(create_build_cache_metadata).mockResolvedValue(mock_metadata);
 
@@ -162,16 +162,16 @@ describe('build_task cache race conditions', () => {
 		expect(ctx.log.warn).not.toHaveBeenCalledWith(
 			expect.stringContaining('git commit changed during build'),
 			expect.anything(),
-			expect.anything(),
+			expect.anything()
 		);
 	});
 
 	test('logs commit hashes when race condition detected', async () => {
-		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts'),
+		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
+			await import('@fuzdev/fuz_util/git.ts')
 		);
-		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
+		const { is_build_cache_valid } = vi.mocked(await import('$lib/build_cache.ts'));
+		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
@@ -192,7 +192,7 @@ describe('build_task cache race conditions', () => {
 		expect(ctx.log.warn).toHaveBeenCalledWith(
 			expect.stringContaining('git commit changed during build'),
 			expect.stringContaining('abc1234'), // First GIT_SHORT_HASH_LENGTH chars
-			expect.stringContaining('cache not saved'),
+			expect.stringContaining('cache not saved')
 		);
 	});
 });

@@ -1,8 +1,8 @@
-import {describe, test, expect} from 'vitest';
-import {join} from 'node:path';
+import { describe, test, expect } from 'vitest';
+import { join } from 'node:path';
 
-import {resolve_specifier} from '$lib/resolve_specifier.ts';
-import {paths} from '$lib/paths.ts';
+import { resolve_specifier } from '$lib/resolve_specifier.ts';
+import { paths } from '$lib/paths.ts';
 
 const dir = paths.source + 'test/fixtures/';
 
@@ -16,7 +16,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_file.other.ext',
 			namespace: undefined,
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -29,7 +29,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -42,7 +42,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './this_test_ts_does_not_exist.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -56,7 +56,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: true,
+			raw: true
 		});
 	});
 
@@ -68,7 +68,7 @@ describe('resolve_specifier', () => {
 			specifier: './test_ts.ts',
 			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 		const path_id2 = join(dir, 'a/b/test_ts.ts');
 		expect(await resolve_specifier('./a/b/test_ts.ts', dir)).toEqual({
@@ -77,7 +77,7 @@ describe('resolve_specifier', () => {
 			specifier: './a/b/test_ts.ts',
 			mapped_specifier: './a/b/test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 		const path_id3 = join(dir, '../../test_ts.ts');
 		expect(await resolve_specifier('../../test_ts.ts', dir)).toEqual({
@@ -86,7 +86,7 @@ describe('resolve_specifier', () => {
 			specifier: '../../test_ts.ts',
 			mapped_specifier: '../../test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 		const path_id4 = join(dir, '../../test_ts.ts');
 		expect(await resolve_specifier('../../test_ts.ts?raw', dir)).toEqual({
@@ -95,7 +95,7 @@ describe('resolve_specifier', () => {
 			specifier: '../../test_ts.ts?raw',
 			mapped_specifier: '../../test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: true,
+			raw: true
 		});
 	});
 
@@ -108,7 +108,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -121,7 +121,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_js.js',
 			namespace: 'sveltekit_local_imports_js',
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -134,7 +134,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_missing.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 	});
 
@@ -147,7 +147,7 @@ describe('resolve_specifier', () => {
 			specifier,
 			mapped_specifier: './test_missing.js',
 			namespace: 'sveltekit_local_imports_ts',
-			raw: false,
+			raw: false
 		});
 	});
 });

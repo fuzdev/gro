@@ -1,14 +1,14 @@
-import {readdir, rm} from 'node:fs/promises';
-import type {RmOptions} from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
+import type { RmOptions } from 'node:fs';
 
-import {paths} from './paths.ts';
+import { paths } from './paths.ts';
 import {
 	NODE_MODULES_DIRNAME,
 	GRO_DIST_PREFIX,
 	SVELTEKIT_DEV_DIRNAME,
 	SVELTEKIT_BUILD_DIRNAME,
 	SVELTEKIT_VITE_CACHE_PATH,
-	SVELTEKIT_DIST_DIRNAME,
+	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
 
 export const clean_fs = async (
@@ -17,7 +17,7 @@ export const clean_fs = async (
 		build_dev = false,
 		build_dist = false,
 		sveltekit = false,
-		nodemodules = false,
+		nodemodules = false
 	}: {
 		build?: boolean;
 		build_dev?: boolean;
@@ -25,7 +25,7 @@ export const clean_fs = async (
 		sveltekit?: boolean;
 		nodemodules?: boolean;
 	},
-	rm_options: RmOptions = {force: true, recursive: true},
+	rm_options: RmOptions = { force: true, recursive: true }
 ): Promise<void> => {
 	const promises: Array<Promise<void>> = [];
 

@@ -1,11 +1,11 @@
-import {join, resolve} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import {identity} from '@fuzdev/fuz_util/function.ts';
-import type {PathFilter, PathId} from '@fuzdev/fuz_util/path.ts';
-import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.ts';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
+import { join, resolve } from 'node:path';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { identity } from '@fuzdev/fuz_util/function.ts';
+import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
+import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
+import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import {GRO_DIST_DIR, IS_THIS_GRO, paths} from './paths.ts';
+import { GRO_DIST_DIR, IS_THIS_GRO, paths } from './paths.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	JS_CLI_DEFAULT,
@@ -13,13 +13,13 @@ import {
 	PM_CLI_DEFAULT,
 	SERVER_DIST_PATH,
 	SVELTEKIT_BUILD_DIRNAME,
-	SVELTEKIT_DIST_DIRNAME,
+	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
 import create_default_config from './gro.config.default.ts';
-import type {PluginsCreateConfig} from './plugin.ts';
-import type {PackageJsonMapper} from './package_json.ts';
-import type {ParsedSvelteConfig} from './svelte_config.ts';
-import type {FilerOptions} from './filer.ts';
+import type { PluginsCreateConfig } from './plugin.ts';
+import type { PackageJsonMapper } from './package_json.ts';
+import type { ParsedSvelteConfig } from './svelte_config.ts';
+import type { FilerOptions } from './filer.ts';
 
 /**
  * BLAKE3 hash of empty string, used for configs without `build_cache_config`.
@@ -106,8 +106,7 @@ export interface RawGroConfig {
 	 * during config normalization. The raw value is never logged or persisted.
 	 */
 	build_cache_config?:
-		| Record<string, unknown>
-		| (() => Record<string, unknown> | Promise<Record<string, unknown>>);
+		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	/**
 	 * Options passed to the `Filer` for file watching and import resolution.
 	 * @see `FilerOptions`
@@ -117,7 +116,7 @@ export interface RawGroConfig {
 
 export type CreateGroConfig = (
 	base_config: GroConfig,
-	svelte_config?: ParsedSvelteConfig,
+	svelte_config?: ParsedSvelteConfig
 ) => RawGroConfig | Promise<RawGroConfig>;
 
 export const create_empty_gro_config = (): GroConfig => ({
@@ -127,13 +126,13 @@ export const create_empty_gro_config = (): GroConfig => ({
 		// TODO maybe disable if no SvelteKit `lib` directory? or other detection to improve defaults
 		paths.lib,
 		IS_THIS_GRO ? null : paths.root,
-		IS_THIS_GRO ? null : GRO_DIST_DIR,
+		IS_THIS_GRO ? null : GRO_DIST_DIR
 	].filter((v) => v !== null),
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
 	js_cli: JS_CLI_DEFAULT,
 	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
-	filer_options: null,
+	filer_options: null
 });
 
 /**
@@ -146,16 +145,12 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 	`(${
 		'(^|/)\\.[^/]+' + // exclude all `.`-prefixed directories
 		// TODO probably change to `pkg.name` instead of this catch-all (also `gro` below)
-		`|(^|/)${NODE_MODULES_DIRNAME}(?!/(@[^/]+/)?gro/${
-			SVELTEKIT_DIST_DIRNAME
-		})` + // exclude `node_modules` unless it's to the Gro directory
+		`|(^|/)${NODE_MODULES_DIRNAME}(?!/(@[^/]+/)?gro/${SVELTEKIT_DIST_DIRNAME})` + // exclude `node_modules` unless it's to the Gro directory
 		`|(^|/)${SVELTEKIT_BUILD_DIRNAME}` + // exclude the SvelteKit build directory
-		`|(^|/)(?<!(^|/)gro/)${
-			SVELTEKIT_DIST_DIRNAME
-		}` + // exclude the SvelteKit dist directory unless it's in the Gro directory
+		`|(^|/)(?<!(^|/)gro/)${SVELTEKIT_DIST_DIRNAME}` + // exclude the SvelteKit dist directory unless it's in the Gro directory
 		`|(^|/)${SERVER_DIST_PATH}` // exclude the Gro server plugin dist directory
 	})($|/)`,
-	'u',
+	'u'
 );
 
 /**
@@ -176,7 +171,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		js_cli = empty_config.js_cli,
 		pm_cli = empty_config.pm_cli,
 		build_cache_config,
-		filer_options = empty_config.filer_options,
+		filer_options = empty_config.filer_options
 	} = raw_config;
 
 	// Hash build_cache_config and delete the raw value
@@ -208,7 +203,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		js_cli,
 		pm_cli,
 		build_cache_config_hash,
-		filer_options: filer_options ?? null,
+		filer_options: filer_options ?? null
 	};
 };
 
@@ -218,7 +213,7 @@ export interface GroConfigModule {
 
 export const load_gro_config = async (dir = paths.root): Promise<GroConfig> => {
 	const default_config = await cook_gro_config(
-		await create_default_config(create_empty_gro_config()),
+		await create_default_config(create_empty_gro_config())
 	);
 
 	const config_path = join(dir, GRO_CONFIG_FILENAME);
@@ -235,22 +230,20 @@ export const load_gro_config = async (dir = paths.root): Promise<GroConfig> => {
 	return await cook_gro_config(
 		typeof config_module.default === 'function'
 			? await config_module.default(default_config)
-			: config_module.default,
+			: config_module.default
 	);
 };
 
 export const validate_gro_config_module: (
 	config_module: any,
-	config_path: string,
+	config_path: string
 ) => asserts config_module is GroConfigModule = (config_module, config_path) => {
 	const config = config_module.default;
 	if (!config) {
 		throw Error(`Invalid Gro config module at ${config_path}: expected a default export`);
 	} else if (!(typeof config === 'function' || typeof config === 'object')) {
 		throw Error(
-			`Invalid Gro config module at ${
-				config_path
-			}: the default export must be a function or object`,
+			`Invalid Gro config module at ${config_path}: the default export must be a function or object`
 		);
 	}
 };

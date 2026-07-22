@@ -5,7 +5,7 @@
 import type {
 	navigating as base_navigating,
 	page as base_page,
-	updated as base_updated,
+	updated as base_updated
 } from '$app/state';
 
 export const navigating: typeof base_navigating = {
@@ -14,7 +14,7 @@ export const navigating: typeof base_navigating = {
 	type: null,
 	willUnload: null,
 	delta: null,
-	complete: null,
+	complete: null
 };
 
 export const page: typeof base_page = {
@@ -22,15 +22,15 @@ export const page: typeof base_page = {
 	form: null,
 	error: null,
 	params: {},
-	route: {id: null},
+	route: { id: null },
 	state: {},
 	status: -1,
-	url: new URL('https://github.com/fuzdev/gro') as any, // TODO maybe use package.json?
+	url: new URL('https://github.com/fuzdev/gro') as any // TODO maybe use package.json?
 };
 
 export const updated: typeof base_updated = {
 	current: false,
 	check: () => {
 		throw Error('Can only call updated.check() in the browser');
-	},
+	}
 };

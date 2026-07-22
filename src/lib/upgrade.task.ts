@@ -1,53 +1,56 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.ts';
-import {GitOrigin, git_pull} from '@fuzdev/fuz_util/git.ts';
-import {rm} from 'node:fs/promises';
-import {z} from 'zod';
+import { args_serialize } from '@fuzdev/fuz_util/args.ts';
+import { GitOrigin, git_pull } from '@fuzdev/fuz_util/git.ts';
+import { rm } from 'node:fs/promises';
+import { z } from 'zod';
 
-import {to_forwarded_args} from './args.ts';
-import {spawn_cli} from './cli.ts';
-import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
-import {NODE_MODULES_DIRNAME} from './constants.ts';
+import { to_forwarded_args } from './args.ts';
+import { spawn_cli } from './cli.ts';
+import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { NODE_MODULES_DIRNAME } from './constants.ts';
 import {
 	package_json_extract_dependencies,
 	package_json_load,
-	type PackageJsonDep,
+	type PackageJsonDep
 } from './package_json.ts';
-import {TaskError, type Task} from './task.ts';
+import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
 	_: z
 		.array(z.string())
-		.meta({description: 'names of deps to exclude from the upgrade'})
+		.meta({ description: 'names of deps to exclude from the upgrade' })
 		.default([]),
 	only: z
 		.union([z.string(), z.array(z.string())])
 		.meta({
-			description: 'names of deps to include in the upgrade',
+			description: 'names of deps to include in the upgrade'
 		})
 		.default([])
 		.transform((v) => (Array.isArray(v) ? v : [v])),
-	origin: GitOrigin.meta({description: 'git origin to deploy to'}).default('origin'),
-	force: z.boolean().meta({description: 'if true, print out the planned upgrades'}).default(false),
-	pull: z.boolean().meta({description: 'dual of no-pull'}).default(true),
-	'no-pull': z.boolean().meta({description: 'opt out of git pull'}).default(false),
+	origin: GitOrigin.meta({ description: 'git origin to deploy to' }).default('origin'),
+	force: z
+		.boolean()
+		.meta({ description: 'if true, print out the planned upgrades' })
+		.default(false),
+	pull: z.boolean().meta({ description: 'dual of no-pull' }).default(true),
+	'no-pull': z.boolean().meta({ description: 'opt out of git pull' }).default(false),
 	delete_node_modules: z
 		.boolean()
-		.meta({description: 'if true, deletes node_modules before upgrading'})
+		.meta({ description: 'if true, deletes node_modules before upgrading' })
 		.default(false),
 	node_modules_path: z // TODO maybe configured globally instead
 		.string()
-		.meta({description: 'path to modules directory to delete'})
+		.meta({ description: 'path to modules directory to delete' })
 		.default(NODE_MODULES_DIRNAME),
 	delete_lockfile: z
 		.boolean()
-		.meta({description: 'if true, deletes the lockfile before upgrading'})
+		.meta({ description: 'if true, deletes the lockfile before upgrading' })
 		.default(false),
 	lockfile_path: z
 		.string()
-		.meta({description: 'path to the lockfile to delete'})
+		.meta({ description: 'path to the lockfile to delete' })
 		.default('package-lock.json'),
-	dry: z.boolean().meta({description: 'if true, print out the planned upgrades'}).default(false),
+	dry: z.boolean().meta({ description: 'if true, print out the planned upgrades' }).default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -55,7 +58,7 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'upgrade deps',
 	Args,
-	run: async ({args, log, config}): Promise<void> => {
+	run: async ({ args, log, config }): Promise<void> => {
 		const {
 			_,
 			only,
@@ -66,7 +69,7 @@ export const task: Task<Args> = {
 			node_modules_path,
 			delete_lockfile,
 			lockfile_path,
-			dry,
+			dry
 		} = args;
 
 		if (_.length && only.length) {
@@ -80,12 +83,12 @@ export const task: Task<Args> = {
 
 		if (delete_node_modules) {
 			log.info(`deleting node_modules at `, node_modules_path);
-			await rm(node_modules_path, {recursive: true, force: true});
+			await rm(node_modules_path, { recursive: true, force: true });
 		}
 
 		if (delete_lockfile) {
 			log.info(`deleting lockfile at`, lockfile_path);
-			await rm(lockfile_path, {force: true});
+			await rm(lockfile_path, { force: true });
 		}
 
 		const package_json = await package_json_load();
@@ -100,7 +103,7 @@ export const task: Task<Args> = {
 			throw new TaskError(
 				`Some deps to upgrade were not found: ${only
 					.filter((o) => !deps.find((d) => d.name === o))
-					.join(', ')}`,
+					.join(', ')}`
 			);
 		}
 
@@ -117,19 +120,19 @@ export const task: Task<Args> = {
 			install_args.push('--force');
 		}
 		install_args.push(...args_serialize(to_forwarded_args(config.pm_cli)));
-		await install_with_cache_healing_or_throw(config.pm_cli, {install_args, log});
+		await install_with_cache_healing_or_throw(config.pm_cli, { install_args, log });
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// If we deleted the lockfile or node modules, `npm install` again
 		// to fix a recurring npm bug getting the lockfile to its final state.
 		if (!dry && (delete_node_modules || delete_lockfile)) {
 			log.info(`installing again to fix npm lockfile bugs`);
-			await install_with_cache_healing_or_throw(config.pm_cli, {log});
+			await install_with_cache_healing_or_throw(config.pm_cli, { log });
 		}
 
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.
 		await spawn_cli('gro', ['sync']); // don't install because we do above
-	},
+	}
 };
 
 const EXACT_VERSION_MATCHER = /^..*@.+/;

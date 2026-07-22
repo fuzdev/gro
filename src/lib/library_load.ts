@@ -1,19 +1,19 @@
-import {mkdir, readFile, writeFile} from 'node:fs/promises';
-import {dirname, join} from 'node:path';
-import {styleText as st} from 'node:util';
-import {analyzeFromFiles} from 'svelte-docinfo';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { styleText as st } from 'node:util';
+import { analyzeFromFiles } from 'svelte-docinfo';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import {
 	git_current_commit_hash,
 	git_check_workspace,
-	git_workspace_is_clean,
+	git_workspace_is_clean
 } from '@fuzdev/fuz_util/git.ts';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
-import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
-import {to_error_message} from '@fuzdev/fuz_util/error.ts';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
+import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
-import {GRO_DIRNAME} from './constants.ts';
+import { GRO_DIRNAME } from './constants.ts';
 
 /**
  * Cache filename inside a repo's `.gro` directory for `library_load_from_repo`.
@@ -69,7 +69,7 @@ export interface LibraryLoadOptions {
  * Skipping the cache while dirty guarantees fresh metadata; clean commits cache.
  */
 export const library_cache_key = async (repo_dir: string): Promise<string | null> => {
-	const options = {cwd: repo_dir};
+	const options = { cwd: repo_dir };
 	const commit = await git_current_commit_hash('HEAD', options);
 	if (!commit) return null;
 	const status = await git_check_workspace(options);
@@ -91,7 +91,7 @@ export const library_cache_key = async (repo_dir: string): Promise<string | null
 export const library_cache_read = async (
 	cache_path: string,
 	key: string,
-	log?: Logger,
+	log?: Logger
 ): Promise<LibraryLoadResult | null> => {
 	if (!(await fs_exists(cache_path))) return null;
 	try {
@@ -99,7 +99,7 @@ export const library_cache_read = async (
 		const parsed: LibraryCache = JSON.parse(contents);
 		if (parsed.hash === key && parsed.version === LIBRARY_CACHE_VERSION) {
 			log?.debug('library cache hit', st('dim', `(${cache_path} @ ${key})`));
-			return {library_json: parsed.library_json, package_json: parsed.package_json};
+			return { library_json: parsed.library_json, package_json: parsed.package_json };
 		}
 		log?.debug('library cache stale', st('dim', `(${cache_path})`));
 	} catch {
@@ -125,17 +125,17 @@ export const library_cache_write = async (
 	cache_path: string,
 	key: string,
 	result: LibraryLoadResult,
-	log?: Logger,
+	log?: Logger
 ): Promise<void> => {
 	try {
-		await mkdir(dirname(cache_path), {recursive: true});
-		const data: LibraryCache = {hash: key, version: LIBRARY_CACHE_VERSION, ...result};
+		await mkdir(dirname(cache_path), { recursive: true });
+		const data: LibraryCache = { hash: key, version: LIBRARY_CACHE_VERSION, ...result };
 		await writeFile(cache_path, JSON.stringify(data, null, '\t') + '\n', 'utf-8');
 		log?.debug('library cache written', st('dim', `(${cache_path})`));
 	} catch (error) {
 		log?.warn(
 			st('yellow', 'failed to write library cache'),
-			st('dim', `(${to_error_message(error)})`),
+			st('dim', `(${to_error_message(error)})`)
 		);
 	}
 };
@@ -157,9 +157,9 @@ export const library_cache_write = async (
  */
 export const library_load_from_repo = async (
 	repo_dir: string,
-	options?: LibraryLoadOptions,
+	options?: LibraryLoadOptions
 ): Promise<LibraryLoadResult> => {
-	const {log, cache = true} = options ?? {};
+	const { log, cache = true } = options ?? {};
 
 	const cache_path = join(repo_dir, GRO_DIRNAME, LIBRARY_CACHE_FILENAME);
 
@@ -184,11 +184,11 @@ export const library_load_from_repo = async (
 		throw Error(`library_load_from_repo: missing \`version\` in ${package_json_path}`);
 	}
 
-	const {modules} = await analyzeFromFiles({projectRoot: repo_dir});
+	const { modules } = await analyzeFromFiles({ projectRoot: repo_dir });
 
 	const library_json = library_json_from_modules(package_json, modules);
 
-	const result: LibraryLoadResult = {library_json, package_json};
+	const result: LibraryLoadResult = { library_json, package_json };
 
 	// Cache the result (best effort). Skip when there's no usable key, e.g. not a
 	// git repo or a dirty working tree.

@@ -5,18 +5,18 @@ import {
 	preprocess,
 	type CompileOptions,
 	type ModuleCompileOptions,
-	type PreprocessorGroup,
+	type PreprocessorGroup
 } from 'svelte/compiler';
-import {readFile} from 'node:fs/promises';
-import {relative} from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { relative } from 'node:path';
 
-import {to_define_import_meta_env, default_ts_transform_options} from './esbuild_helpers.ts';
+import { to_define_import_meta_env, default_ts_transform_options } from './esbuild_helpers.ts';
 import {
 	default_svelte_config,
 	to_default_compile_module_options,
-	type ParsedSvelteConfig,
+	type ParsedSvelteConfig
 } from './svelte_config.ts';
-import {TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER} from './constants.ts';
+import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
 
 export interface EsbuildPluginSvelteOptions {
 	dev: boolean;
@@ -38,19 +38,19 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 		svelte_compile_module_options = to_default_compile_module_options(svelte_compile_options),
 		svelte_preprocessors,
 		ts_transform_options = default_ts_transform_options,
-		is_ts = (f) => TS_MATCHER.test(f),
+		is_ts = (f) => TS_MATCHER.test(f)
 	} = options;
 
 	const final_ts_transform_options: esbuild.TransformOptions = {
 		...ts_transform_options,
 		define: to_define_import_meta_env(dev, base_url),
-		sourcemap: 'inline',
+		sourcemap: 'inline'
 	};
 
 	return {
 		name: 'svelte',
 		setup: (build) => {
-			build.onLoad({filter: SVELTE_RUNES_MATCHER}, async ({path}) => {
+			build.onLoad({ filter: SVELTE_RUNES_MATCHER }, async ({ path }) => {
 				const source = await readFile(path, 'utf8');
 				try {
 					const filename = relative(dir, path);
@@ -58,43 +58,43 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 						? (
 								await esbuild.transform(source, {
 									...final_ts_transform_options,
-									sourcefile: filename,
+									sourcefile: filename
 								})
 							).code // TODO @many use warnings? handle not-inline sourcemaps?
 						: source;
-					const {js, warnings} = compileModule(js_source, {
+					const { js, warnings } = compileModule(js_source, {
 						...svelte_compile_module_options,
-						filename,
+						filename
 					});
 					const contents = js.code + '//# sourceMappingURL=' + js.map.toUrl();
 					return {
 						contents,
-						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w)),
+						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w))
 					};
 				} catch (error) {
-					return {errors: [convert_svelte_message_to_esbuild(path, source, error)]};
+					return { errors: [convert_svelte_message_to_esbuild(path, source, error)] };
 				}
 			});
 
-			build.onLoad({filter: SVELTE_MATCHER}, async ({path}) => {
+			build.onLoad({ filter: SVELTE_MATCHER }, async ({ path }) => {
 				let source = await readFile(path, 'utf8');
 				try {
 					const filename = relative(dir, path);
 					const preprocessed = svelte_preprocessors
-						? await preprocess(source, svelte_preprocessors, {filename})
+						? await preprocess(source, svelte_preprocessors, { filename })
 						: null;
 					if (preprocessed?.code) source = preprocessed.code;
-					const {js, warnings} = compile(source, {...svelte_compile_options, filename});
+					const { js, warnings } = compile(source, { ...svelte_compile_options, filename });
 					const contents = js.code + '//# sourceMappingURL=' + js.map.toUrl();
 					return {
 						contents,
-						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w)),
+						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w))
 					};
 				} catch (error) {
-					return {errors: [convert_svelte_message_to_esbuild(path, source, error)]};
+					return { errors: [convert_svelte_message_to_esbuild(path, source, error)] };
 				}
 			});
-		},
+		}
 	};
 };
 
@@ -105,7 +105,7 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 const convert_svelte_message_to_esbuild = (
 	path: string,
 	source: string,
-	{message, start, end}: SvelteError,
+	{ message, start, end }: SvelteError
 ): esbuild.PartialMessage => {
 	let location: esbuild.PartialMessage['location'] = null;
 	if (start && end) {
@@ -116,10 +116,10 @@ const convert_svelte_message_to_esbuild = (
 			line: start.line,
 			lineText,
 			column: start.column,
-			length: lineEnd - start.column,
+			length: lineEnd - start.column
 		};
 	}
-	return {text: message, location};
+	return { text: message, location };
 };
 
 // these are not exported by Svelte

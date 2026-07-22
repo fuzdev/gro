@@ -1,35 +1,38 @@
-import {styleText as st} from 'node:util';
-import {print_ms, print_error} from '@fuzdev/fuz_util/print.ts';
-import {plural} from '@fuzdev/fuz_util/string.ts';
-import {z} from 'zod';
+import { styleText as st } from 'node:util';
+import { print_ms, print_error } from '@fuzdev/fuz_util/print.ts';
+import { plural } from '@fuzdev/fuz_util/string.ts';
+import { z } from 'zod';
 
-import {TaskError, type Task} from './task.ts';
-import {run_gen} from './run_gen.ts';
-import {RawInputPath, to_input_paths} from './input_path.ts';
-import {format_file} from './format_file.ts';
-import {print_path} from './paths.ts';
-import {log_error_reasons} from './task_logging.ts';
+import { TaskError, type Task } from './task.ts';
+import { run_gen } from './run_gen.ts';
+import { RawInputPath, to_input_paths } from './input_path.ts';
+import { format_file } from './format_file.ts';
+import { print_path } from './paths.ts';
+import { log_error_reasons } from './task_logging.ts';
 import {
 	write_gen_results,
 	analyze_gen_results,
 	find_genfiles,
 	load_genfiles,
 	type AnalyzedGenResult,
-	type GenResults,
+	type GenResults
 } from './gen.ts';
-import {SOURCE_DIRNAME} from './constants.ts';
+import { SOURCE_DIRNAME } from './constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	_: z.array(RawInputPath).meta({description: 'input paths to generate'}).default([SOURCE_DIRNAME]),
+	_: z
+		.array(RawInputPath)
+		.meta({ description: 'input paths to generate' })
+		.default([SOURCE_DIRNAME]),
 	root_dirs: z
 		.array(z.string())
-		.meta({description: 'root directories to resolve input paths against'}) // TODO `PathId` schema
+		.meta({ description: 'root directories to resolve input paths against' }) // TODO `PathId` schema
 		.default([process.cwd()]),
 	check: z
 		.boolean()
-		.meta({description: 'exit with a nonzero code if any files need to be generated'})
-		.default(false),
+		.meta({ description: 'exit with a nonzero code if any files need to be generated' })
+		.default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -37,8 +40,8 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run code generation scripts',
 	Args,
-	run: async ({args, filer, log, timings, config, invoke_task}): Promise<void> => {
-		const {_: raw_input_paths, root_dirs, check} = args;
+	run: async ({ args, filer, log, timings, config, invoke_task }): Promise<void> => {
+		const { _: raw_input_paths, root_dirs, check } = args;
 
 		const input_paths = to_input_paths(raw_input_paths);
 
@@ -57,7 +60,7 @@ export const task: Task<Args> = {
 		const found_genfiles = found.value;
 		log.info(
 			'gen files',
-			found_genfiles.resolved_input_files.map((f) => f.id),
+			found_genfiles.resolved_input_files.map((f) => f.id)
 		);
 		const loaded = await load_genfiles(found_genfiles, timings);
 		if (!loaded.ok) {
@@ -75,7 +78,7 @@ export const task: Task<Args> = {
 			log,
 			timings,
 			invoke_task,
-			format_file,
+			format_file
 		);
 		timing_to_generate_code();
 
@@ -97,15 +100,15 @@ export const task: Task<Args> = {
 						st(
 							'red',
 							`Generated file ${print_path(analyzed.file.id)} via ${print_path(
-								analyzed.file.origin_id,
-							)} ${analyzed.is_new ? 'is new' : 'has changed'}.`,
-						),
+								analyzed.file.origin_id
+							)} ${analyzed.is_new ? 'is new' : 'has changed'}.`
+						)
 					);
 				}
 				if (has_unexpected_changes) {
 					throw new TaskError(
 						'Failed gen check. Some generated files have unexpectedly changed.' +
-							' Run `gro gen` and try again.',
+							' Run `gro gen` and try again.'
 					);
 				}
 				log.info('check passed, no files have changed');
@@ -127,10 +130,10 @@ export const task: Task<Args> = {
 			format_gen_output(output_lines) +
 				`\n\n\t${new_count} ${st(new_count > 0 ? 'green' : 'gray', 'new')}, ${changed_count} ${st(
 					changed_count > 0 ? 'cyan' : 'gray',
-					'changed',
+					'changed'
 				)}, ${unchanged_count} ${st('gray', 'unchanged')}${
 					error_count ? `, ${error_count} ${st('red', 'error' + plural(error_count))}` : ''
-				} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`,
+				} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`
 		);
 
 		if (fail_count) {
@@ -139,7 +142,7 @@ export const task: Task<Args> = {
 			}
 			throw new TaskError(`Failed to generate ${fail_count} file${plural(fail_count)}.`);
 		}
-	},
+	}
 };
 
 interface GenStatus {
@@ -149,10 +152,10 @@ interface GenStatus {
 }
 
 const format_gen_status = (analyzed: AnalyzedGenResult | undefined): GenStatus => {
-	if (!analyzed) return {symbol: '?', color: 'gray', text: 'unknown'};
-	if (analyzed.is_new) return {symbol: '●', color: 'green', text: 'new'};
-	if (analyzed.has_changed) return {symbol: '◐', color: 'cyan', text: 'changed'};
-	return {symbol: '○', color: 'gray', text: 'unchanged'};
+	if (!analyzed) return { symbol: '?', color: 'gray', text: 'unknown' };
+	if (analyzed.is_new) return { symbol: '●', color: 'green', text: 'new' };
+	if (analyzed.has_changed) return { symbol: '◐', color: 'cyan', text: 'changed' };
+	return { symbol: '○', color: 'gray', text: 'unchanged' };
 };
 
 interface OutputLine {
@@ -165,7 +168,7 @@ interface OutputLine {
 
 const collect_output_lines = (
 	gen_results: GenResults,
-	analyzed_gen_results: Array<AnalyzedGenResult>,
+	analyzed_gen_results: Array<AnalyzedGenResult>
 ): Array<OutputLine> => {
 	const output_lines: Array<OutputLine> = [];
 
@@ -178,16 +181,16 @@ const collect_output_lines = (
 					elapsed: print_ms(result.elapsed),
 					source: print_path(result.id),
 					target: print_path(file.id),
-					is_error: false,
+					is_error: false
 				});
 			}
 		} else {
 			output_lines.push({
-				status: {symbol: '🞩', color: 'red', text: 'error'},
+				status: { symbol: '🞩', color: 'red', text: 'error' },
 				elapsed: print_ms(result.elapsed),
 				source: print_path(result.id),
 				target: st('red', result.error.stack || result.error.message || 'error'),
-				is_error: true,
+				is_error: true
 			});
 		}
 	}

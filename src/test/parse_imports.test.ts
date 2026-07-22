@@ -1,6 +1,6 @@
-import {test, expect} from 'vitest';
+import { test, expect } from 'vitest';
 
-import {parse_imports} from '$lib/parse_imports.ts';
+import { parse_imports } from '$lib/parse_imports.ts';
 
 test('parse js imports', () => {
 	const parsed = parse_imports(
@@ -10,7 +10,7 @@ test('parse js imports', () => {
       import {foo} from 'static_import';
       await import('dynamic_import');
       const b = {};
-    `,
+    `
 	);
 	expect(parsed).toEqual(['static_import', 'dynamic_import']);
 });
@@ -28,7 +28,7 @@ test('parse ts imports', () => {
       await import('dynamic_import');
       const b: {} = {};
       export type {G} from 'exported_import';
-    `,
+    `
 	);
 	expect(parsed).toEqual(['static_import', 'dynamic_import']);
 });
@@ -42,7 +42,7 @@ test('parse ts imports and omit types', () => {
       import {type baz, qux} from 'mixed_type_import';
       import {aaa, type bbb, ccc} from 'mixed_type_import2';
       await import('dynamic_import');
-    `,
+    `
 	);
 	expect(parsed).toEqual(['mixed_type_import', 'mixed_type_import2', 'dynamic_import']);
 });
@@ -58,7 +58,7 @@ test('parse ts imports and include types', () => {
       await import('dynamic_import');
       export type {G} from 'exported_import';
     `,
-		false,
+		false
 	);
 	expect(parsed).toEqual([
 		'static_import',
@@ -66,7 +66,7 @@ test('parse ts imports and include types', () => {
 		'mixed_type_import',
 		'mixed_type_import2',
 		'dynamic_import',
-		'exported_import',
+		'exported_import'
 	]);
 });
 
@@ -95,13 +95,13 @@ test('parse svelte imports', () => {
       </script>
       
       222
-    `,
+    `
 	);
 	expect(parsed).toEqual([
 		'static_import_module_context',
 		'dynamic_import_module_context',
 		'static_import',
-		'dynamic_import',
+		'dynamic_import'
 	]);
 });
 
@@ -115,7 +115,7 @@ test('parse plain JS svelte imports', () => {
         await import('dynamic_import');
         const b3 = {};
       </script>
-    `,
+    `
 	);
 	expect(parsed).toEqual(['static_import', 'dynamic_import']);
 });
@@ -132,7 +132,7 @@ test('parse empty imports', () => {
       import {foo} from '';
       await import('');
       const b: {} = {};
-    `,
+    `
 	);
 	expect(parsed).toEqual([]);
 });
@@ -144,7 +144,7 @@ test('parse ts re-exports with type keywords', () => {
       export {something} from 'value_export';
       export type {TypeA} from 'type_export';
       export {type InlineType, ValueExport} from 'mixed_export';
-    `,
+    `
 	);
 	expect(parsed).toEqual(['value_export', 'mixed_export']);
 });
@@ -157,7 +157,7 @@ test('parse ts re-exports with type keywords (include types)', () => {
       export type {TypeA} from 'type_export';
       export {type InlineType, ValueExport} from 'mixed_export';
     `,
-		false,
+		false
 	);
 	expect(parsed).toEqual(['value_export', 'type_export', 'mixed_export']);
 });
@@ -171,7 +171,7 @@ test('parse default and namespace imports', () => {
       import defaultAndNamed, {named} from 'mixed_default_named';
       import type DefaultType from 'default_type_module';
       import type * as NamespaceType from 'namespace_type_module';
-    `,
+    `
 	);
 	expect(parsed).toEqual(['default_module', 'namespace_module', 'mixed_default_named']);
 });
@@ -192,7 +192,7 @@ test('parse imports with comments and whitespace', () => {
       import type {
         CommentedType, // End line comment
       } from 'type_with_comments';
-    `,
+    `
 	);
 	expect(parsed).toEqual(['module_with_comments']);
 });
@@ -219,7 +219,7 @@ test('parse imports in complex svelte files', () => {
           </script>
         </pre>
       </div>
-    `,
+    `
 	);
 	expect(parsed).toEqual(['module_helpers', './component']);
 });
@@ -230,7 +230,7 @@ test('parse imports with string literals in different formats', () => {
 		`
       import {a} from "double_quotes";
       import {b} from 'single_quotes';
-    `,
+    `
 	);
 	expect(parsed).toEqual(['double_quotes', 'single_quotes']);
 });
@@ -243,7 +243,7 @@ test('parse dynamic imports with expressions', () => {
       await import(\`template_\${dynamic}\`);
       await import(dynamicVariable);
       await import('./path/' + moduleName);
-    `,
+    `
 	);
 	// Only the string literal should be captured
 	expect(parsed).toEqual(['simple_dynamic']);

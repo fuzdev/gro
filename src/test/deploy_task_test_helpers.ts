@@ -1,10 +1,10 @@
-import {vi} from 'vitest';
+import { vi } from 'vitest';
 
-import type {TaskContext} from '$lib/task.ts';
-import type {Args} from '$lib/deploy.task.ts';
-import type {GroConfig} from '$lib/gro_config.ts';
+import type { TaskContext } from '$lib/task.ts';
+import type { Args } from '$lib/deploy.task.ts';
+import type { GroConfig } from '$lib/gro_config.ts';
 
-import {create_mock_task_context} from './test_helpers.ts';
+import { create_mock_task_context } from './test_helpers.ts';
 
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 
@@ -13,7 +13,7 @@ import {create_mock_task_context} from './test_helpers.ts';
  */
 export const create_mock_deploy_task_context = (
 	args: Partial<Args> = {},
-	config: Partial<GroConfig> = {},
+	config: Partial<GroConfig> = {}
 ): TaskContext<Args> =>
 	create_mock_task_context(args, config, {
 		source: 'main',
@@ -35,14 +35,14 @@ export const create_mock_deploy_task_context = (
 		'no-install': false,
 		force_build: false,
 		pull: true,
-		'no-pull': false,
+		'no-pull': false
 	});
 
 /**
  * Creates mock spawn options for deploy directory operations.
  */
 export const create_mock_spawn_options = (deploy_dir = '.gro/deploy') => ({
-	cwd: deploy_dir,
+	cwd: deploy_dir
 });
 
 /**
@@ -61,7 +61,7 @@ export const setup_successful_git_mocks = async () => {
 		git_current_branch_name,
 		git_delete_local_branch,
 		git_push_to_create,
-		git_reset_branch_to_first_commit,
+		git_reset_branch_to_first_commit
 	} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
 	vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
@@ -82,8 +82,8 @@ export const setup_successful_git_mocks = async () => {
  * Sets up common fs mocks for successful scenarios.
  */
 export const setup_successful_fs_mocks = async () => {
-	const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
-	const {cp, mkdir, rm, readdir} = await import('node:fs/promises');
+	const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
+	const { cp, mkdir, rm, readdir } = await import('node:fs/promises');
 
 	vi.mocked(fs_exists).mockResolvedValue(true);
 	vi.mocked(readdir).mockResolvedValue(['index.html', 'assets'] as any);
@@ -96,6 +96,6 @@ export const setup_successful_fs_mocks = async () => {
  * Sets up common spawn mock for successful scenarios.
  */
 export const setup_successful_spawn_mock = async () => {
-	const {spawn} = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-	vi.mocked(spawn).mockResolvedValue({code: 0} as any);
+	const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+	vi.mocked(spawn).mockResolvedValue({ code: 0 } as any);
 };

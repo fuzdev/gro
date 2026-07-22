@@ -1,9 +1,9 @@
-import {realpathSync, existsSync} from 'node:fs';
-import {join, resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {spawn, type SpawnResult} from '@fuzdev/fuz_util/process.ts';
+import { realpathSync, existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn, type SpawnResult } from '@fuzdev/fuz_util/process.ts';
 
-import {JS_CLI_DEFAULT, NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME} from './constants.ts';
+import { JS_CLI_DEFAULT, NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 
 /*
 
@@ -83,7 +83,7 @@ export const spawn_with_loader = (
 	loader_path: string,
 	invoke_path: string,
 	argv: Array<string>,
-	js_cli = JS_CLI_DEFAULT, // TODO source from config when possible
+	js_cli = JS_CLI_DEFAULT // TODO source from config when possible
 ): Promise<SpawnResult> => {
 	const args = [
 		'--import',
@@ -96,7 +96,7 @@ export const spawn_with_loader = (
 		'--experimental-import-meta-resolve', // for `import.meta.resolve`
 		'--experimental-strip-types',
 		'--disable-warning',
-		'ExperimentalWarning',
+		'ExperimentalWarning'
 	];
 	// In almost all cases we want the exports condition to be `"development"`. Needed for `esm-env`.
 	if (process.env.NODE_ENV !== 'production') {

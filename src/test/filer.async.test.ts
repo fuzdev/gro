@@ -1,7 +1,7 @@
-import {test, assert, vi} from 'vitest';
+import { test, assert, vi } from 'vitest';
 
-import type {WatchNodeFs} from '$lib/watch_dir.ts';
-import {Filer} from '$lib/filer.ts';
+import type { WatchNodeFs } from '$lib/watch_dir.ts';
+import { Filer } from '$lib/filer.ts';
 
 // Create a simple mock watch_dir that simulates file discovery
 const create_mock_watch_dir = () => {
@@ -9,11 +9,11 @@ const create_mock_watch_dir = () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Simulate discovering files via on_change callbacks
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/lib/helper.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/lib/helper.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
@@ -26,14 +26,14 @@ test('close() during init() handles gracefully', async () => {
 			init: vi.fn(async () => {
 				// Simulate slow initialization
 				await new Promise((resolve) => setTimeout(resolve, 50));
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Start initialization but don't await
 	const init_promise = filer.init();
@@ -55,23 +55,23 @@ test('concurrent init and close handle correctly', async () => {
 			init: vi.fn(async () => {
 				// Simulate slower initialization
 				await new Promise((resolve) => setTimeout(resolve, 10));
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 				await new Promise((resolve) => setTimeout(resolve, 10));
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Start multiple concurrent operations
 	const operations = Promise.all([
 		filer.init(),
 		filer.init(),
 		new Promise((resolve) => setTimeout(resolve, 5)).then(() => filer.close()),
-		filer.init(),
+		filer.init()
 	]);
 
 	// Should complete without errors
@@ -86,16 +86,16 @@ test('closing flag is reset even if close throws', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 			}),
 			close: vi.fn(async () => {
 				throw new Error('Close failed');
-			}),
+			})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Close should throw
@@ -119,18 +119,18 @@ test('no partial file state after close during init', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 				await new Promise((resolve) => setTimeout(resolve, 20));
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
 				await new Promise((resolve) => setTimeout(resolve, 20));
-				options.on_change({type: 'add', path: '/test/file3.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file3.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Start init and close after first file
 	const init_promise = filer.init();
@@ -151,14 +151,14 @@ test('watcher.close() is called on close during init', async () => {
 		mock_watcher = {
 			init: vi.fn(async () => {
 				await new Promise((resolve) => setTimeout(resolve, 50));
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Start init but don't await
 	const init_promise = filer.init();
@@ -171,7 +171,7 @@ test('watcher.close() is called on close during init', async () => {
 	assert.equal(
 		(mock_watcher!.close as any).mock.calls.length,
 		1,
-		'watcher.close() should be called',
+		'watcher.close() should be called'
 	);
 });
 
@@ -188,11 +188,11 @@ test('concurrent close() calls share same promise', async () => {
 			close_call_count++;
 			// Wait for our signal to complete
 			await close_promise;
-		}),
+		})
 	};
 
 	const mock_watch_dir = vi.fn(() => mock_watcher);
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Initialize first
 	await filer.init();
@@ -228,26 +228,26 @@ test('concurrent close() calls share same promise', async () => {
 
 // Async queue processing tests
 test('processes rapid changes to different files in order', async () => {
-	const events: Array<{type: string; path: string}> = [];
+	const events: Array<{ type: string; path: string }> = [];
 
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Simulate rapid-fire changes to different files
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file3.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file4.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file3.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file4.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
-		events.push({type: change.type, path: change.path});
+		events.push({ type: change.type, path: change.path });
 	});
 
 	// All events should be processed in the order they arrived
@@ -261,7 +261,7 @@ test('processes rapid changes to different files in order', async () => {
 test('queue is fully drained after init completes', async () => {
 	const events: Array<string> = [];
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -287,20 +287,20 @@ test('new changes are queued while processing', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Add first file
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 
 				// Wait briefly then add another file (simulating change during processing)
 				await new Promise((resolve) => setTimeout(resolve, 5));
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
 
 				init_resolve();
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push(change.path);
@@ -319,7 +319,7 @@ test('new changes are queued while processing', async () => {
 
 test('handles many rapid changes efficiently', async () => {
 	const file_count = 100;
-	const events: Array<{type: string; path: string}> = [];
+	const events: Array<{ type: string; path: string }> = [];
 
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
@@ -329,19 +329,19 @@ test('handles many rapid changes efficiently', async () => {
 					options.on_change({
 						type: 'add',
 						path: `/test/file${i}.ts`,
-						is_directory: false,
+						is_directory: false
 					});
 				}
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
-		events.push({type: change.type, path: change.path});
+		events.push({ type: change.type, path: change.path });
 	});
 
 	// All files should be processed
@@ -363,21 +363,21 @@ test('queue processes all changes even when they arrive during processing', asyn
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Add initial files
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 
 				// Wait a bit then add more while processing
 				await new Promise((resolve) => setTimeout(resolve, 10));
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file3.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file3.ts', is_directory: false });
 
 				first_batch_complete();
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push(change.path);
@@ -399,18 +399,18 @@ test('files with no actual changes do not re-notify', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// First add creates the disknode (triggers notification even though file doesn't exist)
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 				// Second update sees no change (content_hash both null → null, no notification)
-				options.on_change({type: 'update', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'update', path: '/test/file.ts', is_directory: false });
 				// Third update also sees no change
-				options.on_change({type: 'update', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'update', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch(() => {
 		update_count++;
@@ -427,20 +427,20 @@ test('handles rapid updates to same file', async () => {
 		on_change_callback = options.on_change;
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Simulate 100 rapid updates to the same file
 	assert.ok(on_change_callback);
 	for (let i = 0; i < 100; i++) {
-		on_change_callback({type: 'update', path: '/test/file.ts', is_directory: false});
+		on_change_callback({ type: 'update', path: '/test/file.ts', is_directory: false });
 	}
 
 	// Wait for all processing to complete

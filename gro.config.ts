@@ -1,7 +1,7 @@
-import {create_empty_gro_config} from './src/lib/gro_config.ts';
-import {gro_plugin_sveltekit_library} from './src/lib/gro_plugin_sveltekit_library.ts';
-import {gro_plugin_sveltekit_app} from './src/lib/gro_plugin_sveltekit_app.ts';
-import {gro_plugin_gen} from './src/lib/gro_plugin_gen.ts';
+import { create_empty_gro_config } from './src/lib/gro_config.ts';
+import { gro_plugin_sveltekit_library } from './src/lib/gro_plugin_sveltekit_library.ts';
+import { gro_plugin_sveltekit_app } from './src/lib/gro_plugin_sveltekit_app.ts';
+import { gro_plugin_gen } from './src/lib/gro_plugin_gen.ts';
 
 /**
  * This is the config for the Gro project itself.
@@ -14,7 +14,7 @@ const config = create_empty_gro_config();
 config.plugins = () => [
 	gro_plugin_sveltekit_library(),
 	gro_plugin_sveltekit_app(),
-	gro_plugin_gen(),
+	gro_plugin_gen()
 ];
 
 export default config;

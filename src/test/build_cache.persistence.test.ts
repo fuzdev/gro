@@ -1,8 +1,11 @@
-import {describe, test, expect, vi, beforeEach} from 'vitest';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import {load_build_cache_metadata, save_build_cache_metadata} from '$lib/build_cache.ts';
+import { load_build_cache_metadata, save_build_cache_metadata } from '$lib/build_cache.ts';
 
-import {create_mock_logger, create_mock_build_cache_metadata} from './build_cache_test_helpers.ts';
+import {
+	create_mock_logger,
+	create_mock_build_cache_metadata
+} from './build_cache_test_helpers.ts';
 
 // Mock dependencies
 vi.mock('$lib/paths.js', () => ({
@@ -12,19 +15,19 @@ vi.mock('$lib/paths.js', () => ({
 		lib: './src/lib/',
 		build: './.gro/',
 		build_dev: './.gro/dev/',
-		config: './gro.config.ts',
-	},
+		config: './gro.config.ts'
+	}
 }));
 
 vi.mock('node:fs/promises', () => ({
 	readFile: vi.fn(),
 	writeFile: vi.fn(),
 	mkdir: vi.fn(),
-	rm: vi.fn(),
+	rm: vi.fn()
 }));
 
 vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn(),
+	fs_exists: vi.fn()
 }));
 
 describe('load_build_cache_metadata', () => {
@@ -33,8 +36,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('loads valid metadata file', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(fs_exists).mockResolvedValue(true);
@@ -46,7 +49,7 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for non-existent file', async () => {
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(false);
 
@@ -56,8 +59,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for invalid JSON', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -68,10 +71,10 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for wrong schema version', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
-		const metadata = create_mock_build_cache_metadata({version: '999'});
+		const metadata = create_mock_build_cache_metadata({ version: '999' });
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
 
@@ -81,22 +84,22 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('deletes cache file on schema version mismatch', async () => {
-		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile, rm } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
-		const metadata = create_mock_build_cache_metadata({version: '999'});
+		const metadata = create_mock_build_cache_metadata({ version: '999' });
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(rm).mockResolvedValue(undefined);
 
 		await load_build_cache_metadata();
 
-		expect(rm).toHaveBeenCalledWith('.gro/build.json', {force: true});
+		expect(rm).toHaveBeenCalledWith('.gro/build.json', { force: true });
 	});
 
 	test('deletes cache file on corrupted JSON', async () => {
-		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile, rm } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -104,12 +107,12 @@ describe('load_build_cache_metadata', () => {
 
 		await load_build_cache_metadata();
 
-		expect(rm).toHaveBeenCalledWith('.gro/build.json', {force: true});
+		expect(rm).toHaveBeenCalledWith('.gro/build.json', { force: true });
 	});
 
 	test('handles cleanup errors gracefully', async () => {
-		const {readFile, rm} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile, rm } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('invalid json{');
@@ -121,8 +124,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for empty file', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue('');
@@ -133,12 +136,12 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for valid JSON with wrong version', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
-			JSON.stringify(create_mock_build_cache_metadata({version: 'wrong'})),
+			JSON.stringify(create_mock_build_cache_metadata({ version: 'wrong' }))
 		);
 
 		const result = await load_build_cache_metadata();
@@ -147,8 +150,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('returns null for truncated JSON file', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		// Simulate truncated write (incomplete JSON)
 		const truncated = '{"version":"1","git_commit":"abc123","build_cache_config_hash":"hash","tim';
@@ -162,8 +165,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('rejects cache with missing required fields (Zod validation)', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -172,8 +175,8 @@ describe('load_build_cache_metadata', () => {
 				git_commit: 'abc123',
 				// missing build_cache_config_hash
 				timestamp: '2025-10-23T12:00:00Z',
-				outputs: [],
-			}),
+				outputs: []
+			})
 		);
 
 		const result = await load_build_cache_metadata();
@@ -182,8 +185,8 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('rejects cache with wrong field types (Zod validation)', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
@@ -192,8 +195,8 @@ describe('load_build_cache_metadata', () => {
 				git_commit: 'abc123',
 				build_cache_config_hash: 'hash',
 				timestamp: '2025-10-23T12:00:00Z',
-				outputs: [],
-			}),
+				outputs: []
+			})
 		);
 
 		const result = await load_build_cache_metadata();
@@ -202,12 +205,12 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('rejects cache with unexpected extra fields (strictObject)', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
-			JSON.stringify({...create_mock_build_cache_metadata(), unexpected_field: 'bad'}),
+			JSON.stringify({ ...create_mock_build_cache_metadata(), unexpected_field: 'bad' })
 		);
 
 		const result = await load_build_cache_metadata();
@@ -216,12 +219,12 @@ describe('load_build_cache_metadata', () => {
 	});
 
 	test('rejects cache with invalid outputs type', async () => {
-		const {readFile} = await import('node:fs/promises');
-		const {fs_exists} = await import('@fuzdev/fuz_util/fs.ts');
+		const { readFile } = await import('node:fs/promises');
+		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
 		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(readFile).mockResolvedValue(
-			JSON.stringify({...create_mock_build_cache_metadata(), outputs: 'not-an-array'}),
+			JSON.stringify({ ...create_mock_build_cache_metadata(), outputs: 'not-an-array' })
 		);
 
 		const result = await load_build_cache_metadata();
@@ -236,7 +239,7 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('writes metadata to correct path', async () => {
-		const {writeFile, mkdir} = await import('node:fs/promises');
+		const { writeFile, mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(mkdir).mockResolvedValue(undefined);
@@ -244,12 +247,12 @@ describe('save_build_cache_metadata', () => {
 
 		await save_build_cache_metadata(metadata);
 
-		expect(mkdir).toHaveBeenCalledWith('./.gro/', {recursive: true});
+		expect(mkdir).toHaveBeenCalledWith('./.gro/', { recursive: true });
 		expect(writeFile).toHaveBeenCalledWith('.gro/build.json', expect.any(String), 'utf-8');
 	});
 
 	test('uses proper JSON formatting with tabs', async () => {
-		const {writeFile, mkdir} = await import('node:fs/promises');
+		const { writeFile, mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(mkdir).mockResolvedValue(undefined);
@@ -263,7 +266,7 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('logs warning on write error', async () => {
-		const {writeFile, mkdir} = await import('node:fs/promises');
+		const { writeFile, mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 		const log = create_mock_logger();
@@ -275,12 +278,12 @@ describe('save_build_cache_metadata', () => {
 
 		expect(log.warn).toHaveBeenCalledWith(
 			expect.stringContaining('Failed to save build cache'),
-			expect.stringContaining('no space left on device'),
+			expect.stringContaining('no space left on device')
 		);
 	});
 
 	test('does not throw on write error', async () => {
-		const {writeFile, mkdir} = await import('node:fs/promises');
+		const { writeFile, mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 
@@ -292,7 +295,7 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('handles write error without logger', async () => {
-		const {writeFile, mkdir} = await import('node:fs/promises');
+		const { writeFile, mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 
@@ -304,7 +307,7 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('does not throw when mkdir fails', async () => {
-		const {mkdir} = await import('node:fs/promises');
+		const { mkdir } = await import('node:fs/promises');
 
 		const metadata = create_mock_build_cache_metadata();
 		const log = create_mock_logger();
@@ -314,7 +317,7 @@ describe('save_build_cache_metadata', () => {
 		await expect(save_build_cache_metadata(metadata, log)).resolves.not.toThrow();
 		expect(log.warn).toHaveBeenCalledWith(
 			expect.stringContaining('Failed to save build cache'),
-			expect.stringContaining('permission denied'),
+			expect.stringContaining('permission denied')
 		);
 	});
 });

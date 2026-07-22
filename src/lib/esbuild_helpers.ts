@@ -1,8 +1,8 @@
-import {styleText as st} from 'node:util';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import { styleText as st } from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type * as esbuild from 'esbuild';
 
-import type {ParsedSvelteConfig} from './svelte_config.ts';
+import type { ParsedSvelteConfig } from './svelte_config.ts';
 
 export const print_build_result = (log: Logger, build_result: esbuild.BuildResult): void => {
 	for (const error of build_result.errors) {
@@ -30,7 +30,7 @@ export const to_define_import_meta_env = (
 	dev: boolean,
 	base_url: ParsedSvelteConfig['base_url'],
 	ssr = true,
-	mode = dev ? 'development' : 'production',
+	mode = dev ? 'development' : 'production'
 ): Record<string, string> => ({
 	// see `import_meta_env` for why this is defined weirdly instead of statically
 	[import_meta_env + 'DEV']: JSON.stringify(dev),
@@ -38,12 +38,12 @@ export const to_define_import_meta_env = (
 	[import_meta_env + 'SSR']: JSON.stringify(ssr),
 	[import_meta_env + 'MODE']: JSON.stringify(mode),
 	// it appears SvelteKit's `''` translates to Vite's `'/'`, so this intentionally falls back for falsy values, not just undefined
-	[import_meta_env + 'BASE_URL']: JSON.stringify(base_url || '/'),
+	[import_meta_env + 'BASE_URL']: JSON.stringify(base_url || '/')
 });
 
 export const default_ts_transform_options: esbuild.TransformOptions = {
 	target: 'esnext', // TODO load local tsconfig
 	format: 'esm',
 	loader: 'ts',
-	charset: 'utf8',
+	charset: 'utf8'
 };

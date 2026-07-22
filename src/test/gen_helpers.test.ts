@@ -1,14 +1,14 @@
-import {test, expect, vi, beforeEach} from 'vitest';
-import {resolve} from 'node:path';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {Timings} from '@fuzdev/fuz_util/timings.ts';
+import { test, expect, vi, beforeEach } from 'vitest';
+import { resolve } from 'node:path';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 
-import {should_trigger_gen} from '$lib/gen_helpers.ts';
-import type {Filer} from '$lib/filer.ts';
+import { should_trigger_gen } from '$lib/gen_helpers.ts';
+import type { Filer } from '$lib/filer.ts';
 import * as filer from '$lib/filer.ts';
-import type {GroConfig} from '$lib/gro_config.ts';
-import type {InvokeTask} from '$lib/task.ts';
-import type {Disknode} from '$lib/disknode.ts';
+import type { GroConfig } from '$lib/gro_config.ts';
+import type { InvokeTask } from '$lib/task.ts';
+import type { Disknode } from '$lib/disknode.ts';
 import * as modules from '$lib/modules.ts';
 
 // Mock the load_module function
@@ -16,7 +16,7 @@ vi.mock('$lib/modules.ts', async () => {
 	const actual = await vi.importActual('$lib/modules.ts');
 	return {
 		...actual,
-		load_module: vi.fn(),
+		load_module: vi.fn()
 	};
 });
 
@@ -25,7 +25,7 @@ vi.mock('$lib/filer.ts', async () => {
 	const actual = await vi.importActual('$lib/filer.ts');
 	return {
 		...actual,
-		filter_dependents: vi.fn(),
+		filter_dependents: vi.fn()
 	};
 });
 
@@ -40,7 +40,7 @@ const TEST_OTHER_FILE = resolve('src/other.ts');
 const create_disknode = (
 	id: string,
 	deps: Array<string> = [],
-	dependents: Array<string> = [],
+	dependents: Array<string> = []
 ): Disknode => {
 	const node: Disknode = {
 		id,
@@ -50,7 +50,7 @@ const create_disknode = (
 		mtime: null,
 		content_hash: null,
 		dependencies: new Map(),
-		dependents: new Map(),
+		dependents: new Map()
 	};
 
 	// Add dependencies
@@ -69,7 +69,7 @@ const create_disknode = (
 // Helper to create mock filer
 const create_mock_filer = (files: Map<string, Disknode>): Filer => {
 	return {
-		get_by_id: vi.fn((id: string) => files.get(id)),
+		get_by_id: vi.fn((id: string) => files.get(id))
 	} as unknown as Filer;
 };
 
@@ -78,20 +78,20 @@ const create_mock_logger = (): Logger =>
 	({
 		info: vi.fn(),
 		error: vi.fn(),
-		warn: vi.fn(),
+		warn: vi.fn()
 	}) as unknown as Logger;
 
 // Helper to create mock config
 const create_mock_config = (): GroConfig =>
 	({
 		plugins: [],
-		build_cache_config_hash: 'hash123',
+		build_cache_config_hash: 'hash123'
 	}) as unknown as GroConfig;
 
 // Helper to create mock timings
 const create_mock_timings = (): Timings =>
 	({
-		start: vi.fn(() => vi.fn()),
+		start: vi.fn(() => vi.fn())
 	}) as unknown as Timings;
 
 // Helper to create mock invoke_task
@@ -116,7 +116,7 @@ test('should_trigger_gen returns true for self-change', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(true);
@@ -136,9 +136,9 @@ test('should_trigger_gen returns true for dependencies="all"', async () => {
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: 'all',
-			},
-		},
+				dependencies: 'all'
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -148,7 +148,7 @@ test('should_trigger_gen returns true for dependencies="all"', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(true);
@@ -168,10 +168,10 @@ test('should_trigger_gen matches pattern dependencies', async () => {
 			gen: {
 				generate: () => 'content',
 				dependencies: {
-					patterns: [/\.json$/],
-				},
-			},
-		},
+					patterns: [/\.json$/]
+				}
+			}
+		}
 	});
 
 	// Test JSON file (should match)
@@ -182,7 +182,7 @@ test('should_trigger_gen matches pattern dependencies', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_json).toBe(true);
 
@@ -194,7 +194,7 @@ test('should_trigger_gen matches pattern dependencies', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_ts).toBe(false);
 });
@@ -215,10 +215,10 @@ test('should_trigger_gen matches specific file dependencies', async () => {
 			gen: {
 				generate: () => 'content',
 				dependencies: {
-					files: [TEST_JSON_FILE],
-				},
-			},
-		},
+					files: [TEST_JSON_FILE]
+				}
+			}
+		}
 	});
 
 	// Test dependency file (should match)
@@ -229,7 +229,7 @@ test('should_trigger_gen matches specific file dependencies', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_dep).toBe(true);
 
@@ -241,7 +241,7 @@ test('should_trigger_gen matches specific file dependencies', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_other).toBe(false);
 });
@@ -256,8 +256,8 @@ test('should_trigger_gen returns false when no dependencies and not self-change'
 		ok: true,
 		id: TEST_GEN_FILE,
 		mod: {
-			gen: () => 'content', // simple function, no dependencies
-		},
+			gen: () => 'content' // simple function, no dependencies
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -267,7 +267,7 @@ test('should_trigger_gen returns false when no dependencies and not self-change'
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(false);
@@ -289,9 +289,9 @@ test('should_trigger_gen busts cache when gen file imports changed file', async 
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: {files: []},
-			},
-		},
+				dependencies: { files: [] }
+			}
+		}
 	});
 
 	// Mock filter_dependents to return gen file when helper changes (gen imports helper)
@@ -316,7 +316,7 @@ test('should_trigger_gen busts cache when gen file imports changed file', async 
 		mock_filer,
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Check that load_module was called with bust_cache = true
@@ -335,7 +335,7 @@ test('should_trigger_gen busts cache when gen file imports changed file', async 
 		mock_filer,
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Check that load_module was called with bust_cache = false
@@ -359,11 +359,11 @@ test('should_trigger_gen passes changed_file_id to dynamic dependencies resolver
 				dependencies: (ctx: any) => {
 					captured_changed_file_id = ctx.changed_file_id;
 					return {
-						files: ctx.changed_file_id ? [ctx.changed_file_id] : [],
+						files: ctx.changed_file_id ? [ctx.changed_file_id] : []
 					};
-				},
-			},
-		},
+				}
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -373,7 +373,7 @@ test('should_trigger_gen passes changed_file_id to dynamic dependencies resolver
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(captured_changed_file_id).toBe(TEST_JSON_FILE);
@@ -390,7 +390,7 @@ test('should_trigger_gen handles load_module failures gracefully', async () => {
 		ok: false,
 		type: 'failed_import',
 		id: TEST_GEN_FILE,
-		error: new Error('Module not found'),
+		error: new Error('Module not found')
 	});
 
 	const logger = create_mock_logger();
@@ -402,13 +402,13 @@ test('should_trigger_gen handles load_module failures gracefully', async () => {
 		create_mock_filer(files),
 		logger,
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(false);
 	expect(logger.error).toHaveBeenCalledWith(
 		`Failed to import ${TEST_GEN_FILE}:`,
-		expect.any(Error),
+		expect.any(Error)
 	);
 });
 
@@ -425,9 +425,9 @@ test('should_trigger_gen handles missing changed file in filer gracefully', asyn
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: {files: []},
-			},
-		},
+				dependencies: { files: [] }
+			}
+		}
 	});
 
 	// filter_dependents should never be called since changed_disknode is undefined
@@ -440,7 +440,7 @@ test('should_trigger_gen handles missing changed file in filer gracefully', asyn
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Should be called with bust_cache = false since changed file doesn't exist
@@ -463,9 +463,9 @@ test('should_trigger_gen detects transitive dependencies via filter_dependents',
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: {files: []},
-			},
-		},
+				dependencies: { files: [] }
+			}
+		}
 	});
 
 	// Mock filter_dependents to simulate transitive dependency
@@ -488,7 +488,7 @@ test('should_trigger_gen detects transitive dependencies via filter_dependents',
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Should bust cache for transitive dependency
@@ -507,9 +507,9 @@ test('should_trigger_gen calls filter_dependents with correct parameters', async
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: {files: []},
-			},
-		},
+				dependencies: { files: [] }
+			}
+		}
 	});
 
 	// Mock filter_dependents to track calls
@@ -525,14 +525,14 @@ test('should_trigger_gen calls filter_dependents with correct parameters', async
 		mock_filer,
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Verify filter_dependents was called with correct parameters
 	expect(mock_filter_dependents).toHaveBeenCalledWith(
 		changed_node,
 		mock_filer.get_by_id,
-		expect.any(Function),
+		expect.any(Function)
 	);
 
 	// Verify the filter function only returns true for gen_file_id
@@ -559,10 +559,10 @@ test('should_trigger_gen handles combined patterns and files dependencies', asyn
 				generate: () => 'content',
 				dependencies: {
 					patterns: [/\.json$/],
-					files: [specific_file_id],
-				},
-			},
-		},
+					files: [specific_file_id]
+				}
+			}
+		}
 	});
 
 	// Test JSON file (matches pattern)
@@ -573,7 +573,7 @@ test('should_trigger_gen handles combined patterns and files dependencies', asyn
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_json).toBe(true);
 
@@ -585,7 +585,7 @@ test('should_trigger_gen handles combined patterns and files dependencies', asyn
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_specific).toBe(true);
 
@@ -597,7 +597,7 @@ test('should_trigger_gen handles combined patterns and files dependencies', asyn
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 	expect(result_other).toBe(false);
 });
@@ -613,9 +613,9 @@ test('should_trigger_gen handles dynamic dependency returning all', async () => 
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: (_ctx: any) => 'all',
-			},
-		},
+				dependencies: (_ctx: any) => 'all'
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -625,7 +625,7 @@ test('should_trigger_gen handles dynamic dependency returning all', async () => 
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(true);
@@ -640,8 +640,8 @@ test('should_trigger_gen handles validation failure from load_module', async () 
 		ok: false,
 		type: 'failed_validation',
 		id: TEST_GEN_FILE,
-		mod: {some: 'invalid_module'},
-		validation: 'validate_gen_module',
+		mod: { some: 'invalid_module' },
+		validation: 'validate_gen_module'
 	});
 
 	const logger = create_mock_logger();
@@ -653,7 +653,7 @@ test('should_trigger_gen handles validation failure from load_module', async () 
 		create_mock_filer(files),
 		logger,
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(false);
@@ -679,11 +679,11 @@ test('should_trigger_gen handles async dependency resolver', async () => {
 					// Simulate async operation
 					await new Promise((resolve) => setTimeout(resolve, 0));
 					return {
-						files: [ctx.changed_file_id],
+						files: [ctx.changed_file_id]
 					};
-				},
-			},
-		},
+				}
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -693,7 +693,7 @@ test('should_trigger_gen handles async dependency resolver', async () => {
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(resolver_called).toBe(true);
@@ -712,8 +712,8 @@ test('should_trigger_gen only calls filter_dependents when changed_disknode exis
 		ok: true,
 		id: TEST_GEN_FILE,
 		mod: {
-			gen: () => 'content',
-		},
+			gen: () => 'content'
+		}
 	});
 
 	const mock_filter_dependents = vi.mocked(filer.filter_dependents);
@@ -727,7 +727,7 @@ test('should_trigger_gen only calls filter_dependents when changed_disknode exis
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(mock_filter_dependents).toHaveBeenCalledTimes(1);
@@ -742,7 +742,7 @@ test('should_trigger_gen only calls filter_dependents when changed_disknode exis
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(mock_filter_dependents).not.toHaveBeenCalled();
@@ -759,9 +759,9 @@ test('should_trigger_gen handles null return from dependency resolver', async ()
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: (_ctx: any) => null,
-			},
-		},
+				dependencies: (_ctx: any) => null
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -771,7 +771,7 @@ test('should_trigger_gen handles null return from dependency resolver', async ()
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// null dependencies means no additional dependencies, so should not trigger
@@ -789,9 +789,9 @@ test('should_trigger_gen treats empty object and null as equivalent', async () =
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: (_ctx: any) => ({}),
-			},
-		},
+				dependencies: (_ctx: any) => ({})
+			}
+		}
 	});
 
 	const result_empty = await should_trigger_gen(
@@ -801,7 +801,7 @@ test('should_trigger_gen treats empty object and null as equivalent', async () =
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Test with null
@@ -811,9 +811,9 @@ test('should_trigger_gen treats empty object and null as equivalent', async () =
 		mod: {
 			gen: {
 				generate: () => 'content',
-				dependencies: (_ctx: any) => null,
-			},
-		},
+				dependencies: (_ctx: any) => null
+			}
+		}
 	});
 
 	const result_null = await should_trigger_gen(
@@ -823,7 +823,7 @@ test('should_trigger_gen treats empty object and null as equivalent', async () =
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	// Both should have the same behavior
@@ -845,9 +845,9 @@ test('should_trigger_gen handles async null return from dependency resolver', as
 				dependencies: async (_ctx: any) => {
 					await new Promise((resolve) => setTimeout(resolve, 0));
 					return null;
-				},
-			},
-		},
+				}
+			}
+		}
 	});
 
 	const result = await should_trigger_gen(
@@ -857,7 +857,7 @@ test('should_trigger_gen handles async null return from dependency resolver', as
 		create_mock_filer(files),
 		create_mock_logger(),
 		create_mock_timings(),
-		create_mock_invoke_task(),
+		create_mock_invoke_task()
 	);
 
 	expect(result).toBe(false);

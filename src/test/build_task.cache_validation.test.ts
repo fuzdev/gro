@@ -1,13 +1,13 @@
-import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import {task as build_task} from '$lib/build.task.ts';
+import { task as build_task } from '$lib/build.task.ts';
 
-import {create_mock_build_task_context, create_mock_plugins} from './build_task_test_helpers.ts';
+import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn(),
+	git_current_commit_hash: vi.fn()
 }));
 
 vi.mock('node:fs', () => ({
@@ -17,17 +17,17 @@ vi.mock('node:fs', () => ({
 	readFileSync: vi.fn(),
 	writeFileSync: vi.fn(),
 	readdirSync: vi.fn(),
-	statSync: vi.fn(),
+	statSync: vi.fn()
 }));
 
 vi.mock('$lib/clean_fs.ts', () => ({
-	clean_fs: vi.fn(),
+	clean_fs: vi.fn()
 }));
 
 vi.mock('$lib/plugin.ts', () => ({
 	Plugins: {
-		create: vi.fn(),
-	},
+		create: vi.fn()
+	}
 }));
 
 vi.mock('$lib/build_cache.ts', async (import_original) => {
@@ -36,7 +36,7 @@ vi.mock('$lib/build_cache.ts', async (import_original) => {
 		...original,
 		is_build_cache_valid: vi.fn(),
 		create_build_cache_metadata: vi.fn(),
-		save_build_cache_metadata: vi.fn(),
+		save_build_cache_metadata: vi.fn()
 	};
 });
 
@@ -47,12 +47,12 @@ vi.mock('$lib/paths.ts', () => ({
 		lib: './src/lib/',
 		build: './.gro/',
 		build_dev: './.gro/dev/',
-		config: './gro.config.ts',
-	},
+		config: './gro.config.ts'
+	}
 }));
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
-	hash_blake3: vi.fn(),
+	hash_blake3: vi.fn()
 }));
 
 describe('build_task cache validation', () => {
@@ -61,10 +61,10 @@ describe('build_task cache validation', () => {
 
 		// Setup default mocks
 		const mock_plugins = create_mock_plugins();
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
-		const {clean_fs} = vi.mocked(await import('$lib/clean_fs.ts'));
+		const { clean_fs } = vi.mocked(await import('$lib/clean_fs.ts'));
 		vi.mocked(clean_fs).mockResolvedValue(undefined);
 	});
 
@@ -73,12 +73,12 @@ describe('build_task cache validation', () => {
 	});
 
 	test('skips build when cache is valid', async () => {
-		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts'),
+		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
+			await import('@fuzdev/fuz_util/git.ts')
 		);
-		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { is_build_cache_valid } = vi.mocked(await import('$lib/build_cache.ts'));
+		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
@@ -96,7 +96,7 @@ describe('build_task cache validation', () => {
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
 			ctx.config,
 			ctx.log,
-			'abc123', // pre-computed git commit
+			'abc123' // pre-computed git commit
 		);
 
 		// Should not run plugins
@@ -107,14 +107,14 @@ describe('build_task cache validation', () => {
 		// Should log skip message
 		expect(ctx.log.info).toHaveBeenCalledWith(
 			expect.stringContaining('skipping build, cache is valid'),
-			expect.anything(),
+			expect.anything()
 		);
 	});
 
 	test('forces rebuild even when cache is valid with force_build flag', async () => {
-		const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { is_build_cache_valid } = vi.mocked(await import('$lib/build_cache.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
@@ -122,7 +122,7 @@ describe('build_task cache validation', () => {
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 		vi.mocked(is_build_cache_valid).mockResolvedValue(true);
 
-		const ctx = create_mock_build_task_context({force_build: true});
+		const ctx = create_mock_build_task_context({ force_build: true });
 
 		await build_task.run(ctx);
 
@@ -139,12 +139,12 @@ describe('build_task cache validation', () => {
 	});
 
 	test('cache validation works with null git commit', async () => {
-		const {git_check_clean_workspace, git_current_commit_hash} = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts'),
+		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
+			await import('@fuzdev/fuz_util/git.ts')
 		);
-		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
-		const {hash_blake3} = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { is_build_cache_valid } = vi.mocked(await import('$lib/build_cache.ts'));
+		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
@@ -162,7 +162,7 @@ describe('build_task cache validation', () => {
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
 			ctx.config,
 			ctx.log,
-			null, // null git commit
+			null // null git commit
 		);
 
 		// Should skip build due to valid cache

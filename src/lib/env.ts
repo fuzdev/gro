@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
-import {resolve} from 'node:path';
-import {existsSync, readFileSync} from 'node:fs';
+import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 
 export const load_env = (
 	dev: boolean,
@@ -9,7 +9,7 @@ export const load_env = (
 	private_prefix: string,
 	env_dir?: string,
 	env_files = ['.env', '.env.' + (dev ? 'development' : 'production')],
-	ambient_env = process.env,
+	ambient_env = process.env
 ): Record<string, string> => {
 	const envs: Array<Record<string, string | undefined>> = env_files
 		.map((path) => load(env_dir === undefined ? path : resolve(env_dir, path)))
@@ -44,7 +44,7 @@ export const merge_envs = (
 	envs: Array<Record<string, string | undefined>>,
 	visibility: 'public' | 'private',
 	public_prefix: string,
-	private_prefix: string,
+	private_prefix: string
 ): Record<string, string> => {
 	const env: Record<string, string> = {};
 
@@ -66,13 +66,13 @@ export const merge_envs = (
 export const is_private_env = (
 	key: string,
 	public_prefix: string,
-	private_prefix: string,
+	private_prefix: string
 ): boolean =>
 	key.startsWith(private_prefix) && (public_prefix === '' || !key.startsWith(public_prefix));
 
 export const is_public_env = (
 	key: string,
 	public_prefix: string,
-	private_prefix: string,
+	private_prefix: string
 ): boolean =>
 	key.startsWith(public_prefix) && (private_prefix === '' || !key.startsWith(private_prefix));

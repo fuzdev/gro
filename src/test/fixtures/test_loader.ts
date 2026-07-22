@@ -1,8 +1,8 @@
 // Test script to verify the custom loader works correctly
 // This runs in a separate Node.js process with the loader active
 
-import {resolve} from 'node:path';
-import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import { resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const JSON_FIXTURE = 'src/test/fixtures/modules/some_test_json.json';
 const JSON_WITHOUT_EXTENSION_FIXTURE = 'src/test/fixtures/modules/some_test_json_without_extension';
@@ -25,7 +25,7 @@ const assert_equal = (actual: any, expected: any, message: string) => {
 	assert(
 		condition,
 		message +
-			(condition ? '' : ` (got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)})`),
+			(condition ? '' : ` (got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)})`)
 	);
 };
 
@@ -61,7 +61,7 @@ const run_tests = async () => {
 	// Test 4: Import .json with attribute
 	try {
 		const path = resolve(JSON_FIXTURE);
-		const imported = await import(path, {with: {type: 'json'}});
+		const imported = await import(path, { with: { type: 'json' } });
 		const expected = JSON.parse(readFileSync(path, 'utf8'));
 		assert(imported && imported.default.a === 'ok', 'import .json with attribute works');
 		assert_equal(imported.default, expected, 'import .json content matches');
@@ -72,11 +72,11 @@ const run_tests = async () => {
 	// Test 5: Import json without .json extension
 	try {
 		const path = resolve(JSON_WITHOUT_EXTENSION_FIXTURE);
-		const imported = await import(path, {with: {type: 'json'}});
+		const imported = await import(path, { with: { type: 'json' } });
 		const expected = JSON.parse(readFileSync(path, 'utf8'));
 		assert(
 			imported?.default.some_test_json_without_extension,
-			'import json without extension works',
+			'import json without extension works'
 		);
 		assert_equal(imported.default, expected, 'import json without extension content matches');
 	} catch (error) {
@@ -151,10 +151,10 @@ const run_tests = async () => {
 	// any third-party package's internal layout. The `.` prefix keeps npm from touching it.
 	try {
 		const fixture_dir = resolve('node_modules/.gro_loader_test_fixture');
-		mkdirSync(fixture_dir, {recursive: true});
+		mkdirSync(fixture_dir, { recursive: true });
 		writeFileSync(
 			`${fixture_dir}/index.mjs`,
-			"import x from './sibling.cjs';\nexport default x;\n",
+			"import x from './sibling.cjs';\nexport default x;\n"
 		);
 		writeFileSync(`${fixture_dir}/sibling.cjs`, "module.exports = {value: 'ok'};\n");
 		const imported = await import(`${fixture_dir}/index.mjs`);

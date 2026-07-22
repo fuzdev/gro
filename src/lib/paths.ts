@@ -1,17 +1,17 @@
-import {join, extname, relative, basename} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {ensure_end, strip_end} from '@fuzdev/fuz_util/string.ts';
-import {styleText as st} from 'node:util';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import { join, extname, relative, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
+import { styleText as st } from 'node:util';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import {
 	GRO_CONFIG_FILENAME,
 	GRO_DEV_DIR,
 	GRO_DIR,
 	SOURCE_DIR,
-	SVELTEKIT_DIST_DIRNAME,
+	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
-import {default_svelte_config} from './svelte_config.ts';
+import { default_svelte_config } from './svelte_config.ts';
 
 /*
 
@@ -49,7 +49,7 @@ export const create_paths = (root_dir: string): Paths => {
 		lib: root + LIB_DIR,
 		build: root + GRO_DIR,
 		build_dev: root + GRO_DEV_DIR,
-		config: root + GRO_CONFIG_FILENAME,
+		config: root + GRO_CONFIG_FILENAME
 	};
 };
 
@@ -80,7 +80,7 @@ export const print_path = (path: string, p = infer_paths(path)): string => {
 };
 
 export const replace_extension = (path: string, new_extension: string): string => {
-	const {length} = extname(path);
+	const { length } = extname(path);
 	return (length === 0 ? path : path.substring(0, path.length - length)) + new_extension;
 };
 
@@ -100,7 +100,7 @@ const gro_package_dir_path = join(
 		? '../../../'
 		: filename.includes('/gro/dist/')
 			? '../../'
-			: '../',
+			: '../'
 );
 export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 /**

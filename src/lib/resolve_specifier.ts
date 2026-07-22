@@ -1,8 +1,8 @@
-import {extname, isAbsolute, join, relative} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import { extname, isAbsolute, join, relative } from 'node:path';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import {replace_extension} from './paths.ts';
+import { replace_extension } from './paths.ts';
 
 // TODO ideally this module doesnt exist, but import.meta.resolve doesn't work in loaders last I tried
 
@@ -28,7 +28,7 @@ export interface ResolvedSpecifier {
  */
 export const resolve_specifier = async (
 	specifier: string,
-	dir: string,
+	dir: string
 ): Promise<ResolvedSpecifier> => {
 	const raw = specifier.endsWith('?raw'); // TODO more robust detection? other values?
 	const final_specifier = raw ? specifier.substring(0, specifier.length - 4) : specifier;
@@ -76,6 +76,6 @@ export const resolve_specifier = async (
 		raw,
 		specifier,
 		mapped_specifier,
-		namespace,
+		namespace
 	};
 };

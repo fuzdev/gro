@@ -1,12 +1,12 @@
-import type {ChildProcess} from 'node:child_process';
-import {strip_end} from '@fuzdev/fuz_util/string.ts';
+import type { ChildProcess } from 'node:child_process';
+import { strip_end } from '@fuzdev/fuz_util/string.ts';
 
 /**
  * Maps child process output through a transform function.
  */
 export const map_child_process_output = (
 	child_process: ChildProcess,
-	transform: (data: string) => string,
+	transform: (data: string) => string
 ): void => {
 	if (child_process.stdout) {
 		child_process.stdout.on('data', (data) => {
@@ -27,7 +27,7 @@ export const map_child_process_output = (
 export const configure_colored_output_with_path_replacement = (
 	child_process: ChildProcess,
 	replacement: string = '.',
-	cwd: string = process.cwd(),
+	cwd: string = process.cwd()
 ): void => {
 	// Escape special characters in the cwd for regexp safety
 	const cwd_escaped = strip_end(cwd, '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

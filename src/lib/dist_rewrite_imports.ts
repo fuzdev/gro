@@ -1,9 +1,9 @@
-import {fs_search} from '@fuzdev/fuz_util/fs.ts';
-import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {readFile, writeFile} from 'node:fs/promises';
+import { fs_search } from '@fuzdev/fuz_util/fs.ts';
+import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { readFile, writeFile } from 'node:fs/promises';
 
-import {SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME} from './constants.ts';
+import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 
 /*
 
@@ -61,7 +61,7 @@ const RELATIVE_TS_IMPORT_MATCHER =
 export const rewrite_relative_ts_imports = (content: string): string =>
 	content.replace(
 		RELATIVE_TS_IMPORT_MATCHER,
-		(_match, intro: string, quote: string, body: string) => `${intro}${quote}${body}.js${quote}`,
+		(_match, intro: string, quote: string, body: string) => `${intro}${quote}${body}.js${quote}`
 	);
 
 /**
@@ -97,13 +97,13 @@ const DIST_REWRITE_CONCURRENCY = 16;
  */
 export const rewrite_dist_imports = async (
 	dist_dir: string = SVELTEKIT_DIST_DIRNAME,
-	log?: Logger,
+	log?: Logger
 ): Promise<RewriteDistImportsResult> => {
 	const found = await fs_search(dist_dir, {
-		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte'),
+		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
 	});
 
-	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({id, path: _}) => {
+	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({ id, path: _ }) => {
 		const content = await readFile(id, 'utf8');
 		const next = id.endsWith('.svelte')
 			? rewrite_svelte_ts_imports(content)
@@ -117,9 +117,9 @@ export const rewrite_dist_imports = async (
 
 	if (found.length) {
 		log?.debug(
-			`rewrote relative .ts→.js import specifiers in ${rewritten}/${found.length} dist files`,
+			`rewrote relative .ts→.js import specifiers in ${rewritten}/${found.length} dist files`
 		);
 	}
 
-	return {scanned: found.length, rewritten};
+	return { scanned: found.length, rewritten };
 };

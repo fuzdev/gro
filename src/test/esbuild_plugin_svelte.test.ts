@@ -1,9 +1,9 @@
-import {test, expect} from 'vitest';
+import { test, expect } from 'vitest';
 import * as esbuild from 'esbuild';
-import {readFile, rm} from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 
-import {esbuild_plugin_svelte} from '$lib/esbuild_plugin_svelte.ts';
-import {default_svelte_config} from '$lib/svelte_config.ts';
+import { esbuild_plugin_svelte } from '$lib/esbuild_plugin_svelte.ts';
+import { default_svelte_config } from '$lib/svelte_config.ts';
 
 // TODO improve these tests to have automatic caching
 
@@ -15,15 +15,15 @@ test('build for the client', async () => {
 			esbuild_plugin_svelte({
 				dev: true,
 				base_url: default_svelte_config.base_url,
-				svelte_compile_options: {generate: 'client'},
-			}),
+				svelte_compile_options: { generate: 'client' }
+			})
 		],
 		outfile,
 		format: 'esm',
 		platform: 'node',
 		packages: 'external',
 		bundle: true,
-		target: 'esnext',
+		target: 'esnext'
 	});
 	expect(built.errors.length).toBe(0);
 	expect(built.warnings.length).toBe(0);
@@ -70,7 +70,7 @@ export {
   some_test_server,
   some_test_ts
 };
-`,
+`
 	);
 });
 
@@ -81,15 +81,15 @@ test('build for the server', async () => {
 		plugins: [
 			esbuild_plugin_svelte({
 				dev: true,
-				base_url: default_svelte_config.base_url,
-			}),
+				base_url: default_svelte_config.base_url
+			})
 		],
 		outfile,
 		format: 'esm',
 		platform: 'node',
 		packages: 'external',
 		bundle: true,
-		target: 'esnext',
+		target: 'esnext'
 	});
 	expect(built.errors.length).toBe(0);
 	expect(built.warnings.length).toBe(0);
@@ -124,6 +124,6 @@ export {
   some_test_server,
   some_test_ts
 };
-`,
+`
 	);
 });

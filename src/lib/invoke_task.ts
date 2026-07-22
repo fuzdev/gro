@@ -1,17 +1,17 @@
-import type {Args} from '@fuzdev/fuz_util/args.ts';
-import {Logger} from '@fuzdev/fuz_util/log.ts';
-import {print_ms, print_timings} from '@fuzdev/fuz_util/print.ts';
-import {create_stopwatch, Timings} from '@fuzdev/fuz_util/timings.ts';
-import {styleText as st} from 'node:util';
+import type { Args } from '@fuzdev/fuz_util/args.ts';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
+import { print_ms, print_timings } from '@fuzdev/fuz_util/print.ts';
+import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
+import { styleText as st } from 'node:util';
 
-import {to_forwarded_args} from './args.ts';
-import {run_task} from './run_task.ts';
-import {to_input_path, RawInputPath} from './input_path.ts';
-import {find_tasks, load_tasks, SilentError} from './task.ts';
-import {package_json_load_for_gro} from './package_json.ts';
-import {log_tasks, log_error_reasons} from './task_logging.ts';
-import type {GroConfig} from './gro_config.ts';
-import {Filer} from './filer.ts';
+import { to_forwarded_args } from './args.ts';
+import { run_task } from './run_task.ts';
+import { to_input_path, RawInputPath } from './input_path.ts';
+import { find_tasks, load_tasks, SilentError } from './task.ts';
+import { package_json_load_for_gro } from './package_json.ts';
+import { log_tasks, log_error_reasons } from './task_logging.ts';
+import type { GroConfig } from './gro_config.ts';
+import { Filer } from './filer.ts';
 
 /**
  * Invokes Gro tasks by name using the filesystem as the source.
@@ -41,7 +41,7 @@ export const invoke_task = async (
 	config: GroConfig,
 	initial_filer?: Filer,
 	initial_timings?: Timings | null,
-	parent_log?: Logger,
+	parent_log?: Logger
 ): Promise<void> => {
 	// Create child logger if parent exists, otherwise root logger
 	const log_label = task_name || 'gro';
@@ -50,7 +50,7 @@ export const invoke_task = async (
 
 	// track if we created the filer
 	const owns_filer = !initial_filer;
-	const filer = initial_filer ?? new Filer({log: log.child('filer'), ...config.filer_options});
+	const filer = initial_filer ?? new Filer({ log: log.child('filer'), ...config.filer_options });
 
 	const owns_timings = !initial_timings;
 	const timings = initial_timings ?? new Timings();
@@ -78,7 +78,7 @@ export const invoke_task = async (
 	// Resolve the input path for the provided task name.
 	const input_path = to_input_path(task_name);
 
-	const {task_root_dirs} = config;
+	const { task_root_dirs } = config;
 
 	// Find the task or directory specified by the `input_path`.
 	// Fall back to searching the Gro directory as well.
@@ -90,7 +90,7 @@ export const invoke_task = async (
 
 	// Found a match either in the current working directory or Gro's directory.
 	const found_tasks = found.value;
-	const {resolved_input_files} = found_tasks;
+	const { resolved_input_files } = found_tasks;
 
 	// Load the task module.
 	const loaded = await load_tasks(found_tasks);
@@ -116,18 +116,18 @@ export const invoke_task = async (
 	log.info(
 		`→ ${st('cyan', task.name)} ${
 			(task.mod.task.summary && st('gray', task.mod.task.summary)) ?? ''
-		}`,
+		}`
 	);
 
 	const timing_to_run_task = timings.start('run task ' + task_name);
 	const result = await run_task(
 		task,
-		{...args, ...to_forwarded_args(`gro ${task.name}`)},
+		{ ...args, ...to_forwarded_args(`gro ${task.name}`) },
 		invoke_task,
 		config,
 		filer,
 		log,
-		timings,
+		timings
 	);
 	timing_to_run_task();
 	if (!result.ok) {

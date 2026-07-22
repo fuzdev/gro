@@ -1,30 +1,30 @@
-import {describe, test, assert, beforeEach, afterEach} from 'vitest';
-import {mkdtemp, mkdir, writeFile, readFile, rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import { describe, test, assert, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
 	rewrite_relative_ts_imports,
 	rewrite_svelte_ts_imports,
-	rewrite_dist_imports,
+	rewrite_dist_imports
 } from '$lib/dist_rewrite_imports.ts';
 
 describe('rewrite_relative_ts_imports', () => {
 	test('rewrites relative `.ts` specifiers to `.js`', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`import {a} from './a.ts';`),
-			`import {a} from './a.js';`,
+			`import {a} from './a.js';`
 		);
 		assert.equal(
 			rewrite_relative_ts_imports(`import {a} from '../parent/a.ts';`),
-			`import {a} from '../parent/a.js';`,
+			`import {a} from '../parent/a.js';`
 		);
 	});
 
 	test('rewrites the `.svelte.ts` double extension to `.svelte.js`', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`import {s} from './state.svelte.ts';`),
-			`import {s} from './state.svelte.js';`,
+			`import {s} from './state.svelte.js';`
 		);
 	});
 
@@ -51,14 +51,14 @@ describe('rewrite_relative_ts_imports', () => {
 	test('rewrites `import type` specifiers', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`import type {Logger} from './log.ts';`),
-			`import type {Logger} from './log.js';`,
+			`import type {Logger} from './log.js';`
 		);
 	});
 
 	test('rewrites `export … from` and `export * from` specifiers', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`export {a} from './a.ts';`),
-			`export {a} from './a.js';`,
+			`export {a} from './a.js';`
 		);
 		assert.equal(rewrite_relative_ts_imports(`export * from './a.ts';`), `export * from './a.js';`);
 	});
@@ -70,18 +70,18 @@ describe('rewrite_relative_ts_imports', () => {
 	test('rewrites dynamic and `.d.ts` `import(...)` type specifiers', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`const m = await import('./lazy.ts');`),
-			`const m = await import('./lazy.js');`,
+			`const m = await import('./lazy.js');`
 		);
 		assert.equal(
 			rewrite_relative_ts_imports(`export declare const x: import("./types.ts").Foo;`),
-			`export declare const x: import("./types.js").Foo;`,
+			`export declare const x: import("./types.js").Foo;`
 		);
 	});
 
 	test('handles both quote styles', () => {
 		assert.equal(
 			rewrite_relative_ts_imports(`import {a} from "./a.ts";`),
-			`import {a} from "./a.js";`,
+			`import {a} from "./a.js";`
 		);
 	});
 
@@ -101,14 +101,14 @@ describe('rewrite_relative_ts_imports', () => {
 			`import type {SvgData} from './svg.ts';`,
 			`import {Tome} from './tome.ts';`,
 			`import {strip_start} from '@fuzdev/fuz_util/string.ts';`,
-			`export * from './reexport.ts';`,
+			`export * from './reexport.ts';`
 		].join('\n');
 		const expected = [
 			`import { type ContextmenuRootBaseProps } from './contextmenu_helpers.js';`,
 			`import type {SvgData} from './svg.js';`,
 			`import {Tome} from './tome.js';`,
 			`import {strip_start} from '@fuzdev/fuz_util/string.ts';`,
-			`export * from './reexport.js';`,
+			`export * from './reexport.js';`
 		].join('\n');
 		assert.equal(rewrite_relative_ts_imports(input), expected);
 	});
@@ -192,16 +192,16 @@ describe('rewrite_dist_imports', () => {
 	});
 
 	afterEach(async () => {
-		await rm(dir, {recursive: true, force: true});
+		await rm(dir, { recursive: true, force: true });
 	});
 
 	test('rewrites `.js`, `.d.ts`, `.svelte.d.ts`, and `.svelte`, leaving maps alone', async () => {
-		await mkdir(join(dir, 'nested'), {recursive: true});
+		await mkdir(join(dir, 'nested'), { recursive: true });
 		await writeFile(join(dir, 'a.d.ts'), `import type {B} from './b.ts';\n`);
 		await writeFile(join(dir, 'Comp.svelte.d.ts'), `import {type P} from './helpers.ts';\n`);
 		await writeFile(
 			join(dir, 'Comp.svelte'),
-			`<script lang="ts">\n\timport {s} from './state.svelte.ts';\n</script>\n`,
+			`<script lang="ts">\n\timport {s} from './state.svelte.ts';\n</script>\n`
 		);
 		// runtime `.js`: a relative `.ts` specifier is rewritten, an already-`.js` one preserved
 		await writeFile(join(dir, 'a.js'), `import {b} from './b.ts';\nimport {c} from './c.js';\n`);
@@ -217,31 +217,31 @@ describe('rewrite_dist_imports', () => {
 		assert.equal(await readFile(join(dir, 'a.d.ts'), 'utf8'), `import type {B} from './b.js';\n`);
 		assert.equal(
 			await readFile(join(dir, 'Comp.svelte.d.ts'), 'utf8'),
-			`import {type P} from './helpers.js';\n`,
+			`import {type P} from './helpers.js';\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'Comp.svelte'), 'utf8'),
-			`<script lang="ts">\n\timport {s} from './state.svelte.js';\n</script>\n`,
+			`<script lang="ts">\n\timport {s} from './state.svelte.js';\n</script>\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'a.js'), 'utf8'),
-			`import {b} from './b.js';\nimport {c} from './c.js';\n`,
+			`import {b} from './b.js';\nimport {c} from './c.js';\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'state.svelte.js'), 'utf8'),
-			`import {x} from './x.svelte.js';\n`,
+			`import {x} from './x.svelte.js';\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'a.js.map'), 'utf8'),
-			`{"sources":["../src/lib/a.ts"]}\n`,
+			`{"sources":["../src/lib/a.ts"]}\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'a.d.ts.map'), 'utf8'),
-			`{"sources":["../src/lib/a.ts"]}\n`,
+			`{"sources":["../src/lib/a.ts"]}\n`
 		);
 		assert.equal(
 			await readFile(join(dir, 'nested', 'c.d.ts'), 'utf8'),
-			`export * from '../a.js';\n`,
+			`export * from '../a.js';\n`
 		);
 
 		// 6 files scanned (a.d.ts, Comp.svelte.d.ts, Comp.svelte, a.js, state.svelte.js,

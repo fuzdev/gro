@@ -5,10 +5,10 @@
 import type {
 	applyAction as base_applyAction,
 	deserialize as base_deserialize,
-	enhance as base_enhance,
+	enhance as base_enhance
 } from '$app/forms';
-import {noop, noop_async} from '@fuzdev/fuz_util/function.ts';
+import { noop, noop_async } from '@fuzdev/fuz_util/function.ts';
 
 export const applyAction: typeof base_applyAction = noop_async;
 export const deserialize: typeof base_deserialize = () => ({}) as any;
-export const enhance: typeof base_enhance = () => ({destroy: noop});
+export const enhance: typeof base_enhance = () => ({ destroy: noop });

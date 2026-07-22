@@ -1,16 +1,16 @@
-import {styleText as st} from 'node:util';
-import {argv_parse, type Args} from '@fuzdev/fuz_util/args.ts';
+import { styleText as st } from 'node:util';
+import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
 /**
  * Parses `task_name` and `args` from `process.argv`,
  * ignoring anything after any `--`.
  */
-export const to_task_args = (argv = process.argv): {task_name: string; args: Args} => {
+export const to_task_args = (argv = process.argv): { task_name: string; args: Args } => {
 	const forwarded_index = argv.indexOf('--');
 	const args = argv_parse(forwarded_index === -1 ? argv.slice(2) : argv.slice(2, forwarded_index));
 	const task_name = args._.shift() ?? '';
 	if (!args._.length) delete (args as Args)._; // enable schema defaults
-	return {task_name, args};
+	return { task_name, args };
 };
 
 /**
@@ -30,11 +30,11 @@ export const to_raw_rest_args = (argv = process.argv): Array<string> => {
 export const to_forwarded_args = (
 	command: string,
 	raw_rest_args?: Array<string>,
-	cache = to_forwarded_args_by_command(raw_rest_args),
+	cache = to_forwarded_args_by_command(raw_rest_args)
 ): Args => cache[command] ?? {};
 
 export const to_forwarded_args_by_command = (
-	raw_rest_args = to_raw_rest_args(),
+	raw_rest_args = to_raw_rest_args()
 ): Record<string, Args | undefined> => {
 	// Parse each segment of `argv` separated by `--`.
 	const argvs: Array<Array<string>> = [];
@@ -65,7 +65,7 @@ export const to_forwarded_args_by_command = (
 		if (command === 'gro') {
 			if (!args._.length) {
 				throw Error(
-					`Malformed args following a \`--\`. Expected gro taskname: \`${argv.join(' ')}\``,
+					`Malformed args following a \`--\`. Expected gro taskname: \`${argv.join(' ')}\``
 				);
 			}
 			command += ' ' + args._.shift();
@@ -91,7 +91,7 @@ export const to_forwarded_args_by_command = (
  */
 export const to_implicit_forwarded_args = (
 	command_to_strip?: string,
-	raw_rest_args = to_raw_rest_args(),
+	raw_rest_args = to_raw_rest_args()
 ): Args => {
 	const start = raw_rest_args.indexOf('--');
 	if (start === -1) return {};

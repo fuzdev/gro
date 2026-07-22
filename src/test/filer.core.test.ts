@@ -1,7 +1,7 @@
-import {test, assert, vi} from 'vitest';
+import { test, assert, vi } from 'vitest';
 
-import type {WatchNodeFs} from '$lib/watch_dir.ts';
-import {Filer} from '$lib/filer.ts';
+import type { WatchNodeFs } from '$lib/watch_dir.ts';
+import { Filer } from '$lib/filer.ts';
 
 // Create a simple mock watch_dir that simulates file discovery
 const create_mock_watch_dir = () => {
@@ -9,11 +9,11 @@ const create_mock_watch_dir = () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Simulate discovering files via on_change callbacks
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/file2.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/lib/helper.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/file2.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/lib/helper.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
@@ -28,7 +28,7 @@ test('filer starts uninitialized', async () => {
 
 test('filer initializes on first init() call', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	assert.equal(filer.inited, false);
 
@@ -41,7 +41,7 @@ test('filer initializes on first init() call', async () => {
 
 test('init() is idempotent', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 	const file_count_first = filer.files.size;
@@ -56,7 +56,7 @@ test('init() is idempotent', async () => {
 
 test('concurrent init() calls are handled correctly', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Launch multiple init calls simultaneously
 	const init_promises = [filer.init(), filer.init(), filer.init(), filer.init(), filer.init()];
@@ -75,7 +75,7 @@ test('concurrent init() calls are handled correctly', async () => {
 
 test('disknode structure is valid', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Check the structure of created disknodes
@@ -91,7 +91,7 @@ test('disknode structure is valid', async () => {
 
 test('disknode content_hash is null when created via get_or_create', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Create a new disknode for a file that doesn't exist
@@ -103,7 +103,7 @@ test('disknode content_hash is null when created via get_or_create', async () =>
 
 test('close() cleans up resources', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -118,7 +118,7 @@ test('close() cleans up resources', async () => {
 
 test('can reinitialize after close()', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// First cycle
 	await filer.init();
@@ -135,7 +135,7 @@ test('can reinitialize after close()', async () => {
 
 test('multiple close() calls are safe', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 	assert.equal(filer.inited, true);
@@ -157,7 +157,7 @@ test('multiple close() calls are safe', async () => {
 
 test('file state remains consistent across operations', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// First init
 	await filer.init();
@@ -185,15 +185,15 @@ test('cleanup clears all state including dependencies', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Add files that will have dependencies
-				options.on_change({type: 'add', path: '/test/main.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/lib.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/main.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/lib.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Add a listener to verify it gets cleared
 	let listener_called = false;
@@ -222,11 +222,11 @@ test('cleanup clears all state including dependencies', async () => {
 // Listener tests
 test('watch() initializes and notifies listeners', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
-	const changes: Array<{path: string}> = [];
+	const changes: Array<{ path: string }> = [];
 	const cleanup = await filer.watch((change) => {
-		changes.push({path: change.path});
+		changes.push({ path: change.path });
 	});
 
 	assert.equal(filer.inited, true);
@@ -239,7 +239,7 @@ test('watch() initializes and notifies listeners', async () => {
 
 test('multiple listeners receive notifications independently', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	const listener1_changes: Array<string> = [];
 	const listener2_changes: Array<string> = [];
@@ -268,7 +268,7 @@ test('multiple listeners receive notifications independently', async () => {
 
 test('watch() after init() reuses existing file state', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Initialize first
 	await filer.init();
@@ -293,7 +293,7 @@ test('watch() after init() reuses existing file state', async () => {
 
 test('init() after watch() is idempotent', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// First add a watcher
 	const cleanup = await filer.watch(() => {});
@@ -311,7 +311,7 @@ test('init() after watch() is idempotent', async () => {
 
 test('listener can safely remove itself during callback', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	let cleanup_fn: (() => void) | null = null;
 	let callback_count = 0;
@@ -331,7 +331,7 @@ test('listener can safely remove itself during callback', async () => {
 
 test('listener error does not affect other listeners', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	const good_listener_changes: Array<string> = [];
 	let bad_listener_called = false;
@@ -355,7 +355,7 @@ test('listener error does not affect other listeners', async () => {
 
 test('listeners can be added/removed during notification', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	const events: Array<string> = [];
 	let cleanup2 = null as (() => void) | null;
@@ -399,11 +399,11 @@ test('watch_dir filter controls which files are tracked', async () => {
 				// In real usage, watch_dir applies the filter and only calls on_change for matching files
 				// Simulate that here by checking the filter
 				if (!options.filter || options.filter('/test/included.ts', false)) {
-					options.on_change({type: 'add', path: '/test/included.ts', is_directory: false});
+					options.on_change({ type: 'add', path: '/test/included.ts', is_directory: false });
 				}
 				// excluded.ts is filtered out, so on_change is not called for it
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
@@ -412,8 +412,8 @@ test('watch_dir filter controls which files are tracked', async () => {
 	const filer = new Filer({
 		watch_dir: mock_watch_dir,
 		watch_dir_options: {
-			filter: (path) => !path.includes('excluded'),
-		},
+			filter: (path) => !path.includes('excluded')
+		}
 	});
 
 	await filer.init();
@@ -426,7 +426,7 @@ test('watch_dir filter controls which files are tracked', async () => {
 
 test('filter method returns matching disknodes', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -440,7 +440,7 @@ test('filter method returns matching disknodes', async () => {
 
 test('filter method returns null when no matches', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -452,7 +452,7 @@ test('filter method returns null when no matches', async () => {
 
 test('get_or_create creates disknode if not exists', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -476,15 +476,15 @@ test('directories are ignored by queue processor', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/dir', is_directory: true});
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/dir', is_directory: true });
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push(change.path);
@@ -502,14 +502,14 @@ test('removed files are deleted from map when no dependents', async () => {
 		on_change_callback = options.on_change;
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// File should be tracked
@@ -519,7 +519,7 @@ test('removed files are deleted from map when no dependents', async () => {
 
 	// Simulate deletion via the on_change callback
 	assert.ok(on_change_callback);
-	on_change_callback({type: 'delete', path: '/test/file.ts', is_directory: false});
+	on_change_callback({ type: 'delete', path: '/test/file.ts', is_directory: false });
 
 	// Wait for queue processing
 	await new Promise((resolve) => setTimeout(resolve, 10));
@@ -536,18 +536,18 @@ test('external files are marked correctly', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// This file is outside root_dir
-				options.on_change({type: 'add', path: '/outside/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/outside/file.ts', is_directory: false });
 				// This file is inside root_dir (/test is the default root)
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
 	const filer = new Filer({
 		watch_dir: mock_watch_dir,
-		watch_dir_options: {dir: '/test'},
+		watch_dir_options: { dir: '/test' }
 	});
 
 	await filer.init();
@@ -566,7 +566,7 @@ test('external file created via get_or_create is tracked immediately', async () 
 	const mock_watch_dir = create_mock_watch_dir();
 	const filer = new Filer({
 		watch_dir: mock_watch_dir,
-		watch_dir_options: {dir: '/test'},
+		watch_dir_options: { dir: '/test' }
 	});
 	await filer.init();
 
@@ -585,15 +585,15 @@ test('external file created via get_or_create is tracked immediately', async () 
 });
 
 test('external files that do not exist on disk do not notify listeners', async () => {
-	const events: Array<{type: string; path: string}> = [];
+	const events: Array<{ type: string; path: string }> = [];
 	const mock_watch_dir = create_mock_watch_dir();
 	const filer = new Filer({
 		watch_dir: mock_watch_dir,
-		watch_dir_options: {dir: '/test'},
+		watch_dir_options: { dir: '/test' }
 	});
 
 	await filer.watch((change) => {
-		events.push({type: change.type, path: change.path});
+		events.push({ type: change.type, path: change.path });
 	});
 
 	const initial_event_count = events.length;
@@ -608,7 +608,7 @@ test('external files that do not exist on disk do not notify listeners', async (
 	const new_events = events.slice(initial_event_count);
 	assert.ok(
 		!new_events.some((e) => e.path === '/node_modules/nonexistent/index.js'),
-		'Non-existent external file should not trigger change notification',
+		'Non-existent external file should not trigger change notification'
 	);
 
 	// But file should still be tracked
@@ -619,7 +619,7 @@ test('multiple get_or_create calls for same external file return same instance',
 	const mock_watch_dir = create_mock_watch_dir();
 	const filer = new Filer({
 		watch_dir: mock_watch_dir,
-		watch_dir_options: {dir: '/test'},
+		watch_dir_options: { dir: '/test' }
 	});
 	await filer.init();
 
@@ -631,7 +631,7 @@ test('multiple get_or_create calls for same external file return same instance',
 
 	// Should only have one entry in files
 	const all_external = Array.from(filer.files.values()).filter(
-		(f) => f.id === '/node_modules/foo/index.js',
+		(f) => f.id === '/node_modules/foo/index.js'
 	);
 	assert.equal(all_external.length, 1);
 });

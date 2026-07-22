@@ -1,9 +1,9 @@
-import {watch, type ChokidarOptions, type FSWatcher, type Matcher} from 'chokidar';
-import {relative} from 'node:path';
-import {statSync} from 'node:fs';
-import {create_deferred, type Deferred} from '@fuzdev/fuz_util/async.ts';
-import type {PathFilter} from '@fuzdev/fuz_util/path.ts';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
+import { watch, type ChokidarOptions, type FSWatcher, type Matcher } from 'chokidar';
+import { relative } from 'node:path';
+import { statSync } from 'node:fs';
+import { create_deferred, type Deferred } from '@fuzdev/fuz_util/async.ts';
+import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
+import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 
 const TMP_FILE_PATTERN = /\.tmp\./;
 
@@ -50,7 +50,7 @@ export const watch_dir = ({
 	filter,
 	absolute = true,
 	chokidar,
-	ignored = TMP_FILE_PATTERN,
+	ignored = TMP_FILE_PATTERN
 }: WatchDirOptions): WatchNodeFs => {
 	let watcher: FSWatcher | undefined;
 	let initing: Deferred<void> | undefined;
@@ -63,12 +63,12 @@ export const watch_dir = ({
 			watcher.on('add', (path) => {
 				const final_path = absolute ? path : relative(dir, path);
 				if (filter && !filter(final_path, false)) return;
-				on_change({type: 'add', path: final_path, is_directory: false});
+				on_change({ type: 'add', path: final_path, is_directory: false });
 			});
 			watcher.on('addDir', (path) => {
 				const final_path = absolute ? path : relative(dir, path);
 				if (filter && !filter(final_path, true)) return;
-				on_change({type: 'add', path: final_path, is_directory: true});
+				on_change({ type: 'add', path: final_path, is_directory: true });
 			});
 			watcher.on('change', (path, s) => {
 				const stats = s ?? statSync(path);
@@ -76,17 +76,17 @@ export const watch_dir = ({
 				if (filter && !filter(final_path, stats.isDirectory())) {
 					return;
 				}
-				on_change({type: 'update', path: final_path, is_directory: stats.isDirectory()});
+				on_change({ type: 'update', path: final_path, is_directory: stats.isDirectory() });
 			});
 			watcher.on('unlink', (path) => {
 				const final_path = absolute ? path : relative(dir, path);
 				if (filter && !filter(final_path, false)) return;
-				on_change({type: 'delete', path: final_path, is_directory: false});
+				on_change({ type: 'delete', path: final_path, is_directory: false });
 			});
 			watcher.on('unlinkDir', (path) => {
 				const final_path = absolute ? path : relative(dir, path);
 				if (filter && !filter(final_path, true)) return;
-				on_change({type: 'delete', path: final_path, is_directory: true});
+				on_change({ type: 'delete', path: final_path, is_directory: true });
 			});
 			// wait until ready
 			watcher.once('ready', () => initing?.resolve());
@@ -96,20 +96,20 @@ export const watch_dir = ({
 			initing = undefined;
 			if (!watcher) return;
 			await watcher.close();
-		},
+		}
 	};
 };
 
 const resolve_chokidar_options = (
 	options: ChokidarOptions | undefined,
-	ignored: Matcher | null,
+	ignored: Matcher | null
 ): ChokidarOptions | undefined => {
 	if (ignored === null) return options;
 
-	const {ignored: i, ...rest} = options ?? EMPTY_OBJECT;
+	const { ignored: i, ...rest } = options ?? EMPTY_OBJECT;
 
 	const resolved_ignored =
 		i === undefined ? ignored : Array.isArray(i) ? [...i, ignored] : [i, ignored];
 
-	return {...rest, ignored: resolved_ignored};
+	return { ...rest, ignored: resolved_ignored };
 };

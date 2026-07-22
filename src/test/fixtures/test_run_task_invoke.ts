@@ -3,17 +3,17 @@
 
 /* eslint-disable */
 
-import {Timings} from '@fuzdev/fuz_util/timings.ts';
-import {Logger} from '@fuzdev/fuz_util/log.ts';
+import { Timings } from '@fuzdev/fuz_util/timings.ts';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import {run_task} from '$lib/run_task.ts';
-import {load_gro_config} from '$lib/gro_config.ts';
-import {Filer} from '$lib/filer.ts';
+import { run_task } from '$lib/run_task.ts';
+import { load_gro_config } from '$lib/gro_config.ts';
+import { Filer } from '$lib/filer.ts';
 
 async function runTest() {
 	console.log('Testing run_task invokes sub tasks...\n');
 
-	const args = {a: 1, _: []};
+	const args = { a: 1, _: [] };
 	let invoked_task_name: string | undefined;
 	let invoked_args: any | undefined;
 	const filer = new Filer();
@@ -24,12 +24,12 @@ async function runTest() {
 			id: 'foo/testTask',
 			mod: {
 				task: {
-					run: async ({args, invoke_task}) => {
+					run: async ({ args, invoke_task }) => {
 						await invoke_task('bar/testTask', args);
 						return args;
-					},
-				},
-			},
+					}
+				}
+			}
 		},
 		args,
 		(invoking_task_name: string, invoking_args: any) => {
@@ -40,7 +40,7 @@ async function runTest() {
 		await load_gro_config(),
 		filer,
 		log,
-		new Timings(),
+		new Timings()
 	);
 	filer.close();
 

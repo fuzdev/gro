@@ -1,30 +1,30 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.ts';
-import {print_spawn_result} from '@fuzdev/fuz_util/process.ts';
-import {z} from 'zod';
+import { args_serialize } from '@fuzdev/fuz_util/args.ts';
+import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
+import { z } from 'zod';
 
-import {to_forwarded_args} from './args.ts';
-import {configure_colored_output_with_path_replacement} from './child_process_logging.ts';
-import {find_cli, spawn_cli, spawn_cli_process} from './cli.ts';
-import {SVELTE_CHECK_CLI} from './constants.ts';
-import {paths} from './paths.ts';
-import {sveltekit_sync_if_available} from './sveltekit_helpers.ts';
-import {TaskError, type Task} from './task.ts';
+import { to_forwarded_args } from './args.ts';
+import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
+import { find_cli, spawn_cli, spawn_cli_process } from './cli.ts';
+import { SVELTE_CHECK_CLI } from './constants.ts';
+import { paths } from './paths.ts';
+import { sveltekit_sync_if_available } from './sveltekit_helpers.ts';
+import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
 	svelte_check_cli: z
 		.string()
-		.meta({description: 'the svelte-check CLI to use'})
+		.meta({ description: 'the svelte-check CLI to use' })
 		.default(SVELTE_CHECK_CLI),
 	typescript_cli: z
 		.string()
-		.meta({description: 'the TypeScript CLI to use as a fallback to svelte-check'})
+		.meta({ description: 'the TypeScript CLI to use as a fallback to svelte-check' })
 		.default('tsc'),
 	path_replacement: z
 		.string()
-		.meta({description: 'replacement string for current working directory in output'})
+		.meta({ description: 'replacement string for current working directory in output' })
 		.default('.'),
-	cwd: z.string().meta({description: 'current working directory'}).default(paths.root),
+	cwd: z.string().meta({ description: 'current working directory' }).default(paths.root)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -32,8 +32,8 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run svelte-check or tsc on the project without emitting any files',
 	Args,
-	run: async ({args, log}): Promise<void> => {
-		const {svelte_check_cli, typescript_cli, path_replacement, cwd} = args;
+	run: async ({ args, log }): Promise<void> => {
+		const { svelte_check_cli, typescript_cli, path_replacement, cwd } = args;
 
 		await sveltekit_sync_if_available();
 
@@ -43,7 +43,7 @@ export const task: Task<Args> = {
 			const serialized = args_serialize(to_forwarded_args(svelte_check_cli));
 			const spawned = await spawn_cli_process(found_svelte_check_cli, serialized, undefined, {
 				stdio: ['inherit', 'pipe', 'pipe'],
-				env: {...process.env, FORCE_COLOR: '1'}, // Needed for colors (maybe make an option)
+				env: { ...process.env, FORCE_COLOR: '1' } // Needed for colors (maybe make an option)
 			});
 
 			const svelte_check_process = spawned?.child;
@@ -77,7 +77,7 @@ export const task: Task<Args> = {
 		throw new TaskError(
 			`Failed to typecheck because neither \`${svelte_check_cli}\` nor \`${
 				typescript_cli
-			}\` was found`,
+			}\` was found`
 		);
-	},
+	}
 };

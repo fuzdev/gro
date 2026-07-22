@@ -1,17 +1,17 @@
-import {describe, test, expect} from 'vitest';
-import {resolve} from 'node:path';
-import {noop} from '@fuzdev/fuz_util/function.ts';
+import { describe, test, expect } from 'vitest';
+import { resolve } from 'node:path';
+import { noop } from '@fuzdev/fuz_util/function.ts';
 
 import {
 	is_task_path,
 	to_task_name,
 	validate_task_module,
 	find_tasks,
-	load_tasks,
+	load_tasks
 } from '$lib/task.ts';
 import * as actual_test_task_module from '$lib/test.task.ts';
-import {create_empty_gro_config} from '$lib/gro_config.ts';
-import {GRO_DIST_DIR} from '$lib/paths.ts';
+import { create_empty_gro_config } from '$lib/gro_config.ts';
+import { GRO_DIST_DIR } from '$lib/paths.ts';
 
 describe('task', () => {
 	test('is_task_path basic behavior', () => {
@@ -41,16 +41,16 @@ describe('task', () => {
 				GRO_DIST_DIR + 'foo.task.js',
 				GRO_DIST_DIR.slice(0, -1),
 				GRO_DIST_DIR + 'foo',
-				'/a',
-			),
+				'/a'
+			)
 		).toBe('foo');
 		expect(
 			to_task_name(
 				GRO_DIST_DIR + 'foo.task.js',
 				GRO_DIST_DIR, // same as above but adds a trailing slash here
 				GRO_DIST_DIR + 'foo',
-				'/a',
-			),
+				'/a'
+			)
 		).toBe('foo');
 		expect(to_task_name(resolve('a/b'), resolve('b'), '', '')).toBe(resolve('a/b'));
 	});
@@ -66,15 +66,15 @@ describe('task', () => {
 		expect(validate_task_module(test_invalid_task_module_js)).toBe(false);
 		expect(validate_task_module(test_invalid_task_module_ts)).toBe(false);
 		// demonstrating values:
-		expect(validate_task_module({task: {run: noop}})).toBe(true);
-		expect(validate_task_module({task: {run: {}}})).toBe(false);
+		expect(validate_task_module({ task: { run: noop } })).toBe(true);
+		expect(validate_task_module({ task: { run: {} } })).toBe(false);
 	});
 
 	test('load_tasks basic behavior', async () => {
 		const found = await find_tasks(
 			[resolve('src/lib/test'), resolve('src/lib/test.task.ts')],
 			[resolve('src/lib')],
-			create_empty_gro_config(),
+			create_empty_gro_config()
 		);
 		expect(found.ok).toBe(true);
 		if (found.ok) {

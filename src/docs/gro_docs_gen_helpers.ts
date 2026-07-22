@@ -1,9 +1,9 @@
-import {dirname, relative, basename} from 'node:path';
-import {parse_path_parts, parse_path_segments} from '@fuzdev/fuz_util/path.ts';
-import {strip_start} from '@fuzdev/fuz_util/string.ts';
+import { dirname, relative, basename } from 'node:path';
+import { parse_path_parts, parse_path_segments } from '@fuzdev/fuz_util/path.ts';
+import { strip_start } from '@fuzdev/fuz_util/string.ts';
 
-import {to_output_file_name} from '../lib/gen.ts';
-import {paths, base_path_to_path_id} from '../lib/paths.ts';
+import { to_output_file_name } from '../lib/gen.ts';
+import { paths, base_path_to_path_id } from '../lib/paths.ts';
 
 // TODO maybe extract some of these to `$lib/gen_helpers.ts`
 
@@ -38,7 +38,7 @@ export const create_gen_doc_context = (origin_id: string): GenDocContext => {
 		base_dir,
 		relative_path,
 		relative_dir,
-		output_file_name,
+		output_file_name
 	};
 };
 
@@ -55,7 +55,7 @@ export const create_breadcrumbs = (
 	relative_dir: string,
 	origin_dir: string,
 	output_file_name: string,
-	is_index_file: boolean = false,
+	is_index_file: boolean = false
 ): string => {
 	const path_parts = parse_path_parts(relative_dir).map((relative_path_part) => {
 		const segment = parse_path_segments(relative_path_part).at(-1);

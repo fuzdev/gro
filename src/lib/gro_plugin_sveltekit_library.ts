@@ -1,11 +1,11 @@
-import {print_spawn_result, spawn, spawn_result_to_message} from '@fuzdev/fuz_util/process.ts';
+import { print_spawn_result, spawn, spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 
-import type {Plugin} from './plugin.ts';
-import {TaskError} from './task.ts';
-import {package_json_load} from './package_json.ts';
-import {run_svelte_package, type SveltePackageOptions} from './sveltekit_helpers.ts';
-import {SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME} from './constants.ts';
-import {rewrite_dist_imports} from './dist_rewrite_imports.ts';
+import type { Plugin } from './plugin.ts';
+import { TaskError } from './task.ts';
+import { package_json_load } from './package_json.ts';
+import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
+import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
+import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -22,11 +22,11 @@ export interface GroPluginSveltekitLibraryOptions {
 
 export const gro_plugin_sveltekit_library = ({
 	svelte_package_options,
-	svelte_package_cli = SVELTE_PACKAGE_CLI,
+	svelte_package_cli = SVELTE_PACKAGE_CLI
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
 	return {
 		name: 'gro_plugin_sveltekit_library',
-		setup: async ({dev, log, config}) => {
+		setup: async ({ dev, log, config }) => {
 			if (!dev) {
 				const package_json = await package_json_load();
 				await run_svelte_package(
@@ -34,7 +34,7 @@ export const gro_plugin_sveltekit_library = ({
 					svelte_package_options,
 					svelte_package_cli,
 					log,
-					config.pm_cli,
+					config.pm_cli
 				);
 				// `svelte-package` ships `.svelte` source verbatim and leaves relative `.ts`
 				// specifiers in `.d.ts` declarations; rewrite them to `.js` so the published
@@ -44,7 +44,7 @@ export const gro_plugin_sveltekit_library = ({
 				await rewrite_dist_imports(output_dir, log);
 			}
 		},
-		adapt: async ({log, timings, config}) => {
+		adapt: async ({ log, timings, config }) => {
 			const package_json = await package_json_load();
 			// link the CLI binaries if they exist
 			if (package_json.bin) {
@@ -54,9 +54,9 @@ export const gro_plugin_sveltekit_library = ({
 						const chmod_result = await spawn('chmod', ['+x', bin_path]);
 						if (!chmod_result.ok)
 							log.error(
-								`chmod on bin path ${bin_path} failed: ${spawn_result_to_message(chmod_result)}`,
+								`chmod on bin path ${bin_path} failed: ${spawn_result_to_message(chmod_result)}`
 							);
-					}),
+					})
 				);
 				log.info(`linking`);
 				const link_result = await spawn(config.pm_cli, ['link', '-f']); // TODO don't use `-f` unless necessary or at all?
@@ -65,6 +65,6 @@ export const gro_plugin_sveltekit_library = ({
 				}
 				timing_to_link();
 			}
-		},
+		}
 	};
 };

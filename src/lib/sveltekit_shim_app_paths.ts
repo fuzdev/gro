@@ -14,9 +14,9 @@
 import type {
 	resolve as base_resolve,
 	asset as base_asset,
-	resolveRoute as base_resolveRoute,
+	resolveRoute as base_resolveRoute
 } from '$app/paths';
-import {noop} from '@fuzdev/fuz_util/function.ts';
+import { noop } from '@fuzdev/fuz_util/function.ts';
 
 export const assets = '';
 /** @deprecated */

@@ -1,35 +1,35 @@
-import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import {task as build_task} from '$lib/build.task.ts';
+import { task as build_task } from '$lib/build.task.ts';
 
-import {create_mock_build_task_context, create_mock_plugins} from './build_task_test_helpers.ts';
+import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn(),
+	git_current_commit_hash: vi.fn()
 }));
 
 // Mock async fs functions used by build.task.ts and build_cache.ts (discover_build_output_dirs)
 vi.mock('node:fs/promises', () => ({
 	rm: vi.fn(),
 	readdir: vi.fn(),
-	stat: vi.fn(),
+	stat: vi.fn()
 }));
 
 // Mock fs_exists from fuz_util
 vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn(),
+	fs_exists: vi.fn()
 }));
 
 vi.mock('$lib/clean_fs.ts', () => ({
-	clean_fs: vi.fn(),
+	clean_fs: vi.fn()
 }));
 
 vi.mock('$lib/plugin.ts', () => ({
 	Plugins: {
-		create: vi.fn(),
-	},
+		create: vi.fn()
+	}
 }));
 
 vi.mock('$lib/build_cache.ts', async (import_original) => {
@@ -38,7 +38,7 @@ vi.mock('$lib/build_cache.ts', async (import_original) => {
 		...original,
 		is_build_cache_valid: vi.fn(),
 		create_build_cache_metadata: vi.fn(),
-		save_build_cache_metadata: vi.fn(),
+		save_build_cache_metadata: vi.fn()
 	};
 });
 
@@ -49,12 +49,12 @@ vi.mock('$lib/paths.ts', () => ({
 		lib: './src/lib/',
 		build: './.gro/',
 		build_dev: './.gro/dev/',
-		config: './gro.config.ts',
-	},
+		config: './gro.config.ts'
+	}
 }));
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
-	hash_blake3: vi.fn(),
+	hash_blake3: vi.fn()
 }));
 
 describe('build_task error handling', () => {
@@ -63,10 +63,10 @@ describe('build_task error handling', () => {
 
 		// Setup default mocks
 		const mock_plugins = create_mock_plugins();
-		const {Plugins} = vi.mocked(await import('$lib/plugin.ts'));
+		const { Plugins } = vi.mocked(await import('$lib/plugin.ts'));
 		vi.mocked(Plugins.create).mockResolvedValue(mock_plugins as any);
 
-		const {clean_fs} = vi.mocked(await import('$lib/clean_fs.ts'));
+		const { clean_fs } = vi.mocked(await import('$lib/clean_fs.ts'));
 		vi.mocked(clean_fs).mockResolvedValue(undefined);
 	});
 
@@ -75,7 +75,7 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles git command failures gracefully', async () => {
-		const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
 		// Git command throws an error
 		vi.mocked(git_check_clean_workspace).mockRejectedValue(new Error('git command not found'));
@@ -87,9 +87,9 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles file system errors during cache deletion', async () => {
-		const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-		const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const {rm, readdir} = vi.mocked(await import('node:fs/promises'));
+		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { rm, readdir } = vi.mocked(await import('node:fs/promises'));
 
 		// Workspace is dirty
 		vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified files:\n  src/foo.ts');
@@ -106,8 +106,8 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles cache validation errors gracefully', async () => {
-		const {git_check_clean_workspace} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-		const {is_build_cache_valid} = vi.mocked(await import('$lib/build_cache.ts'));
+		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { is_build_cache_valid } = vi.mocked(await import('$lib/build_cache.ts'));
 
 		// Workspace is clean, but cache validation throws
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);

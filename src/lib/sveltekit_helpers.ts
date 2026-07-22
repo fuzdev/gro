@@ -1,67 +1,67 @@
-import {args_serialize} from '@fuzdev/fuz_util/args.ts';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
-import type {Result} from '@fuzdev/fuz_util/result.ts';
-import {join} from 'node:path';
+import { args_serialize } from '@fuzdev/fuz_util/args.ts';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
+import { join } from 'node:path';
 
-import {to_forwarded_args} from './args.ts';
-import {find_cli, spawn_cli, to_cli_name, type Cli} from './cli.ts';
+import { to_forwarded_args } from './args.ts';
+import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
 	SVELTE_CONFIG_FILENAME,
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
-	SVELTEKIT_DEV_DIRNAME,
+	SVELTEKIT_DEV_DIRNAME
 } from './constants.ts';
-import {package_json_has_dependency} from './package_json.ts';
-import {default_svelte_config, type ParsedSvelteConfig} from './svelte_config.ts';
-import {TaskError} from './task.ts';
+import { package_json_has_dependency } from './package_json.ts';
+import { default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
+import { TaskError } from './task.ts';
 
 export const has_sveltekit_app = async (
-	svelte_config_path: string = SVELTE_CONFIG_FILENAME,
-): Promise<Result<object, {message: string}>> => {
+	svelte_config_path: string = SVELTE_CONFIG_FILENAME
+): Promise<Result<object, { message: string }>> => {
 	if (!(await fs_exists(svelte_config_path))) {
-		return {ok: false, message: `no SvelteKit config found at ${SVELTE_CONFIG_FILENAME}`};
+		return { ok: false, message: `no SvelteKit config found at ${SVELTE_CONFIG_FILENAME}` };
 	}
 	// TODO check for routes?
-	return {ok: true};
+	return { ok: true };
 };
 
 export const has_sveltekit_library = async (
 	package_json: PackageJson,
 	svelte_config: ParsedSvelteConfig = default_svelte_config,
-	dep_name = SVELTE_PACKAGE_DEP_NAME,
-): Promise<Result<object, {message: string}>> => {
+	dep_name = SVELTE_PACKAGE_DEP_NAME
+): Promise<Result<object, { message: string }>> => {
 	const has_sveltekit_app_result = await has_sveltekit_app();
 	if (!has_sveltekit_app_result.ok) {
 		return has_sveltekit_app_result;
 	}
 
 	if (!(await fs_exists(svelte_config.lib_path))) {
-		return {ok: false, message: `no SvelteKit lib directory found at ${svelte_config.lib_path}`};
+		return { ok: false, message: `no SvelteKit lib directory found at ${svelte_config.lib_path}` };
 	}
 
 	if (!package_json_has_dependency(dep_name, package_json)) {
 		return {
 			ok: false,
-			message: `no dependency found in package.json for ${dep_name}`,
+			message: `no dependency found in package.json for ${dep_name}`
 		};
 	}
 
-	return {ok: true};
+	return { ok: true };
 };
 
 export const sveltekit_sync = async (
 	sveltekit_cli: string | Cli = SVELTEKIT_CLI,
-	pm_cli = PM_CLI_DEFAULT, // TODO source from config when possible, is just needed for error messages
+	pm_cli = PM_CLI_DEFAULT // TODO source from config when possible, is just needed for error messages
 ): Promise<void> => {
 	const result = await spawn_cli(sveltekit_cli, ['sync']);
 	if (!result) {
 		throw new TaskError(
 			`Failed to find SvelteKit CLI \`${to_cli_name(sveltekit_cli)}\`, do you need to run \`${
 				pm_cli
-			} install\`?`,
+			} install\`?`
 		);
 	} else if (!result.ok) {
 		throw new TaskError(`Failed ${to_cli_name(sveltekit_cli)} sync`);
@@ -73,7 +73,7 @@ export const sveltekit_sync = async (
  * If the SvelteKit CLI is found and its `.svelte-kit` directory is not, run `svelte-kit sync`.
  */
 export const sveltekit_sync_if_available = async (
-	sveltekit_cli: string | Cli = SVELTEKIT_CLI,
+	sveltekit_cli: string | Cli = SVELTEKIT_CLI
 ): Promise<void> => {
 	const found_sveltekit_cli =
 		typeof sveltekit_cli === 'string' ? await find_cli(sveltekit_cli) : sveltekit_cli;
@@ -86,7 +86,7 @@ export const sveltekit_sync_if_available = async (
  * If the SvelteKit CLI is found and its `.svelte-kit` directory is not, run `svelte-kit sync`.
  */
 export const sveltekit_sync_if_obviously_needed = async (
-	sveltekit_cli: string | Cli = SVELTEKIT_CLI,
+	sveltekit_cli: string | Cli = SVELTEKIT_CLI
 ): Promise<void> => {
 	if (await fs_exists(SVELTEKIT_DEV_DIRNAME)) {
 		return;
@@ -154,12 +154,12 @@ export const run_svelte_package = async (
 	options: SveltePackageOptions | undefined,
 	cli: string | Cli,
 	log: Logger,
-	pm_cli: string,
+	pm_cli: string
 ): Promise<void> => {
 	const has_sveltekit_library_result = await has_sveltekit_library(package_json);
 	if (!has_sveltekit_library_result.ok) {
 		throw new TaskError(
-			'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message,
+			'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
 		);
 	}
 	const cli_name = typeof cli === 'string' ? cli : cli.name;
@@ -168,12 +168,12 @@ export const run_svelte_package = async (
 		throw new TaskError(
 			`Failed to find SvelteKit packaging CLI \`${cli_name}\`, do you need to run \`${
 				pm_cli
-			} install\`?`,
+			} install\`?`
 		);
 	}
 	const serialized_args = args_serialize({
 		...options,
-		...to_forwarded_args(cli_name),
+		...to_forwarded_args(cli_name)
 	});
 	await spawn_cli(found_svelte_package_cli, serialized_args, log);
 };
@@ -184,7 +184,7 @@ export const run_svelte_package = async (
  */
 export const map_sveltekit_aliases = (
 	specifier: string,
-	aliases: Array<[string, string]>,
+	aliases: Array<[string, string]>
 ): string => {
 	let path = specifier;
 	for (const [from, to] of aliases) {

@@ -1,25 +1,24 @@
-import type {SpawnOptions} from 'node:child_process';
+import type { SpawnOptions } from 'node:child_process';
 import {
 	spawn,
 	spawn_out,
 	spawn_process,
 	type SpawnResult,
-	type SpawnedProcess,
+	type SpawnedProcess
 } from '@fuzdev/fuz_util/process.ts';
-import {join} from 'node:path';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import {fileURLToPath, type URL} from 'node:url';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import { join } from 'node:path';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { fileURLToPath, type URL } from 'node:url';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import {NODE_MODULES_DIRNAME} from './constants.ts';
-import {print_command_args} from './args.ts';
+import { NODE_MODULES_DIRNAME } from './constants.ts';
+import { print_command_args } from './args.ts';
 
 // TODO maybe upstream to fuz_util?
 
 export type Cli =
-	| {kind: 'local'; name: string; id: PathId}
-	| {kind: 'global'; name: string; id: PathId};
+	{ kind: 'local'; name: string; id: PathId } | { kind: 'global'; name: string; id: PathId };
 
 /**
  * Searches the filesystem for the CLI `name`, first local to the cwd and then globally.
@@ -28,17 +27,17 @@ export type Cli =
 export const find_cli = async (
 	name: string,
 	cwd: string | URL = process.cwd(),
-	options?: SpawnOptions,
+	options?: SpawnOptions
 ): Promise<Cli | null> => {
 	const final_cwd = typeof cwd === 'string' ? cwd : fileURLToPath(cwd);
 	const local_id = join(final_cwd, NODE_MODULES_DIRNAME, `.bin/${name}`);
 	if (await fs_exists(local_id)) {
-		return {name, id: local_id, kind: 'local'};
+		return { name, id: local_id, kind: 'local' };
 	}
-	const {stdout} = await spawn_out('sh', ['-c', 'command -v "$1"', 'sh', name], options);
+	const { stdout } = await spawn_out('sh', ['-c', 'command -v "$1"', 'sh', name], options);
 	const global_id = stdout?.trim();
 	if (!global_id) return null;
-	return {name, id: global_id, kind: 'global'};
+	return { name, id: global_id, kind: 'global' };
 };
 
 /**
@@ -50,7 +49,7 @@ export const spawn_cli = async (
 	name_or_cli: string | Cli,
 	args: Array<string> = [],
 	log?: Logger,
-	options?: SpawnOptions,
+	options?: SpawnOptions
 ): Promise<SpawnResult | undefined> => {
 	const cli = await resolve_cli(name_or_cli, args, options?.cwd, log, options);
 	if (!cli) return;
@@ -66,7 +65,7 @@ export const spawn_cli_process = async (
 	name_or_cli: string | Cli,
 	args: Array<string> = [],
 	log?: Logger,
-	options?: SpawnOptions,
+	options?: SpawnOptions
 ): Promise<SpawnedProcess | undefined> => {
 	const cli = await resolve_cli(name_or_cli, args, options?.cwd, log, options);
 	if (!cli) return;
@@ -78,7 +77,7 @@ export const resolve_cli = async (
 	args: Array<string> = [],
 	cwd: string | URL | undefined,
 	log?: Logger,
-	options?: SpawnOptions,
+	options?: SpawnOptions
 ): Promise<Cli | undefined> => {
 	let final_cli;
 	if (typeof name_or_cli === 'string') {

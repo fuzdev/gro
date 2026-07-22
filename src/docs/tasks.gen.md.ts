@@ -1,14 +1,14 @@
-import {relative} from 'node:path';
+import { relative } from 'node:path';
 
-import type {Gen} from '../lib/gen.ts';
-import {paths} from '../lib/paths.ts';
-import {log_error_reasons} from '../lib/task_logging.ts';
-import {find_tasks, load_tasks, TaskError} from '../lib/task.ts';
+import type { Gen } from '../lib/gen.ts';
+import { paths } from '../lib/paths.ts';
+import { log_error_reasons } from '../lib/task_logging.ts';
+import { find_tasks, load_tasks, TaskError } from '../lib/task.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
 	create_breadcrumbs,
-	create_gen_footer,
+	create_gen_footer
 } from './gro_docs_gen_helpers.ts';
 
 // This is the first simple implementation of Gro's automated docs.
@@ -22,7 +22,7 @@ import {
 // TODO needs some cleanup and better APIs - paths are confusing and verbose!
 // TODO add backlinks to every document that links to this one
 
-export const gen: Gen = async ({origin_id, log, config}) => {
+export const gen: Gen = async ({ origin_id, log, config }) => {
 	const found = await find_tasks(['.'], [paths.lib], config);
 	if (!found.ok) {
 		log_error_reasons(log, found.reasons);
@@ -39,7 +39,7 @@ export const gen: Gen = async ({origin_id, log, config}) => {
 	const tasks = loaded_tasks.modules;
 
 	const ctx = create_gen_doc_context(origin_id);
-	const {origin_dir, origin_base, root_path, output_file_name, relative_dir} = ctx;
+	const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
 
 	// TODO this is GitHub-specific
 	const root_link = create_root_link(root_path);
@@ -63,7 +63,7 @@ ${tasks.reduce(
 		`- [${task.name}](${relative(origin_dir, task.id)})${
 			task.mod.task.summary ? ` - ${task.mod.task.summary}` : ''
 		}\n`,
-	'',
+	''
 )}
 ## usage
 

@@ -10,9 +10,9 @@ import type {
 	invalidate as base_invalidate,
 	invalidateAll as base_invalidateAll,
 	preloadCode as base_preloadCode,
-	preloadData as base_preloadData,
+	preloadData as base_preloadData
 } from '$app/navigation';
-import {noop, noop_async} from '@fuzdev/fuz_util/function.ts';
+import { noop, noop_async } from '@fuzdev/fuz_util/function.ts';
 
 export const afterNavigate: typeof base_afterNavigate = noop;
 export const beforeNavigate: typeof base_beforeNavigate = noop;

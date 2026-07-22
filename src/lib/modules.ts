@@ -1,33 +1,33 @@
-import type {Timings} from '@fuzdev/fuz_util/timings.ts';
-import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
-import type {Result} from '@fuzdev/fuz_util/result.ts';
-import {print_error} from '@fuzdev/fuz_util/print.ts';
-import {pathToFileURL} from 'node:url';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import type { Timings } from '@fuzdev/fuz_util/timings.ts';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
+import { print_error } from '@fuzdev/fuz_util/print.ts';
+import { pathToFileURL } from 'node:url';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import type {ResolvedInputFile} from './input_path.ts';
-import {print_path} from './paths.ts';
+import type { ResolvedInputFile } from './input_path.ts';
+import { print_path } from './paths.ts';
 
 export interface ModuleMeta<TModule extends Record<string, any> = Record<string, any>> {
 	id: PathId;
 	mod: TModule;
 }
 
-export type LoadModuleResult<TModule> = Result<{id: PathId; mod: TModule}, LoadModuleFailure>;
+export type LoadModuleResult<TModule> = Result<{ id: PathId; mod: TModule }, LoadModuleFailure>;
 export type LoadModuleFailure =
-	| {ok: false; type: 'failed_import'; id: PathId; error: Error}
+	| { ok: false; type: 'failed_import'; id: PathId; error: Error }
 	| {
 			ok: false;
 			type: 'failed_validation';
 			id: PathId;
 			mod: Record<string, any>;
 			validation: string;
-		};
+	  };
 
 export const load_module = async <TModule extends Record<string, any>>(
 	id: PathId,
 	validate?: (mod: Record<string, any>) => mod is TModule,
-	bust_cache?: boolean,
+	bust_cache?: boolean
 ): Promise<LoadModuleResult<TModule>> => {
 	let mod;
 	try {
@@ -39,12 +39,12 @@ export const load_module = async <TModule extends Record<string, any>>(
 		}
 		mod = await import(import_path);
 	} catch (error) {
-		return {ok: false, type: 'failed_import', id, error};
+		return { ok: false, type: 'failed_import', id, error };
 	}
 	if (validate && !validate(mod)) {
-		return {ok: false, type: 'failed_validation', id, mod, validation: validate.name};
+		return { ok: false, type: 'failed_validation', id, mod, validation: validate.name };
 	}
-	return {ok: true, id, mod};
+	return { ok: true, id, mod };
 };
 
 export interface LoadModulesFailure<TModuleMeta extends ModuleMeta> {
@@ -65,19 +65,19 @@ export type LoadModulesResult<TModuleMeta extends ModuleMeta> = Result<
 // TODO parallelize and sort afterwards
 export const load_modules = async <
 	TModule extends Record<string, any>,
-	TModuleMeta extends ModuleMeta<TModule>,
+	TModuleMeta extends ModuleMeta<TModule>
 >(
 	resolved_input_files: Array<ResolvedInputFile>,
 	validate: (mod: any) => mod is TModule,
 	map_module_meta: (resolved_input_file: ResolvedInputFile, mod: TModule) => TModuleMeta,
-	timings?: Timings,
+	timings?: Timings
 ): Promise<LoadModulesResult<TModuleMeta>> => {
 	const timing_to_load_modules = timings?.start('load modules');
 	const modules: Array<TModuleMeta> = [];
 	const load_module_failures: Array<LoadModuleFailure> = [];
 	const reasons: Array<string> = [];
 	for (const resolved_input_file of resolved_input_files.values()) {
-		const {id, input_path} = resolved_input_file;
+		const { id, input_path } = resolved_input_file;
 		const result = await load_module(id, validate);
 		if (result.ok) {
 			modules.push(map_module_meta(resolved_input_file, result.mod));
@@ -87,8 +87,8 @@ export const load_modules = async <
 				case 'failed_import': {
 					reasons.push(
 						`Module import ${print_path(id)} failed from input ${print_path(
-							input_path,
-						)}: ${print_error(result.error)}`,
+							input_path
+						)}: ${print_error(result.error)}`
 					);
 					break;
 				}
@@ -109,9 +109,9 @@ export const load_modules = async <
 			type: 'load_module_failures',
 			load_module_failures,
 			reasons,
-			modules,
+			modules
 		};
 	}
 
-	return {ok: true, modules};
+	return { ok: true, modules };
 };

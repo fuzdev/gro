@@ -1,9 +1,9 @@
-import {test, assert, vi} from 'vitest';
-import {resolve} from 'node:path';
+import { test, assert, vi } from 'vitest';
+import { resolve } from 'node:path';
 
-import type {WatchNodeFs} from '$lib/watch_dir.ts';
-import {Filer, filter_dependents} from '$lib/filer.ts';
-import type {Disknode} from '$lib/disknode.ts';
+import type { WatchNodeFs } from '$lib/watch_dir.ts';
+import { Filer, filter_dependents } from '$lib/filer.ts';
+import type { Disknode } from '$lib/disknode.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
 
@@ -15,7 +15,7 @@ const create_test_disknode = (id: string, contents: string | null = null): Diskn
 	mtime: 1,
 	content_hash: null,
 	dependents: new Map(),
-	dependencies: new Map(),
+	dependencies: new Map()
 });
 
 // filter_dependents tests
@@ -127,14 +127,14 @@ test('builds bidirectional dependency links from parsed imports', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: importer_path, is_directory: false});
+				options.on_change({ type: 'add', path: importer_path, is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const importer = filer.get_by_id(importer_path);
@@ -157,14 +157,14 @@ test('skips non-file schemes in transitive dependency resolution', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: importer_path, is_directory: false});
+				options.on_change({ type: 'add', path: importer_path, is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Wait for deferred external file processing
@@ -217,15 +217,15 @@ test('deleted file with dependents stays in memory', async () => {
 		on_change_callback = options.on_change;
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/a.ts', is_directory: false});
-				options.on_change({type: 'add', path: '/test/b.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/a.ts', is_directory: false });
+				options.on_change({ type: 'add', path: '/test/b.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file_a = filer.get_by_id('/test/a.ts');
@@ -242,7 +242,7 @@ test('deleted file with dependents stays in memory', async () => {
 
 	// Delete A while B still depends on it
 	assert.ok(on_change_callback);
-	on_change_callback({type: 'delete', path: '/test/a.ts', is_directory: false});
+	on_change_callback({ type: 'delete', path: '/test/a.ts', is_directory: false });
 
 	// Wait for queue processing
 	await new Promise((resolve) => setTimeout(resolve, 10));

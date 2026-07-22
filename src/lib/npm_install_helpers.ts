@@ -1,8 +1,8 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {spawn_process, spawn_result_to_message} from '@fuzdev/fuz_util/process.ts';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { spawn_process, spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
+import { styleText as st } from 'node:util';
 
-import {TaskError} from './task.ts';
+import { TaskError } from './task.ts';
 
 /**
  * Env vars that tell npm to skip devDependencies. We strip these from the
@@ -18,7 +18,7 @@ import {TaskError} from './task.ts';
 const PRUNE_TRIGGERING_ENV_VARS: ReadonlySet<string> = new Set([
 	'NODE_ENV',
 	'npm_config_production',
-	'npm_config_omit',
+	'npm_config_omit'
 ]);
 
 /**
@@ -74,7 +74,7 @@ export interface NpmCommandResult {
 export type NpmCommandRunner = (
 	command: string,
 	args: ReadonlyArray<string>,
-	options?: {cwd?: string; env?: NodeJS.ProcessEnv},
+	options?: { cwd?: string; env?: NodeJS.ProcessEnv }
 ) => Promise<NpmCommandResult>;
 
 /**
@@ -83,9 +83,9 @@ export type NpmCommandRunner = (
  * output); `stderr` is teed to `process.stderr` and accumulated.
  */
 const run_npm_command: NpmCommandRunner = async (command, args, options) => {
-	const {child, closed} = spawn_process(command, args, {
+	const { child, closed } = spawn_process(command, args, {
 		...options,
-		stdio: ['inherit', 'inherit', 'pipe'],
+		stdio: ['inherit', 'inherit', 'pipe']
 	});
 	let stderr = '';
 	child.stderr?.on('data', (data: Buffer) => {
@@ -93,7 +93,7 @@ const run_npm_command: NpmCommandRunner = async (command, args, options) => {
 		process.stderr.write(data);
 	});
 	const result = await closed;
-	return {ok: result.ok, stderr, detail: spawn_result_to_message(result)};
+	return { ok: result.ok, stderr, detail: spawn_result_to_message(result) };
 };
 
 /**
@@ -147,11 +147,11 @@ export interface InstallCacheHealingOptions {
  */
 export const install_with_cache_healing = async (
 	pm_cli: string,
-	options: InstallCacheHealingOptions = {},
+	options: InstallCacheHealingOptions = {}
 ): Promise<NpmCommandResult> => {
-	const {cwd, env = process.env, log, run = run_npm_command, install_args = []} = options;
+	const { cwd, env = process.env, log, run = run_npm_command, install_args = [] } = options;
 	const install_env = sanitize_install_env(env);
-	const install_options = {cwd, env: install_env};
+	const install_options = { cwd, env: install_env };
 	const install_command_args = ['install', ...install_args];
 
 	const first = await run(pm_cli, install_command_args, install_options);
@@ -164,7 +164,7 @@ export const install_with_cache_healing = async (
 	}
 
 	log?.warn(
-		st('yellow', `ETARGET detected — running \`${pm_cli} cache clean --force\` and retrying`),
+		st('yellow', `ETARGET detected — running \`${pm_cli} cache clean --force\` and retrying`)
 	);
 
 	const cache_clean = await run(pm_cli, ['cache', 'clean', '--force'], install_options);
@@ -172,7 +172,7 @@ export const install_with_cache_healing = async (
 		return {
 			ok: false,
 			stderr: cache_clean.stderr,
-			detail: `\`${pm_cli} cache clean --force\` failed: ${cache_clean.detail}`,
+			detail: `\`${pm_cli} cache clean --force\` failed: ${cache_clean.detail}`
 		};
 	}
 
@@ -196,7 +196,7 @@ export const install_with_cache_healing = async (
  */
 export const install_with_cache_healing_or_throw = async (
 	pm_cli: string,
-	options: InstallCacheHealingOptions & {context?: string} = {},
+	options: InstallCacheHealingOptions & { context?: string } = {}
 ): Promise<void> => {
 	const result = await install_with_cache_healing(pm_cli, options);
 	if (result.ok) return;

@@ -1,9 +1,9 @@
-import {readFile, writeFile} from 'node:fs/promises';
-import {z} from 'zod';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
+import { readFile, writeFile } from 'node:fs/promises';
+import { z } from 'zod';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
-import {github_fetch_commit_prs} from './github.ts';
+import { github_fetch_commit_prs } from './github.ts';
 
 /**
  * Updates a changelog produced by `@changesets/changelog-git` with better links and formatting.
@@ -18,7 +18,7 @@ export const update_changelog = async (
 	path = 'CHANGELOG.md',
 	token?: string,
 	log?: Logger,
-	cache: FetchValueCache = new Map(), // include a default cache to efficiently handle multiple changesets per commit
+	cache: FetchValueCache = new Map() // include a default cache to efficiently handle multiple changesets per commit
 ): Promise<boolean> => {
 	const contents = await readFile(path, 'utf8');
 	const parsed = parse_changelog(contents);
@@ -45,7 +45,7 @@ const map_changelog = async (
 	repo: string,
 	token?: string,
 	log?: Logger,
-	cache?: FetchValueCache,
+	cache?: FetchValueCache
 ): Promise<ParsedChangelog> => {
 	const mapped: ParsedChangelog = [];
 	for (const line of parsed) {
@@ -58,7 +58,7 @@ const map_changelog = async (
 				mapped.push(`${l} (${prs.map((p) => `[#${p.number}](${p.html_url})`).join(', ')})`);
 			} else {
 				mapped.push(
-					`${l} ([${commit_sha}](https://github.com/${owner}/${repo}/commit/${commit_sha}))`,
+					`${l} ([${commit_sha}](https://github.com/${owner}/${repo}/commit/${commit_sha}))`
 				);
 			}
 		} else {

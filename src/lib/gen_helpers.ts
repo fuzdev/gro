@@ -1,21 +1,21 @@
-import {resolve} from 'node:path';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {Timings} from '@fuzdev/fuz_util/timings.ts';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import { resolve } from 'node:path';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { Timings } from '@fuzdev/fuz_util/timings.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import type {GroConfig} from './gro_config.ts';
-import {filter_dependents, type Filer} from './filer.ts';
-import type {InvokeTask} from './task.ts';
+import type { GroConfig } from './gro_config.ts';
+import { filter_dependents, type Filer } from './filer.ts';
+import type { InvokeTask } from './task.ts';
 import {
 	normalize_gen_config,
 	validate_gen_module,
 	type GenContext,
 	type GenDependencies,
-	type GenDependenciesConfig,
+	type GenDependenciesConfig
 } from './gen.ts';
-import {default_svelte_config} from './svelte_config.ts';
-import {to_root_path} from './paths.ts';
-import {load_module} from './modules.ts';
+import { default_svelte_config } from './svelte_config.ts';
+import { to_root_path } from './paths.ts';
+import { load_module } from './modules.ts';
 
 /**
  * Check if a file change should trigger a gen file.
@@ -27,7 +27,7 @@ export const should_trigger_gen = async (
 	filer: Filer,
 	log: Logger,
 	timings: Timings,
-	invoke_task: InvokeTask,
+	invoke_task: InvokeTask
 ): Promise<boolean> => {
 	// Always trigger if the gen file itself changed
 	const is_self_change = gen_file_id === changed_file_id;
@@ -40,7 +40,7 @@ export const should_trigger_gen = async (
 		const dependents = filter_dependents(
 			changed_disknode,
 			filer.get_by_id,
-			(id) => id === gen_file_id, // filter for just our gen file
+			(id) => id === gen_file_id // filter for just our gen file
 		);
 		should_bust_cache = dependents.has(gen_file_id);
 	}
@@ -54,7 +54,7 @@ export const should_trigger_gen = async (
 		filer,
 		log,
 		timings,
-		invoke_task,
+		invoke_task
 	);
 
 	if (!dependencies) return false;
@@ -80,7 +80,7 @@ const resolve_gen_dependencies = async (
 	filer: Filer,
 	log: Logger,
 	timings: Timings,
-	invoke_task: InvokeTask,
+	invoke_task: InvokeTask
 ): Promise<GenDependenciesConfig | 'all' | null> => {
 	const result = await load_module(gen_file_id, validate_gen_module, bust_cache);
 
@@ -107,7 +107,7 @@ const resolve_gen_dependencies = async (
 			invoke_task,
 			origin_id: gen_file_id,
 			origin_path: to_root_path(gen_file_id),
-			changed_file_id,
+			changed_file_id
 		};
 		dependencies = await dependencies(gen_ctx);
 	}

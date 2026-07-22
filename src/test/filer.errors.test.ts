@@ -1,9 +1,9 @@
-import {test, assert, vi} from 'vitest';
-import {resolve} from 'node:path';
+import { test, assert, vi } from 'vitest';
+import { resolve } from 'node:path';
 
-import type {WatchNodeFs} from '$lib/watch_dir.ts';
-import {Filer, filter_dependents} from '$lib/filer.ts';
-import type {Disknode} from '$lib/disknode.ts';
+import type { WatchNodeFs } from '$lib/watch_dir.ts';
+import { Filer, filter_dependents } from '$lib/filer.ts';
+import type { Disknode } from '$lib/disknode.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
 
@@ -15,7 +15,7 @@ const create_test_disknode = (id: string, contents: string | null = null): Diskn
 	mtime: 1,
 	content_hash: null,
 	dependents: new Map(),
-	dependencies: new Map(),
+	dependencies: new Map()
 });
 
 // Initialization error tests
@@ -25,12 +25,12 @@ test('error in watch_dir.init() is handled', async () => {
 			init: vi.fn(async () => {
 				throw new Error('Initialization failed');
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// init should propagate the error
 	let error_thrown = false;
@@ -54,16 +54,16 @@ test('watcher is cleaned up when init fails after partial success', async () => 
 		mock_watcher = {
 			init: vi.fn(async () => {
 				// Add some files first
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 				// Then fail
 				throw new Error('Init failed after partial success');
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Init should fail
 	let error_thrown = false;
@@ -80,7 +80,7 @@ test('watcher is cleaned up when init fails after partial success', async () => 
 	assert.equal(
 		(mock_watcher!.close as any).mock.calls.length,
 		1,
-		'watcher.close() should be called on error',
+		'watcher.close() should be called on error'
 	);
 	assert.equal(filer.inited, false);
 	assert.equal(filer.files.size, 0);
@@ -95,14 +95,14 @@ test('can reinitialize after init error', async () => {
 					throw new Error('First init fails');
 				}
 				// Second init succeeds
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// First init should fail
 	let error_thrown = false;
@@ -132,18 +132,18 @@ test('handles error when watcher.close() fails during init error', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		mock_watcher = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 				throw new Error('Init failed');
 			}),
 			close: vi.fn(async () => {
 				close_error_thrown = true;
 				throw new Error('Close also failed');
-			}),
+			})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// Init should fail with the original error
 	let error_thrown = false;
@@ -174,14 +174,14 @@ test('can recover from multiple consecutive init errors', async () => {
 					throw new Error(`Init failed attempt ${attempt}`);
 				}
 				// Third attempt succeeds
-				options.on_change({type: 'add', path: '/test/file1.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 
 	// First attempt fails
 	try {
@@ -214,14 +214,14 @@ test('skips non-file URL schemes from import resolution', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: fixture_path, is_directory: false});
+				options.on_change({ type: 'add', path: fixture_path, is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id(fixture_path);
@@ -239,14 +239,14 @@ test('resolves file: URLs from import resolution', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: fixture_path, is_directory: false});
+				options.on_change({ type: 'add', path: fixture_path, is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id(fixture_path);
@@ -263,14 +263,14 @@ test('handles permission errors on file read', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// Simulating a file that exists but can't be read
-				options.on_change({type: 'add', path: '/test/restricted.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/restricted.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// File should be tracked even if we can't read its contents
@@ -287,14 +287,14 @@ test('handles same mtime but different contents', async () => {
 		on_change_callback = options.on_change;
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/file.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file_before = filer.get_by_id('/test/file.ts');
@@ -303,7 +303,7 @@ test('handles same mtime but different contents', async () => {
 
 	// Simulate update with same mtime
 	assert.ok(on_change_callback);
-	on_change_callback({type: 'update', path: '/test/file.ts', is_directory: false});
+	on_change_callback({ type: 'update', path: '/test/file.ts', is_directory: false });
 
 	// Wait for queue processing
 	await new Promise((resolve) => setTimeout(resolve, 10));
@@ -319,14 +319,14 @@ test('handles parse_imports throwing error', async () => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
 				// File with potentially invalid syntax
-				options.on_change({type: 'add', path: '/test/invalid.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/invalid.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// File should still be tracked even if parse_imports fails
@@ -346,7 +346,7 @@ test('handles very deep dependency chain', async () => {
 	for (let i = 0; i < depth; i++) {
 		const file = create_test_disknode(
 			`/test/file${i}.ts`,
-			i > 0 ? `import {x} from './file${i - 1}'` : 'export const x = 1',
+			i > 0 ? `import {x} from './file${i - 1}'` : 'export const x = 1'
 		);
 		files.push(file);
 
@@ -371,14 +371,14 @@ test('handles large file contents efficiently', async () => {
 	const mock_watch_dir = vi.fn((options) => {
 		const mock_watcher: WatchNodeFs = {
 			init: vi.fn(async () => {
-				options.on_change({type: 'add', path: '/test/large.ts', is_directory: false});
+				options.on_change({ type: 'add', path: '/test/large.ts', is_directory: false });
 			}),
-			close: vi.fn(async () => {}),
+			close: vi.fn(async () => {})
 		};
 		return mock_watcher;
 	});
 
-	const filer = new Filer({watch_dir: mock_watch_dir});
+	const filer = new Filer({ watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id('/test/large.ts');

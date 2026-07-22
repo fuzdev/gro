@@ -1,27 +1,27 @@
-import type {ArgSchema} from '@fuzdev/fuz_util/args.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {print_value} from '@fuzdev/fuz_util/print.ts';
-import {plural} from '@fuzdev/fuz_util/string.ts';
+import type { ArgSchema } from '@fuzdev/fuz_util/args.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { print_value } from '@fuzdev/fuz_util/print.ts';
+import { plural } from '@fuzdev/fuz_util/string.ts';
 import {
 	zod_to_subschema,
 	zod_to_schema_description,
-	zod_to_schema_default,
+	zod_to_schema_default
 } from '@fuzdev/fuz_util/zod.ts';
-import {styleText as st} from 'node:util';
-import {z} from 'zod';
+import { styleText as st } from 'node:util';
+import { z } from 'zod';
 
-import type {LoadedTasks, TaskModuleMeta} from './task.ts';
-import {print_path} from './paths.ts';
+import type { LoadedTasks, TaskModuleMeta } from './task.ts';
+import { print_path } from './paths.ts';
 
 export const log_tasks = (log: Logger, loaded_tasks: LoadedTasks, log_intro = true): void => {
-	const {modules, found_tasks} = loaded_tasks;
-	const {resolved_input_files_by_root_dir} = found_tasks;
+	const { modules, found_tasks } = loaded_tasks;
+	const { resolved_input_files_by_root_dir } = found_tasks;
 
 	const logged: Array<string> = [];
 	if (log_intro) {
 		logged.unshift(
 			`\n\n${st('gray', 'Run a task:')} gro [name]`,
-			`\n${st('gray', 'View help:')}  gro [name] --help`,
+			`\n${st('gray', 'View help:')}  gro [name] --help`
 		);
 	}
 
@@ -33,8 +33,8 @@ export const log_tasks = (log: Logger, loaded_tasks: LoadedTasks, log_intro = tr
 		}
 		logged.push(
 			`${log_intro ? '\n\n' : ''}${resolved_input_files.length} task${plural(
-				resolved_input_files.length,
-			)} in ${dir_label}:\n`,
+				resolved_input_files.length
+			)} in ${dir_label}:\n`
 		);
 		const longest_task_name = to_max_length(modules, (m) => m.name);
 		for (const resolved_input_file of resolved_input_files) {
@@ -42,7 +42,7 @@ export const log_tasks = (log: Logger, loaded_tasks: LoadedTasks, log_intro = tr
 			logged.push(
 				'\n' + st('cyan', meta.name.padEnd(longest_task_name)),
 				'  ',
-				meta.mod.task.summary ?? '',
+				meta.mod.task.summary ?? ''
 			);
 		}
 	}
@@ -60,20 +60,20 @@ const ARGS_PROPERTY_NAME = '[...args]';
 export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 	const {
 		name,
-		mod: {task},
+		mod: { task }
 	} = meta;
 	const logged: Array<string> = [];
 	logged.push(
 		st('cyan', name),
 		'help',
-		st('cyan', `\n\ngro ${name}`) + `: ${task.summary ?? '(no summary available)'}\n`,
+		st('cyan', `\n\ngro ${name}`) + `: ${task.summary ?? '(no summary available)'}\n`
 	);
 	if (task.Args) {
 		const properties = to_arg_properties(task.Args, meta, log);
 		// TODO hacky padding for some quick and dirty tables
 		const longest_task_name = Math.max(
 			ARGS_PROPERTY_NAME.length,
-			to_max_length(properties, (p) => p.name),
+			to_max_length(properties, (p) => p.name)
 		);
 		const longest_type = to_max_length(properties, (p) => p.schema.type);
 		const longest_default = to_max_length(properties, (p) => print_value(p.schema.default));
@@ -83,7 +83,7 @@ export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 				`\n${st('green', name.padEnd(longest_task_name))} `,
 				st('gray', property.schema.type.padEnd(longest_type)) + ' ',
 				print_value(property.schema.default).padEnd(longest_default) + ' ',
-				property.schema.description || '(no description available)',
+				property.schema.description || '(no description available)'
 			);
 		}
 		if (!properties.length) {
@@ -106,9 +106,9 @@ interface ArgSchemaProperty {
 const to_arg_properties = (
 	schema: z.ZodType,
 	meta: TaskModuleMeta,
-	log: Logger,
+	log: Logger
 ): Array<ArgSchemaProperty> => {
-	const {def} = schema;
+	const { def } = schema;
 
 	// TODO overly restrictive, support optional objects and/or unions?
 	if (!('shape' in def)) {
@@ -124,9 +124,9 @@ const to_arg_properties = (
 		const schema: ArgSchema = {
 			type: to_args_schema_type(s),
 			description: zod_to_schema_description(s) || '',
-			default: zod_to_schema_default(s) as ArgSchema['default'],
+			default: zod_to_schema_default(s) as ArgSchema['default']
 		};
-		properties.push({name, schema});
+		properties.push({ name, schema });
 	}
 	return properties;
 };
@@ -135,7 +135,7 @@ const to_max_length = <T>(items: Array<T>, toString: (item: T) => string) =>
 	items.reduce((max, m) => Math.max(toString(m).length, max), 0);
 
 const to_args_schema_type = (schema: z.ZodType): ArgSchema['type'] => {
-	const {def} = schema._zod;
+	const { def } = schema._zod;
 	switch (def.type) {
 		case 'string':
 			return 'string';
@@ -184,11 +184,13 @@ const to_args_schema_type = (schema: z.ZodType): ArgSchema['type'] => {
 		case 'set':
 			return 'set';
 		case 'enum':
-			return (schema as unknown as {options: Array<string>}).options
+			return (schema as unknown as { options: Array<string> }).options
 				.map((v) => `'${v}'`)
 				.join(' | ');
 		case 'literal':
-			return (def as unknown as {values: Array<any>}).values.map((v) => print_value(v)).join(' | ');
+			return (def as unknown as { values: Array<any> }).values
+				.map((v) => print_value(v))
+				.join(' | ');
 		case 'nullable': {
 			const subschema = zod_to_subschema(def);
 			return subschema ? to_args_schema_type(subschema) + ' | null' : 'nullable';

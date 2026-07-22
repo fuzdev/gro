@@ -1,4 +1,4 @@
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 // TODO extract more here from Filer
 

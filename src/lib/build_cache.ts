@@ -1,17 +1,17 @@
-import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
-import {styleText as st} from 'node:util';
-import {z} from 'zod';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {git_current_commit_hash} from '@fuzdev/fuz_util/git.ts';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
-import {hash_blake3} from '@fuzdev/fuz_util/hash_blake3.ts';
-import {to_error_message} from '@fuzdev/fuz_util/error.ts';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { styleText as st } from 'node:util';
+import { z } from 'zod';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
+import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
+import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
-import type {GroConfig} from './gro_config.ts';
-import {paths} from './paths.ts';
-import {SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME, GRO_DIST_PREFIX} from './constants.ts';
+import type { GroConfig } from './gro_config.ts';
+import { paths } from './paths.ts';
+import { SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME, GRO_DIST_PREFIX } from './constants.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
 export const BUILD_CACHE_VERSION = '1';
@@ -23,14 +23,14 @@ export const BUILD_CACHE_VERSION = '1';
 export const BuildOutputEntry = z.strictObject({
 	path: z
 		.string()
-		.meta({description: "relative path from project root (e.g., 'build/index.html')."}),
-	hash: z.string().meta({description: 'BLAKE3 hash of file contents'}),
-	size: z.number().meta({description: 'file size in bytes'}),
-	mtime: z.number().meta({description: 'modification time in milliseconds since epoch'}),
+		.meta({ description: "relative path from project root (e.g., 'build/index.html')." }),
+	hash: z.string().meta({ description: 'BLAKE3 hash of file contents' }),
+	size: z.number().meta({ description: 'file size in bytes' }),
+	mtime: z.number().meta({ description: 'modification time in milliseconds since epoch' }),
 	ctime: z.number().meta({
-		description: 'POSIX change time in milliseconds since epoch',
+		description: 'POSIX change time in milliseconds since epoch'
 	}),
-	mode: z.number().meta({description: 'unix file permission mode (e.g., 33188 = 0644)'}),
+	mode: z.number().meta({ description: 'unix file permission mode (e.g., 33188 = 0644)' })
 });
 export type BuildOutputEntry = z.infer<typeof BuildOutputEntry>;
 
@@ -39,15 +39,15 @@ export type BuildOutputEntry = z.infer<typeof BuildOutputEntry>;
  * Schema validates structure at load time to catch corrupted cache files.
  */
 export const BuildCacheMetadata = z.strictObject({
-	version: z.string().meta({description: 'schema version for future compatibility'}),
-	git_commit: z.string().nullable().meta({description: 'git commit hash at time of build'}),
+	version: z.string().meta({ description: 'schema version for future compatibility' }),
+	git_commit: z.string().nullable().meta({ description: 'git commit hash at time of build' }),
 	build_cache_config_hash: z
 		.string()
-		.meta({description: "hash of user's custom build_cache_config from gro.config.ts."}),
-	timestamp: z.string().meta({description: 'timestamp when build completed'}),
+		.meta({ description: "hash of user's custom build_cache_config from gro.config.ts." }),
+	timestamp: z.string().meta({ description: 'timestamp when build completed' }),
 	outputs: z
 		.array(BuildOutputEntry)
-		.meta({description: 'build output files with hashes and filesystem stats'}),
+		.meta({ description: 'build output files with hashes and filesystem stats' })
 });
 export type BuildCacheMetadata = z.infer<typeof BuildCacheMetadata>;
 
@@ -62,7 +62,7 @@ export type BuildCacheMetadata = z.infer<typeof BuildCacheMetadata>;
 export const compute_build_cache_key = async (
 	config: GroConfig,
 	log: Logger,
-	git_commit?: string | null,
+	git_commit?: string | null
 ): Promise<{
 	git_commit: string | null;
 	build_cache_config_hash: string;
@@ -76,7 +76,7 @@ export const compute_build_cache_key = async (
 	// 2. Build cache config hash - already computed during config normalization
 	return {
 		git_commit: commit,
-		build_cache_config_hash: config.build_cache_config_hash,
+		build_cache_config_hash: config.build_cache_config_hash
 	};
 };
 
@@ -102,7 +102,7 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
 		if (metadata.version !== BUILD_CACHE_VERSION) {
 			// Clean up stale cache with old schema version
 			try {
-				await rm(metadata_path, {force: true});
+				await rm(metadata_path, { force: true });
 			} catch {
 				// Ignore cleanup errors
 			}
@@ -114,7 +114,7 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
 		// Clean up corrupted/invalid cache file
 		// (catches JSON.parse, Zod validation, and version errors)
 		try {
-			await rm(metadata_path, {force: true});
+			await rm(metadata_path, { force: true });
 		} catch {
 			// Ignore cleanup errors
 		}
@@ -128,11 +128,11 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
  */
 export const save_build_cache_metadata = async (
 	metadata: BuildCacheMetadata,
-	log?: Logger,
+	log?: Logger
 ): Promise<void> => {
 	try {
 		// Ensure .gro directory exists
-		await mkdir(paths.build, {recursive: true});
+		await mkdir(paths.build, { recursive: true });
 
 		const metadata_path = join(paths.build, BUILD_CACHE_METADATA_FILENAME);
 		await writeFile(metadata_path, JSON.stringify(metadata, null, '\t'), 'utf-8');
@@ -140,7 +140,7 @@ export const save_build_cache_metadata = async (
 		// Cache writes are optional - log warning but don't fail the build
 		log?.warn(
 			st('yellow', 'Failed to save build cache'),
-			st('dim', `(${to_error_message(error)})`),
+			st('dim', `(${to_error_message(error)})`)
 		);
 	}
 };
@@ -193,7 +193,7 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 export const is_build_cache_valid = async (
 	config: GroConfig,
 	log: Logger,
-	git_commit?: string | null,
+	git_commit?: string | null
 ): Promise<boolean> => {
 	// Load existing metadata
 	const metadata = await load_build_cache_metadata();
@@ -237,7 +237,7 @@ export const is_build_cache_valid = async (
  * @param build_dirs - array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])
  */
 export const collect_build_outputs = async (
-	build_dirs: Array<string>,
+	build_dirs: Array<string>
 ): Promise<Array<BuildOutputEntry>> => {
 	// Collect all files to hash first
 	interface FileEntry {
@@ -251,9 +251,9 @@ export const collect_build_outputs = async (
 	const collect_files = async (
 		dir: string,
 		relative_base: string,
-		dir_prefix: string,
+		dir_prefix: string
 	): Promise<void> => {
-		const entries = await readdir(dir, {withFileTypes: true});
+		const entries = await readdir(dir, { withFileTypes: true });
 
 		for (const entry of entries) {
 			// Skip metadata file itself
@@ -268,7 +268,7 @@ export const collect_build_outputs = async (
 			if (entry.isDirectory()) {
 				await collect_files(full_path, relative_path, dir_prefix);
 			} else if (entry.isFile()) {
-				files_to_hash.push({full_path, cache_key});
+				files_to_hash.push({ full_path, cache_key });
 			}
 			// Symlinks are intentionally ignored - we only hash regular files
 		}
@@ -287,7 +287,7 @@ export const collect_build_outputs = async (
 	return map_concurrent(
 		files_to_hash,
 		20,
-		async ({full_path, cache_key}): Promise<BuildOutputEntry> => {
+		async ({ full_path, cache_key }): Promise<BuildOutputEntry> => {
 			const stats = await stat(full_path);
 			const contents = await readFile(full_path);
 			const hash = hash_blake3(contents);
@@ -298,9 +298,9 @@ export const collect_build_outputs = async (
 				size: stats.size,
 				mtime: stats.mtimeMs,
 				ctime: stats.ctimeMs,
-				mode: stats.mode,
+				mode: stats.mode
 			};
-		},
+		}
 	);
 };
 
@@ -314,7 +314,7 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 	// Check for SvelteKit app output (build/) and library output (dist/) in parallel
 	const [build_exists, dist_exists] = await Promise.all([
 		fs_exists(SVELTEKIT_BUILD_DIRNAME),
-		fs_exists(SVELTEKIT_DIST_DIRNAME),
+		fs_exists(SVELTEKIT_DIST_DIRNAME)
 	]);
 
 	if (build_exists) {
@@ -337,7 +337,7 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 					// File was deleted/moved during iteration - skip it
 					return null;
 				}
-			}),
+			})
 	);
 	build_dirs.push(...dist_dir_checks.filter((p): p is string => p !== null));
 
@@ -357,7 +357,7 @@ export const create_build_cache_metadata = async (
 	config: GroConfig,
 	log: Logger,
 	git_commit?: string | null,
-	build_dirs?: Array<string>,
+	build_dirs?: Array<string>
 ): Promise<BuildCacheMetadata> => {
 	const cache_key = await compute_build_cache_key(config, log, git_commit);
 	const dirs = build_dirs ?? (await discover_build_output_dirs());
@@ -367,6 +367,6 @@ export const create_build_cache_metadata = async (
 		version: BUILD_CACHE_VERSION,
 		...cache_key,
 		timestamp: new Date().toISOString(),
-		outputs,
+		outputs
 	};
 };

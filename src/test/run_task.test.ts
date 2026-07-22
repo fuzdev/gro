@@ -1,10 +1,10 @@
-import {test, expect} from 'vitest';
-import {resolve} from 'node:path';
-import {existsSync} from 'node:fs';
+import { test, expect } from 'vitest';
+import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 
-import {resolve_gro_module_path, spawn_with_loader} from '$lib/gro_helpers.ts';
+import { resolve_gro_module_path, spawn_with_loader } from '$lib/gro_helpers.ts';
 
-import {TEST_TIMEOUT_MD} from './test_helpers.ts';
+import { TEST_TIMEOUT_MD } from './test_helpers.ts';
 
 test(
 	'run_task passes args and returns output',
@@ -25,7 +25,7 @@ test(
 
 		expect(result.ok).toBe(true);
 	},
-	TEST_TIMEOUT_MD,
+	TEST_TIMEOUT_MD
 );
 
 test(
@@ -47,7 +47,7 @@ test(
 
 		expect(result.ok).toBe(true);
 	},
-	TEST_TIMEOUT_MD,
+	TEST_TIMEOUT_MD
 );
 
 test(
@@ -69,5 +69,5 @@ test(
 
 		expect(result.ok).toBe(true);
 	},
-	TEST_TIMEOUT_MD,
+	TEST_TIMEOUT_MD
 );

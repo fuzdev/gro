@@ -1,5 +1,5 @@
-import {describe, test, expect} from 'vitest';
-import {resolve, join} from 'node:path';
+import { describe, test, expect } from 'vitest';
+import { resolve, join } from 'node:path';
 
 import {
 	create_paths,
@@ -8,7 +8,7 @@ import {
 	is_gro_id,
 	to_root_path,
 	path_id_to_base_path,
-	base_path_to_path_id,
+	base_path_to_path_id
 } from '$lib/paths.ts';
 
 describe('create_paths', () => {

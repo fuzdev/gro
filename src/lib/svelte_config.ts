@@ -1,9 +1,9 @@
-import type {Config as SvelteConfig} from '@sveltejs/kit';
-import type {CompileOptions, ModuleCompileOptions, PreprocessorGroup} from 'svelte/compiler';
-import {join} from 'node:path';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
+import type { Config as SvelteConfig } from '@sveltejs/kit';
+import type { CompileOptions, ModuleCompileOptions, PreprocessorGroup } from 'svelte/compiler';
+import { join } from 'node:path';
+import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 
-import {SVELTE_CONFIG_FILENAME} from './constants.ts';
+import { SVELTE_CONFIG_FILENAME } from './constants.ts';
 
 /* eslint-disable @typescript-eslint/no-deprecated */
 // see https://github.com/sveltejs/kit/discussions/14240
@@ -20,8 +20,8 @@ This module is intended to have minimal dependencies to avoid over-imports in th
  */
 export const load_svelte_config = async ({
 	dir = process.cwd(),
-	config_filename = SVELTE_CONFIG_FILENAME,
-}: {dir?: string; config_filename?: string} = EMPTY_OBJECT): Promise<SvelteConfig | null> => {
+	config_filename = SVELTE_CONFIG_FILENAME
+}: { dir?: string; config_filename?: string } = EMPTY_OBJECT): Promise<SvelteConfig | null> => {
 	try {
 		return (await import(join(dir, config_filename))).default;
 	} catch (_err) {
@@ -74,19 +74,19 @@ export interface ParsedSvelteConfig {
  */
 export const parse_svelte_config = async ({
 	dir_or_config = process.cwd(), // TODO maybe not the best API, maybe a type union? `({svelte_config} | {dir}) & {config_filename}`
-	config_filename = SVELTE_CONFIG_FILENAME,
+	config_filename = SVELTE_CONFIG_FILENAME
 }: {
 	dir_or_config?: string | SvelteConfig;
 	config_filename?: string;
 } = EMPTY_OBJECT): Promise<ParsedSvelteConfig> => {
 	const svelte_config =
 		typeof dir_or_config === 'string'
-			? await load_svelte_config({dir: dir_or_config, config_filename})
+			? await load_svelte_config({ dir: dir_or_config, config_filename })
 			: dir_or_config;
 
 	const kit = svelte_config?.kit;
 
-	const alias = {$lib: 'src/lib', ...kit?.alias};
+	const alias = { $lib: 'src/lib', ...kit?.alias };
 
 	const base_url = kit?.paths?.base;
 	const assets_url = kit?.paths?.assets;
@@ -122,7 +122,7 @@ export const parse_svelte_config = async ({
 		public_prefix,
 		svelte_compile_options,
 		svelte_compile_module_options,
-		svelte_preprocessors,
+		svelte_preprocessors
 	};
 };
 
@@ -131,8 +131,8 @@ export const to_default_compile_module_options = ({
 	generate,
 	filename,
 	rootDir,
-	warningFilter,
-}: CompileOptions): ModuleCompileOptions => ({dev, generate, filename, rootDir, warningFilter});
+	warningFilter
+}: CompileOptions): ModuleCompileOptions => ({ dev, generate, filename, rootDir, warningFilter });
 
 /**
  * The parsed SvelteKit config for the cwd, cached globally at the module level.

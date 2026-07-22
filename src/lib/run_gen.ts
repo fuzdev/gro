@@ -1,8 +1,8 @@
-import {styleText as st} from 'node:util';
-import {print_error} from '@fuzdev/fuz_util/print.ts';
-import type {Timings} from '@fuzdev/fuz_util/timings.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {map_concurrent} from '@fuzdev/fuz_util/async.ts';
+import { styleText as st } from 'node:util';
+import { print_error } from '@fuzdev/fuz_util/print.ts';
+import type { Timings } from '@fuzdev/fuz_util/timings.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 
 import {
 	type GenResults,
@@ -11,14 +11,14 @@ import {
 	type GenfileModuleMeta,
 	to_gen_result,
 	type RawGenResult,
-	normalize_gen_config,
+	normalize_gen_config
 } from './gen.ts';
-import {print_path, to_root_path} from './paths.ts';
-import type {format_file as base_format_file} from './format_file.ts';
-import type {GroConfig} from './gro_config.ts';
-import {default_svelte_config} from './svelte_config.ts';
-import type {Filer} from './filer.ts';
-import type {InvokeTask} from './task.ts';
+import { print_path, to_root_path } from './paths.ts';
+import type { format_file as base_format_file } from './format_file.ts';
+import type { GroConfig } from './gro_config.ts';
+import { default_svelte_config } from './svelte_config.ts';
+import type { Filer } from './filer.ts';
+import type { InvokeTask } from './task.ts';
 
 export const GEN_NO_PROD_MESSAGE = 'gen runs only during development';
 
@@ -29,7 +29,7 @@ export const run_gen = async (
 	log: Logger,
 	timings: Timings,
 	invoke_task: InvokeTask,
-	format_file?: typeof base_format_file,
+	format_file?: typeof base_format_file
 ): Promise<GenResults> => {
 	let input_count = 0;
 	let output_count = 0;
@@ -39,7 +39,7 @@ export const run_gen = async (
 		10,
 		async (module_meta): Promise<GenfileModuleResult> => {
 			input_count++;
-			const {id} = module_meta;
+			const { id } = module_meta;
 			const timing_for_module = timings.start(id);
 
 			const gen_config = normalize_gen_config(module_meta.mod.gen);
@@ -52,7 +52,7 @@ export const run_gen = async (
 				invoke_task,
 				origin_id: id,
 				origin_path: to_root_path(id),
-				changed_file_id: undefined,
+				changed_file_id: undefined
 			};
 			let raw_gen_result: RawGenResult;
 			try {
@@ -63,7 +63,7 @@ export const run_gen = async (
 					id,
 					error,
 					reason: st('red', `Error generating ${print_path(id)}`),
-					elapsed: timing_for_module(),
+					elapsed: timing_for_module()
 				};
 			}
 
@@ -76,11 +76,11 @@ export const run_gen = async (
 				? gen_result.files.map((file) => {
 						if (!file.format) return file;
 						try {
-							return {...file, content: format_file(file.content, {filepath: file.id})};
+							return { ...file, content: format_file(file.content, { filepath: file.id }) };
 						} catch (error) {
 							log.error(
 								st('red', `Error formatting ${print_path(file.id)} via ${print_path(id)}`),
-								print_error(error),
+								print_error(error)
 							);
 							return file;
 						}
@@ -92,9 +92,9 @@ export const run_gen = async (
 				ok: true,
 				id,
 				files,
-				elapsed: timing_for_module(),
+				elapsed: timing_for_module()
 			};
-		},
+		}
 	);
 	return {
 		results,
@@ -102,6 +102,6 @@ export const run_gen = async (
 		failures: results.filter((r) => !r.ok),
 		input_count,
 		output_count,
-		elapsed: timing_for_run_gen(),
+		elapsed: timing_for_run_gen()
 	};
 };

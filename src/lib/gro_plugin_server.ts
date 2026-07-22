@@ -1,37 +1,39 @@
-import {spawn_restartable_process, type RestartableProcess} from '@fuzdev/fuz_util/process.ts';
+import { spawn_restartable_process, type RestartableProcess } from '@fuzdev/fuz_util/process.ts';
 import * as esbuild from 'esbuild';
-import type {Config as SvelteConfig} from '@sveltejs/kit';
-import {join, resolve} from 'node:path';
-import {identity} from '@fuzdev/fuz_util/function.ts';
-import {strip_before, strip_end} from '@fuzdev/fuz_util/string.ts';
-import type {Result} from '@fuzdev/fuz_util/result.ts';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
-import {throttle} from '@fuzdev/fuz_util/throttle.ts';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import type { Config as SvelteConfig } from '@sveltejs/kit';
+import { join, resolve } from 'node:path';
+import { identity } from '@fuzdev/fuz_util/function.ts';
+import { strip_before, strip_end } from '@fuzdev/fuz_util/string.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { throttle } from '@fuzdev/fuz_util/throttle.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import type {Plugin} from './plugin.ts';
-import {base_path_to_path_id, LIB_DIRNAME, paths} from './paths.ts';
-import {GRO_DEV_DIRNAME, SERVER_DIST_PATH} from './constants.ts';
-import {parse_svelte_config, default_svelte_config} from './svelte_config.ts';
-import {esbuild_plugin_sveltekit_shim_app} from './esbuild_plugin_sveltekit_shim_app.ts';
-import {esbuild_plugin_sveltekit_shim_env} from './esbuild_plugin_sveltekit_shim_env.ts';
-import {print_build_result, to_define_import_meta_env} from './esbuild_helpers.ts';
-import {esbuild_plugin_sveltekit_shim_alias} from './esbuild_plugin_sveltekit_shim_alias.ts';
-import {esbuild_plugin_external_worker} from './esbuild_plugin_external_worker.ts';
-import {esbuild_plugin_sveltekit_local_imports} from './esbuild_plugin_sveltekit_local_imports.ts';
-import {esbuild_plugin_svelte} from './esbuild_plugin_svelte.ts';
+import type { Plugin } from './plugin.ts';
+import { base_path_to_path_id, LIB_DIRNAME, paths } from './paths.ts';
+import { GRO_DEV_DIRNAME, SERVER_DIST_PATH } from './constants.ts';
+import { parse_svelte_config, default_svelte_config } from './svelte_config.ts';
+import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
+import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_shim_env.ts';
+import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
+import { esbuild_plugin_sveltekit_shim_alias } from './esbuild_plugin_sveltekit_shim_alias.ts';
+import { esbuild_plugin_external_worker } from './esbuild_plugin_external_worker.ts';
+import {
+	esbuild_plugin_sveltekit_local_imports
+} from './esbuild_plugin_sveltekit_local_imports.ts';
+import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
 
 // TODO sourcemap as a hoisted option? disable for production by default - or like `outpaths`, passed a `dev` param
 
 export const SERVER_SOURCE_ID = base_path_to_path_id(LIB_DIRNAME + '/server/server.ts');
 
 export const has_server = async (
-	path = SERVER_SOURCE_ID,
-): Promise<Result<object, {message: string}>> => {
+	path = SERVER_SOURCE_ID
+): Promise<Result<object, { message: string }>> => {
 	if (!(await fs_exists(path))) {
-		return {ok: false, message: `no server file found at ${path}`};
+		return { ok: false, message: `no server file found at ${path}` };
 	}
-	return {ok: true};
+	return { ok: true };
 };
 
 export interface GroPluginServerOptions {
@@ -112,7 +114,7 @@ export const gro_plugin_server = ({
 	outpaths = (dev) => ({
 		outdir: join(dir, dev ? GRO_DEV_DIRNAME : SERVER_DIST_PATH),
 		outbase: paths.lib,
-		outname: 'server/server.js',
+		outname: 'server/server.js'
 	}),
 	env_files,
 	ambient_env,
@@ -121,7 +123,7 @@ export const gro_plugin_server = ({
 	esbuild_build_options = identity,
 	rebuild_throttle_delay = 1000,
 	cli_command,
-	run, // `dev` default is not available in this scope
+	run // `dev` default is not available in this scope
 }: GroPluginServerOptions = {}): Plugin => {
 	let build_ctx: esbuild.BuildContext | undefined;
 	let cleanup_watch: (() => void) | undefined;
@@ -130,13 +132,13 @@ export const gro_plugin_server = ({
 
 	return {
 		name: 'gro_plugin_server',
-		setup: async ({dev, watch, timings, log, config, filer}) => {
+		setup: async ({ dev, watch, timings, log, config, filer }) => {
 			const parsed_svelte_config =
 				!svelte_config && strip_end(dir, '/') === process.cwd()
 					? default_svelte_config
 					: await parse_svelte_config({
 							dir_or_config: svelte_config ?? dir,
-							config_filename: config.svelte_config_filename,
+							config_filename: config.svelte_config_filename
 						});
 			const {
 				alias,
@@ -147,10 +149,10 @@ export const gro_plugin_server = ({
 				public_prefix,
 				svelte_compile_options,
 				svelte_compile_module_options,
-				svelte_preprocessors,
+				svelte_preprocessors
 			} = parsed_svelte_config;
 
-			const {outbase, outdir, outname} = outpaths(dev);
+			const { outbase, outdir, outname } = outpaths(dev);
 
 			const server_outpath = join(outdir, outname);
 
@@ -164,22 +166,22 @@ export const gro_plugin_server = ({
 				packages: 'external',
 				bundle: true,
 				target,
-				metafile: watch,
+				metafile: watch
 			});
 
 			build_ctx = await esbuild.context({
 				entryPoints: entry_points.map((path) => resolve(dir, path)),
 				plugins: [
-					esbuild_plugin_sveltekit_shim_app({dev, base_url, assets_url}),
+					esbuild_plugin_sveltekit_shim_app({ dev, base_url, assets_url }),
 					esbuild_plugin_sveltekit_shim_env({
 						dev,
 						public_prefix,
 						private_prefix,
 						env_dir,
 						env_files,
-						ambient_env,
+						ambient_env
 					}),
-					esbuild_plugin_sveltekit_shim_alias({dir, alias}),
+					esbuild_plugin_sveltekit_shim_alias({ dir, alias }),
 					esbuild_plugin_external_worker({
 						dev,
 						build_options,
@@ -194,7 +196,7 @@ export const gro_plugin_server = ({
 						env_dir,
 						env_files,
 						ambient_env,
-						log,
+						log
 					}),
 					esbuild_plugin_svelte({
 						dev,
@@ -202,12 +204,12 @@ export const gro_plugin_server = ({
 						dir,
 						svelte_compile_options,
 						svelte_compile_module_options,
-						svelte_preprocessors,
+						svelte_preprocessors
 					}),
-					esbuild_plugin_sveltekit_local_imports(),
+					esbuild_plugin_sveltekit_local_imports()
 				],
 				define: to_define_import_meta_env(dev, base_url),
-				...build_options,
+				...build_options
 			});
 
 			timing_to_esbuild_create_context();
@@ -221,13 +223,13 @@ export const gro_plugin_server = ({
 						log.error('[gro_plugin_server] build failed', error);
 						return;
 					}
-					const {metafile} = build_result;
+					const { metafile } = build_result;
 					if (!metafile) return;
 					print_build_result(log, build_result);
 					deps = parse_deps(metafile.inputs, dir);
 					void server_process?.restart();
 				},
-				{delay: rebuild_throttle_delay},
+				{ delay: rebuild_throttle_delay }
 			);
 
 			await rebuild();
@@ -270,7 +272,7 @@ export const gro_plugin_server = ({
 				await build_ctx.dispose();
 				build_ctx = undefined;
 			}
-		},
+		}
 	};
 };
 

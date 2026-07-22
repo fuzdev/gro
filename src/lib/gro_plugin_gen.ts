@@ -1,14 +1,14 @@
-import type {Args} from '@fuzdev/fuz_util/args.ts';
-import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
-import {throttle} from '@fuzdev/fuz_util/throttle.ts';
+import type { Args } from '@fuzdev/fuz_util/args.ts';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
+import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
+import { throttle } from '@fuzdev/fuz_util/throttle.ts';
 
-import type {Plugin} from './plugin.ts';
-import {paths} from './paths.ts';
-import {find_genfiles, is_gen_path} from './gen.ts';
-import {filter_dependents} from './filer.ts';
-import {should_trigger_gen} from './gen_helpers.ts';
-import {spawn_cli} from './cli.ts';
+import type { Plugin } from './plugin.ts';
+import { paths } from './paths.ts';
+import { find_genfiles, is_gen_path } from './gen.ts';
+import { filter_dependents } from './filer.ts';
+import { should_trigger_gen } from './gen_helpers.ts';
+import { spawn_cli } from './cli.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
@@ -29,7 +29,7 @@ export interface GroPluginGenOptions {
 export const gro_plugin_gen = ({
 	input_paths = [paths.source],
 	root_dirs = [paths.source],
-	flush_debounce_delay = FLUSH_DEBOUNCE_DELAY,
+	flush_debounce_delay = FLUSH_DEBOUNCE_DELAY
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
 
@@ -37,7 +37,7 @@ export const gro_plugin_gen = ({
 
 	return {
 		name: 'gro_plugin_gen',
-		setup: async ({watch, dev, log, config, filer, invoke_task, timings}) => {
+		setup: async ({ watch, dev, log, config, filer, invoke_task, timings }) => {
 			// For production builds, we assume `gen` is already fresh,
 			// which should be checked by CI via `gro check` which calls `gro gen --check`.
 			if (!dev) return;
@@ -66,7 +66,7 @@ export const gro_plugin_gen = ({
 					log.info(
 						files.length === 0
 							? '[gen] generating all files'
-							: `[gen] generating ${files.length} file${files.length === 1 ? '' : 's'}`,
+							: `[gen] generating ${files.length} file${files.length === 1 ? '' : 's'}`
 					);
 					queued_files.clear();
 					await gen(files);
@@ -76,14 +76,14 @@ export const gro_plugin_gen = ({
 						log.info(
 							`[gen] re-running for ${queued_files.size} more queued file${
 								queued_files.size === 1 ? '' : 's'
-							}`,
+							}`
 						);
 						setTimeout(flush_gen_queue); // setTimeout is needed bc of throttle behavior
 					} else {
 						log.info('[gen] queue empty, done');
 					}
 				},
-				{delay: flush_debounce_delay, when: 'trailing'},
+				{ delay: flush_debounce_delay, when: 'trailing' }
 			);
 
 			// When a file builds, check it and its tree of dependents
@@ -109,7 +109,7 @@ export const gro_plugin_gen = ({
 									filer,
 									log,
 									timings,
-									invoke_task,
+									invoke_task
 								);
 								if (should_trigger) {
 									queue_gen(gen_file.id);
@@ -124,7 +124,7 @@ export const gro_plugin_gen = ({
 							is_gen_path,
 							undefined,
 							undefined,
-							log,
+							log
 						);
 						for (const dependent_gen_file_id of dependent_gen_file_ids) {
 							queue_gen(dependent_gen_file_id);
@@ -145,6 +145,6 @@ export const gro_plugin_gen = ({
 				cleanup_watch();
 				cleanup_watch = undefined;
 			}
-		},
+		}
 	};
 };

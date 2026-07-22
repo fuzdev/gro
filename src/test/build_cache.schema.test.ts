@@ -1,10 +1,10 @@
-import {describe, test, expect} from 'vitest';
+import { describe, test, expect } from 'vitest';
 
-import {BuildCacheMetadata, BuildOutputEntry} from '$lib/build_cache.ts';
+import { BuildCacheMetadata, BuildOutputEntry } from '$lib/build_cache.ts';
 
 import {
 	create_mock_build_cache_metadata,
-	create_mock_output_entry,
+	create_mock_output_entry
 } from './build_cache_test_helpers.ts';
 
 describe('BuildOutputEntry schema', () => {
@@ -19,8 +19,8 @@ describe('BuildOutputEntry schema', () => {
 				size: 1024,
 				mtime: 1729512000000,
 				ctime: 1729512000000,
-				mode: 33188,
-			}),
+				mode: 33188
+			})
 		).toThrow();
 	});
 
@@ -32,8 +32,8 @@ describe('BuildOutputEntry schema', () => {
 				size: '1024', // should be number
 				mtime: 1729512000000,
 				ctime: 1729512000000,
-				mode: 33188,
-			}),
+				mode: 33188
+			})
 		).toThrow();
 	});
 
@@ -41,8 +41,8 @@ describe('BuildOutputEntry schema', () => {
 		expect(() =>
 			BuildOutputEntry.parse({
 				...create_mock_output_entry(),
-				extra: 'bad',
-			}),
+				extra: 'bad'
+			})
 		).toThrow();
 	});
 });
@@ -50,7 +50,7 @@ describe('BuildOutputEntry schema', () => {
 describe('BuildCacheMetadata schema', () => {
 	test('validates correct metadata structure', () => {
 		const metadata = create_mock_build_cache_metadata({
-			outputs: [create_mock_output_entry('file.js')],
+			outputs: [create_mock_output_entry('file.js')]
 		});
 		expect(() => BuildCacheMetadata.parse(metadata)).not.toThrow();
 	});
@@ -62,8 +62,8 @@ describe('BuildCacheMetadata schema', () => {
 				git_commit: 'abc123',
 				// missing build_cache_config_hash
 				timestamp: '2025-10-23T12:00:00Z',
-				outputs: [],
-			}),
+				outputs: []
+			})
 		).toThrow();
 	});
 
@@ -74,8 +74,8 @@ describe('BuildCacheMetadata schema', () => {
 				git_commit: 'abc123',
 				build_cache_config_hash: 'hash',
 				timestamp: '2025-10-23T12:00:00Z',
-				outputs: [],
-			}),
+				outputs: []
+			})
 		).toThrow();
 	});
 
@@ -87,8 +87,8 @@ describe('BuildCacheMetadata schema', () => {
 				build_cache_config_hash: 'hash',
 				timestamp: '2025-10-23T12:00:00Z',
 				outputs: [],
-				unexpected_field: 'bad',
-			}),
+				unexpected_field: 'bad'
+			})
 		).toThrow();
 	});
 });

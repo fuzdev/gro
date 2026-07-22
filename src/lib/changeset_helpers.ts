@@ -1,4 +1,4 @@
-import {z} from 'zod';
+import { z } from 'zod';
 
 export const CHANGESET_RESTRICTED_ACCESS = 'restricted';
 export const CHANGESET_PUBLIC_ACCESS = 'public';

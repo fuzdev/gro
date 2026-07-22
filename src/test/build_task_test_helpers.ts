@@ -1,17 +1,17 @@
-import {vi} from 'vitest';
+import { vi } from 'vitest';
 
-import type {TaskContext} from '$lib/task.ts';
-import type {Args} from '$lib/build.task.ts';
-import type {GroConfig} from '$lib/gro_config.ts';
+import type { TaskContext } from '$lib/task.ts';
+import type { Args } from '$lib/build.task.ts';
+import type { GroConfig } from '$lib/gro_config.ts';
 
-import {create_mock_task_context} from './test_helpers.ts';
+import { create_mock_task_context } from './test_helpers.ts';
 
 /**
  * Creates a mock task context with build task Args defaults.
  */
 export const create_mock_build_task_context = (
 	args: Partial<Args> = {},
-	config: Partial<GroConfig> = {},
+	config: Partial<GroConfig> = {}
 ): TaskContext<Args> =>
 	create_mock_task_context(args, config, {
 		sync: true,
@@ -20,7 +20,7 @@ export const create_mock_build_task_context = (
 		'no-gen': false,
 		install: true,
 		'no-install': false,
-		force_build: false,
+		force_build: false
 	} as Args);
 
 /**
@@ -38,5 +38,5 @@ export interface MockPlugins {
 export const create_mock_plugins = (): MockPlugins => ({
 	setup: vi.fn(),
 	adapt: vi.fn(),
-	teardown: vi.fn(),
+	teardown: vi.fn()
 });

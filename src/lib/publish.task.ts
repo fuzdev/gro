@@ -1,65 +1,65 @@
-import {spawn} from '@fuzdev/fuz_util/process.ts';
-import {z} from 'zod';
-import {styleText as st} from 'node:util';
-import {fs_exists} from '@fuzdev/fuz_util/fs.ts';
+import { spawn } from '@fuzdev/fuz_util/process.ts';
+import { z } from 'zod';
+import { styleText as st } from 'node:util';
+import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitBranch,
 	GitOrigin,
 	git_check_clean_workspace,
 	git_checkout,
 	git_fetch,
-	git_pull,
+	git_pull
 } from '@fuzdev/fuz_util/git.ts';
 
-import {TaskError, type Task} from './task.ts';
-import {install_with_cache_healing_or_throw} from './npm_install_helpers.ts';
-import {package_json_load, package_json_parse_repo_url} from './package_json.ts';
-import {find_cli, spawn_cli} from './cli.ts';
-import {has_sveltekit_library} from './sveltekit_helpers.ts';
-import {update_changelog} from './changelog.ts';
-import {load_from_env} from './env.ts';
-import {CHANGESET_CLI} from './changeset_helpers.ts';
+import { TaskError, type Task } from './task.ts';
+import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { package_json_load, package_json_parse_repo_url } from './package_json.ts';
+import { find_cli, spawn_cli } from './cli.ts';
+import { has_sveltekit_library } from './sveltekit_helpers.ts';
+import { update_changelog } from './changelog.ts';
+import { load_from_env } from './env.ts';
+import { CHANGESET_CLI } from './changeset_helpers.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	branch: GitBranch.meta({description: 'branch to publish from'}).default('main'),
-	origin: GitOrigin.meta({description: 'git origin to publish from'}).default('origin'),
+	branch: GitBranch.meta({ description: 'branch to publish from' }).default('main'),
+	origin: GitOrigin.meta({ description: 'git origin to publish from' }).default('origin'),
 	changelog: z
 		.string()
-		.meta({description: 'file name and path of the changelog'})
+		.meta({ description: 'file name and path of the changelog' })
 		.default('CHANGELOG.md'),
 	preserve_changelog: z
 		.boolean()
 		.meta({
 			description:
-				'opt out of linkifying and formatting the changelog from @changesets/changelog-git',
+				'opt out of linkifying and formatting the changelog from @changesets/changelog-git'
 		})
 		.default(false),
 	optional: z
 		.boolean()
-		.meta({description: 'exit gracefully if there are no changesets'})
+		.meta({ description: 'exit gracefully if there are no changesets' })
 		.default(false),
 	dry: z
 		.boolean()
-		.meta({description: 'build and prepare to publish without actually publishing'})
+		.meta({ description: 'build and prepare to publish without actually publishing' })
 		.default(false),
-	check: z.boolean().meta({description: 'dual of no-check'}).default(true),
+	check: z.boolean().meta({ description: 'dual of no-check' }).default(true),
 	'no-check': z
 		.boolean()
-		.meta({description: 'opt out of checking before publishing'})
+		.meta({ description: 'opt out of checking before publishing' })
 		.default(false),
-	build: z.boolean().meta({description: 'dual of no-build'}).default(true),
-	'no-build': z.boolean().meta({description: 'opt out of building'}).default(false),
-	pull: z.boolean().meta({description: 'dual of no-pull'}).default(true),
-	'no-pull': z.boolean().meta({description: 'opt out of git pull'}).default(false),
-	sync: z.boolean().meta({description: 'dual of no-sync'}).default(true),
-	'no-sync': z.boolean().meta({description: 'opt out of gro sync'}).default(false),
-	install: z.boolean().meta({description: 'dual of no-install'}).default(true),
+	build: z.boolean().meta({ description: 'dual of no-build' }).default(true),
+	'no-build': z.boolean().meta({ description: 'opt out of building' }).default(false),
+	pull: z.boolean().meta({ description: 'dual of no-pull' }).default(true),
+	'no-pull': z.boolean().meta({ description: 'opt out of git pull' }).default(false),
+	sync: z.boolean().meta({ description: 'dual of no-sync' }).default(true),
+	'no-sync': z.boolean().meta({ description: 'opt out of gro sync' }).default(false),
+	install: z.boolean().meta({ description: 'dual of no-install' }).default(true),
 	'no-install': z
 		.boolean()
-		.meta({description: 'opt out of installing packages before publishing'})
+		.meta({ description: 'opt out of installing packages before publishing' })
 		.default(false),
-	changeset_cli: z.string().meta({description: 'the changeset CLI to use'}).default(CHANGESET_CLI),
+	changeset_cli: z.string().meta({ description: 'the changeset CLI to use' }).default(CHANGESET_CLI)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -67,7 +67,7 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'bump version, publish to the configured registry, and git push',
 	Args,
-	run: async ({args, log, invoke_task, config}): Promise<void> => {
+	run: async ({ args, log, invoke_task, config }): Promise<void> => {
 		const {
 			branch,
 			origin,
@@ -80,7 +80,7 @@ export const task: Task<Args> = {
 			sync,
 			install,
 			optional,
-			changeset_cli,
+			changeset_cli
 		} = args;
 		if (dry) {
 			log.info(st('green', 'dry run!'));
@@ -91,7 +91,7 @@ export const task: Task<Args> = {
 		const has_sveltekit_library_result = await has_sveltekit_library(package_json);
 		if (!has_sveltekit_library_result.ok) {
 			throw new TaskError(
-				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message,
+				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
 			);
 		}
 
@@ -100,7 +100,7 @@ export const task: Task<Args> = {
 		const found_changeset_cli = await find_cli(changeset_cli);
 		if (!found_changeset_cli) {
 			throw new TaskError(
-				'changeset command not found, install @changesets/cli locally or globally',
+				'changeset command not found, install @changesets/cli locally or globally'
 			);
 		}
 
@@ -119,12 +119,12 @@ export const task: Task<Args> = {
 		// Skip gen because it will run after version bump.
 		if (sync || install) {
 			if (!sync) log.warn('sync is false but install is true, so running sync for install only');
-			await invoke_task('sync', {install, gen: false});
+			await invoke_task('sync', { install, gen: false });
 		}
 
 		// Check before proceeding, defaults to true.
 		if (check) {
-			await invoke_task('check', {workspace: true, sync: false});
+			await invoke_task('check', { workspace: true, sync: false });
 		}
 
 		let version!: string;
@@ -146,7 +146,7 @@ export const task: Task<Args> = {
 				throw new TaskError(
 					'package.json `repository` must contain a repo url (and GitHub only for now, sorry),' +
 						' like `git+https://github.com/fuzdev/gro.git` or `https://github.com/fuzdev/gro`' +
-						' or an object with the `url` key',
+						' or an object with the `url` key'
 				);
 			}
 
@@ -161,7 +161,7 @@ export const task: Task<Args> = {
 				const token = load_from_env('SECRET_GITHUB_API_TOKEN');
 				if (!token) {
 					log.warn(
-						'the env var SECRET_GITHUB_API_TOKEN was not found, so API calls with be unauthorized',
+						'the env var SECRET_GITHUB_API_TOKEN was not found, so API calls with be unauthorized'
 					);
 				}
 				await update_changelog(parsed_repo_url.owner, parsed_repo_url.repo, changelog, token, log);
@@ -171,7 +171,7 @@ export const task: Task<Args> = {
 			if (install) {
 				await install_with_cache_healing_or_throw(config.pm_cli, {
 					log,
-					context: 'after version bump',
+					context: 'after version bump'
 				});
 			}
 
@@ -196,7 +196,7 @@ export const task: Task<Args> = {
 		// Build after the version is bumped so the new version is in the build as needed.
 		// Skip sync and install because we already handled both above.
 		if (build) {
-			await invoke_task('build', {sync: false, install: false});
+			await invoke_task('build', { sync: false, install: false });
 		}
 
 		// Return early if there are no changes and publishing is optional, but after building,
@@ -216,7 +216,7 @@ export const task: Task<Args> = {
 			throw new TaskError(
 				`\`${
 					changeset_cli
-				} publish\` failed - continue manually or try again after running \`git reset --hard\``,
+				} publish\` failed - continue manually or try again after running \`git reset --hard\``
 			);
 		}
 
@@ -227,5 +227,5 @@ export const task: Task<Args> = {
 		await spawn('git', ['push', '--follow-tags']);
 
 		log.info(st('green', `published to branch ${st('cyan', branch)}!`));
-	},
+	}
 };

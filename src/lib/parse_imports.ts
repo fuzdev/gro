@@ -1,9 +1,9 @@
-import {parseSync, type ImportDeclaration} from 'oxc-parser';
-import type {Flavored} from '@fuzdev/fuz_util/types.ts';
-import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
-import type {PathId} from '@fuzdev/fuz_util/path.ts';
+import { parseSync, type ImportDeclaration } from 'oxc-parser';
+import type { Flavored } from '@fuzdev/fuz_util/types.ts';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import {JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER} from './constants.ts';
+import { JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER } from './constants.ts';
 
 export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 
@@ -33,7 +33,7 @@ const extract_string_literal = (content: string, start: number, end: number): st
 export const parse_imports = (
 	id: PathId,
 	contents: string,
-	ignore_types = true,
+	ignore_types = true
 ): Array<ImportSpecifier> => {
 	const specifiers: Array<string> = [];
 	const is_svelte = SVELTE_MATCHER.test(id);
@@ -45,7 +45,7 @@ export const parse_imports = (
 		for (const static_import of parsed.module.staticImports) {
 			// Get the module source node
 			const import_decl = parsed.program.body.find(
-				(node) => node.type === 'ImportDeclaration' && node.start === static_import.start,
+				(node) => node.type === 'ImportDeclaration' && node.start === static_import.start
 			) as ImportDeclaration | undefined;
 
 			if (!import_decl?.source) continue;
@@ -106,7 +106,7 @@ export const parse_imports = (
 				const value = extract_string_literal(
 					s,
 					dynamic_import.moduleRequest.start,
-					dynamic_import.moduleRequest.end,
+					dynamic_import.moduleRequest.end
 				);
 				if (value) {
 					specifiers.push(value);
@@ -140,7 +140,7 @@ export const parse_imports = (
 
 		// Capture script tags at the top level (not nested in HTML)
 		let last_index = 0;
-		const script_blocks: Array<{content: string; start: number; end: number}> = [];
+		const script_blocks: Array<{ content: string; start: number; end: number }> = [];
 
 		// First collect all script blocks
 		let match;
@@ -160,7 +160,7 @@ export const parse_imports = (
 				script_blocks.push({
 					content: match[1]!,
 					start,
-					end,
+					end
 				});
 			}
 

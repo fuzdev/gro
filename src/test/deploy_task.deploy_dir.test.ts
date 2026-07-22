@@ -1,14 +1,14 @@
-import {describe, test, expect, vi, beforeEach, afterEach} from 'vitest';
-import {join, resolve} from 'node:path';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { join, resolve } from 'node:path';
 
-import {task as deploy_task} from '$lib/deploy.task.ts';
-import {GIT_DIRNAME} from '$lib/constants.ts';
+import { task as deploy_task } from '$lib/deploy.task.ts';
+import { GIT_DIRNAME } from '$lib/constants.ts';
 
 import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock,
+	setup_successful_spawn_mock
 } from './deploy_task_test_helpers.ts';
 
 // Mock dependencies
@@ -27,24 +27,24 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn(),
+		git_reset_branch_to_first_commit: vi.fn()
 	};
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
+	spawn: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({
 	cp: vi.fn(),
 	mkdir: vi.fn(),
 	rm: vi.fn(),
-	readdir: vi.fn(),
+	readdir: vi.fn()
 }));
 
 vi.mock('@fuzdev/fuz_util/fs.js', () => ({
 	fs_exists: vi.fn(),
-	fs_empty_dir: vi.fn(),
+	fs_empty_dir: vi.fn()
 }));
 
 describe('deploy_task deploy directory operations', () => {
@@ -54,7 +54,7 @@ describe('deploy_task deploy directory operations', () => {
 		await setup_successful_fs_mocks();
 		await setup_successful_spawn_mock();
 
-		const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		vi.mocked(fs_empty_dir).mockResolvedValue(undefined);
 	});
 
@@ -64,14 +64,14 @@ describe('deploy_task deploy directory operations', () => {
 
 	describe('deploy directory cleanup', () => {
 		test('empties deploy_dir before copying build output', async () => {
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				deploy_dir: '.gro/deploy',
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -81,12 +81,12 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('preserves .git directory when emptying deploy_dir', async () => {
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
@@ -104,13 +104,13 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('empty happens after target branch preparation', async () => {
-			const {git_pull} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
@@ -122,13 +122,13 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('empty happens before copying files', async () => {
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
@@ -142,9 +142,9 @@ describe('deploy_task deploy directory operations', () => {
 
 	describe('file copying', () => {
 		test('copies all files from build_dir to deploy_dir', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['index.html', 'assets', 'favicon.ico'] as any);
@@ -152,7 +152,7 @@ describe('deploy_task deploy directory operations', () => {
 			const ctx = create_mock_deploy_task_context({
 				build_dir: 'build',
 				deploy_dir: '.gro/deploy',
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -161,26 +161,26 @@ describe('deploy_task deploy directory operations', () => {
 			expect(cp).toHaveBeenCalledWith(
 				join('build', 'index.html'),
 				join(resolve('.gro/deploy'), 'index.html'),
-				{recursive: true},
+				{ recursive: true }
 			);
 			expect(cp).toHaveBeenCalledWith(
 				join('build', 'assets'),
 				join(resolve('.gro/deploy'), 'assets'),
 				{
-					recursive: true,
-				},
+					recursive: true
+				}
 			);
 			expect(cp).toHaveBeenCalledWith(
 				join('build', 'favicon.ico'),
 				join(resolve('.gro/deploy'), 'favicon.ico'),
-				{recursive: true},
+				{ recursive: true }
 			);
 		});
 
 		test('uses custom build_dir and deploy_dir paths', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['app.js'] as any);
@@ -188,7 +188,7 @@ describe('deploy_task deploy directory operations', () => {
 			const ctx = create_mock_deploy_task_context({
 				build_dir: 'dist',
 				deploy_dir: 'custom/deploy',
-				dry: true,
+				dry: true
 			});
 
 			await deploy_task.run(ctx);
@@ -197,31 +197,31 @@ describe('deploy_task deploy directory operations', () => {
 				join('dist', 'app.js'),
 				join(resolve('custom/deploy'), 'app.js'),
 				{
-					recursive: true,
-				},
+					recursive: true
+				}
 			);
 		});
 
 		test('copies directories recursively', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['assets'] as any);
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
 			// Should copy with recursive flag
-			expect(cp).toHaveBeenCalledWith(expect.anything(), expect.anything(), {recursive: true});
+			expect(cp).toHaveBeenCalledWith(expect.anything(), expect.anything(), { recursive: true });
 		});
 
 		test('copies all files in parallel', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['file1.html', 'file2.html', 'file3.html'] as any);
@@ -236,7 +236,7 @@ describe('deploy_task deploy directory operations', () => {
 				concurrent_calls--;
 			});
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
@@ -246,14 +246,14 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('handles empty build directory', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue([]); // empty
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
@@ -264,49 +264,49 @@ describe('deploy_task deploy directory operations', () => {
 
 	describe('error handling', () => {
 		test('propagates error when empty_dir fails', async () => {
-			const {fs_empty_dir} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(fs_empty_dir).mockRejectedValue(new Error('Permission denied'));
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Permission denied');
 		});
 
 		test('propagates error when readdir fails', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockImplementation(() => {
 				throw new Error('Cannot read directory');
 			});
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Cannot read directory');
 		});
 
 		test('propagates error when cp fails', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['index.html'] as any);
 			vi.mocked(cp).mockRejectedValue(new Error('Disk full'));
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Disk full');
 		});
 
 		test('fails if any parallel copy fails', async () => {
-			const {readdir} = vi.mocked(await import('node:fs/promises'));
-			const {cp} = await import('node:fs/promises');
-			const {fs_exists} = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readdir } = vi.mocked(await import('node:fs/promises'));
+			const { cp } = await import('node:fs/promises');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
 			vi.mocked(readdir).mockResolvedValue(['file1.html', 'file2.html', 'file3.html'] as any);
@@ -320,7 +320,7 @@ describe('deploy_task deploy directory operations', () => {
 				}
 			});
 
-			const ctx = create_mock_deploy_task_context({dry: true});
+			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Copy failed');
 		});

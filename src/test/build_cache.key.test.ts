@@ -1,17 +1,17 @@
-import {describe, test, expect, vi, beforeEach} from 'vitest';
-import {json_stringify_deterministic} from '@fuzdev/fuz_util/json.ts';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
-import {compute_build_cache_key} from '$lib/build_cache.ts';
+import { compute_build_cache_key } from '$lib/build_cache.ts';
 
-import {create_mock_logger, create_mock_config} from './build_cache_test_helpers.ts';
+import { create_mock_logger, create_mock_config } from './build_cache_test_helpers.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_current_commit_hash: vi.fn(),
+	git_current_commit_hash: vi.fn()
 }));
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
-	hash_blake3: vi.fn(),
+	hash_blake3: vi.fn()
 }));
 
 describe('compute_build_cache_key', () => {
@@ -20,8 +20,8 @@ describe('compute_build_cache_key', () => {
 	});
 
 	test('returns consistent hash components for same inputs', async () => {
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
@@ -38,8 +38,8 @@ describe('compute_build_cache_key', () => {
 	});
 
 	test('handles missing git repository', async () => {
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue(null);
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
@@ -54,14 +54,14 @@ describe('compute_build_cache_key', () => {
 	});
 
 	test('hashes build_cache_config when provided', async () => {
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
-		const {hash_blake3} = await import('@fuzdev/fuz_util/hash_blake3.ts');
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('custom_hash');
 
 		const config = await create_mock_config({
-			build_cache_config: {api_url: 'https://fuz.dev'},
+			build_cache_config: { api_url: 'https://fuz.dev' }
 		});
 		const log = create_mock_logger();
 
@@ -69,25 +69,25 @@ describe('compute_build_cache_key', () => {
 
 		expect(result.build_cache_config_hash).toBeTruthy();
 		expect(hash_blake3).toHaveBeenCalledWith(
-			json_stringify_deterministic({api_url: 'https://fuz.dev'}),
+			json_stringify_deterministic({ api_url: 'https://fuz.dev' })
 		);
 	});
 
 	test('produces consistent hash for build_cache_config regardless of key order', async () => {
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 
 		// Since hashing now happens during config creation with deterministic key ordering,
 		// different key orders should produce the same hash
 		const config1 = await create_mock_config({
-			build_cache_config: {z_key: 'value_z', a_key: 'value_a', m_key: 'value_m'},
+			build_cache_config: { z_key: 'value_z', a_key: 'value_a', m_key: 'value_m' }
 		});
 		const config2 = await create_mock_config({
-			build_cache_config: {a_key: 'value_a', m_key: 'value_m', z_key: 'value_z'},
+			build_cache_config: { a_key: 'value_a', m_key: 'value_m', z_key: 'value_z' }
 		});
 		const config3 = await create_mock_config({
-			build_cache_config: {m_key: 'value_m', z_key: 'value_z', a_key: 'value_a'},
+			build_cache_config: { m_key: 'value_m', z_key: 'value_z', a_key: 'value_a' }
 		});
 
 		const log = create_mock_logger();
@@ -101,12 +101,12 @@ describe('compute_build_cache_key', () => {
 	});
 
 	test('handles async build_cache_config function', async () => {
-		const {git_current_commit_hash} = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 
 		const config = await create_mock_config({
-			build_cache_config: async () => ({feature_flag: true}),
+			build_cache_config: async () => ({ feature_flag: true })
 		});
 		const log = create_mock_logger();
 

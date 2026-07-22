@@ -3,9 +3,9 @@
 
 /* eslint-disable */
 
-import {resolve} from 'node:path';
+import { resolve } from 'node:path';
 
-import {init_test_env} from '../test_helpers.ts';
+import { init_test_env } from '../test_helpers.ts';
 
 async function runTest() {
 	console.log('Testing SvelteKit $env import shimming...\n');
@@ -24,7 +24,7 @@ async function runTest() {
 			console.error(
 				`✗ Static import test failed: expected "${VALUE}", got "${
 					fixture.exported_env_static_public
-				}"`,
+				}"`
 			);
 			process.exit(1);
 		}
@@ -38,7 +38,7 @@ async function runTest() {
 			console.error(
 				`✗ Dynamic import test failed: expected "${VALUE}", got "${
 					env_mod.PUBLIC_SOME_PUBLIC_ENV_VAR
-				}"`,
+				}"`
 			);
 			process.exit(1);
 		}
