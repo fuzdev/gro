@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.209.0
+
+### Minor Changes
+
+- feat: support `.formatignore` alongside `.prettierignore` ([14226d1](https://github.com/fuzdev/gro/commit/14226d1))
+
 ## 0.208.0
 
 ### Minor Changes
