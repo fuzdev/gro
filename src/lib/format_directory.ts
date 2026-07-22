@@ -2,7 +2,7 @@ import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
-import { globSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
@@ -26,6 +26,13 @@ const FORMATTABLE_MATCHER = /\.(ts|mts|cts|js|mjs|cjs|svelte|css)$/;
  */
 const ROOT_FILES_DEFAULT = [GRO_CONFIG_FILENAME, SVELTE_CONFIG_FILENAME, VITE_CONFIG_FILENAME];
 
+/**
+ * Root-level ignore files for the format sweep (gitignore-style patterns).
+ * `.prettierignore` is honored alongside `.formatignore` so a repo carrying the
+ * legacy file (or keeping it for editor Prettier) has its patterns respected.
+ */
+const FORMAT_IGNORE_FILENAMES = ['.formatignore', '.prettierignore'];
+
 const FORMAT_CONCURRENCY = 16;
 
 export interface FormatDirectoryResult {
@@ -40,7 +47,8 @@ export interface FormatDirectoryResult {
  * Formats files on the filesystem in-process via `format_file`.
  * When `patterns` is provided, formats those specific files/globs.
  * Otherwise formats `dir` (recursively, respecting `filter`) plus the root
- * files when `dir` is `paths.source`.
+ * files when `dir` is `paths.source`. In both modes, files matched by the
+ * project root's `.formatignore` or `.prettierignore` are skipped.
  *
  * Files the formatter rejects (e.g. a syntax error) are reported and fail the
  * run in both modes rather than being silently skipped.
@@ -59,11 +67,14 @@ export const format_directory = async (
 	filter?: PathFilter | Array<PathFilter>,
 	patterns?: Array<string>
 ): Promise<FormatDirectoryResult> => {
-	const file_ids = patterns?.length
+	const collected = patterns?.length
 		? globSync(patterns, to_glob_options(filter))
 				.filter((p) => FORMATTABLE_MATCHER.test(p))
 				.map((p) => (isAbsolute(p) ? p : resolve(p)))
 		: await collect_source_files(dir, filter);
+
+	const ignored = read_format_ignore(paths.root);
+	const file_ids = ignored.size ? collected.filter((id) => !ignored.has(id)) : collected;
 
 	const formatted: Array<string> = [];
 	const errored: Array<{ id: string; error: unknown }> = [];
@@ -102,6 +113,33 @@ export const format_directory = async (
 	}
 
 	return { ok: errored.length === 0 && (!check || formatted.length === 0), formatted, errored };
+};
+
+/**
+ * Reads the root ignore files (`.formatignore` and `.prettierignore`) and
+ * expands their merged gitignore-style globs to a set of absolute paths the
+ * format sweep skips. A pattern with no `/` matches at any depth (`*.md` becomes
+ * `** /*.md`); a pattern with `/` is anchored to the root. Blank lines and `#`
+ * comments are ignored, and absent files yield an empty set (skip nothing).
+ */
+export const read_format_ignore = (root: string): Set<string> => {
+	const patterns: Array<string> = [];
+	for (const name of FORMAT_IGNORE_FILENAMES) {
+		let content: string;
+		try {
+			content = readFileSync(join(root, name), 'utf8');
+		} catch {
+			continue;
+		}
+		for (const line of content.split('\n')) {
+			const trimmed = line.trim();
+			if (trimmed !== '' && !trimmed.startsWith('#')) {
+				patterns.push(trimmed.includes('/') ? trimmed : `**/${trimmed}`);
+			}
+		}
+	}
+	if (patterns.length === 0) return new Set();
+	return new Set(globSync(patterns, { cwd: root }).map((p) => resolve(root, p)));
 };
 
 /** Builds `globSync` options that prune the same paths `filter` would exclude. */
