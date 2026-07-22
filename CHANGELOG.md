@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.208.0
+
+### Minor Changes
+
+- feat: remove json formatting, temp until tsv supports properly ([9d32cf5](https://github.com/fuzdev/gro/commit/9d32cf5))
+
 ## 0.207.0
 
 ### Minor Changes
