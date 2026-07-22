@@ -24,21 +24,24 @@ test('format css', () => {
 	expect(format_file('a{color:red}', { filepath: 'foo.css' })).toBe('a {\n\tcolor: red;\n}\n');
 });
 
-test('format json with tabs', () => {
-	expect(format_file('{"b":1,"a":2}', { filepath: 'foo.json' })).toBe(
-		'{\n\t"b": 1,\n\t"a": 2\n}\n'
-	);
+test('json is not auto-formatted by extension', () => {
+	// `gro format` and gen leave json untouched — `infer_lang` returns `null` for `.json`.
+	const json = '{"b":1,"a":2}';
+	expect(format_file(json, { filepath: 'foo.json' })).toBe(json);
+	expect(format_file(json, { filepath: 'tsconfig.json' })).toBe(json);
+});
+
+test('explicit json lang still formats with tabs', () => {
+	expect(format_file('{"b":1,"a":2}', { lang: 'json' })).toBe('{\n\t"b": 1,\n\t"a": 2\n}\n');
+	// non-strict json (jsonc) passes through unchanged rather than throwing
+	const jsonc = '{\n\t// a comment\n\t"a": 1\n}';
+	expect(format_file(jsonc, { lang: 'json' })).toBe(jsonc);
 });
 
 test('unsupported extension passes through unchanged', () => {
 	const md = '# hi\n\n\nextra';
 	expect(format_file(md, { filepath: 'foo.md' })).toBe(md);
 	expect(format_file(md)).toBe(md);
-});
-
-test('non-strict json (jsonc) passes through unchanged', () => {
-	const jsonc = '{\n\t// a comment\n\t"a": 1\n}';
-	expect(format_file(jsonc, { filepath: 'tsconfig.json' })).toBe(jsonc);
 });
 
 test('invalid source throws', () => {

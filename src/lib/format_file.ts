@@ -59,7 +59,9 @@ const format_json = (content: string): string => {
 
 /**
  * Infers the format language from a file path's extension.
- * Returns `null` for extensions Gro doesn't format.
+ * Returns `null` for extensions Gro doesn't auto-format — including `json`,
+ * intentionally omitted for now so `gro format` and gen leave json untouched.
+ * `format_file` still formats json when given an explicit `lang: 'json'`.
  */
 const infer_lang = (path: string): FormatLang | null => {
 	switch (extname(path).substring(1)) {
@@ -76,9 +78,6 @@ const infer_lang = (path: string): FormatLang | null => {
 		}
 		case 'css': {
 			return 'css';
-		}
-		case 'json': {
-			return 'json';
 		}
 		default: {
 			return null;

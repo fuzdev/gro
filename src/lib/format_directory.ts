@@ -6,29 +6,25 @@ import { globSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
-import {
-	GRO_CONFIG_FILENAME,
-	SVELTE_CONFIG_FILENAME,
-	TSCONFIG_FILENAME,
-	VITE_CONFIG_FILENAME
-} from './constants.ts';
+import { GRO_CONFIG_FILENAME, SVELTE_CONFIG_FILENAME, VITE_CONFIG_FILENAME } from './constants.ts';
 import { format_file } from './format_file.ts';
 import { paths } from './paths.ts';
 
-/** Matches the file extensions `format_file` knows how to format. */
-const FORMATTABLE_MATCHER = /\.(ts|mts|cts|js|mjs|cjs|svelte|css|json)$/;
+/**
+ * File extensions the format sweep collects. `json` is intentionally omitted
+ * for now — `format_file` can still format json when called directly (e.g. gen
+ * output), but `gro format` leaves json files untouched, since whole-value
+ * reserialization diverges from other tools (e.g. array wrapping).
+ */
+const FORMATTABLE_MATCHER = /\.(ts|mts|cts|js|mjs|cjs|svelte|css)$/;
 
 /**
  * Root-level files formatted alongside `paths.source`.
  * `package.json` is intentionally omitted — `gro sync` owns its serialization
  * via `package_json_serialize` (2-space, matching the npm convention).
+ * `tsconfig.json` is omitted because the sweep no longer formats json.
  */
-const ROOT_FILES_DEFAULT = [
-	GRO_CONFIG_FILENAME,
-	SVELTE_CONFIG_FILENAME,
-	VITE_CONFIG_FILENAME,
-	TSCONFIG_FILENAME
-];
+const ROOT_FILES_DEFAULT = [GRO_CONFIG_FILENAME, SVELTE_CONFIG_FILENAME, VITE_CONFIG_FILENAME];
 
 const FORMAT_CONCURRENCY = 16;
 
