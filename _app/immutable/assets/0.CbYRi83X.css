@@ -7,6 +7,7 @@
 :root {
 	--bg_80: var(--lighten_80);
 	--border_color: var(--shade_30);
+	--border_color_10: hsl(var(--tint_hue) 60% 20% / 7%);
 	--border_color_20: hsl(var(--tint_hue) 60% 20% / 13%);
 	--border_color_30: hsl(var(--tint_hue) 60% 20% / 22%);
 	--border_radius_md: 2.1rem;
@@ -178,6 +179,7 @@
 
 :root.dark {
 	--bg_80: var(--darken_80);
+	--border_color_10: hsl(var(--tint_hue) 60% 80% / 14%);
 	--border_color_20: hsl(var(--tint_hue) 60% 80% / 22%);
 	--border_color_30: hsl(var(--tint_hue) 60% 80% / 32%);
 	--button_shadow: var(--shadow_inset_top_xs) color-mix(in hsl, var(--shadow_color, var(--shadow_color_umbra)) var(--shadow_alpha_30), transparent), var(--shadow_inset_bottom_xs) color-mix(in hsl, var(--shadow_color_highlight) var(--shadow_alpha_30), transparent);
@@ -902,6 +904,22 @@ body {
 
 :where(details[open] summary:not(.unstyled)) {
 	margin-bottom: var(--space_sm);
+}
+
+:where(table) {
+	border-collapse: collapse;
+}
+
+:where(thead) {
+	text-align: left;
+}
+
+:where(tr) {
+	border-bottom: 1px solid var(--border_color_10);
+}
+
+:where(tr:hover) {
+	background-color: var(--fg_10);
 }
 
 :where(b, strong) {
