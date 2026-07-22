@@ -1,5 +1,15 @@
 # @fuzdev/gro
 
+## 0.207.0
+
+### Minor Changes
+
+- deps: bump `@fuzdev/tsv_wasm@0.2.0` ([30b62f0](https://github.com/fuzdev/gro/commit/30b62f0))
+
+### Patch Changes
+
+- chore: quiet the import rewrite logging ([331d7b0](https://github.com/fuzdev/gro/commit/331d7b0))
+
 ## 0.206.0
 
 ### Minor Changes
