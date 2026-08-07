@@ -80,7 +80,7 @@ Task context:
 interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;
@@ -193,7 +193,7 @@ Gen context:
 ```typescript
 interface GenContext {
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;

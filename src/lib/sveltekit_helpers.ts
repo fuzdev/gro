@@ -15,7 +15,7 @@ import {
 	SVELTEKIT_DEV_DIRNAME
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
-import { default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
+import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { TaskError } from './task.ts';
 
 export const has_sveltekit_app = async (
@@ -30,7 +30,7 @@ export const has_sveltekit_app = async (
 
 export const has_sveltekit_library = async (
 	package_json: PackageJson,
-	svelte_config: ParsedSvelteConfig = default_svelte_config,
+	svelte_config?: ParsedSvelteConfig,
 	dep_name = SVELTE_PACKAGE_DEP_NAME
 ): Promise<Result<object, { message: string }>> => {
 	const has_sveltekit_app_result = await has_sveltekit_app();
@@ -38,15 +38,19 @@ export const has_sveltekit_library = async (
 		return has_sveltekit_app_result;
 	}
 
-	if (!(await fs_exists(svelte_config.lib_path))) {
-		return { ok: false, message: `no SvelteKit lib directory found at ${svelte_config.lib_path}` };
-	}
-
+	// Checked before the lib directory because it's the cheaper of the two
+	// and it's what distinguishes a library from an app,
+	// so apps bail out without reading the SvelteKit config.
 	if (!package_json_has_dependency(dep_name, package_json)) {
 		return {
 			ok: false,
 			message: `no dependency found in package.json for ${dep_name}`
 		};
+	}
+
+	const { lib_path } = svelte_config ?? (await load_default_svelte_config());
+	if (!(await fs_exists(lib_path))) {
+		return { ok: false, message: `no SvelteKit lib directory found at ${lib_path}` };
 	}
 
 	return { ok: true };

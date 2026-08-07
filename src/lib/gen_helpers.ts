@@ -13,7 +13,7 @@ import {
 	type GenDependencies,
 	type GenDependenciesConfig
 } from './gen.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { to_root_path } from './paths.ts';
 import { load_module } from './modules.ts';
 
@@ -100,7 +100,9 @@ const resolve_gen_dependencies = async (
 	if (typeof dependencies === 'function') {
 		const gen_ctx: GenContext = {
 			config,
-			svelte_config: default_svelte_config,
+			get svelte_config() {
+				return load_default_svelte_config();
+			},
 			filer,
 			log,
 			timings,

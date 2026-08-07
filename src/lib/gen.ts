@@ -63,7 +63,11 @@ export interface GenConfig {
 
 export interface GenContext {
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	/**
+	 * Resolved on first access, so genfiles that don't touch it
+	 * never pay to read the SvelteKit config.
+	 */
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;

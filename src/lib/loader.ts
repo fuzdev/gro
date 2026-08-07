@@ -13,7 +13,7 @@ import {
 	SVELTEKIT_SHIM_APP_PATHS_MATCHER,
 	sveltekit_shim_app_specifiers
 } from './sveltekit_shim_app.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { paths } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
 import { resolve_specifier } from './resolve_specifier.ts';
@@ -53,6 +53,21 @@ const dev = true;
 
 const dir = paths.root;
 
+/*
+
+Unlike the rest of Gro, the loader reads the config eagerly, at module scope.
+
+It runs on a worker thread, where resolving through Vite is unavailable because Vite's
+resolution calls `process.chdir`, so it opts out and reads the authored config - which
+carries everything the loader needs.
+
+Loading it here rather than on demand is deliberate. Importing the config runs the
+`resolve` hook for each of the config's own imports, and a hook that awaited the load
+it is part of would deadlock. Doing it during module evaluation, before the hooks go
+live, keeps that graph out of them. Nothing is lost by being eager: the alias step
+runs for every bare specifier, so the first resolve would load the config anyway.
+
+*/
 const {
 	alias,
 	base_url,
@@ -63,7 +78,7 @@ const {
 	svelte_compile_options,
 	svelte_compile_module_options,
 	svelte_preprocessors
-} = default_svelte_config;
+} = await load_default_svelte_config({ dir, resolve_with_vite: false });
 
 const aliases = Object.entries(alias);
 

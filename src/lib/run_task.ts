@@ -7,7 +7,7 @@ import { z } from 'zod';
 import type { Filer } from './filer.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { TaskError, type TaskModuleMeta } from './task.ts';
 import { log_task_help } from './task_logging.ts';
 
@@ -58,7 +58,9 @@ export const run_task = async (
 		output = await task.run({
 			args,
 			config,
-			svelte_config: default_svelte_config,
+			get svelte_config() {
+				return load_default_svelte_config();
+			},
 			filer,
 			log,
 			timings,

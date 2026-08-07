@@ -20,6 +20,12 @@ export const GRO_DIR = GRO_DIRNAME + '/';
 export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
 export const SVELTE_CONFIG_FILENAME = 'svelte.config.js';
+/**
+ * SvelteKit's alias for the library directory.
+ * Always `$lib` no matter where `files.lib` points.
+ * @see https://svelte.dev/docs/kit/configuration#files
+ */
+export const SVELTEKIT_LIB_ALIAS = '$lib';
 export const VITE_CONFIG_FILENAME = 'vite.config.ts';
 export const NODE_MODULES_DIRNAME = 'node_modules';
 export const PACKAGE_JSON_FILENAME = 'package.json';

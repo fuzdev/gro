@@ -19,12 +19,16 @@ import {
 import { paths } from './paths.ts';
 import { parse_imports } from './parse_imports.ts';
 import { resolve_specifier } from './resolve_specifier.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
 import type { Disknode } from './disknode.ts';
 
-const aliases = Object.entries(default_svelte_config.alias);
+let aliases: Array<[string, string]> | undefined;
+
+/** Loaded on demand so constructing a `Filer` doesn't read the SvelteKit config. */
+const load_aliases = async (): Promise<Array<[string, string]>> =>
+	(aliases ??= Object.entries((await load_default_svelte_config()).alias));
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 
@@ -272,7 +276,7 @@ export class Filer {
 		}
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
-			const path = map_sveltekit_aliases(specifier, aliases);
+			const path = map_sveltekit_aliases(specifier, await load_aliases());
 
 			let path_id;
 			// TODO replace `resolve_specifier` with `import.meta.resolve` for local specifiers too

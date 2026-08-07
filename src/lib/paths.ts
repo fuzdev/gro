@@ -1,4 +1,4 @@
-import { join, extname, relative, basename } from 'node:path';
+import { join, extname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
@@ -11,7 +11,6 @@ import {
 	SOURCE_DIR,
 	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
-import { default_svelte_config } from './svelte_config.ts';
 
 /*
 
@@ -20,11 +19,21 @@ It's the same name that Rollup uses.
 
 */
 
-export const LIB_DIRNAME = basename(default_svelte_config.lib_path);
+/*
+
+These are the conventional locations, not the SvelteKit `files` config values,
+so that `paths` stays cheap - reading the SvelteKit config imports the config module
+and its preprocessors, which is too expensive to do on every Gro invocation.
+Code that needs to honor a customized `kit.files.lib` reads `lib_path`
+off `ParsedSvelteConfig` instead, and projects that move it
+can point `task_root_dirs` at the new location in `gro.config.ts`.
+
+*/
+
+export const LIB_DIRNAME = 'lib';
 export const LIB_PATH = SOURCE_DIR + LIB_DIRNAME;
 /** @trailing_slash */
 export const LIB_DIR = LIB_PATH + '/';
-export const ROUTES_DIRNAME = basename(default_svelte_config.routes_path);
 
 export interface Paths {
 	/** @trailing_slash */

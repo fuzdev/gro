@@ -49,6 +49,7 @@
   ],
   "dependencies": {
     "@fuzdev/tsv_wasm": "^0.2.0",
+    "@sveltejs/load-config": "0.2.2",
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "esm-env": "^1.2.2",

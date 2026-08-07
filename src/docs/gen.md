@@ -116,7 +116,7 @@ The generate function receives a `GenContext` object:
 ```ts
 export interface GenContext {
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;

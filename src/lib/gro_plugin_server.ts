@@ -3,7 +3,7 @@ import * as esbuild from 'esbuild';
 import type { Config as SvelteConfig } from '@sveltejs/kit';
 import { join, resolve } from 'node:path';
 import { identity } from '@fuzdev/fuz_util/function.ts';
-import { strip_before, strip_end } from '@fuzdev/fuz_util/string.ts';
+import { strip_before } from '@fuzdev/fuz_util/string.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { throttle } from '@fuzdev/fuz_util/throttle.ts';
@@ -12,7 +12,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import type { Plugin } from './plugin.ts';
 import { base_path_to_path_id, LIB_DIRNAME, paths } from './paths.ts';
 import { GRO_DEV_DIRNAME, SERVER_DIST_PATH } from './constants.ts';
-import { parse_svelte_config, default_svelte_config } from './svelte_config.ts';
+import { parse_svelte_config, load_default_svelte_config } from './svelte_config.ts';
 import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
 import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_shim_env.ts';
 import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
@@ -133,13 +133,14 @@ export const gro_plugin_server = ({
 	return {
 		name: 'gro_plugin_server',
 		setup: async ({ dev, watch, timings, log, config, filer }) => {
-			const parsed_svelte_config =
-				!svelte_config && strip_end(dir, '/') === process.cwd()
-					? default_svelte_config
-					: await parse_svelte_config({
-							dir_or_config: svelte_config ?? dir,
-							config_filename: config.svelte_config_filename
-						});
+			// `load_default_svelte_config` memoizes per directory,
+			// so this shares the parse with the rest of the process when `dir` is the cwd.
+			const parsed_svelte_config = svelte_config
+				? await parse_svelte_config({ svelte_config, dir })
+				: await load_default_svelte_config({
+						dir,
+						config_filename: config.svelte_config_filename
+					});
 			const {
 				alias,
 				base_url,

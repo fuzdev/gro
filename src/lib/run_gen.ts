@@ -16,7 +16,7 @@ import {
 import { print_path, to_root_path } from './paths.ts';
 import type { format_file as base_format_file } from './format_file.ts';
 import type { GroConfig } from './gro_config.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import type { Filer } from './filer.ts';
 import type { InvokeTask } from './task.ts';
 
@@ -45,7 +45,9 @@ export const run_gen = async (
 			const gen_config = normalize_gen_config(module_meta.mod.gen);
 			const gen_ctx: GenContext = {
 				config,
-				svelte_config: default_svelte_config,
+				get svelte_config() {
+					return load_default_svelte_config();
+				},
 				filer,
 				log,
 				timings,
