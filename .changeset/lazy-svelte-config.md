@@ -21,7 +21,9 @@ resolution finds `svelte.config.*` on its own.
 Also fixes `parse_svelte_config` mutating the `compilerOptions` of the config passed
 to it, and normalizes `kit.env.dir` to a project-relative path - it's serialized into
 the generated `$env/dynamic/*` modules, so an absolute one would bake the build
-machine's directory into server bundles.
+machine's directory into server bundles. The `svelte_config` on the task and gen
+contexts now honors `svelte_config_filename` from `gro.config.ts`, which previously
+only `gro_plugin_server` respected.
 
 Breaking changes:
 
@@ -40,3 +42,9 @@ Breaking changes:
   `@sveltejs/package` dependency before the lib directory
 - the default config detects plugins inside `plugins()` instead of when the config
   loads, so tasks other than `dev` and `build` no longer trigger detection
+- `CreateGroConfig` takes only `base_config` - its second `ParsedSvelteConfig` parameter
+  was never passed, and passing one would defeat the lazy load
+- `esbuild_plugin_svelte`'s default `svelte_compile_options` is
+  `SVELTE_COMPILE_OPTIONS_DEFAULT` rather than the project's `compilerOptions`, because
+  the default can't read the config synchronously - pass `svelte_compile_options` from a
+  `ParsedSvelteConfig` to honor them

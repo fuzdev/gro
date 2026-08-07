@@ -17,7 +17,7 @@ import { package_json_load } from './package_json.ts';
  * - if `src/lib` + `@sveltejs/package`, assumes a Node library - respects `KitConfig.kit.files.lib`
  * - if `src/lib/server/server.ts`, assumes a Node server - needs config
  */
-const config: CreateGroConfig = (cfg, svelte_config) => {
+const config: CreateGroConfig = (cfg) => {
 	// Detection is deferred into `plugins` because every Gro invocation loads the config,
 	// but only `dev` and `build` create plugins - this keeps `package.json`
 	// and the SvelteKit config off the path of every other task.
@@ -25,11 +25,7 @@ const config: CreateGroConfig = (cfg, svelte_config) => {
 		const package_json = await package_json_load(); // TODO gets wastefully loaded by some plugins, maybe put in plugin/task context? how does that interact with `map_package_json`?
 
 		const [has_server_result, has_sveltekit_library_result, has_sveltekit_app_result] =
-			await Promise.all([
-				has_server(),
-				has_sveltekit_library(package_json, svelte_config),
-				has_sveltekit_app()
-			]);
+			await Promise.all([has_server(), has_sveltekit_library(package_json), has_sveltekit_app()]);
 
 		// put things that generate files before SvelteKit so it can see them
 		return [

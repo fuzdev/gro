@@ -93,11 +93,24 @@ describe('parse_svelte_config', () => {
 });
 
 describe('load_default_svelte_config', () => {
+	// Uses `DIR`, which holds no config, so the Vite-resolving entry stays cheap -
+	// resolving a real project through Vite costs a full Vite config resolution
+	// and calls `process.chdir`, which is not something to do from a unit test.
 	test('memoizes per directory and resolution mode', async () => {
-		const authored = load_default_svelte_config({ resolve_with_vite: false });
-		expect(load_default_svelte_config({ resolve_with_vite: false })).toBe(authored);
+		const authored = load_default_svelte_config({ dir: DIR, resolve_with_vite: false });
+		expect(load_default_svelte_config({ dir: DIR, resolve_with_vite: false })).toBe(authored);
 		// A different resolution mode is a different cache entry.
-		expect(load_default_svelte_config({ resolve_with_vite: true })).not.toBe(authored);
-		await expect(authored).resolves.toMatchObject({ lib_path: 'src/lib' });
+		const resolved_with_vite = load_default_svelte_config({ dir: DIR, resolve_with_vite: true });
+		expect(resolved_with_vite).not.toBe(authored);
+		// As is a different directory.
+		const nested = load_default_svelte_config({ dir: DIR + '/nested', resolve_with_vite: false });
+		expect(nested).not.toBe(authored);
+		await Promise.all([authored, resolved_with_vite, nested]);
+	});
+
+	test('parses the config of the project it runs in', async () => {
+		await expect(load_default_svelte_config({ resolve_with_vite: false })).resolves.toMatchObject({
+			lib_path: 'src/lib'
+		});
 	});
 });

@@ -38,6 +38,14 @@ export interface LoadSvelteConfigOptions {
 }
 
 /**
+ * Whether a load actually goes through Vite.
+ * Vite's resolution finds `svelte.config.*` on its own, so a custom filename
+ * can only be honored by importing that file directly.
+ */
+const uses_vite = (resolve_with_vite: boolean, config_filename: string): boolean =>
+	resolve_with_vite && config_filename === SVELTE_CONFIG_FILENAME;
+
+/**
  * Loads a SvelteKit config at `dir`.
  * @returns `null` if no config is found
  * @throws if a config is found but fails to load
@@ -47,9 +55,7 @@ export const load_svelte_config = async ({
 	config_filename = SVELTE_CONFIG_FILENAME,
 	resolve_with_vite = true
 }: LoadSvelteConfigOptions = EMPTY_OBJECT): Promise<SvelteConfig | null> => {
-	// Vite's resolution finds `svelte.config.*` on its own, so a custom filename
-	// can only be honored by importing that file directly.
-	const use_vite = resolve_with_vite && config_filename === SVELTE_CONFIG_FILENAME;
+	const use_vite = uses_vite(resolve_with_vite, config_filename);
 	// Passing the config file instead of its directory tells `loadConfig` to import it directly,
 	// skipping both the `vite.config` lookup and the `process.chdir` it performs.
 	const loaded = await loadConfig(use_vite ? dir : join(dir, config_filename), {
@@ -209,7 +215,9 @@ export const load_default_svelte_config = (
 		config_filename = SVELTE_CONFIG_FILENAME,
 		resolve_with_vite = true
 	} = options;
-	const key = `${resolve_with_vite ? 'vite' : 'svelte'}:${join(dir, config_filename)}`;
+	// Keyed on whether the load *actually* goes through Vite, not on what was asked for,
+	// so a custom filename doesn't get one cache entry per requested mode for the same load.
+	const key = `${uses_vite(resolve_with_vite, config_filename) ? 'vite' : 'svelte'}:${join(dir, config_filename)}`;
 	let loading = default_svelte_configs.get(key);
 	if (loading === undefined) {
 		loading = parse_svelte_config({ dir, config_filename, resolve_with_vite });

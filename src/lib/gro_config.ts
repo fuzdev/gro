@@ -18,7 +18,6 @@ import {
 import create_default_config from './gro.config.default.ts';
 import type { PluginsCreateConfig } from './plugin.ts';
 import type { PackageJsonMapper } from './package_json.ts';
-import type { ParsedSvelteConfig } from './svelte_config.ts';
 import type { FilerOptions } from './filer.ts';
 
 /**
@@ -114,10 +113,7 @@ export interface RawGroConfig {
 	filer_options?: Partial<FilerOptions> | null;
 }
 
-export type CreateGroConfig = (
-	base_config: GroConfig,
-	svelte_config?: ParsedSvelteConfig
-) => RawGroConfig | Promise<RawGroConfig>;
+export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
 
 export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],
