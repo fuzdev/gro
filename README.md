@@ -62,11 +62,11 @@ It includes:
       [the default config](https://github.com/fuzdev/gro/blob/main/src/lib/gro.config.default.ts)
     - see [`fuz_template`](https://github.com/fuz-dev/fuz_template)
       for a simple starter project example, and
-      [`@feltjs/felt`](https://github.com/feltjs/felt) for a more complex example with custom tasks
+      [`fuz_gitops`](https://github.com/fuzdev/fuz_gitops) for a more complex example with custom tasks
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - codegen by convention with [`gen`](/src/docs/gen.md)
 - linting with [ESLint](https://github.com/eslint/eslint)
-  (I also maintain [`@feltjs/eslint-config`](https://github.com/feltjs/eslint-config))
+  (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config))
 - formatting with [`tsv`](https://github.com/fuzdev/tsv)
 
 ## docs
