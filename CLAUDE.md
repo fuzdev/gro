@@ -141,14 +141,14 @@ Capabilities:
 SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
 to actual SvelteKit modules:
 
-- `$lib/*` → resolved via svelte.config.js alias to `src/lib/`
+- `$lib/*` → resolved via the SvelteKit `$lib` alias to `src/lib/`
 - `$env/static/public` → reads `PUBLIC_*` vars from `.env`
 - `$env/static/private` → reads all vars from `.env`
 - `$env/dynamic/public` → `process.env` with `PUBLIC_*` filtering
 - `$env/dynamic/private` → full `process.env`
 - `$app/environment` →
   `{dev: true, browser: false, building: false, version: ''}`
-- `$app/paths` → `{base: '', assets: ''}` from svelte.config.js
+- `$app/paths` → `{base: '', assets: ''}` from the resolved Svelte config
 
 ### Code generation
 
@@ -289,8 +289,8 @@ config object. If absent, uses default config from
 
 Default config behavior: Auto-detects project type by checking filesystem:
 
-- `svelte.config.js` → enables `gro_plugin_sveltekit_app`
-- `svelte.config.js` + `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
+- `@sveltejs/kit` in package.json → enables `gro_plugin_sveltekit_app`
+- `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
 - `src/lib/server/server.ts` → enables `gro_plugin_server`
 - Always enables `gro_plugin_gen`
 
@@ -342,7 +342,7 @@ export default config;
 - Gen files: `*.gen.*` anywhere in `src/` (pattern: `.gen.` substring)
 - Test files: `*.test.ts` anywhere (run by Vitest)
 - Config: `gro.config.ts` at project root
-- SvelteKit config: `svelte.config.js` at project root
+- Vite config: `vite.config.ts` at project root - the Svelte config is read through it
 
 Exclusions (configurable via `search_filters`):
 

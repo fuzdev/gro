@@ -9,22 +9,26 @@ import { to_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
-	SVELTE_CONFIG_FILENAME,
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
+	SVELTEKIT_DEP_NAME,
 	SVELTEKIT_DEV_DIRNAME
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { TaskError } from './task.ts';
 
-export const has_sveltekit_app = async (
-	svelte_config_path: string = SVELTE_CONFIG_FILENAME
-): Promise<Result<object, { message: string }>> => {
-	if (!(await fs_exists(svelte_config_path))) {
-		return { ok: false, message: `no SvelteKit config found at ${SVELTE_CONFIG_FILENAME}` };
+/**
+ * Detected from `package.json` rather than the Svelte config,
+ * because reading the config costs a full Vite config resolution.
+ */
+export const has_sveltekit_app = (
+	package_json: PackageJson,
+	dep_name = SVELTEKIT_DEP_NAME
+): Result<object, { message: string }> => {
+	if (!package_json_has_dependency(dep_name, package_json)) {
+		return { ok: false, message: `no dependency found in package.json for ${dep_name}` };
 	}
-	// TODO check for routes?
 	return { ok: true };
 };
 
@@ -33,14 +37,14 @@ export const has_sveltekit_library = async (
 	svelte_config?: ParsedSvelteConfig,
 	dep_name = SVELTE_PACKAGE_DEP_NAME
 ): Promise<Result<object, { message: string }>> => {
-	const has_sveltekit_app_result = await has_sveltekit_app();
+	const has_sveltekit_app_result = has_sveltekit_app(package_json);
 	if (!has_sveltekit_app_result.ok) {
 		return has_sveltekit_app_result;
 	}
 
 	// Checked before the lib directory because it's the cheaper of the two
 	// and it's what distinguishes a library from an app,
-	// so apps bail out without reading the SvelteKit config.
+	// so apps bail out without reading the Svelte config.
 	if (!package_json_has_dependency(dep_name, package_json)) {
 		return {
 			ok: false,

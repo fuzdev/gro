@@ -57,15 +57,14 @@ const dir = paths.root;
 
 Unlike the rest of Gro, the loader reads the config eagerly, at module scope.
 
-It runs on a worker thread, where resolving through Vite is unavailable because Vite's
-resolution calls `process.chdir`, so it opts out and reads the authored config - which
-carries everything the loader needs.
+Loading it here rather than on demand is deliberate. Resolving the config runs the
+`resolve` hook for each of its own imports, and a hook that awaited the load it is part
+of would deadlock. Doing it during module evaluation, before the hooks go live, keeps
+that graph out of them. Nothing is lost by being eager: the alias step runs for every
+bare specifier, so the first resolve would load the config anyway.
 
-Loading it here rather than on demand is deliberate. Importing the config runs the
-`resolve` hook for each of the config's own imports, and a hook that awaited the load
-it is part of would deadlock. Doing it during module evaluation, before the hooks go
-live, keeps that graph out of them. Nothing is lost by being eager: the alias step
-runs for every bare specifier, so the first resolve would load the config anyway.
+The loader runs on a worker thread, where `process.chdir` is unavailable - Vite's own
+config resolution doesn't need it, so this is the same load the main thread does.
 
 */
 const {
@@ -78,7 +77,7 @@ const {
 	svelte_compile_options,
 	svelte_compile_module_options,
 	svelte_preprocessors
-} = await load_default_svelte_config({ dir, resolve_with_vite: false });
+} = await load_default_svelte_config({ dir });
 
 const aliases = Object.entries(alias);
 

@@ -65,7 +65,7 @@ export class Filer {
 		// TODO for package.json maybe another array of files/dirs to watch to invalidate everything?
 		// or instead of that, think of taking an array of config objects that can specify invalidation rules,
 		// so package.json would be configured differently than ./src, and we could add a default with
-		// package.json/gro.config.ts/tsconfig.json/svelte.config.js/vite.config.ts to invalidate everything
+		// package.json/gro.config.ts/tsconfig.json/vite.config.ts to invalidate everything
 		this.#log = options.log;
 	}
 	get inited(): boolean {

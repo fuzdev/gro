@@ -101,7 +101,7 @@ const resolve_gen_dependencies = async (
 		const gen_ctx: GenContext = {
 			config,
 			get svelte_config() {
-				return load_default_svelte_config({ config_filename: config.svelte_config_filename });
+				return load_default_svelte_config();
 			},
 			filer,
 			log,

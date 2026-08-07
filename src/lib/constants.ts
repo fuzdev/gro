@@ -19,6 +19,11 @@ export const GRO_DIR = GRO_DIRNAME + '/';
 /** @trailing_slash */
 export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
+/**
+ * Gro reads the Svelte config through Vite, never from this file directly,
+ * but SvelteKit still loads it when `sveltekit()` gets no inline options,
+ * so it's a project file that Gro formats.
+ */
 export const SVELTE_CONFIG_FILENAME = 'svelte.config.js';
 /**
  * SvelteKit's alias for the library directory.
@@ -26,7 +31,13 @@ export const SVELTE_CONFIG_FILENAME = 'svelte.config.js';
  * @see https://svelte.dev/docs/kit/configuration#files
  */
 export const SVELTEKIT_LIB_ALIAS = '$lib';
-export const VITE_CONFIG_FILENAME = 'vite.config.ts';
+export const VITE_CONFIG_BASENAME = 'vite.config';
+/**
+ * The extensions Vite itself accepts for its config, in Vite's own precedence order.
+ * @see https://vite.dev/config/
+ */
+export const VITE_CONFIG_EXTENSIONS = ['js', 'mjs', 'ts', 'cjs', 'mts', 'cts'];
+export const VITE_CONFIG_FILENAME = VITE_CONFIG_BASENAME + '.ts';
 export const NODE_MODULES_DIRNAME = 'node_modules';
 export const PACKAGE_JSON_FILENAME = 'package.json';
 export const LOCKFILE_FILENAME = 'package-lock.json';
@@ -55,5 +66,6 @@ export const SVELTEKIT_CLI = 'svelte-kit';
 export const SVELTE_CHECK_CLI = 'svelte-check';
 export const SVELTE_PACKAGE_CLI = 'svelte-package';
 export const SVELTE_PACKAGE_DEP_NAME = '@sveltejs/package';
+export const SVELTEKIT_DEP_NAME = '@sveltejs/kit';
 export const VITE_CLI = 'vite';
 export const VITEST_CLI = 'vitest';

@@ -61,8 +61,6 @@ export interface GroConfig extends RawGroConfig {
 	 * The CLI to use that's compatible with `npm install` and `npm link`. Defaults to `'npm'`.
 	 */
 	pm_cli: string;
-	/** @default `SVELTE_CONFIG_FILENAME` */
-	svelte_config_filename?: string;
 	/**
 	 * SHA-256 hash of the user's `build_cache_config` from `gro.config.ts`.
 	 * This is computed during config normalization and the raw value is immediately deleted.

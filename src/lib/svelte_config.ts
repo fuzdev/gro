@@ -1,10 +1,10 @@
 import type { Config as SvelteConfig } from '@sveltejs/kit';
 import type { CompileOptions, ModuleCompileOptions, PreprocessorGroup } from 'svelte/compiler';
-import { isAbsolute, join, relative } from 'node:path';
-import { loadConfig } from '@sveltejs/load-config';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 
-import { SVELTE_CONFIG_FILENAME, SVELTEKIT_LIB_ALIAS } from './constants.ts';
+import { SVELTEKIT_LIB_ALIAS, VITE_CONFIG_BASENAME, VITE_CONFIG_EXTENSIONS } from './constants.ts';
 
 /* eslint-disable @typescript-eslint/no-deprecated */
 // see https://github.com/sveltejs/kit/discussions/14240
@@ -14,62 +14,72 @@ import { SVELTE_CONFIG_FILENAME, SVELTEKIT_LIB_ALIAS } from './constants.ts';
 This module is intended to have minimal dependencies to avoid over-imports in the CLI.
 Loading is lazy and memoized - see `load_default_svelte_config`.
 
+The Svelte config is read through Vite, never from `svelte.config.js` directly.
+SvelteKit resolves its own config the same way, so this sees exactly what
+`vite dev` and `vite build` see - inline `sveltekit()` options when a project passes
+them, and otherwise whatever SvelteKit loaded from `svelte.config.js` on its own.
+
 */
+
+/**
+ * The names of the Vite plugins that carry the resolved Svelte config,
+ * in the order SvelteKit itself prefers them.
+ */
+const CONFIG_PROVIDER_PLUGIN_NAMES = ['vite-plugin-sveltekit-setup', 'vite-plugin-svelte:config'];
+
+/**
+ * Whether `dir` has a Vite config at all, used only to skip the work of loading Vite.
+ * Which of several Vite configs wins is Vite's call, not Gro's.
+ */
+const has_vite_config = (dir: string): boolean =>
+	VITE_CONFIG_EXTENSIONS.some((ext) => existsSync(join(dir, VITE_CONFIG_BASENAME + '.' + ext)));
 
 export interface LoadSvelteConfigOptions {
 	/**
 	 * @default cwd
 	 */
 	dir?: string;
-	/**
-	 * @default `SVELTE_CONFIG_FILENAME`
-	 */
-	config_filename?: string;
-	/**
-	 * Resolve the config through `vite.config` when one is present,
-	 * which applies SvelteKit's own defaults and supports projects
-	 * that configure Svelte from Vite instead of `svelte.config.js`.
-	 *
-	 * Costs a full Vite config resolution, and is unavailable on worker threads
-	 * because it calls `process.chdir`, so the Node loader opts out.
-	 * @default true
-	 */
-	resolve_with_vite?: boolean;
 }
 
 /**
- * Whether a load actually goes through Vite.
- * Vite's resolution finds `svelte.config.*` on its own, so a custom filename
- * can only be honored by importing that file directly.
+ * Loads the Svelte config at `dir` by resolving its Vite config.
+ * @returns `null` if `dir` has no Vite config, or one that configures no Svelte plugin
+ * @throws if the Vite config is found but fails to resolve
  */
-const uses_vite = (resolve_with_vite: boolean, config_filename: string): boolean =>
-	resolve_with_vite && config_filename === SVELTE_CONFIG_FILENAME;
+export const load_svelte_config = async (
+	options: LoadSvelteConfigOptions = EMPTY_OBJECT
+): Promise<SvelteConfig | null> => {
+	// Normalized because SvelteKit compares the `root` it's given against the one it enforces
+	// and prints a red warning when they differ - a trailing slash is enough to trip it.
+	const dir = resolve(options.dir ?? process.cwd());
+	if (!has_vite_config(dir)) return null;
 
-/**
- * Loads a SvelteKit config at `dir`.
- * @returns `null` if no config is found
- * @throws if a config is found but fails to load
- */
-export const load_svelte_config = async ({
-	dir = process.cwd(),
-	config_filename = SVELTE_CONFIG_FILENAME,
-	resolve_with_vite = true
-}: LoadSvelteConfigOptions = EMPTY_OBJECT): Promise<SvelteConfig | null> => {
-	const use_vite = uses_vite(resolve_with_vite, config_filename);
-	// Passing the config file instead of its directory tells `loadConfig` to import it directly,
-	// skipping both the `vite.config` lookup and the `process.chdir` it performs.
-	const loaded = await loadConfig(use_vite ? dir : join(dir, config_filename), {
-		traverse: false
-	});
-	if (!loaded) return null;
-	if ('error' in loaded) {
-		throw new Error(`Failed to load SvelteKit config at ${loaded.configFilePath}`, {
-			cause: loaded.error
-		});
+	let vite;
+	try {
+		vite = await import('vite');
+	} catch (_err) {
+		// Vite isn't installed, so the project can't be built with it either.
+		// Degrading beats throwing here - this runs in the Node loader on every invocation,
+		// and a project in this state still needs to be able to run tasks like `gro sync`.
+		return null;
 	}
-	// `loadConfig` types the config loosely (`kit` is `unknown`) because it also handles
-	// plain Svelte projects, but everything Gro reads off it is optional and guarded.
-	return loaded.config as SvelteConfig;
+
+	let resolved;
+	try {
+		// No `configFile`, so Vite picks its own config the way it does everywhere else.
+		// Unlike `@sveltejs/load-config` this doesn't `process.chdir` - Gro always resolves
+		// the project it's running in, and chdir is unavailable on the loader's worker thread.
+		resolved = await vite.resolveConfig({ root: dir, logLevel: 'error' }, 'serve');
+	} catch (err) {
+		throw new Error(`Failed to resolve the Vite config at ${dir}`, { cause: err });
+	}
+
+	for (const name of CONFIG_PROVIDER_PLUGIN_NAMES) {
+		// `api.options` is the split config shape, with SvelteKit's options under `kit`.
+		const options = resolved.plugins.find((p) => p.name === name)?.api?.options;
+		if (options) return options as SvelteConfig;
+	}
+	return null;
 };
 
 /**
@@ -111,28 +121,28 @@ export interface ParsedSvelteConfig {
  * Resolving through Vite yields absolute `files` paths,
  * but Gro's vocabulary is relative to the project directory.
  */
-const to_project_relative_path = (
-	path: string | undefined,
-	dir: string,
-	fallback: string
-): string => {
-	if (path === undefined) return fallback;
-	if (!isAbsolute(path)) return path;
-	return relative(dir, path) || '.';
-};
+const to_project_relative_path = (path: string | undefined, dir: string): string | undefined =>
+	path === undefined || !isAbsolute(path) ? path : relative(dir, path) || '.';
 
 /**
  * Gro compiles for the server by default,
  * because SvelteKit handles the client in the normal cases.
+ * Frozen because it's handed out as a default value.
  */
-export const SVELTE_COMPILE_OPTIONS_DEFAULT: CompileOptions = { generate: 'server' };
+export const SVELTE_COMPILE_OPTIONS_DEFAULT: CompileOptions = Object.freeze({ generate: 'server' });
 
-export interface ParseSvelteConfigOptions extends LoadSvelteConfigOptions {
-	/**
-	 * An already-loaded config to parse instead of reading one from `dir`.
-	 */
-	svelte_config?: SvelteConfig;
-}
+export type ParseSvelteConfigOptions =
+	| LoadSvelteConfigOptions
+	| {
+			/**
+			 * An already-loaded config to parse instead of reading one from `dir`.
+			 */
+			svelte_config: SvelteConfig;
+			/**
+			 * @default cwd
+			 */
+			dir?: string;
+	  };
 
 /**
  * Returns Gro-relevant properties of a SvelteKit config
@@ -143,13 +153,14 @@ export const parse_svelte_config = async (
 ): Promise<ParsedSvelteConfig> => {
 	const { dir = process.cwd() } = options;
 
-	const svelte_config = options.svelte_config ?? (await load_svelte_config(options));
+	const svelte_config =
+		'svelte_config' in options ? options.svelte_config : await load_svelte_config(options);
 
 	const kit = svelte_config?.kit;
 
-	const assets_path = to_project_relative_path(kit?.files?.assets, dir, 'static');
-	const lib_path = to_project_relative_path(kit?.files?.lib, dir, 'src/lib');
-	const routes_path = to_project_relative_path(kit?.files?.routes, dir, 'src/routes');
+	const assets_path = to_project_relative_path(kit?.files?.assets, dir) ?? 'static';
+	const lib_path = to_project_relative_path(kit?.files?.lib, dir) ?? 'src/lib';
+	const routes_path = to_project_relative_path(kit?.files?.routes, dir) ?? 'src/routes';
 
 	// SvelteKit always names this alias `$lib` and points it at `files.lib`.
 	// @see https://svelte.dev/docs/kit/configuration#alias
@@ -161,8 +172,7 @@ export const parse_svelte_config = async (
 	// Relative like the paths above, and for a sharper reason: `env_dir` is serialized into
 	// the generated `$env/dynamic/*` modules, so an absolute path from Vite resolution would
 	// bake the build machine's directory into server bundles.
-	const env_dir =
-		kit?.env?.dir === undefined ? undefined : to_project_relative_path(kit.env.dir, dir, '.');
+	const env_dir = to_project_relative_path(kit?.env?.dir, dir);
 	const private_prefix = kit?.env?.privatePrefix;
 	const public_prefix = kit?.env?.publicPrefix;
 
@@ -201,26 +211,20 @@ export const to_default_compile_module_options = ({
 const default_svelte_configs: Map<string, Promise<ParsedSvelteConfig>> = new Map();
 
 /**
- * The parsed SvelteKit config, memoized per directory and resolution mode.
+ * The parsed Svelte config, memoized per directory.
  *
- * Loading a SvelteKit config is expensive - it imports the config module and its
- * preprocessors, and resolving through Vite costs a full Vite config resolution -
- * so callers pull it in on demand instead of paying for it on every Gro invocation.
+ * Reading it costs a full Vite config resolution, which runs every Vite plugin's
+ * config hooks, so callers pull it in on demand instead of paying for it
+ * on every Gro invocation.
  */
 export const load_default_svelte_config = (
 	options: LoadSvelteConfigOptions = EMPTY_OBJECT
 ): Promise<ParsedSvelteConfig> => {
-	const {
-		dir = process.cwd(),
-		config_filename = SVELTE_CONFIG_FILENAME,
-		resolve_with_vite = true
-	} = options;
-	// Keyed on whether the load *actually* goes through Vite, not on what was asked for,
-	// so a custom filename doesn't get one cache entry per requested mode for the same load.
-	const key = `${uses_vite(resolve_with_vite, config_filename) ? 'vite' : 'svelte'}:${join(dir, config_filename)}`;
+	const { dir = process.cwd() } = options;
+	const key = resolve(dir);
 	let loading = default_svelte_configs.get(key);
 	if (loading === undefined) {
-		loading = parse_svelte_config({ dir, config_filename, resolve_with_vite });
+		loading = parse_svelte_config({ dir });
 		default_svelte_configs.set(key, loading);
 		// Evict failures so a long-lived process like `gro dev` picks up a fixed config.
 		// Attaching the handler here also keeps the cached promise from being reported

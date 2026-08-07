@@ -93,24 +93,32 @@ describe('parse_svelte_config', () => {
 });
 
 describe('load_default_svelte_config', () => {
-	// Uses `DIR`, which holds no config, so the Vite-resolving entry stays cheap -
-	// resolving a real project through Vite costs a full Vite config resolution
-	// and calls `process.chdir`, which is not something to do from a unit test.
-	test('memoizes per directory and resolution mode', async () => {
-		const authored = load_default_svelte_config({ dir: DIR, resolve_with_vite: false });
-		expect(load_default_svelte_config({ dir: DIR, resolve_with_vite: false })).toBe(authored);
-		// A different resolution mode is a different cache entry.
-		const resolved_with_vite = load_default_svelte_config({ dir: DIR, resolve_with_vite: true });
-		expect(resolved_with_vite).not.toBe(authored);
-		// As is a different directory.
-		const nested = load_default_svelte_config({ dir: DIR + '/nested', resolve_with_vite: false });
-		expect(nested).not.toBe(authored);
-		await Promise.all([authored, resolved_with_vite, nested]);
+	// `DIR` holds no Vite config, so these stay cheap - Vite is never loaded.
+	test('memoizes per directory', async () => {
+		const loading = load_default_svelte_config({ dir: DIR });
+		expect(load_default_svelte_config({ dir: DIR })).toBe(loading);
+		// Keyed on the resolved directory, so these are the same entry.
+		expect(load_default_svelte_config({ dir: DIR + '/' })).toBe(loading);
+		expect(load_default_svelte_config({ dir: DIR + '/nested/..' })).toBe(loading);
+		// A different directory is not.
+		const nested = load_default_svelte_config({ dir: DIR + '/nested' });
+		expect(nested).not.toBe(loading);
+		await Promise.all([loading, nested]);
 	});
 
-	test('parses the config of the project it runs in', async () => {
-		await expect(load_default_svelte_config({ resolve_with_vite: false })).resolves.toMatchObject({
+	test('falls back to the conventional paths when the directory has no Vite config', async () => {
+		await expect(load_default_svelte_config({ dir: DIR })).resolves.toMatchObject({
+			svelte_config: null,
 			lib_path: 'src/lib'
+		});
+	});
+
+	// Resolves this project's own `vite.config.ts` through Vite, the way every Gro
+	// invocation does, so it covers reading the config off the SvelteKit plugin.
+	test('resolves the config of the project it runs in', async () => {
+		await expect(load_default_svelte_config()).resolves.toMatchObject({
+			lib_path: 'src/lib',
+			routes_path: 'src/routes'
 		});
 	});
 });

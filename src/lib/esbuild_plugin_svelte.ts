@@ -22,6 +22,12 @@ export interface EsbuildPluginSvelteOptions {
 	dev: boolean;
 	base_url: ParsedSvelteConfig['base_url'];
 	dir?: string;
+	/**
+	 * Defaults to Gro's baseline, not the project's `compilerOptions` -
+	 * reading those is async, so callers pass `svelte_compile_options`
+	 * off a `ParsedSvelteConfig` to honor them.
+	 * @default `SVELTE_COMPILE_OPTIONS_DEFAULT`
+	 */
 	svelte_compile_options?: CompileOptions;
 	svelte_compile_module_options?: ModuleCompileOptions;
 	svelte_preprocessors?: PreprocessorGroup | Array<PreprocessorGroup>;

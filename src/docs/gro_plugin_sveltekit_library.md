@@ -9,8 +9,8 @@ to build libraries from `src/lib/` for publishing to npm.
 The [default config](/src/lib/gro.config.default.ts) enables this plugin
 when all three conditions are met:
 
-1. `svelte.config.js` exists at the project root
-2. `src/lib/` directory exists (or the path configured in `svelte.config.js`)
+1. `@sveltejs/kit` is a dependency in `package.json`
+2. `src/lib/` directory exists (or the path configured by `kit.files.lib`)
 3. `@sveltejs/package` is listed in `package.json` dependencies
 
 Install to enable:

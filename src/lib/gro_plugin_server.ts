@@ -60,7 +60,8 @@ export interface GroPluginServerOptions {
 	 */
 	ambient_env?: Record<string, string>;
 	/**
-	 * @default ```loaded from `${cwd}/${SVELTE_CONFIG_FILENAME}````
+	 * An already-loaded Svelte config, to skip resolving `dir`'s Vite config.
+	 * @default ```resolved from `dir`'s Vite config````
 	 */
 	svelte_config?: SvelteConfig;
 	/**
@@ -133,14 +134,11 @@ export const gro_plugin_server = ({
 	return {
 		name: 'gro_plugin_server',
 		setup: async ({ dev, watch, timings, log, config, filer }) => {
-			// `load_default_svelte_config` memoizes per directory,
-			// so this shares the parse with the rest of the process when `dir` is the cwd.
+			// `load_default_svelte_config` memoizes per directory, so this shares the resolution
+			// with the rest of the process when `dir` is the cwd.
 			const parsed_svelte_config = svelte_config
 				? await parse_svelte_config({ svelte_config, dir })
-				: await load_default_svelte_config({
-						dir,
-						config_filename: config.svelte_config_filename
-					});
+				: await load_default_svelte_config({ dir });
 			const {
 				alias,
 				base_url,
