@@ -1,13 +1,14 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import type { Config as SvelteConfig } from '@sveltejs/kit';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
 	load_default_svelte_config,
 	load_svelte_config,
-	parse_svelte_config
+	parse_svelte_config,
+	svelte_config_log
 } from '$lib/svelte_config.ts';
 
 // The project directory is always the cwd - see `svelte_config.ts` for why it can't be anything else.
@@ -139,6 +140,26 @@ describe('load_svelte_config', () => {
 	// it short-circuits before Vite is imported at all.
 	test('returns null when the project has no Vite config', async () => {
 		await expect(in_empty_dir(load_svelte_config)).resolves.toBe(null);
+	});
+
+	// A project with neither config isn't a Svelte project, so it gets no warning,
+	// but one with a Svelte config and no Vite config is silently ignored without this.
+	test('warns when a Svelte config has no Vite config to be read through', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		// `Logger` defaults to `'off'` under Vitest, so the level is opted back in here.
+		svelte_config_log.level = 'warn';
+		try {
+			const loaded = await in_empty_dir(async () => {
+				writeFileSync('svelte.config.js', 'export default {};');
+				return load_svelte_config();
+			});
+			expect(loaded).toBe(null);
+			expect(warn).toHaveBeenCalledOnce();
+			expect(warn.mock.calls.flat().join(' ')).toContain('svelte.config.js');
+		} finally {
+			svelte_config_log.clear_level_override();
+			warn.mockRestore();
+		}
 	});
 
 	// Vite's `resolveConfig` writes `NODE_ENV` when it's unset, and the `development` it would

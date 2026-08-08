@@ -3,8 +3,13 @@ import type { CompileOptions, ModuleCompileOptions, PreprocessorGroup } from 'sv
 import { isAbsolute, join, relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { SVELTEKIT_LIB_ALIAS, VITE_CONFIG_FILENAMES } from './constants.ts';
+import {
+	SVELTE_CONFIG_FILENAMES,
+	SVELTEKIT_LIB_ALIAS,
+	VITE_CONFIG_FILENAMES
+} from './constants.ts';
 
 /* eslint-disable @typescript-eslint/no-deprecated */
 // see https://github.com/sveltejs/kit/discussions/14240
@@ -18,6 +23,11 @@ The Svelte config is read through Vite, never from `svelte.config.js` directly,
 with the same `resolveConfig` call SvelteKit's own `load_config` makes.
 So this sees exactly what SvelteKit sees - inline `sveltekit()` options when a project
 passes them, and otherwise whatever SvelteKit loaded from `svelte.config.js` on its own.
+
+A project with no Vite config is read as having no Svelte config, since there's nothing
+to read one through, so projects that don't use Vite keep working on the defaults.
+Having a Vite config that can't be resolved is an error rather than a fallback,
+because falling back would mean compiling against the wrong config in silence.
 
 Always the project in the cwd, never an arbitrary directory. SvelteKit resolves its
 `files` and `env.dir` against its own cwd rather than the Vite `root` it's handed,
@@ -35,29 +45,48 @@ so a `dir` parameter here could only ever be half-honored.
 const CONFIG_PROVIDER_PLUGIN_NAMES = ['vite-plugin-sveltekit-setup', 'vite-plugin-svelte:config'];
 
 /**
- * Whether `dir` has a Vite config at all, used only to skip the work of loading Vite.
- * Which of several Vite configs wins is Vite's call, not Gro's.
+ * This module has no logger in scope - it's called from the Node loader and from
+ * `load_default_svelte_config`, neither of which has one to pass in.
+ * Exported so it can be silenced or redirected, e.g. `svelte_config_log.level = 'off'`.
  */
-const has_vite_config = (dir: string): boolean =>
-	VITE_CONFIG_FILENAMES.some((filename) => existsSync(join(dir, filename)));
+export const svelte_config_log = new Logger('svelte_config');
+
+/**
+ * The first of `filenames` that exists in `dir`, if any.
+ * Which of several configs wins is Vite's and SvelteKit's call, not Gro's,
+ * so their filenames are treated as a set rather than privileging one extension.
+ */
+const find_config_file = (dir: string, filenames: Array<string>): string | undefined =>
+	filenames.find((filename) => existsSync(join(dir, filename)));
 
 /**
  * Loads the Svelte config of the project in the cwd by resolving its Vite config.
  * @returns `null` if the project has no Vite config, or one that configures no Svelte plugin
- * @throws if the Vite config is found but fails to resolve
+ * @throws if the project has a Vite config but Vite isn't installed, or if it fails to resolve
  */
 export const load_svelte_config = async (): Promise<SvelteConfig | null> => {
 	const dir = process.cwd();
-	if (!has_vite_config(dir)) return null;
+	if (!find_config_file(dir, VITE_CONFIG_FILENAMES)) {
+		// A project with neither config simply isn't a Svelte project, but one with a Svelte config
+		// and no Vite config looks configured while being silently ignored, so it gets a warning.
+		const svelte_config_filename = find_config_file(dir, SVELTE_CONFIG_FILENAMES);
+		if (svelte_config_filename) {
+			svelte_config_log.warn(
+				`Found ${svelte_config_filename} but no Vite config in ${dir},` +
+					' so its preprocessors, aliases, and compiler options are being ignored.' +
+					' Gro reads the Svelte config through Vite, the same as SvelteKit does.'
+			);
+		}
+		return null;
+	}
 
 	let vite;
 	try {
 		vite = await import('vite');
-	} catch (_err) {
-		// Vite isn't installed, so the project can't be built with it either.
-		// Degrading beats throwing here - this runs in the Node loader on every invocation,
-		// and a project in this state still needs to be able to run tasks like `gro sync`.
-		return null;
+	} catch (err) {
+		// Only reachable with a Vite config in hand, so the project is meant to build with Vite
+		// and can't. Degrading would mean compiling against the wrong config in silence.
+		throw new Error(`Found a Vite config at ${dir} but failed to import Vite`, { cause: err });
 	}
 
 	let resolved;

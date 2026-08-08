@@ -38,11 +38,17 @@ Resolving a Vite config is more than a read - it runs every plugin's `config` an
 is another. Gro restores `NODE_ENV` around the call, so the `development` Vite would
 leave behind no longer reaches the `vite build` that `gro build` spawns.
 
-Vite is now an optional peer dependency. A project with no Vite config, or with no Vite
-installed, gets the conventional defaults rather than an error, so non-Vite projects
-keep working. Note that a `svelte.config.js` is only read through Vite, so a project
-with one but no Vite config gets those defaults too, not its own preprocessors,
-aliases, or compiler options.
+Vite is now an optional peer dependency. A project with no Vite config gets the
+conventional defaults rather than an error, so non-Vite projects keep working. Note that
+a `svelte.config.js` is only read through Vite, so a project with one but no Vite config
+gets those defaults too, not its own preprocessors, aliases, or compiler options - that
+combination now warns, since it looks configured while being silently ignored.
+
+A project that does have a Vite config but no Vite installed throws rather than falling
+back, because falling back would mean compiling against the wrong config in silence.
+
+The warning goes through the exported `svelte_config_log`, since this runs where there's
+no logger to pass in - set `svelte_config_log.level = 'off'` to silence it.
 
 Also fixes `parse_svelte_config` mutating the `compilerOptions` of the config passed to
 it, and normalizes `kit.env.dir` to a project-relative path - it's serialized into the
