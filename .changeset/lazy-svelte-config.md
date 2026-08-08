@@ -27,10 +27,17 @@ worker thread, where `process.chdir` is unavailable, but Vite's config resolutio
 doesn't need it - only `@sveltejs/load-config` does, which is why Gro calls
 `vite.resolveConfig` directly and drops that dependency.
 
-The loader stays eager, though: resolving the config runs the `resolve` hook for each of
-its own imports, so a hook that awaited the load it is part of would deadlock. That side
-is now more expensive than reading `svelte.config.js` was, and it's on the critical path
-of every invocation, so the win here is on the main thread rather than overall.
+The loader stays eager, though: the hooks thread's own imports go back through its own
+`resolve` hook, so a hook that awaited the load it is part of re-enters itself until the
+stack blows. Loading during module evaluation, before the hooks go live, keeps that
+graph out of them.
+
+That trades a main-thread cost for a slower floor on every invocation. In this repo a
+full `vite.resolveConfig` measures ~750-1100ms against ~275ms for importing
+`svelte.config.js`, and the loader is registered for every `gro` command, so a short task
+like `gro format` now pays it with nothing to show for it. Tasks that never touch the
+config no longer pay on the main thread, which is the win; the loader side is a
+regression, and caching the resolved values under `.gro/` is the way out of it.
 
 Resolving a Vite config is more than a read - it runs every plugin's `config` and
 `configResolved` hooks, so it inherits their side effects. SvelteKit's rewrite of
@@ -38,17 +45,30 @@ Resolving a Vite config is more than a read - it runs every plugin's `config` an
 is another. Gro restores `NODE_ENV` around the call, so the `development` Vite would
 leave behind no longer reaches the `vite build` that `gro build` spawns.
 
+The `compilerOptions` read back for a plain Svelte project are `vite-plugin-svelte`'s
+*resolved* options rather than the user's, so they arrive with that plugin's own `css`,
+`dev`, and `hmr` mixed in, resolved for the `build`/`production` pass. It deletes
+`generate`, so Gro's server default survives, and the loader always sets `dev` itself.
+SvelteKit projects are unaffected - their `api.options` is the Svelte config as authored.
+
 Vite is now an optional peer dependency. A project with no Vite config gets the
 conventional defaults rather than an error, so non-Vite projects keep working. Note that
 a `svelte.config.js` is only read through Vite, so a project with one but no Vite config
-gets those defaults too, not its own preprocessors, aliases, or compiler options - that
-combination now warns, since it looks configured while being silently ignored.
+gets those defaults too, not its own preprocessors, aliases, or compiler options.
+
+Both ways of ending up there now warn, since the Svelte config looks like it's
+configuring the project while being ignored: no Vite config to read it through, and a
+Vite config that configures no Svelte plugin. The second is the likelier one - a
+`vite.config.ts` that only sets up Vitest, alongside a `svelte.config.js` doing the real
+configuring, lands exactly there. Unlike SvelteKit, Gro doesn't fall back to importing
+the Svelte config itself. A project with no Svelte config stays quiet: it's configuring
+nothing to ignore.
 
 A project that does have a Vite config but no Vite installed throws rather than falling
 back, because falling back would mean compiling against the wrong config in silence.
 
-The warning goes through the exported `svelte_config_log`, since this runs where there's
-no logger to pass in - set `svelte_config_log.level = 'off'` to silence it.
+The warnings go through the exported `svelte_config_log`, since this runs where there's
+no logger to pass in - set `svelte_config_log.level = 'off'` to silence them.
 
 Also fixes `parse_svelte_config` mutating the `compilerOptions` of the config passed to
 it, and normalizes `kit.env.dir` to a project-relative path - it's serialized into the
@@ -71,18 +91,32 @@ Breaking changes:
   one, and only after checking the `@sveltejs/package` dependency, so a project that
   isn't a library never reads the Svelte config. Both it and `has_sveltekit_app` also
   drop their unused `dep_name` parameter and use the dependency-name constants directly
+- both detect through `dependencies` and `devDependencies` only. A peer dep declares what
+  a package works alongside, not what it is, so counting it would run `vite build` over a
+  library that peers on SvelteKit and has no app. `package_json_has_dependency` takes a
+  third `include_peer` param for this, defaulting to `true` as before
 - `GenContext` is built by the new `create_gen_context`, shared by generation and
   dependency resolution so they can't drift
 - `ROUTES_DIRNAME` is removed
 - `SVELTE_CONFIG_FILENAME` and `VITE_CONFIG_FILENAME` are replaced by
   `SVELTE_CONFIG_FILENAMES` and `VITE_CONFIG_FILENAMES`, every filename SvelteKit and
   Vite accept for their configs. `gro format` now formats whichever of them a project
-  has, not only `svelte.config.js` and `vite.config.ts`. `VITE_CONFIG_BASENAME` and
-  `VITE_CONFIG_EXTENSIONS` are removed, subsumed by the filename list
+  has, not only `svelte.config.js` and `vite.config.ts`
 - `paths.lib`, `LIB_DIRNAME`, `LIB_PATH`, and `LIB_DIR` are the conventional `src/lib`
   rather than derived from `kit.files.lib`, so that `paths` stays free of the config.
-  Read `lib_path` off `ParsedSvelteConfig` to honor a customized `files.lib`, and point
-  `task_root_dirs` at it in `gro.config.ts` if tasks live there
+  Everything that has to honor a customized `files.lib` reads `lib_path` off
+  `ParsedSvelteConfig` instead - the `package.json` exports automation, the server
+  plugin's entry point and `outbase`, and `has_sveltekit_library`. Point `task_root_dirs`
+  at it in `gro.config.ts` if tasks live there
+- `package_json_sync`'s `exports_dir` param no longer defaults to `paths.lib`; when
+  omitted it's the Svelte config's `lib_path`, which `has_sveltekit_library` has already
+  resolved by then. Searching the conventional `src/lib` for a project that moved its lib
+  directory found nothing and replaced the whole `exports` map with a single entry
+- `gro_plugin_server`'s `SERVER_SOURCE_ID` is replaced by `SERVER_SOURCE_PATH` (relative
+  to the lib directory) and `to_server_source_id(lib_path)`. Its `entry_points` and
+  `outpaths` defaults now resolve in `setup` rather than at plugin creation, since
+  reading `lib_path` is async; the outpaths default is exported as `to_default_outpaths`.
+  `has_server()` takes an optional path and defaults to the configured lib directory
 - `MODULE_PATH_LIB_PREFIX` is always `$lib/`, matching SvelteKit, which names the alias
   `$lib` no matter where `files.lib` points - it was previously derived from `files.lib`
 - the default config detects plugins inside `plugins()` instead of when the config
@@ -93,3 +127,6 @@ Breaking changes:
   `SVELTE_COMPILE_OPTIONS_DEFAULT` rather than the project's `compilerOptions`, because
   the default can't read the config synchronously - pass `svelte_compile_options` from a
   `ParsedSvelteConfig` to honor them
+- `dev` and `build` widen their `TaskContext` with the new `to_plugin_context` instead of
+  spreading it, because spreading calls the lazy `svelte_config` getter and resolves the
+  config for plugin sets that never read it

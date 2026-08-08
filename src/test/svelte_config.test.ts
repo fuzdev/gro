@@ -122,6 +122,8 @@ describe('load_default_svelte_config', () => {
 /**
  * Runs `fn` in an empty directory. The config is always read from the cwd,
  * so moving the cwd is the only way to point `load_svelte_config` somewhere else.
+ * Note that `process.chdir` throws on a worker thread, so these tests need Vitest's
+ * default `forks` pool - switching to `threads` would break them.
  */
 const in_empty_dir = async <T>(fn: () => Promise<T>): Promise<T> => {
 	const cwd = process.cwd();
@@ -142,24 +144,60 @@ describe('load_svelte_config', () => {
 		await expect(in_empty_dir(load_svelte_config)).resolves.toBe(null);
 	});
 
-	// A project with neither config isn't a Svelte project, so it gets no warning,
-	// but one with a Svelte config and no Vite config is silently ignored without this.
-	test('warns when a Svelte config has no Vite config to be read through', async () => {
+	/**
+	 * Loads the config in an empty dir seeded with `files`, capturing anything warned.
+	 * `Logger` defaults to `'off'` under Vitest, so the level is opted back in here.
+	 */
+	const load_with_warnings = async (
+		files: Record<string, string>
+	): Promise<{ loaded: SvelteConfig | null; warnings: Array<string> }> => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-		// `Logger` defaults to `'off'` under Vitest, so the level is opted back in here.
 		svelte_config_log.level = 'warn';
 		try {
 			const loaded = await in_empty_dir(async () => {
-				writeFileSync('svelte.config.js', 'export default {};');
+				for (const [filename, content] of Object.entries(files)) writeFileSync(filename, content);
 				return load_svelte_config();
 			});
-			expect(loaded).toBe(null);
-			expect(warn).toHaveBeenCalledOnce();
-			expect(warn.mock.calls.flat().join(' ')).toContain('svelte.config.js');
+			return { loaded, warnings: warn.mock.calls.map((c) => c.join(' ')) };
 		} finally {
 			svelte_config_log.clear_level_override();
 			warn.mockRestore();
 		}
+	};
+
+	// A project with neither config isn't a Svelte project, so it gets no warning,
+	// but one with a Svelte config and no Vite config is silently ignored without this.
+	test('warns when a Svelte config has no Vite config to be read through', async () => {
+		const { loaded, warnings } = await load_with_warnings({
+			'svelte.config.js': 'export default {};'
+		});
+		expect(loaded).toBe(null);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain('svelte.config.js');
+		expect(warnings[0]).toContain('no Vite config');
+	});
+
+	// The same silent ignore, one step further in: a `vite.config.js` that sets up something other
+	// than Svelte - Vitest, most plausibly - alongside a `svelte.config.js` doing the real work.
+	test('warns when the Vite config configures no Svelte plugin', async () => {
+		const { loaded, warnings } = await load_with_warnings({
+			'vite.config.js': 'export default {};',
+			'svelte.config.js': 'export default {};'
+		});
+		expect(loaded).toBe(null);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain('svelte.config.js');
+		expect(warnings[0]).toContain('no Svelte plugin');
+	});
+
+	// Only the Svelte config makes the silence worth warning about -
+	// a project with a Vite config and no Svelte config is configuring nothing to ignore.
+	test('stays quiet when there is no Svelte config to ignore', async () => {
+		const { loaded, warnings } = await load_with_warnings({
+			'vite.config.js': 'export default {};'
+		});
+		expect(loaded).toBe(null);
+		expect(warnings).toHaveLength(0);
 	});
 
 	// Vite's `resolveConfig` writes `NODE_ENV` when it's unset, and the `development` it would

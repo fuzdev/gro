@@ -290,9 +290,11 @@ config object. If absent, uses default config from
 Default config behavior: Auto-detects project type from `package.json` and the
 filesystem, deferred until plugins are created:
 
-- `@sveltejs/kit` in package.json → enables `gro_plugin_sveltekit_app`
-- `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
-- `src/lib/server/server.ts` → enables `gro_plugin_server`
+- `@sveltejs/kit` in package.json deps or dev deps (not peer deps) → enables
+  `gro_plugin_sveltekit_app`
+- `@sveltejs/package` in package.json + the lib directory → enables
+  `gro_plugin_sveltekit_library`
+- `server/server.ts` in the lib directory → enables `gro_plugin_server`
 - Always enables `gro_plugin_gen`
 
 Config interface:

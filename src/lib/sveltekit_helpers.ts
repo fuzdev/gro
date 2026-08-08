@@ -21,11 +21,13 @@ import { TaskError } from './task.ts';
 /**
  * Detected from `package.json` rather than the Svelte config,
  * because reading the config costs a full Vite config resolution.
+ * Peer deps don't count - a package peered on SvelteKit is built to work with one,
+ * not to be one, and counting them would run `vite build` over a library that has no app.
  */
 export const has_sveltekit_app = (
 	package_json: PackageJson
 ): Result<object, { message: string }> => {
-	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json)) {
+	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json, false)) {
 		return { ok: false, message: `no dependency found in package.json for ${SVELTEKIT_DEP_NAME}` };
 	}
 	return { ok: true };
@@ -42,7 +44,8 @@ export const has_sveltekit_library = async (
 	// Checked before the lib directory because it's the cheaper of the two
 	// and it's what distinguishes a library from an app,
 	// so apps bail out without reading the Svelte config.
-	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json)) {
+	// Peer deps don't count here either, for the same reason as `has_sveltekit_app`.
+	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
 		return {
 			ok: false,
 			message: `no dependency found in package.json for ${SVELTE_PACKAGE_DEP_NAME}`

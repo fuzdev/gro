@@ -16,6 +16,9 @@ when all three conditions are met:
 They're checked in that order, so a project that isn't a library never reads the
 Svelte config, which is the only one of the three that costs anything.
 
+Only `dependencies` and `devDependencies` count for the first two - a peer dep
+declares what a package works alongside, not what the package itself is.
+
 Install to enable:
 
 ```bash

@@ -24,10 +24,19 @@ with the same `resolveConfig` call SvelteKit's own `load_config` makes.
 So this sees exactly what SvelteKit sees - inline `sveltekit()` options when a project
 passes them, and otherwise whatever SvelteKit loaded from `svelte.config.js` on its own.
 
-A project with no Vite config is read as having no Svelte config, since there's nothing
-to read one through, so projects that don't use Vite keep working on the defaults.
-Having a Vite config that can't be resolved is an error rather than a fallback,
-because falling back would mean compiling against the wrong config in silence.
+A project with no Vite config, or one whose Vite config configures no Svelte plugin,
+is read as having no Svelte config, so projects that don't use Vite keep working on the
+defaults. Unlike SvelteKit, which falls back to importing `svelte.config.js` itself,
+a project in either of those states that has a Svelte config gets a warning instead -
+it looks configured while being ignored. Having a Vite config that can't be resolved
+is an error rather than a fallback, because falling back would mean compiling against
+the wrong config in silence.
+
+The `api.options` read back off `vite-plugin-svelte` is that plugin's *resolved* options,
+not the user's, so a plain Svelte project's `compilerOptions` arrive with the plugin's own
+`css`, `dev`, and `hmr` mixed in, resolved for the `build`/`production` pass below.
+It deletes `generate` (along with `format` and `filename`), so Gro's server default survives,
+and consumers that care about `dev` set it themselves - the loader always compiles for dev.
 
 Always the project in the cwd, never an arbitrary directory. SvelteKit resolves its
 `files` and `env.dir` against its own cwd rather than the Vite `root` it's handed,
@@ -60,6 +69,22 @@ const find_config_file = (dir: string, filenames: Array<string>): string | undef
 	filenames.find((filename) => existsSync(join(dir, filename)));
 
 /**
+ * Warns when `dir` has a Svelte config that Gro found no way to read, because that config
+ * looks like it's configuring the project while being ignored. A project with no Svelte
+ * config isn't configuring Svelte at all, so it stays quiet and takes the defaults.
+ * @param reason - why the config couldn't be read, as a clause following "but"
+ */
+const warn_svelte_config_ignored = (dir: string, reason: string): void => {
+	const svelte_config_filename = find_config_file(dir, SVELTE_CONFIG_FILENAMES);
+	if (!svelte_config_filename) return;
+	svelte_config_log.warn(
+		`Found ${svelte_config_filename} in ${dir} but ${reason},` +
+			' so its preprocessors, aliases, and compiler options are being ignored.' +
+			' Gro reads the Svelte config through Vite, the same as SvelteKit does.'
+	);
+};
+
+/**
  * Loads the Svelte config of the project in the cwd by resolving its Vite config.
  * @returns `null` if the project has no Vite config, or one that configures no Svelte plugin
  * @throws if the project has a Vite config but Vite isn't installed, or if it fails to resolve
@@ -67,16 +92,7 @@ const find_config_file = (dir: string, filenames: Array<string>): string | undef
 export const load_svelte_config = async (): Promise<SvelteConfig | null> => {
 	const dir = process.cwd();
 	if (!find_config_file(dir, VITE_CONFIG_FILENAMES)) {
-		// A project with neither config simply isn't a Svelte project, but one with a Svelte config
-		// and no Vite config looks configured while being silently ignored, so it gets a warning.
-		const svelte_config_filename = find_config_file(dir, SVELTE_CONFIG_FILENAMES);
-		if (svelte_config_filename) {
-			svelte_config_log.warn(
-				`Found ${svelte_config_filename} but no Vite config in ${dir},` +
-					' so its preprocessors, aliases, and compiler options are being ignored.' +
-					' Gro reads the Svelte config through Vite, the same as SvelteKit does.'
-			);
-		}
+		warn_svelte_config_ignored(dir, 'no Vite config to read it through');
 		return null;
 	}
 
@@ -119,6 +135,11 @@ export const load_svelte_config = async (): Promise<SvelteConfig | null> => {
 		const options = resolved.plugins.find((p) => p.name === name)?.api?.options;
 		if (options) return options as SvelteConfig;
 	}
+
+	// A Vite config that configures no Svelte plugin is the same silent-ignore as having no Vite
+	// config at all, and likelier to be unintended - a `vite.config.ts` that only sets up Vitest
+	// alongside a `svelte.config.js` that does the real configuring reaches exactly here.
+	warn_svelte_config_ignored(dir, 'its Vite config configures no Svelte plugin');
 	return null;
 };
 
