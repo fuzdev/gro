@@ -3,7 +3,10 @@ import * as esbuild from 'esbuild';
 import { readFile, rm } from 'node:fs/promises';
 
 import { esbuild_plugin_svelte } from '$lib/esbuild_plugin_svelte.ts';
-import { default_svelte_config } from '$lib/svelte_config.ts';
+
+// Passed literally rather than read off the project's config,
+// which would cost a full Vite config resolution for a value these tests already know.
+const base_url = '';
 
 // TODO improve these tests to have automatic caching
 
@@ -14,7 +17,7 @@ test('build for the client', async () => {
 		plugins: [
 			esbuild_plugin_svelte({
 				dev: true,
-				base_url: default_svelte_config.base_url,
+				base_url,
 				svelte_compile_options: { generate: 'client' }
 			})
 		],
@@ -81,7 +84,7 @@ test('build for the server', async () => {
 		plugins: [
 			esbuild_plugin_svelte({
 				dev: true,
-				base_url: default_svelte_config.base_url
+				base_url
 			})
 		],
 		outfile,

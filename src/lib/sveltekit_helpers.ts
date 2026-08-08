@@ -9,44 +9,53 @@ import { to_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
-	SVELTE_CONFIG_FILENAME,
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
+	SVELTEKIT_DEP_NAME,
 	SVELTEKIT_DEV_DIRNAME
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
-import { default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { TaskError } from './task.ts';
 
-export const has_sveltekit_app = async (
-	svelte_config_path: string = SVELTE_CONFIG_FILENAME
-): Promise<Result<object, { message: string }>> => {
-	if (!(await fs_exists(svelte_config_path))) {
-		return { ok: false, message: `no SvelteKit config found at ${SVELTE_CONFIG_FILENAME}` };
+/**
+ * Detected from `package.json` rather than the Svelte config,
+ * because reading the config costs a full Vite config resolution.
+ * Peer deps don't count - a package peered on SvelteKit is built to work with one,
+ * not to be one, and counting them would run `vite build` over a library that has no app.
+ */
+export const has_sveltekit_app = (
+	package_json: PackageJson
+): Result<object, { message: string }> => {
+	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json, false)) {
+		return { ok: false, message: `no dependency found in package.json for ${SVELTEKIT_DEP_NAME}` };
 	}
-	// TODO check for routes?
 	return { ok: true };
 };
 
 export const has_sveltekit_library = async (
-	package_json: PackageJson,
-	svelte_config: ParsedSvelteConfig = default_svelte_config,
-	dep_name = SVELTE_PACKAGE_DEP_NAME
+	package_json: PackageJson
 ): Promise<Result<object, { message: string }>> => {
-	const has_sveltekit_app_result = await has_sveltekit_app();
+	const has_sveltekit_app_result = has_sveltekit_app(package_json);
 	if (!has_sveltekit_app_result.ok) {
 		return has_sveltekit_app_result;
 	}
 
-	if (!(await fs_exists(svelte_config.lib_path))) {
-		return { ok: false, message: `no SvelteKit lib directory found at ${svelte_config.lib_path}` };
-	}
-
-	if (!package_json_has_dependency(dep_name, package_json)) {
+	// Checked before the lib directory because it's the cheaper of the two and it's what
+	// distinguishes a library from an app, so this returns without reading the Svelte config
+	// for the tasks that call it on its own - `changeset`, `publish`, `release`, `gro sync`.
+	// `dev` and `build` resolve the config regardless, since `has_server` needs it too.
+	// Peer deps don't count here either, for the same reason as `has_sveltekit_app`.
+	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
 		return {
 			ok: false,
-			message: `no dependency found in package.json for ${dep_name}`
+			message: `no dependency found in package.json for ${SVELTE_PACKAGE_DEP_NAME}`
 		};
+	}
+
+	const { lib_path } = await load_default_svelte_config();
+	if (!(await fs_exists(lib_path))) {
+		return { ok: false, message: `no SvelteKit lib directory found at ${lib_path}` };
 	}
 
 	return { ok: true };

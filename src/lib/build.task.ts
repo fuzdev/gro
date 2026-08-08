@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 
 import { TaskError, type Task } from './task.ts';
-import { Plugins } from './plugin.ts';
+import { Plugins, to_plugin_context } from './plugin.ts';
 import { clean_fs } from './clean_fs.ts';
 import {
 	is_build_cache_valid,
@@ -111,7 +111,7 @@ export const task: Task<Args> = {
 			await clean_fs({ build_dist: true });
 		}
 
-		const plugins = await Plugins.create({ ...ctx, dev: false, watch: false });
+		const plugins = await Plugins.create(to_plugin_context(ctx, false, false));
 		await plugins.setup();
 		await plugins.adapt();
 		await plugins.teardown();

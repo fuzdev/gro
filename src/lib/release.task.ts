@@ -45,7 +45,7 @@ export const task: Task<Args> = {
 		if (publish) {
 			await invoke_task('publish', { optional: true, dry, check, build, pull, sync, install });
 		}
-		if ((await has_sveltekit_app()).ok) {
+		if (has_sveltekit_app(package_json).ok) {
 			await invoke_task('deploy', {
 				build: build && !publish,
 				dry,

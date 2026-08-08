@@ -1,7 +1,8 @@
-import { test, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
 import {
+	package_json_has_dependency,
 	package_json_load,
 	package_json_parse_repo_url,
 	package_json_serialize,
@@ -213,4 +214,28 @@ test('rejects invalid exports', () => {
 		const parsed = PackageJsonExports.safeParse(invalid_export);
 		expect(parsed.success).toBe(false);
 	}
+});
+
+describe('package_json_has_dependency', () => {
+	const package_json: PackageJson = {
+		name: 'a',
+		version: '0',
+		dependencies: { dep: '1' },
+		devDependencies: { dev_dep: '1' },
+		peerDependencies: { peer_dep: '1' }
+	};
+
+	test('finds deps and dev deps', () => {
+		expect(package_json_has_dependency('dep', package_json)).toBe(true);
+		expect(package_json_has_dependency('dev_dep', package_json)).toBe(true);
+		expect(package_json_has_dependency('missing', package_json)).toBe(false);
+	});
+
+	// Peer deps count by default because most callers ask "is this available at runtime",
+	// but detection asks "is this what the project is", and a peer answers neither.
+	test('counts peer deps only when `include_peer`', () => {
+		expect(package_json_has_dependency('peer_dep', package_json)).toBe(true);
+		expect(package_json_has_dependency('peer_dep', package_json, false)).toBe(false);
+		expect(package_json_has_dependency('dev_dep', package_json, false)).toBe(true);
+	});
 });

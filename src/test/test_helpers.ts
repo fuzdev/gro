@@ -321,7 +321,7 @@ export const create_mock_task_context = <TArgs extends object = any>(
 		build_cache_config_hash: 'test_hash',
 		...config_overrides
 	} as GroConfig,
-	svelte_config: create_mock_svelte_config(),
+	svelte_config: Promise.resolve(create_mock_svelte_config()),
 	filer: create_mock_filer(),
 	log: create_mock_logger(),
 	timings: create_mock_timings(),

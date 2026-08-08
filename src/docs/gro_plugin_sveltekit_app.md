@@ -10,7 +10,8 @@ import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.ts'
 
 const config: CreateGroConfig = async (cfg) => {
 	cfg.plugins = async () => [
-		// included in the default config for SvelteKit projects with src/routes/
+		// included in the default config when `@sveltejs/kit` is a dep or dev dep
+		// (a peer dep doesn't count - it declares what a package works with, not what it is)
 		gro_plugin_sveltekit_app(),
 	];
 	return cfg;

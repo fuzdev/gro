@@ -20,6 +20,22 @@ export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
 	watch: boolean;
 }
 
+/**
+ * Widens a `TaskContext` to a `PluginContext` by adding `dev` and `watch`.
+ * Copies property descriptors rather than spreading, because `svelte_config` is a lazy getter -
+ * spreading would call it, resolving the Svelte config even for a plugin set that never reads it,
+ * and pinning whichever promise it returned instead of the memoized one.
+ */
+export const to_plugin_context = <TArgs>(
+	ctx: TaskContext<TArgs>,
+	dev: boolean,
+	watch: boolean
+): PluginContext<TArgs> =>
+	Object.defineProperties(
+		{ dev, watch },
+		Object.getOwnPropertyDescriptors(ctx)
+	) as PluginContext<TArgs>;
+
 /** See `Plugins.create` for a usage example. */
 export class Plugins<TPluginContext extends PluginContext> {
 	readonly ctx: TPluginContext;

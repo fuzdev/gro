@@ -18,7 +18,6 @@ import {
 import create_default_config from './gro.config.default.ts';
 import type { PluginsCreateConfig } from './plugin.ts';
 import type { PackageJsonMapper } from './package_json.ts';
-import type { ParsedSvelteConfig } from './svelte_config.ts';
 import type { FilerOptions } from './filer.ts';
 
 /**
@@ -62,8 +61,6 @@ export interface GroConfig extends RawGroConfig {
 	 * The CLI to use that's compatible with `npm install` and `npm link`. Defaults to `'npm'`.
 	 */
 	pm_cli: string;
-	/** @default `SVELTE_CONFIG_FILENAME` */
-	svelte_config_filename?: string;
 	/**
 	 * SHA-256 hash of the user's `build_cache_config` from `gro.config.ts`.
 	 * This is computed during config normalization and the raw value is immediately deleted.
@@ -114,10 +111,7 @@ export interface RawGroConfig {
 	filer_options?: Partial<FilerOptions> | null;
 }
 
-export type CreateGroConfig = (
-	base_config: GroConfig,
-	svelte_config?: ParsedSvelteConfig
-) => RawGroConfig | Promise<RawGroConfig>;
+export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
 
 export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],

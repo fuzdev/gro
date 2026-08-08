@@ -7,16 +7,15 @@ import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import {
 	type GenResults,
 	type GenfileModuleResult,
-	type GenContext,
 	type GenfileModuleMeta,
 	to_gen_result,
 	type RawGenResult,
-	normalize_gen_config
+	normalize_gen_config,
+	create_gen_context
 } from './gen.ts';
-import { print_path, to_root_path } from './paths.ts';
+import { print_path } from './paths.ts';
 import type { format_file as base_format_file } from './format_file.ts';
 import type { GroConfig } from './gro_config.ts';
-import { default_svelte_config } from './svelte_config.ts';
 import type { Filer } from './filer.ts';
 import type { InvokeTask } from './task.ts';
 
@@ -43,17 +42,7 @@ export const run_gen = async (
 			const timing_for_module = timings.start(id);
 
 			const gen_config = normalize_gen_config(module_meta.mod.gen);
-			const gen_ctx: GenContext = {
-				config,
-				svelte_config: default_svelte_config,
-				filer,
-				log,
-				timings,
-				invoke_task,
-				origin_id: id,
-				origin_path: to_root_path(id),
-				changed_file_id: undefined
-			};
+			const gen_ctx = create_gen_context({ config, filer, log, timings, invoke_task }, id);
 			let raw_gen_result: RawGenResult;
 			try {
 				raw_gen_result = await gen_config.generate(gen_ctx);

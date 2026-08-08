@@ -34,7 +34,11 @@ export interface Task<
 export interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	/**
+	 * Resolved on first access, so tasks that don't touch it
+	 * never pay to read the SvelteKit config.
+	 */
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;

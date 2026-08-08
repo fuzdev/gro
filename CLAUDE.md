@@ -80,7 +80,7 @@ Task context:
 interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;
@@ -138,17 +138,26 @@ Capabilities:
 - JSON imports (any extension with `type: 'json'` import attribute)
 - Raw text imports (`.css`, `.svg`, or `?raw` suffix)
 
+Svelte config: the `resolve` hook needs the `alias` map before anything can be
+imported, and can't await it — the hooks thread's own imports re-enter its own
+hooks. So the alias map is cached at `.gro/svelte_config.json`
+([`svelte_config_cache.ts`](src/lib/svelte_config_cache.ts)), keyed by the mtime
+and size of the Vite and Svelte config filenames plus `package.json`. Everything
+else the loader reads from the config is awaited inside `load`, which most
+invocations never reach. A cache miss resolves the whole config at module scope
+and rewrites.
+
 SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
 to actual SvelteKit modules:
 
-- `$lib/*` → resolved via svelte.config.js alias to `src/lib/`
+- `$lib/*` → resolved via the SvelteKit `$lib` alias to `src/lib/`
 - `$env/static/public` → reads `PUBLIC_*` vars from `.env`
 - `$env/static/private` → reads all vars from `.env`
 - `$env/dynamic/public` → `process.env` with `PUBLIC_*` filtering
 - `$env/dynamic/private` → full `process.env`
 - `$app/environment` →
   `{dev: true, browser: false, building: false, version: ''}`
-- `$app/paths` → `{base: '', assets: ''}` from svelte.config.js
+- `$app/paths` → `{base: '', assets: ''}` from the resolved Svelte config
 
 ### Code generation
 
@@ -193,7 +202,7 @@ Gen context:
 ```typescript
 interface GenContext {
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	filer: Filer;
 	log: Logger;
 	timings: Timings;
@@ -287,11 +296,14 @@ Optional `gro.config.ts` at project root exports `CreateGroConfig` function or
 config object. If absent, uses default config from
 `src/lib/gro.config.default.ts`.
 
-Default config behavior: Auto-detects project type by checking filesystem:
+Default config behavior: Auto-detects project type from `package.json` and the
+filesystem, deferred until plugins are created:
 
-- `svelte.config.js` → enables `gro_plugin_sveltekit_app`
-- `svelte.config.js` + `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
-- `src/lib/server/server.ts` → enables `gro_plugin_server`
+- `@sveltejs/kit` in package.json deps or dev deps (not peer deps) → enables
+  `gro_plugin_sveltekit_app`
+- `@sveltejs/package` in package.json + the lib directory → enables
+  `gro_plugin_sveltekit_library`
+- `server/server.ts` in the lib directory → enables `gro_plugin_server`
 - Always enables `gro_plugin_gen`
 
 Config interface:
@@ -342,7 +354,7 @@ export default config;
 - Gen files: `*.gen.*` anywhere in `src/` (pattern: `.gen.` substring)
 - Test files: `*.test.ts` anywhere (run by Vitest)
 - Config: `gro.config.ts` at project root
-- SvelteKit config: `svelte.config.js` at project root
+- Vite config: `vite.config.*` at project root - the Svelte config is read through it
 
 Exclusions (configurable via `search_filters`):
 
