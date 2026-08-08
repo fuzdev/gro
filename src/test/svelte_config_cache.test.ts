@@ -14,6 +14,9 @@ import { GRO_DIRNAME } from '$lib/constants.ts';
 
 const ALIAS = { $lib: 'src/lib', $routes: 'src/routes' };
 
+/** What a successful config read produces, in the shape `svelte_config_cache_write` takes. */
+const READ = { alias: ALIAS, svelte_config_found: true };
+
 /**
  * Runs `fn` in a fresh directory seeded with `files`, and cleans it up after.
  * Unlike the `svelte_config` tests this doesn't need the cwd, since every entry point
@@ -56,7 +59,7 @@ describe('svelte_config_cache_read', () => {
 	test('round-trips a written cache', () => {
 		in_dir({ 'vite.config.ts': 'a', 'package.json': '{}' }, (dir) => {
 			const stamps = svelte_config_cache_stamps(dir);
-			svelte_config_cache_write(stamps, ALIAS, true, dir);
+			svelte_config_cache_write(stamps, READ, dir);
 			const cache = svelte_config_cache_read(stamps, dir);
 			expect(cache?.alias).toEqual(ALIAS);
 			expect(cache?.svelte_config_found).toBe(true);
@@ -67,14 +70,14 @@ describe('svelte_config_cache_read', () => {
 	test('carries `svelte_config_found: false` so the warning can repeat', () => {
 		in_dir({ 'vite.config.ts': 'a' }, (dir) => {
 			const stamps = svelte_config_cache_stamps(dir);
-			svelte_config_cache_write(stamps, ALIAS, false, dir);
+			svelte_config_cache_write(stamps, { ...READ, svelte_config_found: false }, dir);
 			expect(svelte_config_cache_read(stamps, dir)?.svelte_config_found).toBe(false);
 		});
 	});
 
 	test('misses when a tracked file changes', () => {
 		in_dir({ 'vite.config.ts': 'a', 'package.json': '{}' }, (dir) => {
-			svelte_config_cache_write(svelte_config_cache_stamps(dir), ALIAS, true, dir);
+			svelte_config_cache_write(svelte_config_cache_stamps(dir), READ, dir);
 			writeFileSync(join(dir, 'vite.config.ts'), 'a different length');
 			expect(svelte_config_cache_read(svelte_config_cache_stamps(dir), dir)).toBe(null);
 		});
@@ -84,7 +87,7 @@ describe('svelte_config_cache_read', () => {
 	// re-resolve, or it would keep running on aliases read before the file existed.
 	test('misses when a tracked file appears', () => {
 		in_dir({ 'vite.config.ts': 'a' }, (dir) => {
-			svelte_config_cache_write(svelte_config_cache_stamps(dir), ALIAS, true, dir);
+			svelte_config_cache_write(svelte_config_cache_stamps(dir), READ, dir);
 			writeFileSync(join(dir, 'svelte.config.js'), 'export default {};');
 			expect(svelte_config_cache_read(svelte_config_cache_stamps(dir), dir)).toBe(null);
 		});
@@ -92,7 +95,7 @@ describe('svelte_config_cache_read', () => {
 
 	test('misses when a tracked file is removed', () => {
 		in_dir({ 'vite.config.ts': 'a', 'svelte.config.js': 'b' }, (dir) => {
-			svelte_config_cache_write(svelte_config_cache_stamps(dir), ALIAS, true, dir);
+			svelte_config_cache_write(svelte_config_cache_stamps(dir), READ, dir);
 			rmSync(join(dir, 'svelte.config.js'));
 			expect(svelte_config_cache_read(svelte_config_cache_stamps(dir), dir)).toBe(null);
 		});
@@ -101,7 +104,7 @@ describe('svelte_config_cache_read', () => {
 	test('misses on a stale version', () => {
 		in_dir({ 'vite.config.ts': 'a' }, (dir) => {
 			const stamps = svelte_config_cache_stamps(dir);
-			svelte_config_cache_write(stamps, ALIAS, true, dir);
+			svelte_config_cache_write(stamps, READ, dir);
 			const cache = JSON.parse(readFileSync(cache_path(dir), 'utf8'));
 			writeFileSync(
 				cache_path(dir),
@@ -126,7 +129,7 @@ describe('svelte_config_cache_read', () => {
 describe('svelte_config_cache_write', () => {
 	test('creates the .gro directory', () => {
 		in_dir({ 'vite.config.ts': 'a' }, (dir) => {
-			svelte_config_cache_write(svelte_config_cache_stamps(dir), ALIAS, true, dir);
+			svelte_config_cache_write(svelte_config_cache_stamps(dir), READ, dir);
 			expect(JSON.parse(readFileSync(cache_path(dir), 'utf8')).alias).toEqual(ALIAS);
 		});
 	});
@@ -137,7 +140,7 @@ describe('svelte_config_cache_write', () => {
 			// A file where the `.gro` directory would go makes `mkdirSync` fail.
 			writeFileSync(join(dir, GRO_DIRNAME), '');
 			expect(() =>
-				svelte_config_cache_write(svelte_config_cache_stamps(dir), ALIAS, true, dir)
+				svelte_config_cache_write(svelte_config_cache_stamps(dir), READ, dir)
 			).not.toThrow();
 		});
 	});

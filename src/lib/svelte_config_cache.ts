@@ -23,6 +23,11 @@ is why this caches a slice of the config rather than the config, whose preproces
 Validation is hand-rolled rather than a Zod schema because this module is on the loader's
 critical path, where the point is to be cheaper than the thing it replaces.
 
+Unlike `./svelte_config.ts`, which reads the cwd's project and only that one, everything
+here takes a `dir`: SvelteKit resolves its `files` and `env.dir` against its own cwd, so a
+directory parameter there could only ever be half-honored, while a JSON file on disk has no
+such tie. The loader always passes the cwd; the parameter is what makes this testable.
+
 */
 
 export const SVELTE_CONFIG_CACHE_FILENAME = 'svelte_config.json';
@@ -131,19 +136,14 @@ export const svelte_config_cache_read = (
  *
  * Best effort - a cache that can't be written just means the next invocation resolves again,
  * so a read-only or otherwise unwritable project directory costs speed and nothing else.
+ * @param read - what resolving the config produced
  */
 export const svelte_config_cache_write = (
 	stamps: SvelteConfigCacheStamps,
-	alias: Record<string, string>,
-	svelte_config_found: boolean,
+	read: Pick<SvelteConfigCache, 'alias' | 'svelte_config_found'>,
 	dir = process.cwd()
 ): void => {
-	const cache: SvelteConfigCache = {
-		version: SVELTE_CONFIG_CACHE_VERSION,
-		stamps,
-		alias,
-		svelte_config_found
-	};
+	const cache: SvelteConfigCache = { version: SVELTE_CONFIG_CACHE_VERSION, stamps, ...read };
 	const path = to_cache_path(dir);
 	try {
 		mkdirSync(dirname(path), { recursive: true });

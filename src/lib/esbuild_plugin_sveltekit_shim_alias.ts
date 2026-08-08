@@ -2,8 +2,7 @@ import type * as esbuild from 'esbuild';
 import { escape_regexp } from '@fuzdev/fuz_util/regexp.ts';
 import { join } from 'node:path';
 
-import { SVELTEKIT_LIB_ALIAS } from './constants.ts';
-import { LIB_PATH } from './paths.ts';
+import { LIB_PATH, SVELTEKIT_LIB_ALIAS } from './constants.ts';
 
 export interface EsbuildPluginSveltekitShimAliasOptions {
 	dir?: string;

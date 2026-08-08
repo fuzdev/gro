@@ -98,16 +98,15 @@ if (cached_svelte_config) {
 		warn_svelte_config_ignored(process.cwd(), NO_SVELTE_PLUGIN_REASON);
 	}
 } else {
-	const svelte_config = await load_default_svelte_config();
-	aliases = Object.entries(svelte_config.alias);
+	const parsed_svelte_config = await load_default_svelte_config();
+	aliases = Object.entries(parsed_svelte_config.alias);
 	// Skipped without a Vite config because that path resolves nothing to save,
 	// and because its warning has to repeat rather than be cached away.
 	if (has_vite_config()) {
-		svelte_config_cache_write(
-			cache_stamps,
-			svelte_config.alias,
-			svelte_config.svelte_config !== null
-		);
+		svelte_config_cache_write(cache_stamps, {
+			alias: parsed_svelte_config.alias,
+			svelte_config_found: parsed_svelte_config.svelte_config !== null
+		});
 	}
 }
 

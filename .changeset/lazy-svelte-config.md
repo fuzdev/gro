@@ -35,6 +35,11 @@ loader caches the alias map at `.gro/svelte_config.json` and defers the rest of 
 to `load`. On a hit it resolves nothing; on a miss it loads at module scope as before,
 before the hooks go live, and writes the cache.
 
+The `Filer` reads that cache too, since aliases are all it needs to resolve the import
+specifiers it tracks - so `gro gen` no longer resolves the config on the main thread
+either, and the Filer maps specifiers through the very map the loader uses rather than
+through one that merely agrees with it.
+
 An alias map is plain strings, so nothing is lost to serialization - which is why the new
 `svelte_config_cache.ts` caches a slice of the config rather than the config, whose
 preprocessors and `compilerOptions.warningFilter` are functions. The key is the mtime and
@@ -117,6 +122,9 @@ Breaking changes:
   `ParsedSvelteConfig` instead - the `package.json` exports automation, the server
   plugin's entry point and `outbase`, and `has_sveltekit_library`. Point `task_root_dirs`
   at it in `gro.config.ts` if tasks live there
+- `LIB_DIRNAME`, `LIB_PATH`, and `LIB_DIR` move from `paths.ts` to `constants.ts`, which
+  is where a value that reads no config belongs - they only lived in `paths.ts` because
+  they used to be derived from `kit.files.lib`
 - `package_json_sync`'s `exports_dir` param no longer defaults to `paths.lib`; when
   omitted it's the Svelte config's `lib_path`, which `has_sveltekit_library` has already
   resolved by then. Searching the conventional `src/lib` for a project that moved its lib

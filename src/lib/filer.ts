@@ -20,6 +20,7 @@ import { paths } from './paths.ts';
 import { parse_imports } from './parse_imports.ts';
 import { resolve_specifier } from './resolve_specifier.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
+import { svelte_config_cache_read, svelte_config_cache_stamps } from './svelte_config_cache.ts';
 import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
 import type { Disknode } from './disknode.ts';
@@ -27,11 +28,19 @@ import type { Disknode } from './disknode.ts';
 let aliases: Array<[string, string]> | undefined;
 
 /**
- * Loaded on demand so constructing a `Filer` doesn't read the SvelteKit config,
+ * Loaded on demand so constructing a `Filer` doesn't read the Svelte config,
  * and memoized because this is called for every import specifier of every changed file.
+ *
+ * Prefers the loader's alias cache, which is keyed on the config files' state and so is
+ * valid whoever wrote it. That saves a full Vite config resolution for tasks like `gro gen`
+ * that need nothing else from the config, and it makes the Filer resolve specifiers through
+ * the same map the loader does rather than through one that merely agrees with it.
  */
 const load_aliases = async (): Promise<Array<[string, string]>> =>
-	(aliases ??= Object.entries((await load_default_svelte_config()).alias));
+	(aliases ??= Object.entries(
+		svelte_config_cache_read(svelte_config_cache_stamps())?.alias ??
+			(await load_default_svelte_config()).alias
+	));
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 

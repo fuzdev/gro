@@ -41,9 +41,10 @@ export const has_sveltekit_library = async (
 		return has_sveltekit_app_result;
 	}
 
-	// Checked before the lib directory because it's the cheaper of the two
-	// and it's what distinguishes a library from an app,
-	// so apps bail out without reading the Svelte config.
+	// Checked before the lib directory because it's the cheaper of the two and it's what
+	// distinguishes a library from an app, so this returns without reading the Svelte config
+	// for the tasks that call it on its own - `changeset`, `publish`, `release`, `gro sync`.
+	// `dev` and `build` resolve the config regardless, since `has_server` needs it too.
 	// Peer deps don't count here either, for the same reason as `has_sveltekit_app`.
 	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
 		return {

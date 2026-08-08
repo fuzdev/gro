@@ -7,12 +7,13 @@ import {
 	load_gro_config
 } from '$lib/gro_config.ts';
 
-test('load_gro_config', async () => {
-	// Mock the dynamic import to avoid module resolution issues
-	vi.mock('node:fs', () => ({
-		existsSync: vi.fn().mockReturnValue(false)
-	}));
+// Makes `load_gro_config` see no `gro.config.ts` and fall back to the default config.
+// At the top level because that's where Vitest hoists it to anyway.
+vi.mock('node:fs', () => ({
+	existsSync: vi.fn().mockReturnValue(false)
+}));
 
+test('load_gro_config', async () => {
 	const config = await load_gro_config();
 	expect(config).toBeTruthy();
 	expect(config.plugins).toBeDefined();
