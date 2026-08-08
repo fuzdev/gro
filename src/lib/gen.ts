@@ -8,9 +8,9 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 
-import { print_path } from './paths.ts';
+import { print_path, to_root_path } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
-import type { ParsedSvelteConfig } from './svelte_config.ts';
+import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
 import {
 	InputPath,
@@ -87,6 +87,34 @@ export interface GenContext {
 	 */
 	changed_file_id: PathId | undefined;
 }
+
+/**
+ * The `GenContext` values that are the same for every genfile in a run,
+ * as opposed to the per-genfile ones `create_gen_context` derives.
+ */
+export type GenContextBase = Pick<
+	GenContext,
+	'config' | 'filer' | 'log' | 'timings' | 'invoke_task'
+>;
+
+/**
+ * Builds a `GenContext` for one genfile, so generating and resolving dependencies
+ * see the same context - notably the lazy `svelte_config`, which is a getter
+ * rather than a value so a genfile that ignores it never resolves it.
+ */
+export const create_gen_context = (
+	base: GenContextBase,
+	origin_id: PathId,
+	changed_file_id?: PathId
+): GenContext => ({
+	...base,
+	get svelte_config() {
+		return load_default_svelte_config();
+	},
+	origin_id,
+	origin_path: to_root_path(origin_id),
+	changed_file_id
+});
 
 // TODO consider other return data - metadata? effects? non-file build artifacts?
 export type RawGenResult = string | RawGenFile | null | Array<RawGenResult>;

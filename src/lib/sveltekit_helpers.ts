@@ -23,18 +23,16 @@ import { TaskError } from './task.ts';
  * because reading the config costs a full Vite config resolution.
  */
 export const has_sveltekit_app = (
-	package_json: PackageJson,
-	dep_name = SVELTEKIT_DEP_NAME
+	package_json: PackageJson
 ): Result<object, { message: string }> => {
-	if (!package_json_has_dependency(dep_name, package_json)) {
-		return { ok: false, message: `no dependency found in package.json for ${dep_name}` };
+	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json)) {
+		return { ok: false, message: `no dependency found in package.json for ${SVELTEKIT_DEP_NAME}` };
 	}
 	return { ok: true };
 };
 
 export const has_sveltekit_library = async (
-	package_json: PackageJson,
-	dep_name = SVELTE_PACKAGE_DEP_NAME
+	package_json: PackageJson
 ): Promise<Result<object, { message: string }>> => {
 	const has_sveltekit_app_result = has_sveltekit_app(package_json);
 	if (!has_sveltekit_app_result.ok) {
@@ -44,10 +42,10 @@ export const has_sveltekit_library = async (
 	// Checked before the lib directory because it's the cheaper of the two
 	// and it's what distinguishes a library from an app,
 	// so apps bail out without reading the Svelte config.
-	if (!package_json_has_dependency(dep_name, package_json)) {
+	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json)) {
 		return {
 			ok: false,
-			message: `no dependency found in package.json for ${dep_name}`
+			message: `no dependency found in package.json for ${SVELTE_PACKAGE_DEP_NAME}`
 		};
 	}
 

@@ -9,12 +9,10 @@ import type { InvokeTask } from './task.ts';
 import {
 	normalize_gen_config,
 	validate_gen_module,
-	type GenContext,
 	type GenDependencies,
-	type GenDependenciesConfig
+	type GenDependenciesConfig,
+	create_gen_context
 } from './gen.ts';
-import { load_default_svelte_config } from './svelte_config.ts';
-import { to_root_path } from './paths.ts';
 import { load_module } from './modules.ts';
 
 /**
@@ -98,20 +96,9 @@ const resolve_gen_dependencies = async (
 
 	let dependencies: GenDependencies | null = gen_config.dependencies;
 	if (typeof dependencies === 'function') {
-		const gen_ctx: GenContext = {
-			config,
-			get svelte_config() {
-				return load_default_svelte_config();
-			},
-			filer,
-			log,
-			timings,
-			invoke_task,
-			origin_id: gen_file_id,
-			origin_path: to_root_path(gen_file_id),
-			changed_file_id
-		};
-		dependencies = await dependencies(gen_ctx);
+		dependencies = await dependencies(
+			create_gen_context({ config, filer, log, timings, invoke_task }, gen_file_id, changed_file_id)
+		);
 	}
 
 	if (dependencies === null || dependencies === 'all') {

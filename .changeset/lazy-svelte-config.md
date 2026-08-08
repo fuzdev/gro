@@ -69,7 +69,10 @@ Breaking changes:
   `@sveltejs/kit` as a dependency rather than the presence of `svelte.config.js`
 - `has_sveltekit_library` no longer takes a `ParsedSvelteConfig` - it reads the memoized
   one, and only after checking the `@sveltejs/package` dependency, so a project that
-  isn't a library never reads the Svelte config
+  isn't a library never reads the Svelte config. Both it and `has_sveltekit_app` also
+  drop their unused `dep_name` parameter and use the dependency-name constants directly
+- `GenContext` is built by the new `create_gen_context`, shared by generation and
+  dependency resolution so they can't drift
 - `ROUTES_DIRNAME` is removed
 - `SVELTE_CONFIG_FILENAME` and `VITE_CONFIG_FILENAME` are replaced by
   `SVELTE_CONFIG_FILENAMES` and `VITE_CONFIG_FILENAMES`, every filename SvelteKit and
