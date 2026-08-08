@@ -27,17 +27,26 @@ worker thread, where `process.chdir` is unavailable, but Vite's config resolutio
 doesn't need it - only `@sveltejs/load-config` does, which is why Gro calls
 `vite.resolveConfig` directly and drops that dependency.
 
-The loader stays eager, though: the hooks thread's own imports go back through its own
-`resolve` hook, so a hook that awaited the load it is part of re-enters itself until the
-stack blows. Loading during module evaluation, before the hooks go live, keeps that
-graph out of them.
+The loader can't load it on demand: the hooks thread's own imports go back through its
+own `resolve` hook, so a hook that awaited the load it is part of re-enters itself until
+the stack blows. But `resolve` is the only hook under that constraint, and the only field
+it reads is `alias` - everything else is read inside `load`, which awaits safely. So the
+loader caches the alias map at `.gro/svelte_config.json` and defers the rest of the config
+to `load`. On a hit it resolves nothing; on a miss it loads at module scope as before,
+before the hooks go live, and writes the cache.
 
-That trades a main-thread cost for a slower floor on every invocation. In this repo a
-full `vite.resolveConfig` measures ~750-1100ms against ~275ms for importing
-`svelte.config.js`, and the loader is registered for every `gro` command, so a short task
-like `gro format` now pays it with nothing to show for it. Tasks that never touch the
-config no longer pay on the main thread, which is the win; the loader side is a
-regression, and caching the resolved values under `.gro/` is the way out of it.
+An alias map is plain strings, so nothing is lost to serialization - which is why the new
+`svelte_config_cache.ts` caches a slice of the config rather than the config, whose
+preprocessors and `compilerOptions.warningFilter` are functions. The key is the mtime and
+size of every Vite and Svelte config filename plus `package.json`, absent ones included so
+that adding a config invalidates too. The blind spot is a Vite config that imports the
+module declaring `kit.alias` or `kit.files.lib`: editing that module doesn't invalidate,
+and the stale alias surfaces as an unresolved import rather than a bad compile. `gro clean`
+clears it, along with the rest of `.gro`.
+
+Measured in this repo, `gro --version` goes from ~1.24s to ~0.98s. A resolution costs
+~700-900ms on its own, but the hooks thread overlaps with main-thread startup, so an
+invocation only sheds the part that didn't overlap.
 
 Resolving a Vite config is more than a read - it runs every plugin's `config` and
 `configResolved` hooks, so it inherits their side effects. SvelteKit's rewrite of

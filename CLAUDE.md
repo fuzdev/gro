@@ -138,6 +138,15 @@ Capabilities:
 - JSON imports (any extension with `type: 'json'` import attribute)
 - Raw text imports (`.css`, `.svg`, or `?raw` suffix)
 
+Svelte config: the `resolve` hook needs the `alias` map before anything can be
+imported, and can't await it — the hooks thread's own imports re-enter its own
+hooks. So the alias map is cached at `.gro/svelte_config.json`
+([`svelte_config_cache.ts`](src/lib/svelte_config_cache.ts)), keyed by the mtime
+and size of the Vite and Svelte config filenames plus `package.json`. Everything
+else the loader reads from the config is awaited inside `load`, which most
+invocations never reach. A cache miss resolves the whole config at module scope
+and rewrites.
+
 SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
 to actual SvelteKit modules:
 

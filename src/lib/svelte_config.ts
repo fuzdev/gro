@@ -69,12 +69,29 @@ const find_config_file = (dir: string, filenames: Array<string>): string | undef
 	filenames.find((filename) => existsSync(join(dir, filename)));
 
 /**
+ * Whether the project in `dir` has a Vite config, and so anything to read a Svelte config
+ * through. Exported because it's what makes a config read worth caching - a project without
+ * one never pays for a resolution to begin with.
+ */
+export const has_vite_config = (dir = process.cwd()): boolean =>
+	find_config_file(dir, VITE_CONFIG_FILENAMES) !== undefined;
+
+const NO_VITE_CONFIG_REASON = 'no Vite config to read it through';
+
+/**
+ * Exported because the loader repeats this warning when it reads a cached config -
+ * a cache is only written after a Vite config resolves, so it's the only reason
+ * that can still apply on a hit.
+ */
+export const NO_SVELTE_PLUGIN_REASON = 'its Vite config configures no Svelte plugin';
+
+/**
  * Warns when `dir` has a Svelte config that Gro found no way to read, because that config
  * looks like it's configuring the project while being ignored. A project with no Svelte
  * config isn't configuring Svelte at all, so it stays quiet and takes the defaults.
  * @param reason - why the config couldn't be read, as a clause following "but"
  */
-const warn_svelte_config_ignored = (dir: string, reason: string): void => {
+export const warn_svelte_config_ignored = (dir: string, reason: string): void => {
 	const svelte_config_filename = find_config_file(dir, SVELTE_CONFIG_FILENAMES);
 	if (!svelte_config_filename) return;
 	svelte_config_log.warn(
@@ -91,8 +108,8 @@ const warn_svelte_config_ignored = (dir: string, reason: string): void => {
  */
 export const load_svelte_config = async (): Promise<SvelteConfig | null> => {
 	const dir = process.cwd();
-	if (!find_config_file(dir, VITE_CONFIG_FILENAMES)) {
-		warn_svelte_config_ignored(dir, 'no Vite config to read it through');
+	if (!has_vite_config(dir)) {
+		warn_svelte_config_ignored(dir, NO_VITE_CONFIG_REASON);
 		return null;
 	}
 
@@ -139,7 +156,7 @@ export const load_svelte_config = async (): Promise<SvelteConfig | null> => {
 	// A Vite config that configures no Svelte plugin is the same silent-ignore as having no Vite
 	// config at all, and likelier to be unintended - a `vite.config.ts` that only sets up Vitest
 	// alongside a `svelte.config.js` that does the real configuring reaches exactly here.
-	warn_svelte_config_ignored(dir, 'its Vite config configures no Svelte plugin');
+	warn_svelte_config_ignored(dir, NO_SVELTE_PLUGIN_REASON);
 	return null;
 };
 
