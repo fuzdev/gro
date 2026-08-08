@@ -22,8 +22,8 @@ It's the same name that Rollup uses.
 /*
 
 These are the conventional locations, not the SvelteKit `files` config values,
-so that `paths` stays cheap - reading the SvelteKit config imports the config module
-and its preprocessors, which is too expensive to do on every Gro invocation.
+so that `paths` stays cheap - reading the SvelteKit config costs a full Vite config
+resolution, which is too expensive to do on every Gro invocation.
 Code that needs to honor a customized `kit.files.lib` reads `lib_path`
 off `ParsedSvelteConfig` instead, and projects that move it
 can point `task_root_dirs` at the new location in `gro.config.ts`.

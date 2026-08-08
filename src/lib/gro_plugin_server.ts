@@ -60,8 +60,8 @@ export interface GroPluginServerOptions {
 	 */
 	ambient_env?: Record<string, string>;
 	/**
-	 * An already-loaded Svelte config, to skip resolving `dir`'s Vite config.
-	 * @default ```resolved from `dir`'s Vite config````
+	 * An already-loaded Svelte config, to skip resolving the project's Vite config.
+	 * @default ```resolved from the project's Vite config````
 	 */
 	svelte_config?: SvelteConfig;
 	/**
@@ -134,11 +134,12 @@ export const gro_plugin_server = ({
 	return {
 		name: 'gro_plugin_server',
 		setup: async ({ dev, watch, timings, log, config, filer }) => {
-			// `load_default_svelte_config` memoizes per directory, so this shares the resolution
-			// with the rest of the process when `dir` is the cwd.
+			// `load_default_svelte_config` memoizes, so this shares the resolution
+			// with the rest of the process. Note that it reads the cwd's config,
+			// not `dir`'s - `dir` positions esbuild's output and alias resolution.
 			const parsed_svelte_config = svelte_config
-				? await parse_svelte_config({ svelte_config, dir })
-				: await load_default_svelte_config({ dir });
+				? await parse_svelte_config({ svelte_config })
+				: await load_default_svelte_config();
 			const {
 				alias,
 				base_url,

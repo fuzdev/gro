@@ -6,7 +6,11 @@ import { globSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
-import { GRO_CONFIG_FILENAME, SVELTE_CONFIG_FILENAME, VITE_CONFIG_FILENAME } from './constants.ts';
+import {
+	GRO_CONFIG_FILENAME,
+	SVELTE_CONFIG_FILENAMES,
+	VITE_CONFIG_FILENAMES
+} from './constants.ts';
 import { format_file } from './format_file.ts';
 import { paths } from './paths.ts';
 
@@ -20,11 +24,18 @@ const FORMATTABLE_MATCHER = /\.(ts|mts|cts|js|mjs|cjs|svelte|css)$/;
 
 /**
  * Root-level files formatted alongside `paths.source`.
+ * Every Svelte and Vite config filename is listed rather than just the `.js`/`.ts` one,
+ * since which extension a project uses is SvelteKit's and Vite's call; the ones a project
+ * doesn't have are skipped when read, the same as any other default root file it lacks.
  * `package.json` is intentionally omitted — `gro sync` owns its serialization
  * via `package_json_serialize` (2-space, matching the npm convention).
  * `tsconfig.json` is omitted because the sweep no longer formats json.
  */
-const ROOT_FILES_DEFAULT = [GRO_CONFIG_FILENAME, SVELTE_CONFIG_FILENAME, VITE_CONFIG_FILENAME];
+const ROOT_FILES_DEFAULT = [
+	GRO_CONFIG_FILENAME,
+	...SVELTE_CONFIG_FILENAMES,
+	...VITE_CONFIG_FILENAMES
+];
 
 /**
  * Root-level ignore files for the format sweep (gitignore-style patterns).

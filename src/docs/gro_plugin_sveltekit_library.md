@@ -10,8 +10,11 @@ The [default config](/src/lib/gro.config.default.ts) enables this plugin
 when all three conditions are met:
 
 1. `@sveltejs/kit` is a dependency in `package.json`
-2. `src/lib/` directory exists (or the path configured by `kit.files.lib`)
-3. `@sveltejs/package` is listed in `package.json` dependencies
+2. `@sveltejs/package` is listed in `package.json` dependencies
+3. `src/lib/` directory exists (or the path configured by `kit.files.lib`)
+
+They're checked in that order, so a project that isn't a library never reads the
+Svelte config, which is the only one of the three that costs anything.
 
 Install to enable:
 

@@ -287,7 +287,8 @@ Optional `gro.config.ts` at project root exports `CreateGroConfig` function or
 config object. If absent, uses default config from
 `src/lib/gro.config.default.ts`.
 
-Default config behavior: Auto-detects project type by checking filesystem:
+Default config behavior: Auto-detects project type from `package.json` and the
+filesystem, deferred until plugins are created:
 
 - `@sveltejs/kit` in package.json → enables `gro_plugin_sveltekit_app`
 - `@sveltejs/package` in package.json + `src/lib/` → enables `gro_plugin_sveltekit_library`
@@ -342,7 +343,7 @@ export default config;
 - Gen files: `*.gen.*` anywhere in `src/` (pattern: `.gen.` substring)
 - Test files: `*.test.ts` anywhere (run by Vitest)
 - Config: `gro.config.ts` at project root
-- Vite config: `vite.config.ts` at project root - the Svelte config is read through it
+- Vite config: `vite.config.*` at project root - the Svelte config is read through it
 
 Exclusions (configurable via `search_filters`):
 

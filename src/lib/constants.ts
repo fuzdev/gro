@@ -20,24 +20,33 @@ export const GRO_DIR = GRO_DIRNAME + '/';
 export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
 /**
- * Gro reads the Svelte config through Vite, never from this file directly,
- * but SvelteKit still loads it when `sveltekit()` gets no inline options,
- * so it's a project file that Gro formats.
+ * Every filename SvelteKit loads its config from, in SvelteKit's own precedence order.
+ * Gro reads the Svelte config through Vite, never from these directly,
+ * but SvelteKit still loads one when `sveltekit()` gets no inline options,
+ * so they're project files that Gro formats.
+ * @see https://svelte.dev/docs/kit/configuration
  */
-export const SVELTE_CONFIG_FILENAME = 'svelte.config.js';
+export const SVELTE_CONFIG_FILENAMES = ['svelte.config.js', 'svelte.config.ts'];
 /**
  * SvelteKit's alias for the library directory.
  * Always `$lib` no matter where `files.lib` points.
  * @see https://svelte.dev/docs/kit/configuration#files
  */
 export const SVELTEKIT_LIB_ALIAS = '$lib';
-export const VITE_CONFIG_BASENAME = 'vite.config';
 /**
- * The extensions Vite itself accepts for its config, in Vite's own precedence order.
+ * Every filename Vite picks up as its config, in Vite's own precedence order.
+ * Which one wins is Vite's call, so Gro treats them as a set rather than privileging
+ * one extension - it detects a Vite config with all of them, and formats all of them.
  * @see https://vite.dev/config/
  */
-export const VITE_CONFIG_EXTENSIONS = ['js', 'mjs', 'ts', 'cjs', 'mts', 'cts'];
-export const VITE_CONFIG_FILENAME = VITE_CONFIG_BASENAME + '.ts';
+export const VITE_CONFIG_FILENAMES = [
+	'vite.config.js',
+	'vite.config.mjs',
+	'vite.config.ts',
+	'vite.config.cjs',
+	'vite.config.mts',
+	'vite.config.cts'
+];
 export const NODE_MODULES_DIRNAME = 'node_modules';
 export const PACKAGE_JSON_FILENAME = 'package.json';
 export const LOCKFILE_FILENAME = 'package-lock.json';

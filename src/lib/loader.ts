@@ -65,6 +65,7 @@ bare specifier, so the first resolve would load the config anyway.
 
 The loader runs on a worker thread, where `process.chdir` is unavailable - Vite's own
 config resolution doesn't need it, so this is the same load the main thread does.
+Both read the project in the cwd, which is the only project either one resolves.
 
 */
 const {
@@ -77,7 +78,7 @@ const {
 	svelte_compile_options,
 	svelte_compile_module_options,
 	svelte_preprocessors
-} = await load_default_svelte_config({ dir });
+} = await load_default_svelte_config();
 
 const aliases = Object.entries(alias);
 
