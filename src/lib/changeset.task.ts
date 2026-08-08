@@ -84,7 +84,6 @@ export const task: Task<Args> = {
 				changeset_cli
 			},
 			log,
-			svelte_config,
 			config
 		} = ctx;
 
@@ -102,10 +101,7 @@ export const task: Task<Args> = {
 
 		const package_json = await package_json_load();
 
-		const has_sveltekit_library_result = await has_sveltekit_library(
-			package_json,
-			await svelte_config
-		);
+		const has_sveltekit_library_result = await has_sveltekit_library(package_json);
 		if (!has_sveltekit_library_result.ok) {
 			throw new TaskError(
 				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message

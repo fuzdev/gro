@@ -24,12 +24,14 @@ import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
 import type { Disknode } from './disknode.ts';
 
+let aliases: Array<[string, string]> | undefined;
+
 /**
- * Loaded on demand so constructing a `Filer` doesn't read the SvelteKit config.
- * `load_default_svelte_config` memoizes, so this is cheap after the first call.
+ * Loaded on demand so constructing a `Filer` doesn't read the SvelteKit config,
+ * and memoized because this is called for every import specifier of every changed file.
  */
 const load_aliases = async (): Promise<Array<[string, string]>> =>
-	Object.entries((await load_default_svelte_config()).alias);
+	(aliases ??= Object.entries((await load_default_svelte_config()).alias));
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 

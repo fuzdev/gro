@@ -61,8 +61,9 @@ Breaking changes:
   `GroConfig.svelte_config_filename` is removed, since Vite picks its own config file
 - `has_sveltekit_app` is synchronous and takes a `PackageJson`, detecting
   `@sveltejs/kit` as a dependency rather than the presence of `svelte.config.js`
-- `has_sveltekit_library` takes an optional `ParsedSvelteConfig` and checks the
-  `@sveltejs/package` dependency before the lib directory
+- `has_sveltekit_library` no longer takes a `ParsedSvelteConfig` - it reads the memoized
+  one, and only after checking the `@sveltejs/package` dependency, so a project that
+  isn't a library never reads the Svelte config
 - `ROUTES_DIRNAME` is removed
 - `SVELTE_CONFIG_FILENAME` and `VITE_CONFIG_FILENAME` are replaced by
   `SVELTE_CONFIG_FILENAMES` and `VITE_CONFIG_FILENAMES`, every filename SvelteKit and

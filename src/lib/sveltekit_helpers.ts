@@ -15,7 +15,7 @@ import {
 	SVELTEKIT_DEV_DIRNAME
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
-import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { TaskError } from './task.ts';
 
 /**
@@ -34,7 +34,6 @@ export const has_sveltekit_app = (
 
 export const has_sveltekit_library = async (
 	package_json: PackageJson,
-	svelte_config?: ParsedSvelteConfig,
 	dep_name = SVELTE_PACKAGE_DEP_NAME
 ): Promise<Result<object, { message: string }>> => {
 	const has_sveltekit_app_result = has_sveltekit_app(package_json);
@@ -52,7 +51,7 @@ export const has_sveltekit_library = async (
 		};
 	}
 
-	const { lib_path } = svelte_config ?? (await load_default_svelte_config());
+	const { lib_path } = await load_default_svelte_config();
 	if (!(await fs_exists(lib_path))) {
 		return { ok: false, message: `no SvelteKit lib directory found at ${lib_path}` };
 	}
