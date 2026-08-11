@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { styleText as st } from 'node:util';
 import { analyzeFromFiles } from 'svelte-docinfo';
@@ -26,9 +27,23 @@ export const LIBRARY_CACHE_FILENAME = 'library.json';
  * this whenever `LibraryCache`'s shape changes (e.g. the `LibraryJson` /
  * `PkgJson` split, then slimming `LibraryJson` to the raw `pkg_json`/`source_json`
  * pair) to self-invalidate stale caches across the ecosystem rather than serve
- * old-shaped data at an unchanged commit.
+ * old-shaped data at an unchanged commit. Upstream analyzer changes need no
+ * bump: each record also stamps `SVELTE_DOCINFO_VERSION` and self-invalidates
+ * when the installed `svelte-docinfo` moves.
  */
-export const LIBRARY_CACHE_VERSION = 1;
+export const LIBRARY_CACHE_VERSION = 2;
+
+const require = createRequire(import.meta.url);
+
+/**
+ * The installed `svelte-docinfo` version — read from the same copy that
+ * `analyzeFromFiles` resolves to. Stamped into each cache record and compared
+ * on read, so caches analyzed by a different `svelte-docinfo` self-invalidate:
+ * `source_json.modules` is cached verbatim, and the cache key (the analyzed
+ * repo's commit hash) doesn't move when the *analyzer's* dependency changes
+ * its output shape.
+ */
+export const SVELTE_DOCINFO_VERSION: string = require('svelte-docinfo/package.json').version;
 
 /**
  * Result of loading a repo's library metadata: the curated `LibraryJson`
@@ -46,11 +61,13 @@ export interface LibraryLoadResult {
 /**
  * On-disk shape of the `.gro/library.json` cache file.
  * The `hash` is the git-based cache key the result was computed at; `version`
- * is the `LIBRARY_CACHE_VERSION` it was written under.
+ * is the `LIBRARY_CACHE_VERSION` it was written under;
+ * `svelte_docinfo_version` is the `SVELTE_DOCINFO_VERSION` that analyzed it.
  */
 export interface LibraryCache extends LibraryLoadResult {
 	hash: string;
 	version: number;
+	svelte_docinfo_version: string;
 }
 
 export interface LibraryLoadOptions {
@@ -79,10 +96,12 @@ export const library_cache_key = async (repo_dir: string): Promise<string | null
 /**
  * Reads and validates the `.gro/library.json` cache at `cache_path`.
  *
- * Returns the cached `{library_json, package_json}` only when the file exists
- * and its stored `hash` matches `key`. Returns `null` on every miss - absent,
- * stale (different `hash`), or unreadable/corrupt - signalling the caller to
- * re-analyze.
+ * Returns the cached `{library_json, package_json}` only when the file exists,
+ * its stored `hash` matches `key`, and its `version` and
+ * `svelte_docinfo_version` stamps match the current `LIBRARY_CACHE_VERSION`
+ * and `SVELTE_DOCINFO_VERSION`. Returns `null` on every miss - absent, stale
+ * (different `hash` or stamps), or unreadable/corrupt - signalling the caller
+ * to re-analyze.
  *
  * @param cache_path - absolute path to the cache file
  * @param key - the expected cache key (a clean git commit hash)
@@ -97,7 +116,11 @@ export const library_cache_read = async (
 	try {
 		const contents = await readFile(cache_path, 'utf-8');
 		const parsed: LibraryCache = JSON.parse(contents);
-		if (parsed.hash === key && parsed.version === LIBRARY_CACHE_VERSION) {
+		if (
+			parsed.hash === key &&
+			parsed.version === LIBRARY_CACHE_VERSION &&
+			parsed.svelte_docinfo_version === SVELTE_DOCINFO_VERSION
+		) {
 			log?.debug('library cache hit', st('dim', `(${cache_path} @ ${key})`));
 			return { library_json: parsed.library_json, package_json: parsed.package_json };
 		}
@@ -111,8 +134,8 @@ export const library_cache_read = async (
 
 /**
  * Writes `result` to the `.gro/library.json` cache at `cache_path`, keyed by
- * `key` and stamped with the current `LIBRARY_CACHE_VERSION`, creating the
- * parent directory as needed.
+ * `key` and stamped with the current `LIBRARY_CACHE_VERSION` and
+ * `SVELTE_DOCINFO_VERSION`, creating the parent directory as needed.
  *
  * Best effort: caching is optional, so write failures are logged as a warning
  * and swallowed rather than thrown.
@@ -129,7 +152,12 @@ export const library_cache_write = async (
 ): Promise<void> => {
 	try {
 		await mkdir(dirname(cache_path), { recursive: true });
-		const data: LibraryCache = { hash: key, version: LIBRARY_CACHE_VERSION, ...result };
+		const data: LibraryCache = {
+			hash: key,
+			version: LIBRARY_CACHE_VERSION,
+			svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
+			...result
+		};
 		await writeFile(cache_path, JSON.stringify(data, null, '\t') + '\n', 'utf-8');
 		log?.debug('library cache written', st('dim', `(${cache_path})`));
 	} catch (error) {

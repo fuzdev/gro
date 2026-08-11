@@ -27,7 +27,8 @@ Key responsibilities:
 - Plugin system for dev/build workflows
 - library metadata loading (`library_load.ts`) - analyzes TypeScript/Svelte
   source via `svelte-docinfo` to produce `LibraryJson` consumed by fuz_ui's API
-  documentation system, cached in `.gro/` keyed by git commit
+  documentation system, cached in `.gro/` keyed by git commit and revalidated
+  against the cache format version and the installed `svelte-docinfo` version
 
 ## Core systems
 
@@ -309,7 +310,14 @@ interface GroConfig {
 
 map_package_json: Runs during `gro sync` to auto-generate `"exports"` field in
 package.json using wildcard patterns for files in `src/lib/`. Return `null`
-to opt out.
+to opt out. Each `internal/` directory (any depth) gets a null exports entry
+(`"./internal/*": null`, `"./domain/internal/*": null` — Node's
+explicit-exclusion form; exports keys allow one `*`, hence one key per
+directory), so internal modules ship in dist for public modules to import
+but can't be imported by consumers (the `internal/` convention;
+`svelte-docinfo` honors the same signal in discovery and excludes
+`internal/` from analysis at any depth by default), and internal files
+don't count toward which wildcard patterns are emitted.
 
 Example config:
 

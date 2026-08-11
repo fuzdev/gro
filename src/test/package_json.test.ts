@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
 import {
@@ -54,41 +54,98 @@ test('package_json_serialize fails with bad data', () => {
 	expect(err).toBeTruthy();
 });
 
-test('package_json_to_exports', () => {
-	expect(package_json_to_exports(['a/b.ts'])).toEqual({
-		'./package.json': './package.json',
-		'./*.js': {
-			default: './dist/*.js',
-			types: './dist/*.d.ts'
-		},
-		'./*.ts': {
-			default: './dist/*.js',
-			types: './dist/*.d.ts'
-		}
+describe('package_json_to_exports', () => {
+	test('emits wildcard exports for js paths', () => {
+		expect(package_json_to_exports(['a/b.ts'])).toEqual({
+			'./package.json': './package.json',
+			'./*.js': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			},
+			'./*.ts': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			}
+		});
 	});
-	expect(package_json_to_exports(['*.svelte', '*.ts', '*.json', 'index.ts'])).toEqual({
-		'.': {
-			default: './dist/index.js',
-			types: './dist/index.d.ts'
-		},
-		'./package.json': './package.json',
-		'./*.json': {
-			default: './dist/*.json',
-			types: './dist/*.json.d.ts'
-		},
-		'./*.svelte': {
-			svelte: './dist/*.svelte',
-			default: './dist/*.svelte',
-			types: './dist/*.svelte.d.ts'
-		},
-		'./*.js': {
-			default: './dist/*.js',
-			types: './dist/*.d.ts'
-		},
-		'./*.ts': {
-			default: './dist/*.js',
-			types: './dist/*.d.ts'
-		}
+
+	// the internal/ convention: each internal directory (any depth) emits a
+	// null blocker, and internal files don't count toward the wildcard flags
+	// (the internal-only .svelte file adds no ./*.svelte wildcard)
+	test('blocks internal dirs and excludes their files from the wildcard flags', () => {
+		expect(
+			package_json_to_exports([
+				'a/b.ts',
+				'internal/c.ts',
+				'internal/D.svelte',
+				'domain/internal/e.ts',
+				'internal', // a file named internal is public
+				'x/internal', // nested or not
+				'internal.ts' // dotted names don't match the dir convention
+			])
+		).toEqual({
+			'./package.json': './package.json',
+			'./domain/internal/*': null,
+			'./internal/*': null,
+			'./*.js': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			},
+			'./*.ts': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			}
+		});
+	});
+
+	test('collapses nested internal dirs to the outermost blocker, which covers them', () => {
+		expect(package_json_to_exports(['a/b.ts', 'internal/x/internal/y.ts'])).toEqual({
+			'./package.json': './package.json',
+			'./internal/*': null,
+			'./*.js': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			},
+			'./*.ts': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			}
+		});
+	});
+
+	test('emits blockers but no wildcards for an internal-only library', () => {
+		expect(package_json_to_exports(['internal/a.ts', 'domain/internal/B.svelte'])).toEqual({
+			'./package.json': './package.json',
+			'./domain/internal/*': null,
+			'./internal/*': null
+		});
+	});
+
+	test('emits the index export and per-type wildcards', () => {
+		expect(package_json_to_exports(['*.svelte', '*.ts', '*.json', 'index.ts'])).toEqual({
+			'.': {
+				default: './dist/index.js',
+				types: './dist/index.d.ts'
+			},
+			'./package.json': './package.json',
+			'./*.json': {
+				default: './dist/*.json',
+				types: './dist/*.json.d.ts'
+			},
+			'./*.svelte': {
+				svelte: './dist/*.svelte',
+				default: './dist/*.svelte',
+				types: './dist/*.svelte.d.ts'
+			},
+			'./*.js': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			},
+			'./*.ts': {
+				default: './dist/*.js',
+				types: './dist/*.d.ts'
+			}
+		});
 	});
 });
 
