@@ -181,7 +181,7 @@ export const gro_plugin_server = ({
 			// The entry point and `outbase` defaults land here rather than in the destructuring above
 			// because they come from the Svelte config, which can only be read asynchronously.
 			const lib_dir = join(paths.root, lib_path);
-			const final_entry_points = entry_points ?? [join(lib_dir, SERVER_SOURCE_PATH)];
+			const final_entry_points = entry_points ?? [to_server_source_id(lib_path)];
 
 			const { outbase, outdir, outname } = (outpaths ?? to_default_outpaths(dir, lib_dir))(dev);
 

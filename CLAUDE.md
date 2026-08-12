@@ -322,10 +322,11 @@ interface GroConfig {
 
 map_package_json: Runs during `gro sync` to auto-generate `"exports"` field in
 package.json using wildcard patterns for files in `src/lib/`. Return `null`
-to opt out. Each `internal/` directory (any depth) gets a null exports entry
-(`"./internal/*": null`, `"./domain/internal/*": null` — Node's
+to opt out. Every `internal/` directory is blocked at any depth by a null
+exports entry (`"./internal/*": null`, `"./domain/internal/*": null` — Node's
 explicit-exclusion form; exports keys allow one `*`, hence one key per
-directory), so internal modules ship in dist for public modules to import
+outermost internal directory, whose `*` covers anything nested below), so
+internal modules ship in dist for public modules to import
 but can't be imported by consumers (the `internal/` convention;
 `svelte-docinfo` honors the same signal in discovery and excludes
 `internal/` from analysis at any depth by default), and internal files

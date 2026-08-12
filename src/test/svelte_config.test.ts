@@ -110,13 +110,16 @@ describe('load_default_svelte_config', () => {
 	// invocation does, so it covers reading the config off the SvelteKit plugin.
 	// `env_dir` is `'.'` rather than undefined because SvelteKit defaults `kit.env.dir`
 	// to its own cwd, so the real path always yields an absolute one to rebase.
+	// The timeout is raised because a real resolution imports and runs the whole plugin
+	// graph - ~3s cold in this repo, close enough to the 5s default to time out when
+	// another test file is competing for the machine.
 	test('resolves the config of the project it runs in', async () => {
 		await expect(load_default_svelte_config()).resolves.toMatchObject({
 			lib_path: 'src/lib',
 			routes_path: 'src/routes',
 			env_dir: '.'
 		});
-	});
+	}, 30_000);
 });
 
 /**
@@ -204,6 +207,7 @@ describe('load_svelte_config', () => {
 	// leave behind is inherited by the `vite build` that `gro build` spawns, which then builds
 	// for production as if for dev. Uses `load_svelte_config` rather than the memoized wrapper
 	// so the resolution actually runs.
+	// Raised for the same reason as the resolution test above.
 	test('leaves NODE_ENV as it found it', async () => {
 		const node_env = process.env.NODE_ENV;
 		delete process.env.NODE_ENV;
@@ -217,5 +221,5 @@ describe('load_svelte_config', () => {
 				process.env.NODE_ENV = node_env;
 			}
 		}
-	});
+	}, 30_000);
 });

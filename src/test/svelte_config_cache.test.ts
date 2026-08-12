@@ -47,6 +47,18 @@ describe('svelte_config_cache_stamps', () => {
 			expect(stamps['vite.config.mjs']).toBe(null);
 		});
 	});
+
+	// The tracked set is `vite-plugin-svelte`'s config names rather than SvelteKit's
+	// narrower fallback pair, because a config that isn't stamped is one whose edits
+	// never invalidate the alias map read from it.
+	test('tracks every filename a Svelte config can be loaded from', () => {
+		in_dir({}, (dir) => {
+			const stamps = svelte_config_cache_stamps(dir);
+			for (const ext of ['js', 'ts', 'mjs', 'mts']) {
+				expect(stamps).toHaveProperty(`svelte.config.${ext}`);
+			}
+		});
+	});
 });
 
 describe('svelte_config_cache_read', () => {

@@ -30,13 +30,21 @@ export const LIB_PATH = SOURCE_DIR + LIB_DIRNAME;
 /** @trailing_slash */
 export const LIB_DIR = LIB_PATH + '/';
 /**
- * Every filename SvelteKit loads its config from, in SvelteKit's own precedence order.
- * Gro reads the Svelte config through Vite, never from these directly, but SvelteKit still
- * loads one when `sveltekit()` gets no inline options - so they're project files that Gro
+ * Every filename a Svelte config is loaded from, in `vite-plugin-svelte`'s precedence order.
+ * Gro reads the Svelte config through Vite, never from these directly, but one of them is
+ * still loaded when `sveltekit()` gets no inline options - so they're project files that Gro
  * formats, watches for a config it can't read through Vite, and keys its config cache on.
+ * The list is `vite-plugin-svelte`'s rather than SvelteKit's, which is the wider of the two:
+ * SvelteKit's own fallback loader reads only `.js` and `.ts`, but that fallback is the path
+ * Gro doesn't take, and a config Gro can't see is one whose edits don't invalidate the cache.
  * @see https://svelte.dev/docs/kit/configuration
  */
-export const SVELTE_CONFIG_FILENAMES = ['svelte.config.js', 'svelte.config.ts'];
+export const SVELTE_CONFIG_FILENAMES = [
+	'svelte.config.js',
+	'svelte.config.ts',
+	'svelte.config.mjs',
+	'svelte.config.mts'
+];
 /**
  * SvelteKit's alias for the library directory.
  * Always `$lib` no matter where `files.lib` points.

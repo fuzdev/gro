@@ -150,7 +150,8 @@ The motivation is to streamline package publishing by supplementing
 
 By default `package_json.exports` uses subpath wildcard patterns to include everything from `$lib/`
 except for some ignored files like tests and markdown.
-Each `internal/` directory (any depth) gets a null exports entry (`"./internal/*": null`),
+Every `internal/` directory is blocked at any depth by a null exports entry
+(`"./internal/*": null`, one per outermost internal directory),
 so internal modules ship in dist for public modules to import
 but can't be imported by consumers,
 and internal files don't count toward which wildcard patterns are emitted.
