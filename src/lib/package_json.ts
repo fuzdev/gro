@@ -132,16 +132,54 @@ export const package_json_update = async (
 
 const is_index = (path: string): boolean => path === 'index.ts' || path === 'index.js';
 
+/**
+ * The `internal/` convention: modules under an `internal/` directory ship in
+ * dist so public modules can import them, but they're not part of the public
+ * surface. Each internal directory gets a `"./…/internal/*": null` exports
+ * entry blocking consumer imports (Node's explicit-exclusion form — the null
+ * key best-matches the directory's subpaths ahead of the broader wildcards;
+ * exports keys allow a single `*`, hence one key per directory rather than an
+ * any-depth pattern). Tooling honors the same signal: `svelte-docinfo` skips
+ * null-blocked subpaths during exports discovery and excludes `internal/`
+ * directories from analysis at any depth by default.
+ *
+ * Returns the blocking key for the path's outermost `internal` directory
+ * segment (which covers any nested ones), or `null` for a public path — a
+ * file merely *named* `internal` is public.
+ */
+const internal_export_key = (path: string): string | null => {
+	const segments = path.split('/');
+	const index = segments.indexOf('internal');
+	if (index === -1 || index === segments.length - 1) return null;
+	return './' + segments.slice(0, index + 1).join('/') + '/*';
+};
+
 export const package_json_to_exports = (paths: Array<string>): PackageJsonExports => {
-	const has_index = paths.some(is_index);
-	const has_js = paths.some((p) => TS_MATCHER.test(p) || JS_MATCHER.test(p));
-	const has_svelte = paths.some((p) => SVELTE_MATCHER.test(p));
-	const has_json = paths.some((p) => JSON_MATCHER.test(p));
-	const has_css = paths.some((p) => CSS_MATCHER.test(p));
+	// wildcard flags come from the public files only — internal files can't
+	// justify a wildcard whose internal subpaths the null keys then block
+	const internal_keys: Set<string> = new Set();
+	const public_paths: Array<string> = [];
+	for (const path of paths) {
+		const internal_key = internal_export_key(path);
+		if (internal_key === null) {
+			public_paths.push(path);
+		} else {
+			internal_keys.add(internal_key);
+		}
+	}
+	const has_index = public_paths.some(is_index);
+	const has_js = public_paths.some((p) => TS_MATCHER.test(p) || JS_MATCHER.test(p));
+	const has_svelte = public_paths.some((p) => SVELTE_MATCHER.test(p));
+	const has_json = public_paths.some((p) => JSON_MATCHER.test(p));
+	const has_css = public_paths.some((p) => CSS_MATCHER.test(p));
 
 	const exports: PackageJsonExports = {
 		'./package.json': './package.json'
 	};
+
+	for (const internal_key of [...internal_keys].sort()) {
+		exports[internal_key] = null;
+	}
 
 	if (has_index) {
 		exports['.'] = {

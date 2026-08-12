@@ -149,8 +149,12 @@ The motivation is to streamline package publishing by supplementing
 [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging).
 
 By default `package_json.exports` uses subpath wildcard patterns to include everything from `$lib/`
-except for some ignored files like tests and markdown,
-and you can provide your own `map_package_json` hook to
+except for some ignored files like tests and markdown.
+Each `internal/` directory (any depth) gets a null exports entry (`"./internal/*": null`),
+so internal modules ship in dist for public modules to import
+but can't be imported by consumers,
+and internal files don't count toward which wildcard patterns are emitted.
+You can provide your own `map_package_json` hook to
 mutate and return the `package_json`, return a new one,
 or return `null` to opt out of transforming it completely.
 
