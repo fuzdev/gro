@@ -1,4 +1,4 @@
-import { join, extname, relative, basename } from 'node:path';
+import { join, extname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
@@ -8,10 +8,10 @@ import {
 	GRO_CONFIG_FILENAME,
 	GRO_DEV_DIR,
 	GRO_DIR,
+	LIB_DIR,
 	SOURCE_DIR,
 	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
-import { default_svelte_config } from './svelte_config.ts';
 
 /*
 
@@ -20,11 +20,13 @@ It's the same name that Rollup uses.
 
 */
 
-export const LIB_DIRNAME = basename(default_svelte_config.lib_path);
-export const LIB_PATH = SOURCE_DIR + LIB_DIRNAME;
-/** @trailing_slash */
-export const LIB_DIR = LIB_PATH + '/';
-export const ROUTES_DIRNAME = basename(default_svelte_config.routes_path);
+/*
+
+`paths` is built from the conventional locations in `./constants.ts`, never from the
+SvelteKit `files` config values - reading those costs a full Vite config resolution,
+which is too expensive for a module every Gro invocation imports.
+
+*/
 
 export interface Paths {
 	/** @trailing_slash */

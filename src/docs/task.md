@@ -163,7 +163,7 @@ import type {TaskContext} from '@fuzdev/gro';
 export interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
-	svelte_config: ParsedSvelteConfig;
+	svelte_config: Promise<ParsedSvelteConfig>;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;

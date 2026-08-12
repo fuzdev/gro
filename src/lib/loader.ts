@@ -13,7 +13,17 @@ import {
 	SVELTEKIT_SHIM_APP_PATHS_MATCHER,
 	sveltekit_shim_app_specifiers
 } from './sveltekit_shim_app.ts';
-import { default_svelte_config } from './svelte_config.ts';
+import {
+	has_vite_config,
+	load_default_svelte_config,
+	warn_svelte_config_ignored,
+	NO_SVELTE_PLUGIN_REASON
+} from './svelte_config.ts';
+import {
+	svelte_config_cache_read,
+	svelte_config_cache_stamps,
+	svelte_config_cache_write
+} from './svelte_config_cache.ts';
 import { paths } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
 import { resolve_specifier } from './resolve_specifier.ts';
@@ -53,19 +63,52 @@ const dev = true;
 
 const dir = paths.root;
 
-const {
-	alias,
-	base_url,
-	assets_url,
-	env_dir,
-	private_prefix,
-	public_prefix,
-	svelte_compile_options,
-	svelte_compile_module_options,
-	svelte_preprocessors
-} = default_svelte_config;
+/*
 
-const aliases = Object.entries(alias);
+`resolve` is the one hook that can't await the config.
+
+Resolving it imports the Vite config, and the hooks thread's own imports go back through
+its own hooks - so a `resolve` that awaited the load it is part of re-enters itself until
+the stack blows. `load` has no such problem, and it's where all but one of the config's
+fields are read. So the alias map is the only thing needed up front, and it's the only
+thing cached: see `svelte_config_cache.ts`.
+
+On a hit, nothing is resolved here and the rest of the config is awaited inside `load`,
+which most invocations never reach - tasks and genfiles are TypeScript, and `gro test`
+hands its files to Vitest rather than to this loader. On a miss the whole config loads
+here at module scope, before the hooks go live, which keeps that import graph out of them.
+
+The one shape this can't survive is a Vite config that imports a module `load` resolves
+the config for - a `.svelte`, `.svelte.ts`, `$env`, or `$app/paths` import reached from
+the config graph would await a load it is part of. Nothing puts those in a Vite config,
+and there's no correct value to hand back if something did.
+
+The loader runs on a worker thread, where `process.chdir` is unavailable - Vite's own
+config resolution doesn't need it, so this is the same load the main thread does.
+Both read the project in the cwd, which is the only project either one resolves.
+
+*/
+const cache_stamps = svelte_config_cache_stamps();
+const cached_svelte_config = svelte_config_cache_read(cache_stamps);
+
+let aliases: Array<[string, string]>;
+if (cached_svelte_config) {
+	aliases = Object.entries(cached_svelte_config.alias);
+	if (!cached_svelte_config.svelte_config_found) {
+		warn_svelte_config_ignored(process.cwd(), NO_SVELTE_PLUGIN_REASON);
+	}
+} else {
+	const parsed_svelte_config = await load_default_svelte_config();
+	aliases = Object.entries(parsed_svelte_config.alias);
+	// Skipped without a Vite config because that path resolves nothing to save,
+	// and because its warning has to repeat rather than be cached away.
+	if (has_vite_config()) {
+		svelte_config_cache_write(cache_stamps, {
+			alias: parsed_svelte_config.alias,
+			svelte_config_found: parsed_svelte_config.svelte_config !== null
+		});
+	}
+}
 
 const RAW_MATCHER = /(%3Fraw|\.css|\.svg)$/; // TODO others? configurable?
 
@@ -74,6 +117,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 	// console.log(`url`, url);
 	if (SVELTEKIT_SHIM_APP_PATHS_MATCHER.test(url)) {
 		// SvelteKit `$app/paths` shim
+		const { base_url, assets_url } = await load_default_svelte_config();
 		return {
 			format: 'module',
 			shortCircuit: true,
@@ -94,6 +138,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		if (raw_source == null) throw Error(`Failed to load ${url}`);
 		// TODO should be nice if we could use Node's builtin amaro transform, but I couldn't find a way after digging into the source, AFAICT it's internal and not exposed
 		const source = ts_blank_space(raw_source); // TODO was using oxc-transform and probably should, but this doesn't require sourcemaps, and it's still alpha as of May 2025
+		const { svelte_compile_module_options } = await load_default_svelte_config();
 		const transformed = compileModule(source, {
 			...svelte_compile_module_options,
 			dev,
@@ -108,6 +153,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		const loaded = await nextLoad(url, { ...context, format: 'module' });
 		const raw_source = loaded.source!.toString(); // eslint-disable-line @typescript-eslint/no-base-to-string
 		const filename = fileURLToPath(url);
+		const { svelte_compile_options, svelte_preprocessors } = await load_default_svelte_config();
 		const preprocessed = svelte_preprocessors // TODO @many use sourcemaps (and diagnostics?)
 			? await preprocess(raw_source, svelte_preprocessors, { filename })
 			: null;
@@ -162,6 +208,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 					throw Error(`Unknown $env import: ${context.importAttributes.virtual}`);
 				}
 			}
+			const { env_dir, private_prefix, public_prefix } = await load_default_svelte_config();
 			const source = render_env_shim_module(
 				dev,
 				mode,

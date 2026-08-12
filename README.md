@@ -19,7 +19,7 @@ Need help or want to share thoughts? See the
 [issues](https://github.com/fuzdev/gro/issues) and
 [discussions](https://github.com/fuzdev/gro/discussions).
 
-## about
+## About
 
 Gro is a task runner and toolkit
 extending [SvelteKit](https://github.com/sveltejs/kit),
@@ -69,7 +69,7 @@ It includes:
   (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config))
 - formatting with [`tsv`](https://github.com/fuzdev/tsv)
 
-## docs
+## Docs
 
 - early API docs at [/docs/api](https://gro.fuz.dev/docs/api)
 - developing web frontends, servers, and libraries
@@ -84,7 +84,7 @@ It includes:
 - [`gen`](/src/docs/gen.md) code generation
 - full [docs index](/src/docs#readme)
 
-## install
+## Install
 
 > depends on node >=24.14
 
@@ -103,7 +103,7 @@ npm i -g @fuzdev/gro
 gro
 ```
 
-## usage
+## Usage
 
 Gro has a task runner that discovers TypeScript modules with the `.task.` subextension,
 and runs them in-process with explicit composition.
@@ -245,7 +245,7 @@ gro --version # print the Gro version
 For more see [the tasks index](/src/docs/tasks.md),
 [the task feature docs](/src/docs/task.md), and [the docs index](/src/docs/README.md).
 
-## develop
+## Develop
 
 ```bash
 npm i
@@ -261,7 +261,7 @@ npm link ../gro # from `otherproject/`
 gro build # from `../gro` on changes
 ```
 
-## credits 🐢<sub>🐢</sub><sub><sub>🐢</sub></sub>
+## Credits 🐢<sub>🐢</sub><sub><sub>🐢</sub></sub>
 
 Gro builds on
 [TypeScript](https://github.com/microsoft/TypeScript) ∙
@@ -278,6 +278,10 @@ Gro builds on
 [svelte-check](https://github.com/sveltejs/language-tools/tree/master/packages/svelte-check) &
 [more](package.json)
 
-## license [🐦](https://wikipedia.org/wiki/Free_and_open-source_software)
+## Contributing
+
+[fuz.dev/contributing](https://www.fuz.dev/contributing)
+
+## License [🐦](https://wikipedia.org/wiki/Free_and_open-source_software)
 
 [MIT](LICENSE)

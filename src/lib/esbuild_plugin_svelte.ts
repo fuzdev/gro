@@ -12,7 +12,7 @@ import { relative } from 'node:path';
 
 import { to_define_import_meta_env, default_ts_transform_options } from './esbuild_helpers.ts';
 import {
-	default_svelte_config,
+	SVELTE_COMPILE_OPTIONS_DEFAULT,
 	to_default_compile_module_options,
 	type ParsedSvelteConfig
 } from './svelte_config.ts';
@@ -22,6 +22,12 @@ export interface EsbuildPluginSvelteOptions {
 	dev: boolean;
 	base_url: ParsedSvelteConfig['base_url'];
 	dir?: string;
+	/**
+	 * Defaults to Gro's baseline, not the project's `compilerOptions` -
+	 * reading those is async, so callers pass `svelte_compile_options`
+	 * off a `ParsedSvelteConfig` to honor them.
+	 * @default `SVELTE_COMPILE_OPTIONS_DEFAULT`
+	 */
 	svelte_compile_options?: CompileOptions;
 	svelte_compile_module_options?: ModuleCompileOptions;
 	svelte_preprocessors?: PreprocessorGroup | Array<PreprocessorGroup>;
@@ -34,7 +40,7 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 		dev,
 		base_url,
 		dir = process.cwd(),
-		svelte_compile_options = default_svelte_config.svelte_compile_options,
+		svelte_compile_options = SVELTE_COMPILE_OPTIONS_DEFAULT,
 		svelte_compile_module_options = to_default_compile_module_options(svelte_compile_options),
 		svelte_preprocessors,
 		ts_transform_options = default_ts_transform_options,

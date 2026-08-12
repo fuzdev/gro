@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { Task } from './task.ts';
-import { Plugins, type PluginContext } from './plugin.ts';
+import { Plugins, to_plugin_context, type PluginContext } from './plugin.ts';
 import { clean_fs } from './clean_fs.ts';
 
 /** @nodocs */
@@ -36,7 +36,7 @@ export const task: Task<Args> = {
 			await invoke_task('sync', { install, gen: !watch });
 		}
 
-		const plugins = await Plugins.create({ ...ctx, dev: true, watch });
+		const plugins = await Plugins.create(to_plugin_context(ctx, true, watch));
 		await plugins.setup();
 		if (!watch) {
 			await plugins.teardown();

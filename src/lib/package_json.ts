@@ -18,6 +18,7 @@ import {
 	CSS_MATCHER
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
 
 export type PackageJsonMapper = (
@@ -51,19 +52,28 @@ export const package_json_load = async (
 	return package_json;
 };
 
+/**
+ * @param exports_dir - the directory whose files become the `exports`;
+ * defaults to the Svelte config's `lib_path`, which `has_sveltekit_library`
+ * has already resolved by the time it's read
+ */
 export const package_json_sync = async (
 	map_package_json: PackageJsonMapper,
 	log: Logger,
 	write = true,
 	dir = paths.root,
-	exports_dir = paths.lib
+	exports_dir?: string
 ): Promise<{ package_json: PackageJson | null; changed: boolean }> => {
-	const exported_files = await fs_search(exports_dir);
-	const exported_paths = exported_files.map((f) => f.path);
 	const updated = await package_json_update(
 		async (package_json) => {
 			if ((await has_sveltekit_library(package_json)).ok) {
-				package_json.exports = package_json_to_exports(exported_paths);
+				// Reading the lib directory off the Svelte config rather than `paths.lib` is what honors
+				// a customized `kit.files.lib`. Searching the conventional `src/lib` instead would find
+				// nothing and quietly replace the library's whole `exports` map with a single entry.
+				const final_exports_dir =
+					exports_dir ?? join(paths.root, (await load_default_svelte_config()).lib_path);
+				const exported_files = await fs_search(final_exports_dir);
+				package_json.exports = package_json_to_exports(exported_files.map((f) => f.path));
 			}
 			const mapped = await map_package_json(package_json);
 			return mapped ? parse_package_json(PackageJson, mapped) : mapped;
@@ -263,10 +273,19 @@ const parse_or_throw_formatted_error = <T extends z.ZodType>(
 	return parsed.data;
 };
 
-export const package_json_has_dependency = (dep_name: string, package_json: PackageJson): boolean =>
+/**
+ * @param include_peer - whether a `peerDependencies` entry counts. Pass `false` when
+ * detecting what a project *is*, since a peer dep declares what it works alongside -
+ * a plugin package peered on `@sveltejs/kit` isn't itself a SvelteKit app.
+ */
+export const package_json_has_dependency = (
+	dep_name: string,
+	package_json: PackageJson,
+	include_peer = true
+): boolean =>
 	!!package_json.devDependencies?.[dep_name] ||
 	!!package_json.dependencies?.[dep_name] ||
-	!!package_json.peerDependencies?.[dep_name];
+	(include_peer && !!package_json.peerDependencies?.[dep_name]);
 
 export interface PackageJsonDep {
 	name: string;

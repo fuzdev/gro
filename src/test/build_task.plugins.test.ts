@@ -24,7 +24,8 @@ vi.mock('$lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
 }));
 
-vi.mock('$lib/plugin.ts', () => ({
+vi.mock('$lib/plugin.ts', async (import_original) => ({
+	...(await import_original<typeof import('$lib/plugin.ts')>()),
 	Plugins: {
 		create: vi.fn()
 	}
