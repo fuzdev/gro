@@ -6,11 +6,6 @@
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
-> ⚠️ I still use Gro heavily but I'm transitioning to Rust-based tooling
-> with [Fuz](https://github.com/fuzdev) using [Deno](https://github.com/denoland) as a sidecar.
-> I consider Gro deprecated but there should be a migration path.
-> Please open issues if you need help.
-
 > ⚠️[Windows won't be supported](https://github.com/fuzdev/gro/issues/319), I chose Bash instead.
 
 Docs at [gro.fuz.dev/docs](https://gro.fuz.dev/docs) and [src/docs](./src/docs).
