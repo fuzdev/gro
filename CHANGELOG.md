@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.210.1
+
+### Patch Changes
+
+- fix: allow `vitest@^5` in the peer and optional dependency ranges ([a222dde](https://github.com/fuzdev/gro/commit/a222dde))
+
 ## 0.210.0
 
 ### Minor Changes
