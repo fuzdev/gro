@@ -65,7 +65,7 @@
     "svelte-docinfo": ">=0.6.0",
     "typescript": "^5",
     "vite": "^5.0.3 || ^6.0.0 || ^7.0.0 || ^8.0.0",
-    "vitest": "^3 || ^4",
+    "vitest": "^3 || ^4 || ^5",
     "zod": "^4"
   },
   "peerDependenciesMeta": {
@@ -83,16 +83,16 @@
     }
   },
   "optionalDependencies": {
-    "vitest": "^3 || ^4"
+    "vitest": "^3 || ^4 || ^5"
   },
   "devDependencies": {
     "@changesets/changelog-git": "^0.2.1",
     "@changesets/types": "^6.1.0",
     "@fuzdev/blake3_wasm": "^0.1.1",
     "@fuzdev/fuz_code": "^0.48.0",
-    "@fuzdev/fuz_css": "^0.63.2",
-    "@fuzdev/fuz_ui": "^0.206.7",
-    "@fuzdev/fuz_util": "^0.65.2",
+    "@fuzdev/fuz_css": "^0.63.3",
+    "@fuzdev/fuz_ui": "^0.208.0",
+    "@fuzdev/fuz_util": "^0.68.0",
     "@fuzdev/mdz": "^0.3.0",
     "@ryanatkn/eslint-config": "^0.12.2",
     "@sveltejs/acorn-typescript": "^1.0.9",
@@ -109,7 +109,7 @@
     "magic-string": "^0.30.21",
     "svelte": "^5.55.4",
     "svelte-check": "^4.4.6",
-    "svelte-docinfo": "^0.6.0",
+    "svelte-docinfo": "^0.7.0",
     "svelte2tsx": "^0.7.52",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.48.1",
