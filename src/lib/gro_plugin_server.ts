@@ -18,9 +18,7 @@ import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_sh
 import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
 import { esbuild_plugin_sveltekit_shim_alias } from './esbuild_plugin_sveltekit_shim_alias.ts';
 import { esbuild_plugin_external_worker } from './esbuild_plugin_external_worker.ts';
-import {
-	esbuild_plugin_sveltekit_local_imports
-} from './esbuild_plugin_sveltekit_local_imports.ts';
+import { esbuild_plugin_sveltekit_local_imports } from './esbuild_plugin_sveltekit_local_imports.ts';
 import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
 
 // TODO sourcemap as a hoisted option? disable for production by default - or like `outpaths`, passed a `dev` param

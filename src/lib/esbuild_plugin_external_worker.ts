@@ -9,9 +9,7 @@ import { resolve_specifier } from './resolve_specifier.ts';
 import { esbuild_plugin_sveltekit_shim_alias } from './esbuild_plugin_sveltekit_shim_alias.ts';
 import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_shim_env.ts';
 import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
-import {
-	esbuild_plugin_sveltekit_local_imports
-} from './esbuild_plugin_sveltekit_local_imports.ts';
+import { esbuild_plugin_sveltekit_local_imports } from './esbuild_plugin_sveltekit_local_imports.ts';
 import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 

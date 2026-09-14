@@ -1,9 +1,9 @@
-import { format_css, format_svelte, format_typescript } from '@fuzdev/tsv_wasm';
+import { format_css, format_svelte, format_typescript } from '@fuzdev/tsv';
 import { extname } from 'node:path';
 
 /**
  * The source languages Gro can format in-process, backed by
- * `@fuzdev/tsv_wasm` (`typescript`/`svelte`/`css`) plus a builtin `json`
+ * `@fuzdev/tsv` (`typescript`/`svelte`/`css`) plus a builtin `json`
  * formatter. Anything else passes through unchanged.
  */
 export type FormatLang = 'typescript' | 'svelte' | 'css' | 'json';

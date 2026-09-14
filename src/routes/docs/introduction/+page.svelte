@@ -10,18 +10,12 @@
 <TomeContent {tome}>
 	<section>
 		<p>
-			Gro is a task runner and toolkit extending SvelteKit. It's part of the <a
-				href="https://www.fuz.dev/"
-			>
-				Fuz stack
-			</a>.
+			Gro is a task runner and toolkit extending SvelteKit. It's part of the
+			<a href="https://www.fuz.dev/">Fuz stack</a>.
 		</p>
 		<p>
-			This site hosts only the API reference. The guides and full docs are in markdown on the <a
-				href="https://github.com/fuzdev/gro"
-			>
-				GitHub repo
-			</a>.
+			This site hosts only the API reference. The guides and full docs are in markdown on the
+			<a href="https://github.com/fuzdev/gro">GitHub repo</a>.
 		</p>
 	</section>
 </TomeContent>

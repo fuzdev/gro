@@ -65,7 +65,7 @@ export interface FormatDirectoryResult {
  * run in both modes rather than being silently skipped.
  *
  * This is separated from `./format_file` so modules that only need directory
- * traversal don't pull in the formatter (which loads the `tsv` WASM module).
+ * traversal don't pull in the formatter (which loads the `tsv` native addon).
  *
  * @param check - when `true`, reports unformatted files instead of writing them
  * @param filter - directory filters (e.g. `config.search_filters`) to skip;
