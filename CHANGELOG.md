@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.211.0
+
+### Minor Changes
+
+- deps: upgrade to `@fuzdev/tsv@0.4.0` ([abbbb7a](https://github.com/fuzdev/gro/commit/abbbb7a))
+
 ## 0.210.1
 
 ### Patch Changes
