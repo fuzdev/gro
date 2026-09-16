@@ -6,5 +6,5 @@ import { vite_plugin_pkg_json } from '@fuzdev/fuz_ui/vite_plugin_pkg_json.ts';
 
 export default defineConfig({
 	plugins: [sveltekit(), svelte_docinfo(), vite_plugin_fuz_css(), vite_plugin_pkg_json()],
-	optimizeDeps: { exclude: ['@fuzdev/blake3_wasm'] }
+	optimizeDeps: { exclude: ['@fuzdev/blake3-wasm'] }
 });

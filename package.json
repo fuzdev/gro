@@ -57,8 +57,8 @@
     "tslib": "^2.8.1"
   },
   "peerDependencies": {
-    "@fuzdev/blake3_wasm": "^0.1.0",
-    "@fuzdev/fuz_util": ">=0.65.2",
+    "@fuzdev/blake3-wasm": "^0.2.0",
+    "@fuzdev/fuz_util": ">=0.69.0",
     "@sveltejs/kit": "^2",
     "esbuild": "^0.28.0",
     "svelte": "^5",
@@ -88,11 +88,11 @@
   "devDependencies": {
     "@changesets/changelog-git": "^0.2.1",
     "@changesets/types": "^6.1.0",
-    "@fuzdev/blake3_wasm": "^0.1.1",
+    "@fuzdev/blake3-wasm": "^0.2.0",
     "@fuzdev/fuz_code": "^0.48.0",
     "@fuzdev/fuz_css": "^0.63.3",
     "@fuzdev/fuz_ui": "^0.208.0",
-    "@fuzdev/fuz_util": "^0.68.0",
+    "@fuzdev/fuz_util": "^0.69.0",
     "@fuzdev/mdz": "^0.3.0",
     "@ryanatkn/eslint-config": "^0.12.2",
     "@sveltejs/acorn-typescript": "^1.0.9",
