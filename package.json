@@ -90,7 +90,7 @@
     "@changesets/types": "^6.1.0",
     "@fuzdev/blake3-wasm": "^0.2.0",
     "@fuzdev/fuz_code": "^0.48.0",
-    "@fuzdev/fuz_css": "^0.63.3",
+    "@fuzdev/fuz_css": "^0.64.0",
     "@fuzdev/fuz_ui": "^0.208.0",
     "@fuzdev/fuz_util": "^0.69.0",
     "@fuzdev/mdz": "^0.3.0",

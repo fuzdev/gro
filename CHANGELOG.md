@@ -22,7 +22,7 @@
 
 ### Minor Changes
 
-- deps: upgrade to `@fuzdev/tsv@0.3.0` from `@fuzdev/tsv_wasm@0.2.0` ([6bd8b2f](https://github.com/fuzdev/gro/commit/6bd8b2f))
+- deps: upgrade to `@fuzdev/tsv@0.3.0` from `@fuzdev/tsv-wasm@0.2.0` ([6bd8b2f](https://github.com/fuzdev/gro/commit/6bd8b2f))
 - feat: block `internal/` directories from generated package exports ([#618](https://github.com/fuzdev/gro/pull/618))
 
   Every `internal/` directory under `src/lib` is blocked from the generated
@@ -191,7 +191,7 @@
 
 ### Minor Changes
 
-- deps: bump `@fuzdev/tsv_wasm@0.2.0` ([30b62f0](https://github.com/fuzdev/gro/commit/30b62f0))
+- deps: bump `@fuzdev/tsv-wasm@0.2.0` ([30b62f0](https://github.com/fuzdev/gro/commit/30b62f0))
 
 ### Patch Changes
 
@@ -296,7 +296,7 @@
 
 ### Minor Changes
 
-- switch to blake3 hashing, add peer dep `@fuzdev/blake3_wasm` ([#602](https://github.com/fuzdev/gro/pull/602))
+- switch to blake3 hashing, add peer dep `@fuzdev/blake3-wasm` ([#602](https://github.com/fuzdev/gro/pull/602))
 - remove unused `EXPORTS_EXCLUDER_DEFAULT` ([51ae165](https://github.com/fuzdev/gro/commit/51ae165))
 - upgrade fuz_util peer dep ([dac067d](https://github.com/fuzdev/gro/commit/dac067d))
 
