@@ -11,7 +11,7 @@
 				((c) =>
 					c === 'dark' || (c !== 'light' && matchMedia('(prefers-color-scheme:dark)').matches)
 						? 'dark'
-						: 'light')(localStorage.getItem('fuz:color-scheme')),
+						: 'light')(localStorage.getItem('fuz:color-scheme'))
 			);
 		</script>
 
