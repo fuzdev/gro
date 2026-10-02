@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.213.0
+
+### Minor Changes
+
+- deps: upgrade to `@fuzdev/tsv@0.5.0` ([76ebef5](https://github.com/fuzdev/gro/commit/76ebef5))
+
 ## 0.212.0
 
 ### Minor Changes
