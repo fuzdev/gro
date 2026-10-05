@@ -22,8 +22,8 @@ outputs:
 ```
 gro test: run tests with vitest
 
-[...args]  Array<string>  ['.test.']  file patterns to test
-dir        string         '/home/desk/dev/gro/src/'       working directory for tests
+[...args]  Array<string>  ['.test.']                 file patterns to test
+dir        string         '/path/to/project/src/'  working directory for tests
 ```
 
 [`gro test`](/src/lib/test.task.ts) runs all `*.test.ts`
