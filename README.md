@@ -8,14 +8,6 @@
 
 > ⚠️[Windows won't be supported](https://github.com/fuzdev/gro/issues/319), I chose Bash instead.
 
-Docs at [gro.fuz.dev/docs](https://gro.fuz.dev/docs) and [src/docs](./src/docs).
-
-Need help or want to share thoughts? See the
-[issues](https://github.com/fuzdev/gro/issues) and
-[discussions](https://github.com/fuzdev/gro/discussions).
-
-## About
-
 Gro is a task runner and toolkit
 extending [SvelteKit](https://github.com/sveltejs/kit),
 [Vite](https://github.com/vitejs/vite),
