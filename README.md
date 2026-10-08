@@ -4,8 +4,6 @@
 
 > task runner and toolkit extending SvelteKit 🌰 generate, run, optimize
 
-[`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
-
 > ⚠️[Windows won't be supported](https://github.com/fuzdev/gro/issues/319), I chose Bash instead.
 
 Gro is a task runner and toolkit
@@ -13,7 +11,10 @@ extending [SvelteKit](https://github.com/sveltejs/kit),
 [Vite](https://github.com/vitejs/vite),
 and [esbuild](https://github.com/evanw/esbuild)
 for making web frontends, servers, and libraries with TypeScript.
-It's a dev tool, not for production use.
+
+[`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
+
+Gro is a dev tool, not for production use.
 It includes:
 
 - [task runner](/src/docs/task.md) that uses the filesystem convention `*.task.ts`
