@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import { is_build_cache_valid, save_build_cache_metadata } from '$lib/build_cache.ts';
+import { is_build_cache_valid, save_build_cache_metadata } from '#lib/build_cache.ts';
 
 import {
 	create_mock_logger,
@@ -13,7 +13,7 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
 
-vi.mock('$lib/paths.js', () => ({
+vi.mock('#lib/paths.ts', () => ({
 	paths: {
 		root: './',
 		source: './src/',

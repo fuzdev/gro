@@ -6,8 +6,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
 import { resolve_specifier } from './resolve_specifier.ts';
-import { esbuild_plugin_sveltekit_shim_alias } from './esbuild_plugin_sveltekit_shim_alias.ts';
-import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_shim_env.ts';
+import { esbuild_plugin_sveltekit_shim_app_env_vars } from './esbuild_plugin_sveltekit_shim_app_env_vars.ts';
 import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
 import { esbuild_plugin_sveltekit_local_imports } from './esbuild_plugin_sveltekit_local_imports.ts';
 import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
@@ -20,11 +19,10 @@ export interface EsbuildPluginExternalWorkerOptions {
 	svelte_compile_options?: CompileOptions;
 	svelte_compile_module_options?: ModuleCompileOptions;
 	svelte_preprocessors?: PreprocessorGroup | Array<PreprocessorGroup>;
-	alias?: Record<string, string>;
 	base_url?: ParsedSvelteConfig['base_url'];
 	assets_url?: ParsedSvelteConfig['assets_url'];
-	public_prefix?: string;
-	private_prefix?: string;
+	version_name?: ParsedSvelteConfig['version_name'];
+	src_path?: string;
 	env_dir?: string;
 	env_files?: Array<string>;
 	ambient_env?: Record<string, string>;
@@ -38,11 +36,10 @@ export const esbuild_plugin_external_worker = ({
 	svelte_compile_options,
 	svelte_compile_module_options,
 	svelte_preprocessors,
-	alias,
 	base_url,
 	assets_url,
-	public_prefix,
-	private_prefix,
+	version_name,
+	src_path,
 	env_dir,
 	env_files,
 	ambient_env,
@@ -56,16 +53,15 @@ export const esbuild_plugin_external_worker = ({
 			const building = esbuild.build({
 				entryPoints: [path_id],
 				plugins: [
-					esbuild_plugin_sveltekit_shim_app({ dev, base_url, assets_url }),
-					esbuild_plugin_sveltekit_shim_env({
+					esbuild_plugin_sveltekit_shim_app({ dev, base_url, assets_url, version_name }),
+					esbuild_plugin_sveltekit_shim_app_env_vars({
 						dev,
-						public_prefix,
-						private_prefix,
+						dir,
+						src_path,
 						env_dir,
 						env_files,
 						ambient_env
 					}),
-					esbuild_plugin_sveltekit_shim_alias({ dir, alias }),
 					esbuild_plugin_svelte({
 						dev,
 						base_url,

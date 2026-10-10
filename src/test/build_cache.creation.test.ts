@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import { create_build_cache_metadata } from '$lib/build_cache.ts';
+import { create_build_cache_metadata } from '#lib/build_cache.ts';
 
 import {
 	create_mock_logger,

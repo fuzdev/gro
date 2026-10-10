@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import { discover_build_output_dirs, collect_build_outputs } from '$lib/build_cache.ts';
+import { discover_build_output_dirs, collect_build_outputs } from '#lib/build_cache.ts';
 
 import { mock_file_stats, mock_file_entry, mock_dir_entry } from './build_cache_test_helpers.ts';
 

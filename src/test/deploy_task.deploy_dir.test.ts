@@ -1,8 +1,8 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join, resolve } from 'node:path';
 
-import { task as deploy_task } from '$lib/deploy.task.ts';
-import { GIT_DIRNAME } from '$lib/constants.ts';
+import { task as deploy_task } from '#lib/deploy.task.ts';
+import { GIT_DIRNAME } from '#lib/constants.ts';
 
 import {
 	create_mock_deploy_task_context,

@@ -1,5 +1,5 @@
-import { describe, test, expect, vi } from 'vitest';
-import type { Config as SvelteConfig } from '@sveltejs/kit';
+import { describe, test, expect } from 'vitest';
+import type { Config as SvelteConfig } from '@sveltejs/kit/vite';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,9 +7,8 @@ import { join } from 'node:path';
 import {
 	load_default_svelte_config,
 	load_svelte_config,
-	parse_svelte_config,
-	svelte_config_log
-} from '$lib/svelte_config.ts';
+	parse_svelte_config
+} from '#lib/svelte_config.ts';
 
 // The project directory is always the cwd - see `svelte_config.ts` for why it can't be anything else.
 const DIR = process.cwd();
@@ -19,55 +18,43 @@ const parse = (svelte_config: SvelteConfig) => parse_svelte_config({ svelte_conf
 describe('parse_svelte_config', () => {
 	test('falls back to the conventional paths when nothing is configured', async () => {
 		const parsed = await parse({});
-		expect(parsed.lib_path).toBe('src/lib');
 		expect(parsed.routes_path).toBe('src/routes');
+		expect(parsed.src_path).toBe('src');
 		expect(parsed.assets_path).toBe('static');
 		expect(parsed.env_dir).toBe(undefined);
+		expect(parsed.version_name).toBe(undefined);
 	});
 
 	test('keeps already-relative paths as authored', async () => {
-		const parsed = await parse({ kit: { files: { lib: 'src/library', routes: 'src/pages' } } });
-		expect(parsed.lib_path).toBe('src/library');
-		expect(parsed.routes_path).toBe('src/pages');
+		const parsed = await parse({ files: { src: 'source', routes: 'source/pages' } });
+		expect(parsed.src_path).toBe('source');
+		expect(parsed.routes_path).toBe('source/pages');
 	});
 
 	// Resolving through Vite yields absolute paths, but Gro's vocabulary is project-relative.
 	test('makes absolute paths relative to the project directory', async () => {
 		const parsed = await parse({
-			kit: {
-				files: {
-					lib: DIR + '/src/lib',
-					routes: DIR + '/src/routes',
-					assets: DIR + '/static'
-				}
+			files: {
+				src: DIR + '/src',
+				routes: DIR + '/src/routes',
+				assets: DIR + '/static'
 			}
 		});
-		expect(parsed.lib_path).toBe('src/lib');
+		expect(parsed.src_path).toBe('src');
 		expect(parsed.routes_path).toBe('src/routes');
 		expect(parsed.assets_path).toBe('static');
 	});
 
-	// `env_dir` is serialized into the generated `$env/dynamic/*` modules,
+	// `env_dir` is serialized into the generated `$app/env/*` modules,
 	// so an absolute path would bake the build machine's directory into server bundles.
 	test('makes an absolute env dir relative so it stays portable', async () => {
-		expect((await parse({ kit: { env: { dir: DIR } } })).env_dir).toBe('.');
-		expect((await parse({ kit: { env: { dir: DIR + '/config' } } })).env_dir).toBe('config');
-		expect((await parse({ kit: { env: { dir: 'config' } } })).env_dir).toBe('config');
+		expect((await parse({ env: { dir: DIR } })).env_dir).toBe('.');
+		expect((await parse({ env: { dir: DIR + '/config' } })).env_dir).toBe('config');
+		expect((await parse({ env: { dir: 'config' } })).env_dir).toBe('config');
 	});
 
-	describe('alias', () => {
-		test('points `$lib` at the lib path, like SvelteKit', async () => {
-			expect((await parse({})).alias.$lib).toBe('src/lib');
-			expect((await parse({ kit: { files: { lib: 'src/library' } } })).alias.$lib).toBe(
-				'src/library'
-			);
-		});
-
-		test('includes configured aliases and lets them override `$lib`', async () => {
-			const parsed = await parse({ kit: { alias: { $routes: 'src/routes', $lib: 'elsewhere' } } });
-			expect(parsed.alias.$routes).toBe('src/routes');
-			expect(parsed.alias.$lib).toBe('elsewhere');
-		});
+	test('reads the version name', async () => {
+		expect((await parse({ version: { name: 'abc' } })).version_name).toBe('abc');
 	});
 
 	describe('svelte_compile_options', () => {
@@ -94,7 +81,7 @@ describe('parse_svelte_config', () => {
 	});
 
 	test('passes the config through unparsed properties', async () => {
-		const svelte_config: SvelteConfig = { kit: { paths: { base: '/base' } } };
+		const svelte_config: SvelteConfig = { paths: { base: '/base' } };
 		const parsed = await parse(svelte_config);
 		expect(parsed.svelte_config).toBe(svelte_config);
 		expect(parsed.base_url).toBe('/base');
@@ -108,17 +95,17 @@ describe('load_default_svelte_config', () => {
 
 	// Resolves this project's own `vite.config.ts` through Vite, the way every Gro
 	// invocation does, so it covers reading the config off the SvelteKit plugin.
-	// `env_dir` is `'.'` rather than undefined because SvelteKit defaults `kit.env.dir`
+	// `env_dir` is `'.'` rather than undefined because SvelteKit defaults `env.dir`
 	// to its own cwd, so the real path always yields an absolute one to rebase.
 	// The timeout is raised because a real resolution imports and runs the whole plugin
 	// graph - ~3s cold in this repo, close enough to the 5s default to time out when
 	// another test file is competing for the machine.
 	test('resolves the config of the project it runs in', async () => {
-		await expect(load_default_svelte_config()).resolves.toMatchObject({
-			lib_path: 'src/lib',
-			routes_path: 'src/routes',
-			env_dir: '.'
-		});
+		const parsed = await load_default_svelte_config();
+		expect(parsed).toMatchObject({ src_path: 'src', routes_path: 'src/routes', env_dir: '.' });
+		// the flat SvelteKit 3 shape, read off the plugin's validated options
+		expect(parsed.svelte_config?.paths?.relative).toBe(false);
+		expect(parsed.version_name).toMatch(/^[0-9a-f]{40}$/);
 	}, 30_000);
 });
 
@@ -147,60 +134,13 @@ describe('load_svelte_config', () => {
 		await expect(in_empty_dir(load_svelte_config)).resolves.toBe(null);
 	});
 
-	/**
-	 * Loads the config in an empty dir seeded with `files`, capturing anything warned.
-	 * `Logger` defaults to `'off'` under Vitest, so the level is opted back in here.
-	 */
-	const load_with_warnings = async (
-		files: Record<string, string>
-	): Promise<{ loaded: SvelteConfig | null; warnings: Array<string> }> => {
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-		svelte_config_log.level = 'warn';
-		try {
-			const loaded = await in_empty_dir(async () => {
-				for (const [filename, content] of Object.entries(files)) writeFileSync(filename, content);
-				return load_svelte_config();
-			});
-			return { loaded, warnings: warn.mock.calls.map((c) => c.join(' ')) };
-		} finally {
-			svelte_config_log.clear_level_override();
-			warn.mockRestore();
-		}
-	};
-
-	// A project with neither config isn't a Svelte project, so it gets no warning,
-	// but one with a Svelte config and no Vite config is silently ignored without this.
-	test('warns when a Svelte config has no Vite config to be read through', async () => {
-		const { loaded, warnings } = await load_with_warnings({
-			'svelte.config.js': 'export default {};'
+	// a Vite config that sets up something other than Svelte, Vitest most plausibly
+	test('returns null when the Vite config configures no Svelte plugin', async () => {
+		const loaded = await in_empty_dir(async () => {
+			writeFileSync('vite.config.js', 'export default {};');
+			return load_svelte_config();
 		});
 		expect(loaded).toBe(null);
-		expect(warnings).toHaveLength(1);
-		expect(warnings[0]).toContain('svelte.config.js');
-		expect(warnings[0]).toContain('no Vite config');
-	});
-
-	// The same silent ignore, one step further in: a `vite.config.js` that sets up something other
-	// than Svelte - Vitest, most plausibly - alongside a `svelte.config.js` doing the real work.
-	test('warns when the Vite config configures no Svelte plugin', async () => {
-		const { loaded, warnings } = await load_with_warnings({
-			'vite.config.js': 'export default {};',
-			'svelte.config.js': 'export default {};'
-		});
-		expect(loaded).toBe(null);
-		expect(warnings).toHaveLength(1);
-		expect(warnings[0]).toContain('svelte.config.js');
-		expect(warnings[0]).toContain('no Svelte plugin');
-	});
-
-	// Only the Svelte config makes the silence worth warning about -
-	// a project with a Vite config and no Svelte config is configuring nothing to ignore.
-	test('stays quiet when there is no Svelte config to ignore', async () => {
-		const { loaded, warnings } = await load_with_warnings({
-			'vite.config.js': 'export default {};'
-		});
-		expect(loaded).toBe(null);
-		expect(warnings).toHaveLength(0);
 	});
 
 	// Vite's `resolveConfig` writes `NODE_ENV` when it's unset, and the `development` it would

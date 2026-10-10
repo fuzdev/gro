@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
-import { compute_build_cache_key } from '$lib/build_cache.ts';
+import { compute_build_cache_key } from '#lib/build_cache.ts';
 
 import { create_mock_logger, create_mock_config } from './build_cache_test_helpers.ts';
 

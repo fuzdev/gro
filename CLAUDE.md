@@ -134,26 +134,26 @@ Capabilities:
 - JSON imports (any extension with `type: 'json'` import attribute)
 - Raw text imports (`.css`, `.svg`, or `?raw` suffix)
 
-Svelte config: the `resolve` hook needs the `alias` map before anything can be
-imported, and can't await it — the hooks thread's own imports re-enter its own
-hooks. So the alias map is cached at `.gro/svelte_config.json`
-([`svelte_config_cache.ts`](src/lib/svelte_config_cache.ts)), keyed by the mtime
-and size of the Vite and Svelte config filenames plus `package.json`. Everything
-else the loader reads from the config is awaited inside `load`, which most
-invocations never reach. A cache miss resolves the whole config at module scope
-and rewrites.
+Svelte config: read from the options passed to the `sveltekit()` plugin in
+`vite.config.ts` (SvelteKit 3 has no `svelte.config.js`), awaited only inside the
+`load` hook, which most invocations never reach. The `resolve` hook needs no
+config: package.json subpath imports (`#lib/*`, `#routes/*`) resolve through
+Node, with a fallback for the Vite convention of `.js` naming a `.ts` file, and
+SvelteKit's deprecated `alias` option isn't supported (Gro warns when it's set).
 
 SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
 to actual SvelteKit modules:
 
-- `$lib/*` → resolved via the SvelteKit `$lib` alias to `src/lib/`
-- `$env/static/public` → reads `PUBLIC_*` vars from `.env`
-- `$env/static/private` → reads all vars from `.env`
-- `$env/dynamic/public` → `process.env` with `PUBLIC_*` filtering
-- `$env/dynamic/private` → full `process.env`
-- `$app/environment` →
-  `{dev: true, browser: false, building: false, version: ''}`
-- `$app/paths` → `{base: '', assets: ''}` from the resolved Svelte config
+- `$app/env/public` / `$app/env/private` → the vars declared in `src/env.ts`
+  (`defineEnvVars`), resolved from `.env` files plus `process.env` and
+  validated against their schemas when the module runs (not inlined)
+- `$app/env` → `{dev: true, browser: false, building: false, version}` with
+  `version` from the config's `version.name`
+- `$app/paths` → `resolve`/`asset` prefixed with the config's `paths.base`/`paths.assets`
+- `$app/forms`, `$app/navigation`, `$app/state` → no-op stubs
+
+The loader resolves these to its own sibling modules, so they work with a
+global Gro in a project that doesn't install it.
 
 ### Code generation
 
@@ -414,7 +414,7 @@ type by inspecting filesystem.
 
 User overrides - local `src/lib/foo.task.ts` takes precedence over
 `gro/dist/foo.task.js`. Call builtin explicitly with `gro gro/foo`. All of Gro's
-internals exported from `$lib` for reuse.
+internals exported from `src/lib` for reuse.
 
 Plugin lifecycle - setup initializes, adapt handles production finalization
 (SvelteKit adapters), teardown cleans up. Watch mode skips teardown to keep

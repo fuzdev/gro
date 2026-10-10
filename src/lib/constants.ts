@@ -20,37 +20,13 @@ export const GRO_DIR = GRO_DIRNAME + '/';
 export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
 /**
- * The conventional library directory, not the SvelteKit `kit.files.lib`, which lives here
- * rather than in `./paths.ts` because it's a constant that reads no config. Code that has to
- * honor a customized `files.lib` reads `lib_path` off a `ParsedSvelteConfig` instead, and
- * projects that move it can point `task_root_dirs` at the new location in `gro.config.ts`.
+ * The library directory - SvelteKit has no `files.lib` option, so it's always here.
+ * Lives here rather than in `./paths.ts` because it's a constant that reads no config.
  */
 export const LIB_DIRNAME = 'lib';
 export const LIB_PATH = SOURCE_DIR + LIB_DIRNAME;
 /** @trailing_slash */
 export const LIB_DIR = LIB_PATH + '/';
-/**
- * Every filename a Svelte config is loaded from, in `vite-plugin-svelte`'s precedence order.
- * Gro reads the Svelte config through Vite, never from these directly, but one of them is
- * still loaded when `sveltekit()` gets no inline options - so they're project files that Gro
- * formats, watches for a config it can't read through Vite, and keys its config cache on.
- * The list is `vite-plugin-svelte`'s rather than SvelteKit's, which is the wider of the two:
- * SvelteKit's own fallback loader reads only `.js` and `.ts`, but that fallback is the path
- * Gro doesn't take, and a config Gro can't see is one whose edits don't invalidate the cache.
- * @see https://svelte.dev/docs/kit/configuration
- */
-export const SVELTE_CONFIG_FILENAMES = [
-	'svelte.config.js',
-	'svelte.config.ts',
-	'svelte.config.mjs',
-	'svelte.config.mts'
-];
-/**
- * SvelteKit's alias for the library directory.
- * Always `$lib` no matter where `files.lib` points.
- * @see https://svelte.dev/docs/kit/configuration#files
- */
-export const SVELTEKIT_LIB_ALIAS = '$lib';
 /**
  * Every filename Vite picks up as its config, in Vite's own precedence order.
  * Which one wins is Vite's call, so Gro treats them as a set rather than privileging
@@ -69,6 +45,10 @@ export const NODE_MODULES_DIRNAME = 'node_modules';
 export const PACKAGE_JSON_FILENAME = 'package.json';
 export const LOCKFILE_FILENAME = 'package-lock.json';
 export const SVELTEKIT_DEV_DIRNAME = '.svelte-kit'; // TODO use Svelte config value `outDir`
+/**
+ * The tsconfig SvelteKit generates for projects to extend as `$app/tsconfig`.
+ */
+export const SVELTEKIT_TSCONFIG_PATH = NODE_MODULES_DIRNAME + '/$app/tsconfig.json';
 export const SVELTEKIT_BUILD_DIRNAME = 'build';
 export const SVELTEKIT_DIST_DIRNAME = 'dist';
 export const SVELTEKIT_VITE_CACHE_PATH = NODE_MODULES_DIRNAME + '/.vite';
@@ -83,7 +63,6 @@ export const SVELTE_RUNES_MATCHER = /\.svelte\.(js|ts)$/; // TODO probably let `
 export const CSS_MATCHER = /\.css$/;
 /** Extracts the script content from Svelte files. */
 export const SVELTE_SCRIPT_MATCHER = /<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gim; // TODO maybe this shouldnt be global? or make a getter?
-export const SVELTEKIT_ENV_MATCHER = /^\$env\/(static|dynamic)\/(public|private)$/;
 export const SVELTEKIT_GLOBAL_SPECIFIER = /^\$(env|app)\//;
 export const EVERYTHING_MATCHER = /.*/;
 

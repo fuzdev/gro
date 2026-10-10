@@ -3,49 +3,44 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { LoadHook, ResolveHook } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import ts_blank_space from 'ts-blank-space';
 
-import { render_env_shim_module } from './sveltekit_shim_env.ts';
 import {
-	render_sveltekit_shim_app_environment,
+	load_sveltekit_env_declarations,
+	render_sveltekit_shim_app_env_vars,
+	resolve_sveltekit_env_entry,
+	SVELTEKIT_APP_ENV_VARS_MATCHER
+} from './sveltekit_shim_app_env_vars.ts';
+import {
+	render_sveltekit_shim_app_env,
 	render_sveltekit_shim_app_paths,
-	SVELTEKIT_SHIM_APP_ENVIRONMENT_MATCHER,
+	SVELTEKIT_SHIM_APP_ENV_MATCHER,
 	SVELTEKIT_SHIM_APP_PATHS_MATCHER,
 	sveltekit_shim_app_specifiers
 } from './sveltekit_shim_app.ts';
-import {
-	has_vite_config,
-	load_default_svelte_config,
-	warn_svelte_config_ignored,
-	NO_SVELTE_PLUGIN_REASON
-} from './svelte_config.ts';
-import {
-	svelte_config_cache_read,
-	svelte_config_cache_stamps,
-	svelte_config_cache_write
-} from './svelte_config_cache.ts';
+import { load_default_svelte_config } from './svelte_config.ts';
 import { paths } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
-import { resolve_specifier } from './resolve_specifier.ts';
-import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
+import { resolve_specifier, to_missing_module_id } from './resolve_specifier.ts';
 
 // TODO get out of the loader business, starting with https://nodejs.org/api/typescript.html#type-stripping
 
 /*
 
-Usage via `$lib/register.ts`:
+Usage via `register.ts`:
 
 ```bash
 node --import @fuzdev/gro/register.js foo.ts
 ```
 
-Usage via `$lib/run.task.ts`:
+Usage via `run.task.ts`:
 
 ```bash
 gro run foo.ts
 ```
 
-Direct usage without register (see also `$lib/gro.ts`):
+Direct usage without register (see also `gro.ts`):
 
 ```bash
 node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.ts", pathToFileURL("./"));' --experimental-import-meta-resolve --experimental-strip-types' foo.ts
@@ -63,23 +58,36 @@ const dev = true;
 
 const dir = paths.root;
 
+// The shims resolve to the loader's own sibling modules rather than `@fuzdev/gro/*`,
+// so they work in projects that run a global Gro without installing it.
+// The loader runs from `src/lib` as `.ts` or from `dist` as `.js`.
+const sibling_ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+const to_sibling_url = (name: string): string => new URL(name + sibling_ext, import.meta.url).href;
+const env_module_url = to_sibling_url('env');
+/**
+ * Set while the loader imports a project's `src/env.ts` for its declarations.
+ * The hooks thread's own imports run through these hooks inside that async context,
+ * so an `$app/env/*` load seen within it is `src/env.ts` importing the module it declares,
+ * which would otherwise wait on itself forever and exit silently.
+ */
+const loading_env_declarations = new AsyncLocalStorage<string>();
+
+const shim_app_urls = new Map(
+	Array.from(sveltekit_shim_app_specifiers, ([specifier, shim]) => [
+		specifier,
+		to_sibling_url(shim.slice(shim.lastIndexOf('/') + 1, -'.js'.length))
+	])
+);
+
 /*
 
-`resolve` is the one hook that can't await the config.
-
-Resolving it imports the Vite config, and the hooks thread's own imports go back through
-its own hooks - so a `resolve` that awaited the load it is part of re-enters itself until
-the stack blows. `load` has no such problem, and it's where all but one of the config's
-fields are read. So the alias map is the only thing needed up front, and it's the only
-thing cached: see `svelte_config_cache.ts`.
-
-On a hit, nothing is resolved here and the rest of the config is awaited inside `load`,
-which most invocations never reach - tasks and genfiles are TypeScript, and `gro test`
-hands its files to Vitest rather than to this loader. On a miss the whole config loads
-here at module scope, before the hooks go live, which keeps that import graph out of them.
+`resolve` needs no config - SvelteKit 3's `#lib/*` subpath imports resolve natively,
+and the deprecated `alias` option isn't supported. The config is awaited only inside
+`load`, which most invocations never reach - tasks and genfiles are TypeScript, and
+`gro test` hands its files to Vitest rather than to this loader.
 
 The one shape this can't survive is a Vite config that imports a module `load` resolves
-the config for - a `.svelte`, `.svelte.ts`, `$env`, or `$app/paths` import reached from
+the config for - a `.svelte`, `.svelte.ts`, `$app/env`, or `$app/paths` import reached from
 the config graph would await a load it is part of. Nothing puts those in a Vite config,
 and there's no correct value to hand back if something did.
 
@@ -88,27 +96,6 @@ config resolution doesn't need it, so this is the same load the main thread does
 Both read the project in the cwd, which is the only project either one resolves.
 
 */
-const cache_stamps = svelte_config_cache_stamps();
-const cached_svelte_config = svelte_config_cache_read(cache_stamps);
-
-let aliases: Array<[string, string]>;
-if (cached_svelte_config) {
-	aliases = Object.entries(cached_svelte_config.alias);
-	if (!cached_svelte_config.svelte_config_found) {
-		warn_svelte_config_ignored(process.cwd(), NO_SVELTE_PLUGIN_REASON);
-	}
-} else {
-	const parsed_svelte_config = await load_default_svelte_config();
-	aliases = Object.entries(parsed_svelte_config.alias);
-	// Skipped without a Vite config because that path resolves nothing to save,
-	// and because its warning has to repeat rather than be cached away.
-	if (has_vite_config()) {
-		svelte_config_cache_write(cache_stamps, {
-			alias: parsed_svelte_config.alias,
-			svelte_config_found: parsed_svelte_config.svelte_config !== null
-		});
-	}
-}
 
 const RAW_MATCHER = /(%3Fraw|\.css|\.svg)$/; // TODO others? configurable?
 
@@ -123,12 +110,13 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 			shortCircuit: true,
 			source: render_sveltekit_shim_app_paths(base_url, assets_url)
 		};
-	} else if (SVELTEKIT_SHIM_APP_ENVIRONMENT_MATCHER.test(url)) {
-		// SvelteKit `$app/environment` shim
+	} else if (SVELTEKIT_SHIM_APP_ENV_MATCHER.test(url)) {
+		// SvelteKit `$app/env` shim
+		const { version_name } = await load_default_svelte_config();
 		return {
 			format: 'module',
 			shortCircuit: true,
-			source: render_sveltekit_shim_app_environment(dev)
+			source: render_sveltekit_shim_app_env(dev, version_name)
 		};
 	} else if (SVELTE_RUNES_MATCHER.test(url)) {
 		// Svelte runes in js/ts, `.svelte.ts`
@@ -178,45 +166,37 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 			'export default `' + raw_source.replaceAll('\\', '\\\\').replaceAll('`', '\\`') + '`;';
 		return { format: 'module', shortCircuit: true, source };
 	} else {
-		// SvelteKit `$env`
+		// SvelteKit `$app/env/public` and `$app/env/private`
 		// TODO use `format` from the resolve hook to speed this up and make it simpler
 		if (context.format === 'sveltekit-env') {
-			let mode: 'static' | 'dynamic';
-			let visibility: 'public' | 'private';
-			switch (context.importAttributes.virtual) {
-				case '$env/static/public': {
-					mode = 'static';
-					visibility = 'public';
-					break;
-				}
-				case '$env/static/private': {
-					mode = 'static';
-					visibility = 'private';
-					break;
-				}
-				case '$env/dynamic/public': {
-					mode = 'dynamic';
-					visibility = 'public';
-					break;
-				}
-				case '$env/dynamic/private': {
-					mode = 'dynamic';
-					visibility = 'private';
-					break;
-				}
-				default: {
-					throw Error(`Unknown $env import: ${context.importAttributes.virtual}`);
-				}
+			const virtual = context.importAttributes.virtual;
+			const matches = typeof virtual === 'string' && SVELTEKIT_APP_ENV_VARS_MATCHER.exec(virtual);
+			if (!matches) throw Error(`Unknown $app/env import: ${virtual}`);
+			const declaring = loading_env_declarations.getStore();
+			if (declaring !== undefined) {
+				const message = `${declaring} can't import ${virtual} - it declares the env vars that module exports`;
+				return {
+					format: 'module',
+					shortCircuit: true,
+					source: `throw Error(${JSON.stringify(message)});`
+				};
 			}
-			const { env_dir, private_prefix, public_prefix } = await load_default_svelte_config();
-			const source = render_env_shim_module(
-				dev,
-				mode,
+			const visibility = matches[1] as 'public' | 'private';
+			const { src_path, env_dir } = await load_default_svelte_config();
+			const entry_id = resolve_sveltekit_env_entry(src_path);
+			const variables = entry_id
+				? await loading_env_declarations.run(entry_id, () =>
+						load_sveltekit_env_declarations(entry_id)
+					)
+				: null;
+			const source = render_sveltekit_shim_app_env_vars({
 				visibility,
-				public_prefix,
-				private_prefix,
+				variables,
+				entry_specifier: entry_id && pathToFileURL(entry_id).href,
+				env_module_specifier: env_module_url,
+				dev,
 				env_dir
-			);
+			});
 			return { format: 'module', shortCircuit: true, source };
 		}
 	}
@@ -227,15 +207,10 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 
 /** @nodocs */
 export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
-	let s = specifier;
+	const s = specifier;
 
-	// Support SvelteKit `$env` imports
-	if (
-		s === '$env/static/public' ||
-		s === '$env/static/private' ||
-		s === '$env/dynamic/public' ||
-		s === '$env/dynamic/private'
-	) {
+	// Support SvelteKit `$app/env/public` and `$app/env/private` imports
+	if (SVELTEKIT_APP_ENV_VARS_MATCHER.test(s)) {
 		// The returned `url` is validated before `load` is called,
 		// so we need a slightly roundabout strategy to pass through the specifier for virtual files.
 		return {
@@ -247,14 +222,27 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 	}
 
 	// Support SvelteKit `$app` imports, including from node_modules
-	const shimmed = sveltekit_shim_app_specifiers.get(s);
+	const shimmed = shim_app_urls.get(s);
 	if (shimmed !== undefined) {
 		return nextResolve(shimmed, context);
 	}
 
-	// Apply SvelteKit aliases (handles self-referencing packages like @fuzdev/fuz_util -> src/lib)
-	const original = s;
-	s = map_sveltekit_aliases(s, aliases);
+	// Subpath imports like `#lib/*` resolve through package.json `imports`,
+	// falling back to the Vite convention of `.js` naming a `.ts` file
+	if (s[0] === '#') {
+		try {
+			return await nextResolve(s, context);
+		} catch (error) {
+			const id = to_missing_module_id(error);
+			if (id === null) throw error;
+			const resolved = await resolve_specifier(id, dir);
+			return {
+				url: pathToFileURL(resolved.path_id_with_querystring).href,
+				format: 'module',
+				shortCircuit: true
+			};
+		}
+	}
 
 	// Bare specifiers (not starting with . or /) use Node's default resolution
 	if (s[0] !== '.' && s[0] !== '/') {
@@ -267,20 +255,20 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(s, context);
 	}
 
-	// Fast path: parent inside `node_modules` and aliasing didn't transform the specifier.
+	// Fast path: parent inside `node_modules`.
 	// Defer to Node's default resolution and format detection — skips the fs.stat work in
 	// `resolve_specifier` and preserves CJS/ESM interop. e.g. `ws/wrapper.mjs` statically
 	// imports `./lib/permessage-deflate.js` (CJS) and reads its `default` export, which Node
 	// only synthesizes when the file is loaded as CommonJS.
-	if (s === original && parent_url.includes('/node_modules/')) {
+	if (parent_url.includes('/node_modules/')) {
 		return nextResolve(s, context);
 	}
 
 	const resolved = await resolve_specifier(s, dirname(fileURLToPath(parent_url)));
 	const url = pathToFileURL(resolved.path_id_with_querystring).href;
 
-	// Safety net for less common routes into `node_modules` (an alias that maps there, or
-	// project code doing `import './node_modules/...'`): same CJS interop reason as above.
+	// Safety net for project code doing `import './node_modules/...'`:
+	// same CJS interop reason as above.
 	if (url.includes('/node_modules/')) {
 		return { url, shortCircuit: true };
 	}

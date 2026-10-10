@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 
-import { plugin_replace, to_plugin_context } from '$lib/plugin.ts';
+import { plugin_replace, to_plugin_context } from '#lib/plugin.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 
 describe('plugin_replace', () => {

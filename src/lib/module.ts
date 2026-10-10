@@ -1,14 +1,10 @@
-import { escape_regexp } from '@fuzdev/fuz_util/regexp.ts';
-
-import { SOURCE_DIR, SOURCE_DIRNAME, SVELTEKIT_LIB_ALIAS } from './constants.ts';
+import { SOURCE_DIR, SOURCE_DIRNAME } from './constants.ts';
 
 export const MODULE_PATH_SRC_PREFIX = SOURCE_DIR;
-export const MODULE_PATH_LIB_PREFIX = SVELTEKIT_LIB_ALIAS + '/';
+export const MODULE_PATH_LIB_PREFIX = '#lib/';
 
-const INTERNAL_MODULE_MATCHER = new RegExp(
-	`^(\\.?\\.?|${SOURCE_DIRNAME}|${escape_regexp(SVELTEKIT_LIB_ALIAS)})\\/`,
-	'u'
-);
+// `#` specifiers are package.json subpath imports, which are always package-internal
+const INTERNAL_MODULE_MATCHER = new RegExp(`^((\\.?\\.?|${SOURCE_DIRNAME})\\/|#)`, 'u');
 
 export const is_external_module = (module_name: string): boolean =>
 	!INTERNAL_MODULE_MATCHER.test(module_name);

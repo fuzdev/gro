@@ -10,7 +10,7 @@ import { TaskError, type Task } from './task.ts';
 
 /**
  * Runs a TypeScript file with Gro's loader, forwarding all args to the script.
- * Useful for scripts that need SvelteKit shims ($lib, $env, etc).
+ * Useful for scripts that need SvelteKit shims (`$app/env`, `$app/paths`, etc).
  *
  * @module
  */

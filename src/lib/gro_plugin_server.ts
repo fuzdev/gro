@@ -1,6 +1,6 @@
 import { spawn_restartable_process, type RestartableProcess } from '@fuzdev/fuz_util/process.ts';
 import * as esbuild from 'esbuild';
-import type { Config as SvelteConfig } from '@sveltejs/kit';
+import type { Config as SvelteConfig } from '@sveltejs/kit/vite';
 import { join, resolve } from 'node:path';
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import { strip_before } from '@fuzdev/fuz_util/string.ts';
@@ -11,12 +11,11 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import type { Plugin } from './plugin.ts';
 import { paths } from './paths.ts';
-import { GRO_DEV_DIRNAME, SERVER_DIST_PATH } from './constants.ts';
+import { GRO_DEV_DIRNAME, LIB_PATH, SERVER_DIST_PATH } from './constants.ts';
 import { parse_svelte_config, load_default_svelte_config } from './svelte_config.ts';
 import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
-import { esbuild_plugin_sveltekit_shim_env } from './esbuild_plugin_sveltekit_shim_env.ts';
+import { esbuild_plugin_sveltekit_shim_app_env_vars } from './esbuild_plugin_sveltekit_shim_app_env_vars.ts';
 import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
-import { esbuild_plugin_sveltekit_shim_alias } from './esbuild_plugin_sveltekit_shim_alias.ts';
 import { esbuild_plugin_external_worker } from './esbuild_plugin_external_worker.ts';
 import { esbuild_plugin_sveltekit_local_imports } from './esbuild_plugin_sveltekit_local_imports.ts';
 import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
@@ -30,18 +29,15 @@ export const SERVER_SOURCE_PATH = 'server/server.ts';
 
 /**
  * The server entry point of a project whose lib directory is `lib_path`.
- * Taken from the Svelte config's `files.lib` rather than the conventional `src/lib`,
- * so a project that moves its lib directory still has its server found and built.
  */
-export const to_server_source_id = (lib_path: string): PathId =>
+export const to_server_source_id = (lib_path = LIB_PATH): PathId =>
 	join(paths.root, lib_path, SERVER_SOURCE_PATH);
 
 /**
- * @param path - the server entry point to look for;
- * defaults to `to_server_source_id` of the Svelte config's `lib_path`
+ * @param path - the server entry point to look for, defaults to `to_server_source_id()`
  */
 export const has_server = async (path?: string): Promise<Result<object, { message: string }>> => {
-	const final_path = path ?? to_server_source_id((await load_default_svelte_config()).lib_path);
+	const final_path = path ?? to_server_source_id();
 	if (!(await fs_exists(final_path))) {
 		return { ok: false, message: `no server file found at ${final_path}` };
 	}
@@ -51,7 +47,7 @@ export const has_server = async (path?: string): Promise<Result<object, { messag
 export interface GroPluginServerOptions {
 	/**
 	 * same as esbuild's `entryPoints`
-	 * @default ```[`to_server_source_id` of the Svelte config's `lib_path`]````
+	 * @default ```[to_server_source_id()]```
 	 */
 	entry_points?: Array<string>;
 	/**
@@ -112,7 +108,7 @@ export interface Outpaths {
 	 */
 	outdir: string;
 	/**
-	 * @default ```the Svelte config's `lib_path`, so `src/lib` unless it's customized````
+	 * @default `src/lib`
 	 */
 	outbase: string;
 	/**
@@ -125,8 +121,6 @@ export type CreateOutpaths = (dev: boolean) => Outpaths;
 
 /**
  * The `Outpaths` used when the plugin is given none.
- * Takes `lib_dir` as a param rather than reading `paths.lib` so a customized `kit.files.lib`
- * is honored - resolving it is async, so it can't be a plugin-creation default.
  */
 export const to_default_outpaths =
 	(dir: string, lib_dir: string): CreateOutpaths =>
@@ -159,27 +153,23 @@ export const gro_plugin_server = ({
 		setup: async ({ dev, watch, timings, log, config, filer }) => {
 			// `load_default_svelte_config` memoizes, so this shares the resolution
 			// with the rest of the process. Note that it reads the cwd's config,
-			// not `dir`'s - `dir` positions esbuild's output and alias resolution.
+			// not `dir`'s - `dir` positions esbuild's output.
 			const parsed_svelte_config = svelte_config
 				? await parse_svelte_config({ svelte_config })
 				: await load_default_svelte_config();
 			const {
-				alias,
 				base_url,
 				assets_url,
+				src_path,
 				env_dir,
-				private_prefix,
-				public_prefix,
+				version_name,
 				svelte_compile_options,
 				svelte_compile_module_options,
-				svelte_preprocessors,
-				lib_path
+				svelte_preprocessors
 			} = parsed_svelte_config;
 
-			// The entry point and `outbase` defaults land here rather than in the destructuring above
-			// because they come from the Svelte config, which can only be read asynchronously.
-			const lib_dir = join(paths.root, lib_path);
-			const final_entry_points = entry_points ?? [to_server_source_id(lib_path)];
+			const lib_dir = join(paths.root, LIB_PATH);
+			const final_entry_points = entry_points ?? [to_server_source_id()];
 
 			const { outbase, outdir, outname } = (outpaths ?? to_default_outpaths(dir, lib_dir))(dev);
 
@@ -201,16 +191,15 @@ export const gro_plugin_server = ({
 			build_ctx = await esbuild.context({
 				entryPoints: final_entry_points.map((path) => resolve(dir, path)),
 				plugins: [
-					esbuild_plugin_sveltekit_shim_app({ dev, base_url, assets_url }),
-					esbuild_plugin_sveltekit_shim_env({
+					esbuild_plugin_sveltekit_shim_app({ dev, base_url, assets_url, version_name }),
+					esbuild_plugin_sveltekit_shim_app_env_vars({
 						dev,
-						public_prefix,
-						private_prefix,
+						dir,
+						src_path,
 						env_dir,
 						env_files,
 						ambient_env
 					}),
-					esbuild_plugin_sveltekit_shim_alias({ dir, alias }),
 					esbuild_plugin_external_worker({
 						dev,
 						build_options,
@@ -218,10 +207,10 @@ export const gro_plugin_server = ({
 						svelte_compile_options,
 						svelte_compile_module_options,
 						svelte_preprocessors,
-						alias,
 						base_url,
-						public_prefix,
-						private_prefix,
+						assets_url,
+						version_name,
+						src_path,
 						env_dir,
 						env_files,
 						ambient_env,

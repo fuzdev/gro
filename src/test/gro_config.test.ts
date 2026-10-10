@@ -5,7 +5,7 @@ import {
 	SEARCH_EXCLUDER_DEFAULT,
 	EMPTY_BUILD_CACHE_CONFIG_HASH,
 	load_gro_config
-} from '$lib/gro_config.ts';
+} from '#lib/gro_config.ts';
 
 // Makes `load_gro_config` see no `gro.config.ts` and fall back to the default config.
 // At the top level because that's where Vitest hoists it to anyway.

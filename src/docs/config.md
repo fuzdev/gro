@@ -148,7 +148,7 @@ the `"exports"` property of your root `package.json`.
 The motivation is to streamline package publishing by supplementing
 [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging).
 
-By default `package_json.exports` uses subpath wildcard patterns to include everything from `$lib/`
+By default `package_json.exports` uses subpath wildcard patterns to include everything from `src/lib/`
 except for some ignored files like tests and markdown.
 Every `internal/` directory is blocked at any depth by a null exports entry
 (`"./internal/*": null`, one per outermost internal directory),

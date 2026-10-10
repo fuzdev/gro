@@ -11,10 +11,7 @@ when all three conditions are met:
 
 1. `@sveltejs/kit` is a dependency in `package.json`
 2. `@sveltejs/package` is listed in `package.json` dependencies
-3. `src/lib/` directory exists (or the path configured by `kit.files.lib`)
-
-They're checked in that order, so a project that isn't a library never reads the
-Svelte config, which is the only one of the three that costs anything.
+3. `src/lib/` directory exists
 
 Only `dependencies` and `devDependencies` count for the first two - a peer dep
 declares what a package works alongside, not what the package itself is.

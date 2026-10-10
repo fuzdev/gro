@@ -5,7 +5,7 @@ import { strip_start } from '@fuzdev/fuz_util/string.ts';
 import { to_output_file_name } from '../lib/gen.ts';
 import { paths, base_path_to_path_id } from '../lib/paths.ts';
 
-// TODO maybe extract some of these to `$lib/gen_helpers.ts`
+// TODO maybe extract some of these to `gen_helpers.ts` in `src/lib`
 
 export interface GenDocContext {
 	origin_id: string;

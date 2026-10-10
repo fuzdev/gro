@@ -24,15 +24,15 @@ This closes the gap so a flagless external consumer (no
 `allowImportingTsExtensions`) resolves the package's types and runtime.
 
 It deliberately does **not** rely on `tsc`'s `rewriteRelativeImportExtensions`:
-that flag rewrites only relative specifiers, so it can't carry a SvelteKit
-`$lib`/`$routes` alias — a non-relative `.ts` specifier is a hard error under it,
-which would force dissolving those aliases into relative paths. With the rewrite
-owned here, source keeps its aliases and the flag stays off. The pass is
+that flag rewrites only relative specifiers, so it can't carry a `#lib`/`#routes`
+subpath import — a non-relative `.ts` specifier is a hard error under it,
+which would force dissolving those imports into relative paths. With the rewrite
+owned here, source keeps its subpath imports and the flag stays off. The pass is
 idempotent, so it's a safe no-op on any `.js` `tsc` did happen to rewrite.
 
 Only **relative** specifiers (`./`, `../`) are rewritten. Bare `@fuzdev/…ts`
 specifiers are left alone — the package `exports` `.js`/`.ts` mirror resolves them
-in both source and dist. SvelteKit aliases (`$lib`, `$routes`) live only in
+in both source and dist. Subpath imports (`#lib`, `#routes`) live only in
 non-published app/test code, never in `dist`. `.svelte` component imports and
 specifiers already ending in `.js` are likewise untouched.
 

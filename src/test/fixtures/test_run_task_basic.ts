@@ -6,9 +6,9 @@
 import { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { run_task } from '$lib/run_task.ts';
-import { load_gro_config } from '$lib/gro_config.ts';
-import { Filer } from '$lib/filer.ts';
+import { run_task } from '#lib/run_task.ts';
+import { load_gro_config } from '#lib/gro_config.ts';
+import { Filer } from '#lib/filer.ts';
 
 async function runTest() {
 	console.log('Testing run_task passes args and returns output...\n');

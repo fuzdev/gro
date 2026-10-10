@@ -11,17 +11,9 @@
  * @module
  */
 
-import type {
-	resolve as base_resolve,
-	asset as base_asset,
-	resolveRoute as base_resolveRoute
-} from '$app/paths';
-import { noop } from '@fuzdev/fuz_util/function.ts';
+import type { resolve as base_resolve, asset as base_asset, match as base_match } from '$app/paths';
 
-export const assets = '';
-/** @deprecated */
-export const base = '';
-export const resolve: typeof base_resolve = (v, ..._rest) => ('/' + v.replace(/^\//, '')) as any; // TODO needs to use SvelteKit config base
-/** @deprecated */
-export const resolveRoute: typeof base_resolveRoute = noop; // eslint-disable-line @typescript-eslint/no-deprecated
-export const asset: typeof base_asset = (v) => '/' + v.replace(/^\//, ''); // TODO needs to use SvelteKit config base
+// TODO route ids with params aren't filled in, only paths are prefixed
+export const resolve: typeof base_resolve = (v, ..._rest) => ('/' + v.replace(/^\//, '')) as any;
+export const asset: typeof base_asset = (v) => '/' + v.replace(/^\//, '');
+export const match: typeof base_match = () => Promise.resolve(null);

@@ -18,29 +18,9 @@ import {
 } from './watch_dir.ts';
 import { paths } from './paths.ts';
 import { parse_imports } from './parse_imports.ts';
-import { resolve_specifier } from './resolve_specifier.ts';
-import { load_default_svelte_config } from './svelte_config.ts';
-import { svelte_config_cache_read, svelte_config_cache_stamps } from './svelte_config_cache.ts';
-import { map_sveltekit_aliases } from './sveltekit_helpers.ts';
+import { resolve_specifier, to_missing_module_id } from './resolve_specifier.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
 import type { Disknode } from './disknode.ts';
-
-let aliases: Array<[string, string]> | undefined;
-
-/**
- * Loaded on demand so constructing a `Filer` doesn't read the Svelte config,
- * and memoized because this is called for every import specifier of every changed file.
- *
- * Prefers the loader's alias cache, which is keyed on the config files' state and so is
- * valid whoever wrote it. That saves a full Vite config resolution for tasks like `gro gen`
- * that need nothing else from the config, and it makes the Filer resolve specifiers through
- * the same map the loader does rather than through one that merely agrees with it.
- */
-const load_aliases = async (): Promise<Array<[string, string]>> =>
-	(aliases ??= Object.entries(
-		svelte_config_cache_read(svelte_config_cache_stamps())?.alias ??
-			(await load_default_svelte_config()).alias
-	));
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 
@@ -288,23 +268,26 @@ export class Filer {
 		}
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
-			const path = map_sveltekit_aliases(specifier, await load_aliases());
-
 			let path_id;
 			// TODO replace `resolve_specifier` with `import.meta.resolve` for local specifiers too
 			// once we move to explicit extensions (Deno-compatible) - the .js→.ts Vite convention
 			// is the only reason resolve_specifier is still needed here
-			if (path[0] === '.' || path[0] === '/') {
-				const resolved = await resolve_specifier(path, dir);
+			if (specifier[0] === '.' || specifier[0] === '/') {
+				const resolved = await resolve_specifier(specifier, dir);
 				path_id = resolved.path_id;
 			} else {
 				const file_url = pathToFileURL(file.id);
 				let resolved_url;
 				try {
-					resolved_url = import.meta.resolve(path, file_url.href);
+					resolved_url = import.meta.resolve(specifier, file_url.href);
 				} catch (error) {
-					this.#log?.error('[filer] failed to resolve path', path, file_url.href, error);
-					continue;
+					// a subpath import like `#lib/foo.js` naming a `.ts` file, the Vite convention
+					const missing_id = to_missing_module_id(error);
+					if (missing_id === null) {
+						this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
+						continue;
+					}
+					resolved_url = pathToFileURL((await resolve_specifier(missing_id, dir)).path_id).href;
 				}
 				if (!resolved_url.startsWith('file:')) continue; // skip node:, npm:, https:, jsr:, etc.
 				path_id = fileURLToPath(resolved_url);

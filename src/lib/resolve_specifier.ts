@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { extname, isAbsolute, join, relative } from 'node:path';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
@@ -78,4 +79,18 @@ export const resolve_specifier = async (
 		mapped_specifier,
 		namespace
 	};
+};
+
+/**
+ * The file a failed Node resolution was looking for, if it failed because the file is missing -
+ * Node maps a subpath import like `#lib/foo.js` through package.json `imports` before failing,
+ * so this is the path a `.js`-for-`.ts` retry should start from.
+ * @returns the missing file's path, or `null` for any other error
+ */
+export const to_missing_module_id = (error: unknown): string | null => {
+	const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
+	if (code !== 'ERR_MODULE_NOT_FOUND' || typeof url !== 'string' || !url.startsWith('file:')) {
+		return null;
+	}
+	return fileURLToPath(url);
 };

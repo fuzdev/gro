@@ -31,13 +31,13 @@ It includes:
     and [SvelteKit](https://github.com/sveltejs/kit)
   - defers to SvelteKit and Vite for the frontend and
     [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging) for the library
-  - exposes all of its internals in `$lib`
+  - exposes all of its internals in `src/lib`
   - uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
   - provides a [Node loader](/src/lib/loader.ts) with a [register hook](/src/lib/register.ts)
     - uses Node's type stripping and supports importing JSON, SvelteKit shims,
       and SSR'd Svelte files in tests/tasks/scripts
     - supports [SvelteKit module imports](https://kit.svelte.dev/docs/modules) for
-      `$lib`, `$env`, and `$app` in tasks, tests, Node servers,
+      `$app` (including `$app/env`) in tasks, tests, Node servers,
       and other code outside of the SvelteKit frontend,
       so you can use SvelteKit patterns everywhere
       (these are best-effort shims, not perfect)

@@ -46,7 +46,7 @@ import {
 	library_cache_read,
 	library_cache_write,
 	library_load_from_repo
-} from '$lib/library_load.ts';
+} from '#lib/library_load.ts';
 
 const mocked_commit = vi.mocked(git_current_commit_hash);
 const mocked_workspace = vi.mocked(git_check_workspace);

@@ -1,10 +1,9 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
-import { spawn_cli } from '@fuzdev/gro/cli.ts';
 import { z } from 'zod';
 
 import { to_implicit_forwarded_args } from './args.ts';
-import { find_cli } from './cli.ts';
+import { find_cli, spawn_cli } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { paths } from './paths.ts';

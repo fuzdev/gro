@@ -7,7 +7,7 @@ import {
 	package_json_parse_repo_url,
 	package_json_serialize,
 	package_json_to_exports
-} from '$lib/package_json.ts';
+} from '#lib/package_json.ts';
 
 test('package_json_load', async () => {
 	const package_json = await package_json_load();

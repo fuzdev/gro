@@ -30,6 +30,10 @@
     "deploy": "gro deploy"
   },
   "type": "module",
+  "imports": {
+    "#lib/*": "./src/lib/*",
+    "#routes/*": "./src/routes/*"
+  },
   "engines": {
     "node": ">=24.14"
   },
@@ -59,11 +63,11 @@
   "peerDependencies": {
     "@fuzdev/blake3-wasm": "^0.2.0",
     "@fuzdev/fuz_util": ">=0.69.0",
-    "@sveltejs/kit": "^2",
+    "@sveltejs/kit": "^3",
     "esbuild": "^0.28.0",
     "svelte": "^5",
     "svelte-docinfo": ">=0.6.0",
-    "typescript": "^5",
+    "typescript": "^6",
     "vite": "^5.0.3 || ^6.0.0 || ^7.0.0 || ^8.0.0",
     "vitest": "^3 || ^4 || ^5",
     "zod": "^4"
@@ -96,10 +100,10 @@
     "@fuzdev/mdz": "^0.3.0",
     "@ryanatkn/eslint-config": "^0.12.2",
     "@sveltejs/acorn-typescript": "^1.0.9",
-    "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.57.1",
-    "@sveltejs/package": "^2.5.7",
-    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@sveltejs/adapter-static": "^4.0.0",
+    "@sveltejs/kit": "^3.0.1",
+    "@sveltejs/package": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/estree": "^1.0.8",
     "@types/node": "^24.10.1",
     "@webref/css": "^8.2.0",
@@ -107,13 +111,13 @@
     "eslint": "^9.39.1",
     "eslint-plugin-svelte": "^3.13.1",
     "magic-string": "^0.30.21",
-    "svelte": "^5.55.4",
-    "svelte-check": "^4.4.6",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
     "svelte-docinfo": "^0.8.0",
     "svelte2tsx": "^0.7.52",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.48.1",
-    "vite": "^7.3.6",
+    "vite": "^8.3.4",
     "vitest": "^5.0.0",
     "zimmerframe": "^1.1.4",
     "zod": "^4.3.6"

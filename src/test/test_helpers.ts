@@ -1,4 +1,3 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import ts from 'typescript';
 import { vi } from 'vitest';
@@ -7,10 +6,10 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import type { GroConfig } from '$lib/gro_config.ts';
-import type { Filer } from '$lib/filer.ts';
-import type { ParsedSvelteConfig } from '$lib/svelte_config.ts';
-import type { TaskContext } from '$lib/task.ts';
+import type { GroConfig } from '#lib/gro_config.ts';
+import type { Filer } from '#lib/filer.ts';
+import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
+import type { TaskContext } from '#lib/task.ts';
 
 /**
  * Creates a mock logger for testing.
@@ -105,57 +104,6 @@ export const mock_dir_entry = (name: string): any => ({
 });
 
 export const TEST_TIMEOUT_MD = 20_000;
-
-export const SOME_PUBLIC_ENV_VAR_NAME = 'PUBLIC_SOME_PUBLIC_ENV_VAR';
-export const SOME_PUBLIC_ENV_VAR_VALUE = 'SOME_PUBLIC_ENV_VAR';
-const name_equals = SOME_PUBLIC_ENV_VAR_NAME + '=';
-const line = name_equals + SOME_PUBLIC_ENV_VAR_VALUE;
-
-let inited = false;
-
-/**
- * Hacky global helper to init the test env.
- *
- * @returns boolean indicating if the env file was created or not
- */
-export const init_test_env = async (
-	dir = process.cwd(),
-	env_filename = '.env'
-): Promise<boolean> => {
-	if (inited) return false;
-	inited = true;
-
-	const env_file = join(dir, env_filename);
-
-	let contents: string;
-	try {
-		contents = await readFile(env_file, 'utf8');
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-			await writeFile(env_file, line + '\n', 'utf8');
-			return true;
-		}
-		throw error;
-	}
-
-	const lines = contents.split('\n');
-	if (lines.includes(line)) {
-		return false; // already exists
-	}
-
-	let new_contents: string;
-	const found_index = lines.findIndex((l) => l.startsWith(name_equals));
-	if (found_index === -1) {
-		// if the line does not exist, add it
-		new_contents = contents + (contents.endsWith('\n') ? '' : '\n') + line + '\n';
-	} else {
-		// if the line exists but with a different value, replace it
-		new_contents = contents.replace(new RegExp(`${SOME_PUBLIC_ENV_VAR_NAME}=.*`), line);
-	}
-	await writeFile(env_file, new_contents, 'utf8');
-
-	return true;
-};
 
 /**
  * Creates a TypeScript environment for testing.
@@ -292,7 +240,7 @@ export const create_mock_filer = (): Filer =>
  */
 export const create_mock_svelte_config = (): ParsedSvelteConfig =>
 	({
-		lib_path: 'src/lib',
+		src_path: 'src',
 		routes_path: 'src/routes'
 	}) as ParsedSvelteConfig;
 

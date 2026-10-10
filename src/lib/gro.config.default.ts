@@ -14,7 +14,7 @@ import { package_json_load } from './package_json.ts';
  * It looks at `package.json` and the filesystem and tries to do the right thing:
  *
  * - if `@sveltejs/kit`, assumes a SvelteKit frontend
- * - if `@sveltejs/package` + the lib directory, assumes a Node library - respects `KitConfig.kit.files.lib`
+ * - if `@sveltejs/package` + the lib directory, assumes a Node library
  * - if `src/lib/server/server.ts`, assumes a Node server - needs config
  */
 const config: CreateGroConfig = (cfg) => {
@@ -24,10 +24,6 @@ const config: CreateGroConfig = (cfg) => {
 	cfg.plugins = async () => {
 		const package_json = await package_json_load(); // TODO gets wastefully loaded by some plugins, maybe put in plugin/task context? how does that interact with `map_package_json`?
 
-		// `has_server` reads the Svelte config, because the server's location follows
-		// `kit.files.lib` and there's no way to find it without knowing where that points.
-		// So `dev` and `build` resolve the config once here no matter what the project is -
-		// which is the right place to pay for it, since they're the commands that need it.
 		const has_sveltekit_app_result = has_sveltekit_app(package_json);
 		const [has_server_result, has_sveltekit_library_result] = await Promise.all([
 			has_server(),

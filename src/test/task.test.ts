@@ -8,10 +8,10 @@ import {
 	validate_task_module,
 	find_tasks,
 	load_tasks
-} from '$lib/task.ts';
-import * as actual_test_task_module from '$lib/test.task.ts';
-import { create_empty_gro_config } from '$lib/gro_config.ts';
-import { GRO_DIST_DIR } from '$lib/paths.ts';
+} from '#lib/task.ts';
+import * as actual_test_task_module from '#lib/test.task.ts';
+import { create_empty_gro_config } from '#lib/gro_config.ts';
+import { GRO_DIST_DIR } from '#lib/paths.ts';
 
 describe('task', () => {
 	test('is_task_path basic behavior', () => {

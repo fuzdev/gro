@@ -23,9 +23,10 @@ export const page: typeof base_page = {
 	error: null,
 	params: {},
 	route: { id: null },
+	shallow: null,
 	state: {},
 	status: -1,
-	url: new URL('https://github.com/fuzdev/gro') as any // TODO maybe use package.json?
+	url: new URL('https://github.com/fuzdev/gro') // TODO maybe use package.json?
 };
 
 export const updated: typeof base_updated = {

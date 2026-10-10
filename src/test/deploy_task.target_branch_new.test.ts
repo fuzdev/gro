@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { task as deploy_task } from '$lib/deploy.task.ts';
+import { task as deploy_task } from '#lib/deploy.task.ts';
 
 import {
 	create_mock_deploy_task_context,

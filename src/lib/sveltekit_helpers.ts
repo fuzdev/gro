@@ -3,7 +3,6 @@ import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
-import { join } from 'node:path';
 
 import { to_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
@@ -12,10 +11,11 @@ import {
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
 	SVELTEKIT_DEP_NAME,
-	SVELTEKIT_DEV_DIRNAME
+	SVELTEKIT_DEV_DIRNAME,
+	SVELTEKIT_TSCONFIG_PATH,
+	LIB_PATH
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
-import { load_default_svelte_config } from './svelte_config.ts';
 import { TaskError } from './task.ts';
 
 /**
@@ -42,10 +42,7 @@ export const has_sveltekit_library = async (
 	}
 
 	// Checked before the lib directory because it's the cheaper of the two and it's what
-	// distinguishes a library from an app, so this returns without reading the Svelte config
-	// for the tasks that call it on its own - `changeset`, `publish`, `release`, `gro sync`.
-	// `dev` and `build` resolve the config regardless, since `has_server` needs it too.
-	// Peer deps don't count here either, for the same reason as `has_sveltekit_app`.
+	// Peer deps don't count here, for the same reason as `has_sveltekit_app`.
 	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
 		return {
 			ok: false,
@@ -53,9 +50,8 @@ export const has_sveltekit_library = async (
 		};
 	}
 
-	const { lib_path } = await load_default_svelte_config();
-	if (!(await fs_exists(lib_path))) {
-		return { ok: false, message: `no SvelteKit lib directory found at ${lib_path}` };
+	if (!(await fs_exists(LIB_PATH))) {
+		return { ok: false, message: `no SvelteKit lib directory found at ${LIB_PATH}` };
 	}
 
 	return { ok: true };
@@ -79,7 +75,7 @@ export const sveltekit_sync = async (
 
 // TODO maybe this shouldn't exist, instead error if `package.json` has SvelteKit but it's not found (with install message above)
 /**
- * If the SvelteKit CLI is found and its `.svelte-kit` directory is not, run `svelte-kit sync`.
+ * If the SvelteKit CLI is found, run `svelte-kit sync`.
  */
 export const sveltekit_sync_if_available = async (
 	sveltekit_cli: string | Cli = SVELTEKIT_CLI
@@ -92,12 +88,14 @@ export const sveltekit_sync_if_available = async (
 };
 
 /**
- * If the SvelteKit CLI is found and its `.svelte-kit` directory is not, run `svelte-kit sync`.
+ * If the SvelteKit CLI is found and either its `.svelte-kit` directory
+ * or its generated `$app/tsconfig` is not, run `svelte-kit sync`.
+ * The tsconfig is checked because it lives in `node_modules`, which reinstalls wipe.
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	sveltekit_cli: string | Cli = SVELTEKIT_CLI
 ): Promise<void> => {
-	if (await fs_exists(SVELTEKIT_DEV_DIRNAME)) {
+	if ((await fs_exists(SVELTEKIT_DEV_DIRNAME)) && (await fs_exists(SVELTEKIT_TSCONFIG_PATH))) {
 		return;
 	}
 	const found_sveltekit_cli =
@@ -185,22 +183,4 @@ export const run_svelte_package = async (
 		...to_forwarded_args(cli_name)
 	});
 	await spawn_cli(found_svelte_package_cli, serialized_args, log);
-};
-
-//
-/**
- * Map an import specifier with the SvelteKit aliases.
- */
-export const map_sveltekit_aliases = (
-	specifier: string,
-	aliases: Array<[string, string]>
-): string => {
-	let path = specifier;
-	for (const [from, to] of aliases) {
-		if (path.startsWith(from)) {
-			path = join(process.cwd(), to, path.substring(from.length));
-			break;
-		}
-	}
-	return path;
 };

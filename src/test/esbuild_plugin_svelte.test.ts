@@ -2,7 +2,7 @@ import { test, expect } from 'vitest';
 import * as esbuild from 'esbuild';
 import { readFile, rm } from 'node:fs/promises';
 
-import { esbuild_plugin_svelte } from '$lib/esbuild_plugin_svelte.ts';
+import { esbuild_plugin_svelte } from '#lib/esbuild_plugin_svelte.ts';
 
 // Passed literally rather than read off the project's config,
 // which would cost a full Vite config resolution for a value these tests already know.

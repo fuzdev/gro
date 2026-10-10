@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import { join } from 'node:path';
 
-import { resolve_specifier } from '$lib/resolve_specifier.ts';
-import { paths } from '$lib/paths.ts';
+import { resolve_specifier } from '#lib/resolve_specifier.ts';
+import { paths } from '#lib/paths.ts';
 
 const dir = paths.source + 'test/fixtures/';
 

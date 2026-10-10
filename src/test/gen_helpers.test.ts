@@ -3,17 +3,17 @@ import { resolve } from 'node:path';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 
-import { should_trigger_gen } from '$lib/gen_helpers.ts';
-import type { Filer } from '$lib/filer.ts';
-import * as filer from '$lib/filer.ts';
-import type { GroConfig } from '$lib/gro_config.ts';
-import type { InvokeTask } from '$lib/task.ts';
-import type { Disknode } from '$lib/disknode.ts';
-import * as modules from '$lib/modules.ts';
+import { should_trigger_gen } from '#lib/gen_helpers.ts';
+import type { Filer } from '#lib/filer.ts';
+import * as filer from '#lib/filer.ts';
+import type { GroConfig } from '#lib/gro_config.ts';
+import type { InvokeTask } from '#lib/task.ts';
+import type { Disknode } from '#lib/disknode.ts';
+import * as modules from '#lib/modules.ts';
 
 // Mock the load_module function
-vi.mock('$lib/modules.ts', async () => {
-	const actual = await vi.importActual('$lib/modules.ts');
+vi.mock('#lib/modules.ts', async () => {
+	const actual = await vi.importActual('#lib/modules.ts');
 	return {
 		...actual,
 		load_module: vi.fn()
@@ -21,8 +21,8 @@ vi.mock('$lib/modules.ts', async () => {
 });
 
 // Mock filter_dependents function
-vi.mock('$lib/filer.ts', async () => {
-	const actual = await vi.importActual('$lib/filer.ts');
+vi.mock('#lib/filer.ts', async () => {
+	const actual = await vi.importActual('#lib/filer.ts');
 	return {
 		...actual,
 		filter_dependents: vi.fn()

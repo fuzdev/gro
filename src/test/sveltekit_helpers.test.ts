@@ -1,8 +1,8 @@
 import { assert, describe, test, expect } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
-import { has_sveltekit_app, has_sveltekit_library } from '$lib/sveltekit_helpers.ts';
-import { SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '$lib/constants.ts';
+import { has_sveltekit_app, has_sveltekit_library } from '#lib/sveltekit_helpers.ts';
+import { SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
 
 const to_package_json = (
 	deps: Partial<Pick<PackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>>
