@@ -19,10 +19,7 @@
 			</a>
 		</section>
 		<section>
-			<Card href={resolve('/docs')}>
-				docs
-				{#snippet icon()}{site.glyph}{/snippet}
-			</Card>
+			<Card href={resolve('/docs')} icon={site.glyph}>docs</Card>
 		</section>
 		<section>
 			<DocsFooter repo_url={site.repo_url} root_url={FUZ_DEV_URL}>
