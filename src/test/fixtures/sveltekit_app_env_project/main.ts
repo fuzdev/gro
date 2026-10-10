@@ -15,7 +15,7 @@ import { LIB_PATH } from '#lib/constants.js';
 const expected = {
 	app_env: { browser: false, building: false, dev: true },
 	env_public: { SOME_PUBLIC_VAR: 'public_value' },
-	env_private: { SOME_PORT: 3000, SOME_PRIVATE_VAR: 'private_value' } // namespaces sort keys
+	env_private: { SOME_PORT: 3000, SOME_PRIVATE_VAR: 'secret_value' } // namespaces sort keys
 };
 
 const actual = {

@@ -105,7 +105,7 @@ describe('sveltekit shim app env', () => {
 		async () => {
 			const result = await spawn_fixture(FIXTURE_DIR, {
 				SOME_PUBLIC_VAR: 'public_value',
-				SOME_PRIVATE_VAR: 'private_value'
+				SOME_PRIVATE_VAR: 'secret_value'
 			});
 			expect(result.ok).toBe(true);
 		},
