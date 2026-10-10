@@ -1,0 +1,3 @@
+import{j as e,k as t}from"../chunks/BTZoVLbz.js";var n=e(`<div class="markup svelte-1xl2tfr"><p>Gro previously had a dev server with an experimental frontend for visualizing and working with
+		build data. And then SvelteKit and Vite came along!</p> <p>It was removed in <a href="https://github.com/fuzdev/gro/pull/321">PR #321</a> and is archived
+		here: <a href="https://github.com/spiderspace/gro/tree/archive/devserver">https://github.com/spiderspace/gro/tree/archive/devserver</a></p> <p>Vite plugins should be used going forward.</p></div>`);function r(e){var r=n();t(e,r)}export{r as component};
