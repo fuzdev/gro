@@ -1,5 +1,4 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { z } from 'zod';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
@@ -32,8 +31,7 @@ export const update_changelog = async (
 };
 
 // keeping this really simple for now, no need to parse further for our current usecases
-const ParsedChangelog = z.array(z.string());
-type ParsedChangelog = z.infer<typeof ParsedChangelog>;
+type ParsedChangelog = Array<string>;
 const parse_changelog = (contents: string): ParsedChangelog => contents.split('\n');
 const serialize_changelog = (parsed: ParsedChangelog): string => parsed.join('\n');
 

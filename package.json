@@ -116,7 +116,7 @@
     "svelte-docinfo": "^0.8.0",
     "svelte2tsx": "^0.7.52",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.48.1",
+    "typescript-eslint": "^8.71.1",
     "vite": "^8.3.4",
     "vitest": "^5.0.0",
     "zimmerframe": "^1.1.4",
