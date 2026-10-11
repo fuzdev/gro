@@ -98,7 +98,7 @@
     "@fuzdev/fuz_ui": "^0.213.0",
     "@fuzdev/fuz_util": "^0.72.0",
     "@fuzdev/mdz": "^0.4.0",
-    "@ryanatkn/eslint-config": "^0.12.3",
+    "@ryanatkn/eslint-config": "^0.13.0",
     "@sveltejs/acorn-typescript": "^1.0.9",
     "@sveltejs/adapter-static": "^4.0.0",
     "@sveltejs/kit": "^3.0.1",
