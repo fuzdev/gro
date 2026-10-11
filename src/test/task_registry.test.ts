@@ -97,6 +97,7 @@ describe('task_registry_render', () => {
 		assert.include(rendered, "import type * as db_migrate_task from './lib/db/migrate.task.ts';");
 		assert.include(rendered, "import type * as db_migrate_task2 from './lib/db_migrate.task.ts';");
 		assert.include(rendered, "declare module '@fuzdev/gro/task_registry.ts' {");
+		assert.include(rendered, '\nexport {};', 'always a module, even with no tasks to import');
 		assert.include(rendered, '\t\tgreet: typeof greet_task;');
 		assert.include(rendered, '\t\t"db/migrate": typeof db_migrate_task;');
 		assert.include(rendered, '\t\tdb_migrate: typeof db_migrate_task2;');

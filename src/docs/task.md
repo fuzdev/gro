@@ -232,7 +232,10 @@ export const gen = gen_task_registry;
 
 `gro gen` then writes `src/gro_tasks.ts`, which augments the `ProjectTasks` interface
 with every task in your [`task_root_dirs`](./config.md#task_root_dirs),
-named like `gro` names them, and it regenerates in `gro dev` when a task file changes.
+named like `gro` names them.
+It regenerates in `gro dev` when a task file is added or changed,
+but `gro dev` ignores deletes, so run `gro gen` after removing a task
+(`gro check` catches a stale file with `gro gen --check`).
 Like runtime resolution, a project task shadows the builtin with the same name,
 so `invoke_task('test', ...)` checks against your `src/lib/test.task.ts` args when it exists,
 while `invoke_task('gro/test', ...)` always checks against the builtin's.

@@ -103,8 +103,9 @@ import {z} from 'zod';
 export const Args = z.strictObject({
 	name: z.string().default('world'),
 });
+export type Args = z.infer<typeof Args>;
 
-export const task: Task<typeof Args> = {
+export const task: Task<Args> = {
 	summary: 'greets someone',
 	Args,
 	run: async ({args, log}) => {

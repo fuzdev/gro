@@ -124,6 +124,8 @@ declare module '@fuzdev/gro/task_registry.ts' {
 	interface ProjectTasks {
 ${properties}	}
 }
+
+export {}; // always a module, so the declaration augments rather than declares
 `;
 };
 
@@ -151,7 +153,8 @@ ${properties}}
  * The genfile config that types a project's tasks for `invoke_task`.
  * Export it as `gen` from a genfile like `src/gro_tasks.gen.ts`,
  * which writes `src/gro_tasks.ts` augmenting `ProjectTasks`.
- * Regenerates when a task file changes, so added and removed tasks are picked up.
+ * In `gro dev` it regenerates when a task file is added or changed;
+ * `gro dev` ignores deletes, so run `gro gen` after removing a task.
  */
 export const gen_task_registry: GenConfig = {
 	generate: async ({ config, origin_id, origin_path }) => {
