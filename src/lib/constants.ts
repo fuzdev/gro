@@ -49,6 +49,11 @@ export const SVELTEKIT_DEV_DIRNAME = '.svelte-kit'; // TODO use Svelte config va
  * The tsconfig SvelteKit generates for projects to extend as `$app/tsconfig`.
  */
 export const SVELTEKIT_TSCONFIG_PATH = NODE_MODULES_DIRNAME + '/$app/tsconfig.json';
+/**
+ * The `extends` specifier SvelteKit projects use for the tsconfig that
+ * `svelte-kit sync` generates at `SVELTEKIT_TSCONFIG_PATH`.
+ */
+export const SVELTEKIT_TSCONFIG_SPECIFIER = '$app/tsconfig';
 export const SVELTEKIT_BUILD_DIRNAME = 'build';
 export const SVELTEKIT_DIST_DIRNAME = 'dist';
 export const SVELTEKIT_VITE_CACHE_PATH = NODE_MODULES_DIRNAME + '/.vite';

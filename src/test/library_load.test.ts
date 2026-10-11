@@ -64,6 +64,38 @@ const fake_library = { name: 'example', version: '1.0.0' } as unknown as Library
 const fake_package_json = { name: 'example', version: '1.0.0' } as unknown as PackageJson;
 const fake_result = { library_json: fake_library, package_json: fake_package_json };
 
+/**
+ * Serves `files` (absolute path to contents) through the mocked `readFile`,
+ * rejecting any other path the way a missing file does.
+ */
+const mock_files = (files: Record<string, string>): void => {
+	mocked_read.mockImplementation(async (path) => {
+		const contents = files[path as string];
+		if (contents === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+		return contents;
+	});
+};
+
+/**
+ * Makes the mocked `fs_exists` report exactly `paths` as present.
+ */
+const mock_existing = (paths: Array<string>): void => {
+	mocked_exists.mockImplementation(async (path) => paths.includes(path));
+};
+
+const KIT_TSCONFIG = '/repo/node_modules/$app/tsconfig.json';
+
+const create_mock_log = (): any => {
+	const child_log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
+	return {
+		info: vi.fn(),
+		warn: vi.fn(),
+		debug: vi.fn(),
+		child: vi.fn(() => child_log),
+		child_log
+	};
+};
+
 describe('SVELTE_DOCINFO_VERSION', () => {
 	test('resolves the installed svelte-docinfo version', () => {
 		expect(typeof SVELTE_DOCINFO_VERSION).toBe('string');
@@ -352,5 +384,126 @@ describe('library_load_from_repo', () => {
 		mocked_read.mockResolvedValue(JSON.stringify({ name: '', version: '1.0.0' }));
 
 		await expect(library_load_from_repo('/repo')).rejects.toThrow(/name/);
+	});
+});
+
+describe('library_load_from_repo with a SvelteKit tsconfig', () => {
+	const package_json_contents = JSON.stringify({ name: 'example', version: '1.0.0' });
+	const kit_tsconfig_contents =
+		'{\n\t// SvelteKit projects extend the synced config\n\t"extends": "$app/tsconfig"\n}';
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocked_commit.mockResolvedValue('abc123');
+		mocked_workspace.mockResolvedValue({} as any);
+		mocked_is_clean.mockReturnValue(true);
+		mocked_analyze.mockResolvedValue({ modules: [] } as any);
+		mocked_library_json_from_modules.mockReturnValue(fake_library);
+		mocked_mkdir.mockResolvedValue(undefined);
+		mocked_write.mockResolvedValue(undefined);
+		mock_files({
+			'/repo/package.json': package_json_contents,
+			'/repo/tsconfig.json': kit_tsconfig_contents
+		});
+	});
+
+	// An unsynced tree analyzes on default compiler options (external types as
+	// `any`), so it must not be cached at the commit - a later `gro sync` would
+	// otherwise keep being served the degraded result. Callers that only need
+	// `package_json` still get it.
+	test('an unsynced tree warns and returns the result without writing the cache', async () => {
+		mock_existing([]);
+		const log = create_mock_log();
+
+		const result = await library_load_from_repo('/repo', { log });
+		expect(result.package_json).toEqual({ name: 'example', version: '1.0.0' });
+		expect(mocked_analyze).toHaveBeenCalled();
+		expect(mocked_write).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledTimes(1);
+		expect(String(log.warn.mock.calls[0]![0])).toMatch(/gro sync/);
+	});
+
+	test('an unsynced dirty tree warns and never writes', async () => {
+		mocked_is_clean.mockReturnValue(false);
+		mock_existing([]);
+		const log = create_mock_log();
+
+		await library_load_from_repo('/repo', { log });
+		expect(mocked_analyze).toHaveBeenCalled();
+		expect(mocked_write).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledTimes(1);
+	});
+
+	// The check runs only on a cache miss - a hit is served as written.
+	test('a cache hit for an unsynced tree is served without analyzing or warning', async () => {
+		mock_files({
+			'/repo/package.json': package_json_contents,
+			'/repo/tsconfig.json': kit_tsconfig_contents,
+			'/repo/.gro/library.json': JSON.stringify({
+				hash: 'abc123',
+				version: LIBRARY_CACHE_VERSION,
+				svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
+				...fake_result
+			})
+		});
+		mock_existing(['/repo/.gro/library.json']);
+		const log = create_mock_log();
+
+		const result = await library_load_from_repo('/repo', { log });
+		expect(result).toEqual(fake_result);
+		expect(mocked_analyze).not.toHaveBeenCalled();
+		expect(mocked_write).not.toHaveBeenCalled();
+		expect(log.warn).not.toHaveBeenCalled();
+	});
+
+	// `cache: false` normally still writes, so this isolates the unsynced guard.
+	test('an unsynced tree is not cached under `cache: false` either', async () => {
+		mock_existing([]);
+
+		await library_load_from_repo('/repo', { cache: false });
+		expect(mocked_analyze).toHaveBeenCalled();
+		expect(mocked_write).not.toHaveBeenCalled();
+	});
+
+	test('a synced tree analyzes and caches as before', async () => {
+		mock_existing([KIT_TSCONFIG]);
+		const log = create_mock_log();
+
+		const result = await library_load_from_repo('/repo', { log });
+		expect(result.library_json).toBe(fake_library);
+		expect(log.warn).not.toHaveBeenCalled();
+		expect(mocked_exists).toHaveBeenCalledWith(KIT_TSCONFIG);
+		expect(mocked_analyze).toHaveBeenCalled();
+		const [path] = mocked_write.mock.calls[0]!;
+		expect(path).toBe('/repo/.gro/library.json');
+	});
+
+	test('a non-SvelteKit tsconfig analyzes and caches as before', async () => {
+		mock_files({
+			'/repo/package.json': package_json_contents,
+			'/repo/tsconfig.json': '{"compilerOptions": {"strict": true}}'
+		});
+		mock_existing([]);
+
+		await library_load_from_repo('/repo');
+		expect(mocked_analyze).toHaveBeenCalled();
+		expect(mocked_write).toHaveBeenCalled();
+	});
+
+	test('logs the analysis to a child of `log`, with its progress at debug level', async () => {
+		mock_existing([KIT_TSCONFIG]);
+		const log = create_mock_log();
+		const { child_log } = log;
+
+		await library_load_from_repo('/repo', { log });
+		expect(log.child).toHaveBeenCalledWith('repo');
+		const analysis_log = mocked_analyze.mock.calls[0]![0].log!;
+		analysis_log.info('progress');
+		analysis_log.warn('diagnostic');
+		analysis_log.error('failure');
+		expect(child_log.debug).toHaveBeenCalledWith('progress');
+		expect(child_log.warn).toHaveBeenCalledWith('diagnostic');
+		expect(child_log.error).toHaveBeenCalledWith('failure');
+		expect(log.info).not.toHaveBeenCalledWith('progress');
 	});
 });

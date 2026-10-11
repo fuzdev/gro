@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { styleText as st } from 'node:util';
 import { analyzeFromFiles } from 'svelte-docinfo';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
@@ -14,7 +14,13 @@ import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
-import { GRO_DIRNAME } from './constants.ts';
+import {
+	GRO_DIRNAME,
+	SVELTEKIT_TSCONFIG_PATH,
+	SVELTEKIT_TSCONFIG_SPECIFIER,
+	TSCONFIG_FILENAME
+} from './constants.ts';
+import { sveltekit_tsconfig_is_unsynced } from './sveltekit_helpers.ts';
 
 /**
  * Cache filename inside a repo's `.gro` directory for `library_load_from_repo`.
@@ -72,7 +78,10 @@ export interface LibraryCache extends LibraryLoadResult {
 
 export interface LibraryLoadOptions {
 	log?: Logger;
-	/** Set to `false` to bypass the `.gro` cache (always re-analyze, but still write the result). */
+	/**
+	 * Set to `false` to bypass the `.gro` cache (always re-analyze, but still write the result
+	 * unless the repo is unsynced - see `sveltekit_tsconfig_is_unsynced`).
+	 */
 	cache?: boolean;
 }
 
@@ -180,6 +189,17 @@ export const library_cache_write = async (
  * uncacheable, so analysis re-runs on every load until the changes are
  * committed - see `library_cache_key`.
  *
+ * A repo whose `tsconfig.json` extends `$app/tsconfig` but that hasn't been
+ * synced (see `sveltekit_tsconfig_is_unsynced`) still loads, with a warning, but
+ * its result is never cached: the analysis reads external types as `any`, and
+ * caching that at the commit would keep serving it after a sync. The
+ * `package_json` and the library's name are unaffected, so callers that only
+ * need those are served correctly; callers that publish module data should
+ * refuse an unsynced repo up front. The check runs only on a cache miss - a
+ * cache hit is served as written. `svelte-docinfo` logs to a child of `log`
+ * labelled with the repo dir's name: its diagnostics as warnings and errors,
+ * its progress at debug level.
+ *
  * @param repo_dir - absolute path to the repo to analyze
  * @returns the repo's `LibraryLoadResult` (`library_json` + full `package_json`)
  */
@@ -212,15 +232,38 @@ export const library_load_from_repo = async (
 		throw Error(`library_load_from_repo: missing \`version\` in ${package_json_path}`);
 	}
 
-	const { modules } = await analyzeFromFiles({ projectRoot: repo_dir });
+	// degraded analysis: returned, never cached
+	const unsynced = await sveltekit_tsconfig_is_unsynced(repo_dir);
+	if (unsynced) {
+		log?.warn(
+			st(
+				'yellow',
+				`${TSCONFIG_FILENAME} extends \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${SVELTEKIT_TSCONFIG_PATH} is missing,` +
+					` so external types analyze as \`any\` and the result is not cached - run \`gro sync\` there` +
+					` (after installing its dependencies if needed)`
+			),
+			st('dim', `(${repo_dir})`)
+		);
+	}
+
+	// svelte-docinfo's progress lines are debug-level noise across many repos; keep its warnings
+	const analysis_log = log?.child(basename(repo_dir));
+	const { modules } = await analyzeFromFiles({
+		projectRoot: repo_dir,
+		log: analysis_log && {
+			info: (msg) => analysis_log.debug(msg),
+			warn: (msg) => analysis_log.warn(msg),
+			error: (msg) => analysis_log.error(msg)
+		}
+	});
 
 	const library_json = library_json_from_modules(package_json, modules);
 
 	const result: LibraryLoadResult = { library_json, package_json };
 
-	// Cache the result (best effort). Skip when there's no usable key, e.g. not a
-	// git repo or a dirty working tree.
-	if (key !== null) {
+	// Cache the result (best effort). Skip when there's no usable key (not a git repo or a
+	// dirty working tree) or when the tree is unsynced and the analysis degraded.
+	if (key !== null && !unsynced) {
 		await library_cache_write(cache_path, key, result, log);
 	}
 

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
@@ -13,6 +15,8 @@ import {
 	SVELTEKIT_DEP_NAME,
 	SVELTEKIT_DEV_DIRNAME,
 	SVELTEKIT_TSCONFIG_PATH,
+	SVELTEKIT_TSCONFIG_SPECIFIER,
+	TSCONFIG_FILENAME,
 	LIB_PATH
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
@@ -104,6 +108,40 @@ export const sveltekit_sync_if_obviously_needed = async (
 		return;
 	}
 	return sveltekit_sync(found_sveltekit_cli);
+};
+
+/**
+ * Whether `dir`'s `tsconfig.json` extends SvelteKit's `$app/tsconfig` while
+ * the generated `node_modules/$app/tsconfig.json` is missing - the project was
+ * never synced, or a reinstall wiped `node_modules`. TypeScript doesn't fail on
+ * an unresolved `extends`, so tools reading such a tsconfig silently run on
+ * default compiler options and read external types as `any`.
+ *
+ * Reads the tsconfig as JSONC with TypeScript's own parser and accepts a string
+ * or array `extends`. Only `dir`'s own `tsconfig.json` is checked, not configs
+ * it extends. A missing tsconfig, or one TypeScript's tolerant parser recovers
+ * no `extends` from, returns `false`, left to whatever reads it next.
+ *
+ * @param dir - absolute path to the project root
+ * @returns `true` when the project needs `svelte-kit sync`
+ */
+export const sveltekit_tsconfig_is_unsynced = async (dir: string): Promise<boolean> => {
+	let contents: string;
+	try {
+		contents = await readFile(join(dir, TSCONFIG_FILENAME), 'utf-8');
+	} catch {
+		return false;
+	}
+	// lazy because this module loads on every `gro` invocation and few need TypeScript
+	const { default: ts } = await import('typescript');
+	const { config } = ts.parseConfigFileTextToJson(TSCONFIG_FILENAME, contents);
+	const extended: unknown = config?.extends;
+	const specifiers = Array.isArray(extended) ? extended : [extended];
+	const extends_sveltekit = specifiers.some(
+		(s) => s === SVELTEKIT_TSCONFIG_SPECIFIER || s === SVELTEKIT_TSCONFIG_SPECIFIER + '.json'
+	);
+	if (!extends_sveltekit) return false;
+	return !(await fs_exists(join(dir, SVELTEKIT_TSCONFIG_PATH)));
 };
 
 /**
