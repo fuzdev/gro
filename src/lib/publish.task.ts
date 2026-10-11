@@ -15,7 +15,7 @@ import { TaskError, type Task } from './task.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { package_json_load, package_json_parse_repo_url } from './package_json.ts';
 import { find_cli, spawn_cli } from './cli.ts';
-import { has_sveltekit_library } from './sveltekit_helpers.ts';
+import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
@@ -173,6 +173,9 @@ export const task: Task<Args> = {
 					log,
 					context: 'after version bump'
 				});
+				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
+				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
+				await sveltekit_sync(undefined, config.pm_cli);
 			}
 
 			// Regenerate files that depend on package.json version.
