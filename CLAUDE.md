@@ -24,9 +24,9 @@ Key responsibilities:
   source via `svelte-docinfo` to produce `LibraryJson` consumed by fuz_ui's API
   documentation system, cached in `.gro/` keyed by git commit and revalidated
   against the cache format version and the installed `svelte-docinfo` version;
-  a repo that extends `$app/tsconfig` without having been synced
-  (`sveltekit_tsconfig_is_unsynced` in `sveltekit_helpers.ts`) loads with a
-  warning but is never cached, since its external types analyze as `any`
+  on a cache miss it refuses (throws) a repo that extends `$app/tsconfig`
+  without having been synced (`sveltekit_tsconfig_is_unsynced` in
+  `sveltekit_helpers.ts`), since its external types would analyze as `any`
 
 ## Core systems
 

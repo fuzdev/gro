@@ -78,10 +78,7 @@ export interface LibraryCache extends LibraryLoadResult {
 
 export interface LibraryLoadOptions {
 	log?: Logger;
-	/**
-	 * Set to `false` to bypass the `.gro` cache (always re-analyze, but still write the result
-	 * unless the repo is unsynced - see `sveltekit_tsconfig_is_unsynced`).
-	 */
+	/** Set to `false` to bypass the `.gro` cache (always re-analyze, but still write the result). */
 	cache?: boolean;
 }
 
@@ -189,19 +186,18 @@ export const library_cache_write = async (
  * uncacheable, so analysis re-runs on every load until the changes are
  * committed - see `library_cache_key`.
  *
- * A repo whose `tsconfig.json` extends `$app/tsconfig` but that hasn't been
- * synced (see `sveltekit_tsconfig_is_unsynced`) still loads, with a warning, but
- * its result is never cached: the analysis reads external types as `any`, and
- * caching that at the commit would keep serving it after a sync. The
- * `package_json` and the library's name are unaffected, so callers that only
- * need those are served correctly; callers that publish module data should
- * refuse an unsynced repo up front. The check runs only on a cache miss - a
+ * Refuses to analyze a repo whose `tsconfig.json` extends `$app/tsconfig` but
+ * that hasn't been synced (see `sveltekit_tsconfig_is_unsynced`): its analysis
+ * would read external types as `any`. The check runs only on a cache miss - a
  * cache hit is served as written. `svelte-docinfo` logs to a child of `log`
  * labelled with the repo dir's name: its diagnostics as warnings and errors,
  * its progress at debug level.
  *
  * @param repo_dir - absolute path to the repo to analyze
  * @returns the repo's `LibraryLoadResult` (`library_json` + full `package_json`)
+ * @throws Error if the repo extends `$app/tsconfig` without
+ *   `node_modules/$app/tsconfig.json` - install its dependencies if needed, then
+ *   run `gro sync` in it
  */
 export const library_load_from_repo = async (
 	repo_dir: string,
@@ -219,6 +215,15 @@ export const library_load_from_repo = async (
 		if (cached !== null) return cached;
 	}
 
+	if (await sveltekit_tsconfig_is_unsynced(repo_dir)) {
+		throw Error(
+			`library_load_from_repo: ${join(repo_dir, TSCONFIG_FILENAME)} extends` +
+				` \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${join(repo_dir, SVELTEKIT_TSCONFIG_PATH)} is missing,` +
+				` so external types would analyze as \`any\` - run \`npm install\` if its dependencies` +
+				` aren't installed, then \`gro sync\`, in ${repo_dir}`
+		);
+	}
+
 	log?.info('analyzing library', st('dim', `(${repo_dir})`));
 
 	// Read and validate the repo's package.json directly (not the CWD's).
@@ -230,20 +235,6 @@ export const library_load_from_repo = async (
 	}
 	if (!package_json.version) {
 		throw Error(`library_load_from_repo: missing \`version\` in ${package_json_path}`);
-	}
-
-	// degraded analysis: returned, never cached
-	const unsynced = await sveltekit_tsconfig_is_unsynced(repo_dir);
-	if (unsynced) {
-		log?.warn(
-			st(
-				'yellow',
-				`${TSCONFIG_FILENAME} extends \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${SVELTEKIT_TSCONFIG_PATH} is missing,` +
-					` so external types analyze as \`any\` and the result is not cached - run \`gro sync\` there` +
-					` (after installing its dependencies if needed)`
-			),
-			st('dim', `(${repo_dir})`)
-		);
 	}
 
 	// svelte-docinfo's progress lines are debug-level noise across many repos; keep its warnings
@@ -261,9 +252,9 @@ export const library_load_from_repo = async (
 
 	const result: LibraryLoadResult = { library_json, package_json };
 
-	// Cache the result (best effort). Skip when there's no usable key (not a git repo or a
-	// dirty working tree) or when the tree is unsynced and the analysis degraded.
-	if (key !== null && !unsynced) {
+	// Cache the result (best effort). Skip when there's no usable key, e.g. not a
+	// git repo or a dirty working tree.
+	if (key !== null) {
 		await library_cache_write(cache_path, key, result, log);
 	}
 

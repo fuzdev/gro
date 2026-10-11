@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { assert, describe, test, expect, vi, beforeEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
 // Mock the git helpers so the cache-key/staleness logic can be tested in
@@ -407,35 +407,31 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		});
 	});
 
-	// An unsynced tree analyzes on default compiler options (external types as
-	// `any`), so it must not be cached at the commit - a later `gro sync` would
-	// otherwise keep being served the degraded result. Callers that only need
-	// `package_json` still get it.
-	test('an unsynced tree warns and returns the result without writing the cache', async () => {
+	// An unsynced tree would analyze on default compiler options (external types
+	// as `any`), so it's refused before analysis and nothing is cached.
+	test('an unsynced tree throws without analyzing or writing the cache', async () => {
 		mock_existing([]);
-		const log = create_mock_log();
 
-		const result = await library_load_from_repo('/repo', { log });
-		expect(result.package_json).toEqual({ name: 'example', version: '1.0.0' });
-		expect(mocked_analyze).toHaveBeenCalled();
+		const error = await library_load_from_repo('/repo').catch((e: unknown) => e);
+		assert(error instanceof Error);
+		expect(error.message).toContain('/repo/node_modules/$app/tsconfig.json');
+		expect(error.message).toMatch(/npm install/);
+		expect(error.message).toMatch(/gro sync/);
+		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(mocked_write).not.toHaveBeenCalled();
-		expect(log.warn).toHaveBeenCalledTimes(1);
-		expect(String(log.warn.mock.calls[0]![0])).toMatch(/gro sync/);
 	});
 
-	test('an unsynced dirty tree warns and never writes', async () => {
+	test('an unsynced dirty tree throws', async () => {
 		mocked_is_clean.mockReturnValue(false);
 		mock_existing([]);
-		const log = create_mock_log();
 
-		await library_load_from_repo('/repo', { log });
-		expect(mocked_analyze).toHaveBeenCalled();
+		await expect(library_load_from_repo('/repo')).rejects.toThrow(/gro sync/);
+		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(mocked_write).not.toHaveBeenCalled();
-		expect(log.warn).toHaveBeenCalledTimes(1);
 	});
 
 	// The check runs only on a cache miss - a hit is served as written.
-	test('a cache hit for an unsynced tree is served without analyzing or warning', async () => {
+	test('a cache hit for an unsynced tree is served without the unsynced check', async () => {
 		mock_files({
 			'/repo/package.json': package_json_contents,
 			'/repo/tsconfig.json': kit_tsconfig_contents,
@@ -456,12 +452,11 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		expect(log.warn).not.toHaveBeenCalled();
 	});
 
-	// `cache: false` normally still writes, so this isolates the unsynced guard.
-	test('an unsynced tree is not cached under `cache: false` either', async () => {
+	test('an unsynced tree throws under `cache: false` too', async () => {
 		mock_existing([]);
 
-		await library_load_from_repo('/repo', { cache: false });
-		expect(mocked_analyze).toHaveBeenCalled();
+		await expect(library_load_from_repo('/repo', { cache: false })).rejects.toThrow(/gro sync/);
+		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(mocked_write).not.toHaveBeenCalled();
 	});
 
