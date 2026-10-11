@@ -283,17 +283,21 @@ $ gro test
 ```ts
 // src/lib/test.task.ts
 import type {Task} from '@fuzdev/gro';
+import {Args} from '@fuzdev/gro/test.task.ts';
 
-export const task: Task = {
+// shares the builtin's `Args`, so `gro test --help` and arg validation are unchanged
+// and the args passed through below type-check against the builtin
+export const task: Task<Args> = {
+	Args,
 	run: async ({args, invoke_task}) => {
-		await doSomethingFirst();
+		await do_something_first();
 		// As discussed in the `invoke_task` section above,
-		// it's possible to `import {task as groBuiltinTestTask} from '@fuzdev/gro/test.task.ts'`
-		// and then call `groBuiltinTestTask.run` directly,
+		// it's possible to `import {task as gro_builtin_test_task} from '@fuzdev/gro/test.task.ts'`
+		// and then call `gro_builtin_test_task.run` directly,
 		// but that loses some important benefits.
 		// Still, the task is available to import if you want it for any reason!
-		await invoke_task('gro/test', {...args, optionally: 'extended'}, newEventEmitterForSubtree);
-		await emailEveryoneWithTestResults();
+		await invoke_task('gro/test', args);
+		await email_everyone_with_test_results();
 	},
 };
 ```
