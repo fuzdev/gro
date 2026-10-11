@@ -70,6 +70,13 @@ Task composition patterns:
 
 - `invoke_task('test', args)` - respects user overrides, better logging,
   auto-forwards args (recommended)
+- Typed names and args - `InvokeTask` checks a literal name against
+  `TaskRegistry` (`task_registry.ts`) and args against the input type of the
+  task module's exported `Args` schema; builtins come from the generated
+  `GroBuiltinTasks` (`gro_builtin_tasks.gen.ts`), a project's own tasks from a
+  genfile exporting `gen_task_registry` (augments `ProjectTasks`, project names
+  shadowing builtins); a name widened to `string` opts out
+  ([docs](src/docs/task.md#types-for-invoke_task))
 - Direct import - `import {task} from './test.task.js'; await task.run(ctx)` -
   faster, tight coupling
 
@@ -96,8 +103,9 @@ import {z} from 'zod';
 export const Args = z.strictObject({
 	name: z.string().default('world'),
 });
+export type Args = z.infer<typeof Args>;
 
-export const task: Task<typeof Args> = {
+export const task: Task<Args> = {
 	summary: 'greets someone',
 	Args,
 	run: async ({args, log}) => {
@@ -437,8 +445,8 @@ args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 
 Core systems (src/lib/):
 
-- CLI and task invocation: `gro.ts`, `invoke.ts`, `task.ts`, `invoke_task.ts`,
-  `run_task.ts`, `input_path.ts`
+- CLI and task invocation: `gro.ts`, `invoke.ts`, `task.ts`, `task_registry.ts`,
+  `invoke_task.ts`, `run_task.ts`, `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
 - Plugins: `plugin.ts`, `gro_plugin_*.ts` (gen, sveltekit_app,
   sveltekit_library, server)

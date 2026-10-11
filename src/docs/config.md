@@ -212,6 +212,10 @@ through `task_root_dirs` in order until a matching file or directory is found on
 
 The default task paths are `./src/lib`, then `.`, and then Gro's dist directory.
 
+The same resolution names the tasks that
+[`gen_task_registry`](./task.md#types-for-invoke_task) types for `invoke_task`,
+so a task in an earlier directory shadows one with the same name in a later directory.
+
 ## `search_filters`
 
 The Gro config option `search_filters` allows customizing

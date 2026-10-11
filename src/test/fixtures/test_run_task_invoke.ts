@@ -25,7 +25,8 @@ async function runTest() {
 			mod: {
 				task: {
 					run: async ({ args, invoke_task }) => {
-						await invoke_task('bar/testTask', args);
+						const task_name: string = 'bar/testTask'; // widened, not a registered task
+						await invoke_task(task_name, args);
 						return args;
 					}
 				}
