@@ -64,7 +64,8 @@ export const run_task = async (
 			filer,
 			log,
 			timings,
-			invoke_task: (invoked_task_name, invoked_args, invoked_config) =>
+			// the registry typing is for callers, the runtime takes any name and args
+			invoke_task: (invoked_task_name: string, invoked_args?: Args, invoked_config?: GroConfig) =>
 				invoke_task(invoked_task_name, invoked_args, invoked_config ?? config, filer, timings, log)
 		});
 	} catch (error) {

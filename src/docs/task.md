@@ -131,7 +131,7 @@ export const Args = z.strictObject({
 });
 export type Args = z.infer<typeof Args>;
 
-export const task: Task = {
+export const task: Task<Args> = {
 	Args,
 	run: async ({args}) => {
 		args.arg; // `number` that defaults to `2`
@@ -149,7 +149,7 @@ export interface Task<
 	TArgsSchema extends z.ZodType = z.ZodType,
 	TReturn = unknown,
 > {
-	run: (ctx: TaskContext<TArgs>) => Promise<TReturn>;
+	run: (ctx: TaskContext<TArgs>) => TReturn | Promise<TReturn>;
 	summary?: string;
 	Args?: TArgsSchema;
 }
@@ -164,6 +164,7 @@ export interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
 	svelte_config: Promise<ParsedSvelteConfig>;
+	filer: Filer;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -197,25 +198,75 @@ import type {Task} from '@fuzdev/gro';
 
 export const task: Task = {
 	run: async ({args, invoke_task}) => {
-		// runs `src/lib/some/file.task.ts`, automatically forwarding `args`
+		// runs `src/lib/some/file.task.ts`, automatically forwarding CLI args
 		await invoke_task('some/file');
 		// as documented above, the following is similar but lacks nice features:
-		// await (await import('./some/file.task.js')).run(ctx);
+		// await (await import('./some/file.task.ts')).task.run(ctx);
 
-		// runs `src/lib/other/file.task.ts` and falls back to `gro/src/other/file.task.ts`,
-		// forwarding both custom args and a different event emitter (warning: spaghetti)
-		await invoke_task(
-			'other/file',
-			{...args, optionally: 'extended'},
-			optionalEventEmitterForSubtree,
-			optionalDevFlagForSubtree,
-			optionalFsForSubtree,
-		);
+		// runs `src/lib/other/file.task.ts` and falls back to `gro/src/lib/other/file.task.ts`,
+		// passing custom args and optionally a different config
+		await invoke_task('other/file', {...args, optionally: 'extended'}, optional_config);
 
 		// runs `gro/src/lib/other/file.task.ts` directly, bypassing any local version
 		await invoke_task('gro/other/file');
 	},
 };
+```
+
+### types for `invoke_task`
+
+`invoke_task` checks task names and args at the type level.
+A literal name must be a known task,
+and args are checked against the input type of the task's exported `Args` schema,
+so args with defaults are optional and args without defaults are required.
+
+Gro's builtins are typed out of the box, including the `gro/`-prefixed names.
+To type your project's tasks, add a genfile that exports `gen_task_registry`:
+
+```ts
+// src/gro_tasks.gen.ts
+import {gen_task_registry} from '@fuzdev/gro/task_registry.ts';
+
+export const gen = gen_task_registry;
+```
+
+`gro gen` then writes `src/gro_tasks.ts`, which augments the `ProjectTasks` interface
+with every task in your [`task_root_dirs`](./config.md#task_root_dirs),
+named like `gro` names them, and it regenerates in `gro dev` when a task file changes.
+Like runtime resolution, a project task shadows the builtin with the same name,
+so `invoke_task('test', ...)` checks against your `src/lib/test.task.ts` args when it exists,
+while `invoke_task('gro/test', ...)` always checks against the builtin's.
+Args are read from the task module's `Args` export, so export the schema:
+
+```ts
+export const Args = z.strictObject({name: z.string().default('world')});
+export type Args = z.infer<typeof Args>;
+```
+
+A task module without an `Args` export accepts any args.
+An override that passes its own args through to the builtin
+should share the builtin's schema, so its `args` type checks against it:
+
+```ts
+// src/lib/check.task.ts
+import type {Task} from '@fuzdev/gro';
+import {Args} from '@fuzdev/gro/check.task.ts';
+
+export const task: Task<Args> = {
+	Args,
+	run: async ({args, invoke_task}) => {
+		await invoke_task('gro/check', args);
+	},
+};
+```
+
+To invoke a task by a name that isn't a known literal,
+like a dynamic name, an absolute or `./`-relative path, or a directory,
+widen it to `string`, which opts out of checking:
+
+```ts
+const task_name: string = to_task_name_somehow();
+await invoke_task(task_name, {anything: 'goes'});
 ```
 
 ### hook into one of [Gro's builtin tasks](./tasks.md)
@@ -263,14 +314,15 @@ Using zod has some benefits:
 ```ts
 // src/lib/dosomething.task.ts
 import type {Task} from '@fuzdev/gro';
-import type {z} from 'zod';
+import {z} from 'zod';
 
 export const Args = z.strictObject({
 	_: z.array(z.string()).meta({description: 'rest args'}).default([]),
 	yepyep: z.string().meta({description: 'helpful info'}).default('ya'),
 	okcool: z.number().meta({description: 'that prints to the CLI'}).default(1234),
-	maybee: z.boolean().meta({description: 'and optional args work too'}),
+	maybee: z.boolean().meta({description: 'and optional args work too'}).optional(),
 });
+export type Args = z.infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,

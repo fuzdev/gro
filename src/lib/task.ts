@@ -20,6 +20,7 @@ import {
 import { GRO_DIST_DIR, print_path } from './paths.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
 import type { Filer } from './filer.ts';
+import type { TaskArgsInput, TaskName } from './task_registry.ts';
 
 export interface Task<
 	TArgs = Args,
@@ -45,7 +46,38 @@ export interface TaskContext<TArgs = object> {
 	invoke_task: InvokeTask;
 }
 
-export type InvokeTask = (task_name: string, args?: Args, config?: GroConfig) => Promise<void>;
+/**
+ * Invokes a task by name with Gro's task resolution, so local overrides of builtins apply.
+ *
+ * Names are checked against `TaskRegistry` and args against the named task's `Args` schema input.
+ * A name widened to `string` (dynamic, a path, or a directory) opts out with loose `Args`.
+ */
+export type InvokeTask = <TName extends string>(
+	task_name: InvokeTaskName<TName>,
+	...rest: InvokeTaskRest<TName>
+) => Promise<void>;
+
+/**
+ * A literal name must be in `TaskRegistry`, a widened `string` passes through.
+ */
+export type InvokeTaskName<TName extends string> = string extends TName
+	? TName
+	: TName extends TaskName
+		? TName
+		: TaskName;
+
+export type InvokeTaskArgs<TName extends string> = TName extends TaskName
+	? TaskArgsInput<TName>
+	: Args;
+
+/**
+ * Makes `args` required when the task's `Args` has required fields.
+ */
+export type InvokeTaskRest<TName extends string> =
+	// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` assignable means no required fields
+	{} extends InvokeTaskArgs<TName>
+		? [args?: InvokeTaskArgs<TName>, config?: GroConfig]
+		: [args: InvokeTaskArgs<TName>, config?: GroConfig];
 
 export const TASK_FILE_SUFFIX_TS = '.task.ts';
 export const TASK_FILE_SUFFIX_JS = '.task.js';
