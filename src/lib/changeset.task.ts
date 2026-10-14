@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import type { WrittenConfig } from '@changesets/types';
@@ -26,34 +27,43 @@ import {
 import { package_json_load } from './package_json.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
+export const Args = s.object({
 	/**
 	 * The optional rest args get joined with a space to form the `message`.
 	 */
-	_: z
-		.array(z.string())
-		.meta({ description: 'the message for the changeset and commit' })
-		.max(1)
-		.default([]),
-	minor: z.boolean().meta({ description: 'bump the minor version' }).default(false),
-	major: z.boolean().meta({ description: 'bump the major version' }).default(false),
-	dir: z.string().meta({ description: 'changeset dir' }).default(CHANGESET_DIR),
-	access: ChangesetAccess.meta({
-		description: "changeset 'access' config value, the default depends on package.json#private"
-	}).optional(),
-	changelog: z
-		.string()
-		.meta({ description: 'changelog dep package name, used as changeset\'s "changelog" config' })
-		.default('@changesets/changelog-git'),
-	dep: z.boolean().meta({ description: 'dual of no-dep' }).default(true),
-	'no-dep': z
-		.boolean()
-		.meta({ description: 'opt out of installing the changelog package' })
-		.default(false),
-	origin: GitOrigin.meta({ description: 'git origin to deploy to' }).default('origin'),
-	changeset_cli: z.string().meta({ description: 'the changeset CLI to use' }).default(CHANGESET_CLI)
+	_: s.with_default_fn(
+		s.pipe(
+			meta(s.array(s.string), { description: 'the message for the changeset and commit' }),
+			s.max_length(1)
+		),
+		() => []
+	),
+	minor: s.with_default(meta(s.boolean, { description: 'bump the minor version' }), false),
+	major: s.with_default(meta(s.boolean, { description: 'bump the major version' }), false),
+	dir: s.with_default(meta(s.string, { description: 'changeset dir' }), CHANGESET_DIR),
+	access: s.optional(
+		meta(ChangesetAccess, {
+			description: "changeset 'access' config value, the default depends on package.json#private"
+		})
+	),
+	changelog: s.with_default(
+		meta(s.string, {
+			description: 'changelog dep package name, used as changeset\'s "changelog" config'
+		}),
+		'@changesets/changelog-git'
+	),
+	dep: s.with_default(meta(s.boolean, { description: 'dual of no-dep' }), true),
+	'no-dep': s.with_default(
+		meta(s.boolean, { description: 'opt out of installing the changelog package' }),
+		false
+	),
+	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin'),
+	changeset_cli: s.with_default(
+		meta(s.string, { description: 'the changeset CLI to use' }),
+		CHANGESET_CLI
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /**
  * Calls the `changeset` CLI with some simple automations.

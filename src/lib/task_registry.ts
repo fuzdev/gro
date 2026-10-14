@@ -3,7 +3,7 @@ import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 import { ensure_end, strip_start } from '@fuzdev/fuz_util/string.ts';
 import { dirname, relative } from 'node:path';
-import type { z } from 'zod';
+import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
@@ -33,11 +33,20 @@ export type TaskName = Extract<keyof TaskRegistry, string>;
 /**
  * The input type of the task's `Args` schema, so defaulted args are optional,
  * or loose `Args` for a task module without an `Args` export.
+ * A member of the input with no keys becomes `Record<string, never>`,
+ * so an arg-less task refuses every arg, and a union keeps each option's keys.
  */
 export type TaskArgsInput<TName extends TaskName> = TaskRegistry[TName] extends {
-	Args: infer TSchema extends z.ZodType;
+	Args: infer TSchema extends AnySchema;
 }
-	? z.input<TSchema>
+	? InferInput<TSchema> extends infer TInput
+		? TInput extends unknown // distributes, `keyof` of a union is only the shared keys
+			? [keyof TInput] extends [never]
+				? // the input of `s.object({})` is `{}`, which takes any non-nullish value
+					Record<string, never>
+				: TInput
+			: never
+		: never
 	: Args;
 
 export interface TaskRegistryEntry {

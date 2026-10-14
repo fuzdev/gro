@@ -52,7 +52,7 @@ Discovery and resolution:
 Key features:
 
 - Lazy loading - only imports the invoked task and its dependencies
-- Zod schemas - optional `Args` property for validation, types, and
+- fuz_schema schemas - optional `Args` property for validation, types, and
   auto-generated `--help`
 - Composition - use `invoke_task` helper (respects overrides) or direct imports
 - Args forwarding - CLI args like `gro dev -- vite --port 3000` forward to
@@ -98,12 +98,13 @@ Example task:
 
 ```typescript
 import type {Task} from '@fuzdev/gro';
-import {z} from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import {meta} from '@fuzdev/fuz_schema/meta.ts';
 
-export const Args = z.strictObject({
-	name: z.string().default('world'),
+export const Args = s.object({
+	name: s.with_default(meta(s.string, {description: 'who to greet'}), 'world'),
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	summary: 'greets someone',

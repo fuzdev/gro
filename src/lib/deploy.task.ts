@@ -1,7 +1,8 @@
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fs_exists, fs_empty_dir } from '@fuzdev/fuz_util/fs.ts';
@@ -40,56 +41,70 @@ const TARGET_BRANCH = 'deploy';
 const DANGEROUS_BRANCHES = [SOURCE_BRANCH, 'master'];
 
 /** @nodocs */
-export const Args = z.strictObject({
-	source: GitBranch.meta({ description: 'git source branch to build and deploy from' }).default(
+export const Args = s.object({
+	source: s.with_default(
+		meta(GitBranch, { description: 'git source branch to build and deploy from' }),
 		SOURCE_BRANCH
 	),
-	target: GitBranch.meta({ description: 'git target branch to deploy to' }).default(TARGET_BRANCH),
-	origin: GitOrigin.meta({ description: 'git origin to deploy to' }).default('origin'),
-	deploy_dir: z.string().meta({ description: 'the deploy output directory' }).default(DEPLOY_DIR),
-	build_dir: z
-		.string()
-		.meta({ description: 'the SvelteKit build directory' })
-		.default(SVELTEKIT_BUILD_DIRNAME),
-	dry: z
-		.boolean()
-		.meta({
+	target: s.with_default(
+		meta(GitBranch, { description: 'git target branch to deploy to' }),
+		TARGET_BRANCH
+	),
+	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin'),
+	deploy_dir: s.with_default(
+		meta(s.string, { description: 'the deploy output directory' }),
+		DEPLOY_DIR
+	),
+	build_dir: s.with_default(
+		meta(s.string, { description: 'the SvelteKit build directory' }),
+		SVELTEKIT_BUILD_DIRNAME
+	),
+	dry: s.with_default(
+		meta(s.boolean, {
 			description: 'build and prepare to deploy without actually deploying'
-		})
-		.default(false),
-	force: z
-		.boolean()
-		.meta({ description: 'caution!! destroys the target branch both locally and remotely' })
-		.default(false),
-	dangerous: z
-		.boolean()
-		.meta({ description: 'caution!! enables destruction of branches like main and master' })
-		.default(false),
-	reset: z
-		.boolean()
-		.meta({
+		}),
+		false
+	),
+	force: s.with_default(
+		meta(s.boolean, {
+			description: 'caution!! destroys the target branch both locally and remotely'
+		}),
+		false
+	),
+	dangerous: s.with_default(
+		meta(s.boolean, {
+			description: 'caution!! enables destruction of branches like main and master'
+		}),
+		false
+	),
+	reset: s.with_default(
+		meta(s.boolean, {
 			description: 'if true, resets the target branch back to the first commit before deploying'
-		})
-		.default(false),
-	build: z.boolean().meta({ description: 'dual of no-build' }).default(true),
-	'no-build': z.boolean().meta({ description: 'opt out of building' }).default(false),
-	sync: z.boolean().meta({ description: 'dual of no-sync' }).default(true),
-	'no-sync': z.boolean().meta({ description: 'opt out of gro sync in build' }).default(false),
-	gen: z.boolean().meta({ description: 'dual of no-gen' }).default(true),
-	'no-gen': z.boolean().meta({ description: 'opt out of gro gen in build' }).default(false),
-	install: z.boolean().meta({ description: 'dual of no-install' }).default(true),
-	'no-install': z
-		.boolean()
-		.meta({ description: 'opt out of installing packages before building' })
-		.default(false),
-	force_build: z
-		.boolean()
-		.meta({ description: 'force a fresh build, ignoring the cache' })
-		.default(false),
-	pull: z.boolean().meta({ description: 'dual of no-pull' }).default(true),
-	'no-pull': z.boolean().meta({ description: 'opt out of git pull' }).default(false)
+		}),
+		false
+	),
+	build: s.with_default(meta(s.boolean, { description: 'dual of no-build' }), true),
+	'no-build': s.with_default(meta(s.boolean, { description: 'opt out of building' }), false),
+	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
+	'no-sync': s.with_default(
+		meta(s.boolean, { description: 'opt out of gro sync in build' }),
+		false
+	),
+	gen: s.with_default(meta(s.boolean, { description: 'dual of no-gen' }), true),
+	'no-gen': s.with_default(meta(s.boolean, { description: 'opt out of gro gen in build' }), false),
+	install: s.with_default(meta(s.boolean, { description: 'dual of no-install' }), true),
+	'no-install': s.with_default(
+		meta(s.boolean, { description: 'opt out of installing packages before building' }),
+		false
+	),
+	force_build: s.with_default(
+		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
+		false
+	),
+	pull: s.with_default(meta(s.boolean, { description: 'dual of no-pull' }), true),
+	'no-pull': s.with_default(meta(s.boolean, { description: 'opt out of git pull' }), false)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

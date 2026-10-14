@@ -261,6 +261,7 @@ Gro builds on
 [chokidar](https://github.com/paulmillr/chokidar) ∙
 [zod](https://github.com/colinhacks/zod) ∙
 [@fuzdev/fuz_util](https://github.com/fuzdev/fuz_util) ∙
+[@fuzdev/fuz_schema](https://github.com/fuzdev/fuz_schema) ∙
 [ESLint](https://github.com/eslint/eslint) ∙
 [tsv](https://github.com/fuzdev/tsv) ∙
 [svelte-check](https://github.com/sveltejs/language-tools/tree/master/packages/svelte-check) &

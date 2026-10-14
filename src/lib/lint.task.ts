@@ -1,6 +1,7 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli } from './cli.ts';
@@ -9,11 +10,11 @@ import { TaskError, type Task } from './task.ts';
 const ESLINT_CLI = 'eslint';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	_: z.array(z.string()).meta({ description: 'paths to serve' }).default([]),
-	eslint_cli: z.string().meta({ description: 'the ESLint CLI to use' }).default(ESLINT_CLI)
+export const Args = s.object({
+	_: s.with_default_fn(meta(s.array(s.string), { description: 'paths to serve' }), () => []),
+	eslint_cli: s.with_default(meta(s.string, { description: 'the ESLint CLI to use' }), ESLINT_CLI)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

@@ -2,13 +2,15 @@ import type { ArgSchema } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { print_value } from '@fuzdev/fuz_util/print.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
+import type { AnySchema, SchemaNode } from '@fuzdev/fuz_schema/schema.ts';
 import {
-	zod_to_subschema,
-	zod_to_schema_description,
-	zod_to_schema_default
-} from '@fuzdev/fuz_util/zod.ts';
+	format_schema_type,
+	get_schema_entries,
+	get_schema_fields,
+	unwrap_schema,
+	type SchemaField
+} from '@fuzdev/fuz_schema/introspect.ts';
 import { styleText as st } from 'node:util';
-import { z } from 'zod';
 
 import type { LoadedTasks, TaskModuleMeta } from './task.ts';
 import { print_path } from './paths.ts';
@@ -93,137 +95,66 @@ export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 	log.info(...logged, '\n');
 };
 
-// TODO rework all of this
-// The following Zod helpers only need to support single-depth schemas for CLI args,
-// but there's generic recursion to handle things like `ZodOptional` and `ZodDefault`.
-
 interface ArgSchemaProperty {
 	name: string;
 	schema: ArgSchema;
 }
 
-// TODO this blocks many usecases like unions, and it's only implemented for CLI arg types, need better support for arbitrary schemas
+// TODO overly restrictive, support optional objects and/or unions?
 const to_arg_properties = (
-	schema: z.ZodType,
+	schema: AnySchema,
 	meta: TaskModuleMeta,
 	log: Logger
 ): Array<ArgSchemaProperty> => {
-	const { def } = schema;
-
-	// TODO overly restrictive, support optional objects and/or unions?
-	if (!('shape' in def)) {
-		log.error(`Expected Args for task "${meta.name}" to be an object schema but got ${def.type}`);
+	if (!get_schema_entries(schema)) {
+		log.error(
+			`Expected Args for task "${meta.name}" to be an object schema but got ${unwrap_schema(schema).kind}`
+		);
 		return [];
 	}
-	const shape = (def as z.core.$ZodObjectDef).shape;
-
+	const fields = get_schema_fields(schema);
+	const names = new Set(fields.map((f) => f.name));
 	const properties: Array<ArgSchemaProperty> = [];
-	for (const name in shape) {
-		if ('no-' + name in shape) continue;
-		const s = shape[name] as z.ZodType;
-		const schema: ArgSchema = {
-			type: to_args_schema_type(s),
-			description: zod_to_schema_description(s) || '',
-			default: zod_to_schema_default(s) as ArgSchema['default']
-		};
-		properties.push({ name, schema });
+	for (const field of fields) {
+		if (names.has('no-' + field.name)) continue;
+		properties.push({
+			name: field.name,
+			schema: {
+				type: format_schema_type(field.schema),
+				description: field.description ?? '',
+				default: to_field_default(field) as ArgSchema['default']
+			}
+		});
 	}
 	return properties;
 };
 
-const to_max_length = <T>(items: Array<T>, toString: (item: T) => string) =>
-	items.reduce((max, m) => Math.max(toString(m).length, max), 0);
-
-const to_args_schema_type = (schema: z.ZodType): ArgSchema['type'] => {
-	const { def } = schema._zod;
-	switch (def.type) {
-		case 'string':
-			return 'string';
-		case 'number':
-			return 'number';
-		case 'int':
-			return 'int';
-		case 'boolean':
-			return 'boolean';
-		case 'bigint':
-			return 'bigint';
-		case 'symbol':
-			return 'symbol';
-		case 'null':
-			return 'null';
-		case 'undefined':
-			return 'undefined';
-		case 'void':
-			return 'void';
-		case 'never':
-			return 'never';
-		case 'any':
-			return 'any';
-		case 'unknown':
-			return 'unknown';
-		case 'date':
-			return 'date';
-		case 'object':
-			return 'object';
-		case 'record':
-			return 'record';
-		case 'file':
-			return 'file';
-		case 'array':
-			// TODO other types, only handling a subset of CLI arg cases
-			return 'Array<string>';
-		case 'tuple':
-			return 'tuple';
-		case 'union':
-			// TODO fix, this is a hacky way to handle unions for CLI args
-			return 'string | Array<string>';
-		case 'intersection':
-			return 'intersection';
-		case 'map':
-			return 'map';
-		case 'set':
-			return 'set';
-		case 'enum':
-			return (schema as unknown as { options: Array<string> }).options
-				.map((v) => `'${v}'`)
-				.join(' | ');
-		case 'literal':
-			return (def as unknown as { values: Array<any> }).values
-				.map((v) => print_value(v))
-				.join(' | ');
-		case 'nullable': {
-			const subschema = zod_to_subschema(def);
-			return subschema ? to_args_schema_type(subschema) + ' | null' : 'nullable';
-		}
-		case 'optional': {
-			const subschema = zod_to_subschema(def);
-			return subschema ? to_args_schema_type(subschema) + ' | undefined' : 'optional';
-		}
-		case 'success':
-			return 'success';
-		case 'catch':
-			return 'catch';
-		case 'nan':
-			return 'NaN';
-		case 'readonly':
-			return 'readonly';
-		case 'template_literal':
-			return 'template_literal';
-		case 'promise':
-			return 'promise';
-		case 'lazy':
-			return 'lazy';
-		case 'custom':
-			return 'custom';
-		// Unwrap these:
-		// case 'nonoptional':
-		// case 'transform':
-		// case 'default':
-		// case 'prefault':
-		// case 'pipe':
-		default: {
-			const subschema = zod_to_subschema(def);
-			return subschema ? to_args_schema_type(subschema) : def.type;
+// the default a field's help shows: a `with_default_fn`'s is made by calling its `make`,
+// as each parse that fills the key in does, found by walking the layers `get_schema_fields`
+// reads, whose first `optional` or default it is when `default_computed`
+const to_field_default = (field: SchemaField): unknown => {
+	if (!field.default_computed) return field.default;
+	let layer: SchemaNode = field.schema;
+	for (;;) {
+		switch (layer.kind) {
+			case 'with_default_fn':
+				return layer.def.make();
+			case 'optional':
+			case 'nullable':
+			case 'with_default':
+				layer = layer.def.schema;
+				break;
+			case 'pipe':
+				layer = layer.def[0]!;
+				break;
+			case 'lazy':
+				layer = layer.def();
+				break;
+			default:
+				return undefined;
 		}
 	}
 };
+
+const to_max_length = <T>(items: Array<T>, toString: (item: T) => string) =>
+	items.reduce((max, m) => Math.max(toString(m).length, max), 0);

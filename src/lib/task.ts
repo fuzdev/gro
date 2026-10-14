@@ -7,7 +7,7 @@ import { ensure_end, strip_end, strip_start } from '@fuzdev/fuz_util/string.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { isAbsolute, join, relative } from 'node:path';
 import { styleText as st } from 'node:util';
-import type { z } from 'zod';
+import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import {
@@ -24,7 +24,7 @@ import type { TaskArgsInput, TaskName } from './task_registry.ts';
 
 export interface Task<
 	TArgs = Args,
-	TArgsSchema extends z.ZodType<Args, Args> = z.ZodType<Args, Args>, // TODO improve type? separate input/output?
+	TArgsSchema extends Schema<Args, Args> = Schema<Args, Args>, // TODO improve type? separate input/output?
 	TReturn = unknown
 > {
 	run: (ctx: TaskContext<TArgs>) => TReturn | Promise<TReturn>; // TODO unused return value

@@ -2,7 +2,7 @@ import { args_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
-import { z } from 'zod';
+import { format_issue } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { Filer } from './filer.ts';
 import type { GroConfig } from './gro_config.ts';
@@ -42,14 +42,14 @@ export const run_task = async (
 	let args = unparsed_args;
 	if (task.Args) {
 		const parsed = args_parse(unparsed_args, task.Args);
-		if (!parsed.success) {
+		if (!parsed.ok) {
 			throw new TaskError(
-				`Failed task args validation for task '${task_meta.name}':\n${z.prettifyError(
-					parsed.error
-				)}`
+				`Failed task args validation for task '${task_meta.name}':\n${parsed.issues
+					.map(format_issue)
+					.join('\n')}`
 			);
 		}
-		args = parsed.data;
+		args = parsed.value;
 	}
 
 	// Run the task.

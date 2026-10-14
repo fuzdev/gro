@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 import { git_check_clean_workspace, git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
 import { rm } from 'node:fs/promises';
@@ -17,26 +18,27 @@ import {
 import { paths } from './paths.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	sync: z.boolean().meta({ description: 'dual of no-sync' }).default(true),
-	'no-sync': z.boolean().meta({ description: 'opt out of gro sync' }).default(false),
-	gen: z.boolean().meta({ description: 'dual of no-gen' }).default(true),
-	'no-gen': z.boolean().meta({ description: 'opt out of gro gen' }).default(false),
-	install: z.boolean().meta({ description: 'dual of no-install' }).default(true),
-	'no-install': z // convenience, same as `gro build -- gro sync --no-install` but the latter takes precedence
-		.boolean()
-		.meta({ description: 'opt out of installing packages before building' })
-		.default(false),
-	force_build: z
-		.boolean()
-		.meta({ description: 'force a fresh build, ignoring the cache' })
-		.default(false),
-	allow_dirty: z
-		.boolean()
-		.meta({ description: 'skip the post-build dirty workspace check' })
-		.default(false)
+export const Args = s.object({
+	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
+	'no-sync': s.with_default(meta(s.boolean, { description: 'opt out of gro sync' }), false),
+	gen: s.with_default(meta(s.boolean, { description: 'dual of no-gen' }), true),
+	'no-gen': s.with_default(meta(s.boolean, { description: 'opt out of gro gen' }), false),
+	install: s.with_default(meta(s.boolean, { description: 'dual of no-install' }), true),
+	// convenience, same as `gro build -- gro sync --no-install` but the latter takes precedence
+	'no-install': s.with_default(
+		meta(s.boolean, { description: 'opt out of installing packages before building' }),
+		false
+	),
+	force_build: s.with_default(
+		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
+		false
+	),
+	allow_dirty: s.with_default(
+		meta(s.boolean, { description: 'skip the post-build dirty workspace check' }),
+		false
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /**
  * Length of git commit hash when displayed in logs (standard git convention).

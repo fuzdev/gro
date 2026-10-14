@@ -1,15 +1,19 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 
 import { TASK_FILE_SUFFIXES, type Task } from './task.ts';
 import { resolve_input_paths, to_input_paths } from './input_path.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	_: z.array(z.string()).meta({ description: 'the input paths to resolve' }).default(['']),
-	verbose: z.boolean().meta({ description: 'log diagnostics' }).default(false)
+export const Args = s.object({
+	_: s.with_default_fn(
+		meta(s.array(s.string), { description: 'the input paths to resolve' }),
+		() => ['']
+	),
+	verbose: s.with_default(meta(s.boolean, { description: 'log diagnostics' }), false)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

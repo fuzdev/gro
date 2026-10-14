@@ -250,7 +250,7 @@ const parse_package_json = (schema: typeof PackageJson, value: any): PackageJson
 	) as any;
 };
 
-// TODO maybe extract to zod helpers? see also everything in `task_logging.ts`
+// TODO maybe extract to zod helpers?
 const parse_or_throw_formatted_error = <T extends z.ZodType>(
 	name: string,
 	schema: T,

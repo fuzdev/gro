@@ -1,7 +1,8 @@
 import { styleText as st } from 'node:util';
 import { print_ms, print_error } from '@fuzdev/fuz_util/print.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { run_gen } from './run_gen.ts';
@@ -19,22 +20,25 @@ import {
 } from './gen.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
 
+// read once when the module loads, so every parse fills in the same directory
+const root_dir_default = process.cwd();
+
 /** @nodocs */
-export const Args = z.strictObject({
-	_: z
-		.array(RawInputPath)
-		.meta({ description: 'input paths to generate' })
-		.default([SOURCE_DIRNAME]),
-	root_dirs: z
-		.array(z.string())
-		.meta({ description: 'root directories to resolve input paths against' }) // TODO `PathId` schema
-		.default([process.cwd()]),
-	check: z
-		.boolean()
-		.meta({ description: 'exit with a nonzero code if any files need to be generated' })
-		.default(false)
+export const Args = s.object({
+	_: s.with_default_fn(
+		meta(s.array(RawInputPath), { description: 'input paths to generate' }),
+		() => [SOURCE_DIRNAME]
+	),
+	root_dirs: s.with_default_fn(
+		meta(s.array(s.string), { description: 'root directories to resolve input paths against' }), // TODO `PathId` schema
+		() => [root_dir_default]
+	),
+	check: s.with_default(
+		meta(s.boolean, { description: 'exit with a nonzero code if any files need to be generated' }),
+		false
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

@@ -187,6 +187,12 @@ describe('InvokeTask', () => {
 			await invoke_task('check', { sync: 'no' });
 			// @ts-expect-error unknown arg for a `gro/` name
 			await invoke_task('gro/check', { synk: true });
+			await invoke_task('reinstall');
+			await invoke_task('reinstall', {});
+			// @ts-expect-error an arg for a task whose `Args` has no keys
+			await invoke_task('reinstall', { x: 1 });
+			// @ts-expect-error an arg for a `gro/` name whose `Args` has no keys
+			await invoke_task('gro/reinstall', { x: 1 });
 			const dynamic: string = 'some/path';
 			await invoke_task(dynamic, { anything: 1 });
 			for (const name of ['check', 'gen'] as const) await invoke_task(name, {});
@@ -203,6 +209,11 @@ describe('InvokeTask', () => {
 			await invoke_task('fixture/required_args');
 			// @ts-expect-error missing required arg
 			await invoke_task('fixture/required_args', { loud: true });
+			// a union keeps each option's keys
+			await invoke_task('fixture/union_args', { a: 'x' });
+			await invoke_task('fixture/union_args', { b: 'y' });
+			// @ts-expect-error an arg in no option of a union
+			await invoke_task('fixture/union_args', { c: 1 });
 			// a module without an `Args` export accepts any args
 			await invoke_task('fixture/no_args', { anything: 1 });
 			// a project task shadows the builtin with the same name

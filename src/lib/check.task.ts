@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import { git_check_clean_workspace } from '@fuzdev/fuz_util/git.ts';
@@ -8,37 +9,42 @@ import { TaskError, type Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	typecheck: z.boolean().meta({ description: 'dual of no-typecheck' }).default(true),
-	'no-typecheck': z.boolean().meta({ description: 'opt out of typechecking' }).default(false),
-	test: z.boolean().meta({ description: 'dual of no-test' }).default(true),
-	'no-test': z.boolean().meta({ description: 'opt out of running tests' }).default(false),
-	gen: z.boolean().meta({ description: 'dual of no-gen' }).default(true),
-	'no-gen': z.boolean().meta({ description: 'opt out of gen check' }).default(false),
-	format: z.boolean().meta({ description: 'dual of no-format' }).default(true),
-	'no-format': z.boolean().meta({ description: 'opt out of format check' }).default(false),
-	package_json: z.boolean().meta({ description: 'dual of no-package_json' }).default(true),
-	'no-package_json': z
-		.boolean()
-		.meta({ description: 'opt out of package.json check' })
-		.default(false),
-	lint: z.boolean().meta({ description: 'dual of no-lint' }).default(true),
-	'no-lint': z.boolean().meta({ description: 'opt out of linting' }).default(false),
-	build: z.boolean().meta({ description: 'dual of no-build' }).default(false),
-	'no-build': z.boolean().meta({ description: 'opt out of building' }).default(true),
-	force_build: z
-		.boolean()
-		.meta({ description: 'force a fresh build, ignoring the cache' })
-		.default(false),
-	sync: z.boolean().meta({ description: 'dual of no-sync' }).default(true),
-	'no-sync': z.boolean().meta({ description: 'opt out of syncing' }).default(false),
-	install: z.boolean().meta({ description: 'opt into installing packages' }).default(false),
-	workspace: z
-		.boolean()
-		.meta({ description: 'ensure a clean git workspace, useful for CI, also implies --no-sync' })
-		.default(false)
+export const Args = s.object({
+	typecheck: s.with_default(meta(s.boolean, { description: 'dual of no-typecheck' }), true),
+	'no-typecheck': s.with_default(
+		meta(s.boolean, { description: 'opt out of typechecking' }),
+		false
+	),
+	test: s.with_default(meta(s.boolean, { description: 'dual of no-test' }), true),
+	'no-test': s.with_default(meta(s.boolean, { description: 'opt out of running tests' }), false),
+	gen: s.with_default(meta(s.boolean, { description: 'dual of no-gen' }), true),
+	'no-gen': s.with_default(meta(s.boolean, { description: 'opt out of gen check' }), false),
+	format: s.with_default(meta(s.boolean, { description: 'dual of no-format' }), true),
+	'no-format': s.with_default(meta(s.boolean, { description: 'opt out of format check' }), false),
+	package_json: s.with_default(meta(s.boolean, { description: 'dual of no-package_json' }), true),
+	'no-package_json': s.with_default(
+		meta(s.boolean, { description: 'opt out of package.json check' }),
+		false
+	),
+	lint: s.with_default(meta(s.boolean, { description: 'dual of no-lint' }), true),
+	'no-lint': s.with_default(meta(s.boolean, { description: 'opt out of linting' }), false),
+	build: s.with_default(meta(s.boolean, { description: 'dual of no-build' }), false),
+	'no-build': s.with_default(meta(s.boolean, { description: 'opt out of building' }), true),
+	force_build: s.with_default(
+		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
+		false
+	),
+	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
+	'no-sync': s.with_default(meta(s.boolean, { description: 'opt out of syncing' }), false),
+	install: s.with_default(meta(s.boolean, { description: 'opt into installing packages' }), false),
+	workspace: s.with_default(
+		meta(s.boolean, {
+			description: 'ensure a clean git workspace, useful for CI, also implies --no-sync'
+		}),
+		false
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

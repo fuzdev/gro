@@ -1,5 +1,6 @@
 import { spawn } from '@fuzdev/fuz_util/process.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import {
@@ -21,47 +22,50 @@ import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	branch: GitBranch.meta({ description: 'branch to publish from' }).default('main'),
-	origin: GitOrigin.meta({ description: 'git origin to publish from' }).default('origin'),
-	changelog: z
-		.string()
-		.meta({ description: 'file name and path of the changelog' })
-		.default('CHANGELOG.md'),
-	preserve_changelog: z
-		.boolean()
-		.meta({
+export const Args = s.object({
+	branch: s.with_default(meta(GitBranch, { description: 'branch to publish from' }), 'main'),
+	origin: s.with_default(meta(GitOrigin, { description: 'git origin to publish from' }), 'origin'),
+	changelog: s.with_default(
+		meta(s.string, { description: 'file name and path of the changelog' }),
+		'CHANGELOG.md'
+	),
+	preserve_changelog: s.with_default(
+		meta(s.boolean, {
 			description:
 				'opt out of linkifying and formatting the changelog from @changesets/changelog-git'
-		})
-		.default(false),
-	optional: z
-		.boolean()
-		.meta({ description: 'exit gracefully if there are no changesets' })
-		.default(false),
-	dry: z
-		.boolean()
-		.meta({ description: 'build and prepare to publish without actually publishing' })
-		.default(false),
-	check: z.boolean().meta({ description: 'dual of no-check' }).default(true),
-	'no-check': z
-		.boolean()
-		.meta({ description: 'opt out of checking before publishing' })
-		.default(false),
-	build: z.boolean().meta({ description: 'dual of no-build' }).default(true),
-	'no-build': z.boolean().meta({ description: 'opt out of building' }).default(false),
-	pull: z.boolean().meta({ description: 'dual of no-pull' }).default(true),
-	'no-pull': z.boolean().meta({ description: 'opt out of git pull' }).default(false),
-	sync: z.boolean().meta({ description: 'dual of no-sync' }).default(true),
-	'no-sync': z.boolean().meta({ description: 'opt out of gro sync' }).default(false),
-	install: z.boolean().meta({ description: 'dual of no-install' }).default(true),
-	'no-install': z
-		.boolean()
-		.meta({ description: 'opt out of installing packages before publishing' })
-		.default(false),
-	changeset_cli: z.string().meta({ description: 'the changeset CLI to use' }).default(CHANGESET_CLI)
+		}),
+		false
+	),
+	optional: s.with_default(
+		meta(s.boolean, { description: 'exit gracefully if there are no changesets' }),
+		false
+	),
+	dry: s.with_default(
+		meta(s.boolean, { description: 'build and prepare to publish without actually publishing' }),
+		false
+	),
+	check: s.with_default(meta(s.boolean, { description: 'dual of no-check' }), true),
+	'no-check': s.with_default(
+		meta(s.boolean, { description: 'opt out of checking before publishing' }),
+		false
+	),
+	build: s.with_default(meta(s.boolean, { description: 'dual of no-build' }), true),
+	'no-build': s.with_default(meta(s.boolean, { description: 'opt out of building' }), false),
+	pull: s.with_default(meta(s.boolean, { description: 'dual of no-pull' }), true),
+	'no-pull': s.with_default(meta(s.boolean, { description: 'opt out of git pull' }), false),
+	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
+	'no-sync': s.with_default(meta(s.boolean, { description: 'opt out of gro sync' }), false),
+	install: s.with_default(meta(s.boolean, { description: 'dual of no-install' }), true),
+	'no-install': s.with_default(
+		meta(s.boolean, { description: 'opt out of installing packages before publishing' }),
+		false
+	),
+	changeset_cli: s.with_default(
+		meta(s.string, { description: 'the changeset CLI to use' }),
+		CHANGESET_CLI
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

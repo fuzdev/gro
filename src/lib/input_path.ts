@@ -2,19 +2,19 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
 import { strip_start } from '@fuzdev/fuz_util/string.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 import type { Flavored } from '@fuzdev/fuz_util/types.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_PACKAGE_DIR, GRO_DIST_DIR } from './paths.ts';
 import { TASK_FILE_SUFFIX_JS } from './task.ts';
 
-// TODO Flavored doesn't work when used in schemas, use Zod brand instead? problem is ergonomics
-export const InputPath = z.string();
-export type InputPath = Flavored<z.infer<typeof InputPath>, 'InputPath'>;
+// TODO Flavored doesn't work when used in schemas, `flavor` from fuz_schema could carry it
+export const InputPath = s.string;
+export type InputPath = Flavored<s.Infer<typeof InputPath>, 'InputPath'>;
 
-export const RawInputPath = z.string();
-export type RawInputPath = Flavored<z.infer<typeof RawInputPath>, 'RawInputPath'>;
+export const RawInputPath = s.string;
+export type RawInputPath = Flavored<s.Infer<typeof RawInputPath>, 'RawInputPath'>;
 
 /**
  * Raw input paths are paths that users provide to Gro to reference files for tasks and gen.

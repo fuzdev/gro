@@ -1,7 +1,8 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { GitOrigin, git_pull } from '@fuzdev/fuz_util/git.ts';
 import { rm } from 'node:fs/promises';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_args } from './args.ts';
 import { spawn_cli } from './cli.ts';
@@ -15,44 +16,51 @@ import {
 import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	_: z
-		.array(z.string())
-		.meta({ description: 'names of deps to exclude from the upgrade' })
-		.default([]),
-	only: z
-		.union([z.string(), z.array(z.string())])
-		.meta({
-			description: 'names of deps to include in the upgrade'
-		})
-		.default([])
-		.transform((v) => (Array.isArray(v) ? v : [v])),
-	origin: GitOrigin.meta({ description: 'git origin to deploy to' }).default('origin'),
-	force: z
-		.boolean()
-		.meta({ description: 'if true, print out the planned upgrades' })
-		.default(false),
-	pull: z.boolean().meta({ description: 'dual of no-pull' }).default(true),
-	'no-pull': z.boolean().meta({ description: 'opt out of git pull' }).default(false),
-	delete_node_modules: z
-		.boolean()
-		.meta({ description: 'if true, deletes node_modules before upgrading' })
-		.default(false),
-	node_modules_path: z // TODO maybe configured globally instead
-		.string()
-		.meta({ description: 'path to modules directory to delete' })
-		.default(NODE_MODULES_DIRNAME),
-	delete_lockfile: z
-		.boolean()
-		.meta({ description: 'if true, deletes the lockfile before upgrading' })
-		.default(false),
-	lockfile_path: z
-		.string()
-		.meta({ description: 'path to the lockfile to delete' })
-		.default('package-lock.json'),
-	dry: z.boolean().meta({ description: 'if true, print out the planned upgrades' }).default(false)
+export const Args = s.object({
+	_: s.with_default_fn(
+		meta(s.array(s.string), { description: 'names of deps to exclude from the upgrade' }),
+		() => []
+	),
+	// the default is outside the pipe, already an array, so it skips the transform
+	only: s.with_default_fn(
+		s.pipe(
+			meta(s.union([s.string, s.array(s.string)]), {
+				description: 'names of deps to include in the upgrade'
+			}),
+			s.transform((v: string | Array<string>) => (Array.isArray(v) ? v : [v]))
+		),
+		() => []
+	),
+	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin'),
+	force: s.with_default(
+		meta(s.boolean, { description: 'if true, print out the planned upgrades' }),
+		false
+	),
+	pull: s.with_default(meta(s.boolean, { description: 'dual of no-pull' }), true),
+	'no-pull': s.with_default(meta(s.boolean, { description: 'opt out of git pull' }), false),
+	delete_node_modules: s.with_default(
+		meta(s.boolean, { description: 'if true, deletes node_modules before upgrading' }),
+		false
+	),
+	// TODO maybe configured globally instead
+	node_modules_path: s.with_default(
+		meta(s.string, { description: 'path to modules directory to delete' }),
+		NODE_MODULES_DIRNAME
+	),
+	delete_lockfile: s.with_default(
+		meta(s.boolean, { description: 'if true, deletes the lockfile before upgrading' }),
+		false
+	),
+	lockfile_path: s.with_default(
+		meta(s.string, { description: 'path to the lockfile to delete' }),
+		'package-lock.json'
+	),
+	dry: s.with_default(
+		meta(s.boolean, { description: 'if true, print out the planned upgrades' }),
+		false
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

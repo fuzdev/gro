@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { rm } from 'node:fs/promises';
 
 import type { Task } from './task.ts';
@@ -6,8 +6,9 @@ import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({});
-export type Args = z.infer<typeof Args>;
+export const Args = s.object({});
+// written out, as `s.Infer` of an empty object is `{}`, which takes any non-nullish value
+export type Args = Record<string, never>;
 
 /** @nodocs */
 export const task: Task<Args> = {

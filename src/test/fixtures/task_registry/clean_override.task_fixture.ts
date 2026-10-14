@@ -1,9 +1,9 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import type { Task } from '#lib/task.ts';
 
-export const Args = z.strictObject({ deep: z.boolean().default(false) });
-export type Args = z.infer<typeof Args>;
+export const Args = s.object({ deep: s.with_default(s.boolean, false) });
+export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,

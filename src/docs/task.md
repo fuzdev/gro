@@ -35,7 +35,7 @@ and defers composition to the user in regular TypeScript modules.
   so composing tasks is explicit in your code, just like any other module
   (but there's also the helper `invoke_task`, see more below)
 - the task object's `run` function has access to CLI args
-- tasks optionally use [zod](https://github.com/colinhacks/zod) schemas
+- tasks optionally use [fuz_schema](https://schema.fuz.dev/) schemas
   for `args` types, runtime parsing with helpful validation errors,
   and generated help docs (`gro foo --help`), with DRY co-located definitions
 - it's easy to call into or override any of Gro's builtin tasks,
@@ -124,12 +124,13 @@ Minimum with [`Args`](#task-args):
 ```ts
 // src/lib/some/withargs.task.ts
 import type {Task} from '@fuzdev/gro';
-import {z} from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import {meta} from '@fuzdev/fuz_schema/meta.ts';
 
-export const Args = z.strictObject({
-	arg: z.number().meta({description: 'example number arg'}).default(2),
+export const Args = s.object({
+	arg: s.with_default(meta(s.number, {description: 'example number arg'}), 2),
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,
@@ -145,8 +146,8 @@ export const task: Task<Args> = {
 import type {Task} from '@fuzdev/gro';
 
 export interface Task<
-	TArgs = Args, // same as `z.infer<typeof Args>`
-	TArgsSchema extends z.ZodType = z.ZodType,
+	TArgs = Args, // same as `s.Infer<typeof Args>`
+	TArgsSchema extends Schema<Args, Args> = Schema<Args, Args>,
 	TReturn = unknown,
 > {
 	run: (ctx: TaskContext<TArgs>) => TReturn | Promise<TReturn>;
@@ -242,8 +243,8 @@ while `invoke_task('gro/test', ...)` always checks against the builtin's.
 Args are read from the task module's `Args` export, so export the schema:
 
 ```ts
-export const Args = z.strictObject({name: z.string().default('world')});
-export type Args = z.infer<typeof Args>;
+export const Args = s.object({name: s.with_default(s.string, 'world')});
+export type Args = s.Infer<typeof Args>;
 ```
 
 A task module without an `Args` export accepts any args.
@@ -310,8 +311,9 @@ rewrite a task from scratch, compose them together, or whatever is needed for ea
 ### task `Args`
 
 The **`Args` property** of each `Task` (not the task context **`args` param** described above!)
-is an optional [zod](https://github.com/colinhacks/zod) schema.
-Using zod has some benefits:
+is an optional [fuz_schema](https://schema.fuz.dev/) object schema,
+one entry per arg, with `s.object` refusing unknown args.
+Using a schema has some benefits:
 
 - automatically print helpful text on the CLI with `gro` and `gro taskname --help`
 - automated args parsing/validation using the schema with initialized defaults
@@ -321,15 +323,16 @@ Using zod has some benefits:
 ```ts
 // src/lib/dosomething.task.ts
 import type {Task} from '@fuzdev/gro';
-import {z} from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import {meta} from '@fuzdev/fuz_schema/meta.ts';
 
-export const Args = z.strictObject({
-	_: z.array(z.string()).meta({description: 'rest args'}).default([]),
-	yepyep: z.string().meta({description: 'helpful info'}).default('ya'),
-	okcool: z.number().meta({description: 'that prints to the CLI'}).default(1234),
-	maybee: z.boolean().meta({description: 'and optional args work too'}).optional(),
+export const Args = s.object({
+	_: s.with_default_fn(meta(s.array(s.string), {description: 'rest args'}), () => []),
+	yepyep: s.with_default(meta(s.string, {description: 'helpful info'}), 'ya'),
+	okcool: s.with_default(meta(s.number, {description: 'that prints to the CLI'}), 1234),
+	maybee: s.optional(meta(s.boolean, {description: 'and optional args work too'})),
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,
@@ -343,6 +346,10 @@ export const task: Task<Args> = {
 ```
 
 Running `gro dosomething --help` prints the schema information in a friendly format.
+
+A `with_default` value is the same object on every parse,
+so an array or object arg takes its default from `with_default_fn`,
+which makes a new one each time, as `_` does above.
 
 ### task args forwarding
 
@@ -416,7 +423,7 @@ What makes Gro different?
   There's lots more to explore here, like task composition
   and improved DX with new capabilities.
 - Tasks support CLI args that are validated and typesafe
-  via colocated Zod schemas with minimal boilerplate.
+  via colocated fuz_schema schemas with minimal boilerplate.
 - Tasks are forwarded CLI args when called via `invoke_task` in other tasks,
   so running `gro foo -- gro bar --a b` passes `{a: 'b'}` automatically to the `bar` task.
 - Module resolution differs and leverages discoverability:

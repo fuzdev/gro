@@ -1,6 +1,7 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_implicit_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli } from './cli.ts';
@@ -10,19 +11,23 @@ import { paths } from './paths.ts';
 import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	_: z.array(z.string()).meta({ description: 'file patterns to filter tests' }).default(['.test.']),
-	dir: z.string().meta({ description: 'working directory for tests' }).default(paths.source),
-	fail_without_tests: z
-		.boolean()
-		.meta({ description: 'opt out of `passWithNoTests`' })
-		.default(false),
-	t: z
-		.string()
-		.meta({ description: 'search pattern for test names, same as vitest -t and --testNamePattern' })
-		.optional()
+export const Args = s.object({
+	_: s.with_default_fn(
+		meta(s.array(s.string), { description: 'file patterns to filter tests' }),
+		() => ['.test.']
+	),
+	dir: s.with_default(meta(s.string, { description: 'working directory for tests' }), paths.source),
+	fail_without_tests: s.with_default(
+		meta(s.boolean, { description: 'opt out of `passWithNoTests`' }),
+		false
+	),
+	t: s.optional(
+		meta(s.string, {
+			description: 'search pattern for test names, same as vitest -t and --testNamePattern'
+		})
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

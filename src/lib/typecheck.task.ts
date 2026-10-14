@@ -1,6 +1,7 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_args } from './args.ts';
 import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
@@ -11,22 +12,22 @@ import { sveltekit_sync_if_available } from './sveltekit_helpers.ts';
 import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	svelte_check_cli: z
-		.string()
-		.meta({ description: 'the svelte-check CLI to use' })
-		.default(SVELTE_CHECK_CLI),
-	typescript_cli: z
-		.string()
-		.meta({ description: 'the TypeScript CLI to use as a fallback to svelte-check' })
-		.default('tsc'),
-	path_replacement: z
-		.string()
-		.meta({ description: 'replacement string for current working directory in output' })
-		.default('.'),
-	cwd: z.string().meta({ description: 'current working directory' }).default(paths.root)
+export const Args = s.object({
+	svelte_check_cli: s.with_default(
+		meta(s.string, { description: 'the svelte-check CLI to use' }),
+		SVELTE_CHECK_CLI
+	),
+	typescript_cli: s.with_default(
+		meta(s.string, { description: 'the TypeScript CLI to use as a fallback to svelte-check' }),
+		'tsc'
+	),
+	path_replacement: s.with_default(
+		meta(s.string, { description: 'replacement string for current working directory in output' }),
+		'.'
+	),
+	cwd: s.with_default(meta(s.string, { description: 'current working directory' }), paths.root)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

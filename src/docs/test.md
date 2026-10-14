@@ -22,8 +22,10 @@ outputs:
 ```
 gro test: run tests with vitest
 
-[...args]  Array<string>  ['.test.']                 file patterns to test
-dir        string         '/path/to/project/src/'  working directory for tests
+[...args]          Array<string>      ['.test.']              file patterns to filter tests
+dir                string             '/path/to/project/src/' working directory for tests
+fail_without_tests boolean            false                   opt out of `passWithNoTests`
+t                  string | undefined undefined               search pattern for test names, same as vitest -t and --testNamePattern
 ```
 
 [`gro test`](/src/lib/test.task.ts) runs all `*.test.ts`

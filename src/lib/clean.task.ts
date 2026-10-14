@@ -1,35 +1,42 @@
 import { spawn } from '@fuzdev/fuz_util/process.ts';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { GitOrigin } from '@fuzdev/fuz_util/git.ts';
 
 import type { Task } from './task.ts';
 import { clean_fs } from './clean_fs.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	build_dev: z.boolean().meta({ description: 'delete the Gro build dev directory' }).default(false),
-	build_dist: z
-		.boolean()
-		.meta({ description: 'delete the Gro build dist directory' })
-		.default(false),
-	sveltekit: z
-		.boolean()
-		.meta({ description: 'delete the SvelteKit directory and Vite cache' })
-		.default(false),
-	nodemodules: z
-		.boolean()
-		.meta({ description: 'delete the node_modules directory' })
-		.default(false),
-	git: z
-		.boolean()
-		.meta({
+export const Args = s.object({
+	build_dev: s.with_default(
+		meta(s.boolean, { description: 'delete the Gro build dev directory' }),
+		false
+	),
+	build_dist: s.with_default(
+		meta(s.boolean, { description: 'delete the Gro build dist directory' }),
+		false
+	),
+	sveltekit: s.with_default(
+		meta(s.boolean, { description: 'delete the SvelteKit directory and Vite cache' }),
+		false
+	),
+	nodemodules: s.with_default(
+		meta(s.boolean, { description: 'delete the node_modules directory' }),
+		false
+	),
+	git: s.with_default(
+		meta(s.boolean, {
 			description:
 				'run "git remote prune" to delete local branches referencing nonexistent remote branches'
-		})
-		.default(false),
-	git_origin: GitOrigin.meta({ description: 'the origin to "git remote prune"' }).default('origin')
+		}),
+		false
+	),
+	git_origin: s.with_default(
+		meta(GitOrigin, { description: 'the origin to "git remote prune"' }),
+		'origin'
+	)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

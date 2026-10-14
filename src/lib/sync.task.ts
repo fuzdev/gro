@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import type { Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
@@ -6,19 +7,22 @@ import { sveltekit_sync } from './sveltekit_helpers.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 
 /** @nodocs */
-export const Args = z.strictObject({
-	sveltekit: z.boolean().meta({ description: 'dual of no-sveltekit' }).default(true),
-	'no-sveltekit': z.boolean().meta({ description: 'opt out of svelte-kit sync' }).default(false),
-	package_json: z.boolean().meta({ description: 'dual of no-package_json' }).default(true),
-	'no-package_json': z
-		.boolean()
-		.meta({ description: 'opt out of package.json sync' })
-		.default(false),
-	gen: z.boolean().meta({ description: 'dual of no-gen' }).default(true),
-	'no-gen': z.boolean().meta({ description: 'opt out of running gen' }).default(false),
-	install: z.boolean().meta({ description: 'opt into installing packages' }).default(false)
+export const Args = s.object({
+	sveltekit: s.with_default(meta(s.boolean, { description: 'dual of no-sveltekit' }), true),
+	'no-sveltekit': s.with_default(
+		meta(s.boolean, { description: 'opt out of svelte-kit sync' }),
+		false
+	),
+	package_json: s.with_default(meta(s.boolean, { description: 'dual of no-package_json' }), true),
+	'no-package_json': s.with_default(
+		meta(s.boolean, { description: 'opt out of package.json sync' }),
+		false
+	),
+	gen: s.with_default(meta(s.boolean, { description: 'dual of no-gen' }), true),
+	'no-gen': s.with_default(meta(s.boolean, { description: 'opt out of running gen' }), false),
+	install: s.with_default(meta(s.boolean, { description: 'opt into installing packages' }), false)
 });
-export type Args = z.infer<typeof Args>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {
