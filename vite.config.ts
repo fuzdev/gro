@@ -13,9 +13,9 @@ import { vite_plugin_pkg_json } from '@fuzdev/fuz_ui/vite_plugin_pkg_json.ts';
 
 export default defineConfig({
 	server: {
-		// Vite watches the whole root, an inotify watch per file, and gro's `.gro/` output
-		// needn't come out of the user's `max_user_watches` budget
-		watch: { ignored: ['**/.gro/**'] }
+		// Vite watches the whole root, an inotify watch per file, and neither gro's `.gro/`
+		// output nor the Rust `target/` needs to come out of the user's `max_user_watches` budget
+		watch: { ignored: ['**/.gro/**', '**/target/**'] }
 	},
 	plugins: [
 		sveltekit({

@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = ["crates/gro_runtime", "crates/gro_cli", "crates/gro_bench", "crates/xtask"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/fuzdev/gro"
+publish = false
+
+[workspace.dependencies]
+argh = "0.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.rustdoc]
+# A doc link is the only machine-checkable claim a doc comment makes.
+# `private_intra_doc_links` stays at its default warn — module headers
+# deliberately point at private members.
+broken_intra_doc_links = "deny"
+invalid_html_tags = "deny"
+bare_urls = "deny"
+redundant_explicit_links = "deny"
+
+[workspace.lints.clippy]
+# Enable lint groups (priority -1 so individual lints can override)
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+# Pedantic overrides
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+
+# Nursery overrides
+significant_drop_tightening = "allow"
+
+# Cargo overrides (the crates are unpublished, `publish = false`)
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+# Restriction lints (panic points need an explicit `#[expect]` with justification)
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# What the measurement harness builds and profiles: `release` plus what a
+# profiler needs, symbols and line tables, for `perf report` and `perf
+# annotate`. Line tables rather than full debuginfo keep the link output small.
+# Neither setting is meant to change codegen, so a `profiling` binary measures
+# the code `release` ships. A custom profile rather than Cargo's built-in
+# `bench` because `bench` shares `target/release/` with `release`; this one
+# builds into `target/profiling/`, so a profiled binary and the shipped one
+# never overwrite each other. `cargo bench` uses Cargo's built-in `bench` profile
+# (inheriting `release`).
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false

@@ -1,0 +1,11 @@
+[package]
+name = "gro_bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "gro's measurement harness for comparing JS runtimes"
+
+[lints]
+workspace = true

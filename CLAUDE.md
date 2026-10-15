@@ -442,6 +442,24 @@ Timings - performance tracking API.
 Minimal abstraction - thin layer over tools (Vite, esbuild, Vitest), forwarding
 args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 
+## Rust workspace (experimental)
+
+Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
+runtime, a Rust binary embedding V8. The crates are unpublished and outside the
+npm package's `files`. During development the binary is `fgro`, so it never
+collides with the Node `gro` on `PATH`.
+
+- `gro_runtime` - the JS host, a minimal web-standards runtime on V8
+- `gro_cli` - the `fgro` binary
+- `gro_bench` - the measurement harness, independent of the runtime crates
+- `xtask` - dev automation (`cargo xtask`)
+
+`cargo xtask check` is the one local command for both halves: the Rust gates
+(`cargo fmt`, `clippy`, `test`, and `doc`, with warnings denied), the JS/TS
+under `crates/` (which `gro check`'s typecheck and format don't reach), then
+`gro check`. The toolchain is pinned in `rust-toolchain.toml`, every crate
+takes the workspace lints, and `unsafe` is forbidden.
+
 ## Implementation reference
 
 Core systems (src/lib/):

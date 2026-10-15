@@ -46,3 +46,45 @@ jobs:
       - run: npm ci
       - run: npm run bootstrap
       - run: npx @fuzdev/gro check --workspace --build
+
+  # The Rust workspace (crates/), beside the npm package; `gro check` doesn't
+  # reach it, so it gets its own job. Locally, `cargo xtask check` runs these
+  # gates and `gro check` together.
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # persist-credentials: false keeps the GITHUB_TOKEN out of .git/config (no
+      # step here pushes via git).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The runner's preinstalled rustup installs the toolchain and components
+      # pinned in rust-toolchain.toml; any rustup 1.28+ reads it with no
+      # arguments, so skip self-updating it.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      # --no-fail-fast: report every failing test binary, not just the first.
+      - name: Test
+        run: cargo test --locked --workspace --no-fail-fast
+
+      # The rustdoc lints fire only under `cargo doc`; private items too, so
+      # the links in their docs are checked.
+      - name: Doc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps --document-private-items

@@ -1,0 +1,18 @@
+[package]
+name = "gro_cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "the fgro binary, gro on its own JS runtime (experimental)"
+
+[[bin]]
+name = "fgro"
+path = "src/main.rs"
+
+[dependencies]
+argh.workspace = true
+
+[lints]
+workspace = true
