@@ -1,5 +1,5 @@
 import { parseSync, type ImportDeclaration } from 'oxc-parser';
-import type { Flavored } from '@fuzdev/fuz_util/types.ts';
+import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 

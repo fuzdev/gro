@@ -17,43 +17,15 @@ import { TaskError, type Task } from './task.ts';
  */
 
 const ArgItem = s.union([s.string, s.number, s.boolean]);
-const ArgValue = s.union([ArgItem, s.array(ArgItem)]);
+const ArgValue = s.union([s.string, s.number, s.boolean, s.array(ArgItem)]);
 
-// what `ArgValue` reports as expected, for the text of an arg that fails it
-const ARG_VALUE_EXPECTED = 'string | number | boolean | array';
-
-// the text of the first arg past `_` that isn't an `ArgValue`, keyed as `format_issue` writes a path
-const to_invalid_arg_message = (args: Record<string, unknown>): string | undefined => {
-	for (const key in args) {
-		if (key === '_') continue;
-		const value = args[key];
-		if (s.is(ArgValue, value)) continue;
-		const received = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
-		return `${/^\w+$/.test(key) ? key : JSON.stringify(key)}: expected ${ARG_VALUE_EXPECTED}, received ${received}`;
-	}
-	return undefined;
-};
-
-// TODO `object_with_rest` in fuz_schema replaces this workaround: a `loose_object` passes
-// its unknown keys through unchecked, so the `check` after it checks them, and the
-// output and input types are asserted
 /** @nodocs */
-export const Args = s.pipe(
-	s.loose_object({
+export const Args = s.object_with_rest(
+	{
 		_: s.with_default_fn(meta(s.array(s.string), { description: 'the file path to run' }), () => [])
-	}),
-	s.message(
-		s.check(
-			(v: { _: Array<string> } & Record<string, unknown>) =>
-				to_invalid_arg_message(v) === undefined,
-			ARG_VALUE_EXPECTED
-		),
-		(_issue, v) => to_invalid_arg_message(v as Record<string, unknown>)!
-	)
-) as s.Schema<
-	{ _: Array<string> } & Record<string, s.Infer<typeof ArgValue>>,
-	{ _?: Array<string> } & Record<string, s.InferInput<typeof ArgValue>>
->;
+	},
+	ArgValue
+);
 export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */

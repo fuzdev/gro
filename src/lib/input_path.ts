@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises';
 import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
 import { strip_start } from '@fuzdev/fuz_util/string.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
-import type { Flavored } from '@fuzdev/fuz_util/types.ts';
+import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_PACKAGE_DIR, GRO_DIST_DIR } from './paths.ts';

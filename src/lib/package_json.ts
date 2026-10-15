@@ -1,9 +1,9 @@
-import { z } from 'zod';
 import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { plural, strip_end } from '@fuzdev/fuz_util/string.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 
@@ -250,21 +250,20 @@ const parse_package_json = (schema: typeof PackageJson, value: any): PackageJson
 	) as any;
 };
 
-// TODO maybe extract to zod helpers?
-const parse_or_throw_formatted_error = <T extends z.ZodType>(
+const parse_or_throw_formatted_error = <T extends s.AnySchema>(
 	name: string,
 	schema: T,
-	value: any
-): z.infer<T> => {
-	const parsed = schema.safeParse(value);
-	if (!parsed.success) {
+	value: unknown
+): s.Infer<T> => {
+	const parsed = s.parse(schema, value);
+	if (!parsed.ok) {
 		let msg = st('red', `Failed to parse ${name}:\n`);
-		for (const issue of parsed.error.issues) {
-			msg += st('red', `\n\t"${issue.path}" ${issue.message}\n`);
+		for (const issue of parsed.issues) {
+			msg += st('red', `\n\t${s.format_issue(issue)}\n`);
 		}
 		throw Error(msg);
 	}
-	return parsed.data;
+	return parsed.value;
 };
 
 /**

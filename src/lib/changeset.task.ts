@@ -211,7 +211,7 @@ type ChangesetCallback = (config: WrittenConfig) => WrittenConfig | Promise<Writ
 
 type UpdateWrittenConfig = (path: string, cb: ChangesetCallback) => Promise<boolean>;
 
-// TODO refactor all of this with zod and package_json helpers - util file helper? JSON parse pluggable
+// TODO refactor all of this with fuz_schema schemas and package_json helpers - util file helper? JSON parse pluggable
 
 const update_changeset_config: UpdateWrittenConfig = async (path, cb) => {
 	const config_contents = await load_changeset_config_contents(path);

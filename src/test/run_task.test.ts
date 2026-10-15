@@ -115,11 +115,11 @@ test('run_task throws a `TaskError` listing each issue when args fail validation
 	assert.strictEqual(run.mock.calls.length, 0);
 });
 
-test('run_task prints a message set by the schema as it is', async () => {
+test('run_task prints the issue of each bad forwarded arg of `gro run`', async () => {
 	const error = await assert_rejects(async () =>
 		run_task(
 			{ name: 'run', id: '/p/src/lib/run.task.ts', mod: { task: run_task_task as Task<any> } },
-			{ _: ['script.ts'], x: { a: 1 } } as any,
+			{ _: ['script.ts'], x: { a: 1 }, y: null } as any,
 			vi.fn(),
 			await create_mock_config(),
 			create_mock_filer(),
@@ -131,6 +131,7 @@ test('run_task prints a message set by the schema as it is', async () => {
 	assert.strictEqual(
 		error.message,
 		"Failed task args validation for task 'run':\n" +
-			'x: expected string | number | boolean | array, received object'
+			'x: expected string | number | boolean | array, received object\n' +
+			'y: expected string | number | boolean | array, received null'
 	);
 });

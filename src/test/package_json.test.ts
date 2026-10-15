@@ -1,4 +1,6 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, assert } from 'vitest';
+import { stripVTControlCharacters } from 'node:util';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
 import {
@@ -12,7 +14,7 @@ import {
 test('package_json_load', async () => {
 	const package_json = await package_json_load();
 	expect(package_json).toBeTruthy();
-	const parsed = PackageJson.parse(package_json);
+	const parsed = s.parse_or_throw(PackageJson, package_json);
 	expect(parsed).toBeTruthy();
 	package_json_serialize(package_json);
 });
@@ -27,14 +29,14 @@ test('package_json_load with cache', async () => {
 	expect(package_json1).toBe(package_json2);
 });
 
-test('PackageJson.parse', () => {
-	PackageJson.parse({ name: 'abc', version: '123' });
+test('PackageJson parses', () => {
+	s.parse_or_throw(PackageJson, { name: 'abc', version: '123' });
 });
 
-test('PackageJson.parse fails with bad data', () => {
+test('PackageJson fails with bad data', () => {
 	let err;
 	try {
-		PackageJson.parse({ version: '123' });
+		s.parse_or_throw(PackageJson, { version: '123' });
 	} catch (_err) {
 		err = _err;
 	}
@@ -53,6 +55,23 @@ test('package_json_serialize fails with bad data', () => {
 		err = _err;
 	}
 	expect(err).toBeTruthy();
+});
+
+test('package_json_serialize lists every issue under a header', () => {
+	let err;
+	try {
+		package_json_serialize({ name: 1, dependencies: { x: 2, 'a.b': 3 } } as any);
+	} catch (_err) {
+		err = _err;
+	}
+	assert(err instanceof Error);
+	assert.strictEqual(
+		stripVTControlCharacters(err.message),
+		'Failed to parse package.json:\n' +
+			'\n\tname: expected string, received number\n' +
+			'\n\tdependencies.x: expected string, received number\n' +
+			'\n\tdependencies."a.b": expected string, received number\n'
+	);
 });
 
 describe('package_json_to_exports', () => {
@@ -161,9 +180,9 @@ test('`PackageJsonExports` parses simple string exports', () => {
 		'.': './index.js',
 		'./lib': './lib/index.js'
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('`PackageJsonExports` parses null exports', () => {
@@ -171,9 +190,9 @@ test('`PackageJsonExports` parses null exports', () => {
 		'.': './index.js',
 		'./internal/*': null
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('`PackageJsonExports` parses basic conditional exports', () => {
@@ -184,9 +203,9 @@ test('`PackageJsonExports` parses basic conditional exports', () => {
 			default: './index.js'
 		}
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('`PackageJsonExports` parses nested conditional exports', () => {
@@ -199,9 +218,9 @@ test('`PackageJsonExports` parses nested conditional exports', () => {
 			default: './feature.mjs'
 		}
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('`PackageJsonExports` parses deeply nested conditional exports', () => {
@@ -220,9 +239,9 @@ test('`PackageJsonExports` parses deeply nested conditional exports', () => {
 			default: './feature.mjs'
 		}
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('`PackageJsonExports` parses mixed exports types', () => {
@@ -240,9 +259,9 @@ test('`PackageJsonExports` parses mixed exports types', () => {
 			}
 		}
 	};
-	const parsed = PackageJsonExports.safeParse(exports);
-	expect(parsed.success).toBe(true);
-	expect(exports).toEqual(parsed.data);
+	const parsed = s.parse(PackageJsonExports, exports);
+	assert.ok(parsed.ok);
+	expect(exports).toEqual(parsed.value);
 });
 
 test('rejects invalid exports', () => {
@@ -268,8 +287,8 @@ test('rejects invalid exports', () => {
 	];
 
 	for (const invalid_export of invalid_exports) {
-		const parsed = PackageJsonExports.safeParse(invalid_export);
-		expect(parsed.success).toBe(false);
+		const parsed = s.parse(PackageJsonExports, invalid_export);
+		expect(parsed.ok).toBe(false);
 	}
 });
 

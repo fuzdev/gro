@@ -164,7 +164,7 @@ describe('load_build_cache_metadata', () => {
 		expect(result).toBeNull();
 	});
 
-	test('rejects cache with missing required fields (Zod validation)', async () => {
+	test('rejects cache with missing required fields (schema validation)', async () => {
 		const { readFile } = await import('node:fs/promises');
 		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
@@ -184,7 +184,7 @@ describe('load_build_cache_metadata', () => {
 		expect(result).toBeNull();
 	});
 
-	test('rejects cache with wrong field types (Zod validation)', async () => {
+	test('rejects cache with wrong field types (schema validation)', async () => {
 		const { readFile } = await import('node:fs/promises');
 		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 
@@ -204,7 +204,7 @@ describe('load_build_cache_metadata', () => {
 		expect(result).toBeNull();
 	});
 
-	test('rejects cache with unexpected extra fields (strictObject)', async () => {
+	test('rejects cache with unexpected extra fields (strict object schema)', async () => {
 		const { readFile } = await import('node:fs/promises');
 		const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
 

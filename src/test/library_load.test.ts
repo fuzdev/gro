@@ -1,5 +1,6 @@
 import { assert, describe, test, expect, vi, beforeEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import { SchemaError } from '@fuzdev/fuz_schema/schema.ts';
 
 // Mock the git helpers so the cache-key/staleness logic can be tested in
 // isolation, without depending on the surrounding repo's git state.
@@ -377,13 +378,23 @@ describe('library_load_from_repo', () => {
 		expect(mocked_write).not.toHaveBeenCalled();
 	});
 
-	// An empty name passes the `PackageJson` schema (`z.string()`), so this
-	// exercises gro's own guard rather than zod validation.
+	// An empty name passes the `PackageJson` schema (`s.string`), so this
+	// exercises gro's own guard rather than schema validation.
 	test('throws on an empty package.json name', async () => {
 		mocked_is_clean.mockReturnValue(false);
 		mocked_read.mockResolvedValue(JSON.stringify({ name: '', version: '1.0.0' }));
 
 		await expect(library_load_from_repo('/repo')).rejects.toThrow(/name/);
+	});
+
+	test('throws `SchemaError` on an invalid package.json, before analyzing', async () => {
+		mocked_is_clean.mockReturnValue(false);
+		mocked_read.mockResolvedValue(JSON.stringify({ name: 1, version: '1.0.0' }));
+
+		const error = await library_load_from_repo('/repo').catch((e: unknown) => e);
+		assert(error instanceof SchemaError);
+		assert.strictEqual(error.message, 'name: expected string, received number');
+		expect(mocked_analyze).not.toHaveBeenCalled();
 	});
 });
 

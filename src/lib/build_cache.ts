@@ -1,7 +1,8 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { styleText as st } from 'node:util';
-import { z } from 'zod';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
@@ -20,36 +21,34 @@ export const BUILD_CACHE_VERSION = '1';
  * Metadata about a single build output file.
  * Includes cryptographic hash for validation plus filesystem stats for debugging and optimization.
  */
-export const BuildOutputEntry = z.strictObject({
-	path: z
-		.string()
-		.meta({ description: "relative path from project root (e.g., 'build/index.html')." }),
-	hash: z.string().meta({ description: 'BLAKE3 hash of file contents' }),
-	size: z.number().meta({ description: 'file size in bytes' }),
-	mtime: z.number().meta({ description: 'modification time in milliseconds since epoch' }),
-	ctime: z.number().meta({
-		description: 'POSIX change time in milliseconds since epoch'
+export const BuildOutputEntry = s.object({
+	path: meta(s.string, {
+		description: "relative path from project root (e.g., 'build/index.html')."
 	}),
-	mode: z.number().meta({ description: 'unix file permission mode (e.g., 33188 = 0644)' })
+	hash: meta(s.string, { description: 'BLAKE3 hash of file contents' }),
+	size: meta(s.number, { description: 'file size in bytes' }),
+	mtime: meta(s.number, { description: 'modification time in milliseconds since epoch' }),
+	ctime: meta(s.number, { description: 'POSIX change time in milliseconds since epoch' }),
+	mode: meta(s.number, { description: 'unix file permission mode (e.g., 33188 = 0644)' })
 });
-export type BuildOutputEntry = z.infer<typeof BuildOutputEntry>;
+export type BuildOutputEntry = s.Infer<typeof BuildOutputEntry>;
 
 /**
  * Metadata stored in .gro/ directory to track build cache validity.
  * Schema validates structure at load time to catch corrupted cache files.
  */
-export const BuildCacheMetadata = z.strictObject({
-	version: z.string().meta({ description: 'schema version for future compatibility' }),
-	git_commit: z.string().nullable().meta({ description: 'git commit hash at time of build' }),
-	build_cache_config_hash: z
-		.string()
-		.meta({ description: "hash of user's custom build_cache_config from gro.config.ts." }),
-	timestamp: z.string().meta({ description: 'timestamp when build completed' }),
-	outputs: z
-		.array(BuildOutputEntry)
-		.meta({ description: 'build output files with hashes and filesystem stats' })
+export const BuildCacheMetadata = s.object({
+	version: meta(s.string, { description: 'schema version for future compatibility' }),
+	git_commit: meta(s.nullable(s.string), { description: 'git commit hash at time of build' }),
+	build_cache_config_hash: meta(s.string, {
+		description: "hash of user's custom build_cache_config from gro.config.ts."
+	}),
+	timestamp: meta(s.string, { description: 'timestamp when build completed' }),
+	outputs: meta(s.array(BuildOutputEntry), {
+		description: 'build output files with hashes and filesystem stats'
+	})
 });
-export type BuildCacheMetadata = z.infer<typeof BuildCacheMetadata>;
+export type BuildCacheMetadata = s.Infer<typeof BuildCacheMetadata>;
 
 /**
  * Computes the cache key components for a build.
@@ -95,8 +94,8 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
 		const contents = await readFile(metadata_path, 'utf-8');
 		const parsed = JSON.parse(contents);
 
-		// Validate structure with Zod
-		const metadata = BuildCacheMetadata.parse(parsed);
+		// Validate structure against the schema
+		const metadata = s.parse_or_throw(BuildCacheMetadata, parsed);
 
 		// Validate version
 		if (metadata.version !== BUILD_CACHE_VERSION) {
@@ -112,7 +111,7 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
 		return metadata;
 	} catch {
 		// Clean up corrupted/invalid cache file
-		// (catches JSON.parse, Zod validation, and version errors)
+		// (catches JSON.parse, schema validation, and version errors)
 		try {
 			await rm(metadata_path, { force: true });
 		} catch {

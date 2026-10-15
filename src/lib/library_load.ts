@@ -11,6 +11,7 @@ import {
 } from '@fuzdev/fuz_util/git.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
@@ -229,7 +230,7 @@ export const library_load_from_repo = async (
 	// Read and validate the repo's package.json directly (not the CWD's).
 	const package_json_path = join(repo_dir, 'package.json');
 	const package_json_contents = await readFile(package_json_path, 'utf-8');
-	const package_json = PackageJson.parse(JSON.parse(package_json_contents));
+	const package_json = s.parse_or_throw(PackageJson, JSON.parse(package_json_contents));
 	if (!package_json.name) {
 		throw Error(`library_load_from_repo: missing \`name\` in ${package_json_path}`);
 	}

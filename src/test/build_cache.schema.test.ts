@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { BuildCacheMetadata, BuildOutputEntry } from '#lib/build_cache.ts';
 
@@ -9,12 +10,12 @@ import {
 
 describe('BuildOutputEntry schema', () => {
 	test('validates correct output entry', () => {
-		expect(() => BuildOutputEntry.parse(create_mock_output_entry())).not.toThrow();
+		expect(() => s.parse_or_throw(BuildOutputEntry, create_mock_output_entry())).not.toThrow();
 	});
 
 	test('rejects entry with missing hash', () => {
 		expect(() =>
-			BuildOutputEntry.parse({
+			s.parse_or_throw(BuildOutputEntry, {
 				path: 'build/file.js',
 				size: 1024,
 				mtime: 1729512000000,
@@ -26,7 +27,7 @@ describe('BuildOutputEntry schema', () => {
 
 	test('rejects entry with wrong size type', () => {
 		expect(() =>
-			BuildOutputEntry.parse({
+			s.parse_or_throw(BuildOutputEntry, {
 				path: 'build/file.js',
 				hash: 'abc',
 				size: '1024', // should be number
@@ -39,7 +40,7 @@ describe('BuildOutputEntry schema', () => {
 
 	test('rejects entry with extra fields', () => {
 		expect(() =>
-			BuildOutputEntry.parse({
+			s.parse_or_throw(BuildOutputEntry, {
 				...create_mock_output_entry(),
 				extra: 'bad'
 			})
@@ -52,12 +53,12 @@ describe('BuildCacheMetadata schema', () => {
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('file.js')]
 		});
-		expect(() => BuildCacheMetadata.parse(metadata)).not.toThrow();
+		expect(() => s.parse_or_throw(BuildCacheMetadata, metadata)).not.toThrow();
 	});
 
 	test('rejects metadata with missing fields', () => {
 		expect(() =>
-			BuildCacheMetadata.parse({
+			s.parse_or_throw(BuildCacheMetadata, {
 				version: '1',
 				git_commit: 'abc123',
 				// missing build_cache_config_hash
@@ -69,7 +70,7 @@ describe('BuildCacheMetadata schema', () => {
 
 	test('rejects metadata with wrong types', () => {
 		expect(() =>
-			BuildCacheMetadata.parse({
+			s.parse_or_throw(BuildCacheMetadata, {
 				version: 1, // should be string
 				git_commit: 'abc123',
 				build_cache_config_hash: 'hash',
@@ -79,9 +80,18 @@ describe('BuildCacheMetadata schema', () => {
 		).toThrow();
 	});
 
+	test('accepts a null git_commit and rejects a missing one', () => {
+		const metadata = create_mock_build_cache_metadata({ git_commit: null });
+		expect(() => s.parse_or_throw(BuildCacheMetadata, metadata)).not.toThrow();
+		const { git_commit: _, ...without_commit } = metadata;
+		expect(() => s.parse_or_throw(BuildCacheMetadata, without_commit)).toThrow(
+			'git_commit: expected string, received undefined'
+		);
+	});
+
 	test('rejects metadata with unexpected extra fields', () => {
 		expect(() =>
-			BuildCacheMetadata.parse({
+			s.parse_or_throw(BuildCacheMetadata, {
 				version: '1',
 				git_commit: 'abc',
 				build_cache_config_hash: 'hash',
