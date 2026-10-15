@@ -1,1 +1,0 @@
-import{i as e,r as t}from"./CURo20eD.js";import{a as n}from"./B_6z-YOY.js";var r=n=>t(e(e(n,`https://`),`www.`),`/`);n();export{r as t};
