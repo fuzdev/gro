@@ -5,7 +5,7 @@ members = ["crates/gro_runtime", "crates/gro_cli", "crates/gro_bench", "crates/x
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-license = "MIT"
+license = "0BSD"
 repository = "https://github.com/fuzdev/gro"
 publish = false
 
