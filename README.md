@@ -59,13 +59,13 @@ It includes:
 
 ## Docs
 
-- early API docs at [/docs/api](https://gro.fuz.dev/docs/api)
 - developing web frontends, servers, and libraries
   - [config](/src/docs/config.md)
   - [dev](/src/docs/dev.md)
   - [build](/src/docs/build.md) for production
   - [deploy](/src/docs/deploy.md) to a branch, like for GitHub pages
   - [publish](/src/docs/publish.md) to npm
+  - API reference at [/docs/api](https://gro.fuz.dev/docs/api)
 - [`Task`](/src/docs/task.md) runner
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
