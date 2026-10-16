@@ -1,0 +1,32 @@
+{
+	"name": "baseline",
+	"version": 1,
+	"samples": 200,
+	"corpora": {"path": "../../../../../corpora", "tree": "dc1a615b820bb1284d9aba34d0c1eeab8843ce1f"},
+	"runtimes": [
+		{"name": "bun", "program": "bun", "cold": {"env": {"BUN_RUNTIME_TRANSPILER_CACHE_PATH": "0"}}},
+		{"name": "node", "program": "node", "v8_args": ["-p", "process.versions.v8"], "cold": {}},
+		{
+			"name": "node_compile_cache",
+			"program": "node",
+			"v8_args": ["-p", "process.versions.v8"],
+			"env": {"NODE_COMPILE_CACHE": "../../../../target/bench/node_compile_cache"},
+			"cold": {"env": {"NODE_DISABLE_COMPILE_CACHE": "1"}}
+		},
+		{
+			"name": "deno",
+			"program": "deno",
+			"args": ["run"],
+			"v8_args": ["eval", "console.log(Deno.version.v8)"],
+			"env": {"DENO_NO_UPDATE_CHECKS": "1"},
+			"cold": {"args": ["--no-code-cache"], "env": {"DENO_EMIT_CACHE_MODE": "disable"}}
+		}
+	],
+	"workloads": [
+		{"name": "fuz_util_warm", "script": "fuz_util.js", "warmup": 10, "weight": 3},
+		{"name": "fuz_util_cold", "script": "fuz_util.js", "warmup": 10, "cold": true, "weight": 1},
+		{"name": "empty", "script": "empty.js", "warmup": 10, "weight": 2},
+		{"name": "console_log", "script": "console_log.js", "warmup": 10, "weight": 2},
+		{"name": "import_one", "script": "import_one.js", "warmup": 10, "weight": 2}
+	]
+}

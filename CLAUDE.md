@@ -454,7 +454,12 @@ collides with the Node `gro` on `PATH`.
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
-  run to `crates/gro_bench/history.jsonl`
+  run to `crates/gro_bench/history.jsonl`. The baseline suite
+  (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
+  on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
+  and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned by tree id; its workload weights
+  are provisional until gro has numbers. Record it on a quiet machine with
+  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
 - `xtask` - dev automation (`cargo xtask`)
 
 `cargo xtask check` is the one local command for both halves: the Rust gates

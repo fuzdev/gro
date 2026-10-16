@@ -2,7 +2,7 @@
 //!
 //! A line carries what a number needs to be read later: the suite and its
 //! version, the gro checkout's commit, the config hash, the runtimes'
-//! versions and binary hashes, the hashes of the scripts and files the suite
+//! versions, binary hashes, and sizes, the hashes of the scripts and files the suite
 //! names, the machine, the corpus pins, and every row's
 //! samples beside their statistics. Raw samples stay in the line, so later
 //! comparisons can recompute from them.
@@ -22,7 +22,7 @@ use crate::error::BenchError;
 use crate::stats::Stats;
 
 /// The line shape's version, bumped when it changes incompatibly.
-pub const RECORD_VERSION: u32 = 2;
+pub const RECORD_VERSION: u32 = 3;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,7 +41,8 @@ pub struct RunRecord {
     pub machine: Machine,
     /// Whether the machine was quieted for the run.
     pub machine_quiet: MachineQuiet,
-    /// The tree id of the pinned third-party corpora, once a suite reads them.
+    /// The tree id of the corpora's `collections/`, when the suite reads
+    /// them: the suite's pin, checked before and after the run.
     pub corpora: Option<String>,
     /// The workspace repos a suite reads, by name, at their commit SHAs.
     pub workspace: BTreeMap<String, String>,
@@ -106,6 +107,12 @@ pub struct RuntimeInfo {
     /// The blake3 hash of its executable, which names a local build its
     /// version string can't.
     pub blake3: String,
+    /// The executable's size in bytes, as installed, stripped or not: node's
+    /// release binary carries debug symbols, which stripping drops, so compare
+    /// like with like when gro's binary joins them.
+    pub bytes: u64,
+    /// The executable's size gzipped at gzip's default level, in bytes.
+    pub gzip_bytes: u64,
 }
 
 /// One row's measurements.
@@ -238,6 +245,31 @@ impl GitState {
     }
 }
 
+/// The subtree of a corpora checkout that is the corpus, what its tree id
+/// names.
+const CORPORA_TREE: &str = "collections";
+
+/// Reads the tree id of the corpora checkout at `path`, refusing local changes
+/// under its `collections/`, which the tree id wouldn't name.
+///
+/// # Errors
+///
+/// Fails when `git` can't run or fails, as outside a checkout, or with
+/// [`BenchError::CorporaDirty`].
+pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
+    let tree = git(path, &["rev-parse", &format!("HEAD:{CORPORA_TREE}")])?
+        .trim()
+        .to_owned();
+    // untracked files count: a workload could import one
+    let status = git(path, &["status", "--porcelain", "--", CORPORA_TREE])?;
+    if !status.trim().is_empty() {
+        return Err(BenchError::CorporaDirty {
+            path: path.to_owned(),
+        });
+    }
+    Ok(tree)
+}
+
 fn git(root: &Path, args: &[&str]) -> Result<String, BenchError> {
     let command = format!("git -C {} {}", root.display(), args.join(" "));
     let output = Command::new("git")
@@ -300,12 +332,16 @@ mod tests {
                     version: "v24.14.1".to_owned(),
                     v8: Some("13.6.233.17-node.44".to_owned()),
                     blake3: "ab".repeat(32),
+                    bytes: 122_502_392,
+                    gzip_bytes: 43_625_117,
                 },
                 RuntimeInfo {
                     name: "bun".to_owned(),
                     version: "1.4.3".to_owned(),
                     v8: None,
                     blake3: "cd".repeat(32),
+                    bytes: 88_979_072,
+                    gzip_bytes: 30_000_001,
                 },
             ],
             artifacts: BTreeMap::from([
@@ -353,6 +389,7 @@ mod tests {
         assert_eq!(value["rows"][0]["wall_ns"]["samples"][4], 120_000_000);
         assert_eq!(value["workspace"]["fuz_util"], "0123abcd");
         assert_eq!(value["artifacts"]["shims/deno.js"], "01".repeat(32));
+        assert_eq!(value["runtimes"][0]["gzip_bytes"], 43_625_117);
     }
 
     #[test]
@@ -434,6 +471,43 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
         assert!(!clean);
         assert!(dirty);
+    }
+
+    #[test]
+    fn the_corpora_tree_is_read_and_local_changes_refused() {
+        let (base, root) = git_checkout("gro_bench_git_corpora");
+        fs::create_dir_all(root.join("collections/a")).unwrap();
+        fs::write(root.join("collections/a/x.ts"), "export {};\n").unwrap();
+        git(&root, &["add", "."]).unwrap();
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "-m",
+                "add",
+            ],
+        )
+        .unwrap();
+        let tree = read_corpora_tree(&root).unwrap();
+        let expected = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
+        // a change outside `collections/` doesn't count
+        fs::write(root.join("README.md"), "x").unwrap();
+        let outside = read_corpora_tree(&root).unwrap();
+        // an untracked file inside it does
+        fs::write(root.join("collections/a/y.ts"), "").unwrap();
+        let inside = read_corpora_tree(&root);
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(tree, expected.trim());
+        assert_eq!(tree.len(), 40);
+        assert_eq!(outside, tree);
+        assert!(matches!(inside, Err(BenchError::CorporaDirty { .. })));
     }
 
     #[test]

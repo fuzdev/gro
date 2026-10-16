@@ -17,11 +17,12 @@
 //! }
 //! ```
 //!
-//! A row's command is the runtime's `program`, its `args`, then the workload's
-//! `script`. Files (a `{"file": …}` argument and every script) are relative to
-//! the suite file's directory, which is also each command's working
-//! directory, and are passed to the runtime as absolute paths. A `program`
-//! containing a `/` is a file too; any other is looked up on `PATH`.
+//! A row's command is the runtime's `program`, its `args`, its `cold` args
+//! when the workload is cold, then the workload's `script`. Files (a
+//! `{"file": …}` argument and every script) are relative to the suite file's
+//! directory, which is also each command's working directory, and are passed
+//! to the runtime as absolute paths. A `program` containing a `/` is a file
+//! too; any other is looked up on `PATH`.
 //!
 //! A `program` names the real executable, not a script wrapping it (a file
 //! starting with `#!`), which the run refuses: the hash would name the wrapper,
@@ -30,10 +31,16 @@
 //! as its `argv[0]`.
 //!
 //! Every command runs with a cleared environment holding only `PATH` and
-//! `HOME`, so nothing in the caller's environment (`NODE_OPTIONS`,
-//! `DENO_DIR`, cargo's `LD_LIBRARY_PATH`) changes what a run measures.
+//! `HOME`, plus what the suite sets for the runtime (its `env`, and its
+//! `cold` env on a cold row), so nothing in the caller's environment
+//! (`NODE_OPTIONS`, `DENO_DIR`, cargo's `LD_LIBRARY_PATH`) changes what a run
+//! measures.
+//!
+//! Everything runtime-specific (a flag, a variable, a shim file) sits in the
+//! runtime's entry and counts against that runtime; workload scripts are web
+//! standards only, run unmodified by every runtime.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -56,10 +63,31 @@ pub struct Suite {
     /// drift across rows: exactly for a row's mean, approximately for its
     /// median.
     pub samples: NonZeroU32,
-    /// The runtimes every workload runs under.
+    /// The runtimes every workload runs under. The first runtime on the
+    /// first workload is the run's A/A noise row.
     pub runtimes: Vec<Runtime>,
     /// The workloads every runtime runs.
     pub workloads: Vec<Workload>,
+    /// The corpora checkout the workloads read, pinned: the run refuses a
+    /// checkout at another tree or with local changes, so a re-pin is a suite
+    /// change (and a version bump), never a silent one.
+    #[serde(default)]
+    pub corpora: Option<CorporaPin>,
+}
+
+/// A pinned corpora checkout, a clone of `fuzdev/corpora`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CorporaPin {
+    /// The checkout, relative to the suite file's directory. It must be the
+    /// checkout the workload scripts import from, since their imports
+    /// hard-code their own relative path to it: the pin checks this path, the
+    /// scripts read theirs.
+    pub path: PathBuf,
+    /// The tree id of its `collections/` at `HEAD`
+    /// (`git rev-parse HEAD:collections`), which names the bytes the
+    /// workloads read.
+    pub tree: String,
 }
 
 /// A JS runtime and how to invoke it.
@@ -82,6 +110,31 @@ pub struct Runtime {
     /// Arguments that print the runtime's V8 version, for runtimes on V8.
     #[serde(default)]
     pub v8_args: Option<Vec<String>>,
+    /// Variables set for every process of the runtime, beside `PATH` and
+    /// `HOME`, such as a switch keeping background work out of the samples.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// How the runtime runs a cold workload. Required when the suite has one,
+    /// so each runtime states how it goes cold.
+    #[serde(default)]
+    pub cold: Option<Cold>,
+}
+
+/// What a cold row adds to the runtime's command.
+///
+/// These are the switches that turn off the runtime's on-disk caches of
+/// transpile output and compiled code, so a cold load neither reads nor
+/// writes them. Empty for a runtime with no such cache by default, whose cold
+/// and warm rows run the same command.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cold {
+    /// Arguments after the runtime's `args`, before the script.
+    #[serde(default)]
+    pub args: Vec<Arg>,
+    /// Variables beside the runtime's `env`, overriding it where both set one.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 fn default_version_args() -> Vec<String> {
@@ -120,6 +173,20 @@ pub struct Workload {
     /// business.
     #[serde(default)]
     pub warmup: u32,
+    /// Whether its rows run cold, with each runtime's [`Cold`] switches;
+    /// otherwise a row runs with the runtime's on-disk caches as they are by
+    /// default, warmed by the warmup processes.
+    #[serde(default)]
+    pub cold: bool,
+    /// The workload's weight in the suite's objective, a weighted geomean of
+    /// per-workload scores, relative to the other workloads' weights. Part of
+    /// the suite's version, like the workload set.
+    #[serde(default = "default_weight")]
+    pub weight: u32,
+}
+
+const fn default_weight() -> u32 {
+    1
 }
 
 impl Suite {
@@ -143,7 +210,8 @@ impl Suite {
     }
 
     /// Checks what the types can't: something to run, an even sample count,
-    /// and unique names.
+    /// unique names, and a `cold` entry on every runtime when a workload is
+    /// cold.
     ///
     /// # Errors
     ///
@@ -161,7 +229,16 @@ impl Suite {
             )));
         }
         unique("runtime", self.runtimes.iter().map(|r| r.name.as_str()))?;
-        unique("workload", self.workloads.iter().map(|w| w.name.as_str()))
+        unique("workload", self.workloads.iter().map(|w| w.name.as_str()))?;
+        if let Some(workload) = self.workloads.iter().find(|w| w.cold)
+            && let Some(runtime) = self.runtimes.iter().find(|r| r.cold.is_none())
+        {
+            return Err(BenchError::SuiteInvalid(format!(
+                "the workload `{}` is cold, but the runtime `{}` has no `cold` entry saying how it goes cold (`{{}}` when it has no on-disk cache)",
+                workload.name, runtime.name
+            )));
+        }
+        Ok(())
     }
 
     /// The blake3 hash of the suite as parsed (defaults filled, formatting
@@ -173,7 +250,7 @@ impl Suite {
     pub fn config_hash(&self) -> String {
         #[expect(
             clippy::expect_used,
-            reason = "a suite serializes infallibly: no maps, and paths parsed from JSON are UTF-8"
+            reason = "a suite serializes infallibly: its maps have string keys, and paths parsed from JSON are UTF-8"
         )]
         let json = serde_json::to_vec(self).expect("a suite serializes to JSON");
         blake3::hash(&json).to_hex().to_string()
@@ -227,7 +304,59 @@ mod tests {
         );
         assert_eq!(runtime.version_args, ["--version"]);
         assert_eq!(runtime.v8_args, None);
+        assert!(runtime.env.is_empty());
+        assert_eq!(runtime.cold, None);
         assert_eq!(suite.workloads[0].warmup, 0);
+        assert!(!suite.workloads[0].cold);
+        assert_eq!(suite.workloads[0].weight, 1);
+        assert_eq!(suite.corpora, None);
+    }
+
+    #[test]
+    fn a_cold_workload_needs_every_runtime_to_say_how_it_goes_cold() {
+        let suite = |node_cold: &str| {
+            format!(
+                r#"{{
+                    "name": "s", "version": 1, "samples": 2,
+                    "runtimes": [
+                        {{"name": "deno", "program": "deno", "env": {{"A": "1"}}, "cold": {{"args": ["--no-code-cache"], "env": {{"B": "0"}}}}}},
+                        {{"name": "node", "program": "node"{node_cold}}}
+                    ],
+                    "workloads": [{{"name": "w", "script": "w.js", "cold": true, "weight": 3}}],
+                    "corpora": {{"path": "../corpora", "tree": "abc"}}
+                }}"#
+            )
+        };
+        assert!(matches!(
+            parse(&suite("")),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("`node`")
+        ));
+        let parsed = parse(&suite(r#", "cold": {}"#)).unwrap();
+        assert_eq!(parsed.runtimes[1].cold, Some(Cold::default()));
+        let deno = &parsed.runtimes[0];
+        assert_eq!(deno.env, BTreeMap::from([("A".to_owned(), "1".to_owned())]));
+        let cold = deno.cold.as_ref().unwrap();
+        assert_eq!(cold.args, [Arg::Text("--no-code-cache".to_owned())]);
+        assert_eq!(cold.env, BTreeMap::from([("B".to_owned(), "0".to_owned())]));
+        assert_eq!(parsed.workloads[0].weight, 3);
+        assert_eq!(
+            parsed.corpora,
+            Some(CorporaPin {
+                path: PathBuf::from("../corpora"),
+                tree: "abc".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn the_baseline_suite_is_valid() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/baseline");
+        let suite = Suite::load(&dir.join("suite.json")).unwrap();
+        for workload in &suite.workloads {
+            assert!(dir.join(&workload.script).is_file(), "{workload:?}");
+        }
+        assert!(suite.workloads.iter().any(|w| w.cold));
+        assert!(suite.corpora.is_some());
     }
 
     #[test]

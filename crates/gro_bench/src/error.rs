@@ -53,6 +53,20 @@ pub enum BenchError {
     #[error("`{command}` printed no version")]
     NoVersion { command: String },
     #[error(
+        "the corpora at {} are at tree {found}, but the suite pins {pinned}",
+        path.display()
+    )]
+    CorporaTree {
+        path: PathBuf,
+        pinned: String,
+        found: String,
+    },
+    #[error(
+        "the corpora at {} have local changes under `collections/`, so the tree id doesn't name the bytes the workloads read",
+        path.display()
+    )]
+    CorporaDirty { path: PathBuf },
+    #[error(
         "artifacts changed during the run, so its samples are discarded: {}",
         paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
     )]
@@ -67,8 +81,9 @@ pub enum BenchError {
 
 impl BenchError {
     /// Whether the input is at fault (the suite, a program or file it names,
-    /// or a command that fails or prints no version), so the caller must change
-    /// something before re-running: unchanged, it fails the same way.
+    /// a command that fails or prints no version, or a corpora checkout off its
+    /// pin), so the caller must change something before re-running: unchanged,
+    /// it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
             self,
@@ -80,6 +95,8 @@ impl BenchError {
                 | Self::ProgramIsScript { .. }
                 | Self::CommandFailed { .. }
                 | Self::NoVersion { .. }
+                | Self::CorporaTree { .. }
+                | Self::CorporaDirty { .. }
         )
     }
 }

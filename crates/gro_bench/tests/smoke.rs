@@ -28,7 +28,6 @@ fn smoke_suite_runs_under_installed_runtimes() {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        corpora: None,
         workspace: BTreeMap::new(),
     };
     let record = run(&suite, &dir, context).unwrap();

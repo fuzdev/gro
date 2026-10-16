@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use gro_bench::error::BenchError;
 use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run};
-use gro_bench::suite::{Arg, FileArg, Runtime, Suite, Workload};
+use gro_bench::suite::{Arg, Cold, CorporaPin, FileArg, Runtime, Suite, Workload};
 
 fn context() -> RunContext {
     RunContext {
@@ -22,7 +22,6 @@ fn context() -> RunContext {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        corpora: None,
         workspace: BTreeMap::new(),
     }
 }
@@ -45,6 +44,8 @@ fn sh(args: Vec<Arg>) -> Runtime {
         // dash has no `--version`
         version_args: vec!["-c".to_owned(), "echo sh test".to_owned()],
         v8_args: None,
+        env: BTreeMap::new(),
+        cold: None,
     }
 }
 
@@ -60,8 +61,11 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
                 name: script.trim_end_matches(".sh").to_owned(),
                 script: PathBuf::from(script),
                 warmup: 1,
+                cold: false,
+                weight: 1,
             })
             .collect(),
+        corpora: None,
     }
 }
 
@@ -217,4 +221,77 @@ fn processes_get_the_suite_argv0_and_an_isolated_environment() {
     let record = run_in(&dir, &suite(vec![runtime], &["a.sh"], 2)).unwrap();
     // the shell itself sets `PWD`
     assert_eq!(record.runtimes[0].version, "sh HOME,PATH,PWD,");
+}
+
+#[test]
+fn a_cold_row_runs_with_the_runtime_env_and_its_cold_env() {
+    // the workload fails unless both variables reach the timed process
+    let dir = scratch(
+        "cold",
+        &[(
+            "cold.sh",
+            "test \"$GRO_BENCH_ALL\" = 1 && test \"$GRO_BENCH_COLD\" = 1\n",
+        )],
+    );
+    let mut runtime = sh(Vec::new());
+    runtime.env = BTreeMap::from([("GRO_BENCH_ALL".to_owned(), "1".to_owned())]);
+    runtime.cold = Some(Cold {
+        args: Vec::new(),
+        env: BTreeMap::from([("GRO_BENCH_COLD".to_owned(), "1".to_owned())]),
+    });
+    let mut suite = suite(vec![runtime], &["cold.sh"], 2);
+    suite.workloads[0].cold = true;
+    let record = run_in(&dir, &suite).unwrap();
+    assert_eq!(record.rows[0].wall_ns.samples.len(), 2);
+    assert!(record.runtimes[0].bytes > 0);
+    assert!(record.runtimes[0].gzip_bytes > 0);
+}
+
+#[test]
+fn a_corpora_checkout_off_its_pin_is_an_input_error() {
+    let dir = scratch("corpora", &[("a.sh", "")]);
+    let corpora = dir.join("corpora");
+    fs::create_dir_all(corpora.join("collections")).unwrap();
+    fs::write(corpora.join("collections/x.ts"), "").unwrap();
+    for args in [
+        &["init", "--quiet"][..],
+        &["add", "."],
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "init",
+        ],
+    ] {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&corpora)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    let mut suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
+    suite.corpora = Some(CorporaPin {
+        path: PathBuf::from("corpora"),
+        tree: "0".repeat(40),
+    });
+    let error = run(&suite, &dir, context()).unwrap_err();
+    let BenchError::CorporaTree { found, .. } = &error else {
+        panic!("expected CorporaTree, got {error:?}");
+    };
+    assert!(error.is_input_error());
+    // at its pin, the run records the tree
+    suite.corpora = Some(CorporaPin {
+        path: PathBuf::from("corpora"),
+        tree: found.clone(),
+    });
+    let record = run_in(&dir, &suite).unwrap();
+    assert_eq!(record.corpora.as_ref(), Some(found));
 }

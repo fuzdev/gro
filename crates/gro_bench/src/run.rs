@@ -2,15 +2,18 @@
 //!
 //! A run:
 //!
-//! 1. resolves each runtime's executable, refusing a script (a file starting
-//!    with `#!`), and hashes the artifacts (every executable, script, and file
-//!    argument) with blake3;
-//! 2. probes each runtime's version;
+//! 1. checks the suite's corpora checkout against its pin, resolves each
+//!    runtime's executable, refusing a script (a file starting with `#!`),
+//!    and hashes the artifacts (every executable, script, and file argument)
+//!    with blake3;
+//! 2. probes each runtime's version and measures its executable's size, as
+//!    is and gzipped;
 //! 3. runs each row's warmup processes, then its timed samples, in the
 //!    interleaved order of [`schedule`], with the
 //!    first row's A/A copy as one more row;
-//! 4. hashes the artifacts again and discards the run if any changed, since a
-//!    rebuild mid-run means the samples timed different code;
+//! 4. hashes the artifacts and reads the corpora's tree again, and discards
+//!    the run if any changed, since a rebuild mid-run means the samples timed
+//!    different code;
 //! 5. computes each row's statistics.
 //!
 //! Every sample is a fresh process, timed from just before its spawn to just
@@ -22,10 +25,10 @@
 //! Every process, samples and version probes alike, runs the canonical
 //! executable (the file hashed) with the suite's `program` as written as its
 //! `argv[0]`, as a shell would pass it, and with a cleared environment holding
-//! only the caller's `PATH` and `HOME`.
+//! only the caller's `PATH` and `HOME` and the variables the suite sets.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -35,11 +38,11 @@ use std::time::{Instant, SystemTime};
 use crate::error::BenchError;
 use crate::record::{
     GitState, Machine, MachineQuiet, Metric, NoiseRecord, RECORD_VERSION, RowRecord, RunRecord,
-    RuntimeInfo, SuiteId,
+    RuntimeInfo, SuiteId, read_corpora_tree,
 };
 use crate::schedule::schedule;
 use crate::stats::{Stats, ratio_deviation};
-use crate::suite::{Arg, FileArg, Runtime, Suite};
+use crate::suite::{Arg, FileArg, Runtime, Suite, Workload};
 
 /// What a run records but can't learn itself, from the caller.
 #[derive(Debug, Clone)]
@@ -47,8 +50,6 @@ pub struct RunContext {
     pub git: GitState,
     pub machine: Machine,
     pub machine_quiet: MachineQuiet,
-    /// The corpora tree id, when the suite reads the corpora.
-    pub corpora: Option<String>,
     /// The workspace repos the suite reads, at their commit SHAs.
     pub workspace: BTreeMap<String, String>,
 }
@@ -72,6 +73,8 @@ struct Program {
     /// multi-call binary dispatches on.
     #[cfg_attr(not(unix), expect(dead_code, reason = "`argv[0]` is set on unix only"))]
     argv0: String,
+    /// The runtime's `env`.
+    env: BTreeMap<String, String>,
 }
 
 impl Program {
@@ -90,7 +93,10 @@ impl Program {
                 command.env(key, value);
             }
         }
-        command.current_dir(dir).stdin(Stdio::null());
+        command
+            .envs(&self.env)
+            .current_dir(dir)
+            .stdin(Stdio::null());
         command
     }
 }
@@ -102,6 +108,8 @@ struct RowCommand {
     workload: String,
     program: Program,
     args: Vec<OsString>,
+    /// The runtime's `cold` env on a cold row, over the runtime's `env`.
+    env: BTreeMap<String, String>,
     warmup: u32,
 }
 
@@ -110,6 +118,7 @@ impl RowCommand {
         let mut command = self.program.command(dir);
         command
             .args(&self.args)
+            .envs(&self.env)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         command
@@ -129,6 +138,22 @@ impl RowCommand {
 /// during the run.
 pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, BenchError> {
     suite.validate()?;
+    let corpora = suite
+        .corpora
+        .as_ref()
+        .map(|pin| -> Result<_, BenchError> {
+            let path = resolve_file(dir, &pin.path)?;
+            let found = read_corpora_tree(&path)?;
+            if found != pin.tree {
+                return Err(BenchError::CorporaTree {
+                    path,
+                    pinned: pin.tree.clone(),
+                    found,
+                });
+            }
+            Ok((path, found))
+        })
+        .transpose()?;
     let started_unix_s = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
@@ -155,19 +180,13 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     for workload in &suite.workloads {
         let script = resolve(&workload.script)?;
         for (runtime, program) in suite.runtimes.iter().zip(&programs) {
-            let mut args = Vec::new();
-            for arg in &runtime.args {
-                args.push(match arg {
-                    Arg::Text(text) => OsString::from(text),
-                    Arg::File(FileArg { file }) => resolve(file)?.into_os_string(),
-                });
-            }
-            args.push(script.clone().into_os_string());
+            let (args, env) = row_args(runtime, workload, &script, &mut resolve)?;
             rows.push(RowCommand {
                 runtime: runtime.name.clone(),
                 workload: workload.name.clone(),
                 program: program.clone(),
                 args,
+                env,
                 warmup: workload.warmup,
             });
         }
@@ -178,12 +197,30 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         .map(|(file, resolved)| (file, before[&resolved].clone()))
         .collect();
 
-    let runtimes = suite
-        .runtimes
-        .iter()
-        .zip(&programs)
-        .map(|(runtime, program)| probe(runtime, program, dir, &before[&program.path]))
-        .collect::<Result<Vec<_>, _>>()?;
+    // one thread per runtime, since gzipping each executable takes seconds
+    let runtimes = std::thread::scope(|scope| {
+        #[expect(
+            clippy::needless_collect,
+            reason = "every thread spawns before the first join, or the probes run one at a time"
+        )]
+        let probes: Vec<_> = suite
+            .runtimes
+            .iter()
+            .zip(&programs)
+            .map(|(runtime, program)| {
+                let hash = &before[&program.path];
+                scope.spawn(move || probe(runtime, program, dir, hash))
+            })
+            .collect();
+        probes
+            .into_iter()
+            .map(|probe| {
+                probe
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })?;
 
     // the noise row: the first row again, measured as a row of its own
     let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
@@ -198,7 +235,13 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     }
 
     let after = hash_artifacts(&artifacts)?;
-    let changed = changed_artifacts(&before, &after);
+    let mut changed = changed_artifacts(&before, &after);
+    if let Some((path, tree)) = &corpora {
+        // a re-pin or a local change mid-run, which the tree id wouldn't name
+        if read_corpora_tree(path).ok().as_ref() != Some(tree) {
+            changed.push(path.clone());
+        }
+    }
     if !changed.is_empty() {
         return Err(BenchError::ArtifactsChanged { paths: changed });
     }
@@ -226,7 +269,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         git: context.git,
         machine: context.machine,
         machine_quiet: context.machine_quiet,
-        corpora: context.corpora,
+        corpora: corpora.map(|(_, tree)| tree),
         workspace: context.workspace,
         runtimes,
         artifacts: artifact_hashes,
@@ -266,7 +309,32 @@ fn resolve_program(runtime: &Runtime, dir: &Path) -> Result<Program, BenchError>
     Ok(Program {
         path,
         argv0: runtime.program.clone(),
+        env: runtime.env.clone(),
     })
+}
+
+/// A row's arguments after the program, and the variables it sets over the
+/// runtime's `env`: the runtime's `args`, its `cold` args and env when the
+/// workload is cold, then the script. `resolve` turns a file argument into the
+/// absolute path passed.
+fn row_args(
+    runtime: &Runtime,
+    workload: &Workload,
+    script: &Path,
+    resolve: &mut impl FnMut(&Path) -> Result<PathBuf, BenchError>,
+) -> Result<(Vec<OsString>, BTreeMap<String, String>), BenchError> {
+    let cold = runtime.cold.as_ref().filter(|_| workload.cold);
+    let cold_args = cold.map_or(&[][..], |cold| &cold.args);
+    let mut args = Vec::new();
+    for arg in runtime.args.iter().chain(cold_args) {
+        args.push(match arg {
+            Arg::Text(text) => OsString::from(text),
+            Arg::File(FileArg { file }) => resolve(file)?.into_os_string(),
+        });
+    }
+    args.push(script.as_os_str().to_owned());
+    let env = cold.map(|cold| cold.env.clone()).unwrap_or_default();
+    Ok((args, env))
 }
 
 fn starts_with_shebang(path: &Path) -> Result<bool, BenchError> {
@@ -351,12 +419,54 @@ fn probe(
         .as_ref()
         .map(|args| probe_line(program, args, dir))
         .transpose()?;
+    let bytes = std::fs::metadata(&program.path)
+        .map_err(|source| BenchError::Read {
+            path: program.path.clone(),
+            source,
+        })?
+        .len();
     Ok(RuntimeInfo {
         name: runtime.name.clone(),
         version,
         v8,
         blake3: hash.to_owned(),
+        bytes,
+        gzip_bytes: gzip_size(&program.path)?,
     })
+}
+
+/// The size of `path` gzipped at gzip's default level, counted from `gzip`'s
+/// output as it streams. `-n` leaves the file's name and time out of the
+/// header, so the size depends on the bytes alone.
+fn gzip_size(path: &Path) -> Result<u64, BenchError> {
+    let command = display_command(
+        Path::new("gzip"),
+        &[OsStr::new("-c"), OsStr::new("-n"), path.as_os_str()],
+    );
+    let spawn_error = |source| BenchError::Spawn {
+        command: command.clone(),
+        source,
+    };
+    let mut child = Command::new("gzip")
+        .args(["-c", "-n"])
+        .arg(path)
+        // gzip reads default options from it
+        .env_remove("GZIP")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(spawn_error)?;
+    let counted = child
+        .stdout
+        .take()
+        .map_or(Ok(0), |mut stdout| io::copy(&mut stdout, &mut io::sink()));
+    let status = child.wait().map_err(spawn_error)?;
+    let size = counted.map_err(spawn_error)?;
+    if !status.success() {
+        return Err(BenchError::CommandFailed { command, status });
+    }
+    Ok(size)
 }
 
 /// Runs `program` with `args` and returns the first non-empty line it prints.
@@ -426,7 +536,7 @@ fn noise_record(first: &RowRecord, copy: Metric) -> NoiseRecord {
 }
 
 /// A command line for messages: the program and its arguments, space-separated.
-fn display_command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>]) -> String {
+fn display_command(program: &Path, args: &[impl AsRef<OsStr>]) -> String {
     let mut line = program.display().to_string();
     for arg in args {
         line.push(' ');
@@ -450,6 +560,45 @@ mod tests {
         assert!(error.is_input_error());
         // an existing file resolves
         assert!(resolve_file(Path::new("."), Path::new("Cargo.toml")).is_ok());
+    }
+
+    #[test]
+    fn a_cold_row_adds_the_runtime_cold_switches() {
+        let runtime: Runtime = serde_json::from_str(
+            r#"{"name": "deno", "program": "deno", "args": ["run"], "env": {"A": "1"},
+                "cold": {"args": ["--no-code-cache", {"file": "shim.js"}], "env": {"B": "0"}}}"#,
+        )
+        .unwrap();
+        let workload = |cold: bool| -> Workload {
+            serde_json::from_str(&format!(
+                r#"{{"name": "w", "script": "w.js", "cold": {cold}}}"#
+            ))
+            .unwrap()
+        };
+        let mut resolve = |file: &Path| Ok(Path::new("/abs").join(file));
+        let script = Path::new("/abs/w.js");
+        let (warm_args, warm_env) =
+            row_args(&runtime, &workload(false), script, &mut resolve).unwrap();
+        assert_eq!(warm_args, ["run", "/abs/w.js"]);
+        assert!(warm_env.is_empty());
+        let (cold_args, cold_env) =
+            row_args(&runtime, &workload(true), script, &mut resolve).unwrap();
+        assert_eq!(
+            cold_args,
+            ["run", "--no-code-cache", "/abs/shim.js", "/abs/w.js"]
+        );
+        assert_eq!(cold_env, BTreeMap::from([("B".to_owned(), "0".to_owned())]));
+    }
+
+    #[test]
+    fn gzip_size_counts_the_compressed_bytes() {
+        let path = std::env::temp_dir().join(format!("gro_bench_gzip_{}", std::process::id()));
+        std::fs::write(&path, "a".repeat(100_000)).unwrap();
+        let size = gzip_size(&path);
+        std::fs::remove_file(&path).unwrap();
+        let size = size.unwrap();
+        // a run of one byte compresses to a few hundred bytes, header included
+        assert!((20..1000).contains(&size), "{size}");
     }
 
     #[test]

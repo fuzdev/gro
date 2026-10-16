@@ -25,8 +25,10 @@
 //! - `2`: change something before re-running, since unchanged it fails the
 //!   same way: the suite is unreadable or invalid, a program, script, or file
 //!   argument it names is missing, a program is a script, a workload or
-//!   version probe exits unsuccessfully or prints no version, or `--history`
-//!   is empty or names no file in an existing directory
+//!   version probe exits unsuccessfully or prints no version, the suite's
+//!   corpora checkout isn't at its pinned tree or has local changes, or
+//!   `--history` is empty, names a directory, or names no file in an existing
+//!   directory
 //! - `1`: anything else, such as an artifact changing mid-run or a failed
 //!   write
 //!
@@ -47,16 +49,19 @@ use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run as run_suite};
 use gro_bench::suite::Suite;
 
-/// The workspace root, two levels above this crate's manifest.
+/// The workspace root, two levels above this crate's manifest, canonicalized
+/// like the history path, so a root reached through a symlink still contains
+/// the history and the dirty check excludes it.
 fn root() -> PathBuf {
     // `cargo run` sets it at runtime; the compile-time path goes stale when the checkout moves
     let manifest = std::env::var_os("CARGO_MANIFEST_DIR")
         .map_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")), PathBuf::from);
-    manifest
+    let root = manifest
         .ancestors()
         .nth(2)
         .unwrap_or(&manifest)
-        .to_path_buf()
+        .to_path_buf();
+    root.canonicalize().unwrap_or(root)
 }
 
 /// The repo's own TypeScript compiler, relative to the root.
@@ -217,7 +222,6 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             } else {
                 MachineQuiet::Unchecked
             },
-            corpora: None,
             workspace: BTreeMap::new(),
         };
         println!(
@@ -252,7 +256,8 @@ fn bench(root: &Path, args: Bench) -> StepResult {
 /// The history file, absolute: `--history` against the current directory, so
 /// the dirty check recognizes it inside the checkout, or else the default.
 /// The directory is canonicalized (it must exist), which drops any `..` that
-/// git would reject in a pathspec; the file itself needn't exist yet.
+/// git would reject in a pathspec; the file itself needn't exist yet, but
+/// mustn't be a directory, which the append would fail on only after the run.
 fn history_path(root: &Path, history: Option<PathBuf>) -> io::Result<PathBuf> {
     let Some(history) = history else {
         return Ok(root.join(HISTORY));
@@ -264,7 +269,14 @@ fn history_path(root: &Path, history: Option<PathBuf>) -> io::Result<PathBuf> {
             history.display()
         )));
     };
-    Ok(dir.canonicalize()?.join(name))
+    let history = dir.canonicalize()?.join(name);
+    if history.is_dir() {
+        return Err(io::Error::other(format!(
+            "{} is a directory",
+            history.display()
+        )));
+    }
+    Ok(history)
 }
 
 const fn bench_exit_code(error: &BenchError) -> u8 {
@@ -276,14 +288,20 @@ const fn bench_exit_code(error: &BenchError) -> u8 {
 }
 
 fn print_summary(record: &RunRecord) {
+    // the runtime column fits the longest name
+    let width = record
+        .runtimes
+        .iter()
+        .map(|runtime| runtime.name.len())
+        .fold("runtime".len(), usize::max);
     println!(
-        "\n{:<10} {:<16} {:>12} {:>10} {:>7} {:>12} {:>9}",
+        "\n{:<width$} {:<16} {:>12} {:>10} {:>7} {:>12} {:>9}",
         "runtime", "workload", "median ms", "mad ms", "cv", "min ms", "outliers"
     );
     for row in &record.rows {
         let stats = &row.wall_ns.stats;
         println!(
-            "{:<10} {:<16} {:>12.3} {:>10.3} {:>6.1}% {:>12.3} {:>6}/{}",
+            "{:<width$} {:<16} {:>12.3} {:>10.3} {:>6.1}% {:>12.3} {:>6}/{}",
             row.runtime,
             row.workload,
             stats.median / 1e6,
@@ -294,6 +312,19 @@ fn print_summary(record: &RunRecord) {
             stats.n,
         );
     }
+    println!(
+        "\n{:<width$} {:<56} {:>10} {:>10}",
+        "runtime", "version", "MB", "gzip MB"
+    );
+    for runtime in &record.runtimes {
+        println!(
+            "{:<width$} {:<56} {:>10.1} {:>10.1}",
+            runtime.name,
+            runtime.version,
+            mb(runtime.bytes),
+            mb(runtime.gzip_bytes),
+        );
+    }
     let noise = &record.noise;
     println!(
         "\nnoise ({} {} against its copy): the medians sit {:.2}% apart",
@@ -301,6 +332,15 @@ fn print_summary(record: &RunRecord) {
         noise.workload,
         noise.median_deviation * 100.0,
     );
+}
+
+/// Bytes in megabytes (10^6), for printing.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a binary's size is far below 2^52 bytes"
+)]
+fn mb(bytes: u64) -> f64 {
+    bytes as f64 / 1e6
 }
 
 /// Typechecks and format-checks the JS/TS under `crates/`.
@@ -455,6 +495,23 @@ mod tests {
         // `..` and `/` name no file, and the directory must exist
         assert!(history_path(&root, Some(PathBuf::from(".."))).is_err());
         assert!(history_path(&root, Some(PathBuf::from("no_such_dir/x.jsonl"))).is_err());
+    }
+
+    #[test]
+    fn a_history_naming_a_directory_is_rejected() {
+        let root = root();
+        // cargo runs tests from `crates/xtask`, which holds `src/`
+        assert!(Path::new("src").is_dir());
+        let error = history_path(&root, Some(PathBuf::from("src"))).unwrap_err();
+        assert!(error.to_string().ends_with("is a directory"), "{error}");
+        assert!(history_path(&root, Some(PathBuf::from("src/"))).is_err());
+    }
+
+    #[test]
+    fn the_root_is_canonical() {
+        let root = root();
+        assert_eq!(root, root.canonicalize().unwrap());
+        assert!(root.join("Cargo.toml").is_file());
     }
 
     #[test]
