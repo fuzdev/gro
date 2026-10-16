@@ -42,7 +42,6 @@ export const gen: Gen = async ({ origin_id }) => {
 		is_index_file
 	);
 
-	// TODO render the footer with the origin_id
 	return `# docs
 
 
