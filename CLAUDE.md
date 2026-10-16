@@ -451,7 +451,10 @@ collides with the Node `gro` on `PATH`.
 
 - `gro_runtime` - the JS host, a minimal web-standards runtime on V8
 - `gro_cli` - the `fgro` binary
-- `gro_bench` - the measurement harness, independent of the runtime crates
+- `gro_bench` - the measurement harness, independent of the runtime crates:
+  `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
+  processes, interleaved, with an A/A noise row, and appends one JSON line per
+  run to `crates/gro_bench/history.jsonl`
 - `xtask` - dev automation (`cargo xtask`)
 
 `cargo xtask check` is the one local command for both halves: the Rust gates

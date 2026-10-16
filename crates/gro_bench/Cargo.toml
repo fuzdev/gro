@@ -7,5 +7,11 @@ repository.workspace = true
 publish.workspace = true
 description = "gro's measurement harness for comparing JS runtimes"
 
+[dependencies]
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
 [lints]
 workspace = true

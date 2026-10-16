@@ -1,0 +1,11 @@
+{
+	"name": "smoke",
+	"version": 1,
+	"samples": 2,
+	"runtimes": [
+		{"name": "node", "program": "node", "v8_args": ["-p", "process.versions.v8"]},
+		{"name": "deno", "program": "deno", "args": ["run"], "v8_args": ["eval", "console.log(Deno.version.v8)"]},
+		{"name": "bun", "program": "bun"}
+	],
+	"workloads": [{"name": "empty", "script": "empty.js", "warmup": 1}]
+}
