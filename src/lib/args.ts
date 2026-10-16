@@ -33,6 +33,25 @@ export const to_forwarded_args = (
 	cache = to_forwarded_args_by_command(raw_rest_args)
 ): Args => cache[command] ?? {};
 
+/**
+ * Merges `forwarded` args over `args`, moving each forwarded key after every key of `args`.
+ * `args_parse` resolves a `no-x` pair given both ways to the later key,
+ * so a forwarded `--color` overrides a direct `-C` (an alias of `no-color`),
+ * where a spread keeps the overridden key at its original position.
+ * Keys match by spelling, not by schema alias, so a forwarded alias (`-n`) doesn't displace
+ * a direct canonical key (`--name`), which `args_parse` prefers.
+ * @param args - the direct args, if any, not mutated
+ * @param forwarded - the args forwarded to this command, which win over `args`
+ * @returns a new object with the keys of `args` not in `forwarded`, then the keys of `forwarded`
+ */
+export const merge_forwarded_args = (args: Args | undefined, forwarded: Args): Args => {
+	// `fromEntries` and spread define own keys, so an own `__proto__` arg stays an own key
+	const unforwarded = args
+		? Object.fromEntries(Object.entries(args).filter(([key]) => !Object.hasOwn(forwarded, key)))
+		: {};
+	return { ...unforwarded, ...forwarded };
+};
+
 export const to_forwarded_args_by_command = (
 	raw_rest_args = to_raw_rest_args()
 ): Record<string, Args | undefined> => {

@@ -4,7 +4,7 @@ import { print_ms, print_timings } from '@fuzdev/fuz_util/print.ts';
 import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
 
-import { to_forwarded_args } from './args.ts';
+import { merge_forwarded_args, to_forwarded_args } from './args.ts';
 import { run_task } from './run_task.ts';
 import { to_input_path, RawInputPath } from './input_path.ts';
 import { find_tasks, load_tasks, SilentError } from './task.ts';
@@ -122,7 +122,7 @@ export const invoke_task = async (
 	const timing_to_run_task = timings.start('run task ' + task_name);
 	const result = await run_task(
 		task,
-		{ ...args, ...to_forwarded_args(`gro ${task.name}`) },
+		merge_forwarded_args(args, to_forwarded_args(`gro ${task.name}`)),
 		invoke_task,
 		config,
 		filer,

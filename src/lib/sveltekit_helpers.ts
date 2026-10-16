@@ -6,7 +6,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 
-import { to_forwarded_args } from './args.ts';
+import { merge_forwarded_args, to_forwarded_args } from './args.ts';
 import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
@@ -216,9 +216,8 @@ export const run_svelte_package = async (
 			} install\`?`
 		);
 	}
-	const serialized_args = args_serialize({
-		...options,
-		...to_forwarded_args(cli_name)
-	});
+	const serialized_args = args_serialize(
+		merge_forwarded_args({ ...options }, to_forwarded_args(cli_name))
+	);
 	await spawn_cli(found_svelte_package_cli, serialized_args, log);
 };

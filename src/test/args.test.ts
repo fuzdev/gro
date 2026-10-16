@@ -1,7 +1,10 @@
-import { args_serialize, argv_parse } from '@fuzdev/fuz_util/args.ts';
+import { args_parse, args_serialize, argv_parse } from '@fuzdev/fuz_util/args.ts';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
+import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { describe, test, expect } from 'vitest';
 
 import {
+	merge_forwarded_args,
 	to_forwarded_args,
 	to_forwarded_args_by_command,
 	to_raw_rest_args,
@@ -298,6 +301,58 @@ describe('to_forwarded_args', () => {
 		// Same cache should be reused
 		expect(to_forwarded_args('eslint', raw_rest_args, cache)).toEqual({ fix: true });
 		expect(to_forwarded_args('tsc', raw_rest_args, cache)).toEqual({});
+	});
+});
+
+describe('merge_forwarded_args', () => {
+	const ColorArgs = s.object({
+		_: s.with_default_fn(s.array(s.string), () => []),
+		color: meta(s.with_default(s.boolean, true), { aliases: ['c'] }),
+		'no-color': meta(s.with_default(s.boolean, false), { aliases: ['C'] })
+	});
+
+	test('a forwarded flag wins a no-x pair against a later direct alias', () => {
+		// `gro x --color -C -- gro x --color`
+		const argv = 'gro x --color -C -- gro x --color'.split(' ');
+		const { args } = to_task_args(['node', ...argv]);
+		const forwarded = to_forwarded_args('gro x', to_raw_rest_args(['node', ...argv]));
+		const merged = merge_forwarded_args(args, forwarded);
+		expect(Object.keys(merged)).toEqual(['C', 'color']);
+		const parsed = args_parse(merged, ColorArgs);
+		expect(parsed.ok && parsed.value).toEqual({ _: [], color: true, 'no-color': false });
+	});
+
+	test('a forwarded no-x wins against a direct x', () => {
+		const merged = merge_forwarded_args({ 'no-color': true, color: true }, { 'no-color': true });
+		const parsed = args_parse(merged, ColorArgs);
+		expect(parsed.ok && parsed.value).toEqual({ _: [], color: false, 'no-color': true });
+	});
+
+	test('a forwarded non-pair key overrides the direct value and keeps the others', () => {
+		const args = { a: 1, b: 'x', c: true };
+		const merged = merge_forwarded_args(args, { b: 'y', d: 4 });
+		expect(merged).toEqual({ a: 1, b: 'y', c: true, d: 4 });
+		expect(Object.keys(merged)).toEqual(['a', 'c', 'b', 'd']);
+		expect(args).toEqual({ a: 1, b: 'x', c: true }); // not mutated
+	});
+
+	test('an own `__proto__` arg stays an own key', () => {
+		const direct = argv_parse(['--__proto__', 'a']);
+		const forwarded = argv_parse(['--__proto__', 'b']);
+		const merged = merge_forwarded_args(direct, forwarded);
+		expect(Object.hasOwn(merged, '__proto__')).toBe(true);
+		expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+		expect(Object.getOwnPropertyDescriptor(merged, '__proto__')?.value).toBe('b');
+		const kept = merge_forwarded_args(direct, {});
+		expect(Object.getOwnPropertyDescriptor(kept, '__proto__')?.value).toBe('a');
+	});
+
+	test('undefined direct args and empty forwarded args', () => {
+		expect(merge_forwarded_args(undefined, { a: 1 })).toEqual({ a: 1 });
+		const args = { a: 1 };
+		const merged = merge_forwarded_args(args, {});
+		expect(merged).toEqual({ a: 1 });
+		expect(merged).not.toBe(args);
 	});
 });
 
