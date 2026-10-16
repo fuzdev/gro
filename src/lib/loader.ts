@@ -24,8 +24,6 @@ import { paths } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
 import { resolve_specifier, to_missing_module_id } from './resolve_specifier.ts';
 
-// TODO get out of the loader business, starting with https://nodejs.org/api/typescript.html#type-stripping
-
 /*
 
 Usage via `register.ts`:
