@@ -4,7 +4,8 @@
 
 > task runner and toolkit extending SvelteKit 🌰 generate, run, optimize
 
-> ⚠️[Windows won't be supported](https://github.com/fuzdev/gro/issues/319), I chose Bash instead.
+> ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319), I chose Bash instead;
+> the Rust [runtime](#runtime) will.
 
 Gro is a task runner and toolkit
 extending [SvelteKit](https://github.com/sveltejs/kit),
@@ -15,6 +16,8 @@ for making web frontends, servers, and libraries with TypeScript.
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
 Gro is a dev tool, not for production use.
+It runs on Node today and is becoming its own JS runtime, a Rust binary on V8
+(see [Runtime](#runtime)).
 It includes:
 
 - [task runner](/src/docs/task.md) that uses the filesystem convention `*.task.ts`
@@ -48,14 +51,151 @@ It includes:
     and other external build processes
     - see the [Gro config docs](/src/docs/config.md) and
       [the default config](https://github.com/fuzdev/gro/blob/main/src/lib/gro.config.default.ts)
-    - see [`fuz_template`](https://github.com/fuz-dev/fuz_template)
+    - see [`fuz_template`](https://github.com/fuzdev/fuz_template)
       for a simple starter project example, and
-      [`fuz_gitops`](https://github.com/fuzdev/fuz_repos) for a more complex example with custom tasks
+      [`fuz_repos`](https://github.com/fuzdev/fuz_repos) for a more complex example with custom tasks
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - codegen by convention with [`gen`](/src/docs/gen.md)
 - linting with [ESLint](https://github.com/eslint/eslint)
   (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config))
 - formatting with [`tsv`](https://github.com/fuzdev/tsv)
+
+## Runtime
+
+> **status**: experimental, design settled, not functional yet -
+> `crates/` holds the Rust workspace, and the `fgro` binary parses its arguments and exits
+
+Gro is becoming a Rust binary that embeds V8 and runs its own TS surface
+(tasks, gen, config) on an engine we own, instead of as an npm package on Node.
+Its primary verb is `gro run <file>`: one module graph, no ambient authority,
+nothing reachable that the graph didn't import or the policy file didn't accept.
+`gro eval` is its confined one-shot sibling, and `gro task <path>` is the workflow
+layer on top: a project task runs by its full path, never by a searched name, while
+the builtins stay first-class subcommands (`gro check`, `gro dev`); the bare
+`gro <name>` task search goes away, on the Node gro first.
+The same host replaces Deno in the Fuz stack first (scripts, confined config eval),
+now that Cloudflare has bought Deno and the Deno runtime gets only bug and security fixes
+for a year (rusty_v8 stays maintained by Cloudflare), and Node much later.
+The npm package keeps working on Node throughout:
+the runtime proves itself on small use cases before anything switches,
+and the binary is named `fgro` until it does.
+
+Why: one runtime we own in place of two we don't,
+capability confinement for config eval and build-time code,
+one embeddable host for the build tool,
+and fewer moving parts by construction.
+The runtime prioritizes, in order:
+
+1. security: no ambient authority, confinement by construction, a kernel backstop under it
+2. web-standards conformance: the WinterTC minimum common API, graded by its WPT subset
+3. speed: startup first, since short-lived invocations dominate an agent-driven loop;
+   measured against Node, Deno, and Bun on the same workloads, with no regression accepted
+4. binary size and memory
+5. embeddability: a crate first, a binary second
+
+Staying simple is an overarching goal:
+every bridge or compat layer has to earn its place against the clean break.
+Gro runs the same V8 as Node and Deno, so steady-state compute is parity;
+the wins are everything around the engine (startup, loading, caching, work avoided).
+Feedback is welcome to help navigate these tradeoffs.
+
+### Where it diverges from Deno
+
+If you know Deno, the ingredients are familiar:
+V8 through [rusty_v8](https://github.com/denoland/rusty_v8),
+web standards, TypeScript without a build step, and permissions.
+The runtime is bootstrapped on [deno_core](https://crates.io/crates/deno_core)
+and Deno's web-standards extension crates, used thinly behind gro's own seams
+so each piece can be rewritten on its own as measurements justify it.
+From there it takes the other side of most of Deno's later choices:
+
+- **No Node compat.** No `node:*`, no `npm:`, no CommonJS, no N-API, and no `process` global.
+  Anything beyond web standards is an explicit import from a small set of host modules
+  ([`fuz_host`](https://github.com/fuzdev/fuz_host): fs, process, spawn, watch).
+  Third-party Node tools (Vite, vitest, eslint, svelte-check) run as Node subprocesses
+  under the same kernel rules as the invocation that spawned them, until they're
+  replaced, then Node is dropped.
+  Bun and Deno each spent years on Node compat; gro declines that work outright.
+- **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
+  resolve as URLs with mandatory extensions: no probing, no directory index, no `main`.
+  Bare specifiers resolve through a package's `exports` with a fixed condition set
+  (`gro`, `import`, `default`) and `imports` for `#` subpaths, walking `node_modules`.
+  A package without `exports` fails loudly with the reason;
+  the fix is an ESM build that ships one, bundling it into a host module, or running it on Node.
+  Files on disk only: no `https:`, `jsr:`, or `npm:` imports.
+- **No runtime namespace.** There is no `gro.*` the way there is a `Deno.*`;
+  the long-run API target is the
+  [WinterTC minimum common API](https://min-common-api.proposal.wintertc.org/),
+  and the first builds ship the subset the stack's own code touches.
+- **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in-process,
+  preserving every position, so stack traces point at the TS source with no source maps.
+  Erasable syntax only, like Node's stripper: no enums, namespaces, or parameter properties.
+- **No ambient authority.** Permissions are a grant set passed to the runtime at construction,
+  empty by default, not process-level flags checked at call time.
+  Authority is lexically scoped: a module reaches only what it imports or is handed,
+  the way a function reaches only the bindings in scope.
+  Host modules are imports, and the module loader is the boundary: one the grant set doesn't
+  include can't be imported at all, so an ungranted graph fails at link time, not at the
+  first call, and a task's required set is a static fact about its graph, meant to be
+  inferred from it (the CLI passes every host module until that lands).
+  The global object is the one dynamic channel, so the web globals that reach the world
+  (`fetch`, `WebSocket`) are declared, never inferred, and absent until then,
+  and a net grant names hosts, never "all":
+  `typeof fetch` stays the feature check the web already uses, and the error for an
+  undeclared one names the grant to add.
+  Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there;
+  ops check the scoped cases (reads under a root).
+  `gro run` and `gro eval` get exactly their file's graph; `gro task` gets the union of
+  what the invocation reaches, since a task holds the context (config, `invoke_task`).
+  Embedders pass their own set; `-A` is the one explicit escape hatch, never a default.
+  Under the grants, confined eval gets a kernel backstop on Linux
+  (Landlock for the filesystem and TCP, seccomp for the rest of the socket and
+  process surface), installed before V8 starts a thread, so an op-check bug or an
+  engine escape still lands in a box.
+- **First-party natives linked in, everything else WASM.** tsv and blake3 are crates in the
+  binary, exposed as built-in modules with no boundary to cross.
+  Third-party native code arrives as WASM. No FFI.
+- **A dev-tool runtime, not a toolchain.** Tasks, gen, check, run, and confined eval.
+  No `serve`, TCP, or TLS until a consumer needs them; no test runner, package manager,
+  formatter, linter, or LSP in the binary (tsv formats, vitest tests, eslint lints).
+- **A crate first, a binary second.** `gro_runtime` is a library other Rust binaries embed,
+  with a registration API for their own host modules; `gro` is one such binary.
+  Grants are a constructor argument, so an embedder is confined without flags.
+- **One global binary, pinned per project.** A project declares a compatible range under
+  `engines.gro` in `package.json`, and the binary fails hard outside it.
+  Svelte, Vite, and SvelteKit stay the project's own dependencies; the binary owns gro,
+  never the project's compiler or framework.
+  Linux x86_64 first; macOS and Windows builds come before the binary replaces the
+  npm package.
+
+### What the clean break opens up
+
+Designed, not built:
+
+- **Least privilege for free.** Host modules are the only path to the OS,
+  so a script's required grants are a static property of its import graph.
+  A `gro run` of a file that imports only `fuz_util` and the fs module can't spawn or fetch,
+  and nobody wrote a line to get that; net is a declaration, so a dependency can't phone
+  home from a run that never asked, and a `grants` literal only narrows.
+- **A committed policy file.** The source proposes (inferred host modules, plus a static
+  `grants` literal naming hosts and the like) and the file authorizes:
+  a dependency bump that newly reaches the filesystem, spawn, or the network fails
+  `gro check` until a human accepts the diff, the same shape as a lockfile change.
+- **Deterministic runs.** Clock and randomness are capabilities (ambient, denied, or fixed),
+  so an eval or gen run replays exactly.
+  Gen output becomes a memoized function of its module graph and inputs,
+  and `gro gen --check` becomes a cache probe.
+- **One module graph.** The loader's graph is the only graph:
+  it keys caches and gen invalidation, drives watch,
+  and lists tasks by parsing instead of executing them.
+- **Cheap isolation.** V8 isolates and contexts are cheap in one process,
+  so gen files can run in parallel, each confined, with no process spawn;
+  trust tiers (project, ecosystem, third party) get their own global object.
+- **Startup.** A snapshot of the host, a code cache keyed by content,
+  and lazy host init, measured on the short-lived invocations that dominate
+  an agent-driven dev loop.
+- **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
+  (never a shell string) keep platform differences in a handful of files.
 
 ## Docs
 
