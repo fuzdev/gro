@@ -12,6 +12,7 @@
 - [gro_plugin_sveltekit_library](gro_plugin_sveltekit_library.md)
 - [plugin](plugin.md)
 - [publish](publish.md)
+- [runtime](runtime.md)
 - [task](task.md)
 - [tasks](tasks.md)
 - [test](test.md)

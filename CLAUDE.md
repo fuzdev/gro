@@ -448,8 +448,11 @@ Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
 collides with the Node `gro` on `PATH`. The README's Runtime section is the
-public statement of the design: the verbs (`gro run`, `gro eval`, `gro task
-<path>`), no ambient authority, the strict resolver, and what it leaves out.
+public statement of the design: the hermetic thesis (what a run can reach and
+depends on is a static fact about its import graph), the verbs (`gro run`, `gro
+eval`, `gro task <path>`), no ambient authority, the threat model, and the
+roadmap. The detail (the strict resolver, what it leaves out, the comparison
+with Deno) is in [src/docs/runtime.md](src/docs/runtime.md).
 
 - `gro_runtime` - the JS host, a minimal web-standards runtime on V8
 - `gro_cli` - the `fgro` binary
