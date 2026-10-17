@@ -5,16 +5,9 @@
 > hermetic JS runtime and toolchain 🌰 generate, run, optimize
 
 > ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319), I chose Bash instead;
-> the Rust [runtime](#runtime) will.
+> the Rust [runtime](/src/docs/runtime.md) will.
 
-Gro is becoming a hermetic JS runtime, a Rust binary on V8:
-what a run can reach and what it depends on are static facts about its import graph,
-so a change in authority is a reviewed diff, like a lockfile,
-and a run replays and caches by construction.
-It's built for code you didn't write: your dependencies and your agents.
-The runtime is experimental (see [Runtime](#runtime)).
-
-Today Gro is a task runner and toolkit
+Today, Gro is a task runner and toolkit
 extending [SvelteKit](https://github.com/sveltejs/kit),
 [Vite](https://github.com/vitejs/vite),
 and [esbuild](https://github.com/evanw/esbuild)
@@ -23,189 +16,56 @@ It runs on Node and is a dev tool, not for production use.
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
+Gro is becoming a hermetic JS runtime: a Rust binary on V8,
+built on web standards instead of Node compat.
+What a run can reach and what it depends on are static facts about its import graph,
+so a change in authority is a reviewed diff, like a lockfile,
+and a run replays and caches by construction.
+It's built for code you didn't write: your dependencies and your agents,
+in JS or in anything compiled to WASM, under the same grants.
+The runtime is experimental;
+its roadmap, rationale, security model, and design are in [the runtime docs](/src/docs/runtime.md).
+
+Why a task runner grows a runtime:
+the Fuz stack ran on Node and Deno,
+and used Deno's permission flags to sandbox the config it evaluates.
+When Cloudflare bought Deno and put the runtime on bug and security fixes
+until its end of life in October 2027, everything on it had to move.
+The scripts could go to Node; the sandbox was worth owning.
+Gro already runs tasks, gen files, and config in-process,
+so the runtime is that loader becoming the host,
+on [rusty_v8](https://github.com/denoland/rusty_v8) (which Cloudflare keeps maintaining)
+and [deno_core](https://crates.io/crates/deno_core),
+smaller than either runtime it replaces:
+no ambient authority, where every path to the OS is an import or a declared global.
+Code that needs Node keeps running on Node.
+
 It includes:
 
-- [task runner](/src/docs/task.md) that uses the filesystem convention `*.task.ts`
-  - lots of [common builtin tasks](/src/docs/tasks.md) that users can easily override and compose
-- tools and patterns for
-  [developing](/src/docs/dev.md),
-  [building](/src/docs/build.md),
-  [testing](/src/docs/test.md),
-  [deploying](/src/docs/deploy.md),
-  and [publishing](/src/docs/publish.md)
-  [SvelteKit](https://github.com/sveltejs/kit) apps, library packages, and Node servers
-  - integrated [TypeScript](https://github.com/microsoft/typescript),
-    [Svelte](https://github.com/sveltejs/svelte),
-    and [SvelteKit](https://github.com/sveltejs/kit)
-  - defers to SvelteKit and Vite for the frontend and
-    [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging) for the library
-  - exposes all of its internals in `src/lib`
-  - uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
-  - provides a [Node loader](/src/lib/loader.ts) with a [register hook](/src/lib/register.ts)
-    - uses Node's type stripping and supports importing JSON, SvelteKit shims,
-      and SSR'd Svelte files in tests/tasks/scripts
-    - supports [SvelteKit module imports](https://kit.svelte.dev/docs/modules) for
-      `$app` (including `$app/env`) in tasks, tests, Node servers,
-      and other code outside of the SvelteKit frontend,
-      so you can use SvelteKit patterns everywhere
-      (these are best-effort shims, not perfect)
-    - supports running TypeScript files directly without a task via `gro run a.ts`
-      or `node --import @fuzdev/gro/register.js a.ts`
-  - [configurable plugins](/src/docs/plugin.md) to support SvelteKit,
-    [auto-restarting Node servers](/src/lib/gro_plugin_server.ts),
-    and other external build processes
-    - see the [Gro config docs](/src/docs/config.md) and
-      [the default config](https://github.com/fuzdev/gro/blob/main/src/lib/gro.config.default.ts)
-    - see [`fuz_template`](https://github.com/fuzdev/fuz_template)
-      for a simple starter project example, and
-      [`fuz_repos`](https://github.com/fuzdev/fuz_repos) for a more complex example with custom tasks
-- [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
+- a [task runner](/src/docs/task.md) that discovers `*.task.ts` modules by filesystem convention,
+  with many [builtin tasks](/src/docs/tasks.md) that projects override and compose
+- [dev](/src/docs/dev.md), [build](/src/docs/build.md), [test](/src/docs/test.md),
+  [deploy](/src/docs/deploy.md), and [publish](/src/docs/publish.md) workflows
+  for SvelteKit apps, library packages, and Node servers,
+  deferring to SvelteKit and Vite for the frontend and
+  [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging) for the library
+- a [Node loader](/src/lib/loader.ts) with a [register hook](/src/lib/register.ts)
+  that runs TypeScript, JSON, and SSR'd Svelte files directly (`gro run a.ts`),
+  with best-effort shims for [SvelteKit's `$app` modules](https://kit.svelte.dev/docs/modules)
+  in tasks, tests, and Node servers
+- [plugins](/src/docs/plugin.md) for SvelteKit,
+  [auto-restarting Node servers](/src/lib/gro_plugin_server.ts),
+  and other build processes, configured in an optional [`gro.config.ts`](/src/docs/config.md)
+  (see [the default config](https://github.com/fuzdev/gro/blob/main/src/lib/gro.config.default.ts),
+  [`fuz_template`](https://github.com/fuzdev/fuz_template) for a simple starter, and
+  [`fuz_repos`](https://github.com/fuzdev/fuz_repos) for custom tasks)
 - codegen by convention with [`gen`](/src/docs/gen.md)
-- linting with [ESLint](https://github.com/eslint/eslint)
-  (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config))
-- formatting with [`tsv`](https://github.com/fuzdev/tsv)
-
-## Runtime
-
-> **status**: experimental, direction settled, design in progress -
-> `crates/` holds the Rust workspace, and the `fgro` binary parses its arguments and exits
-
-Gro is becoming its own JS runtime: a Rust binary that embeds V8,
-built on web standards instead of Node compat, and hermetic by design.
-A module reaches only what it imports or is handed,
-the way a function reaches only the bindings in scope,
-so what a run can reach is a static fact about its import graph,
-reviewed like a lockfile.
-Clock and randomness are capabilities too,
-so what a run depends on is known, and a run replays and caches by construction.
-
-It starts by running gro's own TS surface (tasks, gen, config)
-and grows into the toolchain for the whole Fuz stack,
-including the server side of [fuz_app](https://github.com/fuzdev/fuz_app),
-which keeps supporting Node and Bun beside it.
-Until the binary replaces the npm package, the TypeScript version keeps working on Node
-and the binary is named `fgro` (see the [roadmap](#roadmap)).
-
-Its primary verb is `gro run <file>`: one module graph, no ambient authority,
-nothing reachable that the graph didn't import or the
-[policy file](#secure-by-default) didn't accept.
-`gro eval` is its confined one-shot sibling.
-`gro task <path>` is the workflow layer on top: a project task runs by its full path,
-never by a searched name, while the builtins stay first-class subcommands (`gro check`, `gro dev`).
-
-Why: confinement and replay for code you didn't write,
-one runtime we own in place of two we don't,
-and one embeddable host for the toolchain.
-The runtime prioritizes, in order:
-
-1. security: no ambient authority, confinement by construction, a kernel backstop under it
-2. web-standards conformance: the WinterTC minimum common API, graded by its WPT subset
-3. speed: startup first, since short-lived invocations dominate an agent-driven loop;
-   measured against Node, Deno, and Bun on the same workloads,
-   with no regression against its own history accepted
-4. binary size and memory
-5. embeddability: published crates with a registration API, the binary being one embedder
-
-Staying simple and small is overarching, and the security story depends on it:
-a surface small enough to audit, where every path to the OS is an import or a declared global.
-Gro will run the same V8 as Node and Deno, so steady-state compute will be at parity;
-the wins are everything around the engine (startup, loading, caching, work avoided).
-Feedback is welcome to help navigate these tradeoffs.
-
-The design in detail, how it compares to Deno, and what the hermetic design opens up
-are in [the runtime docs](/src/docs/runtime.md).
-
-### Secure by default
-
-Code starts with nothing and gets only what it's granted.
-There's no flag to remember and no mode to opt into:
-the default is the confined case, and widening it is a visible, human act.
-Designed, not yet built, a run gets:
-
-- **without asking:** what project code reaches through the host modules it imports,
-  scoped to reads under the project root, writes to declared build roots,
-  and the env names it declares
-- **only after a human accepts it:** the network (named hosts, never "all"),
-  spawning processes, reads outside the project,
-  and any authority reached through a dependency
-- **never short of `-A`:** `.env*` files except through the env module,
-  credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
-- **for `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
-  and the JIT off
-- **for native code:** never the runtime's process, not even under `-A`;
-  FFI is a grant that loads the library in its own confined process
-
-A script's needs are a static property of its import graph,
-so least privilege costs nothing to write:
-a file that imports only `fuz_util` and the fs module can't spawn or fetch.
-The source proposes (inferred host modules, plus a static `grants` literal naming hosts
-and the like) and a committed policy file authorizes:
-a dependency bump that newly reaches the filesystem, spawn, or the network fails
-`gro check` until a human accepts the diff, the same shape as a lockfile change.
-
-The exceptions are explicit and labeled.
-`-A` is the one escape hatch, never a default.
-`publish` and `deploy` push and use credentials, so they're named unconfined phases,
-shown that way in the policy diff, with credentials passed to the one process that needs them.
-The kernel backstop is Linux-only until the other platforms get an equivalent.
-
-### Threat model
-
-Grants contain overreach:
-a dependency, a task, or an agent that reaches for authority nobody accepted
-fails before it runs (an unaccepted host module fails at link time,
-an undeclared global isn't there), and the widening shows up as a diff in review.
-V8 itself isn't treated as the boundary against code built to escape it.
-An engine exploit lands in the kernel backstop,
-which applies the same grants to the whole invocation and every child process,
-and `gro eval` and FFI each run in a process of their own.
-Code that must be treated as hostile belongs in WASM or a separate process,
-not under a looser grant.
-Outside the model: the unconfined phases (`publish`, `deploy`, `-A`),
-and on macOS and Windows, anything past the runtime's own checks
-until those platforms get a kernel equivalent.
-
-### Roadmap
-
-The first target is retiring Deno from the Fuz stack:
-Cloudflare has bought Deno, and the Deno runtime gets only bug and security fixes
-until its end of life in October 2027 (rusty_v8 stays maintained by Cloudflare).
-Node leaves much later. Until then, third-party Node tools (Vite, vitest, eslint, svelte-check)
-run as Node subprocesses under the invocation's kernel rules.
-
-- [x] Rust workspace and benchmark harness, with baselines against Node, Deno, and Bun
-- [ ] `gro run`: ESM from disk on V8, web-standard globals, a startup snapshot
-- [ ] TypeScript by tsv's type strip, strict package resolution
-- [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
-      under the kernel backstop, for any tool that evaluates config;
-      it replaces Deno for config eval in the Fuz stack
-- [ ] the Deno exit: config eval on `gro eval`, the stack's other Deno uses on Node
-- [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
-- [ ] on the Node gro: `gro task <path>` replaces the bare `gro <name>` task search,
-      the loader turns strict, and `gro check` infers each task's grants
-      and diffs them against the committed policy file, reporting before anything enforces it
-- [ ] gro on gro: tasks, gen, and check run on the runtime, enforcing the policy file
-      (until then the CLI passes every host module; the network stays declared)
-- [ ] the Svelte compiler in-engine
-- [ ] macOS and Windows builds
-- [ ] binary-only: `fgro` becomes `gro`, the npm package carries types, and the crates publish
-- [ ] bundled dev and build on the same host, and Vite leaves the loop
-- [ ] serving, a test runner, and types from the binary:
-      fuz_app's server side runs on gro, and Node leaves the stack's toolchain
-
-Future (unknown order):
-
-- FFI as a grant, in its own confined process
-- deterministic tasks and gen: clock and randomness fixed or seeded,
-  gen as a memoized function of its graph (`gro eval` denies both from the start)
-- owning the core: deno_core's pieces replaced one at a time, measured
-- `fetch`, `crypto.subtle`, and `WebSocket` as consumers need them
-- size: filtered ICU data, V8 build flags
-
-Maybe later or never:
-
-- per-trust-tier V8 contexts
-- a custom V8 build
+- [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest),
+  linting with [ESLint](https://github.com/eslint/eslint)
+  (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config)),
+  and formatting with [`tsv`](https://github.com/fuzdev/tsv)
+- all of its internals exported from `src/lib`,
+  and [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
 
 ## Docs
 
@@ -282,9 +142,9 @@ upgrade    upgrade deps
 
 To run tasks, Gro matches your CLI input against its filesystem conventions.
 It tries to do the right thing, where right is helpful but not surprising,
-with some magic but not too much
-(the name search is going away: project tasks will run as `gro task <path>`,
-see the [roadmap](#roadmap)):
+with some magic but not too much.
+The name search is going away: project tasks will run as `gro task <path>`
+(see the [roadmap](/src/docs/runtime.md#roadmap)).
 
 ```bash
 gro # displays all available tasks matching `src/lib/**/*.task.ts` and Gro's builtins
