@@ -1,0 +1,5 @@
+---
+"@fuzdev/fuz_ui": minor
+---
+
+chore: upgrade fuz_util 0.77.0
