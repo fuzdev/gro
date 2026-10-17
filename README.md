@@ -21,7 +21,7 @@ built on web standards instead of Node compat.
 What a run can reach and what it depends on are static facts about its import graph,
 so a change in authority is a reviewed diff, like a lockfile,
 and a run replays and caches by construction.
-It's built for code you didn't write: your dependencies and your agents,
+It's built for code you can't fully trust: your dependencies and your agents,
 in JS or in anything compiled to WASM, under the same grants.
 The runtime is experimental;
 its roadmap, rationale, security model, and design are in [the runtime docs](/src/docs/runtime.md).
