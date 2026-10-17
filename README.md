@@ -26,11 +26,10 @@ in JS or in anything compiled to WASM, under the same grants.
 The runtime is experimental;
 its roadmap, rationale, security model, and design are in [the runtime docs](/src/docs/runtime.md).
 
-Why a task runner grows a runtime:
+Why a task runner and toolchain grows a runtime:
 the Fuz stack ran on Node and Deno,
 and used Deno's permission flags to sandbox the config it evaluates.
-When Cloudflare bought Deno and put the runtime on bug and security fixes
-until its end of life in October 2027, everything on it had to move.
+When Cloudflare bought Deno and set its end of life in October 2027, everything on it had to move.
 The scripts could go to Node; the sandbox was worth owning.
 Gro already runs tasks, gen files, and config in-process,
 so the runtime is that loader becoming the host,
@@ -40,7 +39,7 @@ smaller than either runtime it replaces:
 no ambient authority, where every path to the OS is an import or a declared global.
 Code that needs Node keeps running on Node.
 
-It includes:
+Today Gro includes:
 
 - a [task runner](/src/docs/task.md) that discovers `*.task.ts` modules by filesystem convention,
   with many [builtin tasks](/src/docs/tasks.md) that projects override and compose
