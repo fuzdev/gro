@@ -65,37 +65,41 @@ It includes:
 > **status**: experimental, design settled, not functional yet -
 > `crates/` holds the Rust workspace, and the `fgro` binary parses its arguments and exits
 
-Gro is becoming a Rust binary that embeds V8 and runs its own TS surface
-(tasks, gen, config) on an engine we own, instead of as an npm package on Node.
-Its primary verb is `gro run <file>`: one module graph, no ambient authority,
-nothing reachable that the graph didn't import or the policy file didn't accept.
-`gro eval` is its confined one-shot sibling, and `gro task <path>` is the workflow
-layer on top: a project task runs by its full path, never by a searched name, while
-the builtins stay first-class subcommands (`gro check`, `gro dev`); the bare
-`gro <name>` task search goes away, on the Node gro first.
-The same host replaces Deno in the Fuz stack first (scripts, confined config eval),
+Gro is becoming its own JS runtime: a Rust binary that embeds V8
+and runs gro's TS surface (tasks, gen, config) on an engine we own.
+It's a clean break from Node, with no compat layer
+(see [Where it diverges from Deno](#where-it-diverges-from-deno)).
+The migration retires Deno from the Fuz stack first (scripts, confined config eval),
 now that Cloudflare has bought Deno and the Deno runtime gets only bug and security fixes
-for a year (rusty_v8 stays maintained by Cloudflare), and Node much later.
-The npm package keeps working on Node throughout:
+until its end of life in October 2027 (rusty_v8 stays maintained by Cloudflare),
+and drops Node much later.
+Until then the npm package keeps working on Node:
 the runtime proves itself on small use cases before anything switches,
 and the binary is named `fgro` until it does.
+
+Its primary verb is `gro run <file>`: one module graph, no ambient authority,
+nothing reachable that the graph didn't import or the
+[policy file](#what-the-clean-break-opens-up) didn't accept.
+`gro eval` is its confined one-shot sibling.
+`gro task <path>` is the workflow layer on top: a project task runs by its full path,
+never by a searched name, while the builtins stay first-class subcommands (`gro check`, `gro dev`);
+the bare `gro <name>` task search goes away, starting with the Node gro.
 
 Why: one runtime we own in place of two we don't,
 capability confinement for config eval and build-time code,
 one embeddable host for the build tool,
-and fewer moving parts by construction.
+and simplicity: fewer moving parts by construction.
 The runtime prioritizes, in order:
 
 1. security: no ambient authority, confinement by construction, a kernel backstop under it
 2. web-standards conformance: the WinterTC minimum common API, graded by its WPT subset
 3. speed: startup first, since short-lived invocations dominate an agent-driven loop;
-   measured against Node, Deno, and Bun on the same workloads, with no regression accepted
+   measured against Node, Deno, and Bun on the same workloads,
+   with no regression against its own history accepted
 4. binary size and memory
 5. embeddability: a crate first, a binary second
 
-Staying simple is an overarching goal:
-every bridge or compat layer has to earn its place against the clean break.
-Gro runs the same V8 as Node and Deno, so steady-state compute is parity;
+Gro will run the same V8 as Node and Deno, so steady-state compute will be at parity;
 the wins are everything around the engine (startup, loading, caching, work avoided).
 Feedback is welcome to help navigate these tradeoffs.
 
@@ -113,15 +117,15 @@ From there it takes the other side of most of Deno's later choices:
   Anything beyond web standards is an explicit import from a small set of host modules
   ([`fuz_host`](https://github.com/fuzdev/fuz_host): fs, process, spawn, watch).
   Third-party Node tools (Vite, vitest, eslint, svelte-check) run as Node subprocesses
-  under the same kernel rules as the invocation that spawned them, until they're
-  replaced, then Node is dropped.
+  under the same kernel rules as the invocation that spawned them.
   Bun and Deno each spent years on Node compat; gro declines that work outright.
 - **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
   resolve as URLs with mandatory extensions: no probing, no directory index, no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
   (`gro`, `import`, `default`) and `imports` for `#` subpaths, walking `node_modules`.
-  A package without `exports` fails loudly with the reason;
-  the fix is an ESM build that ships one, bundling it into a host module, or running it on Node.
+  A package without `exports`, or one that's CommonJS, fails loudly with the reason;
+  the fix is a version with an ESM build, an ESM bundle of it vendored into the project,
+  or running it on Node. Gro never pre-bundles a project's dependencies.
   Files on disk only: no `https:`, `jsr:`, or `npm:` imports.
 - **No runtime namespace.** There is no `gro.*` the way there is a `Deno.*`;
   the long-run API target is the
@@ -134,27 +138,23 @@ From there it takes the other side of most of Deno's later choices:
   empty by default, not process-level flags checked at call time.
   Authority is lexically scoped: a module reaches only what it imports or is handed,
   the way a function reaches only the bindings in scope.
-  Host modules are imports, and the module loader is the boundary: one the grant set doesn't
-  include can't be imported at all, so an ungranted graph fails at link time, not at the
-  first call, and a task's required set is a static fact about its graph, meant to be
-  inferred from it (the CLI passes every host module until that lands).
-  The global object is the one dynamic channel, so the web globals that reach the world
+  Host modules are imports and the module loader is the boundary,
+  so an ungranted graph fails at link time, not at the first call.
+  The global object is the one dynamic channel: the web globals that reach the world
   (`fetch`, `WebSocket`) are declared, never inferred, and absent until then,
-  and a net grant names hosts, never "all":
-  `typeof fetch` stays the feature check the web already uses, and the error for an
-  undeclared one names the grant to add.
+  and a net grant names hosts, never "all".
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there;
   ops check the scoped cases (reads under a root).
-  `gro run` and `gro eval` get exactly their file's graph; `gro task` gets the union of
-  what the invocation reaches, since a task holds the context (config, `invoke_task`).
-  Embedders pass their own set; `-A` is the one explicit escape hatch, never a default.
+  `-A` is the one explicit escape hatch, never a default.
   Under the grants, confined eval gets a kernel backstop on Linux
   (Landlock for the filesystem and TCP, seccomp for the rest of the socket and
   process surface), installed before V8 starts a thread, so an op-check bug or an
   engine escape still lands in a box.
 - **First-party natives linked in, everything else WASM.** tsv and blake3 are crates in the
   binary, exposed as built-in modules with no boundary to cross.
-  Third-party native code arrives as WASM. No FFI.
+  Third-party native code arrives as WASM, or as an embedder's own host modules.
+  FFI (loading a native library from JS) is planned as a grant, denied by default,
+  after the first milestones and before the Node exit.
 - **A dev-tool runtime, not a toolchain.** Tasks, gen, check, run, and confined eval.
   No `serve`, TCP, or TLS until a consumer needs them; no test runner, package manager,
   formatter, linter, or LSP in the binary (tsv formats, vitest tests, eslint lints).
@@ -177,6 +177,11 @@ Designed, not built:
   A `gro run` of a file that imports only `fuz_util` and the fs module can't spawn or fetch,
   and nobody wrote a line to get that; net is a declaration, so a dependency can't phone
   home from a run that never asked, and a `grants` literal only narrows.
+  `typeof fetch` stays the feature check the web already uses,
+  and the error for an undeclared one names the grant to add.
+  `gro run` and `gro eval` get exactly their file's graph; `gro task` gets the union of
+  what the invocation reaches, since a task holds the context (config, `invoke_task`).
+  Until inference lands, the CLI passes every host module.
 - **A committed policy file.** The source proposes (inferred host modules, plus a static
   `grants` literal naming hosts and the like) and the file authorizes:
   a dependency bump that newly reaches the filesystem, spawn, or the network fails
@@ -192,8 +197,7 @@ Designed, not built:
   so gen files can run in parallel, each confined, with no process spawn;
   trust tiers (project, ecosystem, third party) get their own global object.
 - **Startup.** A snapshot of the host, a code cache keyed by content,
-  and lazy host init, measured on the short-lived invocations that dominate
-  an agent-driven dev loop.
+  and lazy host init.
 - **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
   (never a shell string) keep platform differences in a handful of files.
 
