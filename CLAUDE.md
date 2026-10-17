@@ -455,8 +455,19 @@ eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
 default, the threat model, the strict resolver, what it leaves out, and the
 comparison with Deno.
 
-- `gro_runtime` - the JS host, a minimal web-standards runtime on V8
-- `gro_cli` - the `fgro` binary
+- `gro_runtime` - the JS host, a minimal web-standards runtime on V8: a
+  deno_core `JsRuntime` with `deno_webidl` and `deno_web`, gro's bootstrap
+  extension (installs the pure web globals, removes `Deno` and `__bootstrap`;
+  its JS in `crates/gro_runtime/js/` is embedded and must be 7-bit ASCII, or
+  the build fails), and the strict resolver as a pure module (`resolver.rs`,
+  no deno_core types): relative and absolute specifiers with mandatory
+  extensions, `.js`/`.mjs` only for now; schemes, bare specifiers, and
+  TypeScript are refused with the reason. No startup snapshot yet, so it runs
+  only from its build tree
+- `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module from disk
+  (exit `0` success, `1` an uncaught error or unhandled rejection, `2` a usage
+  error, including a missing entry); console output is colored only on a
+  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per

@@ -4,7 +4,8 @@
 > the roadmap, why it exists, the security model, and the design
 
 > **status**: experimental, direction settled, design in progress -
-> `crates/` holds the Rust workspace, and the `fgro` binary parses its arguments and exits.
+> `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS module from disk on V8
+> with the web-standard globals (no TypeScript, packages, or startup snapshot yet).
 > Designed, not yet built, unless noted.
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,

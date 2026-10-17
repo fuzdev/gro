@@ -12,10 +12,17 @@ publish = false
 [workspace.dependencies]
 argh = "0.1"
 blake3 = "1"
+# the JS host's V8 binding and its web-standard extensions; one release line
+# from the Deno monorepo, so the three versions move together
+deno_core = "0.412.0"
+deno_web = "0.290.0"
+deno_webidl = "0.259.0"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: a recorded f64 parses back to the same bits
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
+tokio = { version = "1", features = ["rt"] }
+url = "2.5"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

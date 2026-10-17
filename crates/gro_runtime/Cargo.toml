@@ -7,5 +7,13 @@ repository.workspace = true
 publish.workspace = true
 description = "gro's JS host: a minimal web-standards runtime on V8"
 
+[dependencies]
+deno_core.workspace = true
+deno_web.workspace = true
+deno_webidl.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
 [lints]
 workspace = true
