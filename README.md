@@ -37,7 +37,7 @@ on [rusty_v8](https://github.com/denoland/rusty_v8) (which Cloudflare keeps main
 and [deno_core](https://crates.io/crates/deno_core),
 smaller than either runtime it replaces:
 no ambient authority, where every path to the OS is an import or a declared global.
-Code that needs Node keeps running on Node.
+Code that needs Node keeps running on Node. More in [runtime.md](/src/docs/runtime.md).
 
 Today Gro includes:
 
