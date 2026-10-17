@@ -1,5 +1,12 @@
 # @fuzdev/gro
 
+## 0.220.0
+
+### Minor Changes
+
+- **breaking** chore: peer '@fuzdev/fuz_schema' `^0.5.0`, which caps a parse at a hundred issues (a `SchemaError` lists the first ten and `and N more`), labels every issue beneath a `message`, and refuses a `pipe` action narrower than the step before it ([c715f4e](https://github.com/fuzdev/gro/commit/c715f4e))
+- chore: upgrade fuz_util 0.77.0 ([733bd87](https://github.com/fuzdev/gro/commit/733bd87))
+
 ## 0.219.0
 
 ### Minor Changes
