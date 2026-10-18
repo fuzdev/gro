@@ -4,42 +4,29 @@
 
 > hermetic JS runtime and toolchain 🌰 generate, run, optimize
 
-> ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319), I chose Bash instead;
+> ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because it shells out to Bash;
 > the Rust [runtime](/src/docs/runtime.md) will.
 
 Today, Gro is a task runner and toolkit
-extending [SvelteKit](https://github.com/sveltejs/kit),
-[Vite](https://github.com/vitejs/vite),
-and [esbuild](https://github.com/evanw/esbuild)
+extending [SvelteKit](https://github.com/sveltejs/kit)
+and [Vite](https://github.com/vitejs/vite)
 for making web frontends, servers, and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
+Gro is also becoming its own JS runtime,
+a Rust binary on V8 built for code you don't fully trust: your dependencies and your agents.
+It's hermetic: a module reaches only what it imports,
+the way a function reaches only what's in scope,
+so nothing is granted by default
+and what a program can touch is reviewed in its source, like a lockfile.
+It grew out of the loader Gro already uses to run tasks, config, and codegen,
+and code that needs Node keeps running on Node.
+The runtime is experimental;
+[the runtime docs](/src/docs/runtime.md) have the roadmap, why it exists, the security model, and the design.
+
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
-Gro is becoming a hermetic JS runtime: a Rust binary on V8,
-built on web standards instead of Node compat.
-What a run can reach and what it depends on are static facts about its import graph,
-so a change in authority is a reviewed diff, like a lockfile,
-and a run replays and caches by construction.
-It's built for code you can't fully trust: your dependencies and your agents,
-in JS or in anything compiled to WASM, under the same grants.
-The runtime is experimental;
-its roadmap, rationale, security model, and design are in [the runtime docs](/src/docs/runtime.md).
-
-Why a task runner and toolchain grows a runtime:
-the Fuz stack ran on Node and Deno,
-and used Deno's permission flags to sandbox the config it evaluates.
-When Cloudflare bought Deno and set its end of life in October 2027, everything on it had to move.
-The scripts could go to Node; the sandbox was worth owning.
-Gro already runs tasks, gen files, and config in-process,
-so the runtime is that loader becoming the host,
-on [rusty_v8](https://github.com/denoland/rusty_v8) (which Cloudflare keeps maintaining)
-and [deno_core](https://crates.io/crates/deno_core),
-smaller than either runtime it replaces:
-no ambient authority, where every path to the OS is an import or a declared global.
-Code that needs Node keeps running on Node. More in [runtime.md](/src/docs/runtime.md).
-
-Today Gro includes:
+The Node tool includes:
 
 - a [task runner](/src/docs/task.md) that discovers `*.task.ts` modules by filesystem convention,
   with many [builtin tasks](/src/docs/tasks.md) that projects override and compose
@@ -139,9 +126,7 @@ typecheck  run svelte-check or tsc on the project without emitting any files
 upgrade    upgrade deps
 ```
 
-To run tasks, Gro matches your CLI input against its filesystem conventions.
-It tries to do the right thing, where right is helpful but not surprising,
-with some magic but not too much.
+Today Gro matches your CLI input against its filesystem conventions.
 The name search is going away: project tasks will run as `gro task <path>`
 (see the [roadmap](/src/docs/runtime.md#roadmap)).
 
@@ -261,7 +246,7 @@ npm link ../gro # from `otherproject/`
 gro build # from `../gro` on changes
 ```
 
-The Rust runtime in `crates/` ([docs](src/docs/runtime.md)) builds on x86_64 Linux.
+The Rust runtime in `crates/` ([docs](/src/docs/runtime.md)) builds on x86_64 Linux.
 Run `cargo xtask fetch-v8` before any plain cargo command, since every build links
 the pinned V8 archive it downloads and verifies.
 `cargo xtask build --release` builds `fgro` with its startup snapshot,

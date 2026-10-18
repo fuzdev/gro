@@ -9,7 +9,7 @@
 > (no TypeScript or packages yet, x86_64 Linux only for now).
 > It takes only the entry file, with no script arguments yet;
 > the README's [Develop](../../README.md#develop) section says how to build and run it.
-> Designed, not yet built, unless noted.
+> Everything below is designed; only what the roadmap marks done is built.
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
 built on web standards instead of Node compat, and hermetic by design.
@@ -49,11 +49,12 @@ run as Node subprocesses under the invocation's kernel rules.
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
+- [ ] on the Node gro: `gro task <path>` replaces the bare `gro <name>` task search
+      and the loader turns strict, so the scripts the Deno exit ports are written once, in the final shape;
+      then `gro check` infers each task's grants
+      and diffs them against the committed policy file, reporting before anything enforces it
 - [ ] the Deno exit: config eval on `gro eval`, the stack's other Deno uses on Node
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
-- [ ] on the Node gro: `gro task <path>` replaces the bare `gro <name>` task search,
-      the loader turns strict, and `gro check` infers each task's grants
-      and diffs them against the committed policy file, reporting before anything enforces it
 - [ ] gro on gro: tasks, gen, and check run on the runtime, enforcing the policy file
       (until then the CLI passes every host module; the network stays declared)
 - [ ] the Svelte compiler in-engine

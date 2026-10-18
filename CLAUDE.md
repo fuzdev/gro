@@ -447,10 +447,11 @@ args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
-collides with the Node `gro` on `PATH`. The README states the hermetic thesis
-(what a run can reach and depends on is a static fact about its import graph)
-and why a task runner grows a runtime (the Deno exit); the public design lives
-in [src/docs/runtime.md](src/docs/runtime.md): the verbs (`gro run`, `gro
+collides with the Node `gro` on `PATH`. The README introduces the runtime in
+one plain paragraph (for code you don't fully trust; hermetic, defined by the
+function-scope analogy; grew out of the loader; Node code stays on Node) and
+links out; the thesis in full, the Deno story, and the public design live in
+[src/docs/runtime.md](src/docs/runtime.md): the verbs (`gro run`, `gro
 eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
 default, the threat model, the strict resolver, what it leaves out, and the
 comparison with Deno.
