@@ -1,4 +1,4 @@
-import { format_css, format_svelte, format_typescript } from '@fuzdev/tsv';
+import { format_css, format_svelte, format_typescript, type FormatResult } from '@fuzdev/tsv';
 import { extname } from 'node:path';
 
 /**
@@ -28,16 +28,26 @@ export const format_file = (content: string, options: FormatFileOptions = {}): s
 	const lang = options.lang ?? (options.filepath ? infer_lang(options.filepath) : null);
 	switch (lang) {
 		case 'typescript':
-			return format_typescript(content);
+			return unwrap_format_result(format_typescript(content));
 		case 'svelte':
-			return format_svelte(content);
+			return unwrap_format_result(format_svelte(content));
 		case 'css':
-			return format_css(content);
+			return unwrap_format_result(format_css(content));
 		case 'json':
 			return format_json(content);
 		default:
 			return content;
 	}
+};
+
+/**
+ * Unwraps a tsv format result, throwing its error with the excerpt and caret
+ * under the one-line message, as the `tsv` CLI prints it.
+ */
+const unwrap_format_result = (result: FormatResult): string => {
+	if (result.ok) return result.code;
+	const { error } = result;
+	throw new Error(`${error.message}\n${error.frame}`, { cause: error });
 };
 
 /**

@@ -1,4 +1,6 @@
-import { test, expect } from 'vitest';
+import { test, expect, assert } from 'vitest';
+
+import type { FormatError } from '@fuzdev/tsv';
 
 import { format_file } from '#lib/format_file.ts';
 
@@ -44,6 +46,15 @@ test('unsupported extension passes through unchanged', () => {
 	expect(format_file(md)).toBe(md);
 });
 
-test('invalid source throws', () => {
-	expect(() => format_file('const = =', { filepath: 'foo.ts' })).toThrow();
+test('invalid source throws with the located frame', () => {
+	let error: unknown;
+	try {
+		format_file('const = =', { filepath: 'foo.ts' });
+	} catch (err) {
+		error = err;
+	}
+	assert(error instanceof Error);
+	const cause = error.cause as FormatError;
+	assert.strictEqual(error.message, `${cause.message}\n${cause.frame}`);
+	assert.strictEqual(cause.kind, 'parse');
 });
