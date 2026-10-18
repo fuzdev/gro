@@ -2,7 +2,7 @@
 
 [<img src="static/logo.svg" alt="a pixelated green oak acorn with a glint of sun" align="right" width="192" height="192">](https://gro.fuz.dev/)
 
-> security-first JS runtime on V8 🌰 generate, run, optimize
+> security-first JS runtime and toolchain on V8 🌰 generate, run, optimize
 
 > ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because it shells out to Bash;
 > the Rust [runtime](/src/docs/runtime.md) will.

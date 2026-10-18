@@ -267,7 +267,10 @@ so each piece can be rewritten on its own as measurements justify it.
   The web globals that reach the world (`fetch`, `WebSocket`) are a separate, wider grant,
   since a global reaches every module in the graph: declared, never inferred, and absent until then.
   A package that writes to the global object needs a policy entry of its own,
-  and a handed capability can't be stashed there to become ambient again.
+  and a handed capability can't be stashed there as a new global.
+  (Existing globals and the shared prototypes stay mutable, as in browsers,
+  so a reference can still be parked on one; that never widens reach,
+  since whoever parked it held it, and freezing the intrinsics is a per-tier hardening, not the default.)
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there;
   ops check the scoped cases (reads under a root).
   `-A` is the one explicit escape hatch, never a default.
