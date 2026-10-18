@@ -14,15 +14,15 @@ for making web frontends, servers, and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you don't fully trust: your dependencies and your agents.
-It's hermetic: a module reaches only what it imports,
+a Rust binary on V8 built for code you don't fully trust, like from your dependencies and agents.
+It's hermetic, meaning a module reaches only what it imports,
 the way a function reaches only what's in scope,
 so nothing is granted by default
 and what a program can touch is reviewed in its source, like a lockfile.
 It grew out of the loader Gro already uses to run tasks, config, and codegen,
-and code that needs Node keeps running on Node.
-The runtime is experimental;
-[the runtime docs](/src/docs/runtime.md) have the roadmap, why it exists, the security model, and the design.
+and makes a clean break from Node towards Web standards.
+The runtime is experimental - see
+[the runtime docs](/src/docs/runtime.md) for the roadmap, why it exists, the security model, and design.
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
