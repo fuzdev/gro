@@ -1,6 +1,6 @@
 {
 	"name": "baseline",
-	"version": 2,
+	"version": 3,
 	"samples": 200,
 	"corpora": {"path": "../../../../../corpora", "tree": "ba7a9a6c84524d78b8d4cbca9ec9b1ac64e5b291"},
 	"runtimes": [
@@ -20,6 +20,12 @@
 			"v8_args": ["eval", "console.log(Deno.version.v8)"],
 			"env": {"DENO_NO_UPDATE_CHECKS": "1"},
 			"cold": {"args": ["--no-code-cache"], "env": {"DENO_EMIT_CACHE_MODE": "disable"}}
+		},
+		{
+			"name": "fgro",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": ["run"],
+			"workloads": ["empty", "console_log", "import_one"]
 		}
 	],
 	"workloads": [

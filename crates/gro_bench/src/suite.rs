@@ -1,8 +1,10 @@
 //! A suite: the declarative input to a run, read from a JSON file.
 //!
 //! A suite lists runtimes and workloads, and a run measures every pair of the
-//! two, a *row*. Adding a workload or a runtime shim is a change to a suite
-//! file and the scripts it names, never to the runner.
+//! two, a *row*, except where a runtime lists the workloads it runs (one that
+//! can't run some yet, such as a runtime without TypeScript). Adding a
+//! workload or a runtime shim is a change to a suite file and the scripts it
+//! names, never to the runner.
 //!
 //! ```json
 //! {
@@ -63,10 +65,10 @@ pub struct Suite {
     /// drift across rows: exactly for a row's mean, approximately for its
     /// median.
     pub samples: NonZeroU32,
-    /// The runtimes every workload runs under. The first runtime on the
-    /// first workload is the run's A/A noise row.
+    /// The runtimes the workloads run under. The run's A/A noise row copies
+    /// its first row: the first workload under the first runtime that runs it.
     pub runtimes: Vec<Runtime>,
-    /// The workloads every runtime runs.
+    /// The workloads, each run by every runtime that doesn't list its own.
     pub workloads: Vec<Workload>,
     /// The corpora checkout the workloads read, pinned: the run refuses a
     /// checkout at another tree or with local changes, so a re-pin is a suite
@@ -114,10 +116,24 @@ pub struct Runtime {
     /// `HOME`, such as a switch keeping background work out of the samples.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    /// How the runtime runs a cold workload. Required when the suite has one,
-    /// so each runtime states how it goes cold.
+    /// How the runtime runs a cold workload. Required when it runs one, so
+    /// each runtime states how it goes cold.
     #[serde(default)]
     pub cold: Option<Cold>,
+    /// The workloads it runs, by name, when it can't run them all; every
+    /// workload when absent. Left out of the config hash when absent, so a
+    /// suite that lists none hashes as it did before the field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workloads: Option<Vec<String>>,
+}
+
+impl Runtime {
+    /// Whether it runs the workload named `workload`.
+    pub fn runs(&self, workload: &str) -> bool {
+        self.workloads
+            .as_ref()
+            .is_none_or(|names| names.iter().any(|name| name == workload))
+    }
 }
 
 /// What a cold row adds to the runtime's command.
@@ -210,8 +226,8 @@ impl Suite {
     }
 
     /// Checks what the types can't: something to run, an even sample count,
-    /// unique names, and a `cold` entry on every runtime when a workload is
-    /// cold.
+    /// unique names, runtime workload lists that name workloads (at least
+    /// one), and a `cold` entry on every runtime that runs a cold workload.
     ///
     /// # Errors
     ///
@@ -230,13 +246,39 @@ impl Suite {
         }
         unique("runtime", self.runtimes.iter().map(|r| r.name.as_str()))?;
         unique("workload", self.workloads.iter().map(|w| w.name.as_str()))?;
-        if let Some(workload) = self.workloads.iter().find(|w| w.cold)
-            && let Some(runtime) = self.runtimes.iter().find(|r| r.cold.is_none())
-        {
-            return Err(BenchError::SuiteInvalid(format!(
-                "the workload `{}` is cold, but the runtime `{}` has no `cold` entry saying how it goes cold (`{{}}` when it has no on-disk cache)",
-                workload.name, runtime.name
-            )));
+        for runtime in &self.runtimes {
+            if let Some(names) = &runtime.workloads {
+                if names.is_empty() {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the runtime `{}` lists no workloads to run",
+                        runtime.name
+                    )));
+                }
+                unique(
+                    &format!("runtime `{}` workload", runtime.name),
+                    names.iter().map(String::as_str),
+                )?;
+                if let Some(name) = names
+                    .iter()
+                    .find(|name| !self.workloads.iter().any(|w| &w.name == *name))
+                {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the runtime `{}` lists the workload `{name}`, which the suite doesn't have",
+                        runtime.name
+                    )));
+                }
+            }
+            if runtime.cold.is_none()
+                && let Some(workload) = self
+                    .workloads
+                    .iter()
+                    .find(|w| w.cold && runtime.runs(&w.name))
+            {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` is cold, but the runtime `{}` has no `cold` entry saying how it goes cold (`{{}}` when it has no on-disk cache)",
+                    workload.name, runtime.name
+                )));
+            }
         }
         Ok(())
     }
@@ -346,6 +388,54 @@ mod tests {
                 tree: "abc".to_owned()
             })
         );
+    }
+
+    #[test]
+    fn a_runtime_can_run_some_workloads() {
+        let suite = |fgro: &str| {
+            format!(
+                r#"{{
+                    "name": "s", "version": 1, "samples": 2,
+                    "runtimes": [
+                        {{"name": "node", "program": "node", "cold": {{}}}},
+                        {{"name": "fgro", "program": "fgro"{fgro}}}
+                    ],
+                    "workloads": [
+                        {{"name": "graph", "script": "g.js", "cold": true}},
+                        {{"name": "empty", "script": "e.js"}}
+                    ]
+                }}"#
+            )
+        };
+        // a runtime that doesn't run the cold workload needs no `cold` entry
+        let parsed = parse(&suite(r#", "workloads": ["empty"]"#)).unwrap();
+        let fgro = &parsed.runtimes[1];
+        assert!(fgro.runs("empty"));
+        assert!(!fgro.runs("graph"));
+        assert!(parsed.runtimes[0].runs("graph"));
+        // one that does, does
+        assert!(matches!(
+            parse(&suite(r#", "workloads": ["empty", "graph"]"#)),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("`fgro`")
+        ));
+        for (bad, says) in [
+            (r#", "workloads": []"#, "no workloads"),
+            (r#", "workloads": ["nope"]"#, "`nope`"),
+            (r#", "workloads": ["empty", "empty"]"#, "twice"),
+        ] {
+            assert!(
+                matches!(parse(&suite(bad)), Err(BenchError::SuiteInvalid(ref message)) if message.contains(says)),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_workload_list_leaves_the_config_hash_alone() {
+        let suite = parse(r#"{"name":"s","version":1,"samples":4,"runtimes":[{"name":"r","program":"r"}],"workloads":[{"name":"w","script":"w.js"}]}"#).unwrap();
+        let value = serde_json::to_value(&suite).unwrap();
+        // the hashed form has no key for it, as before the field existed
+        assert!(value["runtimes"][0].get("workloads").is_none(), "{value}");
     }
 
     #[test]

@@ -17,6 +17,11 @@
 // (`NODE_COMPILE_CACHE`), in the gitignored `target/` of the gro checkout,
 // resolved from the suite's directory, where every command runs; its cold row
 // turns the cache off (`NODE_DISABLE_COMPILE_CACHE`).
+//
+// The `fgro` runtime is gro's own, the release build with its startup
+// snapshot that `cargo xtask build --release` makes; `cargo xtask bench`
+// builds it before a run that names it. It runs the startup workloads only:
+// this graph is TS, which fgro can't load yet.
 
 import '../../../../../corpora/collections/fuz_util/src/lib/array.ts';
 import '../../../../../corpora/collections/fuz_util/src/lib/async.ts';

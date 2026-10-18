@@ -6,9 +6,13 @@
 //! stderr, prefixed `error:`; an uncaught error's report carries its stack with
 //! source positions (`file:///path:line:column`).
 //!
+//! `fgro --version` prints `fgro <version> (V8 <version>, snapshot)`, where
+//! the last part says whether a startup snapshot is embedded (`no snapshot`
+//! otherwise).
+//!
 //! Exit codes:
 //!
-//! - `0`: the program ran to completion, or `--help`
+//! - `0`: the program ran to completion, `--help`, or `--version`
 //! - `1`: the program threw, rejected a promise no one handled, or failed to
 //!   load a module, or the runtime failed to start
 //! - `2`: a usage error, so the command line must change: an unknown
@@ -65,8 +69,27 @@ const EXIT_FAILURE: u8 = 1;
 /// gro on its own JS runtime (experimental)
 #[derive(FromArgs)]
 struct Args {
+    /// print the version, the V8 version, and whether a startup snapshot is
+    /// embedded
+    #[argh(switch)]
+    version: bool,
     #[argh(subcommand)]
-    command: Command,
+    command: Option<Command>,
+}
+
+/// The `--version` line: `fgro <version> (V8 <version>, snapshot)`, or
+/// `no snapshot` for a build without one.
+fn version_line() -> String {
+    format!(
+        "fgro {} (V8 {}, {})",
+        env!("CARGO_PKG_VERSION"),
+        gro_runtime::v8_version(),
+        if STARTUP_SNAPSHOT.is_some() {
+            "snapshot"
+        } else {
+            "no snapshot"
+        }
+    )
 }
 
 #[derive(FromArgs)]
@@ -129,7 +152,29 @@ fn run(args: &[&str]) -> u8 {
     };
     match Args::from_args(&["fgro"], args) {
         Ok(Args {
-            command: Command::Run(RunArgs { file }),
+            version: true,
+            command: None,
+        }) => {
+            println!("{}", version_line());
+            0
+        }
+        Ok(Args {
+            version: true,
+            command: Some(_),
+        }) => {
+            eprintln!("error: --version takes no subcommand");
+            EXIT_USAGE
+        }
+        Ok(Args {
+            version: false,
+            command: None,
+        }) => {
+            eprintln!("error: a subcommand is required\nRun fgro --help for more information.");
+            EXIT_USAGE
+        }
+        Ok(Args {
+            version: false,
+            command: Some(Command::Run(RunArgs { file })),
         }) => match gro_runtime::run_main(&options, &file) {
             Ok(()) => 0,
             Err(error) => {
@@ -215,6 +260,7 @@ mod tests {
     #[test]
     fn help_exits_0() {
         assert_eq!(run(&["--help"]), 0);
+        assert_eq!(run(&["--version"]), 0);
         assert_eq!(run(&["run", "--help"]), 0);
     }
 
@@ -225,6 +271,7 @@ mod tests {
         assert_eq!(run(&["positional"]), EXIT_USAGE);
         assert_eq!(run(&["run"]), EXIT_USAGE);
         assert_eq!(run(&["run", "a.js", "b.js"]), EXIT_USAGE);
+        assert_eq!(run(&["--version", "run", "a.js"]), EXIT_USAGE);
         assert_eq!(run(&["make-snapshot"]), EXIT_USAGE);
         assert_eq!(run(&["make-snapshot", "a", "b"]), EXIT_USAGE);
         assert_eq!(run(&["make-snapshot", "--help"]), EXIT_USAGE);

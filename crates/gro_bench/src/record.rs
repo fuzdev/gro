@@ -102,7 +102,8 @@ pub struct RuntimeInfo {
     pub name: String,
     /// The first line its version arguments printed.
     pub version: String,
-    /// Its V8 version, for runtimes on V8.
+    /// Its V8 version, when the suite gives `v8_args` to probe it (fgro's
+    /// version line names its V8).
     pub v8: Option<String>,
     /// The blake3 hash of its executable, which names a local build its
     /// version string can't.

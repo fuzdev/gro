@@ -46,6 +46,18 @@ jobs:
       - run: npm ci
       - run: npm run bootstrap
       - run: npx @fuzdev/gro check --workspace --build
+      # The JS/TS under crates/ (the runtime's extension sources, the bench
+      # workloads, the test fixtures), which `gro check` doesn't reach and the
+      # rust job has no Node for. It builds only the xtask, with the toolchain
+      # rust-toolchain.toml pins, installed explicitly as the rust job does.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Check the JS/TS under crates/
+        run: cargo xtask check-js
 
   # The Rust workspace (crates/), beside the npm package; `gro check` doesn't
   # reach it, so it gets its own job. Locally, `cargo xtask check` runs these

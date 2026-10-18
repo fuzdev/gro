@@ -469,22 +469,30 @@ comparison with Deno.
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module from disk
   (exit `0` success, `1` an uncaught error or unhandled rejection, `2` a usage
   error, including a missing entry); console output is colored only on a
-  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. Its
+  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off.
+  `fgro --version` names the V8 version and whether a snapshot is embedded. Its
   `snapshot` feature embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`;
   a plain `cargo build` builds it without one, so it runs only from its build
   tree
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
-  run to `crates/gro_bench/history.jsonl`. The baseline suite
+  run to `crates/gro_bench/history.jsonl` (a runtime can list the workloads it
+  runs, when it can't run them all). The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned
-  by tree id; its workload weights are provisional until gro has numbers.
-  Record it on a quiet machine with
-  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
+  by tree id, and `fgro` on the startup scripts only (the graph is TS); its
+  workload weights are provisional until gro has numbers. A suite naming
+  `fgro` gets the release snapshot build: the bench builds it first and
+  refuses any other binary, then prints each `fgro` row against its gate row
+  (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
+  beside), report only. Record it on a quiet machine with
+  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`,
+  after `cargo xtask build --release`, so the bench's own build is a cache hit
+  and doesn't load the machine just before timing
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
-  `bench`
+  `check-js` (the JS/TS step alone, which CI's Node job runs), `bench`
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE` (under

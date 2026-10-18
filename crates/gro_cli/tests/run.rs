@@ -375,6 +375,22 @@ fn typescript_entry_is_a_usage_error() {
     );
 }
 
+/// The bench reads this line, so it must say which build ran: the plain one
+/// under `cargo test`, the snapshot one under `cargo xtask build --verify`.
+#[test]
+fn version_names_v8_and_the_snapshot() {
+    let output = fgro(&["--version"]);
+    assert!(output.status.success(), "{output:?}");
+    let line = String::from_utf8(output.stdout).unwrap();
+    assert!(line.starts_with("fgro ") && line.contains("(V8 "), "{line}");
+    let expected = if cfg!(feature = "snapshot") {
+        ", snapshot)\n"
+    } else {
+        ", no snapshot)\n"
+    };
+    assert!(line.ends_with(expected), "{line}");
+}
+
 #[test]
 fn usage_errors_exit_2() {
     for args in [&[][..], &["run"], &["--unknown"], &["run", "a.js", "b.js"]] {

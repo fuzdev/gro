@@ -10,6 +10,9 @@
 //! `target/gro_snapshot/<profile>/fgro`; `--verify` also runs the integration
 //! tests against it and checks that it runs with its build tree hidden.
 //!
+//! `cargo xtask check-js` runs only the JS/TS step of `check` (4 below), for
+//! CI's Node job, which has no V8 build.
+//!
 //! `cargo xtask check` is the one local command that checks both halves of
 //! the repo. It runs these steps in order, printing each command first and
 //! stopping at the first failure with that step's exit code:
@@ -21,8 +24,8 @@
 //! 3. the snapshot build, as `build --verify`
 //! 4. the JS/TS under `crates/`, which `gro check`'s typecheck and format
 //!    don't reach: `tsc` over each `crates/*/js/tsconfig.json`, then
-//!    `gro format --check` over every `.ts` and `.js` file under `crates/`
-//!    (it says so when there are none)
+//!    `gro format --check` over every `.ts`, `.mts`, and `.js` file under
+//!    `crates/` (it says so when there are none)
 //! 5. `gro check`
 //!
 //! Every step runs from the workspace root, so `cargo xtask` works the same
@@ -31,8 +34,17 @@
 //! `cargo xtask bench <suite.json>` runs a measurement suite with `gro_bench`
 //! and appends the run's record to the history,
 //! `crates/gro_bench/history.jsonl` (`--history` writes elsewhere, relative to
-//! the current directory). A failed run records nothing, and its exit code
-//! says what the caller must do:
+//! the current directory). When a runtime is `fgro` (named so, or with a
+//! program named so), it first builds the release snapshot `fgro` (as
+//! `build --release`, cached when nothing changed) and refuses the run unless
+//! that program is the binary just built, so a stale, debug, or
+//! snapshot-less build is never timed. A recorded run goes after
+//! `cargo xtask build --release`, so this build is a cache hit and doesn't
+//! load the machine just before timing. After the summary it prints each
+//! `fgro` row's median against its gate row (warm rows against
+//! `node_compile_cache`, cold ones against `node`, `deno` beside), a report
+//! that fails nothing. A failed run records nothing, and its exit code says
+//! what the caller must do:
 //!
 //! - `0`: the run's record was appended
 //! - `2`: change something before re-running, since unchanged it fails the
@@ -41,7 +53,8 @@
 //!   version probe exits unsuccessfully or prints no version, the suite's
 //!   corpora checkout isn't at its pinned tree or has local changes, or
 //!   `--history` is empty, names a directory, or names no file in an existing
-//!   directory
+//!   directory, or the `fgro` it names isn't the release snapshot build (or
+//!   that build failed)
 //! - `1`: anything else, such as an artifact changing mid-run or a failed
 //!   write
 //!
@@ -50,7 +63,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -60,7 +73,7 @@ use argh::{EarlyExit, FromArgs};
 use gro_bench::error::BenchError;
 use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run as run_suite};
-use gro_bench::suite::Suite;
+use gro_bench::suite::{Runtime, Suite};
 
 mod snapshot;
 mod v8_archive;
@@ -101,10 +114,17 @@ struct Xtask {
 #[argh(subcommand)]
 enum Subcommand {
     Check(Check),
+    CheckJs(CheckJs),
     FetchV8(FetchV8),
     Build(Build),
     Bench(Bench),
 }
+
+/// typecheck and format-check the JS/TS under crates/, the step of `check`
+/// that needs Node and no Rust build
+#[derive(FromArgs)]
+#[argh(subcommand, name = "check-js")]
+struct CheckJs {}
 
 /// download the pinned V8 archive if it's missing, and verify its SHA-256
 #[derive(FromArgs)]
@@ -188,6 +208,7 @@ fn main() -> ExitCode {
     let root = root();
     let result = match xtask.command {
         Subcommand::Check(Check {}) => check(&root),
+        Subcommand::CheckJs(CheckJs {}) => check_crates_js(&root),
         Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
         Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
             let target_dir = target_dir(&root)?;
@@ -315,6 +336,7 @@ fn bench(root: &Path, args: Bench) -> StepResult {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let result = Suite::load(&args.suite).and_then(|suite| {
+        build_fgro(root, &suite, suite_dir)?;
         let context = RunContext {
             git: GitState::read(root, &history)?,
             machine: Machine::detect(),
@@ -329,16 +351,25 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             "[xtask] bench {} v{}: {} rows plus the noise row, {} samples each, interleaved",
             suite.name,
             suite.version,
-            suite.runtimes.len() * suite.workloads.len(),
+            suite
+                .workloads
+                .iter()
+                .map(|workload| suite
+                    .runtimes
+                    .iter()
+                    .filter(|runtime| runtime.runs(&workload.name))
+                    .count())
+                .sum::<usize>(),
             suite.samples,
         );
         let record = run_suite(&suite, suite_dir, context)?;
         record.append_to(&history)?;
-        Ok(record)
+        Ok((suite, record))
     });
     match result {
-        Ok(record) => {
+        Ok((suite, record)) => {
             print_summary(&record);
+            print_gate(&suite, &record);
             println!("[xtask] appended the record to {}", history.display());
             Ok(())
         }
@@ -352,6 +383,59 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             Err(ExitCode::from(bench_exit_code(&error)))
         }
     }
+}
+
+/// The runtime the bench builds before it runs: gro's own `fgro`.
+const FGRO: &str = "fgro";
+
+/// Whether a runtime is `fgro`, by its name or its program's file name. One
+/// rule for both the build-and-refuse check and the gate report, so a runtime
+/// can't pass as `fgro` in one and not the other.
+fn is_fgro(runtime: &Runtime) -> bool {
+    runtime.name == FGRO || Path::new(&runtime.program).file_name() == Some(OsStr::new(FGRO))
+}
+
+/// Builds the release snapshot `fgro` when the suite has an `fgro` runtime
+/// ([`is_fgro`]), and refuses the run unless each one's program is the binary
+/// just built: the only `fgro` worth timing is the release build with its
+/// startup snapshot, the one path that verifies the release V8 library.
+/// Building first (cached when nothing changed) means a stale or debug binary
+/// is never timed.
+fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<(), BenchError> {
+    if !suite.runtimes.iter().any(is_fgro) {
+        return Ok(());
+    }
+    let failed = |what: &str| BenchError::SuiteInvalid(format!("{what}; see the output above"));
+    fetch_v8(root).map_err(|_| failed("the V8 archive isn't ready"))?;
+    let target_dir = target_dir(root).map_err(|_| failed("no cargo target directory"))?;
+    let built = snapshot::build(root, &target_dir, true)
+        .map_err(|_| failed("building the release snapshot fgro failed"))?;
+    let built = built.canonicalize().map_err(|source| BenchError::Read {
+        path: built.clone(),
+        source,
+    })?;
+    check_fgro_programs(suite, suite_dir, &built)?;
+    println!();
+    Ok(())
+}
+
+/// Refuses an `fgro` runtime whose program doesn't resolve to `built`.
+fn check_fgro_programs(suite: &Suite, suite_dir: &Path, built: &Path) -> Result<(), BenchError> {
+    for runtime in suite.runtimes.iter().filter(|runtime| is_fgro(runtime)) {
+        let found = gro_bench::run::find_program(&runtime.program, suite_dir);
+        if found.as_deref() != Some(built) {
+            return Err(BenchError::SuiteInvalid(format!(
+                "the runtime `{}` names {}, which isn't the release snapshot build at {}",
+                runtime.name,
+                found.map_or_else(
+                    || runtime.program.clone(),
+                    |path| path.display().to_string()
+                ),
+                built.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The history file, absolute: `--history` against the current directory, so
@@ -435,6 +519,68 @@ fn print_summary(record: &RunRecord) {
     );
 }
 
+/// The incumbent a warm row gates against, Node at its best configuration.
+const GATE_WARM: &str = "node_compile_cache";
+/// The incumbent a cold row gates against.
+const GATE_COLD: &str = "node";
+/// Reported beside the gate.
+const BESIDE: &str = "deno";
+
+/// Prints each `fgro` row's median ([`is_fgro`] runtimes only) against its
+/// gate row's, same-session: warm rows gate against Node with its compile
+/// cache, cold rows against plain Node, with Deno beside. Report only;
+/// nothing fails on it.
+fn print_gate(suite: &Suite, record: &RunRecord) {
+    let median = |runtime: &str, workload: &str| {
+        record
+            .rows
+            .iter()
+            .find(|row| row.runtime == runtime && row.workload == workload)
+            .map(|row| row.wall_ns.stats.median / 1e6)
+    };
+    let ms =
+        |value: Option<f64>| value.map_or_else(|| "-".to_owned(), |value| format!("{value:.3}"));
+    let mut lines = Vec::new();
+    for runtime in suite.runtimes.iter().filter(|runtime| is_fgro(runtime)) {
+        for workload in &suite.workloads {
+            let Some(fgro) = median(&runtime.name, &workload.name) else {
+                continue;
+            };
+            let gate = if workload.cold { GATE_COLD } else { GATE_WARM };
+            let ratio = |other: Option<f64>| {
+                other.map_or_else(|| "-".to_owned(), |other| format!("{:.2}x", fgro / other))
+            };
+            lines.push(format!(
+                "{:<10} {:<16} {:>10.3} {:<18} {:>10} {:>9} {:>10} {:>9}",
+                runtime.name,
+                workload.name,
+                fgro,
+                gate,
+                ms(median(gate, &workload.name)),
+                ratio(median(gate, &workload.name)),
+                ms(median(BESIDE, &workload.name)),
+                ratio(median(BESIDE, &workload.name)),
+            ));
+        }
+    }
+    if lines.is_empty() {
+        return;
+    }
+    println!(
+        "\n{:<10} {:<16} {:>10} {:<18} {:>10} {:>9} {:>10} {:>9}",
+        "runtime", "workload", "median ms", "gate", "gate ms", "x gate", "deno ms", "x deno"
+    );
+    for line in lines {
+        println!("{line}");
+    }
+    println!(
+        "(medians, same session; the noise row ({} {} against its copy) sat {:.2}% apart, and each row's mad above bounds its own spread)",
+        record.noise.runtime,
+        record.noise.workload,
+        record.noise.median_deviation * 100.0
+    );
+}
+
 /// Bytes in megabytes (10^6), for printing.
 #[expect(
     clippy::cast_precision_loss,
@@ -461,7 +607,7 @@ fn check_crates_js(root: &Path) -> StepResult {
     let mut sources = Vec::new();
     find_js_sources(&crates, &mut sources).map_err(|error| io_failure(&crates, &error))?;
     if sources.is_empty() {
-        println!("[xtask] no .ts or .js files under crates/, nothing to format-check");
+        println!("[xtask] no .ts, .mts, or .js files under crates/, nothing to format-check");
         return Ok(());
     }
     sources.sort();
@@ -489,7 +635,9 @@ fn find_tsconfigs(crates: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(tsconfigs)
 }
 
-/// Collects every `.ts` and `.js` file under `dir`, skipping `node_modules`.
+/// Collects every `.ts`, `.mts`, and `.js` file under `dir`, skipping
+/// `node_modules`. `.mjs` stays out: it's the extension for a fixture that
+/// must not parse (a syntax-error case), which a format check would reject.
 fn find_js_sources(dir: &Path, sources: &mut Vec<PathBuf>) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -500,7 +648,7 @@ fn find_js_sources(dir: &Path, sources: &mut Vec<PathBuf>) -> io::Result<()> {
             }
         } else if path
             .extension()
-            .is_some_and(|ext| ext == "ts" || ext == "js")
+            .is_some_and(|ext| ext == "ts" || ext == "mts" || ext == "js")
         {
             sources.push(path);
         }
@@ -625,6 +773,7 @@ mod tests {
         assert!(parse_args(&args(&["bench", "suite.json"])).is_ok());
         assert!(parse_args(&args(&["build", "--release", "--verify"])).is_ok());
         assert!(parse_args(&args(&["fetch-v8"])).is_ok());
+        assert!(parse_args(&args(&["check-js"])).is_ok());
         for bad in [
             &["nope"][..],
             &["bench"],
@@ -639,6 +788,44 @@ mod tests {
             .expect("help exits early");
         assert_eq!(code, ExitCode::SUCCESS);
         assert!(parse_args(&[]).is_err());
+    }
+
+    #[test]
+    fn an_fgro_runtime_must_be_the_build_by_name_or_by_program() {
+        let suite = |runtimes: &str| -> Suite {
+            serde_json::from_str(&format!(
+                r#"{{"name": "s", "version": 1, "samples": 2, "runtimes": [{runtimes}],
+                    "workloads": [{{"name": "w", "script": "w.js"}}]}}"#
+            ))
+            .unwrap()
+        };
+        let dir = root();
+        // stands in for the built binary: any existing executable, canonical
+        let built = gro_bench::run::find_program("cargo", &dir).expect("cargo is on PATH");
+        let other = gro_bench::run::find_program("sh", &dir).expect("sh is on PATH");
+        assert_ne!(built, other);
+        let refused = |runtimes: &str| {
+            matches!(
+                check_fgro_programs(&suite(runtimes), &dir, &built),
+                Err(BenchError::SuiteInvalid(ref message)) if message.contains("release snapshot build")
+            )
+        };
+        let program = other.display();
+        // named fgro, another program
+        assert!(refused(&format!(
+            r#"{{"name": "fgro", "program": "{program}"}}"#
+        )));
+        // another name, a program named fgro that isn't the build
+        assert!(refused(r#"{"name": "mine", "program": "./missing/fgro"}"#));
+        // neither: not fgro, so not checked
+        assert!(!refused(&format!(
+            r#"{{"name": "sh", "program": "{program}"}}"#
+        )));
+        // the build itself passes
+        let built_program = built.display();
+        assert!(!refused(&format!(
+            r#"{{"name": "fgro", "program": "{built_program}"}}"#
+        )));
     }
 
     #[test]

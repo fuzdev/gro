@@ -41,6 +41,11 @@ use deno_core::{JsRuntime, PollEventLoopOptions};
 use crate::resolver::{DiskTree, ResolveError};
 use crate::snapshot::StartupSnapshot;
 
+/// The version string of the V8 the runtime embeds, as V8 reports it.
+pub fn v8_version() -> &'static str {
+    deno_core::v8::V8::get_version()
+}
+
 /// How a runtime is constructed.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeOptions {

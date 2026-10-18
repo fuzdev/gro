@@ -10,7 +10,8 @@
 //!    is and gzipped;
 //! 3. runs each row's warmup processes, then its timed samples, in the
 //!    interleaved order of [`schedule`], with the
-//!    first row's A/A copy as one more row;
+//!    first row's A/A copy as one more row (a row is a workload and a runtime
+//!    that runs it);
 //! 4. hashes the artifacts and reads the corpora's tree again, and discards
 //!    the run if any changed, since a rebuild mid-run means the samples timed
 //!    different code;
@@ -180,6 +181,9 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     for workload in &suite.workloads {
         let script = resolve(&workload.script)?;
         for (runtime, program) in suite.runtimes.iter().zip(&programs) {
+            if !runtime.runs(&workload.name) {
+                continue;
+            }
             let (args, env) = row_args(runtime, workload, &script, &mut resolve)?;
             rows.push(RowCommand {
                 runtime: runtime.name.clone(),

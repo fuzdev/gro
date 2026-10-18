@@ -5,6 +5,7 @@
 //! (Node, Deno, Bun) as readily as gro's own.
 //!
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
+//!   (a runtime can list the workloads it runs, when it can't run them all)
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,
 //!   with an A/A noise row, and refuses a run whose artifacts changed
 //! - [`schedule`]: the interleaved order of a run's samples
