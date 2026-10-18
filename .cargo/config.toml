@@ -1,2 +1,12 @@
 [alias]
-xtask = "run -p xtask --"
+xtask = "run --locked -p xtask --"
+
+[env]
+# the pinned V8 archive the `v8` build script links instead of downloading
+# one. Plain cargo copies whatever file is at this path, unchecked, and doesn't
+# recopy when the file changes (only when this value does), so the path names
+# the version. `cargo xtask fetch-v8` verifies the file's SHA-256 (fetching it,
+# or replacing a wrong one and cleaning what cargo built from it); the pin
+# guards the download, not local writes to target/. crates/xtask/src/v8_archive.rs
+# holds the pin this path must match.
+RUSTY_V8_ARCHIVE = { value = "target/rusty_v8/v150.4.0/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz", relative = true }

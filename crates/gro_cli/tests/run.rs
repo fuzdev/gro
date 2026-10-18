@@ -144,6 +144,42 @@ fn host_internals_are_not_visible() {
 }
 
 #[test]
+fn web_globals_work() {
+    let run = run("web_globals.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "url=file:///a/b?q=1#h\nsearch=a=1&b=x+y\npattern=7\nencoding=4\nbase64=gro\nclone=2\n\
+         dom_exception=AbortError\nevent=pong\nabort=true\nblob=abc\nfile=f.txt\n\
+         stream=streamed\ncompression=150\nperformance=true\n"
+    );
+}
+
+/// The time origin is set per process, so two runs differ, and it agrees with
+/// the wall clock: `timeOrigin + now()` is `Date.now()` within a second. A
+/// time origin baked into a snapshot fails both.
+#[test]
+fn time_origin_is_per_process() {
+    let origin_and_drift = || {
+        let run = run("time_origin.js");
+        assert_eq!(run.code, 0, "{}", run.stderr);
+        let line = run.stdout.trim_end();
+        let field = |name: &str| -> f64 {
+            let start = line.find(&format!("\"{name}\":")).unwrap() + name.len() + 3;
+            let end = line[start..].find([',', '}']).unwrap() + start;
+            line[start..end].parse().unwrap()
+        };
+        (field("origin"), field("drift"))
+    };
+    let (first, first_drift) = origin_and_drift();
+    let (second, second_drift) = origin_and_drift();
+    assert!(first < second, "{first} then {second}");
+    for drift in [first_drift, second_drift] {
+        assert!(drift.abs() < 1000.0, "drift {drift} ms");
+    }
+}
+
+#[test]
 fn static_import_of_a_sibling() {
     let run = run("import_static.js");
     assert_eq!(run.code, 0, "{}", run.stderr);

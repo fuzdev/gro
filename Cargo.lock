@@ -2081,6 +2081,8 @@ version = "0.0.0"
 dependencies = [
  "argh",
  "gro_bench",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

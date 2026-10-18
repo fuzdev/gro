@@ -7,14 +7,17 @@
 //! V8, which reads extension sources as one-byte strings.
 //!
 //! `deno_webidl` and `deno_web`'s own sources aren't embedded: `deno_core` reads them
-//! from their crates' paths on the build machine when they first load, so this
-//! runtime runs only from its build tree until a startup snapshot carries them.
+//! from their crates' paths on the build machine when they first load. A
+//! startup snapshot carries the ones the bootstrap loads, and the binary that
+//! starts from it embeds the rest ([`crate::snapshot`]); without one, the
+//! runtime runs only from its build tree.
 
 use std::borrow::Cow;
 use std::io::IsTerminal;
 use std::sync::OnceLock;
 
-use deno_core::{Extension, ExtensionFileSource, ascii_str_include, op2};
+use deno_core::error::JsError;
+use deno_core::{Extension, ExtensionFileSource, JsRuntime, ascii_str, ascii_str_include, op2};
 
 /// The bootstrap module's specifier.
 const BOOTSTRAP_SPECIFIER: &str = "ext:gro/bootstrap.js";
@@ -74,4 +77,21 @@ pub fn extensions() -> Vec<Extension> {
         ),
         gro::init(),
     ]
+}
+
+/// Runs the bootstrap's per-process steps on a started runtime, from a
+/// snapshot or not: what a snapshot must not carry (the time origin) and what
+/// `deno_core` still reads while it starts from one (`Deno.core`, removed here
+/// with `__bootstrap`).
+///
+/// # Errors
+///
+/// Returns the JS error if the steps throw.
+pub fn start(runtime: &mut JsRuntime) -> Result<(), Box<JsError>> {
+    runtime
+        .execute_script(
+            "ext:gro/start.js",
+            ascii_str!("globalThis.__bootstrap.gro_start();"),
+        )
+        .map(drop)
 }

@@ -15,15 +15,22 @@
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
 //!   `__bootstrap` from the global object
 //!
+//! - [`snapshot`]: the startup snapshot, built in a process of its own and
+//!   embedded by the binary that starts from it
+//!
 //! `deno_core`'s types stay out of this crate's public API.
 //!
-//! The runtime starts from source, not a snapshot, so `deno_web`'s JS is read
-//! from its crate's path on the build machine: a binary moved off its build
-//! tree fails to start.
+//! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
+//! `deno_web`'s JS is read from its crate's path on the build machine, so such
+//! a binary fails to start off its build tree. Started from a snapshot, it
+//! reads nothing from the build tree. Either way, the steps that must happen
+//! per process (the time origin, removing the internals from the global
+//! object) run once the runtime has started.
 
 mod bootstrap;
 mod loader;
 pub mod resolver;
+pub mod snapshot;
 
 use std::path::Path;
 use std::rc::Rc;
@@ -32,6 +39,7 @@ use deno_core::error::{CoreError, CoreErrorKind, JsError, JsStackFrame};
 use deno_core::{JsRuntime, PollEventLoopOptions};
 
 use crate::resolver::{DiskTree, ResolveError};
+use crate::snapshot::StartupSnapshot;
 
 /// How a runtime is constructed.
 #[derive(Debug, Clone, Default)]
@@ -39,6 +47,10 @@ pub struct RuntimeOptions {
     /// The authority the runtime's code holds. Empty by default, the only
     /// value today.
     pub grants: Grants,
+    /// The snapshot to start from, made by [`snapshot::make_snapshot`] from
+    /// this same build. Without one, the runtime evaluates its extensions'
+    /// sources at startup.
+    pub snapshot: Option<StartupSnapshot>,
 }
 
 /// The grant set: what the runtime's code may reach beyond pure computation.
@@ -75,7 +87,10 @@ pub enum RunError {
 /// [`RunError::Uncaught`] when the program fails.
 pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> {
     // nothing to grant yet; destructured so a new field can't go unread
-    let RuntimeOptions { grants: Grants {} } = options;
+    let RuntimeOptions {
+        grants: Grants {},
+        snapshot,
+    } = options;
 
     let cwd = std::env::current_dir().map_err(RunError::Start)?;
     let url = resolver::resolve_entry(&DiskTree, entry, &cwd)?.url;
@@ -87,10 +102,15 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> 
     tokio_runtime.block_on(async {
         let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
             module_loader: Some(Rc::new(loader::Loader)),
+            // the same list the snapshot was made from, in the same order
             extensions: bootstrap::extensions(),
+            startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
+            residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
+            residual_lazy_esm_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_esm),
             ..Default::default()
         })
         .map_err(|error| uncaught(&error))?;
+        bootstrap::start(&mut runtime).map_err(|error| RunError::Uncaught(report_js(&error)))?;
         let id = runtime
             .load_main_es_module(&url)
             .await

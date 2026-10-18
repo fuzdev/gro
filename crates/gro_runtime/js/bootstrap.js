@@ -94,7 +94,12 @@ const globals = {
 	CompressionStream: compression_ns.CompressionStream,
 	DecompressionStream: compression_ns.DecompressionStream,
 
-	performance: performance_ns.performance
+	performance: performance_ns.performance,
+
+	// deno_core's own, redefined here so it has the shape of the rest whether
+	// the runtime starts from a snapshot or not (the snapshot build leaves it
+	// enumerable)
+	queueMicrotask: /** @type {any} */ (globalThis).queueMicrotask
 };
 
 // the web's shape for interface objects and operations: writable,
@@ -108,11 +113,14 @@ for (const [name, value] of Object.entries(globals)) {
 	});
 }
 
-// TODO: once a startup snapshot carries this module, the steps below must run
-// per process, after the snapshot loads, not when it's built
-performance_ns.setTimeOrigin();
-
-// deno_core's internals: `Deno.core` reaches every op, and gro has no `Deno`
-// namespace. Hygiene, not a boundary: no grant check relies on this.
-delete (/** @type {any} */ (globalThis).__bootstrap);
-delete (/** @type {any} */ (globalThis).Deno);
+// the steps that must happen in each process, never in a snapshot: the
+// runtime calls this once it has started, from a snapshot or not. deno_core
+// reads `Deno.core` while it starts from a snapshot, so the internals stay
+// until then.
+/** @type {any} */ (globalThis).__bootstrap.gro_start = () => {
+	performance_ns.setTimeOrigin();
+	// deno_core's internals: `Deno.core` reaches every op, and gro has no
+	// `Deno` namespace. Hygiene, not a boundary: no grant check relies on this.
+	delete (/** @type {any} */ (globalThis).__bootstrap);
+	delete (/** @type {any} */ (globalThis).Deno);
+};

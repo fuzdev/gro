@@ -462,28 +462,66 @@ comparison with Deno.
   the build fails), and the strict resolver as a pure module (`resolver.rs`,
   no deno_core types): relative and absolute specifiers with mandatory
   extensions, `.js`/`.mjs` only for now; schemes, bare specifiers, and
-  TypeScript are refused with the reason. No startup snapshot yet, so it runs
-  only from its build tree
+  TypeScript are refused with the reason. It starts from a startup snapshot
+  when the embedder passes one (`snapshot.rs`; built in its own process from
+  the same extension list), else from source, reading `deno_web`'s JS from the
+  build tree; the per-process steps run after startup either way
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module from disk
   (exit `0` success, `1` an uncaught error or unhandled rejection, `2` a usage
   error, including a missing entry); console output is colored only on a
-  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off
+  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. Its
+  `snapshot` feature embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`;
+  a plain `cargo build` builds it without one, so it runs only from its build
+  tree
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
   run to `crates/gro_bench/history.jsonl`. The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
-  and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned by tree id; its workload weights
-  are provisional until gro has numbers. Record it on a quiet machine with
+  and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned
+  by tree id; its workload weights are provisional until gro has numbers.
+  Record it on a quiet machine with
   `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
-- `xtask` - dev automation (`cargo xtask`)
+- `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
+  `bench`
 
-`cargo xtask check` is the one local command for both halves: the Rust gates
-(`cargo fmt`, `clippy`, `test`, and `doc`, with warnings denied), the JS/TS
-under `crates/` (which `gro check`'s typecheck and format don't reach), then
-`gro check`. The toolchain is pinned in `rust-toolchain.toml`, every crate
-takes the workspace lints, and `unsafe` is forbidden.
+**V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
+library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE` (under
+`target/rusty_v8/`, named by version), so the `v8` build script never
+downloads one. Plain cargo copies whatever file is at that path, unchecked,
+and doesn't recopy it when the file changes, only when the path does. On a
+fresh checkout, run `cargo xtask fetch-v8` (or any xtask that builds) before
+plain cargo: it downloads the archive if it's missing and checks its recorded SHA-256
+(`crates/xtask/src/v8_archive.rs`, which also fails when `Cargo.lock`'s `v8`
+version moves off the pin), and replaces a file that doesn't match after
+`cargo clean -p v8`, so the next build recopies and relinks. Before running V8
+code, the xtask's builds also check the library copy the `v8` build script
+last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`, shared by its
+build units), a stale-copy check that names the remedy. The pin protects the
+download's integrity; local writes to the target directory are out of scope,
+since anyone who can write there can alter any build output already. A plain
+cargo build against a bad file, fixed by hand before any xtask runs, goes
+undetected until a newer `v8` verifies `RUSTY_V8_ARCHIVE_SHA256` itself. CI
+runs the fetch first.
+
+**Snapshot builds.** `cargo xtask build [--release]` makes the `fgro` that
+starts from a snapshot and runs off its build tree, in two stages: the plain
+`fgro` writes `snapshot.bin` and `residual.rs` with its internal
+`make-snapshot` subcommand, then `fgro` is rebuilt with the `snapshot`
+feature; the result is `<target>/gro_snapshot/<profile>/fgro` (`<target>` is
+cargo's target directory, as `cargo metadata` reports it). `--verify` adds
+clippy over the feature's code, the integration tests against that build, and
+a run of a fixture with the cargo registry's sources and gro's own extension
+sources hidden (tmpfs mounts under `unshare -rm`, which needs unprivileged user
+namespaces and fails when they're unavailable).
+
+`cargo xtask check` is the one local command for both halves: the V8 archive,
+the Rust gates (`cargo fmt`, `clippy`, `test`, and `doc`, with warnings
+denied), `build --verify`, the JS/TS under `crates/` (which `gro check`'s
+typecheck and format don't reach), then `gro check`. The toolchain is pinned
+in `rust-toolchain.toml`, every crate takes the workspace lints, and `unsafe`
+is forbidden.
 
 ## Implementation reference
 

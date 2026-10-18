@@ -72,6 +72,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # Every cargo build links the pinned V8 archive that .cargo/config.toml
+      # names (RUSTY_V8_ARCHIVE), so fetch it and verify its SHA-256 first.
+      - name: Fetch V8
+        run: cargo xtask fetch-v8
+
       - name: Format
         run: cargo fmt --all --check
 
@@ -88,3 +93,11 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --no-deps --document-private-items
+
+      # fgro with an embedded startup snapshot, its tests, and a run with the
+      # build tree's sources hidden in a private user and mount namespace,
+      # which the runner's AppArmor policy forbids by default.
+      - name: Snapshot
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          cargo xtask build --verify

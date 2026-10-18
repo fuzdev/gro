@@ -10,6 +10,8 @@ description = "dev automation for the gro repo (`cargo xtask`)"
 [dependencies]
 argh.workspace = true
 gro_bench = { path = "../gro_bench" }
+serde_json.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

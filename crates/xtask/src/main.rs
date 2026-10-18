@@ -1,16 +1,29 @@
 //! `cargo xtask`: dev automation for the gro repo.
 //!
+//! `cargo xtask fetch-v8` downloads the pinned V8 archive and verifies its
+//! SHA-256 ([`v8_archive`]). Every cargo build links it through
+//! `RUSTY_V8_ARCHIVE` in `.cargo/config.toml`, so a fresh checkout runs this
+//! (or any xtask that builds) first.
+//!
+//! `cargo xtask build [--release]` builds `fgro` with an embedded startup
+//! snapshot in two stages ([`snapshot`]), at
+//! `target/gro_snapshot/<profile>/fgro`; `--verify` also runs the integration
+//! tests against it and checks that it runs with its build tree hidden.
+//!
 //! `cargo xtask check` is the one local command that checks both halves of
 //! the repo. It runs these steps in order, printing each command first and
 //! stopping at the first failure with that step's exit code:
 //!
-//! 1. the Rust gates: `cargo fmt`, `cargo clippy`, `cargo test`, and
-//!    `cargo doc`, with warnings denied
-//! 2. the JS/TS under `crates/`, which `gro check`'s typecheck and format
+//! 1. the V8 archive, as `fetch-v8`
+//! 2. the Rust gates: `cargo fmt`, `cargo clippy`, `cargo test`, and
+//!    `cargo doc`, with warnings denied; after clippy, the first build, the
+//!    V8 library copy it left is checked before the tests run V8 code
+//! 3. the snapshot build, as `build --verify`
+//! 4. the JS/TS under `crates/`, which `gro check`'s typecheck and format
 //!    don't reach: `tsc` over each `crates/*/js/tsconfig.json`, then
 //!    `gro format --check` over every `.ts` and `.js` file under `crates/`
 //!    (it says so when there are none)
-//! 3. `gro check`
+//! 5. `gro check`
 //!
 //! Every step runs from the workspace root, so `cargo xtask` works the same
 //! from any directory in the checkout.
@@ -49,6 +62,9 @@ use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run as run_suite};
 use gro_bench::suite::Suite;
 
+mod snapshot;
+mod v8_archive;
+
 /// The workspace root, two levels above this crate's manifest, canonicalized
 /// like the history path, so a root reached through a symlink still contains
 /// the history and the dirty check excludes it.
@@ -85,7 +101,27 @@ struct Xtask {
 #[argh(subcommand)]
 enum Subcommand {
     Check(Check),
+    FetchV8(FetchV8),
+    Build(Build),
     Bench(Bench),
+}
+
+/// download the pinned V8 archive if it's missing, and verify its SHA-256
+#[derive(FromArgs)]
+#[argh(subcommand, name = "fetch-v8")]
+struct FetchV8 {}
+
+/// build fgro with an embedded startup snapshot, in two stages
+#[derive(FromArgs)]
+#[argh(subcommand, name = "build")]
+struct Build {
+    /// build the release profile
+    #[argh(switch)]
+    release: bool,
+    /// run the integration tests against the result and check that it runs
+    /// with its build tree hidden
+    #[argh(switch)]
+    verify: bool,
 }
 
 /// run the Rust gates, check the JS/TS under crates/, then run `gro check`
@@ -152,6 +188,15 @@ fn main() -> ExitCode {
     let root = root();
     let result = match xtask.command {
         Subcommand::Check(Check {}) => check(&root),
+        Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
+        Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
+            let target_dir = target_dir(&root)?;
+            let binary = snapshot::build(&root, &target_dir, release)?;
+            if verify {
+                snapshot::verify(&root, release, &binary)?;
+            }
+            Ok(())
+        }),
         Subcommand::Bench(bench_args) => bench(&root, bench_args),
     };
     match result {
@@ -163,7 +208,54 @@ fn main() -> ExitCode {
 /// A failed step: the exit code `cargo xtask` returns.
 type StepResult = Result<(), ExitCode>;
 
+/// Ensures the pinned V8 archive is in place and verified.
+fn fetch_v8(root: &Path) -> StepResult {
+    match v8_archive::ensure(root) {
+        Ok(path) => {
+            println!(
+                "[xtask] the V8 archive is verified: {}",
+                relative(root, &path)
+            );
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("[xtask] {error}");
+            Err(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Cargo's target directory, as `cargo metadata` reports it, so a
+/// `CARGO_TARGET_DIR` or `build.target-dir` setting is honored. The V8
+/// archive's path doesn't depend on it: `.cargo/config.toml` names it relative
+/// to the checkout.
+fn target_dir(root: &Path) -> Result<PathBuf, ExitCode> {
+    let output = Command::new("cargo")
+        .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| {
+            eprintln!("[xtask] failed to run cargo metadata: {error}");
+            ExitCode::FAILURE
+        })?;
+    let target_dir = output
+        .status
+        .success()
+        .then(|| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+        .flatten()
+        .and_then(|metadata| metadata["target_directory"].as_str().map(PathBuf::from));
+    target_dir.ok_or_else(|| {
+        eprintln!(
+            "[xtask] cargo metadata reported no target directory ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        ExitCode::FAILURE
+    })
+}
+
 fn check(root: &Path) -> StepResult {
+    fetch_v8(root)?;
     run(root, &[], "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -179,6 +271,13 @@ fn check(root: &Path) -> StepResult {
             "warnings",
         ],
     )?;
+    // the first build step; check the V8 library copy before the tests run V8 code
+    let target_dir = target_dir(root)?;
+    v8_archive::verify_linked(&target_dir, "debug").map_err(|error| {
+        eprintln!("[xtask] {error}");
+        ExitCode::FAILURE
+    })?;
+    println!("[xtask] the V8 library copy matches the pinned archive");
     run(
         root,
         &[],
@@ -198,6 +297,8 @@ fn check(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
+    let binary = snapshot::build(root, &target_dir, false)?;
+    snapshot::verify(root, false, &binary)?;
     check_crates_js(root)?;
     run(root, &[], "gro", &["check"])
 }
@@ -522,6 +623,8 @@ mod tests {
             all
         };
         assert!(parse_args(&args(&["bench", "suite.json"])).is_ok());
+        assert!(parse_args(&args(&["build", "--release", "--verify"])).is_ok());
+        assert!(parse_args(&args(&["fetch-v8"])).is_ok());
         for bad in [
             &["nope"][..],
             &["bench"],

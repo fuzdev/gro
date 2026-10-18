@@ -5,7 +5,8 @@
 
 > **status**: experimental, direction settled, design in progress -
 > `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS module from disk on V8
-> with the web-standard globals (no TypeScript, packages, or startup snapshot yet).
+> with the web-standard globals, from a startup snapshot when built by `cargo xtask build`
+> (no TypeScript or packages yet).
 > Designed, not yet built, unless noted.
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
