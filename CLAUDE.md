@@ -461,18 +461,30 @@ comparison with Deno.
   extension (installs the pure web globals, removes `Deno` and `__bootstrap`;
   its JS in `crates/gro_runtime/js/` is embedded and must be 7-bit ASCII, or
   the build fails), and the strict resolver as a pure module (`resolver.rs`,
-  no deno_core types): relative and absolute specifiers with mandatory
-  extensions; `.js`/`.mjs` load as written and `.ts`/`.mts` load stripped of
-  their types in process by tsv (`tsv_ts`, a git dependency pinned by rev; the
-  loader in `loader.rs` blanks types so positions never move, and refuses
-  TypeScript with runtime semantics, such as an `enum`, with its position and
-  a fix); schemes, bare specifiers, `.cts`, `.tsx`, declaration files, and
-  Svelte modules (vite-plugin-svelte's rule: `.svelte.` then any segments then
-  `.js` or `.ts`) are refused with the reason. It starts from a startup
-  snapshot when the embedder passes one (`snapshot.rs`; built in its own
-  process from the same extension list), else from source, reading
-  `deno_web`'s JS from the build tree; the per-process steps run after startup
-  either way
+  no deno_core types; it reads only through a `SourceTree` trait and returns
+  a record of the URL, the module's origin, and the `package.json` files it
+  consulted): relative and absolute specifiers with mandatory extensions, and
+  bare specifiers through a package's `"exports"` (Node's algorithm, with the
+  conditions `gro`, `import`, `default` matched in the package's key order),
+  found by self-reference or in `node_modules` up from the importer's real
+  path; the importer's origin is passed in, since a linked package's real
+  path has no `node_modules` in it. Deliberate departures from Node: the
+  `node_modules` search ends at the project root (the first `package.json`
+  outside `node_modules` that isn't a type marker holding only `"type"` and
+  `"sideEffects"`, failing closed, so npm and yarn workspaces aren't
+  supported), a package with no `"exports"` is refused (no `main`), a `.js`
+  file needs `"type": "module"` with no format sniffing, and `.ts` inside
+  `node_modules` is stripped. `.js`/`.mjs` load as written and `.ts`/`.mts`
+  load stripped of their types in process by tsv (`tsv_ts`, a git dependency
+  pinned by rev; the loader in `loader.rs` blanks types so positions never
+  move, and refuses TypeScript with runtime semantics, such as an `enum`, with
+  its position and a fix); schemes, `#` imports, CommonJS, `.cts`, `.tsx`,
+  declaration files, and Svelte modules (vite-plugin-svelte's rule: `.svelte.`
+  then any segments then `.js` or `.ts`) are refused with the reason and a fix.
+  It starts from a startup snapshot when the embedder passes one
+  (`snapshot.rs`; built in its own process from the same extension list), else
+  from source, reading `deno_web`'s JS from the build tree; the per-process
+  steps run after startup either way
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module (JS or
   TypeScript) from disk and takes only the entry file, with no script
   arguments yet (exit `0` success, `1` an uncaught error, an unhandled

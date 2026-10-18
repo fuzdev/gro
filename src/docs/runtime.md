@@ -6,7 +6,8 @@
 > **status**: experimental, direction settled, design in progress -
 > `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS or TypeScript module
 > from disk on V8 with the web-standard globals, from a startup snapshot when built by
-> `cargo xtask build` (no packages yet, x86_64 Linux only for now).
+> `cargo xtask build`, resolving packages in `node_modules` by their `"exports"`
+> (x86_64 Linux only for now).
 > It takes only the entry file, with no script arguments yet;
 > the README's [Develop](../../README.md#develop) section says how to build and run it.
 > Everything below is designed; only what the roadmap marks done is built.
@@ -46,7 +47,8 @@ run as Node subprocesses under the invocation's kernel rules.
       on the same workloads, the baseline every milestone is gated against
 - [x] `gro run` (as `fgro run` for now): ESM from disk on V8, web-standard globals, a startup snapshot
 - [x] TypeScript by tsv's type strip, in process
-- [ ] strict package resolution
+- [x] strict package resolution: `node_modules` by `"exports"`, and `"type": "module"`
+      (`#` imports come later)
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
@@ -200,11 +202,28 @@ so each piece can be rewritten on its own as measurements justify it.
 - **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
   resolve as URLs with mandatory extensions: no probing, no directory index, no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
-  (`gro`, `import`, `default`) and `imports` for `#` subpaths, walking `node_modules`.
+  (`gro`, `import`, `default`, matched in the package's own key order),
+  and `imports` for `#` subpaths (not built yet), walking `node_modules`.
   A package without `exports`, or one that's CommonJS, fails loudly with the reason;
   the fix is a version with an ESM build, an ESM bundle of it vendored into the project,
   or running it on Node. Gro never pre-bundles a project's dependencies.
   Files on disk only: no `https:`, `jsr:`, or `npm:` imports.
+  Otherwise it follows Node's algorithm, with these deliberate departures:
+  the `node_modules` walk ends at the project root, the first `package.json` outside `node_modules`
+  that isn't a type marker (a JSON object holding only `"type"` and `"sideEffects"`,
+  like `dist/esm/package.json`), so any other one ends it, named or not, failing closed:
+  an uninstalled project fails instead of resolving a parent directory's packages,
+  and npm and yarn workspaces, whose packages install at the workspace's root, aren't supported;
+  every `package.json` the walk passes outside `node_modules` is read, to tell a marker from a bound,
+  so one that isn't valid (not JSON, a `"name"` or `"type"` that isn't a string, or a special file)
+  fails the import, where Node never reads it;
+  a duplicated key keeps its last value, as `JSON.parse` does, where Node checks every occurrence;
+  a `.js` file with no `package.json` above it is refused, where Node guesses its format from the code
+  (`.mjs` needs none);
+  `.ts` inside `node_modules` is stripped like any other, where Node refuses;
+  no other condition matches (`node`, `require`, `browser`, `svelte` until the Svelte compiler is in);
+  and a pattern's match can't hide a `..` behind a tab or a line break (`.\t.`), which URL parsing drops,
+  where Node substitutes it unchecked and loads what it names outside the package.
 - **No runtime namespace.** Beyond the web's globals, everything is an import.
 - **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in-process,
   preserving every position, so stack traces point at the TS source with no source maps.

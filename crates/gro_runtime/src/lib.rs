@@ -8,8 +8,9 @@
 //! included.
 //!
 //! - [`resolver`]: the strict ESM resolver, a pure module (relative and
-//!   absolute specifiers with mandatory extensions; `.js`, `.mjs`, `.ts`, and
-//!   `.mts` load)
+//!   absolute specifiers with mandatory extensions, and packages in
+//!   `node_modules` through their `"exports"`; `.mjs`, `.ts`, and `.mts`
+//!   load, and `.js` under `"type": "module"`)
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
 //!   that strips TypeScript's types in process with `tsv_ts`
 //! - `bootstrap`: the extension that installs the pure web globals from
@@ -112,7 +113,7 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> 
     } = options;
 
     let cwd = std::env::current_dir().map_err(RunError::Start)?;
-    let url = resolver::resolve_entry(&DiskTree, entry, &cwd)?.url;
+    let entry = resolver::resolve_entry(&DiskTree, entry, &cwd)?;
 
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -120,7 +121,7 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> 
         .map_err(RunError::Start)?;
     tokio_runtime.block_on(async {
         let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
-            module_loader: Some(Rc::new(loader::Loader)),
+            module_loader: Some(Rc::new(loader::Loader::new(&entry))),
             // the same list the snapshot was made from, in the same order
             extensions: bootstrap::extensions(),
             startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
@@ -131,7 +132,7 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> 
         .map_err(|error| uncaught(&error))?;
         bootstrap::start(&mut runtime).map_err(|error| RunError::Uncaught(report_js(&error)))?;
         let id = runtime
-            .load_main_es_module(&url)
+            .load_main_es_module(&entry.url)
             .await
             .map_err(|error| uncaught(&error))?;
         let evaluation = runtime.mod_evaluate(id);

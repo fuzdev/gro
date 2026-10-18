@@ -12,6 +12,8 @@ bumpalo.workspace = true
 deno_core.workspace = true
 deno_web.workspace = true
 deno_webidl.workspace = true
+# preserve_order: an "exports" object matches in the package's own key order
+serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
 tokio.workspace = true
 tsv_ts.workspace = true

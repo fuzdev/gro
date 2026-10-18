@@ -3,10 +3,11 @@
 //!
 //! `fgro run <file>` runs an ES module from disk (a path relative to the
 //! working directory, or absolute) until its event loop drains, TypeScript
-//! stripped of its types first. It takes only the entry file: there are no
-//! script arguments yet. Errors print to stderr, prefixed `error:`; an
-//! uncaught error's report carries its stack with source positions
-//! (`file:///path:line:column`).
+//! stripped of its types first. Its imports resolve strictly: files by their
+//! full names, and packages in `node_modules` through their `"exports"`. It
+//! takes only the entry file: there are no script arguments yet. Errors print
+//! to stderr, prefixed `error:`; an uncaught error's report carries its stack
+//! with source positions (`file:///path:line:column`).
 //!
 //! The whole command runs on one thread with [`STACK_SIZE`] reserved, not on
 //! the main thread, so how deeply nested a TypeScript module can be is
@@ -25,7 +26,8 @@
 //! - `2`: a usage error, so the command line must change: an unknown
 //!   subcommand or flag, a missing argument (including no arguments at all),
 //!   an argument that isn't UTF-8, or an entry file that doesn't resolve
-//!   (missing, or not a `.js`, `.mjs`, `.ts`, or `.mts` file)
+//!   (missing, not a `.js`, `.mjs`, `.ts`, or `.mts` file, or a `.js` file
+//!   not under `"type": "module"`)
 //!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`

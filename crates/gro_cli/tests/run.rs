@@ -284,17 +284,32 @@ fn an_enum_is_refused_with_its_position() {
     );
 }
 
+/// The fixtures' own `package.json` isn't a type marker (it has a `"name"`),
+/// so it ends the search, and a package isn't looked up past it, in gro's
+/// own `node_modules`, which has `svelte`.
 #[test]
-fn bare_import_is_refused() {
+fn a_package_is_not_found_past_the_project_root() {
     let run = run("import_bare.js");
     assert_eq!(run.code, 1);
+    let fixtures = fixtures().canonicalize().unwrap();
+    let fixtures = fixtures.display();
     assert_eq!(
         run.stderr,
         format!(
-            "error: cannot resolve 'svelte' from {}/import_bare.js: a bare specifier names a \
-             package, and package resolution is not supported yet. Fix: import the file by a \
-             relative path\n",
-            fixtures_url()
+            "error: cannot resolve 'svelte' from {}/import_bare.js: no package 'svelte' is \
+             installed: no node_modules/svelte directory from the importer up to \
+             {fixtures}/package.json, which ends the search, as every package.json outside \
+             node_modules does except one holding nothing but \"type\" and \
+             \"sideEffects\", and the node_modules beside {}/package.json is not searched (npm \
+             and yarn workspaces, which install at their root, aren't supported). Fix: install it \
+             into {fixtures}/node_modules\n",
+            fixtures_url(),
+            // gro's own, the repo root
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .canonicalize()
+                .unwrap()
+                .display()
         )
     );
 }
@@ -313,7 +328,7 @@ fn dynamic_import_refusals_are_catchable() {
         ),
         (
             "true \"TypeError: cannot resolve '",
-            "package resolution is not supported yet",
+            "no package 'svelte' is installed",
         ),
         (
             "true \"TypeError: cannot resolve '",
@@ -335,12 +350,26 @@ fn dynamic_import_refusals_are_catchable() {
 struct TempFixtures(PathBuf);
 
 impl TempFixtures {
+    /// The files, under a `package.json` with `"type": "module"` unless they
+    /// have their own.
     fn new(name: &str, files: &[(&str, &str)]) -> Self {
-        let dir = std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        for (file, content) in files {
-            std::fs::write(dir.join(file), content).unwrap();
+        let fixtures = Self::without_package_json(name, files);
+        let package_json = fixtures.0.join("package.json");
+        if !package_json.exists() {
+            std::fs::write(package_json, "{\"type\": \"module\"}\n").unwrap();
         }
+        fixtures
+    }
+
+    /// The files alone, each at its relative path.
+    fn without_package_json(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()));
+        for (file, content) in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
         Self(dir.canonicalize().unwrap())
     }
 
@@ -649,6 +678,247 @@ fn a_directory_named_like_a_module_is_refused() {
             fixtures_url()
         )
     );
+}
+
+/// Packages in `node_modules` resolve through their `"exports"`: a scoped
+/// package by the `gro` condition, its TypeScript stripped there too, and
+/// from under a type marker `package.json`; a linked package, whose own
+/// dependency resolves from where it really lives; a nested layout's
+/// dependency, beside it; and the project's own package by its name. A
+/// linked package's imports resolve from its real path, so one without the
+/// dependency installed beside it doesn't reach the project's.
+#[test]
+fn packages_resolve_through_their_exports() {
+    let nested = "node_modules/.deno/nested@1.0.0/node_modules";
+    let fixtures = TempFixtures::new(
+        "packages",
+        &[
+            (
+                "package.json",
+                r#"{"name": "app", "type": "module", "exports": {"./self.js": "./self.js"}}"#,
+            ),
+            ("self.js", "export default 'self-reference';\n"),
+            (
+                "main.js",
+                "import a from '@scope/a';\n\
+                 import b from '@scope/a/b.ts';\n\
+                 import linked from 'linked';\n\
+                 import nested from 'nested';\n\
+                 import self from 'app/self.js';\n\
+                 import marker from './dist/esm/marker.js';\n\
+                 console.log([a, b, linked, nested, self, marker].join('\\n'));\n",
+            ),
+            ("dist/esm/package.json", r#"{"type": "module"}"#),
+            (
+                "dist/esm/marker.js",
+                "import a from '@scope/a';\nexport default `past a marker, ${a}`;\n",
+            ),
+            ("lonely.js", "import 'lonely';\n"),
+            (
+                "lonely_checkout/package.json",
+                r#"{"name": "lonely", "type": "module", "exports": "./i.js"}"#,
+            ),
+            ("lonely_checkout/i.js", "import 'dep';\n"),
+            ("node_modules/dep/package.json", r#"{"exports": "./i.mjs"}"#),
+            (
+                "node_modules/dep/i.mjs",
+                "export default 'the project dep';\n",
+            ),
+            (
+                "node_modules/@scope/a/package.json",
+                r#"{"type": "module", "exports": {".": {"gro": "./gro.js", "default": "./default.js"}, "./*.ts": "./src/*.ts"}}"#,
+            ),
+            (
+                "node_modules/@scope/a/gro.js",
+                "export default 'gro condition';\n",
+            ),
+            (
+                "node_modules/@scope/a/src/b.ts",
+                "const b: string = 'stripped in node_modules';\nexport default b;\n",
+            ),
+            (
+                "linked_checkout/package.json",
+                r#"{"type": "module", "exports": "./i.js"}"#,
+            ),
+            (
+                "linked_checkout/i.js",
+                "import dep from 'dep';\nexport default `linked, ${dep}`;\n",
+            ),
+            (
+                "linked_checkout/node_modules/dep/package.json",
+                r#"{"exports": "./i.mjs"}"#,
+            ),
+            (
+                "linked_checkout/node_modules/dep/i.mjs",
+                "export default 'its own dependency';\n",
+            ),
+            (
+                &format!("{nested}/nested/package.json"),
+                r#"{"exports": "./i.mjs"}"#,
+            ),
+            (
+                &format!("{nested}/nested/i.mjs"),
+                "import dep from 'nested_dep';\nexport default `nested, ${dep}`;\n",
+            ),
+            (
+                &format!("{nested}/nested_dep/package.json"),
+                r#"{"exports": "./i.mjs"}"#,
+            ),
+            (
+                &format!("{nested}/nested_dep/i.mjs"),
+                "export default 'its dependency beside it';\n",
+            ),
+        ],
+    );
+    let root = &fixtures.0;
+    std::os::unix::fs::symlink(
+        root.join("linked_checkout"),
+        root.join("node_modules/linked"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        root.join(nested).join("nested"),
+        root.join("node_modules/nested"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        root.join("lonely_checkout"),
+        root.join("node_modules/lonely"),
+    )
+    .unwrap();
+    let run = fixtures.run("main.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "gro condition\nstripped in node_modules\nlinked, its own dependency\n\
+         nested, its dependency beside it\nself-reference\npast a marker, gro condition\n"
+    );
+    // from the symlink's path, the search would reach the project's node_modules/dep
+    let run = fixtures.run("lonely.js");
+    assert_eq!(run.code, 1);
+    let root = root.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'dep' from file://{root}/lonely_checkout/i.js: no package \
+             'dep' is installed: no node_modules/dep directory from the importer up to \
+             {root}/lonely_checkout/package.json, which ends the search, as every package.json \
+             outside node_modules does except one holding nothing but \"type\" and \
+             \"sideEffects\", and the node_modules beside {root}/package.json is not searched \
+             (npm and yarn workspaces, which install at their root, aren't supported). Fix: \
+             install it into {root}/lonely_checkout/node_modules\n"
+        )
+    );
+}
+
+#[test]
+fn package_refusals_name_the_reason_and_a_fix() {
+    let fixtures = TempFixtures::new(
+        "package_refusals",
+        &[
+            ("main_only.js", "import 'main_only';\n"),
+            (
+                "node_modules/main_only/package.json",
+                r#"{"main": "./i.js"}"#,
+            ),
+            ("node_modules/main_only/i.js", "export {};\n"),
+            ("commonjs.js", "import 'commonjs';\n"),
+            (
+                "node_modules/commonjs/package.json",
+                r#"{"exports": "./i.js"}"#,
+            ),
+            ("node_modules/commonjs/i.js", "module.exports = 1;\n"),
+        ],
+    );
+    let root = fixtures.0.display();
+    let run = fixtures.run("main_only.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'main_only' from file://{root}/main_only.js: \
+             {root}/node_modules/main_only/package.json has no \"exports\" field, and only \
+             \"exports\" is read (not \"main\" or \"module\"). Fix: use a version with an ESM \
+             build, vendor an ESM bundle of it into the project, or run it under Node\n"
+        )
+    );
+    let run = fixtures.run("commonjs.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'commonjs' from file://{root}/commonjs.js: the package \
+             exports it as {root}/node_modules/commonjs/i.js, which is CommonJS (no \"type\": \
+             \"module\", not .mjs), and only ES modules load. Fix: use a version with an ESM \
+             build, vendor an ESM bundle of it into the project, or run it under Node\n"
+        )
+    );
+}
+
+/// A package linked to itself is a symlink loop, named as one by the OS's
+/// `ELOOP`.
+#[test]
+fn a_symlink_loop_is_named() {
+    let fixtures = TempFixtures::new("symlink_loop", &[("main.js", "import 'looped';\n")]);
+    let root = &fixtures.0;
+    std::fs::create_dir_all(root.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(
+        root.join("node_modules/looped"),
+        root.join("node_modules/looped"),
+    )
+    .unwrap();
+    let run = fixtures.run("main.js");
+    assert_eq!(run.code, 1);
+    let root = root.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'looped' from file://{root}/main.js: \
+             {root}/node_modules/looped leads into a symlink loop, so it names no file or \
+             directory. Fix: remove the looping link, or point it at what it should name (for a \
+             package, reinstall it)\n"
+        )
+    );
+}
+
+/// A `.js` file is an ES module only under `"type": "module"`, where Node
+/// would guess from the code; `.mjs` needs no `package.json`.
+#[test]
+fn a_js_module_needs_type_module() {
+    let fixtures = TempFixtures::without_package_json(
+        "no_package_json",
+        &[
+            ("a.js", "console.log('a');\n"),
+            ("b.mjs", "console.log('b');\n"),
+            ("commonjs/package.json", "{}\n"),
+            ("commonjs/c.js", "console.log('c');\n"),
+        ],
+    );
+    let run = fixtures.run("a.js");
+    assert_eq!(run.code, 2);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'a.js' from {}: a .js file is an ES module only under a \
+             package.json with \"type\": \"module\", and none is above it (the format is never \
+             guessed from the code). Fix: rename the file to .mjs, or add a package.json with \
+             \"type\": \"module\"\n",
+            fixtures.0.display()
+        )
+    );
+    let run = fixtures.run("commonjs/c.js");
+    assert_eq!(run.code, 2);
+    assert!(
+        run.stderr.contains(&format!(
+            "which {}/commonjs/package.json does not set",
+            fixtures.0.display()
+        )),
+        "{}",
+        run.stderr
+    );
+    let run = fixtures.run("b.mjs");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "b\n");
 }
 
 #[test]

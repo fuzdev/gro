@@ -5,7 +5,9 @@
 //! Static imports, `import()`, and `import.meta.resolve` all reach
 //! [`resolver::resolve`] through `ModuleLoader::resolve`. The entry module is
 //! resolved before the runtime starts ([`resolver::resolve_entry`]), so its
-//! URL arrives here already final.
+//! URL arrives here already final. The loader keeps the [`Origin`] each URL
+//! first resolved with, since the resolver takes the importer's origin as an
+//! input rather than reading it from the path.
 //!
 //! A TypeScript module is stripped by `tsv_ts`, which blanks every type-only
 //! range rather than rewriting the code, so every surviving character keeps
@@ -17,6 +19,8 @@
 //! `import()` can catch.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use deno_core::error::ModuleLoaderError;
 use deno_core::{
@@ -26,13 +30,28 @@ use deno_core::{
 use tsv_ts::{ErrorReport, Goal, StripError, UnsupportedKind};
 use url::Url;
 
-use crate::resolver::{self, DiskTree, ModuleFormat};
+use crate::resolver::{self, DiskTree, ModuleFormat, Origin, Resolution};
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
 /// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
 /// stripped of their types.
-#[derive(Debug, Default)]
-pub struct Loader;
+#[derive(Debug)]
+pub struct Loader {
+    /// The origin each URL first resolved with, the entry's included: what
+    /// the module's own imports resolve with. Not necessarily the origin its
+    /// module instance loaded under, since a URL can resolve again, from
+    /// another importer, with another origin.
+    origins: RefCell<HashMap<Url, Origin>>,
+}
+
+impl Loader {
+    /// A loader for the graph of `entry`, already resolved.
+    pub fn new(entry: &Resolution) -> Self {
+        Self {
+            origins: RefCell::new(HashMap::from([(entry.url.clone(), entry.origin.clone())])),
+        }
+    }
+}
 
 impl ModuleLoader for Loader {
     fn resolve(
@@ -51,9 +70,29 @@ impl ModuleLoader for Loader {
                 "cannot resolve '{specifier}': the importer '{referrer}' is not a URL: {error}"
             ))
         })?;
-        resolver::resolve(&DiskTree, specifier, &importer)
-            .map(|resolution| resolution.url)
-            .map_err(|error| ModuleLoaderError::type_error(error.to_string()))
+        // every importer was resolved here first, the entry by `Loader::new`
+        let importer_origin = self
+            .origins
+            .borrow()
+            .get(&importer)
+            .cloned()
+            .ok_or_else(|| {
+                ModuleLoaderError::type_error(format!(
+                    "cannot resolve '{specifier}': the importer '{referrer}' was never resolved"
+                ))
+            })?;
+        let resolution = resolver::resolve(&DiskTree, specifier, &importer, &importer_origin)
+            .map_err(|error| ModuleLoaderError::type_error(error.to_string()))?;
+        // the first origin a URL resolves with stays, whatever resolves it later: an
+        // `import.meta.resolve` records one before any module instance exists, and a
+        // project's relative import of a file inside node_modules records `Project`
+        // TODO: settle the rule before sandboxed eval grants by origin: on a conflict keep the
+        // less-trusted origin, or record origins only when a module loads
+        self.origins
+            .borrow_mut()
+            .entry(resolution.url.clone())
+            .or_insert(resolution.origin);
+        Ok(resolution.url)
     }
 
     fn load(

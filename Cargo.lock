@@ -784,6 +784,7 @@ dependencies = [
  "deno_core",
  "deno_web",
  "deno_webidl",
+ "serde_json",
  "thiserror",
  "tokio",
  "tsv_ts",
