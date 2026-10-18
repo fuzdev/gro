@@ -12,10 +12,12 @@
 - [gro_plugin_sveltekit_library](gro_plugin_sveltekit_library.md)
 - [plugin](plugin.md)
 - [publish](publish.md)
+- [resolver](resolver.md)
 - [runtime](runtime.md)
 - [task](task.md)
 - [tasks](tasks.md)
 - [test](test.md)
+- [typescript](typescript.md)
 
 > <sub>[gro](/../..) / docs / README.md</sub>
 

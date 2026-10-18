@@ -453,8 +453,10 @@ function-scope analogy; grew out of the loader; Node code stays on Node) and
 links out; the thesis in full, the Deno story, and the public design live in
 [src/docs/runtime.md](src/docs/runtime.md): the verbs (`gro run`, `gro
 eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
-default, the threat model, the strict resolver, what it leaves out, and the
-comparison with Deno.
+default, the threat model, the design, what it leaves out, and the comparison
+with Deno; the resolver's full rules and departures from Node are in
+[src/docs/resolver.md](src/docs/resolver.md) and the type-strip rules in
+[src/docs/typescript.md](src/docs/typescript.md).
 
 - `gro_runtime` - the JS host, a minimal web-standards runtime on V8: a
   deno_core `JsRuntime` with `deno_webidl` and `deno_web`, gro's bootstrap
