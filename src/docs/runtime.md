@@ -31,7 +31,7 @@ _Host modules_ are the imports that reach the OS (fs, process, spawn, watch, net
 each a visible edge in the graph.
 _Authority globals_ are the web globals that reach the world (`fetch`, `WebSocket`),
 the one authority that isn't declared by import, since a global reaches every module in the graph.
-The _policy file_ is the committed record of what a human accepted.
+The _policy file_ (currently `gro.policy.json`) is the committed record of what was accepted in review.
 And every run is one of three _kinds_ by what it reaches and depends on:
 hermetic (replayable), confined (bounded), or unconfined.
 
@@ -405,8 +405,9 @@ The design doesn't have every answer; these are the ones it knows it's missing:
 - **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
   normal case; a signed acceptance that needs a person's presence is designed, built only if
   the measured widening rate makes its friction worth it.
-- **Replay needs deterministic scheduling.** Recorded reads complete on the event loop in no fixed order,
-  so a hermetic run can resolve promises differently between runs.
+- **Replay needs deterministic scheduling, for gen.** `gro eval` only loads modules, which ESM orders,
+  but a hermetic gen run's recorded reads complete on the event loop in no fixed order,
+  so it can resolve promises differently between runs.
   The host has to order completions for "replays exactly" to hold by construction,
   and the cost is unmeasured.
 - **Interposition through shared prototypes.** A same-realm dependency can patch an intrinsic

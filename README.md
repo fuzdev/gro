@@ -16,7 +16,7 @@ It runs on Node and is a dev tool, not for production use.
 Gro is also becoming its own JS runtime,
 a Rust binary on V8 built for code you can't fully trust, like your dependencies and agents,
 with granular control over what it can reach.
-Every run is confined: code gets only the files, network, and processes its imports declare,
+By default a run is confined: code gets only the files, network, and processes its imports declare,
 nothing by default, recorded in a small policy file you review like a lockfile,
 so what an agent's code may do is a diff, and the runtime enforces it.
 A hermetic run is stricter, with its clock and randomness fixed too,
