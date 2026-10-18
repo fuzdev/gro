@@ -145,7 +145,8 @@ export const task: Task<Args> = {
 			if (dep) {
 				await install_with_cache_healing_or_throw(config.pm_cli, {
 					install_args: ['-D', changelog],
-					log
+					log,
+					throw_if_gro_packages_changed: true
 				});
 			}
 		}

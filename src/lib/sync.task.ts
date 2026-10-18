@@ -32,7 +32,10 @@ export const task: Task<Args> = {
 		const { sveltekit, package_json, gen, install } = args;
 
 		if (install) {
-			await install_with_cache_healing_or_throw(config.pm_cli, { log });
+			await install_with_cache_healing_or_throw(config.pm_cli, {
+				log,
+				throw_if_gro_packages_changed: true
+			});
 		}
 
 		if (sveltekit) {

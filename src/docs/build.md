@@ -37,6 +37,11 @@ gro build --no-install  # skip package install
 
 Note: `--no-sync` is ignored if install runs (install requires sync to generate exports).
 
+If the install changes the installed version of Gro or any of its dependencies,
+the build stops with an error naming them, and re-running the command continues
+with the new versions. The running process already loaded the old versions,
+so carrying on would mix old and new modules.
+
 ## build caching
 
 Gro caches builds to skip expensive rebuilds when nothing has changed.
