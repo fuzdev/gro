@@ -6,7 +6,9 @@
 > **status**: experimental, direction settled, design in progress -
 > `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS module from disk on V8
 > with the web-standard globals, from a startup snapshot when built by `cargo xtask build`
-> (no TypeScript or packages yet).
+> (no TypeScript or packages yet, x86_64 Linux only for now).
+> It takes only the entry file, with no script arguments yet;
+> the README's [Develop](../../README.md#develop) section says how to build and run it.
 > Designed, not yet built, unless noted.
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
@@ -40,9 +42,9 @@ in October 2027 (see [Why](#why)).
 Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svelte-check)
 run as Node subprocesses under the invocation's kernel rules.
 
-- [x] Rust workspace and a benchmark harness that times Node, Deno, and Bun
+- [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
       on the same workloads, the baseline every milestone is gated against
-- [ ] `gro run`: ESM from disk on V8, web-standard globals, a startup snapshot
+- [x] `gro run` (as `fgro run` for now): ESM from disk on V8, web-standard globals, a startup snapshot
 - [ ] TypeScript by tsv's type strip, strict package resolution
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;

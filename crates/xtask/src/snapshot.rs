@@ -18,7 +18,8 @@
 //!
 //! Between the stage-one build and `make-snapshot`, the V8 library copy is
 //! checked against the pin ([`crate::v8_archive::verify_linked`]), before any
-//! V8 code runs.
+//! V8 code runs. `make-snapshot`'s stdout, which carries only `deno_core`'s
+//! progress lines, is discarded; its errors print to stderr.
 //!
 //! Cargo keeps both builds of `fgro`, one per feature set, so switching
 //! between them relinks nothing.
@@ -33,7 +34,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output};
+use std::process::{Command, ExitCode, Output, Stdio};
 
 use crate::{StepResult, run};
 
@@ -54,11 +55,7 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<PathBuf, E
     stage_one.extend(profile_args);
     run(root, &[], "cargo", &stage_one)?;
     // before stage one runs V8 code, and after the build that wrote the copy
-    crate::v8_archive::verify_linked(target_dir, profile).map_err(|error| {
-        eprintln!("[xtask] {error}");
-        ExitCode::FAILURE
-    })?;
-    println!("[xtask] the V8 library copy matches the pinned archive");
+    crate::verify_linked_step(target_dir, profile)?;
     let plain = target_dir.join(profile).join("fgro");
     let stamp = dir.join("stage_one.stamp");
     if snapshot_is_current(&dir, &stamp, &plain) {
@@ -67,12 +64,14 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<PathBuf, E
             crate::relative(root, &plain)
         );
     } else {
-        crate::run_program(
+        // its stdout carries only deno_core's progress lines; its errors go to stderr
+        crate::run_program_to(
             root,
             &[],
             &plain,
             &crate::relative(root, &plain),
             &["make-snapshot", &dir_arg],
+            Stdio::null(),
         )?;
         // the outputs are rewritten on every run and differ each time, so the stamp records when it ran
         fs::write(&stamp, b"").map_err(|error| {
@@ -259,7 +258,9 @@ fn describe(output: &std::io::Result<Output>) -> String {
 }
 
 /// The first source path `residual.rs` embeds, a file in the cargo registry,
-/// to check the hiding with.
+/// to check the hiding with. It parses the format
+/// `gro_runtime::snapshot::Snapshot::write_to` writes, which names this as its
+/// second reader.
 fn registry_source(residual: &Path) -> Option<PathBuf> {
     let residual = fs::read_to_string(residual).ok()?;
     let start = residual.find("include_str!(\"")? + "include_str!(\"".len();

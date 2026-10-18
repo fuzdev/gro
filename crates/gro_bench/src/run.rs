@@ -51,8 +51,6 @@ pub struct RunContext {
     pub git: GitState,
     pub machine: Machine,
     pub machine_quiet: MachineQuiet,
-    /// The workspace repos the suite reads, at their commit SHAs.
-    pub workspace: BTreeMap<String, String>,
 }
 
 /// One timed process. Counter mode adds its counts (`instructions:u`,
@@ -177,23 +175,34 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         suite_files.insert(file.to_string_lossy().into_owned(), resolved.clone());
         Ok(resolved)
     };
+    // every workload's script, run by a runtime or not
+    let scripts = suite
+        .workloads
+        .iter()
+        .map(|workload| Ok((workload.name.as_str(), resolve(&workload.script)?)))
+        .collect::<Result<BTreeMap<_, _>, BenchError>>()?;
+    let program_of: BTreeMap<&str, &Program> = suite
+        .runtimes
+        .iter()
+        .map(|runtime| runtime.name.as_str())
+        .zip(&programs)
+        .collect();
     let mut rows = Vec::new();
-    for workload in &suite.workloads {
-        let script = resolve(&workload.script)?;
-        for (runtime, program) in suite.runtimes.iter().zip(&programs) {
-            if !runtime.runs(&workload.name) {
-                continue;
-            }
-            let (args, env) = row_args(runtime, workload, &script, &mut resolve)?;
-            rows.push(RowCommand {
-                runtime: runtime.name.clone(),
-                workload: workload.name.clone(),
-                program: program.clone(),
-                args,
-                env,
-                warmup: workload.warmup,
-            });
-        }
+    for (workload, runtime) in suite.rows() {
+        let (args, env) = row_args(
+            runtime,
+            workload,
+            &scripts[workload.name.as_str()],
+            &mut resolve,
+        )?;
+        rows.push(RowCommand {
+            runtime: runtime.name.clone(),
+            workload: workload.name.clone(),
+            program: program_of[runtime.name.as_str()].clone(),
+            args,
+            env,
+            warmup: workload.warmup,
+        });
     }
     let before = hash_artifacts(&artifacts)?;
     let artifact_hashes: BTreeMap<String, String> = suite_files
@@ -274,7 +283,6 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         machine: context.machine,
         machine_quiet: context.machine_quiet,
         corpora: corpora.map(|(_, tree)| tree),
-        workspace: context.workspace,
         runtimes,
         artifacts: artifact_hashes,
         rows: rows_record,

@@ -143,6 +143,30 @@ fn host_internals_are_not_visible() {
     );
 }
 
+/// Every global name user code sees, pinned in `global_names.txt`, one a line,
+/// sorted: a `deno_core` or V8 upgrade that adds a global (V8's flags have
+/// brought `Temporal` and `DisposableStack`) fails here rather than widening
+/// the surface silently. To accept a change deliberately, write the fixture's
+/// output over the file, from the fixtures directory:
+/// `../../../../../target/debug/fgro run global_names.js > global_names.txt`.
+#[test]
+fn the_global_names_are_pinned() {
+    let run = run("global_names.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let expected = std::fs::read_to_string(fixtures().join("global_names.txt")).unwrap();
+    let names = |text: &str| -> std::collections::BTreeSet<String> {
+        text.lines().map(str::to_owned).collect()
+    };
+    let (seen, pinned) = (names(&run.stdout), names(&expected));
+    let added: Vec<&String> = seen.difference(&pinned).collect();
+    let removed: Vec<&String> = pinned.difference(&seen).collect();
+    assert!(
+        added.is_empty() && removed.is_empty() && run.stdout == expected,
+        "the global names differ from tests/fixtures/run/global_names.txt\n  added: {added:?}\n  removed: {removed:?}\n\
+         update the file only if the change is deliberate (see this test's doc)"
+    );
+}
+
 #[test]
 fn web_globals_work() {
     let run = run("web_globals.js");
@@ -419,6 +443,8 @@ fn non_utf8_argument_is_a_usage_error() {
 /// terminal, returning what reached the terminal.
 #[cfg(target_os = "linux")]
 fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
+    // probed once per test binary, not once per call
+    static SCRIPT_PROBED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     let command = format!("'{}' run console.js {redirect}", env!("CARGO_BIN_EXE_fgro"));
     let mut script = Command::new("script");
     script
@@ -428,10 +454,12 @@ fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
         .env_remove("CLAUDECODE")
         .envs(env.iter().copied());
     // fail loudly rather than skip: the color policy has no other test
-    Command::new("script")
-        .arg("--version")
-        .output()
-        .expect("util-linux `script` is required for the terminal color tests");
+    SCRIPT_PROBED.get_or_init(|| {
+        Command::new("script")
+            .arg("--version")
+            .output()
+            .expect("util-linux `script` is required for the terminal color tests");
+    });
     let output = output_within_deadline(&mut script);
     assert!(output.status.success(), "{output:?}");
     String::from_utf8(output.stdout).unwrap()

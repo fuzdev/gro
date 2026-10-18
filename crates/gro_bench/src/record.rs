@@ -22,7 +22,7 @@ use crate::error::BenchError;
 use crate::stats::Stats;
 
 /// The line shape's version, bumped when it changes incompatibly.
-pub const RECORD_VERSION: u32 = 3;
+pub const RECORD_VERSION: u32 = 4;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,8 +44,6 @@ pub struct RunRecord {
     /// The tree id of the corpora's `collections/`, when the suite reads
     /// them: the suite's pin, checked before and after the run.
     pub corpora: Option<String>,
-    /// The workspace repos a suite reads, by name, at their commit SHAs.
-    pub workspace: BTreeMap<String, String>,
     /// The runtimes, in suite order.
     pub runtimes: Vec<RuntimeInfo>,
     /// The blake3 hash of every workload script and file argument, by its
@@ -326,7 +324,6 @@ mod tests {
             },
             machine_quiet: MachineQuiet::Attested,
             corpora: Some("4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_owned()),
-            workspace: BTreeMap::from([("fuz_util".to_owned(), "0123abcd".to_owned())]),
             runtimes: vec![
                 RuntimeInfo {
                     name: "node".to_owned(),
@@ -388,9 +385,44 @@ mod tests {
         assert_eq!(value["runtimes"][1]["v8"], serde_json::Value::Null);
         assert_eq!(value["rows"][0]["wall_ns"]["stats"]["n"], 5);
         assert_eq!(value["rows"][0]["wall_ns"]["samples"][4], 120_000_000);
-        assert_eq!(value["workspace"]["fuz_util"], "0123abcd");
         assert_eq!(value["artifacts"]["shims/deno.js"], "01".repeat(32));
         assert_eq!(value["runtimes"][0]["gzip_bytes"], 43_625_117);
+    }
+
+    /// The record's top-level keys, pinned with [`RECORD_VERSION`]: a change
+    /// to this list is a change to the line shape, so it bumps the version in
+    /// the same edit (the history is append-only, and older lines keep theirs).
+    #[test]
+    fn the_line_shape_is_pinned_with_its_version() {
+        let value: serde_json::Value = serde_json::from_str(&record().to_line()).unwrap();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            (RECORD_VERSION, keys),
+            (
+                4,
+                vec![
+                    "artifacts",
+                    "config_hash",
+                    "corpora",
+                    "git",
+                    "machine",
+                    "machine_quiet",
+                    "noise",
+                    "record_version",
+                    "rows",
+                    "runtimes",
+                    "started_unix_s",
+                    "suite",
+                ]
+            )
+        );
+        assert_eq!(value["record_version"], RECORD_VERSION);
     }
 
     #[test]
@@ -433,29 +465,31 @@ mod tests {
         }
     }
 
+    /// Commits in the checkout at `root` with a throwaway identity and no
+    /// signing, passing `extra` (such as `--allow-empty`) and the message.
+    fn commit(root: &Path, extra: &[&str], message: &str) {
+        let mut args = vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+        ];
+        args.extend(extra);
+        args.extend(["-m", message]);
+        git(root, &args).unwrap();
+    }
+
     /// A fresh checkout with one commit, at `<temp>/<name>/repo`.
     fn git_checkout(name: &str) -> (PathBuf, PathBuf) {
         let base = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
         let root = base.join("repo");
         fs::create_dir_all(&root).unwrap();
-        for args in [
-            &["init", "--quiet"][..],
-            &[
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@example.com",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "init",
-            ],
-        ] {
-            git(&root, args).unwrap();
-        }
+        git(&root, &["init", "--quiet"]).unwrap();
+        commit(&root, &["--allow-empty"], "init");
         (base, root)
     }
 
@@ -480,22 +514,7 @@ mod tests {
         fs::create_dir_all(root.join("collections/a")).unwrap();
         fs::write(root.join("collections/a/x.ts"), "export {};\n").unwrap();
         git(&root, &["add", "."]).unwrap();
-        git(
-            &root,
-            &[
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@example.com",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "--quiet",
-                "-m",
-                "add",
-            ],
-        )
-        .unwrap();
+        commit(&root, &[], "add");
         let tree = read_corpora_tree(&root).unwrap();
         let expected = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
         // a change outside `collections/` doesn't count

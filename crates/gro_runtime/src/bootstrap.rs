@@ -32,22 +32,27 @@ const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[ExtensionFileSource::new(
 /// stderr, is colored. The one place every color input is read: the stream
 /// must be a terminal, and neither `NO_COLOR` nor `CLAUDECODE` may be set to a
 /// non-empty value (an agent's transcript shouldn't carry ANSI codes). The
-/// host reads the environment, once; user code never sees it.
+/// host reads the environment and asks each stream once per process, on
+/// first use (statics, so never in a snapshot); user code never sees either.
 fn use_color(stderr: bool) -> bool {
     static ENV_ALLOWS_COLOR: OnceLock<bool> = OnceLock::new();
+    // stdout's, then stderr's: whether the stream is a terminal
+    static IS_TERMINAL: [OnceLock<bool>; 2] = [OnceLock::new(), OnceLock::new()];
     let env_allows_color = *ENV_ALLOWS_COLOR.get_or_init(|| {
         let set = |name| std::env::var_os(name).is_some_and(|value| !value.is_empty());
         !set("NO_COLOR") && !set("CLAUDECODE")
     });
     env_allows_color
-        && if stderr {
-            std::io::stderr().is_terminal()
-        } else {
-            std::io::stdout().is_terminal()
-        }
+        && *IS_TERMINAL[usize::from(stderr)].get_or_init(|| {
+            if stderr {
+                std::io::stderr().is_terminal()
+            } else {
+                std::io::stdout().is_terminal()
+            }
+        })
 }
 
-/// [`use_color`] for the console, asked per write.
+/// [`use_color`] for the console, asked per write (and answered from its cache).
 #[op2(fast)]
 fn op_gro_color(stderr: bool) -> bool {
     use_color(stderr)

@@ -22,7 +22,6 @@ fn context() -> RunContext {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        workspace: BTreeMap::new(),
     }
 }
 

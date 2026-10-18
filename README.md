@@ -261,6 +261,13 @@ npm link ../gro # from `otherproject/`
 gro build # from `../gro` on changes
 ```
 
+The Rust runtime in `crates/` ([docs](src/docs/runtime.md)) builds on x86_64 Linux.
+Run `cargo xtask fetch-v8` before any plain cargo command, since every build links
+the pinned V8 archive it downloads and verifies.
+`cargo xtask build --release` builds `fgro` with its startup snapshot,
+`target/gro_snapshot/release/fgro run file.js` runs a module,
+and `cargo xtask check` runs every gate, the Rust and JS halves together.
+
 ## Credits 🐢<sub>🐢</sub><sub><sub>🐢</sub></sub>
 
 Gro builds on

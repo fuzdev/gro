@@ -3,7 +3,6 @@
 //! minimal sample count. It measures nothing worth keeping and writes no
 //! history.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use gro_bench::record::{GitState, Machine, MachineQuiet};
@@ -28,7 +27,6 @@ fn smoke_suite_runs_under_installed_runtimes() {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        workspace: BTreeMap::new(),
     };
     let record = run(&suite, &dir, context).unwrap();
     assert_eq!(record.runtimes.len(), suite.runtimes.len());

@@ -7,11 +7,13 @@
 //!
 //! `cargo xtask build [--release]` builds `fgro` with an embedded startup
 //! snapshot in two stages ([`snapshot`]), at
-//! `target/gro_snapshot/<profile>/fgro`; `--verify` also runs the integration
-//! tests against it and checks that it runs with its build tree hidden.
+//! `<target>/gro_snapshot/<profile>/fgro`; `--verify` also runs the
+//! integration tests against it and checks that it runs with its build tree
+//! hidden.
 //!
-//! `cargo xtask check-js` runs only the JS/TS step of `check` (4 below), for
-//! CI's Node job, which has no V8 build.
+//! `cargo xtask check-rust` runs the Rust half of `check` (1 to 3 below), for
+//! CI's rust job, and `cargo xtask check-js` only its JS/TS step (4 below),
+//! for CI's Node job, which has no V8 build.
 //!
 //! `cargo xtask check` is the one local command that checks both halves of
 //! the repo. It runs these steps in order, printing each command first and
@@ -61,13 +63,12 @@
 //! A usage error (an unknown subcommand or flag, a missing argument) exits
 //! `2` as well, printing to stderr; `--help` prints to stdout and exits `0`.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 use argh::{EarlyExit, FromArgs};
 use gro_bench::error::BenchError;
@@ -114,11 +115,18 @@ struct Xtask {
 #[argh(subcommand)]
 enum Subcommand {
     Check(Check),
+    CheckRust(CheckRust),
     CheckJs(CheckJs),
     FetchV8(FetchV8),
     Build(Build),
     Bench(Bench),
 }
+
+/// fetch V8, run the Rust gates, and build and verify the snapshot fgro, the
+/// steps of `check` that need no Node
+#[derive(FromArgs)]
+#[argh(subcommand, name = "check-rust")]
+struct CheckRust {}
 
 /// typecheck and format-check the JS/TS under crates/, the step of `check`
 /// that needs Node and no Rust build
@@ -208,6 +216,7 @@ fn main() -> ExitCode {
     let root = root();
     let result = match xtask.command {
         Subcommand::Check(Check {}) => check(&root),
+        Subcommand::CheckRust(CheckRust {}) => check_rust(&root),
         Subcommand::CheckJs(CheckJs {}) => check_crates_js(&root),
         Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
         Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
@@ -275,7 +284,26 @@ fn target_dir(root: &Path) -> Result<PathBuf, ExitCode> {
     })
 }
 
+/// Checks the V8 library copy the last build of `profile` left under
+/// `target_dir` against the pin, before anything runs V8 code.
+fn verify_linked_step(target_dir: &Path, profile: &str) -> StepResult {
+    v8_archive::verify_linked(target_dir, profile).map_err(|error| {
+        eprintln!("[xtask] {error}");
+        ExitCode::FAILURE
+    })?;
+    println!("[xtask] the V8 library copy matches the pinned archive");
+    Ok(())
+}
+
 fn check(root: &Path) -> StepResult {
+    check_rust(root)?;
+    check_crates_js(root)?;
+    run(root, &[], "gro", &["check"])
+}
+
+/// The Rust half of [`check`]: the V8 archive, the Rust gates, and the
+/// snapshot build with its verification.
+fn check_rust(root: &Path) -> StepResult {
     fetch_v8(root)?;
     run(root, &[], "cargo", &["fmt", "--all", "--check"])?;
     run(
@@ -294,11 +322,7 @@ fn check(root: &Path) -> StepResult {
     )?;
     // the first build step; check the V8 library copy before the tests run V8 code
     let target_dir = target_dir(root)?;
-    v8_archive::verify_linked(&target_dir, "debug").map_err(|error| {
-        eprintln!("[xtask] {error}");
-        ExitCode::FAILURE
-    })?;
-    println!("[xtask] the V8 library copy matches the pinned archive");
+    verify_linked_step(&target_dir, "debug")?;
     run(
         root,
         &[],
@@ -319,9 +343,7 @@ fn check(root: &Path) -> StepResult {
         ],
     )?;
     let binary = snapshot::build(root, &target_dir, false)?;
-    snapshot::verify(root, false, &binary)?;
-    check_crates_js(root)?;
-    run(root, &[], "gro", &["check"])
+    snapshot::verify(root, false, &binary)
 }
 
 /// Runs a suite, prints a summary, and appends the record to the history.
@@ -335,54 +357,45 @@ fn bench(root: &Path, args: Bench) -> StepResult {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let result = Suite::load(&args.suite).and_then(|suite| {
-        build_fgro(root, &suite, suite_dir)?;
+    let suite = Suite::load(&args.suite).map_err(|error| bench_failed(&error))?;
+    build_fgro(root, &suite, suite_dir)?;
+    let result = GitState::read(root, &history).and_then(|git| {
         let context = RunContext {
-            git: GitState::read(root, &history)?,
+            git,
             machine: Machine::detect(),
             machine_quiet: if args.attest_quiet {
                 MachineQuiet::Attested
             } else {
                 MachineQuiet::Unchecked
             },
-            workspace: BTreeMap::new(),
         };
         println!(
             "[xtask] bench {} v{}: {} rows plus the noise row, {} samples each, interleaved",
             suite.name,
             suite.version,
-            suite
-                .workloads
-                .iter()
-                .map(|workload| suite
-                    .runtimes
-                    .iter()
-                    .filter(|runtime| runtime.runs(&workload.name))
-                    .count())
-                .sum::<usize>(),
+            suite.rows().count(),
             suite.samples,
         );
         let record = run_suite(&suite, suite_dir, context)?;
         record.append_to(&history)?;
-        Ok((suite, record))
+        Ok(record)
     });
-    match result {
-        Ok((suite, record)) => {
-            print_summary(&record);
-            print_gate(&suite, &record);
-            println!("[xtask] appended the record to {}", history.display());
-            Ok(())
-        }
-        Err(error) => {
-            eprintln!("[xtask] bench failed: {error}");
-            let mut source = error.source();
-            while let Some(cause) = source {
-                eprintln!("  caused by: {cause}");
-                source = cause.source();
-            }
-            Err(ExitCode::from(bench_exit_code(&error)))
-        }
+    let record = result.map_err(|error| bench_failed(&error))?;
+    print_summary(&record);
+    print_gate(&suite, &record);
+    println!("[xtask] appended the record to {}", history.display());
+    Ok(())
+}
+
+/// Prints a failed bench's error with its causes, and returns its exit code.
+fn bench_failed(error: &BenchError) -> ExitCode {
+    eprintln!("[xtask] bench failed: {error}");
+    let mut source = error.source();
+    while let Some(cause) = source {
+        eprintln!("  caused by: {cause}");
+        source = cause.source();
     }
+    ExitCode::from(bench_exit_code(error))
 }
 
 /// The runtime the bench builds before it runs: gro's own `fgro`.
@@ -400,21 +413,21 @@ fn is_fgro(runtime: &Runtime) -> bool {
 /// just built: the only `fgro` worth timing is the release build with its
 /// startup snapshot, the one path that verifies the release V8 library.
 /// Building first (cached when nothing changed) means a stale or debug binary
-/// is never timed.
-fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<(), BenchError> {
+/// is never timed. A failed build has printed its own error, and exits `2`,
+/// since the run can't go ahead until it's fixed.
+fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
     if !suite.runtimes.iter().any(is_fgro) {
         return Ok(());
     }
-    let failed = |what: &str| BenchError::SuiteInvalid(format!("{what}; see the output above"));
-    fetch_v8(root).map_err(|_| failed("the V8 archive isn't ready"))?;
-    let target_dir = target_dir(root).map_err(|_| failed("no cargo target directory"))?;
-    let built = snapshot::build(root, &target_dir, true)
-        .map_err(|_| failed("building the release snapshot fgro failed"))?;
-    let built = built.canonicalize().map_err(|source| BenchError::Read {
-        path: built.clone(),
-        source,
+    let input = |_| ExitCode::from(EXIT_INPUT);
+    fetch_v8(root).map_err(input)?;
+    let target_dir = target_dir(root).map_err(input)?;
+    let built = snapshot::build(root, &target_dir, true).map_err(input)?;
+    let built = built.canonicalize().map_err(|error| {
+        eprintln!("[xtask] bench failed: {}: {error}", built.display());
+        ExitCode::FAILURE
     })?;
-    check_fgro_programs(suite, suite_dir, &built)?;
+    check_fgro_programs(suite, suite_dir, &built).map_err(|error| bench_failed(&error))?;
     println!();
     Ok(())
 }
@@ -541,27 +554,25 @@ fn print_gate(suite: &Suite, record: &RunRecord) {
     let ms =
         |value: Option<f64>| value.map_or_else(|| "-".to_owned(), |value| format!("{value:.3}"));
     let mut lines = Vec::new();
-    for runtime in suite.runtimes.iter().filter(|runtime| is_fgro(runtime)) {
-        for workload in &suite.workloads {
-            let Some(fgro) = median(&runtime.name, &workload.name) else {
-                continue;
-            };
-            let gate = if workload.cold { GATE_COLD } else { GATE_WARM };
-            let ratio = |other: Option<f64>| {
-                other.map_or_else(|| "-".to_owned(), |other| format!("{:.2}x", fgro / other))
-            };
-            lines.push(format!(
-                "{:<10} {:<16} {:>10.3} {:<18} {:>10} {:>9} {:>10} {:>9}",
-                runtime.name,
-                workload.name,
-                fgro,
-                gate,
-                ms(median(gate, &workload.name)),
-                ratio(median(gate, &workload.name)),
-                ms(median(BESIDE, &workload.name)),
-                ratio(median(BESIDE, &workload.name)),
-            ));
-        }
+    for (workload, runtime) in suite.rows().filter(|(_, runtime)| is_fgro(runtime)) {
+        let Some(fgro) = median(&runtime.name, &workload.name) else {
+            continue;
+        };
+        let gate = if workload.cold { GATE_COLD } else { GATE_WARM };
+        let ratio = |other: Option<f64>| {
+            other.map_or_else(|| "-".to_owned(), |other| format!("{:.2}x", fgro / other))
+        };
+        lines.push(format!(
+            "{:<10} {:<16} {:>10.3} {:<18} {:>10} {:>9} {:>10} {:>9}",
+            runtime.name,
+            workload.name,
+            fgro,
+            gate,
+            ms(median(gate, &workload.name)),
+            ratio(median(gate, &workload.name)),
+            ms(median(BESIDE, &workload.name)),
+            ratio(median(BESIDE, &workload.name)),
+        ));
     }
     if lines.is_empty() {
         return;
@@ -670,6 +681,19 @@ fn run_program(
     display: &str,
     args: &[&str],
 ) -> StepResult {
+    run_program_to(root, env, program, display, args, Stdio::inherit())
+}
+
+/// [`run_program`] with the program's stdout sent to `stdout`; its stderr,
+/// where failures print, is always inherited.
+fn run_program_to(
+    root: &Path,
+    env: &[(&str, &str)],
+    program: &Path,
+    display: &str,
+    args: &[&str],
+    stdout: Stdio,
+) -> StepResult {
     print!("\n[xtask] ");
     for (key, value) in env {
         print!("{key}='{value}' ");
@@ -679,6 +703,7 @@ fn run_program(
         .args(args)
         .envs(env.iter().copied())
         .current_dir(root)
+        .stdout(stdout)
         .status()
         .map_err(|error| {
             eprintln!("[xtask] failed to run {display}: {error}");
@@ -774,6 +799,7 @@ mod tests {
         assert!(parse_args(&args(&["build", "--release", "--verify"])).is_ok());
         assert!(parse_args(&args(&["fetch-v8"])).is_ok());
         assert!(parse_args(&args(&["check-js"])).is_ok());
+        assert!(parse_args(&args(&["check-rust"])).is_ok());
         for bad in [
             &["nope"][..],
             &["bench"],

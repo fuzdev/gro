@@ -32,7 +32,8 @@ const compression_ns = load('ext:deno_web/14_compression.js');
 const performance_ns = load('ext:deno_web/15_performance.js');
 
 // colored output only to a terminal, and never with NO_COLOR or CLAUDECODE set
-// non-empty (the host's `use_color` decides); asked per write, not at bootstrap
+// non-empty (the host's `use_color` decides, once per process); asked per write,
+// not at bootstrap, so the snapshot never carries the answer
 console_ns.setNoColorFns(
 	() => !op_gro_color(false),
 	() => !op_gro_color(true)

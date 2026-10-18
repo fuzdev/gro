@@ -61,7 +61,7 @@ jobs:
 
   # The Rust workspace (crates/), beside the npm package; `gro check` doesn't
   # reach it, so it gets its own job. Locally, `cargo xtask check` runs these
-  # gates and `gro check` together.
+  # gates (`check-rust`), the JS/TS step (`check-js`), and `gro check` together.
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -84,32 +84,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
-      # Every cargo build links the pinned V8 archive that .cargo/config.toml
-      # names (RUSTY_V8_ARCHIVE), so fetch it and verify its SHA-256 first.
-      - name: Fetch V8
-        run: cargo xtask fetch-v8
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-
-      # --no-fail-fast: report every failing test binary, not just the first.
-      - name: Test
-        run: cargo test --locked --workspace --no-fail-fast
-
-      # The rustdoc lints fire only under `cargo doc`; private items too, so
-      # the links in their docs are checked.
-      - name: Doc
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --locked --workspace --no-deps --document-private-items
-
-      # fgro with an embedded startup snapshot, its tests, and a run with the
-      # build tree's sources hidden in a private user and mount namespace,
+      # The Rust gates as `cargo xtask check` runs them, in one command: the
+      # pinned V8 archive (fetched, SHA-256 verified), fmt, clippy, the V8
+      # library copy checked before the tests run V8 code, test, doc, and fgro
+      # with an embedded startup snapshot, verified by its tests and a run with
+      # the build tree's sources hidden in a private user and mount namespace,
       # which the runner's AppArmor policy forbids by default.
-      - name: Snapshot
+      - name: Check
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          cargo xtask build --verify
+          cargo xtask check-rust

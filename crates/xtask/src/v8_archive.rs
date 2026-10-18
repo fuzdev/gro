@@ -188,19 +188,17 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
 fn clean_v8(root: &Path) -> Result<(), ArchiveError> {
     // the built-in `dev` and `release`, plus every custom `[profile.*]` in `Cargo.toml`
     for profile in ["dev", "release", "profiling"] {
-        println!("[xtask] cargo clean --locked -p v8 --profile {profile}");
-        let status = Command::new("cargo")
-            .args(["clean", "--locked", "-p", "v8", "--profile", profile])
-            .current_dir(root)
-            .status()
-            .map_err(|error| {
-                ArchiveError::Command(format!("failed to run cargo clean: {error}"))
-            })?;
-        if !status.success() {
-            return Err(ArchiveError::Command(format!(
-                "cargo clean -p v8 --profile {profile} failed ({status})"
-            )));
-        }
+        crate::run(
+            root,
+            &[],
+            "cargo",
+            &["clean", "--locked", "-p", "v8", "--profile", profile],
+        )
+        .map_err(|_| {
+            ArchiveError::Command(format!(
+                "cargo clean -p v8 --profile {profile} failed; see the output above"
+            ))
+        })?;
     }
     Ok(())
 }
@@ -287,13 +285,19 @@ fn download(path: &Path) -> Result<(), ArchiveError> {
     Ok(())
 }
 
+/// The start of a temporary download's file name: `download` names it after
+/// the archive with its `.gz` replaced by `.partial-<pid>`.
+fn partial_prefix() -> String {
+    format!("{}.partial-", FILE_NAME.trim_end_matches(".gz"))
+}
+
 /// Removes the temporary files of earlier downloads from `dir`.
 fn remove_partials(dir: &Path) -> Result<(), ArchiveError> {
     let io_error = |source| ArchiveError::Io {
         path: dir.to_path_buf(),
         source,
     };
-    let prefix = format!("{}.partial-", FILE_NAME.trim_end_matches(".gz"));
+    let prefix = partial_prefix();
     for entry in fs::read_dir(dir).map_err(io_error)? {
         let entry = entry.map_err(io_error)?;
         if entry.file_name().to_string_lossy().starts_with(&prefix) {
@@ -386,7 +390,7 @@ mod tests {
     fn a_partial_download_is_named_for_cleanup() {
         // `download` names its temporary file this way, and `remove_partials` matches it
         let partial = Path::new(FILE_NAME).with_extension("partial-1");
-        let prefix = format!("{}.partial-", FILE_NAME.trim_end_matches(".gz"));
+        let prefix = partial_prefix();
         assert!(
             partial.to_string_lossy().starts_with(&prefix),
             "{partial:?}"

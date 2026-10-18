@@ -467,7 +467,8 @@ comparison with Deno.
   the same extension list), else from source, reading `deno_web`'s JS from the
   build tree; the per-process steps run after startup either way
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module from disk
-  (exit `0` success, `1` an uncaught error or unhandled rejection, `2` a usage
+  and takes only the entry file, with no script arguments yet (exit `0`
+  success, `1` an uncaught error or unhandled rejection, `2` a usage
   error, including a missing entry); console output is colored only on a
   terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off.
   `fgro --version` names the V8 version and whether a snapshot is embedded. Its
@@ -492,7 +493,8 @@ comparison with Deno.
   after `cargo xtask build --release`, so the bench's own build is a cache hit
   and doesn't load the machine just before timing
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
-  `check-js` (the JS/TS step alone, which CI's Node job runs), `bench`
+  `check-rust` (the Rust half alone, which CI's rust job runs), `check-js`
+  (the JS/TS step alone, which CI's Node job runs), `bench`
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE` (under
@@ -511,7 +513,7 @@ download's integrity; local writes to the target directory are out of scope,
 since anyone who can write there can alter any build output already. A plain
 cargo build against a bad file, fixed by hand before any xtask runs, goes
 undetected until a newer `v8` verifies `RUSTY_V8_ARCHIVE_SHA256` itself. CI
-runs the fetch first.
+runs the fetch first, as the first step of `check-rust`.
 
 **Snapshot builds.** `cargo xtask build [--release]` makes the `fgro` that
 starts from a snapshot and runs off its build tree, in two stages: the plain
@@ -524,10 +526,12 @@ a run of a fixture with the cargo registry's sources and gro's own extension
 sources hidden (tmpfs mounts under `unshare -rm`, which needs unprivileged user
 namespaces and fails when they're unavailable).
 
-`cargo xtask check` is the one local command for both halves: the V8 archive,
-the Rust gates (`cargo fmt`, `clippy`, `test`, and `doc`, with warnings
-denied), `build --verify`, the JS/TS under `crates/` (which `gro check`'s
-typecheck and format don't reach), then `gro check`. The toolchain is pinned
+`cargo xtask check` is the one local command for both halves: `check-rust`
+(the V8 archive, the Rust gates `cargo fmt`, `clippy`, `test`, and `doc` with
+warnings denied, then `build --verify`), `check-js` (the JS/TS under
+`crates/`, which `gro check`'s typecheck and format don't reach), then
+`gro check`. CI runs the first two as its own jobs, so the gate list lives in
+the xtask only. The toolchain is pinned
 in `rust-toolchain.toml`, every crate takes the workspace lints, and `unsafe`
 is forbidden.
 

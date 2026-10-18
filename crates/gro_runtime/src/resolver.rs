@@ -21,10 +21,10 @@
 //!   extension are refused by name.
 //!
 //! What fails, loudly, with the reason and a fix: `node:` (no Node compat),
-//! `npm:`, `jsr:`, `http:`, `https:`, and `data:` (registry and remote
-//! specifiers; only files on disk load), any other non-`file:` scheme, `#`
-//! package imports, and bare specifiers, since package resolution isn't
-//! supported yet.
+//! `npm:` and `jsr:` (registry specifiers), `http:`, `https:`, and `data:`
+//! (remote and inline; only files on disk load), any other non-`file:`
+//! scheme, `#` package imports, bare specifiers (package resolution isn't
+//! supported yet), and the empty specifier.
 
 use std::fmt;
 use std::io;

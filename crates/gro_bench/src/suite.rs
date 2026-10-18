@@ -121,8 +121,8 @@ pub struct Runtime {
     #[serde(default)]
     pub cold: Option<Cold>,
     /// The workloads it runs, by name, when it can't run them all; every
-    /// workload when absent. Left out of the config hash when absent, so a
-    /// suite that lists none hashes as it did before the field existed.
+    /// workload when absent. Absent serializes as no key, so the config hash
+    /// of a suite that lists none doesn't depend on the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workloads: Option<Vec<String>>,
 }
@@ -223,6 +223,17 @@ impl Suite {
         })?;
         suite.validate()?;
         Ok(suite)
+    }
+
+    /// The rows a run measures, workload by workload, each in runtime order:
+    /// every workload paired with every runtime that runs it.
+    pub fn rows(&self) -> impl Iterator<Item = (&Workload, &Runtime)> {
+        self.workloads.iter().flat_map(|workload| {
+            self.runtimes
+                .iter()
+                .filter(|runtime| runtime.runs(&workload.name))
+                .map(move |runtime| (workload, runtime))
+        })
     }
 
     /// Checks what the types can't: something to run, an even sample count,
@@ -431,10 +442,25 @@ mod tests {
     }
 
     #[test]
+    fn rows_pair_each_workload_with_the_runtimes_that_run_it() {
+        let suite = parse(
+            r#"{"name":"s","version":1,"samples":2,
+                "runtimes":[{"name":"a","program":"a"},{"name":"b","program":"b","workloads":["y"]}],
+                "workloads":[{"name":"x","script":"x.js"},{"name":"y","script":"y.js"}]}"#,
+        )
+        .unwrap();
+        let rows: Vec<(&str, &str)> = suite
+            .rows()
+            .map(|(workload, runtime)| (workload.name.as_str(), runtime.name.as_str()))
+            .collect();
+        assert_eq!(rows, [("x", "a"), ("y", "a"), ("y", "b")]);
+    }
+
+    #[test]
     fn an_absent_workload_list_leaves_the_config_hash_alone() {
         let suite = parse(r#"{"name":"s","version":1,"samples":4,"runtimes":[{"name":"r","program":"r"}],"workloads":[{"name":"w","script":"w.js"}]}"#).unwrap();
         let value = serde_json::to_value(&suite).unwrap();
-        // the hashed form has no key for it, as before the field existed
+        // absent serializes as no key, so the hash of a suite without lists is unchanged
         assert!(value["runtimes"][0].get("workloads").is_none(), "{value}");
     }
 

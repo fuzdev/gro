@@ -14,7 +14,6 @@
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
 //!   `__bootstrap` from the global object
-//!
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
 //!
