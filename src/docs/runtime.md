@@ -11,14 +11,13 @@
 > It takes only the entry file, with no script arguments yet;
 > the README's [Develop](../../README.md#develop) section says how to build and run it.
 > Everything below is designed; only what the [roadmap](#roadmap) marks done is built.
-> This is a design in progress and it doesn't have every answer yet
-> (the [open questions](#open-questions) say which);
-> feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
+> It doesn't have every answer yet (the [open questions](#open-questions) say which),
+> and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
 built on web standards instead of Node compat,
 with granular control over what code can reach.
-It's confined by construction: a module reaches only what it imports or is handed,
+By default a run is confined: a module reaches only what it imports or is handed,
 the way a function reaches only the bindings in scope,
 so what a run can reach is a static fact about its import graph,
 reviewed like a lockfile, and the common case has nothing to declare.
@@ -86,7 +85,7 @@ Designed, not yet built, a run gets:
 - **without asking:** what project code reaches through the host modules it imports,
   scoped to reads under the project root, writes to declared build roots,
   and the public env names it declares
-- **only after a human accepts it:** the network, by named hosts
+- **only after it's accepted in review:** the network, by named hosts
   (a blanket grant exists, accepted the same way and shown as the widest class),
   spawning processes, reads outside the project, private env names,
   and any authority reached through a dependency
@@ -122,10 +121,17 @@ so a gen file that stops being hermetic is a reviewed diff:
 | kind       | network and spawn                      | clock and randomness | reads                         | replays |
 | ---------- | -------------------------------------- | -------------------- | ----------------------------- | ------- |
 | hermetic   | none                                   | fixed or denied      | under the root, each recorded | exactly |
-| confined   | by grant                               | ambient              | by grant                      | no      |
-| unconfined | everything (`-A`, `publish`, `deploy`) | ambient              | everything                    | no      |
+| confined   | by grant                               | real                 | by grant                      | no      |
+| unconfined | everything (`-A`, `publish`, `deploy`) | real                 | everything                    | no      |
 
 Gen files and `gro eval` are hermetic by default.
+
+A grant is always a grant of something specific, so granting individually,
+even a blanket network grant, keeps a run confined, just with a wider reach shown in the diff.
+That includes the authority globals: `fetch` reaches every module in the graph,
+but only to the hosts accepted.
+Only `-A` (`--allow-all`, as in Deno) runs unconfined, and a grant as strong as `-A`,
+like spawning a shell, is flagged that way in the diff.
 
 The guarantees come in two kinds, and it's worth knowing which is which.
 By construction, with no setting that changes them:
@@ -191,7 +197,6 @@ a surface small enough to audit, where every path to the OS is an import or a de
 Gro will run the same V8 as Node and Deno, so steady-state compute will be at parity;
 the wins are everything around the engine (startup, loading, caching, work avoided).
 Gro isn't security maximalism: the defaults are safe and the user decides when to widen them.
-Feedback is welcome to help navigate these tradeoffs.
 
 The runtime is a Rust binary embedding V8 through [rusty_v8](https://github.com/denoland/rusty_v8).
 It's bootstrapped on [deno_core](https://crates.io/crates/deno_core)
@@ -282,7 +287,7 @@ so each piece can be rewritten on its own as measurements justify it.
 ## Compared to Deno
 
 If you know Deno, the ingredients are familiar:
-V8, web standards, TypeScript without a build step, and permissions off by default.
+V8, web standards, TypeScript without a build step, and deny-by-default permissions.
 Gro starts there and takes the other side of most of Deno's later choices:
 
 - **Node:** Deno added `node:*`, `npm:`, and CommonJS; gro declines all three.
@@ -296,7 +301,7 @@ Gro starts there and takes the other side of most of Deno's later choices:
 - **TypeScript:** Deno transpiles the full language;
   gro strips erasable syntax only, so positions never move.
 - **Native code:** Deno's FFI runs in-process under `--allow-ffi`;
-  gro's runs in a confined process of its own, never the runtime's.
+  gro's planned FFI runs in a confined process of its own, never the runtime's.
 
 Each of these is a guarantee by omission.
 Deno can offer an opt-out, and does for some,
@@ -371,7 +376,7 @@ Gro's claim is the shape of the boundary, not its maturity.
   `gro run` and `gro eval` get exactly their file's graph; `gro task` gets the union of
   what the invocation reaches, since a task holds the context (config, `invoke_task`).
 - **Deterministic runs.** Clock and randomness stay the web's globals,
-  set per run kind (ambient, denied, or fixed) rather than imported,
+  set per run kind (real, denied, or fixed) rather than imported,
   and hermetic runs pin the time zone and locale,
   so an eval or gen run replays exactly.
   Eval and gen see the project at a fixed root, never this machine's absolute paths,
@@ -399,7 +404,7 @@ Gro's claim is the shape of the boundary, not its maturity.
 
 ## Open questions
 
-Security is the north star and speed is a close second, and neither is finished.
+Security is the north star, and neither it nor speed is finished.
 The design doesn't have every answer; these are the ones it knows it's missing:
 
 - **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
@@ -416,8 +421,8 @@ The design doesn't have every answer; these are the ones it knows it's missing:
 - **Where the builtins' grants live.** `gro check` spawns Node tools through gro's own tasks,
   so "nothing to declare" holds only once the builtins' grants ship with the binary
   and a project's policy file holds project tasks alone.
-- **Eval and WASM.** With the JIT off, eval can't run WASM, so a config that imports a WASM module
-  needs the JIT flag.
+- **Eval and WASM.** With the JIT off, WASM support is limited,
+  so a config that imports a WASM module may need the JIT flag.
 
 ## Roadmap
 

@@ -19,14 +19,14 @@ with granular control over what it can reach.
 By default a run is confined: code gets only the files, network, and processes its imports declare,
 nothing by default, recorded in a small policy file you review like a lockfile,
 so what an agent's code may do is a diff, and the runtime enforces it.
-A hermetic run is stricter, with its clock and randomness fixed too,
+A hermetic run is strictly deterministic, with its clock and randomness fixed,
 so it replays and caches by construction;
 an unconfined run (`-A`) is the escape hatch when you need it.
-It grew out of the loader Gro already uses to run tasks, config, and codegen,
+The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node towards Web standards.
-The runtime is an in-progress design with an experimental build - see
+It's an in-progress design with an experimental build - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
-and bring feedback to [discussions](https://github.com/fuzdev/gro/discussions).
+and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
