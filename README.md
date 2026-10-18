@@ -14,18 +14,19 @@ for making web frontends, servers, and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you don't fully trust, like from your dependencies and agents,
+a Rust binary on V8 built for code you can't fully trust, like your dependencies and agents,
 with granular control over what it can reach.
-A module reaches only what it imports or is handed,
-the way a function reaches only what's in scope,
-so nothing is granted by default, the common case has nothing to declare,
-and what a program can touch is reviewed in its source, like a lockfile.
-Runs can be hermetic too: their inputs are all known, clock and randomness included,
-so they replay and cache by construction.
+Every run is confined: code gets only the files, network, and processes its imports declare,
+nothing by default, recorded in a small policy file you review like a lockfile,
+so what an agent's code may do is a diff, and the runtime enforces it.
+A hermetic run is stricter, with its clock and randomness fixed too,
+so it replays and caches by construction;
+an unconfined run (`-A`) is the escape hatch when you need it.
 It grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node towards Web standards.
-The runtime is experimental - see
-[the runtime docs](/src/docs/runtime.md) for the roadmap, why it exists, the security model, and design.
+The runtime is an in-progress design with an experimental build - see
+[the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
+and bring feedback to [discussions](https://github.com/fuzdev/gro/discussions).
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
@@ -154,9 +155,9 @@ Or programmatically:
 
 ```js
 // myfile.js
-import {register} from 'node:module';
-register('@fuzdev/gro/loader.ts', import.meta.url);
-await import('./foo.ts');
+import { register } from "node:module";
+register("@fuzdev/gro/loader.ts", import.meta.url);
+await import("./foo.ts");
 ```
 
 Gro has a number of builtin tasks that you can run with the CLI.

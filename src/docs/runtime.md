@@ -11,6 +11,9 @@
 > It takes only the entry file, with no script arguments yet;
 > the README's [Develop](../../README.md#develop) section says how to build and run it.
 > Everything below is designed; only what the [roadmap](#roadmap) marks done is built.
+> This is a design in progress and it doesn't have every answer yet
+> (the [open questions](#open-questions) say which);
+> feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
 built on web standards instead of Node compat,
@@ -51,7 +54,7 @@ The runtime started as an exit.
 The Fuz stack ran on two runtimes it doesn't own:
 Node for gro and the tools it wraps like SvelteKit and Vite,
 and Deno for scripts, tests, and evaluating config it didn't trust under permission flags.
-When Cloudflare bought Deno and put the runtime on bug and security fixes
+When [Cloudflare bought Deno](https://deno.com/blog/cloudflare) and put the runtime on bug and security fixes
 until its end of life in October 2027, everything on it had to move.
 The scripts and tests go to Node.
 The sandbox was the part worth owning:
@@ -77,7 +80,7 @@ any language compiled to it (see [polyglot sandboxing](#what-the-hermetic-design
 
 Code starts with nothing and gets only what it's granted.
 There's no flag to remember and no mode to opt into:
-the default is the confined case, and widening it is a visible, human act.
+the default is the confined case, and widening it is a visible act, reviewed like a lockfile change.
 Designed, not yet built, a run gets:
 
 - **without asking:** what project code reaches through the host modules it imports,
@@ -90,17 +93,27 @@ Designed, not yet built, a run gets:
 - **never short of `-A`:** `.env*` files except through the env module,
   credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
 - **for `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
-  and the JIT off
+  and the JIT off unless a flag turns it on
 - **for native code:** never the runtime's process, not even under `-A`;
   FFI is a grant that loads the library in its own confined process
 
 A script's needs are a static property of its import graph,
 so least privilege costs nothing to write:
 a file that imports only `fuz_util` and the fs module can't spawn or fetch.
+That is `gro run`'s unit, one file's graph; `gro task` runs under the union of what the invocation reaches,
+and a Node tool it spawns is confined by the kernel box, not the grant set.
 The source proposes (inferred host modules, plus a static `grants` literal naming hosts
 and the like) and the committed policy file authorizes:
 a dependency bump that newly reaches the filesystem, spawn, or the network fails
-`gro check` until a human accepts the diff, the same shape as a lockfile change.
+`gro check` until the diff is accepted, the same shape as a lockfile change.
+
+The policy file is also the guardrail for agents:
+what an agent's code may reach sits in one small file a person can audit,
+the runtime enforces it, and a widening is a diff in review.
+How to keep an agent from editing that file itself is open:
+prompting and harness rules cover the normal case and aren't a structural guarantee,
+and a signed acceptance is designed for when it's needed
+([open questions](#open-questions)).
 
 Every run is one of three kinds, derived from its grants,
 recorded in the policy file, and shown in the task listing,
@@ -123,7 +136,7 @@ and a WASM module's imports are its capability declaration the same way.
 By default, where a policy entry or `-A` widens them and the diff shows it:
 the read and write roots, the net hosts, the authority globals, the deny overlays,
 the empty environment for children, the kernel rules, and whether a run stays hermetic.
-A widening of the second kind is a diff a human accepts; the first kind has nothing to widen.
+A widening of the second kind is a diff accepted in review; the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
 `-A` is the one escape hatch, never a default.
@@ -151,6 +164,8 @@ which applies the same grants to the whole invocation and every child process,
 and `gro eval` and FFI each run in a process of their own.
 Code that must be treated as hostile belongs in WASM or a separate process,
 not under a looser grant.
+Until the Node tools leave the loop, an invocation that spawns them
+is as confined as the kernel box, paths and ports, not the grant set.
 Outside the model: the unconfined phases (`publish`, `deploy`, `-A`),
 and on macOS and Windows, anything past the runtime's own checks
 until those platforms get a kernel equivalent.
@@ -161,17 +176,21 @@ The runtime prioritizes, in order:
 
 1. security: no ambient authority, confinement by construction, a kernel backstop under it,
    measured by a gate suite of escape probes the way speed is measured by the bench
-2. web-standards conformance: the WinterTC minimum common API, graded by its WPT subset
-3. speed: startup first, since short-lived invocations dominate an agent-driven loop;
+2. web-standards conformance: the WinterTC minimum common API,
+   graded by its WPT subset under a full grant set
+3. developer control and ergonomics: no prompts, nothing to declare in the common case,
+   and an escape hatch beside every default (`-A`, the globals grant, the JIT flag for eval),
+   since a boundary that's painful gets bypassed
+4. speed: startup first, since short-lived invocations dominate an agent-driven loop;
    measured against Node, Deno, and Bun on the same workloads,
    with no regression against its own history accepted
-4. binary size and memory
-5. embeddability: published crates with a registration API, the binary being one embedder
+5. binary size and memory
 
 Staying simple and small is overarching, and the security story depends on it:
 a surface small enough to audit, where every path to the OS is an import or a declared global.
 Gro will run the same V8 as Node and Deno, so steady-state compute will be at parity;
 the wins are everything around the engine (startup, loading, caching, work avoided).
+Gro isn't security maximalism: the defaults are safe and the user decides when to widen them.
 Feedback is welcome to help navigate these tradeoffs.
 
 The runtime is a Rust binary embedding V8 through [rusty_v8](https://github.com/denoland/rusty_v8).
@@ -220,9 +239,11 @@ so each piece can be rewritten on its own as measurements justify it.
   The global object is the one dynamic channel, and it's sealed after bootstrap:
   a package that writes to it needs a policy entry of its own,
   and a handed capability can't be stashed there as a new global.
-  (Existing globals and the shared prototypes stay mutable, as in browsers,
-  so a reference can still be parked on one; that never widens reach,
-  since whoever parked it held it, and freezing the intrinsics is a per-tier hardening, not the default.)
+  (Existing globals and the shared prototypes stay mutable, as in browsers.
+  A reference parked on one never widens what its holder could reach,
+  but a module that patches a shared prototype can interpose on calls that pass through it,
+  so against a dependency treated as hostile the realm isn't the boundary;
+  freezing the intrinsics is a per-tier hardening, not the default.)
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there;
   ops check the scoped cases (reads under a root).
   On Linux the grant set also becomes kernel rules for the whole invocation
@@ -304,6 +325,8 @@ What follows from it:
   with a `NotCapable` error the code can catch and swallow.
   Gro denies before the code runs: an ungranted host module doesn't link,
   an undeclared `fetch` isn't there.
+  What's left for the call is the scoped check inside a grant
+  (a path outside the root, a host not accepted), and the host reports those too.
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task, or takes `-A`.
   A gro run carries nothing: the grants come from the import graph,
@@ -311,7 +334,7 @@ What follows from it:
   which is lockfile cadence, not run cadence.
   Inference is sound because every entry point is an import;
   no sound equivalent exists over `Deno.*` calls, which any expression can reach.
-- **WASM.** A WASM module's imports are its capability declaration too,
+- **WASM.** A WASM module imported as an ES module declares its capabilities by its imports too,
   so one policy file and one inference cover both.
 
 In one line: Deno's lockfile pins which code runs;
@@ -326,15 +349,15 @@ the host's `net` import is the narrow way to the same thing, and the hint for a 
 The rest are defaults: choices Deno could adopt without breaking anyone,
 some of which it already offers behind a flag.
 
-|                   | Deno                                                                     | gro                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prompts           | asks when stdout is a terminal, or `--no-prompt`                         | never asks and has no dynamic decision authority: the source proposes, a human accepts the diff, the pending run says so, and no hint suggests `-A`                                     |
-| denials           | a thrown error the code can catch                                        | reported by the host, so a `try/catch` can't hide one; under `gro check` and CI a denial fails the run                                                                                  |
-| children          | `--allow-run` spawns outside the sandbox                                 | the grant set becomes kernel rules for every child: an argv, never a shell string, executables resolved when granted, an environment that is empty plus an allowlist                    |
-| kernel            | the op checks stand alone                                                | Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box                                                                                   |
-| denied regardless | `--deny-read=…`, opted into per run                                      | inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A`; credentials reach one process as named grants, never file reads |
-| determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | a hermetic run fixes or denies clock and randomness and replays exactly                                                                                                                 |
-| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | `gro eval`: its own process, the JIT off, no code generation from strings, a heap cap, and no environment variable configures it, every knob a flag                                     |
+|                   | Deno                                                                     | gro                                                                                                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| prompts           | asks when stdout is a terminal, or `--no-prompt`                         | never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`                                                                  |
+| denials           | a thrown error the code can catch                                        | reported by the host, so a `try/catch` can't hide one; under `gro check` and CI a denial fails the run                                                                                                                     |
+| children          | `--allow-run` spawns outside the sandbox                                 | the grant set becomes kernel rules for every child, coarser than in-process (paths and ports, not hosts): an argv, never a shell string, executables resolved when granted, an environment that is empty plus an allowlist |
+| kernel            | the op checks stand alone                                                | Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box                                                                                                                      |
+| denied regardless | `--deny-read=…`, opted into per run                                      | inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A`; credentials reach one process as named grants, never file reads                                    |
+| determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | a hermetic run fixes or denies clock and randomness and replays exactly                                                                                                                                                    |
+| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | `gro eval`: its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap, and no environment variable configures it, every knob a flag                                              |
 
 Deno has pieces gro doesn't: workers with a reduced permission set,
 a runtime API to query, request, and revoke permissions, `--deny-*` overrides,
@@ -363,8 +386,9 @@ Gro's claim is the shape of the boundary, not its maturity.
   so gen files can run in parallel, each confined, with no process spawn;
   trust tiers (project, ecosystem, third party) could get their own global object
   (per-tier contexts, on the roadmap's maybe list).
-- **Polyglot sandboxing.** V8 runs WASM, and a WASM module's imports are its capability declaration,
-  the same thing a JS module's imports are.
+- **Polyglot sandboxing.** V8 runs WASM, and a WASM module imported as an ES module
+  declares its capabilities by its imports, the same thing a JS module's imports are
+  (one instantiated from bytes at run time is a declared entry, like a computed import).
   So one policy file, one inference, and one kernel backstop cover every language that targets WASM,
   and a tool, a plugin, or an agent's script written in Rust, C, Go, Zig, or Python
   runs under the grants its imports declare, beside the TS that calls it, in one process.
@@ -372,6 +396,27 @@ Gro's claim is the shape of the boundary, not its maturity.
   and read roots are its preopens.
   Code that must be treated as hostile goes here or in its own process, never under a looser grant,
   which is what lets the runtime's scope grow past JS without widening the boundary.
+
+## Open questions
+
+Security is the north star and speed is a close second, and neither is finished.
+The design doesn't have every answer; these are the ones it knows it's missing:
+
+- **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
+  normal case; a signed acceptance that needs a person's presence is designed, built only if
+  the measured widening rate makes its friction worth it.
+- **Replay needs deterministic scheduling.** Recorded reads complete on the event loop in no fixed order,
+  so a hermetic run can resolve promises differently between runs.
+  The host has to order completions for "replays exactly" to hold by construction,
+  and the cost is unmeasured.
+- **Interposition through shared prototypes.** A same-realm dependency can patch an intrinsic
+  and intercept a holder's calls. Freezing the intrinsics by default, per-tier contexts,
+  or stating the limit (the current answer) is undecided; the gate suite carries a probe either way.
+- **Where the builtins' grants live.** `gro check` spawns Node tools through gro's own tasks,
+  so "nothing to declare" holds only once the builtins' grants ship with the binary
+  and a project's policy file holds project tasks alone.
+- **Eval and WASM.** With the JIT off, eval can't run WASM, so a config that imports a WASM module
+  needs the JIT flag.
 
 ## Roadmap
 
@@ -391,7 +436,8 @@ run as Node subprocesses under the invocation's kernel rules.
       it replaces Deno for config eval in the Fuz stack
 - [ ] the security gate: a suite of escape probes run under every grant set,
       with every web global and member classified by the authority it carries as the oracle,
-      grown from `gro eval`'s acceptance tests and passed by every milestone after
+      grown from `gro eval`'s acceptance tests and passed by every milestone after,
+      with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] on the Node gro: `gro task <path>` replaces the bare `gro <name>` task search
       and the loader turns strict, so the scripts the Deno exit ports are written once, in the final shape;
       then `gro check` infers each task's grants
