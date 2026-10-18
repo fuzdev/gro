@@ -1,6 +1,8 @@
-import { test, expect } from 'vitest';
+import { test, expect, onTestFinished } from 'vitest';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
-import { readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
 import { update_changelog } from '#lib/changelog.ts';
@@ -22,17 +24,20 @@ const changelog_cache_fixture: FetchValueCache = new Map(
 );
 
 test('update_changelog', async () => {
-	const original = await readFile(fixture_path, 'utf8');
+	// update a copy, so the fixture is never written and concurrent runs can't clobber it
+	const dir = await mkdtemp(join(tmpdir(), 'gro_changelog_'));
+	onTestFinished(() => rm(dir, { recursive: true, force: true }));
+	const changelog_path = join(dir, 'CHANGELOG.md');
+	await copyFile(fixture_path, changelog_path);
 	const result = await update_changelog(
 		'fuzdev',
 		'gro',
-		fixture_path,
+		changelog_path,
 		token,
 		log,
 		changelog_cache_fixture
 	);
-	const updated = await readFile(fixture_path, 'utf8');
-	await writeFile(fixture_path, original, 'utf8');
+	const updated = await readFile(changelog_path, 'utf8');
 	expect(result).toBeTruthy();
 	expect(updated).toBe(
 		`# @fuzdev/gro
