@@ -3,6 +3,10 @@
 Gro's [SvelteKit app plugin](/src/lib/gro_plugin_sveltekit_app.ts)
 runs `vite dev` and `vite build` for SvelteKit projects.
 
+> Where it's going: on the [runtime](runtime.md), Vite runs as a subprocess under the run's kernel rules
+> until Gro bundles dev and build on its own host and Vite leaves the loop;
+> Svelte, Vite, and SvelteKit stay the project's own dependencies throughout.
+
 ```ts
 // gro.config.ts
 import type {CreateGroConfig} from '@fuzdev/gro';

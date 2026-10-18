@@ -11,6 +11,9 @@ gro test thing.test somedir test/a.b # run tests matching patterns
 > inside Gro's normal [task context](/src/docs/task.md).
 > Vitest has native TypeScript support and excellent performance.
 
+> Where it's going: Vitest stays until the [runtime](runtime.md) ships its own test runner near the Node exit,
+> running as a subprocess under the run's kernel rules meanwhile.
+
 Like other tasks, use `--help` to see the args info:
 
 ```bash

@@ -3,6 +3,10 @@
 > automated codegen by convention for
 > [Gro](https://github.com/fuzdev/gro)
 
+> Where it's going: on the [runtime](runtime.md), gen files run hermetic by default,
+> so `gro gen --check` becomes a cache probe
+> and a gen file that stops being hermetic is a reviewed diff.
+
 ## motivation
 
 The [`gro gen` task](/src/lib/gen.task.ts) helps us enhance our projects

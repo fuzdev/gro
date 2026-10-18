@@ -3,6 +3,10 @@
 > task runner for
 > [Gro](https://github.com/fuzdev/gro)
 
+> Where it's going: on the [runtime](runtime.md), `gro task <path>` runs a project task by its full path
+> instead of a searched name, the builtins stay first-class subcommands,
+> and `gro check` infers each task's grants from its imports and diffs them against a committed policy file.
+
 ## contents
 
 - [what](#what)

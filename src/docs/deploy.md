@@ -5,6 +5,9 @@ task was originally designed to support static deployments to
 [GitHub pages](https://pages.github.com/),
 but what it actually does is just [build](./build.md) and push to a branch.
 
+> Where it's going: on the [runtime](runtime.md), `deploy` and `publish` are the named unconfined phases,
+> shown that way in the policy diff, with credentials passed only to the process that needs them.
+
 Importantly, Gro **destructively force pushes** to the `--target` branch, `deploy` by default.
 This is because Gro treats your deployment
 branch as disposable, able to be deleted or squashed or whatever whenever.

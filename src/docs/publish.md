@@ -2,6 +2,9 @@
 
 Here's how to publish a new version of a repo with Gro, including for Gro itself.
 
+> Where it's going: on the [runtime](runtime.md), `publish` and `deploy` are the named unconfined phases,
+> shown that way in the policy diff, with credentials passed only to the process that needs them.
+
 ## svelte-package
 
 Gro uses SvelteKit's [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging)

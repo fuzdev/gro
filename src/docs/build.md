@@ -2,6 +2,9 @@
 
 > these docs are for production builds, for development see [dev.md](dev.md)
 
+> Where it's going: on the [runtime](runtime.md), builds keep this command and its cache,
+> with Vite as a confined subprocess until Gro bundles on its own host.
+
 ## usage
 
 The `gro build` task produces outputs for production:

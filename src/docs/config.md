@@ -7,6 +7,10 @@ If a project does not define a config, Gro imports a default config from
 which looks at your project for the familiar patterns and tries to do the right thing,
 without required deps.
 
+> Where it's going: config stays a TypeScript module.
+> On the [runtime](runtime.md) it runs confined like any other,
+> and `gro eval` gives any tool a confined, deterministic one-shot eval of a module like this one.
+
 > The [default config](/src/lib/gro.config.default.ts)
 > detects three types of projects that can coexist in one repo:
 > SvelteKit frontends,
