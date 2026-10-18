@@ -13,6 +13,8 @@ and [Vite](https://github.com/vitejs/vite)
 for making web frontends, servers, and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
+[`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
+
 Gro is also becoming its own JS runtime,
 a Rust binary on V8 built for code you can't fully trust, like from dependencies and agents,
 with granular control over what it can reach.
@@ -27,8 +29,6 @@ and makes a clean break from Node towards Web standards.
 It's an in-progress design with an experimental build - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
-
-[`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
 The Node tool includes:
 
