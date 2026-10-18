@@ -144,10 +144,10 @@ Designed, not yet built, a run gets:
 
 - **without asking:** what project code reaches through the host modules it imports,
   scoped to reads under the project root, writes to declared build roots,
-  and the env names it declares
+  and the public env names it declares
 - **only after a human accepts it:** the network, by named hosts
   (a blanket grant exists, accepted the same way and shown as the widest class),
-  spawning processes, reads outside the project,
+  spawning processes, reads outside the project, private env names,
   and any authority reached through a dependency
 - **never short of `-A`:** `.env*` files except through the env module,
   credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
