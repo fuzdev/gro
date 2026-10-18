@@ -4,9 +4,9 @@
 > the roadmap, why it exists, the security model, and the design
 
 > **status**: experimental, direction settled, design in progress -
-> `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS module from disk on V8
-> with the web-standard globals, from a startup snapshot when built by `cargo xtask build`
-> (no TypeScript or packages yet, x86_64 Linux only for now).
+> `crates/` holds the Rust workspace, and `fgro run <file>` runs a JS or TypeScript module
+> from disk on V8 with the web-standard globals, from a startup snapshot when built by
+> `cargo xtask build` (no packages yet, x86_64 Linux only for now).
 > It takes only the entry file, with no script arguments yet;
 > the README's [Develop](../../README.md#develop) section says how to build and run it.
 > Everything below is designed; only what the roadmap marks done is built.
@@ -45,7 +45,8 @@ run as Node subprocesses under the invocation's kernel rules.
 - [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
       on the same workloads, the baseline every milestone is gated against
 - [x] `gro run` (as `fgro run` for now): ESM from disk on V8, web-standard globals, a startup snapshot
-- [ ] TypeScript by tsv's type strip, strict package resolution
+- [x] TypeScript by tsv's type strip, in process
+- [ ] strict package resolution
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
@@ -207,7 +208,14 @@ so each piece can be rewritten on its own as measurements justify it.
 - **No runtime namespace.** Beyond the web's globals, everything is an import.
 - **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in-process,
   preserving every position, so stack traces point at the TS source with no source maps.
-  Erasable syntax only, like Node's stripper: no enums, namespaces, or parameter properties.
+  Erasable syntax only, like Node's stripper: no enums, value namespaces, parameter properties,
+  `import =` or `export =`, angle-bracket assertions, or an unparenthesized `as` whose removal
+  would regroup the expression (`-x as number ** 2`); each is refused with its position
+  and a fix, never transformed. Imports follow `verbatimModuleSyntax`: `import {type T}` keeps
+  the import, so its side effects run, while `import type` and `export type … from` drop entirely.
+  `.ts` and `.mts` load as ES modules; `.cts` (CommonJS), `.tsx` (JSX), declaration files,
+  and Svelte modules (`.svelte.ts`, `.svelte.test.ts`, any name with `.svelte.` ending in
+  `.js` or `.ts`, which need the Svelte compiler) are refused with the reason.
 - **No ambient authority.** Permissions are a grant set passed to the runtime at construction,
   empty by default, not process-level flags checked at call time.
   Authority is lexically scoped: a module reaches only what it imports or is handed,

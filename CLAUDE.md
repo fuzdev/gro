@@ -462,16 +462,27 @@ comparison with Deno.
   its JS in `crates/gro_runtime/js/` is embedded and must be 7-bit ASCII, or
   the build fails), and the strict resolver as a pure module (`resolver.rs`,
   no deno_core types): relative and absolute specifiers with mandatory
-  extensions, `.js`/`.mjs` only for now; schemes, bare specifiers, and
-  TypeScript are refused with the reason. It starts from a startup snapshot
-  when the embedder passes one (`snapshot.rs`; built in its own process from
-  the same extension list), else from source, reading `deno_web`'s JS from the
-  build tree; the per-process steps run after startup either way
-- `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module from disk
-  and takes only the entry file, with no script arguments yet (exit `0`
-  success, `1` an uncaught error or unhandled rejection, `2` a usage
-  error, including a missing entry); console output is colored only on a
-  terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off.
+  extensions; `.js`/`.mjs` load as written and `.ts`/`.mts` load stripped of
+  their types in process by tsv (`tsv_ts`, a git dependency pinned by rev; the
+  loader in `loader.rs` blanks types so positions never move, and refuses
+  TypeScript with runtime semantics, such as an `enum`, with its position and
+  a fix); schemes, bare specifiers, `.cts`, `.tsx`, declaration files, and
+  Svelte modules (vite-plugin-svelte's rule: `.svelte.` then any segments then
+  `.js` or `.ts`) are refused with the reason. It starts from a startup
+  snapshot when the embedder passes one (`snapshot.rs`; built in its own
+  process from the same extension list), else from source, reading
+  `deno_web`'s JS from the build tree; the per-process steps run after startup
+  either way
+- `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module (JS or
+  TypeScript) from disk and takes only the entry file, with no script
+  arguments yet (exit `0` success, `1` an uncaught error, an unhandled
+  rejection, or a module that fails to load or strip, `2` a usage error,
+  including an entry that doesn't resolve); console output is colored only on
+  a terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. The
+  whole command runs on one thread with a 32 MiB stack of its own (`STACK_SIZE` in
+  `main.rs`), since the strip's parser recurses with a module's nesting and an
+  overflow aborts; `gro_runtime::run_main` documents the requirement for any
+  embedder.
   `fgro --version` names the V8 version and whether a snapshot is embedded. Its
   `snapshot` feature embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`;
   a plain `cargo build` builds it without one, so it runs only from its build
@@ -484,8 +495,9 @@ comparison with Deno.
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned
-  by tree id, and `fgro` on the startup scripts only (the graph is TS); its
-  workload weights are provisional until gro has numbers. A suite naming
+  by tree id, and `fgro` on the startup scripts only (it loads the graph now,
+  but its graph rows join in a later suite version); its workload weights are
+  provisional until gro has numbers. A suite naming
   `fgro` gets the release snapshot build: the bench builds it first and
   refuses any other binary, then prints each `fgro` row against its gate row
   (warm rows against `node_compile_cache`, cold ones against `node`, `deno`

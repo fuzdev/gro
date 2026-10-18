@@ -12,6 +12,8 @@ publish = false
 [workspace.dependencies]
 argh = "0.1"
 blake3 = "1"
+# the arena `tsv_ts` parses into, one per stripped module
+bumpalo = "3.20.3"
 # the JS host's V8 binding and its web-standard extensions; one release line
 # from the Deno monorepo, so the three versions move together
 deno_core = "0.412.0"
@@ -22,6 +24,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
+# TypeScript's type strip, in process; pinned to tsv's v0.7.0 commit. Without
+# default features: the strip needs no wire-JSON conversion layer
+tsv_ts = { git = "https://github.com/fuzdev/tsv", rev = "671c7d77ae2bd85a60a39f0014eac0b809722a99", default-features = false }
 url = "2.5"
 
 [workspace.lints.rust]

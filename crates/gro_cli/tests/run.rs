@@ -68,7 +68,10 @@ struct Run {
 fn run(file: &str) -> Run {
     let output = fgro(&["run", file]);
     let run = Run {
-        code: output.status.code().unwrap(),
+        code: output
+            .status
+            .code()
+            .expect("the run exits, not killed by a signal"),
         stdout: String::from_utf8(output.stdout).unwrap(),
         stderr: String::from_utf8(output.stderr).unwrap(),
     };
@@ -218,14 +221,64 @@ fn dynamic_import_of_a_sibling() {
 }
 
 #[test]
-fn typescript_import_is_refused() {
+fn typescript_import_runs_stripped() {
     let run = run("import_ts.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "typed\n");
+}
+
+/// Interfaces, generics, `as`, `satisfies`, and `import type` (of a module
+/// that doesn't exist, which is never resolved) all blank away, and a `.mts`
+/// import loads.
+#[test]
+fn typescript_entry_runs_its_type_only_constructs() {
+    let run = run("entry.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "9 typed undefined\n");
+}
+
+/// Blanking keeps every character where it was, so V8's positions are the
+/// source's: `new` follows a stripped annotation on its line.
+#[test]
+fn typescript_positions_are_the_source_positions() {
+    let run = run("throw.ts");
     assert_eq!(run.code, 1);
     assert_eq!(
         run.stderr,
         format!(
-            "error: cannot resolve './typed.ts' from {}/import_ts.js: TypeScript is not supported \
-             yet; .js and .mjs modules load\n",
+            "error: Uncaught (in promise) Error: boom\n    at {}/throw.ts:2:22\n",
+            fixtures_url()
+        )
+    );
+}
+
+/// Columns count UTF-16 units, V8's and the strip's alike.
+#[test]
+fn typescript_columns_count_utf16_units() {
+    let run = run("throw_astral.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) Error: astral\n    at {}/throw_astral.ts:2:38\n",
+            fixtures_url()
+        )
+    );
+}
+
+/// TypeScript with runtime semantics is refused, not transformed: a program
+/// error (exit 1) naming the construct, the fix, and its position.
+#[test]
+fn an_enum_is_refused_with_its_position() {
+    let run = run("enum.ts");
+    assert_eq!(run.code, 1);
+    assert!(run.stdout.is_empty());
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot strip an enum. Fix: use a union of literal types, or an object with \
+             'as const' (TypeScript's erasableSyntaxOnly option reports these)\n    at \
+             {}/enum.ts:2:1\n",
             fixtures_url()
         )
     );
@@ -252,14 +305,254 @@ fn dynamic_import_refusals_are_catchable() {
     assert_eq!(run.code, 0, "{}", run.stderr);
     let lines: Vec<&str> = run.stdout.lines().collect();
     assert_eq!(lines.len(), 4, "{}", run.stdout);
-    for (line, reason) in lines.iter().zip([
-        "there is no Node compat",
-        "package resolution is not supported yet",
-        "TypeScript is not supported yet",
-        "the path has no extension",
+    // `deno_core` rethrows every load failure as a `TypeError`, a strip's included
+    for (line, (start, reason)) in lines.iter().zip([
+        (
+            "true \"TypeError: cannot resolve '",
+            "there is no Node compat",
+        ),
+        (
+            "true \"TypeError: cannot resolve '",
+            "package resolution is not supported yet",
+        ),
+        (
+            "true \"TypeError: cannot resolve '",
+            "the path has no extension",
+        ),
+        (
+            "true \"TypeError: cannot strip an enum. Fix: ",
+            "/enum.ts:2:1\"",
+        ),
     ]) {
+        assert!(line.starts_with(start), "{line}");
+        assert!(line.contains(reason), "{line}");
+    }
+}
+
+/// A directory of its own for `files`, so sources that must not pass the
+/// format check (a parse error) or that it skips (`.tsx`, `.cts`) live
+/// outside the fixtures. Removed on drop.
+struct TempFixtures(PathBuf);
+
+impl TempFixtures {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (file, content) in files {
+            std::fs::write(dir.join(file), content).unwrap();
+        }
+        Self(dir.canonicalize().unwrap())
+    }
+
+    fn run(&self, file: &str) -> Run {
+        let output = output_within_deadline(
+            Command::new(env!("CARGO_BIN_EXE_fgro"))
+                .args(["run", file])
+                .current_dir(&self.0),
+        );
+        Run {
+            code: output
+                .status
+                .code()
+                .expect("the run exits, not killed by a signal"),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
+    }
+}
+
+impl Drop for TempFixtures {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn a_typescript_parse_error_has_its_position() {
+    let fixtures = TempFixtures::new(
+        "parse_error",
+        &[
+            ("parse_error.ts", "const a = 1;\nconst b: = 2;\n"),
+            ("import_parse_error.js", "import './parse_error.ts';\n"),
+        ],
+    );
+    let url = format!("file://{}", fixtures.0.display());
+    for entry in ["parse_error.ts", "import_parse_error.js"] {
+        let run = fixtures.run(entry);
+        assert_eq!(run.code, 1, "{entry}");
         assert!(
-            line.starts_with("true TypeError: cannot resolve '"),
+            run.stderr
+                .starts_with("error: cannot parse the TypeScript: "),
+            "{}",
+            run.stderr
+        );
+        assert!(
+            run.stderr
+                .ends_with(&format!("\n    at {url}/parse_error.ts:2:10\n")),
+            "{}",
+            run.stderr
+        );
+        assert_eq!(run.stderr.lines().count(), 2, "{}", run.stderr);
+    }
+}
+
+/// `import {type T}` keeps its import, so the module's side effects run and
+/// a missing one is an error, while `import type`, `export type {…} from`, and
+/// `export type * from` drop entirely, as TypeScript's `verbatimModuleSyntax`
+/// has it.
+#[test]
+fn type_only_imports_drop_and_inline_type_specifiers_keep_the_import() {
+    let fixtures = TempFixtures::new(
+        "type_imports",
+        &[
+            (
+                "side.ts",
+                "export type T = number;\nconsole.log('side effect');\n",
+            ),
+            (
+                "keeps.ts",
+                "import { type T } from './side.ts';\nconst a: T = 1;\nconsole.log('kept', a);\n",
+            ),
+            (
+                "keeps_missing.ts",
+                "import { type T } from './missing.ts';\nlet a: T;\nconsole.log('ran');\n",
+            ),
+            (
+                "drops.ts",
+                "import type { T } from './missing.ts';\n\
+                 export type { U } from './missing.ts';\n\
+                 export type * from './missing.ts';\n\
+                 export type * as types from './missing.ts';\n\
+                 let a: T;\nconsole.log('dropped');\n",
+            ),
+        ],
+    );
+    let run = fixtures.run("keeps.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "side effect\nkept 1\n");
+
+    let run = fixtures.run("keeps_missing.ts");
+    assert_eq!(run.code, 1, "{}", run.stdout);
+    assert!(run.stdout.is_empty(), "{}", run.stdout);
+    assert!(
+        run.stderr
+            .starts_with("error: cannot resolve './missing.ts' from ")
+            && run.stderr.contains("no such file"),
+        "{}",
+        run.stderr
+    );
+
+    let run = fixtures.run("drops.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "dropped\n");
+}
+
+/// `n` levels of nested parens around a `1`, logged.
+fn nested_parens(n: usize) -> String {
+    format!(
+        "const x = {}1{};\nconsole.log('ok', x);\n",
+        "(".repeat(n),
+        ")".repeat(n)
+    )
+}
+
+/// The strip recurses with the nesting, on `fgro`'s own 32 MiB thread rather
+/// than the main thread, so a `.ts` module nested past the main thread's
+/// ceiling (8 MiB, or a raised `ulimit -s` of 16 MiB) runs as the same `.js`
+/// does instead of aborting on a stack overflow: in a debug build V8 runs it,
+/// in a release build V8's own depth limit refuses it with a `RangeError`
+/// first. The depths sit past the main thread's measured ceiling for each
+/// profile and within the reservation's.
+#[test]
+fn deep_typescript_nesting_runs_as_the_same_js_does() {
+    let depth = if cfg!(debug_assertions) { 1200 } else { 30_000 };
+    let source = nested_parens(depth);
+    let fixtures = TempFixtures::new("deep", &[("deep.ts", &source), ("deep.js", &source)]);
+    let ts = fixtures.run("deep.ts");
+    let js = fixtures.run("deep.js");
+    assert!(
+        ts.stderr.is_empty()
+            || ts
+                .stderr
+                .contains("RangeError: Maximum call stack size exceeded"),
+        "{}",
+        ts.stderr
+    );
+    assert_eq!(ts.code, js.code, "{}\n{}", ts.stderr, js.stderr);
+    assert_eq!(ts.stdout, js.stdout);
+    assert_eq!(ts.stderr, js.stderr.replace("deep.js", "deep.ts"));
+    if cfg!(debug_assertions) {
+        assert_eq!(ts.code, 0, "{}", ts.stderr);
+        assert_eq!(ts.stdout, "ok 1\n");
+    }
+}
+
+/// V8 keeps its own checked limit on the sized thread, so unbounded JS
+/// recursion is a `RangeError` the program can catch, and an uncaught one an
+/// error exit, not a crash.
+#[test]
+fn deep_js_recursion_is_a_catchable_range_error() {
+    let run = run("deep_recursion.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, "true Maximum call stack size exceeded\n");
+    assert!(
+        run.stderr.starts_with(
+            "error: Uncaught (in promise) RangeError: Maximum call stack size exceeded\n"
+        ),
+        "{}",
+        run.stderr
+    );
+}
+
+/// The TypeScript that can't load by stripping is refused at resolution, each
+/// kind with its own reason: a usage error as an entry, a catchable one as an
+/// import.
+#[test]
+fn unloadable_typescript_is_refused_by_kind() {
+    let refused = [
+        (
+            "common.cts",
+            "a .cts file is CommonJS, and only ES modules load",
+        ),
+        ("view.tsx", "JSX is not supported"),
+        ("types.d.ts", "a declaration file holds only types"),
+        ("types.d.mts", "a declaration file holds only types"),
+        ("types.d.cts", "a declaration file holds only types"),
+        ("state.svelte.ts", "needs the Svelte compiler"),
+        ("state.svelte.js", "needs the Svelte compiler"),
+        ("state.svelte.test.ts", "needs the Svelte compiler"),
+    ];
+    let main = format!(
+        "for (const specifier of {:?}) {{\n\
+         \ttry {{ await import('./' + specifier); }}\n\
+         \tcatch (error) {{ console.log(String(error)); }}\n}}\n",
+        refused.map(|(file, _)| file)
+    );
+    let mut files: Vec<(&str, &str)> = refused
+        .iter()
+        .map(|&(file, _)| (file, "export {};\n"))
+        .collect();
+    files.push(("main.js", &main));
+    let fixtures = TempFixtures::new("refused", &files);
+
+    for (file, reason) in refused {
+        let run = fixtures.run(file);
+        assert_eq!(run.code, 2, "{file}: {}", run.stderr);
+        assert!(
+            run.stderr
+                .starts_with(&format!("error: cannot resolve '{file}' from ")),
+            "{}",
+            run.stderr
+        );
+        assert!(run.stderr.contains(reason), "{file}: {}", run.stderr);
+    }
+    let run = fixtures.run("main.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let lines: Vec<&str> = run.stdout.lines().collect();
+    assert_eq!(lines.len(), refused.len(), "{}", run.stdout);
+    for (line, (file, reason)) in lines.iter().zip(refused) {
+        assert!(
+            line.starts_with(&format!("TypeError: cannot resolve './{file}' from ")),
             "{line}"
         );
         assert!(line.contains(reason), "{line}");
@@ -389,14 +682,10 @@ fn missing_entry_is_a_usage_error() {
 }
 
 #[test]
-fn typescript_entry_is_a_usage_error() {
-    let run = run("typed.ts");
-    assert_eq!(run.code, 2);
-    assert!(
-        run.stderr.contains("TypeScript is not supported yet"),
-        "{}",
-        run.stderr
-    );
+fn typescript_entry_runs() {
+    let run = run("smoke.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert!(run.stdout.ends_with("\nstripped\n"), "{}", run.stdout);
 }
 
 /// The bench reads this line, so it must say which build ran: the plain one

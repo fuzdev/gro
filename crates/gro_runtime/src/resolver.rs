@@ -17,8 +17,13 @@
 //! - **The file must exist**, and resolves to its real path (symlinks
 //!   followed), so a module's own relative imports resolve from where it
 //!   really lives.
-//! - **Only `.js` and `.mjs` load**, as ES modules. TypeScript and every other
-//!   extension are refused by name.
+//! - **`.js`, `.mjs`, `.ts`, and `.mts` load**, as ES modules, the TypeScript
+//!   stripped of its types in process ([`ModuleFormat`], read from the real
+//!   file's name by [`module_format`]). The TypeScript that can't load that way
+//!   is refused with its own reason: `.cts` (not an ES module), `.tsx` (JSX),
+//!   declaration files (`.d.ts`, `.d.mts`, `.d.cts`), and Svelte modules
+//!   (`.svelte.ts`, `.svelte.js`, and names like `.svelte.test.ts`). Every
+//!   other extension is refused by name.
 //!
 //! What fails, loudly, with the reason and a fix: `node:` (no Node compat),
 //! `npm:` and `jsr:` (registry specifiers), `http:`, `https:`, and `data:`
@@ -141,16 +146,29 @@ pub enum ResolveErrorKind {
         suggestion: Option<String>,
     },
     /// Nothing exists at the path. `ts_sibling` is set when a `.js`
-    /// specifier's `.ts` sibling exists.
+    /// specifier's `.ts` sibling exists, or a `.mjs` specifier's `.mts` one.
     NotFound {
-        /// The specifier with `.ts` in place of `.js`.
+        /// The specifier with `.ts` in place of `.js`, or `.mts` in place of
+        /// `.mjs`.
         ts_sibling: Option<String>,
     },
     /// The path exists but isn't a regular file: a directory or a special
     /// file.
     NotAFile,
-    /// A TypeScript file, which can't run yet.
-    TypeScript,
+    /// A `.cts` file, TypeScript that compiles to `require` and
+    /// `module.exports` rather than an ES module.
+    CommonJs,
+    /// A `.tsx` file: JSX isn't supported.
+    Jsx,
+    /// A declaration file (`.d.ts`, `.d.mts`, `.d.cts`), which holds only
+    /// types.
+    Declaration,
+    /// A Svelte module, whose runes need the Svelte compiler: a name with
+    /// `.svelte.` in it that ends in `.js` or `.ts`, the rule
+    /// vite-plugin-svelte compiles by default (`.svelte.ts`,
+    /// `.svelte.test.ts`). `.svelte.mts` is outside it, so it loads as
+    /// TypeScript.
+    SvelteModule,
     /// An extension that isn't loaded as a module.
     UnsupportedExtension(String),
     /// Reading the tree failed.
@@ -165,11 +183,73 @@ impl ResolveErrorKind {
     }
 }
 
-/// The extensions that load as ES modules.
-const MODULE_EXTENSIONS: [&str; 2] = ["js", "mjs"];
+/// How a module's source becomes the JS V8 evaluates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleFormat {
+    /// `.js` and `.mjs`: evaluated as written.
+    JavaScript,
+    /// `.ts` and `.mts`: stripped of their types first, every surviving
+    /// character kept at its line and column.
+    TypeScript,
+}
+
+/// The format of the module file at `path`, by its name: the one table both
+/// resolution and loading read.
+///
+/// The compound names (`.d.ts`, `.svelte.ts`, `.svelte.test.ts`) are checked
+/// before the last extension.
+///
+/// # Errors
+///
+/// Returns the reason the file doesn't load as a module.
+pub fn module_format(path: &Path) -> Result<ModuleFormat, ResolveErrorKind> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    if [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+    {
+        return Err(ResolveErrorKind::Declaration);
+    }
+    if is_svelte_module(&name) {
+        return Err(ResolveErrorKind::SvelteModule);
+    }
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy())
+        .unwrap_or_default();
+    match &*extension {
+        "js" | "mjs" => Ok(ModuleFormat::JavaScript),
+        "ts" | "mts" => Ok(ModuleFormat::TypeScript),
+        "cts" => Err(ResolveErrorKind::CommonJs),
+        "tsx" => Err(ResolveErrorKind::Jsx),
+        _ => Err(ResolveErrorKind::UnsupportedExtension(
+            extension.into_owned(),
+        )),
+    }
+}
+
+/// Whether a file named `name` is a Svelte module by vite-plugin-svelte's
+/// default rule, applied to the file name (the query already stripped):
+/// `.svelte.`, then any non-empty segments, then `js` or `ts`. vite's regex
+/// also stops at `?`, `#`, and `\`, which are query and separator characters
+/// in an id but plain file-name characters here, so such names are refused.
+fn is_svelte_module(name: &str) -> bool {
+    const INFIX: &str = ".svelte.";
+    name.match_indices(INFIX).any(|(index, _)| {
+        let mut segments = name[index + INFIX.len()..].split('.');
+        matches!(segments.next_back(), Some("js" | "ts"))
+            && segments.all(|segment| !segment.is_empty())
+    })
+}
 
 /// The extensions a missing-extension message suggests, in order.
-const SUGGESTED_EXTENSIONS: [&str; 3] = ["ts", "js", "mjs"];
+const SUGGESTED_EXTENSIONS: [&str; 4] = ["ts", "js", "mjs", "mts"];
+
+/// What every extension message lists as loading.
+const LOADING_EXTENSIONS: &str = ".js, .mjs, .ts, and .mts modules load";
 
 impl fmt::Display for ResolveErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -220,12 +300,26 @@ impl fmt::Display for ResolveErrorKind {
             Self::NotAFile => f.write_str(
                 "it is not a regular file (a directory or a special file); name a module file",
             ),
-            Self::TypeScript => {
-                f.write_str("TypeScript is not supported yet; .js and .mjs modules load")
-            }
+            Self::CommonJs => f.write_str(
+                "a .cts file is CommonJS, and only ES modules load. \
+                 Fix: rename it to .ts or .mts and use import and export",
+            ),
+            Self::Jsx => write!(
+                f,
+                "JSX is not supported, so .tsx does not load; {LOADING_EXTENSIONS}"
+            ),
+            Self::Declaration => f.write_str(
+                "a declaration file holds only types, with no code to run. \
+                 Fix: import the module it declares, or use 'import type' for its types",
+            ),
+            Self::SvelteModule => f.write_str(
+                "a Svelte module (.svelte.ts, .svelte.js, or a name like .svelte.test.ts) needs \
+                 the Svelte compiler, which is not supported yet. Fix: run it with gro on Node \
+                 (gro test for a .svelte.test.ts)",
+            ),
             Self::UnsupportedExtension(extension) => write!(
                 f,
-                "the extension '.{extension}' does not load as a module; .js and .mjs modules load"
+                "the extension '.{extension}' does not load as a module; {LOADING_EXTENSIONS}"
             ),
             Self::Io(error) => write!(f, "failed to read the file: {error}"),
         }
@@ -339,11 +433,17 @@ fn finalize(
         Some(Entry::File(real_path)) => real_path,
         Some(Entry::NotAFile) => return Err(ResolveErrorKind::NotAFile),
         None => {
-            let ts_sibling = if path.extension().is_some_and(|extension| extension == "js")
-                && let Some(Entry::File(_)) =
-                    tree.lookup(&path.with_extension("ts")).map_err(io_error)?
+            let ts_extension = match path.extension().and_then(|extension| extension.to_str()) {
+                Some("js") => Some("ts"),
+                Some("mjs") => Some("mts"),
+                _ => None,
+            };
+            let ts_sibling = if let Some(ts_extension) = ts_extension
+                && let Some(Entry::File(_)) = tree
+                    .lookup(&path.with_extension(ts_extension))
+                    .map_err(io_error)?
             {
-                Some(replace_extension(specifier, "ts"))
+                Some(replace_extension(specifier, ts_extension))
             } else {
                 None
             };
@@ -351,17 +451,8 @@ fn finalize(
         }
     };
 
-    // format by the real file's extension, which a symlink can change
-    let extension = real_path
-        .extension()
-        .map(|extension| extension.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    if !MODULE_EXTENSIONS.contains(&extension.as_str()) {
-        return Err(match extension.as_str() {
-            "ts" | "mts" | "cts" | "tsx" => ResolveErrorKind::TypeScript,
-            _ => ResolveErrorKind::UnsupportedExtension(extension),
-        });
-    }
+    // format by the real file's name, which a symlink can change, as the loader reads it
+    module_format(&real_path)?;
 
     let mut resolved = Url::from_file_path(&real_path)
         .map_err(|()| ResolveErrorKind::InvalidUrl("names no local path".to_owned()))?;
@@ -446,14 +537,27 @@ mod tests {
                 "/p/b.mjs",
                 "/p/lib/c.js",
                 "/p/typed.ts",
+                "/p/typed.mts",
                 "/p/only_ts.ts",
+                "/p/only_mts.mts",
+                "/p/common.cts",
+                "/p/view.tsx",
+                "/p/types.d.ts",
+                "/p/types.d.mts",
+                "/p/types.d.cts",
+                "/p/state.svelte.ts",
+                "/p/state.svelte.js",
+                "/p/state.svelte.test.ts",
                 "/p/data.json",
                 "/p/schema.ts",
                 "/real/linked.js",
                 "/abs.js",
             ],
             dirs: vec!["/p/lib", "/p/dir.js"],
-            links: BTreeMap::from([("/p/link.js", "/real/linked.js")]),
+            links: BTreeMap::from([
+                ("/p/link.js", "/real/linked.js"),
+                ("/p/link_to_ts.js", "/p/typed.ts"),
+            ]),
         }
     }
 
@@ -532,6 +636,12 @@ mod tests {
             }
         );
         assert_eq!(
+            kind("./only_mts"),
+            ResolveErrorKind::NoExtension {
+                suggestion: Some("./only_mts.mts".to_owned())
+            }
+        );
+        assert_eq!(
             kind("./nothing"),
             ResolveErrorKind::NoExtension { suggestion: None }
         );
@@ -558,15 +668,85 @@ mod tests {
                 ts_sibling: Some("./only_ts.ts".to_owned())
             }
         );
+        assert_eq!(
+            kind("./only_mts.mjs?x"),
+            ResolveErrorKind::NotFound {
+                ts_sibling: Some("./only_mts.mts?x".to_owned())
+            }
+        );
+        // only the module extension's own TypeScript twin is hinted
+        assert_eq!(
+            kind("./only_mts.js"),
+            ResolveErrorKind::NotFound { ts_sibling: None }
+        );
         assert_eq!(kind("./dir.js"), ResolveErrorKind::NotAFile);
     }
 
     #[test]
     fn extensions() {
-        assert_eq!(kind("./typed.ts"), ResolveErrorKind::TypeScript);
+        assert_eq!(ok("./typed.ts"), "file:///p/typed.ts");
+        assert_eq!(ok("./typed.mts"), "file:///p/typed.mts");
+        assert_eq!(kind("./common.cts"), ResolveErrorKind::CommonJs);
+        assert_eq!(kind("./view.tsx"), ResolveErrorKind::Jsx);
+        for specifier in ["./types.d.ts", "./types.d.mts", "./types.d.cts"] {
+            assert_eq!(
+                kind(specifier),
+                ResolveErrorKind::Declaration,
+                "{specifier}"
+            );
+        }
+        for specifier in [
+            "./state.svelte.ts",
+            "./state.svelte.js",
+            "./state.svelte.test.ts",
+        ] {
+            assert_eq!(
+                kind(specifier),
+                ResolveErrorKind::SvelteModule,
+                "{specifier}"
+            );
+        }
         assert_eq!(
             kind("./data.json"),
             ResolveErrorKind::UnsupportedExtension("json".to_owned())
+        );
+        // the real file's name decides, not the specifier's
+        assert_eq!(ok("./link_to_ts.js"), "file:///p/typed.ts");
+    }
+
+    #[test]
+    fn formats() {
+        let format = |name: &str| module_format(Path::new(name));
+        assert_eq!(format("/p/a.js"), Ok(ModuleFormat::JavaScript));
+        assert_eq!(format("/p/a.mjs"), Ok(ModuleFormat::JavaScript));
+        assert_eq!(format("/p/a.ts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/a.mts"), Ok(ModuleFormat::TypeScript));
+        // only the compound suffix is a declaration or a Svelte module
+        assert_eq!(format("/p/d.ts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/svelte.ts"), Ok(ModuleFormat::TypeScript));
+        // vite-plugin-svelte's default rule: `.svelte.`, any segments, then `js` or `ts`
+        for name in [
+            "/p/a.svelte.test.ts",
+            "/p/a.svelte.test.js",
+            "/p/a.svelte.x.y.ts",
+            "/p/.svelte.ts",
+            "/p/a.svelte.svelte.ts",
+        ] {
+            assert_eq!(format(name), Err(ResolveErrorKind::SvelteModule), "{name}");
+        }
+        // outside it, so plain TypeScript
+        assert_eq!(format("/p/a.svelte.mts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/a.svelte.test.mts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/a.svelte..ts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/a.svelte_x.ts"), Ok(ModuleFormat::TypeScript));
+        assert_eq!(format("/p/a.d.ts"), Err(ResolveErrorKind::Declaration));
+        assert_eq!(
+            format("/p/a.svelte.js"),
+            Err(ResolveErrorKind::SvelteModule)
+        );
+        assert_eq!(
+            format("/p/a.svelte"),
+            Err(ResolveErrorKind::UnsupportedExtension("svelte".to_owned()))
         );
     }
 
@@ -618,9 +798,10 @@ mod tests {
         );
         assert_eq!(entry("/abs.js").unwrap().url.as_str(), "file:///abs.js");
         assert_eq!(
-            entry("typed.ts").unwrap_err().kind,
-            ResolveErrorKind::TypeScript
+            entry("typed.ts").unwrap().url.as_str(),
+            "file:///p/typed.ts"
         );
+        assert_eq!(entry("view.tsx").unwrap_err().kind, ResolveErrorKind::Jsx);
         let error = entry("missing.js").unwrap_err();
         assert_eq!(error.kind, ResolveErrorKind::NotFound { ts_sibling: None });
         assert_eq!(
@@ -660,6 +841,14 @@ mod tests {
              './only_ts.ts' exists; write the real extension"
         );
         assert!(message("svelte").contains("package resolution is not supported yet"));
-        assert!(message("./typed.ts").contains("TypeScript is not supported yet"));
+        assert_eq!(
+            message("./common.cts"),
+            "cannot resolve './common.cts' from file:///p/main.js: a .cts file is CommonJS, and \
+             only ES modules load. Fix: rename it to .ts or .mts and use import and export"
+        );
+        assert!(message("./view.tsx").contains("JSX is not supported"));
+        assert!(message("./types.d.ts").contains("a declaration file holds only types"));
+        assert!(message("./state.svelte.ts").contains("needs the Svelte compiler"));
+        assert!(message("./data.json").ends_with(".js, .mjs, .ts, and .mts modules load"));
     }
 }

@@ -2,10 +2,15 @@
 //! beside the Node `gro`.
 //!
 //! `fgro run <file>` runs an ES module from disk (a path relative to the
-//! working directory, or absolute) until its event loop drains. It takes only
-//! the entry file: there are no script arguments yet. Errors print to
-//! stderr, prefixed `error:`; an uncaught error's report carries its stack with
-//! source positions (`file:///path:line:column`).
+//! working directory, or absolute) until its event loop drains, TypeScript
+//! stripped of its types first. It takes only the entry file: there are no
+//! script arguments yet. Errors print to stderr, prefixed `error:`; an
+//! uncaught error's report carries its stack with source positions
+//! (`file:///path:line:column`).
+//!
+//! The whole command runs on one thread with [`STACK_SIZE`] reserved, not on
+//! the main thread, so how deeply nested a TypeScript module can be is
+//! stated here rather than inherited from the platform (see the constant).
 //!
 //! `fgro --version` prints `fgro <version> (V8 <version>, snapshot)`, where
 //! the last part says whether a startup snapshot is embedded (`no snapshot`
@@ -15,11 +20,12 @@
 //!
 //! - `0`: the program ran to completion, `--help`, or `--version`
 //! - `1`: the program threw, rejected a promise no one handled, or failed to
-//!   load a module, or the runtime failed to start
+//!   load a module (a TypeScript module the strip refuses included), or the
+//!   runtime failed to start
 //! - `2`: a usage error, so the command line must change: an unknown
 //!   subcommand or flag, a missing argument (including no arguments at all),
 //!   an argument that isn't UTF-8, or an entry file that doesn't resolve
-//!   (missing, or not a `.js` or `.mjs` file)
+//!   (missing, or not a `.js`, `.mjs`, `.ts`, or `.mts` file)
 //!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`
@@ -65,6 +71,35 @@ const EXIT_USAGE: u8 = 2;
 /// The program failed.
 const EXIT_FAILURE: u8 = 1;
 
+/// A panic, Rust's own exit code for one, restated because the panicking
+/// thread is joined rather than unwinding out of `main`. Only a debug build
+/// reaches it: the release profile aborts on a panic.
+const EXIT_PANIC: u8 = 101;
+
+/// The stack reserved for the thread `fgro` runs on, the same 32 MiB tsv's
+/// CLI states, for the same reason.
+///
+/// The TypeScript strip is `tsv_ts`'s recursive-descent parser, so nesting
+/// depth costs native stack, and an overflow aborts the process (`SIGABRT`)
+/// rather than failing the load. The JS V8 runs is unaffected: V8 sets its
+/// own checked limit below where the isolate starts on this thread, so deep
+/// JS recursion, and a deeply nested `.js` module, stay a catchable
+/// `RangeError` at the same depth as before. Inherited, the
+/// ceiling would be the process `RLIMIT_STACK` on the main thread (commonly
+/// 8 MiB, whatever the machine says) and 1 MiB on Windows.
+///
+/// In a release build the reservation reaches deeper than V8 itself
+/// compiles, so a module nested past V8's depth fails with the same
+/// `RangeError` the JS would; a debug build's far larger frames stop the
+/// strip near V8's depth instead. The main thread's 8 MiB would stop at a
+/// quarter of the reservation's depth. The deepest real code nests under a
+/// hundred levels; the exposure is generated and minified code.
+/// The reservation is address space, committed only as it's touched, so a run
+/// pays only for the stack it uses.
+// TODO: past that depth the strip still overflows, since `tsv_ts` has no
+// depth guard of its own; one that returns a parse error closes it
+const STACK_SIZE: usize = 32 * 1024 * 1024;
+
 /// gro on its own JS runtime (experimental)
 #[derive(FromArgs)]
 struct Args {
@@ -97,7 +132,7 @@ enum Command {
     Run(RunArgs),
 }
 
-/// run an ES module (.js or .mjs) from disk
+/// run an ES module (.js, .mjs, .ts, or .mts) from disk
 #[derive(FromArgs)]
 #[argh(subcommand, name = "run")]
 struct RunArgs {
@@ -122,7 +157,35 @@ fn main() -> ExitCode {
         }
     };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    ExitCode::from(run(&args))
+    ExitCode::from(run_on_sized_stack(&args))
+}
+
+/// Runs [`run`] on a thread named `fgro` with [`STACK_SIZE`] reserved, so the
+/// runtime, the module loads, and the strip all share the one stated stack.
+///
+/// A refused spawn runs on this thread instead, and says so, since a deep
+/// module would then overflow at the inherited ceiling with nothing saying
+/// why. That rescues only the commands that don't start V8 (`--version`,
+/// `--help`, a usage error): V8 needs threads of its own, so a process that
+/// can't start this one can't start the runtime either.
+fn run_on_sized_stack(args: &[&str]) -> u8 {
+    std::thread::scope(|scope| {
+        let spawned = std::thread::Builder::new()
+            .name("fgro".to_owned())
+            .stack_size(STACK_SIZE)
+            .spawn_scoped(scope, || run(args));
+        match spawned {
+            // a panic has printed by the time it's joined
+            Ok(handle) => handle.join().unwrap_or(EXIT_PANIC),
+            Err(error) => {
+                eprintln!(
+                    "warning: could not start the fgro thread ({error}); running on the \
+                     inherited stack"
+                );
+                run(args)
+            }
+        }
+    })
 }
 
 /// Runs `fgro` with `args` (the program name excluded), returning the exit code.

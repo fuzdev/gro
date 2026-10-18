@@ -8,8 +8,10 @@
 //! included.
 //!
 //! - [`resolver`]: the strict ESM resolver, a pure module (relative and
-//!   absolute specifiers with mandatory extensions; `.js` and `.mjs` load)
+//!   absolute specifiers with mandatory extensions; `.js`, `.mjs`, `.ts`, and
+//!   `.mts` load)
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
+//!   that strips TypeScript's types in process with `tsv_ts`
 //! - `bootstrap`: the extension that installs the pure web globals from
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
@@ -88,7 +90,20 @@ pub enum RunError {
 ///
 /// Returns [`RunError::Entry`] when the entry doesn't resolve,
 /// [`RunError::Start`] when the runtime can't start, and
-/// [`RunError::Uncaught`] when the program fails.
+/// [`RunError::Uncaught`] when the program fails, including when a module
+/// fails to load or strip.
+///
+/// # Stack
+///
+/// Everything runs on the calling thread, and the TypeScript strip is a
+/// recursive descent, so how deeply nested a `.ts` module can be is set by
+/// that thread's stack: past it the process aborts on a stack overflow, which
+/// nothing can catch, where JS nested as deeply fails as a catchable error.
+/// Call this on a thread with a stated stack, as `fgro` does with 32 MiB
+/// (`std::thread::Builder::stack_size`), not on the main thread, whose stack
+/// is the platform's: commonly 8 MiB on Linux, 1 MiB on Windows. V8's own
+/// limit for JS sits below wherever the runtime starts on that thread, so the
+/// size changes only the strip's depth.
 pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> {
     // nothing to grant yet; destructured so a new field can't go unread
     let RuntimeOptions {

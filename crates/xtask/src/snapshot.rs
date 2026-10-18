@@ -29,7 +29,8 @@
 //! run with the cargo registry's sources (`$CARGO_HOME/registry/src`) and
 //! gro's own extension sources hidden (tmpfs mounts in a private user and
 //! mount namespace, `unshare -rm`), its output compared with a run that can
-//! see them. A machine without unprivileged user namespaces fails that check
+//! see them. The fixture is TypeScript, so the strip runs off the build tree
+//! too. A machine without unprivileged user namespaces fails that check
 //! rather than skipping it.
 
 use std::fs;
@@ -38,8 +39,9 @@ use std::process::{Command, ExitCode, Output, Stdio};
 
 use crate::{StepResult, run};
 
-/// The fixture both runs of the off-build-tree check execute.
-const SMOKE_FIXTURE: &str = "web_globals.js";
+/// The fixture both runs of the off-build-tree check execute: a TypeScript
+/// entry over the web globals, so the snapshot build proves the strip too.
+const SMOKE_FIXTURE: &str = "smoke.ts";
 
 /// Builds the snapshot `fgro` and returns its path.
 ///
