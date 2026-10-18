@@ -19,7 +19,7 @@ with granular control over what it can reach.
 By default a run is confined: code gets only the files, network, and processes its imports declare,
 nothing by default, recorded in a small policy file you review like a lockfile,
 so changing capabilities is a diff, and the runtime enforces it.
-A hermetic run is also confined and strictly deterministic, with its clock and randomness fixed,
+A hermetic run is also confined but strictly deterministic, with its clock and randomness fixed,
 so it replays and caches by construction;
 an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
