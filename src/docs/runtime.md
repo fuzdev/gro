@@ -1,6 +1,6 @@
 # runtime
 
-> Gro's experimental JS runtime: a Rust binary on V8, hermetic by design;
+> Gro's experimental JS runtime: a Rust binary on V8 with granular control over what code can reach;
 > the roadmap, why it exists, the security model, and the design
 
 > **status**: experimental, direction settled, design in progress -
@@ -13,13 +13,14 @@
 > Everything below is designed; only what the roadmap marks done is built.
 
 Gro is becoming its own JS runtime: a Rust binary that embeds V8,
-built on web standards instead of Node compat, and hermetic by design.
-A module reaches only what it imports or is handed,
+built on web standards instead of Node compat,
+with granular control over what code can reach.
+It's confined by construction: a module reaches only what it imports or is handed,
 the way a function reaches only the bindings in scope,
 so what a run can reach is a static fact about its import graph,
-reviewed like a lockfile.
-Clock and randomness are capabilities too,
-so what a run depends on is known, and a run replays and caches by construction.
+reviewed like a lockfile, and the common case has nothing to declare.
+Runs can be hermetic too: clock and randomness are capabilities,
+so what a run depends on is known, and it replays and caches by construction.
 It's built for code you didn't write: your dependencies and your agents.
 
 Its primary verb is `gro run <file>`: one module graph, no ambient authority,
@@ -52,6 +53,9 @@ run as Node subprocesses under the invocation's kernel rules.
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
+- [ ] the security gate: a suite of escape probes run under every grant set,
+      with every web global and member classified by the authority it carries as the oracle,
+      grown from `gro eval`'s acceptance tests and passed by every milestone after
 - [ ] on the Node gro: `gro task <path>` replaces the bare `gro <name>` task search
       and the loader turns strict, so the scripts the Deno exit ports are written once, in the final shape;
       then `gro check` infers each task's grants
@@ -116,7 +120,8 @@ One boundary for every language that targets it is what lets the scope grow
 
 The runtime prioritizes, in order:
 
-1. security: no ambient authority, confinement by construction, a kernel backstop under it
+1. security: no ambient authority, confinement by construction, a kernel backstop under it,
+   measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance: the WinterTC minimum common API, graded by its WPT subset
 3. speed: startup first, since short-lived invocations dominate an agent-driven loop;
    measured against Node, Deno, and Bun on the same workloads,
@@ -164,6 +169,17 @@ The exceptions are explicit and labeled.
 `publish` and `deploy` push and use credentials, so they're named unconfined phases,
 shown that way in the policy diff, with credentials passed to the one process that needs them.
 The kernel backstop is Linux-only until the other platforms get an equivalent.
+
+Security-first runtimes earned a reputation for friction:
+flags on every run, prompts mid-execution, and `-A` as the habit that follows.
+Gro's grants come from the import graph,
+so a normal run has no flags and nothing to declare,
+and the policy file changes only when the graph newly reaches the network,
+a process, or files outside the project.
+That is the one moment worth a human's attention,
+and it arrives as a diff with a copyable fix, never a prompt.
+The costs are elsewhere, and stated plainly:
+no Node compat, strict ESM, and the authority globals absent until declared.
 
 ## Threat model
 
@@ -241,10 +257,17 @@ so each piece can be rewritten on its own as measurements justify it.
   the way a function reaches only the bindings in scope.
   Host modules are imports and the module loader is the boundary,
   so an ungranted graph fails at link time, not at the first call.
-  The global object is the one dynamic channel: the web globals that reach the world
-  (`fetch`, `WebSocket`) are declared, never inferred, and absent until then,
-  and a net grant names hosts; a blanket one is never proposed for you,
+  The network is an import too: the host's net module exports a `net` handle
+  (`net.fetch`, bound to the accepted hosts) that's narrowed and passed down like any other capability,
+  so authority is visible at every use site and nothing shadows the web's `fetch`;
+  so a net grant is inferred from the graph like a filesystem one, and names hosts;
+  a blanket one is never proposed for you,
   only accepted, and the policy diff shows it as the widest class.
+  The global object is the one dynamic channel, and it's sealed after bootstrap.
+  The web globals that reach the world (`fetch`, `WebSocket`) are a separate, wider grant,
+  since a global reaches every module in the graph: declared, never inferred, and absent until then.
+  A package that writes to the global object needs a policy entry of its own,
+  and a handed capability can't be stashed there to become ambient again.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there;
   ops check the scoped cases (reads under a root).
   `-A` is the one explicit escape hatch, never a default.
@@ -302,10 +325,17 @@ The sandbox is where the distance is largest.
 Deno's lockfile pins which code runs; gro's policy file also pins what that code can reach,
 and treats the second lock like the first: committed, diffed, reviewed.
 
+- **Day to day.** A Deno run carries its flags on every invocation
+  (`--allow-net=…`, `--allow-read=…`), bakes them into a task, or takes `-A`.
+  A gro run carries nothing: the grants come from the import graph,
+  and the policy file changes only when the graph newly reaches authority,
+  which is lockfile cadence, not run cadence.
 - **Who holds a grant.** A Deno permission belongs to the thread, so every module on it holds it.
   A gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
   so the diff says which package newly needs the network, not only that something does.
+  A capability handed down by reference stays attributed to the module that imported it;
+  handing never widens.
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
   with a `NotCapable` error the code can catch and swallow.
   Gro denies before the code runs: an ungranted host module doesn't link,
@@ -340,7 +370,7 @@ Gro's claim is the shape of the boundary, not its maturity.
 ## What the hermetic design opens up
 
 - **Grants that read like the web.** `typeof fetch` stays the feature check the web already uses,
-  and the error for an undeclared one names the grant to add.
+  and the error for an undeclared one names the fix: the import first, the global grant second.
   `gro run` and `gro eval` get exactly their file's graph; `gro task` gets the union of
   what the invocation reaches, since a task holds the context (config, `invoke_task`).
 - **Run classes.** Every run is hermetic (no network or spawn, clock and randomness

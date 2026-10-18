@@ -2,7 +2,7 @@
 
 [<img src="static/logo.svg" alt="a pixelated green oak acorn with a glint of sun" align="right" width="192" height="192">](https://gro.fuz.dev/)
 
-> hermetic JS runtime and toolchain 🌰 generate, run, optimize
+> security-first JS runtime on V8 🌰 generate, run, optimize
 
 > ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because it shells out to Bash;
 > the Rust [runtime](/src/docs/runtime.md) will.
@@ -14,11 +14,14 @@ for making web frontends, servers, and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you don't fully trust, like from your dependencies and agents.
-It's hermetic, meaning a module reaches only what it imports,
+a Rust binary on V8 built for code you don't fully trust, like from your dependencies and agents,
+with granular control over what it can reach.
+A module reaches only what it imports or is handed,
 the way a function reaches only what's in scope,
-so nothing is granted by default
+so nothing is granted by default, the common case has nothing to declare,
 and what a program can touch is reviewed in its source, like a lockfile.
+Runs can be hermetic too: their inputs are all known, clock and randomness included,
+so they replay and cache by construction.
 It grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node towards Web standards.
 The runtime is experimental - see
