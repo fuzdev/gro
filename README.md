@@ -18,7 +18,7 @@ a Rust binary on V8 built for code you can't fully trust, like from dependencies
 with granular control over what it can reach.
 By default a run is confined: code gets only the files, network, and processes its imports declare,
 nothing by default, recorded in a small policy file you review like a lockfile,
-so what an agent's code may do is a diff, and the runtime enforces it.
+so changing capabilities is a diff, and the runtime enforces it.
 A hermetic run is strictly deterministic, with its clock and randomness fixed,
 so it replays and caches by construction;
 an unconfined run (`-A`) is the escape hatch when you need it.
