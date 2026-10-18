@@ -19,7 +19,7 @@ It's confined by construction: a module reaches only what it imports or is hande
 the way a function reaches only the bindings in scope,
 so what a run can reach is a static fact about its import graph,
 reviewed like a lockfile, and the common case has nothing to declare.
-Runs can be hermetic too: clock and randomness are capabilities,
+Runs can be hermetic too: a run class fixes or denies clock and randomness,
 so what a run depends on is known, and it replays and caches by construction.
 It's built for code you didn't write: your dependencies and your agents.
 
@@ -163,6 +163,17 @@ The source proposes (inferred host modules, plus a static `grants` literal namin
 and the like) and a committed policy file authorizes:
 a dependency bump that newly reaches the filesystem, spawn, or the network fails
 `gro check` until a human accepts the diff, the same shape as a lockfile change.
+
+The guarantees come in two kinds, and it's worth knowing which is which.
+By construction, with no setting that changes them:
+authority enters by import, so what a graph can reach is a static fact;
+there's no `process`, no Node compat, no in-process FFI, no remote import,
+and no runtime namespace to reach around the loader;
+and a WASM module's imports are its capability declaration the same way.
+By default, where a policy entry or `-A` widens them and the diff shows it:
+the read and write roots, the net hosts, the authority globals, the deny overlays,
+the empty environment for children, the kernel rules, and the run class that fixes clock and randomness.
+A widening of the second kind is a diff a human accepts; the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
 `-A` is the one escape hatch, never a default.
@@ -312,29 +323,33 @@ If you know Deno, the ingredients are familiar:
 V8, web standards, TypeScript without a build step, and permissions off by default.
 Gro starts there and takes the other side of most of Deno's later choices:
 
-- **Node:** Deno added `node:*`, `npm:`, and CommonJS;
-  gro declines all three, since Node's API is ambient authority.
+- **Node:** Deno added `node:*`, `npm:`, and CommonJS; gro declines all three.
+  Not because the compat layer skips checks (Deno's `node:fs` passes its permission checks)
+  but because `process`, `require`, and CommonJS make authority reachable without a visible import.
 - **Imports:** Deno resolves `https:`, `jsr:`, and `npm:` specifiers, fetching code at run time
-  (a static remote import needs no permission);
+  (a static remote import needs no permission; `--no-remote` and `--cached-only` turn it off);
   gro reads files on disk, resolved strictly, so the graph is whatever the lockfile installed.
 - **Namespace:** Deno has `Deno.*`; gro has no runtime namespace.
 - **TypeScript:** Deno transpiles the full language;
   gro strips erasable syntax only, so positions never move.
-- **Permissions:** Deno's are process-level flags checked at call time;
-  gro's are a grant set per module graph, inferred from imports,
-  authorized by a committed policy file, and backed by kernel rules.
+- **Native code:** Deno's FFI runs in-process under `--allow-ffi`;
+  gro has no in-process FFI at all, and a library gets its own confined process.
 
-The sandbox is where the distance is largest.
-Deno's lockfile pins which code runs; gro's policy file also pins what that code can reach,
-and treats the second lock like the first: committed, diffed, reviewed.
+Each of these is a guarantee by omission.
+Deno can offer an opt-out, and does for some,
+but can't remove the path without breaking its users, and gro can never grow one.
 
-- **Day to day.** A Deno run carries its flags on every invocation
-  (`--allow-net=…`, `--allow-read=…`), bakes them into a task, or takes `-A`.
-  A gro run carries nothing: the grants come from the import graph,
-  and the policy file changes only when the graph newly reaches authority,
-  which is lockfile cadence, not run cadence.
-- **Who holds a grant.** A Deno permission belongs to the thread, so every module on it holds it.
-  A gro grant belongs to the module graph that imports the host module,
+One difference is structural, and the rest of the sandbox follows from it.
+In Deno, authority is reached through globals (`Deno.readFile`, `Deno.Command`, `fetch`):
+a permission belongs to the thread, so every module on it holds it
+(Deno's docs say as much: modules on one thread can't hold different privileges),
+and what a program can reach is a dynamic fact, known by running it.
+In gro, authority enters by import: a module reaches only the host modules it imports
+or the values it's handed, and there's no namespace to reach around the loader.
+Deno can't adopt this without breaking every program that calls a `Deno.*` function.
+What follows from it:
+
+- **Who holds a grant.** A gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
   so the diff says which package newly needs the network, not only that something does.
   A capability handed down by reference stays attributed to the module that imported it;
@@ -343,25 +358,50 @@ and treats the second lock like the first: committed, diffed, reviewed.
   with a `NotCapable` error the code can catch and swallow.
   Gro denies before the code runs: an ungranted host module doesn't link,
   an undeclared `fetch` isn't there.
-  The host reports every denial itself, so a `try/catch` can't hide one,
-  and under `gro check` and CI any denial fails the run.
-- **How it widens.** Deno prompts when stdout is a terminal, takes a flag,
-  or defers every check to an external broker process.
+- **Day to day.** A Deno run carries its flags on every invocation
+  (`--allow-net=…`, `--allow-read=…`), bakes them into a task, or takes `-A`.
+  A gro run carries nothing: the grants come from the import graph,
+  and the policy file changes only when the graph newly reaches authority,
+  which is lockfile cadence, not run cadence.
+  Inference is sound because every entry point is an import.
+  A static tool over Deno code could find its `node:` imports,
+  but not every `Deno.*` member access, so its policy file would be declared throughout.
+- **Two locks.** Deno's lockfile pins which code runs; gro's policy file also pins what that code can reach,
+  and treats the second lock like the first: committed, diffed, reviewed.
+- **WASM.** A WASM module's imports are its capability declaration,
+  the same thing a JS module's imports are,
+  so one policy file and one inference cover both.
+
+The one corner of gro's model shaped like Deno's is the authority globals.
+`fetch` and `WebSocket` reach every module in the graph and can't be inferred,
+so they're declared, absent until granted, and shown as the wider class in the policy diff;
+the host's `net` import is the narrow way to the same thing, and the hint for a free `fetch` names it first.
+
+The rest are defaults: choices Deno could adopt without breaking anyone,
+some of which it already offers behind a flag.
+
+- **Prompts.** Deno prompts when stdout is a terminal, or takes `--no-prompt`.
   Gro never prompts and has no dynamic decision authority:
   the source proposes, a human accepts the diff, the pending run says so,
   and no hint ever suggests `-A`.
+- **Denials.** The host reports every denial itself, so a `try/catch` can't hide one,
+  and under `gro check` and CI any denial fails the run.
 - **Children.** Deno's `--allow-run` is unconfined; a spawned process has everything.
   Gro's grant set becomes kernel rules for the invocation and every child,
   so spawned tools run in the same box, from an argv (never a shell string),
   with executables resolved when granted and an environment that is empty plus an allowlist.
-- **Native code.** Deno's FFI runs in-process under `--allow-ffi`;
-  gro has no in-process FFI at all, and the library gets its own confined process.
+- **The kernel.** Landlock and seccomp under the runtime's own checks,
+  so an op-check bug or an engine escape still lands in a box; Deno's op checks stand alone.
 - **What's denied regardless.** Inside a granted read or write root,
   `.env*` files, credential files, and writes under `.git` and `node_modules` stay denied short of `-A`,
   and credentials reach the one process that needs them as named grants, never as file reads.
-- **Determinism.** Clock and randomness are capabilities (ambient, denied, or fixed),
-  so a run can be hermetic and replay exactly; Deno has no such mode.
-- **Eval.** `gro eval` runs in its own process with the JIT off, no code generation from strings,
+  Deno's `--deny-read` can express the same, opted into per run.
+- **Determinism.** Clock and randomness are web globals in gro too,
+  so this is a run class, not an import-graph fact:
+  a hermetic run fixes or denies them and replays exactly.
+  Deno has no such mode.
+- **Eval.** `gro eval` runs in its own process with the JIT off
+  (Deno's `--v8-flags=--jitless` does the same), no code generation from strings,
   and a heap cap, and the binary reads no environment variables in confined mode,
   so nothing outside the flags changes what a run may do.
 
@@ -381,7 +421,8 @@ Gro's claim is the shape of the boundary, not its maturity.
   or unconfined (`-A`, `publish`, `deploy`).
   The class shows in the policy file and the task listing,
   so a gen file that stops being hermetic is a reviewed diff.
-- **Deterministic runs.** Clock and randomness are capabilities (ambient, denied, or fixed),
+- **Deterministic runs.** Clock and randomness stay the web's globals,
+  set per run class (ambient, denied, or fixed) rather than imported,
   and hermetic runs pin the time zone and locale,
   so an eval or gen run replays exactly.
   Eval and gen see the project at a fixed root, never this machine's absolute paths,
