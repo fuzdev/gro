@@ -3,5 +3,5 @@
 # so a floating toolchain breaks on new nursery lints; also keeps LLVM
 # codegen fixed under the measurement series.
 # CI installs it from this file. Bump deliberately.
-channel = "1.94.1"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]
