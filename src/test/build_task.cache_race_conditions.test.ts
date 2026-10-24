@@ -3,8 +3,17 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
+import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
 
 // Mock dependencies
+vi.mock('#lib/build_cache_dependencies.ts', () => ({
+	load_build_cache_dependencies: vi.fn(async () => ({
+		gro_version: '1.0.0',
+		node_version: 'v24.0.0',
+		package_lock_hash: 'lock123'
+	}))
+}));
+
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
 	git_current_commit_hash: vi.fn()
@@ -141,7 +150,8 @@ describe('build_task cache race conditions', () => {
 		vi.mocked(git_current_commit_hash).mockResolvedValue('stable_commit');
 
 		const mock_metadata = {
-			version: '1',
+			version: '2',
+			...MOCK_BUILD_CACHE_DEPENDENCIES,
 			git_commit: 'stable_commit',
 			build_cache_config_hash: 'hash123',
 			timestamp: '2025-10-21T10:00:00.000Z',

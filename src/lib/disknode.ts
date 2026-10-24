@@ -6,6 +6,7 @@ export interface Disknode {
 	id: PathId;
 	// TODO figure out the best API that makes this lazy
 	/**
+	 * The file decoded as UTF-8. Invalid sequences, as in binary files, decode to U+FFFD.
 	 * `null` contents means it doesn't exist.
 	 * We create the file in memory to track its dependents regardless of its existence on disk.
 	 */
@@ -17,7 +18,8 @@ export interface Disknode {
 	ctime: number | null;
 	mtime: number | null;
 	/**
-	 * SHA-256 hash of `contents`. `null` iff `contents` is `null`.
+	 * BLAKE3 hash of the file's raw bytes, so binary files compare exactly.
+	 * `null` iff `contents` is `null`.
 	 * Used for content-based change detection and caching.
 	 */
 	content_hash: string | null;

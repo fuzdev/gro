@@ -3,9 +3,21 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
 import { compute_build_cache_key } from '#lib/build_cache.ts';
 
-import { create_mock_logger, create_mock_config } from './build_cache_test_helpers.ts';
+import {
+	create_mock_logger,
+	create_mock_config,
+	MOCK_BUILD_CACHE_DEPENDENCIES
+} from './build_cache_test_helpers.ts';
 
 // Mock dependencies
+vi.mock('#lib/build_cache_dependencies.ts', () => ({
+	load_build_cache_dependencies: vi.fn(async () => ({
+		gro_version: '1.0.0',
+		node_version: 'v24.0.0',
+		package_lock_hash: 'lock123'
+	}))
+}));
+
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
@@ -113,5 +125,40 @@ describe('compute_build_cache_key', () => {
 		const result = await compute_build_cache_key(config, log);
 
 		expect(result.build_cache_config_hash).toBeTruthy();
+	});
+
+	test('includes the Gro version, Node version, and package lock hash', async () => {
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { load_build_cache_dependencies } = await import('#lib/build_cache_dependencies.ts');
+
+		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+
+		const result = await compute_build_cache_key(config, log);
+
+		expect(result).toMatchObject(MOCK_BUILD_CACHE_DEPENDENCIES);
+		expect(load_build_cache_dependencies).toHaveBeenCalledTimes(1);
+	});
+
+	test('uses pre-loaded dependencies without loading them', async () => {
+		const { load_build_cache_dependencies } = await import('#lib/build_cache_dependencies.ts');
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+		const dependencies = {
+			gro_version: '9.9.9',
+			node_version: 'v1.2.3',
+			package_lock_hash: null
+		};
+
+		const result = await compute_build_cache_key(config, log, 'abc123', dependencies);
+
+		expect(result).toMatchObject(dependencies);
+		expect(load_build_cache_dependencies).not.toHaveBeenCalled();
+		expect(log.debug).toHaveBeenCalledWith(
+			expect.stringContaining('No node_modules/.package-lock.json')
+		);
 	});
 });

@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import { create_build_cache_metadata } from '#lib/build_cache.ts';
+import { BUILD_CACHE_VERSION, create_build_cache_metadata } from '#lib/build_cache.ts';
 
 import {
 	create_mock_logger,
@@ -8,10 +8,19 @@ import {
 	mock_file_stats,
 	mock_dir_stats,
 	mock_file_entry,
-	mock_dir_entry
+	mock_dir_entry,
+	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 
 // Mock dependencies
+vi.mock('#lib/build_cache_dependencies.ts', () => ({
+	load_build_cache_dependencies: vi.fn(async () => ({
+		gro_version: '1.0.0',
+		node_version: 'v24.0.0',
+		package_lock_hash: 'lock123'
+	}))
+}));
+
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
@@ -61,8 +70,9 @@ describe('create_build_cache_metadata', () => {
 		const result = await create_build_cache_metadata(config, log);
 
 		expect(result).toMatchObject({
-			version: '1',
-			git_commit: 'abc123'
+			version: BUILD_CACHE_VERSION,
+			git_commit: 'abc123',
+			...MOCK_BUILD_CACHE_DEPENDENCIES
 		});
 		expect(result.timestamp).toBeTruthy();
 		expect(new Date(result.timestamp).getTime()).toBeGreaterThan(0);
@@ -290,7 +300,7 @@ describe('create_build_cache_metadata', () => {
 
 		// Should have null git commit
 		expect(result.git_commit).toBeNull();
-		expect(result.version).toBe('1');
+		expect(result.version).toBe(BUILD_CACHE_VERSION);
 		expect(result.timestamp).toBeTruthy();
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Not in a git repository'));
 	});

@@ -225,10 +225,10 @@ export class Filer {
 		const file = this.get_or_create(id);
 
 		let stats: Awaited<ReturnType<typeof stat>> | null = null;
-		let new_contents: string | null = null; // TODO need to lazily load contents, probably turn `Disknode` into a class
+		let new_bytes: Buffer | null = null; // TODO need to lazily load contents, probably turn `Disknode` into a class
 
 		try {
-			[stats, new_contents] = await Promise.all([stat(id), readFile(id, 'utf8')]);
+			[stats, new_bytes] = await Promise.all([stat(id), readFile(id)]);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			// Treat file as deleted/inaccessible for common error codes
@@ -239,8 +239,8 @@ export class Filer {
 			}
 		}
 
-		// Compute hash for new contents
-		const new_hash = new_contents !== null ? hash_blake3(new_contents) : null;
+		// hash the raw bytes, since decoding collapses invalid UTF-8 in binary files to U+FFFD
+		const new_hash = new_bytes !== null ? hash_blake3(new_bytes) : null;
 
 		file.ctime = stats?.ctimeMs ?? null;
 		file.mtime = stats?.mtimeMs ?? null;
@@ -250,7 +250,7 @@ export class Filer {
 			return null;
 		}
 
-		file.contents = new_contents;
+		file.contents = new_bytes !== null ? new_bytes.toString('utf8') : null;
 		file.content_hash = new_hash;
 
 		const dir = dirname(file.id);

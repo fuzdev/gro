@@ -62,8 +62,8 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	pm_cli: string;
 	/**
-	 * SHA-256 hash of the user's `build_cache_config` from `gro.config.ts`.
-	 * This is computed during config normalization and the raw value is immediately deleted.
+	 * BLAKE3 hash of the user's `build_cache_config` from `gro.config.ts`, as deterministic JSON.
+	 * This is computed during config normalization, which then drops the raw value from the config.
 	 * If no `build_cache_config` was provided, this is the hash of an empty string.
 	 * @see `RawGroConfig.build_cache_config`
 	 */
@@ -99,8 +99,10 @@ export interface RawGroConfig {
 	 *
 	 * Can be a static object or an async function that returns an object.
 	 *
-	 * IMPORTANT: It's safe to include secrets here because they are hashed and `delete`d
-	 * during config normalization. The raw value is never logged or persisted.
+	 * Gro stores only an unkeyed hash of the value in `.gro/build.json` and never logs the raw value.
+	 * The hash hides only high-entropy values: when every value in the object is short or
+	 * guessable, such as flags and known URLs, hashing candidates recovers them.
+	 * The process still holds the raw values it read, as in `process.env`.
 	 */
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
@@ -150,7 +152,7 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 /**
  * Transforms a `RawGroConfig` to the more strict `GroConfig`.
  * This allows users to provide a more relaxed config.
- * Hashes the `build_cache_config` and deletes the raw value for security.
+ * Hashes the `build_cache_config` and drops the raw value from the config.
  */
 export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConfig> => {
 	const empty_config = create_empty_gro_config();
@@ -168,8 +170,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		filer_options = empty_config.filer_options
 	} = raw_config;
 
-	// Hash build_cache_config and delete the raw value
-	// IMPORTANT: Raw value may contain secrets - hash it and delete immediately
+	// hash build_cache_config and drop the raw value, so it isn't passed around with the config
 	let build_cache_config_hash: string;
 	if (!build_cache_config) {
 		build_cache_config_hash = EMPTY_BUILD_CACHE_CONFIG_HASH;
@@ -182,7 +183,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		build_cache_config_hash = hash_blake3(json_stringify_deterministic(resolved));
 	}
 
-	// Delete the raw value to ensure it doesn't persist in memory
+	// `delete` drops the reference, it doesn't scrub memory
 	delete (raw_config as any).build_cache_config;
 
 	return {

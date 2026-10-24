@@ -397,7 +397,8 @@ Key tasks:
 - `build` - production build with intelligent caching (runs plugin lifecycle:
   setup → adapt → teardown) ([docs](src/docs/build.md))
   - Build caching - skips expensive rebuilds using git commit + optional config
-    hash ([docs](src/docs/build.md#build-caching))
+    hash + Gro and Node versions + a hash of `node_modules/.package-lock.json`
+    ([docs](src/docs/build.md#build-caching))
   - Conservative correctness: dirty workspace forces rebuild and cleans outputs
   - Outputs validated via parallel hashing
     ([implementation](src/lib/build_cache.ts))
@@ -582,7 +583,7 @@ Key utilities:
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`,
   `esbuild_plugin_sveltekit_*.ts`
 - Build tools: `esbuild_helpers.ts`, `esbuild_plugin_svelte.ts`,
-  `build_cache.ts`
+  `build_cache.ts`, `build_cache_dependencies.ts`
 
 Documentation: [Complete index at src/docs/README.md](src/docs/README.md) - Core
 topics: [task](src/docs/task.md), [gen](src/docs/gen.md),

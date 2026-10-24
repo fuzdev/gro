@@ -3,8 +3,17 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
+import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
 
 // Mock dependencies
+vi.mock('#lib/build_cache_dependencies.ts', () => ({
+	load_build_cache_dependencies: vi.fn(async () => ({
+		gro_version: '1.0.0',
+		node_version: 'v24.0.0',
+		package_lock_hash: 'lock123'
+	}))
+}));
+
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
 	git_current_commit_hash: vi.fn()
@@ -97,7 +106,8 @@ describe('build_task cache validation', () => {
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
 			ctx.config,
 			ctx.log,
-			'abc123' // pre-computed git commit
+			'abc123', // pre-computed git commit
+			MOCK_BUILD_CACHE_DEPENDENCIES
 		);
 
 		// Should not run plugins
@@ -163,7 +173,8 @@ describe('build_task cache validation', () => {
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
 			ctx.config,
 			ctx.log,
-			null // null git commit
+			null, // null git commit
+			MOCK_BUILD_CACHE_DEPENDENCIES
 		);
 
 		// Should skip build due to valid cache

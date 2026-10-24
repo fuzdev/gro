@@ -1,4 +1,8 @@
-import { test, assert, vi } from 'vitest';
+import { test, assert, vi, onTestFinished } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import type { WatchNodeFs } from '#lib/watch_dir.ts';
 import { Filer } from '#lib/filer.ts';
@@ -99,6 +103,40 @@ test('disknode content_hash is null when created via get_or_create', async () =>
 	assert.ok(new_file);
 	assert.equal(new_file.contents, null);
 	assert.equal(new_file.content_hash, null);
+});
+
+test('content_hash hashes raw bytes, so binary files that decode alike differ', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_binary_'));
+	onTestFinished(() => rm(dir, { recursive: true, force: true }));
+	const path_a = join(dir, 'a.bin');
+	const path_b = join(dir, 'b.bin');
+	// both are invalid UTF-8 and decode to the same U+FFFD
+	const bytes_a = Uint8Array.of(0xff);
+	const bytes_b = Uint8Array.of(0xfe);
+	await writeFile(path_a, bytes_a);
+	await writeFile(path_b, bytes_b);
+
+	const mock_watch_dir = vi.fn((options) => {
+		const mock_watcher: WatchNodeFs = {
+			init: vi.fn(async () => {
+				options.on_change({ type: 'add', path: path_a, is_directory: false });
+				options.on_change({ type: 'add', path: path_b, is_directory: false });
+			}),
+			close: vi.fn(async () => {})
+		};
+		return mock_watcher;
+	});
+	const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+	await filer.init();
+
+	const a = filer.get_by_id(path_a);
+	const b = filer.get_by_id(path_b);
+	assert.ok(a && b);
+	assert.equal(a.contents, b.contents);
+	assert.equal(a.content_hash, hash_blake3(bytes_a));
+	assert.equal(b.content_hash, hash_blake3(bytes_b));
+	assert.notEqual(a.content_hash, b.content_hash);
+	await filer.close();
 });
 
 test('close() cleans up resources', async () => {

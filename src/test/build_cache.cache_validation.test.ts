@@ -1,14 +1,24 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { is_build_cache_valid } from '#lib/build_cache.ts';
+import type { BuildCacheDependencies } from '#lib/build_cache_dependencies.ts';
 
 import {
 	create_mock_logger,
 	create_mock_config,
-	create_mock_build_cache_metadata
+	create_mock_build_cache_metadata,
+	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 
 // Mock dependencies
+vi.mock('#lib/build_cache_dependencies.ts', () => ({
+	load_build_cache_dependencies: vi.fn(async () => ({
+		gro_version: '1.0.0',
+		node_version: 'v24.0.0',
+		package_lock_hash: 'lock123'
+	}))
+}));
+
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
@@ -157,5 +167,70 @@ describe('is_build_cache_valid', () => {
 
 		expect(result).toBe(false);
 		expect(log.debug).toHaveBeenCalledWith('Build cache invalid: build_cache_config changed');
+	});
+
+	test.each([
+		['gro_version', { gro_version: '2.0.0' }, 'Build cache invalid: Gro version changed'],
+		['node_version', { node_version: 'v99.0.0' }, 'Build cache invalid: Node version changed'],
+		[
+			'package_lock_hash',
+			{ package_lock_hash: 'other_lock' },
+			'Build cache invalid: installed packages changed'
+		],
+		[
+			'package_lock_hash to null',
+			{ package_lock_hash: null },
+			'Build cache invalid: installed packages changed'
+		]
+	] as const)(
+		'returns false when %s differs',
+		async (_name, changed: Partial<BuildCacheDependencies>, message) => {
+			const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { readFile } = vi.mocked(await import('node:fs/promises'));
+			const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
+
+			const metadata = create_mock_build_cache_metadata();
+
+			vi.mocked(fs_exists).mockResolvedValue(true);
+			vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+			vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
+			vi.mocked(hash_blake3).mockReturnValue('jkl012');
+
+			const config = await create_mock_config();
+			const log = create_mock_logger();
+
+			const result = await is_build_cache_valid(config, log, undefined, {
+				...MOCK_BUILD_CACHE_DEPENDENCIES,
+				...changed
+			});
+
+			expect(result).toBe(false);
+			expect(log.debug).toHaveBeenCalledWith(message);
+		}
+	);
+
+	test('returns true when the package lock hash is null on both sides', async () => {
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
+
+		const metadata = create_mock_build_cache_metadata({ package_lock_hash: null });
+
+		vi.mocked(fs_exists).mockResolvedValue(true);
+		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
+		vi.mocked(hash_blake3).mockReturnValue('jkl012');
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+
+		const result = await is_build_cache_valid(config, log, undefined, {
+			...MOCK_BUILD_CACHE_DEPENDENCIES,
+			package_lock_hash: null
+		});
+
+		expect(result).toBe(true);
 	});
 });

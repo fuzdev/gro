@@ -13,9 +13,13 @@ import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 import type { GroConfig } from './gro_config.ts';
 import { paths } from './paths.ts';
 import { SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME, GRO_DIST_PREFIX } from './constants.ts';
+import {
+	load_build_cache_dependencies,
+	type BuildCacheDependencies
+} from './build_cache_dependencies.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
-export const BUILD_CACHE_VERSION = '1';
+export const BUILD_CACHE_VERSION = '2';
 
 /**
  * Metadata about a single build output file.
@@ -43,6 +47,11 @@ export const BuildCacheMetadata = s.object({
 	build_cache_config_hash: meta(s.string, {
 		description: "hash of user's custom build_cache_config from gro.config.ts."
 	}),
+	gro_version: meta(s.string, { description: 'version of the Gro that ran the build' }),
+	node_version: meta(s.string, { description: 'process.version of the Node that ran the build' }),
+	package_lock_hash: meta(s.nullable(s.string), {
+		description: 'BLAKE3 hash of node_modules/.package-lock.json, null when missing'
+	}),
 	timestamp: meta(s.string, { description: 'timestamp when build completed' }),
 	outputs: meta(s.array(BuildOutputEntry), {
 		description: 'build output files with hashes and filesystem stats'
@@ -51,31 +60,49 @@ export const BuildCacheMetadata = s.object({
 export type BuildCacheMetadata = s.Infer<typeof BuildCacheMetadata>;
 
 /**
+ * The components of the build cache key. A cached build is reused only when all match.
+ */
+export interface BuildCacheKey extends BuildCacheDependencies {
+	git_commit: string | null;
+	build_cache_config_hash: string;
+}
+
+/**
  * Computes the cache key components for a build.
  * This determines whether a cached build can be reused.
  *
  * @param config - Gro config (`build_cache_config_hash` is already computed during config load)
  * @param log - Logger
  * @param git_commit - optional pre-computed git commit hash (optimization to avoid re-reading)
+ * @param dependencies - optional pre-loaded Gro and Node versions and installed-package hash,
+ *   so one build checks and saves the same values
  */
 export const compute_build_cache_key = async (
 	config: GroConfig,
 	log: Logger,
-	git_commit?: string | null
-): Promise<{
-	git_commit: string | null;
-	build_cache_config_hash: string;
-}> => {
-	// 1. Git commit hash - primary cache key
-	const commit = git_commit !== undefined ? git_commit : await git_current_commit_hash();
+	git_commit?: string | null,
+	dependencies?: BuildCacheDependencies
+): Promise<BuildCacheKey> => {
+	const [commit, deps] = await Promise.all([
+		git_commit !== undefined ? git_commit : git_current_commit_hash(),
+		dependencies ?? load_build_cache_dependencies()
+	]);
 	if (!commit) {
 		log.warn('Not in a git repository - build cache will use null git commit');
 	}
+	if (deps.package_lock_hash === null) {
+		log.debug(
+			'No node_modules/.package-lock.json - build cache will not detect installed package changes'
+		);
+	}
 
-	// 2. Build cache config hash - already computed during config normalization
 	return {
 		git_commit: commit,
-		build_cache_config_hash: config.build_cache_config_hash
+		// already computed during config normalization
+		build_cache_config_hash: config.build_cache_config_hash,
+		gro_version: deps.gro_version,
+		node_version: deps.node_version,
+		package_lock_hash: deps.package_lock_hash
 	};
 };
 
@@ -188,11 +215,13 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
  * @param config - Gro config
  * @param log - Logger
  * @param git_commit - optional pre-computed git commit hash (optimization)
+ * @param dependencies - optional pre-loaded dependency components of the key
  */
 export const is_build_cache_valid = async (
 	config: GroConfig,
 	log: Logger,
-	git_commit?: string | null
+	git_commit?: string | null,
+	dependencies?: BuildCacheDependencies
 ): Promise<boolean> => {
 	// Load existing metadata
 	const metadata = await load_build_cache_metadata();
@@ -202,7 +231,7 @@ export const is_build_cache_valid = async (
 	}
 
 	// Compute current cache key
-	const current = await compute_build_cache_key(config, log, git_commit);
+	const current = await compute_build_cache_key(config, log, git_commit, dependencies);
 
 	// Check if cache keys have changed
 	if (metadata.git_commit !== current.git_commit) {
@@ -212,6 +241,21 @@ export const is_build_cache_valid = async (
 
 	if (metadata.build_cache_config_hash !== current.build_cache_config_hash) {
 		log.debug('Build cache invalid: build_cache_config changed');
+		return false;
+	}
+
+	if (metadata.gro_version !== current.gro_version) {
+		log.debug('Build cache invalid: Gro version changed');
+		return false;
+	}
+
+	if (metadata.node_version !== current.node_version) {
+		log.debug('Build cache invalid: Node version changed');
+		return false;
+	}
+
+	if (metadata.package_lock_hash !== current.package_lock_hash) {
+		log.debug('Build cache invalid: installed packages changed');
 		return false;
 	}
 
@@ -351,14 +395,16 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
  * @param log - Logger
  * @param git_commit - optional pre-computed git commit hash (optimization)
  * @param build_dirs - optional pre-discovered build directories (optimization to avoid redundant filesystem scans)
+ * @param dependencies - optional pre-loaded dependency components of the key
  */
 export const create_build_cache_metadata = async (
 	config: GroConfig,
 	log: Logger,
 	git_commit?: string | null,
-	build_dirs?: Array<string>
+	build_dirs?: Array<string>,
+	dependencies?: BuildCacheDependencies
 ): Promise<BuildCacheMetadata> => {
-	const cache_key = await compute_build_cache_key(config, log, git_commit);
+	const cache_key = await compute_build_cache_key(config, log, git_commit, dependencies);
 	const dirs = build_dirs ?? (await discover_build_output_dirs());
 	const outputs = await collect_build_outputs(dirs);
 

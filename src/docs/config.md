@@ -247,18 +247,22 @@ Defaults to `'npm'`.
 
 The `build_cache_config` option defines custom build inputs
 that invalidate the [build cache](build.md#build-caching) when they change.
-Gro's build cache uses git commit hash to detect when code, dependencies, or
-configs change, and only works with a clean workspace (see [dirty workspace behavior](build.md#dirty-workspace-behavior)).
+Gro's build cache uses the git commit hash to detect when committed code or configs change,
+plus the Gro and Node versions and npm's record of the installed packages
+(see [cache key](build.md#cache-key)),
+and only works with a clean workspace (see [dirty workspace behavior](build.md#dirty-workspace-behavior)).
 Use `build_cache_config` when your build also depends on external
 factors like environment variables, remote data, or feature flags.
 
-This value is hashed before being stored in the cache metadata.
-The raw value is never logged or written to disk, protecting sensitive information.
+This value is hashed before being stored in the cache metadata,
+and the raw value is never logged or written to disk.
+The hash hides only high-entropy values (see [security considerations](#security-considerations)).
 
 ### when to use `build_cache_config`
 
-The build cache automatically invalidates on any git commit (source code, dependencies,
-configs -- assuming you commit changes before building in the normal case)
+The build cache automatically invalidates on any git commit (source code, `package.json`
+and the lockfile, configs -- assuming you commit changes before building in the normal case),
+on a Gro or Node upgrade, and when npm changes what's installed.
 Use `build_cache_config` when your build also depends on:
 
 - environment variables baked into the build (API endpoints, feature flags)
@@ -276,7 +280,6 @@ import {readFileSync} from 'node:fs';
 export default {
 	build_cache_config: {
 		// Environment variables that affect the build
-		// It's safe to include secrets here because they are hashed and `delete`d
 		api_endpoint: process.env.PUBLIC_API_URL,
 		analytics_key: process.env.PUBLIC_ANALYTICS_KEY,
 
@@ -319,22 +322,23 @@ export default {
 ### security considerations
 
 The `build_cache_config` value is hashed before being written to `.gro/build.json`.
-Only the hash is stored, never the raw values, so it's safe to include:
+Only the hash is stored, never the raw values.
+The hash is an unkeyed BLAKE3 of the object's deterministic JSON, so it hides only
+high-entropy values like random API keys. When every value is short or guessable,
+like flags, versions, and known URLs, anyone who can read `.gro/build.json`
+can recover them by hashing candidates.
 
-- API keys (though using them at build time should be carefully considered)
-- Internal URLs
-- Configuration secrets
-
-However, be aware that these values may still appear in:
+Be aware that these values may also appear in:
 
 - Build outputs if your code embeds them
 - Build logs if explicitly logged elsewhere
 - The config file itself (ensure `gro.config.ts` is not publicly committed if it contains secrets)
+- The Gro process, which keeps whatever it read, like `process.env`
 
 ### how it works
 
-The `build_cache_config` is hashed early during config normalization (in `load_gro_config()`).
-This protects sensitive values by ensuring the raw config never persists in memory.
+The `build_cache_config` is hashed early during config normalization (in `load_gro_config()`),
+which then drops the raw value from the config, so plugins and tasks see only the hash.
 
 During the build:
 
@@ -342,12 +346,11 @@ During the build:
 2. Loads previous build's cache metadata from `.gro/build.json` (missing/corrupt = rebuild)
 3. Compares current git commit against cached commit (different = rebuild)
 4. Compares current config hash against cached config hash (different = rebuild)
-5. If cache key matches, validates output files haven't been modified
-6. If all checks pass, uses the cached build
+5. Compares the Gro version, Node version, and installed-packages hash (different = rebuild)
+6. If cache key matches, validates output files haven't been modified
+7. If all checks pass, uses the cached build
 
-This ensures builds are correct while protecting sensitive configuration.
-Both cache factors (git commit and `build_cache_config` hash) are checked—if either changes,
-the cache is invalidated.
+Every cache key component is checked, and if any changes, the cache is invalidated.
 
 ### common patterns
 
