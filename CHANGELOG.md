@@ -1,5 +1,16 @@
 # @fuzdev/gro
 
+## 0.221.0
+
+### Minor Changes
+
+- deps: upgrade to `@fuzdev/tsv@0.7.0`; `format_file` still throws on a source that doesn't format, with the same message, now always a plain `Error` (a parse failure was a `SyntaxError` with `start`/`loc`) carrying tsv's error as `cause`; sources tsv 0.7.0 newly rejects (see its changelog) now fail `gro format` ([7e8ead4](https://github.com/fuzdev/gro/commit/7e8ead4))
+
+### Patch Changes
+
+- fix: the build cache key folds in the Gro version, `process.version`, and a BLAKE3 hash of `node_modules/.package-lock.json` (`null` when missing), so an upgrade or a re-resolved install rebuilds; adds `build_cache_dependencies.ts` and an optional `dependencies` param to `compute_build_cache_key`, `is_build_cache_valid`, and `create_build_cache_metadata`; `BUILD_CACHE_VERSION` moves to `'2'`, so existing caches rebuild once; the docs no longer say secrets in `build_cache_config` are safe, since its unkeyed hash hides only high-entropy values; the `Filer` hashes each file's raw bytes, so binary files that decode alike no longer share a `content_hash` ([57e24f1](https://github.com/fuzdev/gro/commit/57e24f1))
+- fix: `gro sync --install` (and so `gro build`, `gro deploy`, and `gro publish`) and `gro changeset` throw a `TaskError` asking to re-run when their install changed the installed version of Gro or its dependencies, instead of continuing with a mix of old and new modules ([de6a515](https://github.com/fuzdev/gro/commit/de6a515))
+
 ## 0.220.0
 
 ### Minor Changes
