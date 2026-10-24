@@ -1,1 +1,0 @@
-export{t as component}from"../chunks/WCXS0s3p.js";
