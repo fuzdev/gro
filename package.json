@@ -52,6 +52,7 @@
     "typescript"
   ],
   "dependencies": {
+    "@fuzdev/tsv": "^0.7.1",
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "esm-env": "^1.2.2",
@@ -98,7 +99,6 @@
     "@fuzdev/fuz_ui": "^0.220.0",
     "@fuzdev/fuz_util": "^0.77.0",
     "@fuzdev/mdz": "^0.6.0",
-    "@fuzdev/tsv": "^0.7.1",
     "@ryanatkn/eslint-config": "^0.13.1",
     "@sveltejs/acorn-typescript": "^1.0.9",
     "@sveltejs/adapter-static": "^4.0.0",
