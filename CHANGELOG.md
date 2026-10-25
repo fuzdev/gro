@@ -1,5 +1,15 @@
 # @fuzdev/gro
 
+## 0.222.0
+
+### Minor Changes
+
+- chore: upgrade fuz_util 0.78.0 and svelte-docinfo 0.16.0 ([eba4a9f](https://github.com/fuzdev/gro/commit/eba4a9f))
+
+### Patch Changes
+
+- fix: `@fuzdev/tsv` is a runtime dependency again, since `format_file` imports it; 0.221.0 listed it only as a dev dependency, so `gro gen` and `gro format` failed in a project that doesn't install it ([268cec4](https://github.com/fuzdev/gro/commit/268cec4))
+
 ## 0.221.0
 
 ### Minor Changes
