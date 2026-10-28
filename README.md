@@ -19,7 +19,7 @@ Gro is also becoming its own JS runtime,
 a Rust binary on V8 built for code you can't fully trust, like from dependencies and agents,
 with granular control over what it can reach.
 By default a run is confined: code reaches only what its imports declare,
-the project's own files without asking, and the network, processes, and anything outside the project
+reads of the project's own files without asking, and the network, processes, and anything outside the project
 only once accepted in a small policy file you review like a lockfile,
 so changing capabilities is a diff, and the runtime enforces it.
 A hermetic run is also confined but strictly deterministic, with its clock and randomness fixed,
@@ -71,7 +71,8 @@ The Node tool includes:
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- the experimental [runtime](/src/docs/runtime.md), and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
+- the experimental [runtime](/src/docs/runtime.md): what [`fgro run`](/src/docs/run.md) does today,
+  and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
 
 ## Install
@@ -255,7 +256,7 @@ The Rust runtime in `crates/` ([docs](/src/docs/runtime.md)) builds on x86_64 Li
 Run `cargo xtask fetch-v8` before any plain cargo command, since every build links
 the pinned V8 archive it downloads and verifies.
 `cargo xtask build --release` builds `fgro` with its startup snapshot,
-`target/gro_snapshot/release/fgro run file.js` runs a module,
+`target/gro_snapshot/release/fgro run file.ts` runs a module,
 and `cargo xtask check` runs every gate, the Rust and JS halves together.
 
 ## Credits 🐢<sub>🐢</sub><sub><sub>🐢</sub></sub>

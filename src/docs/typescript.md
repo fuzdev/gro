@@ -21,7 +21,9 @@ Syntax with runtime semantics is refused with its position and a fix:
 - parameter properties (`constructor(private x: number)`)
 - `import =` and `export =`
 - angle-bracket assertions (`<T>x`)
-- an unparenthesized `as` whose removal would regroup the expression (`-x as number ** 2`)
+- an unparenthesized `as` or `satisfies` whose removal would regroup the expression
+  (`a + b as T / c`, which Node's stripper silently reads as `a + b / c`)
+  or leave it invalid (`-x as T ** 2`)
 
 Imports follow `verbatimModuleSyntax`:
 `import {type T}` keeps the import, so its side effects run,
@@ -29,7 +31,8 @@ while `import type` and `export type … from` drop entirely.
 
 ## File types
 
-- `.ts` and `.mts` load as ES modules.
+- `.ts` and `.mts` load as ES modules, always: `"type"` isn't read for them,
+  where Node lets a `.ts` file be CommonJS.
 - `.ts` inside `node_modules` is stripped like any other file, where Node refuses it.
 - Refused with the reason: `.cts` (CommonJS), `.tsx` (JSX), declaration files,
   and Svelte modules (`.svelte.ts`, `.svelte.test.ts`, any name with `.svelte.` ending in `.js` or `.ts`),

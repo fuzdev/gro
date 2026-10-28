@@ -9,7 +9,8 @@
 > `cargo xtask build`, resolving packages in `node_modules` by their `"exports"`
 > (x86_64 Linux only for now).
 > It takes only the entry file, with no script arguments yet;
-> the README's [Develop](../../README.md#develop) section says how to build and run it.
+> [run](run.md) is the reference for what the binary does today,
+> and the README's [Develop](../../README.md#develop) section says how to build it.
 > Everything below is designed; only what the [roadmap](#roadmap) marks done is built.
 > It doesn't have every answer yet (the [open questions](#open-questions) say which),
 > and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
@@ -33,6 +34,8 @@ the one authority that isn't declared by import, since a global reaches every mo
 The _policy file_ (currently `gro.policy.json`) is the committed record of what was accepted in review.
 And every run is one of three _kinds_ by what it reaches and depends on:
 hermetic (replayable), confined (bounded), or unconfined.
+Two more carry the security sections: a _grant_ is one accepted reach (a host module, named hosts, a root),
+and the _kernel backstop_ is the Linux rules (Landlock, seccomp) the grant set also becomes, under the runtime's own checks.
 
 Its primary verb is `gro run <file>`: one module graph, no ambient authority,
 nothing reachable that the graph didn't import or the policy file didn't accept.
@@ -189,12 +192,12 @@ The runtime prioritizes, in order:
    since a boundary that's painful gets bypassed
 4. speed: startup first, since short-lived invocations dominate an agent-driven loop;
    measured against Node, Deno, and Bun on the same workloads,
-   with no regression against its own history accepted
+   with no regression against its own history accepted (the bench reports the comparison; the call is a person's today)
 5. binary size and memory
 
 Staying simple and small is overarching, and the security story depends on it:
 a surface small enough to audit, where every path to the OS is an import or a declared global.
-Gro will run the same V8 as Node and Deno, so steady-state compute will be at parity;
+Gro runs on V8, as Node and Deno do, so steady-state compute will be at parity, version for version;
 the wins are everything around the engine (startup, loading, caching, work avoided).
 Gro isn't security maximalism: the defaults are safe and the user decides when to widen them.
 
@@ -292,9 +295,9 @@ the design differences from Deno in prose
 with no namespace to reach around the loader),
 notes on Node and Bun,
 and the same ground as tables by axis, with the bench's measured startup and size.
-In one line: Deno's lockfile pins which code runs;
-gro's policy file also pins what that code can reach,
-and treats the second lock like the first: committed, diffed, reviewed.
+In one line: Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process;
+gro's policy file pins what that code can reach per import chain, inferred from the graph,
+and is treated like the lockfile: committed, diffed, reviewed.
 
 ## What the hermetic design opens up
 
@@ -359,7 +362,7 @@ Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svel
 run as Node subprocesses under the invocation's kernel rules.
 
 - [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
-      on the same workloads, the baseline every milestone is gated against
+      on the same workloads, the baseline every milestone is measured against
 - [x] `gro run` (as `fgro run` for now): ESM from disk on V8, web-standard globals, a startup snapshot
 - [x] TypeScript by tsv's type strip, in process
 - [x] strict package resolution: `node_modules` by `"exports"`, and `"type": "module"`
@@ -391,8 +394,8 @@ run as Node subprocesses under the invocation's kernel rules.
 Future (unknown order):
 
 - FFI as a grant, in its own confined process
-- deterministic tasks and gen: clock and randomness fixed or seeded,
-  gen as a memoized function of its graph (`gro eval` denies both from the start)
+- the `fixed` and `seeded` determinism modes for tasks and gen (`gro eval` ships with `deny`),
+  and gen as a memoized function of its graph
 - owning the core: deno_core's pieces replaced one at a time, measured
 - `fetch`, `crypto.subtle`, and `WebSocket` as consumers need them
 - size: filtered ICU data, V8 build flags

@@ -14,6 +14,7 @@
 - [plugin](plugin.md)
 - [publish](publish.md)
 - [resolver](resolver.md)
+- [run](run.md)
 - [runtime](runtime.md)
 - [task](task.md)
 - [tasks](tasks.md)

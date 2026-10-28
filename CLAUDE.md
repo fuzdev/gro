@@ -457,8 +457,9 @@ in discussions) and links out; the thesis in full, the Deno story, and the publi
 eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
 default, the threat model, the design, and what it leaves out; the comparison
 with Node, Deno, and Bun (prose, then tables by axis, then the bench's
-numbers) is in [src/docs/comparison.md](src/docs/comparison.md); the
-resolver's full rules and departures from Node are in
+numbers) is in [src/docs/comparison.md](src/docs/comparison.md); what the
+built binary does today (loads, globals, errors, exit codes) is the
+reference [src/docs/run.md](src/docs/run.md); the resolver's full rules and departures from Node are in
 [src/docs/resolver.md](src/docs/resolver.md) and the type-strip rules in
 [src/docs/typescript.md](src/docs/typescript.md).
 
