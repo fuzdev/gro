@@ -126,7 +126,7 @@ What gro drops is the legacy half: CommonJS, `main`, extensionless probing, and 
 
 ## Compared to Bun
 
-Bun is speed-first: JavaScriptCore, its own transpiler, a bundler, a test runner, and a package manager in one binary,
+Bun is speed-first: JavaScriptCore, its own transpiler, a bundler, a test runner, a type checker, and a package manager in one binary,
 with the broadest Node compatibility after Node itself
 (Anthropic acquired it in December 2025; it stays open source under MIT).
 It has no permission model, so a run holds everything,
@@ -147,7 +147,7 @@ Gro's cells use five words.
 |                   | Node                | Deno                                                       | Bun               | Gro                            |
 | ----------------- | ------------------- | ---------------------------------------------------------- | ----------------- | ------------------------------ |
 | engine            | V8                  | V8                                                         | JavaScriptCore    | V8                             |
-| host language     | C++                 | Rust                                                       | Zig and C++       | Rust                           |
+| host language     | C++                 | Rust                                                       | Rust and C++, since 1.4 (Zig before) | Rust                           |
 | license           | MIT                 | MIT                                                        | MIT               | 0BSD                           |
 | steward           | OpenJS Foundation   | Cloudflare, maintenance only, end of life October 2027     | Anthropic, since December 2025 | fuz                            |
 | runtime namespace | `process`, `node:*` | `Deno`                                                     | `Bun`, `bun:*`    | none                           |
@@ -183,7 +183,7 @@ Gro's cells use five words.
 | refused syntax                  | `enum`, value namespaces, parameter properties, `import =`, `export =`, `<T>x`, without the flag; an assertion whose removal regroups the expression is stripped silently | none | none | built: the same, plus the regrouping assertion, each with a fix ([typescript](typescript.md)) |
 | a `.ts` file's format           | `"type"` and syntax detection, so CommonJS too             | an ES module                   | sniffed               | built: always an ES module                       |
 | `.ts` inside `node_modules`     | refused                                                    | refused                        | yes                   | built: stripped like any other                   |
-| type checking                   | no                                                         | `deno check`, not on run       | no                    | no; `gro typecheck` runs tsc or svelte-check     |
+| type checking                   | no                                                         | `deno check`, and on run with `--check` | `bun check` (a port of typescript-go, since 1.4.3), and on run with `--check` | no; `gro typecheck` runs tsc or svelte-check     |
 | JSX in `.tsx`                   | no                                                         | yes                            | yes                   | no                                               |
 | `tsconfig.json` read at run time | no                                                        | yes: `deno.json` `compilerOptions`, or `tsconfig.json` in a `package.json` project | yes, for paths and JSX | no                       |
 
