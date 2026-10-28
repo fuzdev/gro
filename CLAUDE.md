@@ -455,8 +455,10 @@ the agent guardrail; grew out of the loader; an in-progress design, feedback
 in discussions) and links out; the thesis in full, the Deno story, and the public design live in
 [src/docs/runtime.md](src/docs/runtime.md): the verbs (`gro run`, `gro
 eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
-default, the threat model, the design, what it leaves out, and the comparison
-with Deno; the resolver's full rules and departures from Node are in
+default, the threat model, the design, and what it leaves out; the comparison
+with Node, Deno, and Bun (prose, then tables by axis, then the bench's
+numbers) is in [src/docs/comparison.md](src/docs/comparison.md); the
+resolver's full rules and departures from Node are in
 [src/docs/resolver.md](src/docs/resolver.md) and the type-strip rules in
 [src/docs/typescript.md](src/docs/typescript.md).
 

@@ -18,8 +18,9 @@ It runs on Node and is a dev tool, not for production use.
 Gro is also becoming its own JS runtime,
 a Rust binary on V8 built for code you can't fully trust, like from dependencies and agents,
 with granular control over what it can reach.
-By default a run is confined: code gets only the files, network, and processes its imports declare,
-nothing by default, recorded in a small policy file you review like a lockfile,
+By default a run is confined: code reaches only what its imports declare,
+the project's own files without asking, and the network, processes, and anything outside the project
+only once accepted in a small policy file you review like a lockfile,
 so changing capabilities is a diff, and the runtime enforces it.
 A hermetic run is also confined but strictly deterministic, with its clock and randomness fixed,
 so it replays and caches by construction;
@@ -70,7 +71,7 @@ The Node tool includes:
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- the experimental [runtime](/src/docs/runtime.md)
+- the experimental [runtime](/src/docs/runtime.md), and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
 
 ## Install

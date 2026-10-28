@@ -284,90 +284,17 @@ so each piece can be rewritten on its own as measurements justify it.
 - **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
   (never a shell string) keep platform differences in a handful of files.
 
-## Compared to Deno
+## Compared to Deno, Node, and Bun
 
-If you know Deno, the ingredients are familiar:
-V8, web standards, TypeScript without a build step, and deny-by-default permissions.
-Gro starts there and takes the other side of most of Deno's later choices:
-
-- **Node:** Deno added `node:*`, `npm:`, and CommonJS; gro declines all three.
-  Not because the compat layer skips checks (Deno runs npm packages and CommonJS under its permission system)
-  but because `process`, available everywhere, `require`, and CommonJS
-  make authority reachable without a visible import.
-- **Imports:** Deno resolves `https:`, `jsr:`, and `npm:` specifiers, fetching code at run time
-  (a static remote import needs no permission; `--no-remote` and `--cached-only` turn it off);
-  gro reads files on disk, resolved strictly, so the graph is whatever the lockfile installed.
-- **Namespace:** Deno has `Deno.*`; gro has no runtime namespace.
-- **TypeScript:** Deno transpiles the full language;
-  gro strips erasable syntax only, so positions never move.
-- **Native code:** Deno's FFI runs in-process under `--allow-ffi`;
-  gro's planned FFI runs in a confined process of its own, never the runtime's.
-
-Each of these is a guarantee by omission.
-Deno can offer an opt-out, and does for some,
-but can't remove the path without breaking its users.
-Gro commits to never adding one.
-Where gro keeps a Node convention, like `exports` resolution through `node_modules`,
-it's because that's the global maximum for gro across security, speed, and ergonomics,
-with security first, not compatibility for its own sake.
-
-One difference is structural, and the rest of the sandbox follows from it.
-In Deno, authority is reached through globals (`Deno.readFile`, `Deno.Command`, `fetch`):
-a permission belongs to the thread, so every module on it holds it
-(Deno's docs say as much: modules on one thread can't hold different privileges),
-and what a program can reach is a dynamic fact, known by running it.
-In gro, authority enters by import, and there's no namespace to reach around the loader.
-Deno can't adopt this as its model without breaking every program that calls a `Deno.*` function;
-as an opt-in it would be a second runtime with its own standard library.
-What follows from it:
-
-- **Who holds a grant.** A gro grant belongs to the module graph that imports the host module,
-  and a dependency's reach is attributed to the import chain that brought it in,
-  so the diff says which package newly needs the network, not only that something does.
-  A capability handed down by reference stays attributed to the module that imported it;
-  handing never widens.
-- **Where it fails.** Deno denies at the call, deep inside a dependency,
-  with a `NotCapable` error the code can catch and swallow.
-  Gro denies before the code runs: an ungranted host module doesn't link,
-  an undeclared `fetch` isn't there.
-  What's left for the call is the scoped check inside a grant
-  (a path outside the root, a host not accepted), and the host reports those too.
-- **Day to day.** A Deno run carries its flags on every invocation
-  (`--allow-net=…`, `--allow-read=…`), bakes them into a task, or takes `-A`.
-  A gro run carries nothing: the grants come from the import graph,
-  and the policy file changes only when the graph newly reaches authority,
-  which is lockfile cadence, not run cadence.
-  Inference is sound because every entry point is an import;
-  no sound equivalent exists over `Deno.*` calls, which any expression can reach.
-- **WASM.** A WASM module imported as an ES module declares its capabilities by its imports too,
-  so one policy file and one inference cover both.
-
+[comparison](comparison.md) has the full account:
+the design differences from Deno in prose
+(the ingredients are the same; the structural difference is that authority enters by import,
+with no namespace to reach around the loader),
+notes on Node and Bun,
+and the same ground as tables by axis, with the bench's measured startup and size.
 In one line: Deno's lockfile pins which code runs;
 gro's policy file also pins what that code can reach,
 and treats the second lock like the first: committed, diffed, reviewed.
-
-The one corner of gro's model shaped like Deno's is the authority globals.
-`fetch` and `WebSocket` reach every module in the graph and can't be inferred,
-so they're declared, absent until granted, and shown as the wider class in the policy diff;
-the host's `net` import is the narrow way to the same thing, and the hint for a free `fetch` names it first.
-
-The rest are defaults: choices Deno could adopt without breaking anyone,
-some of which it already offers behind a flag.
-
-|                   | Deno                                                                     | gro                                                                                                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prompts           | asks when stdout is a terminal, or `--no-prompt`                         | never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`                                                                  |
-| denials           | a thrown error the code can catch                                        | reported by the host, so a `try/catch` can't hide one; under `gro check` and CI a denial fails the run                                                                                                                     |
-| children          | `--allow-run` spawns outside the sandbox                                 | the grant set becomes kernel rules for every child, coarser than in-process (paths and ports, not hosts): an argv, never a shell string, executables resolved when granted, an environment that is empty plus an allowlist |
-| kernel            | the op checks stand alone                                                | Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box                                                                                                                      |
-| denied regardless | `--deny-read=…`, opted into per run                                      | inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A`; credentials reach one process as named grants, never file reads                                    |
-| determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | a hermetic run fixes or denies clock and randomness and replays exactly                                                                                                                                                    |
-| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | `gro eval`: its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap, and no environment variable configures it, every knob a flag                                              |
-
-Deno has pieces gro doesn't: workers with a reduced permission set,
-a runtime API to query, request, and revoke permissions, `--deny-*` overrides,
-the permission broker, and years of production hardening.
-Gro's claim is the shape of the boundary, not its maturity.
 
 ## What the hermetic design opens up
 
@@ -440,6 +367,8 @@ run as Node subprocesses under the invocation's kernel rules.
 - [ ] `gro eval`: confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
+- [ ] the first release: `fgro` 0.1.0 for Linux x86_64 as a GitHub Release asset,
+      `run` and `eval`, with checksums and a provenance attestation
 - [ ] the security gate: a suite of escape probes run under every grant set,
       with every web global and member classified by the authority it carries as the oracle,
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
