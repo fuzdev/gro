@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { LoadHook, ResolveHook } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import ts_blank_space from 'ts-blank-space';
+import { strip_typescript } from '@fuzdev/tsv';
 
 import {
 	load_sveltekit_env_declarations,
@@ -122,8 +122,13 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		const loaded = await nextLoad(url, { ...context, format: 'module-typescript' });
 		const raw_source = loaded.source?.toString(); // eslint-disable-line @typescript-eslint/no-base-to-string
 		if (raw_source == null) throw Error(`Failed to load ${url}`);
-		// TODO should be nice if we could use Node's builtin amaro transform, but I couldn't find a way after digging into the source, AFAICT it's internal and not exposed
-		const source = ts_blank_space(raw_source); // TODO was using oxc-transform and probably should, but this doesn't require sourcemaps, and it's still alpha as of May 2025
+		// blanks types in place, so positions match the source without a sourcemap
+		const stripped = strip_typescript(raw_source, { sourceType: 'module' });
+		if (!stripped.ok) {
+			const { error } = stripped;
+			throw new Error(`${filename}: ${error.message}\n${error.frame}`, { cause: error });
+		}
+		const source = stripped.code;
 		const { svelte_compile_module_options } = await load_default_svelte_config();
 		const transformed = compileModule(source, {
 			...svelte_compile_module_options,
