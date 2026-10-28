@@ -6,8 +6,7 @@
 
 > **status**: Gro's cells tell built from designed.
 > The incumbents' cells describe Node 24, Deno 2, and Bun 1 as of October 2026,
-> from their documentation and the versions the [bench](#measured) ran;
-> a cell marked `?` was reasoned from the runtime's design rather than checked against its docs.
+> checked against their documentation and probed on the versions the [bench](#measured) ran.
 > Corrections are welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
 Gro is the [runtime](runtime.md) this compares; its security model and design are there.
@@ -114,7 +113,8 @@ Its API hands every module ambient authority: `process`, `require`, and `node:fs
 are reachable from anywhere, which is what makes a compat layer incompatible with gro's model.
 Node's permission model (`--permission`, with `--allow-fs-read`, `--allow-fs-write`,
 `--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-wasi`)
-is opt-in, process-wide, and leaves the network out, so a run under it still fetches anywhere.
+is opt-in and process-wide, and in Node 24 leaves the network out (newer releases add `--allow-net`),
+so a run under it still fetches anywhere.
 What gro keeps from Node is the ESM half:
 mandatory extensions on relative imports, `exports` with conditions, `node_modules` as the package source,
 and type stripping of erasable syntax only (Node's rule since 22.18, so TypeScript written for Node's stripper runs on gro's).
@@ -123,7 +123,8 @@ What gro drops is the legacy half: CommonJS, `main`, extensionless probing, and 
 ## Compared to Bun
 
 Bun is speed-first: JavaScriptCore, its own transpiler, a bundler, a test runner, and a package manager in one binary,
-with the broadest Node compatibility after Node itself.
+with the broadest Node compatibility after Node itself
+(Anthropic acquired it in December 2025; it stays open source under MIT).
 It has no permission model, so a run holds everything,
 and its loader probes extensions and index files, a convenience gro refuses.
 On the bench Bun's startup is the floor gro's startup milestone chases, about half of what V8's own initialization costs;
@@ -144,7 +145,7 @@ Gro's cells use four words.
 | engine            | V8                  | V8                                                         | JavaScriptCore    | V8                             |
 | host language     | C++                 | Rust                                                       | Zig and C++       | Rust                           |
 | license           | MIT                 | MIT                                                        | MIT               | 0BSD                           |
-| steward           | OpenJS Foundation   | Cloudflare, maintenance only, end of life October 2027     | Oven              | fuz                            |
+| steward           | OpenJS Foundation   | Cloudflare, maintenance only, end of life October 2027     | Anthropic, since December 2025 | fuz                            |
 | runtime namespace | `process`, `node:*` | `Deno`                                                     | `Bun`, `bun:*`    | none                           |
 | startup snapshot  | user-land, by flag  | built in                                                   | built in          | built                          |
 | platforms         | Linux, macOS, Windows, and more | Linux, macOS, Windows                          | Linux, macOS, Windows | Linux x86_64; macOS and Windows designed |
@@ -160,11 +161,11 @@ Gro's cells use four words.
 | `main` for a package without `exports` | yes                       | yes                                                                        | yes                  | no, refused with the fix                             |
 | `#` subpath imports                  | yes                         | yes                                                                        | yes                  | designed                                             |
 | import maps                          | no, `imports` only          | yes                                                                        | no                   | no, deferred                                         |
-| remote `https:` imports              | no                          | yes: default hosts without a flag, other hosts under `--allow-import`      | no                   | no                                                   |
-| `npm:` and `jsr:` specifiers         | no                          | yes                                                                        | `?`                  | no                                                   |
+| remote `https:` imports              | no                          | yes: default hosts (deno.land, jsr.io, esm.sh, jsdelivr, GitHub raw) without a flag, other hosts under `--allow-import`      | no                   | no                                                   |
+| `npm:` and `jsr:` specifiers         | no                          | yes                                                                        | no                   | no                                                   |
 | package source                       | `node_modules`              | its cache, or `node_modules`                                               | `node_modules`       | `node_modules`, walked by `exports` only             |
 | search bound                         | the filesystem root         | the filesystem root                                                        | the filesystem root  | built: the project root, failing closed              |
-| format of a `.js` file               | `package.json` `type`, else sniffed | `package.json` `type`                                               | `package.json` `type`, else sniffed | built: `package.json` `type`, else refused |
+| format of a `.js` file               | `package.json` `type`, else sniffed | an ES module; `package.json` `type` inside npm packages           | `package.json` `type`, else sniffed | built: `package.json` `type`, else refused |
 | a dependency's reach is attributable | no                          | no                                                                         | no                   | designed: by the import chain                        |
 
 ### TypeScript
@@ -175,7 +176,7 @@ Gro's cells use four words.
 | transform                       | strip erasable syntax; the rest under `--experimental-transform-types` | full transpile       | full transpile        | built: strip erasable syntax only, by tsv        |
 | positions preserved, no source map | yes                                                     | no, source maps                | no, source maps       | built                                            |
 | refused syntax                  | `enum`, namespaces, parameter properties, without the flag | none                           | none                  | built: the same set, each with a fix ([typescript](typescript.md)) |
-| `.ts` inside `node_modules`     | refused                                                    | `?`                            | yes                   | built: stripped like any other                   |
+| `.ts` inside `node_modules`     | refused                                                    | refused                        | yes                   | built: stripped like any other                   |
 | type checking                   | no                                                         | `deno check`, not on run       | no                    | no; `gro typecheck` runs tsc or svelte-check     |
 | JSX in `.tsx`                   | no                                                         | yes                            | yes                   | no                                               |
 | `tsconfig.json` read at run time | no                                                        | `compilerOptions` in `deno.json` | yes, for paths and JSX | no                                             |
@@ -185,12 +186,12 @@ Gro's cells use four words.
 |                                 | Node                                               | Deno                                                                | Bun     | Gro                                                                                         |
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
-| opt-in model                    | `--permission`                                     | `--allow-*` and `--deny-*`, with allowlists                         | none    | `-A` is the escape hatch, never a default                                                   |
+| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | `-A` is the escape hatch, never a default                                                   |
 | unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain                               |
 | how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, authority globals declared, the policy file authorizes |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | never                                                                                       |
-| network scoping                 | not covered                                        | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
+| network scoping                 | not covered in 24; newer releases add `--allow-net` | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
 | child processes                 | `--allow-child-process`, unconfined                | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux)                                       |
 | kernel backstop                 | none                                               | none                                                                | none    | designed: Landlock and seccomp (Linux)                                                      |
 | native code in-process          | N-API addons, `--allow-addons`                     | FFI under `--allow-ffi`, and N-API                                  | FFI (`bun:ffi`), and N-API | never; FFI later, as a grant in its own process                                  |
@@ -208,7 +209,7 @@ Gro's cells use four words.
 | `WebSocket`                                | yes                     | yes                         | yes                     | later                                           |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
 | `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
-| WinterTC minimum common API                | a member runtime        | a member runtime            | a member runtime        | the conformance target, graded by its WPT subset under a full grant set |
+| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | the conformance target, graded by its WPT subset under a full grant set |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
 | workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, maybe                                    |
