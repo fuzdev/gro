@@ -151,7 +151,8 @@ The exceptions are explicit and labeled.
 `-A` is the one escape hatch, never a default.
 `publish` and `deploy` push and use credentials, so they're named unconfined phases,
 shown that way in the policy diff, with credentials passed to the one process that needs them.
-The kernel backstop is Linux-only until the other platforms get an equivalent.
+Linux is the design target: the kernel backstop and every claim that rests on it are Linux's,
+and macOS and Windows get sandbox designs of their own before the binary ships there, never a translation of Linux's.
 
 Security-first runtimes earned a reputation for friction:
 flags on every run, prompts mid-execution, and `-A` as the habit that follows.
@@ -371,7 +372,8 @@ run as Node subprocesses under the invocation's kernel rules.
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
 - [ ] the first release: `fgro` 0.1.0 for Linux x86_64 as a GitHub Release asset,
-      `run` and `eval`, with checksums and a provenance attestation
+      `run` and `eval`, with a SHA-512 checksum file and a provenance attestation;
+      the tool that installs it records the binary's hash as the pin eval verifies before every spawn
 - [ ] the security gate: a suite of escape probes run under every grant set,
       with every web global and member classified by the authority it carries as the oracle,
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
@@ -385,7 +387,7 @@ run as Node subprocesses under the invocation's kernel rules.
 - [ ] gro on gro: tasks, gen, and check run on the runtime, enforcing the policy file
       (until then the CLI passes every host module; the network stays declared)
 - [ ] the Svelte compiler in-engine
-- [ ] macOS and Windows builds
+- [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only: `fgro` becomes `gro`, the npm package carries types, and the crates publish
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] serving, a test runner, and types from the binary:
