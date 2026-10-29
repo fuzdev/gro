@@ -1,5 +1,20 @@
 # @fuzdev/gro
 
+## 0.223.0
+
+### Minor Changes
+
+- Update dependencies (BREAKING CHANGES) ([f0ada58](https://github.com/fuzdev/gro/commit/f0ada58))
+
+  Breaking dependency changes:
+
+  - svelte-docinfo: 0.16.0 → 0.17.0 (minor)
+  - @fuzdev/fuz_util: 0.78.0 → 0.79.0 (minor)
+
+### Patch Changes
+
+- the loader strips types from `.svelte.ts` modules with tsv's `strip_typescript` instead of `ts-blank-space`, removing the `ts-blank-space` dependency; TypeScript that can't be blanked away (an `enum`, parameter properties, and the like) now fails with the file path and an excerpt ([d757d16](https://github.com/fuzdev/gro/commit/d757d16))
+
 ## 0.222.0
 
 ### Minor Changes
