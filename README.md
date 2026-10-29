@@ -16,7 +16,7 @@ It runs on Node and is a dev tool, not for production use.
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you can't fully trust, like your dependencies and agents,
+a Rust binary on V8 built for code you can't fully trust, like from your dependencies and agents,
 with granular control over what it can reach.
 By default a run is confined: code reaches only what its imports declare,
 reads of the project's own files without asking, and the network, processes, and anything outside the project
