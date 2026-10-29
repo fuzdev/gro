@@ -92,7 +92,7 @@
     "@changesets/changelog-git": "^0.2.1",
     "@changesets/types": "^6.1.0",
     "@fuzdev/blake3-wasm": "^0.2.0",
-    "@fuzdev/fuz_code": "^0.54.0",
+    "@fuzdev/fuz_code": "^0.56.0",
     "@fuzdev/fuz_css": "^0.72.0",
     "@fuzdev/fuz_schema": "^0.5.0",
     "@fuzdev/fuz_ui": "^0.220.0",
