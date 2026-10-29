@@ -4,7 +4,6 @@
 > <sub>[gro](/../..) / docs / README.md</sub>
 
 - [build](build.md)
-- [comparison](comparison.md)
 - [config](config.md)
 - [deploy](deploy.md)
 - [dev](dev.md)
@@ -13,13 +12,16 @@
 - [gro_plugin_sveltekit_library](gro_plugin_sveltekit_library.md)
 - [plugin](plugin.md)
 - [publish](publish.md)
-- [resolver](resolver.md)
-- [run](run.md)
-- [runtime](runtime.md)
 - [task](task.md)
 - [tasks](tasks.md)
 - [test](test.md)
-- [typescript](typescript.md)
+- the experimental runtime
+  - [runtime](runtime.md)
+  - [run](run.md)
+  - [resolver](resolver.md)
+  - [typescript](typescript.md)
+  - [comparison](comparison.md)
+  - [glossary](glossary.md)
 
 > <sub>[gro](/../..) / docs / README.md</sub>
 

@@ -16,18 +16,19 @@ It runs on Node and is a dev tool, not for production use.
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you can't fully trust, like from dependencies and agents,
+a Rust binary on V8 built for code you can't fully trust, like your dependencies and agents,
 with granular control over what it can reach.
 By default a run is confined: code reaches only what its imports declare,
 reads of the project's own files without asking, and the network, processes, and anything outside the project
 only once accepted in a small policy file you review like a lockfile,
-so changing capabilities is a diff, and the runtime enforces it.
+so changing capabilities is a diff, and the runtime is designed to enforce it.
 A hermetic run is also confined but strictly deterministic, with its clock and randomness fixed,
 so it replays and caches by construction;
 an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
-and makes a clean break from Node towards Web standards.
-It's an in-progress design with an experimental build - see
+and makes a clean break from Node toward web standards.
+It's an in-progress design, and none of the confinement is built yet.
+The experimental build runs modules with no access to the OS at all - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -71,7 +72,8 @@ The Node tool includes:
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- the experimental [runtime](/src/docs/runtime.md): what [`fgro run`](/src/docs/run.md) does today,
+- the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) does today,
+  how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
 

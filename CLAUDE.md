@@ -449,25 +449,23 @@ Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
 collides with the Node `gro` on `PATH`. The README introduces the runtime in
-one plain paragraph (for code you can't fully trust; confined by default,
-hermetic as the stricter kind, `-A` as the escape hatch; the policy file as
-the agent guardrail; grew out of the loader; an in-progress design, feedback
-in discussions) and links out; the thesis in full, the Deno story, and the public design live in
-[src/docs/runtime.md](src/docs/runtime.md): the verbs (`gro run`, `gro
-eval`, `gro task <path>`), the roadmap, the rationale and priorities, secure by
-default, the threat model, the design, and what it leaves out; the comparison
-with Node, Deno, and Bun (prose, then tables by axis, then the bench's
-numbers) is in [src/docs/comparison.md](src/docs/comparison.md); what the
-built binary does today (loads, globals, errors, exit codes) is the
-reference [src/docs/run.md](src/docs/run.md); the resolver's full rules and departures from Node are in
-[src/docs/resolver.md](src/docs/resolver.md) and the type-strip rules in
-[src/docs/typescript.md](src/docs/typescript.md).
+one plain paragraph and links out. [src/docs/runtime.md](src/docs/runtime.md)
+is the hub: an index of the runtime docs under its status block, then the
+thesis, why, the security model, the design, open questions, and the roadmap.
+The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
+reference for the built binary (what loads, the globals, errors, exit codes),
+[src/docs/resolver.md](src/docs/resolver.md) the resolver's rules and
+departures from Node, [src/docs/typescript.md](src/docs/typescript.md) the
+type-strip rules, and [src/docs/comparison.md](src/docs/comparison.md) the
+comparison with Node, Deno, and Bun, and [src/docs/glossary.md](src/docs/glossary.md)
+defines the terms once (runtime.md's terms list summarizes the core ones).
+A new runtime doc joins runtime.md's index, and a new term joins the glossary.
 
 - `gro_runtime` - the JS host, a minimal web-standards runtime on V8: a
   deno_core `JsRuntime` with `deno_webidl` and `deno_web`, gro's bootstrap
   extension (installs the pure web globals, removes `Deno` and `__bootstrap`;
-  its JS in `crates/gro_runtime/js/` is embedded and must be 7-bit ASCII, or
-  the build fails), and the strict resolver as a pure module (`resolver.rs`,
+  its `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
+  or the build fails), and the strict resolver as a pure module (`resolver.rs`,
   no deno_core types; it reads only through a `SourceTree` trait and returns
   a record of the URL, the module's origin, and the `package.json` files it
   consulted): relative and absolute specifiers with mandatory extensions, and
@@ -477,8 +475,8 @@ reference [src/docs/run.md](src/docs/run.md); the resolver's full rules and depa
   path; the importer's origin is passed in, since a linked package's real
   path has no `node_modules` in it. Deliberate departures from Node: the
   `node_modules` search ends at the project root (the first `package.json`
-  outside `node_modules` that isn't a type marker holding only `"type"` and
-  `"sideEffects"`, failing closed, so npm and yarn workspaces aren't
+  outside `node_modules` that isn't a type marker, whose keys are all `"type"`
+  or `"sideEffects"`, failing closed, so npm and yarn workspaces aren't
   supported), a package with no `"exports"` is refused (no `main`), a `.js`
   file needs `"type": "module"` with no format sniffing, and `.ts` inside
   `node_modules` is stripped. `.js`/`.mjs` load as written and `.ts`/`.mts`
@@ -487,17 +485,18 @@ reference [src/docs/run.md](src/docs/run.md); the resolver's full rules and depa
   move, and refuses TypeScript with runtime semantics, such as an `enum`, with
   its position and a fix); schemes, `#` imports, CommonJS, `.cts`, `.tsx`,
   declaration files, and Svelte modules (vite-plugin-svelte's rule: `.svelte.`
-  then any segments then `.js` or `.ts`) are refused with the reason and a fix.
+  then any segments then `.js` or `.ts`) are refused with the reason, and a
+  fix where there is one.
   It starts from a startup snapshot when the embedder passes one
   (`snapshot.rs`; built in its own process from the same extension list), else
   from source, reading `deno_web`'s JS from the build tree; the per-process
   steps run after startup either way
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module (JS or
   TypeScript) from disk and takes only the entry file, with no script
-  arguments yet (exit `0` success, `1` an uncaught error, an unhandled
-  rejection, or a module that fails to load or strip, `2` a usage error,
-  including an entry that doesn't resolve); console output is colored only on
-  a terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. The
+  arguments yet (exit `0` success, `1` a run that fails, `2` a usage error,
+  including an entry that doesn't resolve; the full table is in
+  [src/docs/run.md](src/docs/run.md)); console output is colored per stream,
+  only on a terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. The
   whole command runs on one thread with a 32 MiB stack of its own (`STACK_SIZE` in
   `main.rs`), since the strip's parser recurses with a module's nesting and an
   overflow aborts; `gro_runtime::run_main` documents the requirement for any

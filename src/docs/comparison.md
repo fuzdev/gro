@@ -51,16 +51,21 @@ In Deno, authority is reached through globals (`Deno.readFile`, `Deno.Command`, 
 a permission belongs to the thread, so every module on it holds it
 (Deno's docs say as much: modules on one thread can't hold different privileges),
 and what a program can reach is a dynamic fact, known by running it.
-In gro, authority enters by import, and there's no namespace to reach around the loader.
+In gro, authority enters by import, apart from the declared globals below,
+and there's no namespace to reach around the loader.
 Deno can't adopt this as its model without breaking every program that calls a `Deno.*` function;
 as an opt-in it would be a second runtime with its own standard library.
 What follows from it:
 
 - **Who holds a grant.** A gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
-  so the diff says which package newly needs the network, not only that something does.
+  so the diff says which package newly imports the network, not only that something does
+  (a call to the global `fetch` is the exception below).
   A capability handed down by reference stays attributed to the module that imported it;
   handing never widens.
+  That holds for code that overreaches, not for a dependency built to steal,
+  which can patch a shared prototype in the same realm
+  (the runtime's [threat model](runtime.md#threat-model) says where the bound is then).
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
   with a `NotCapable` error the code can catch and swallow.
   Gro denies before the code runs: an ungranted host module doesn't link,
@@ -69,25 +74,27 @@ What follows from it:
   (a path outside the root, a host not accepted), and the host reports those too.
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task,
-  loads a permission set from its config (`-P`, experimental), or takes `-A`.
+  loads a named permission set from `deno.json` (`-P`, since 2.5), or takes `-A`.
   A gro run carries nothing: the grants come from the import graph,
-  and the policy file changes only when the graph newly reaches authority,
+  and the policy file changes only when the graph newly imports authority or declares a global,
   which is lockfile cadence, not run cadence.
-  Inference is sound because every entry point is an import;
+  Inference is sound because every entry point but the declared globals is an import;
   no sound equivalent exists over `Deno.*` calls, which any expression can reach.
 - **WASM.** A WASM module imported as an ES module declares its capabilities by its imports too,
   so one policy file and one inference cover both.
 
-In one line: Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process;
-gro's policy file pins what that code can reach per import chain, inferred from the graph,
-and is treated like the lockfile: committed, diffed, reviewed.
+In one line, Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process,
+while gro's policy file pins what that code can reach, per import chain for host modules
+and per run for the globals, inferred from the graph where it can be,
+and is treated like the lockfile, committed, diffed, and reviewed.
 
 The one corner of gro's model shaped like Deno's is the authority globals.
-`fetch` and `WebSocket` reach every module in the graph and can't be inferred,
+`fetch` and `WebSocket` reach every module in the graph and can't be soundly inferred,
 so they're declared, absent until granted, and shown as the wider class in the policy diff;
-the host's `net` import is the narrow way to the same thing, and the hint for a free `fetch` names it first.
+the host's `net` import is the narrow way to the same thing, and the hint for a free `fetch` names it first
+([imports or globals](runtime.md#imports-or-globals) weighs the two).
 
-The rest are defaults: choices Deno could adopt without breaking anyone,
+The rest are defaults, choices Deno could adopt without breaking anyone,
 some of which it already offers behind a flag.
 
 |                   | Deno                                                                     | gro                                                                                                                                                                                                                        |
@@ -115,7 +122,7 @@ Its API hands every module ambient authority: `process`, `require`, and `node:fs
 are reachable from anywhere, which is what makes a compat layer incompatible with gro's model.
 Node's permission model (`--permission`, with `--allow-fs-read`, `--allow-fs-write`,
 `--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-wasi`, `--allow-inspector`)
-is opt-in and process-wide, and in Node 24 leaves the network out (newer releases add `--allow-net`),
+is opt-in and process-wide, and in Node 24 leaves the network out (Node 25 adds `--allow-net`, in active development),
 so a run under it still fetches anywhere.
 What gro keeps from Node is the ESM half:
 mandatory extensions on relative imports, `exports` with conditions, `node_modules` as the package source,
@@ -126,7 +133,7 @@ What gro drops is the legacy half: CommonJS, `main`, extensionless probing, and 
 
 ## Compared to Bun
 
-Bun is speed-first: JavaScriptCore, its own transpiler, a bundler, a test runner, a type checker, and a package manager in one binary,
+Bun is speed-first, with JavaScriptCore, its own transpiler, a bundler, a test runner, a type checker, and a package manager in one binary,
 with the broadest Node compatibility after Node itself
 (Anthropic acquired it in December 2025; it stays open source under MIT).
 It has no permission model, so a run holds everything,
@@ -138,9 +145,10 @@ the comparison is what a run can reach, where Bun has nothing to compare.
 
 ## By axis
 
-Gro's cells use five words.
-**built** is in `fgro` today; **designed** is in the public [design](runtime.md#design) and on the roadmap, not built;
-**planned** is on the roadmap with no public design yet; **later** is on the roadmap's future list; **no** is declined by design.
+Gro's cells start with one of these words:
+**built** is in `fgro` today, **designed** is in the public [design](runtime.md#design) but not built,
+**planned** is a [roadmap](runtime.md#roadmap) milestone with no public design yet,
+**later** is wanted but not scheduled, and **no** is declined by design.
 
 ### Engine and host
 
@@ -164,14 +172,14 @@ Gro's cells use five words.
 | `exports` and conditions             | yes                         | yes                                                                        | yes                  | built: `gro`, `import`, `default`, in package key order |
 | `main` for a package without `exports` | yes                       | yes                                                                        | yes                  | no, refused with the fix                             |
 | `#` subpath imports                  | yes                         | yes                                                                        | yes                  | designed                                             |
-| JSON modules (`with {type: 'json'}`) | yes                         | yes                                                                        | yes                  | planned                                              |
+| JSON modules (`with {type: 'json'}`) | yes                         | yes                                                                        | yes                  | later                                                |
 | import maps                          | no, `imports` only          | yes                                                                        | no                   | no, deferred                                         |
 | remote `https:` imports              | no                          | yes: default hosts (deno.land, jsr.io, esm.sh, jsdelivr, GitHub raw) without a flag, other hosts under `--allow-import`      | no                   | no                                                   |
 | `npm:` and `jsr:` specifiers         | no                          | yes                                                                        | no; its equivalent is auto-install, a bare specifier with a version suffix (`zod@3.0.0`) fetched when no `node_modules` exists | no |
 | package source                       | `node_modules`              | its cache, or `node_modules`                                               | `node_modules`       | `node_modules`, walked by `exports` only             |
 | search bound                         | the filesystem root         | the filesystem root                                                        | the filesystem root  | built: the project's `package.json`, failing closed; a file with no project still walks to the root today, which a planned departure refuses |
 | format of a `.js` file               | `package.json` `type`, else sniffed | `package.json` `type`, else an ES module, never sniffed           | `package.json` `type`, else sniffed | built: `package.json` `type`, else refused |
-| a dependency's reach is attributable | no                          | no                                                                         | no                   | designed: by the import chain                        |
+| a dependency's reach is attributable | no                          | no                                                                         | no                   | designed: by the import chain, for host modules       |
 
 ### TypeScript
 
@@ -192,18 +200,18 @@ Gro's cells use five words.
 |                                 | Node                                               | Deno                                                                | Bun     | Gro                                                                                         |
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
-| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: `-A` as the escape hatch, never a default                                         |
-| unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain                               |
+| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed, confined is the default and `-A` the escape hatch                    |
+| unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain; the run, for authority globals |
 | how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, authority globals declared, the policy file authorizes |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | never (designed)                                                                            |
-| network scoping                 | not covered in 24; newer releases add `--allow-net` | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
+| network scoping                 | not covered in 24; `--allow-net` since 25          | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
 | child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux)                                       |
 | kernel backstop                 | none                                               | none                                                                | none    | designed: Landlock and seccomp (Linux)                                                      |
 | native code in-process          | N-API addons, `--allow-addons`                     | FFI under `--allow-ffi`, and N-API                                  | FFI (`bun:ffi`), and N-API | never; FFI later, as a grant in its own process                                  |
 | code fetched at run time        | no                                                 | yes, imports                                                        | no      | no                                                                                          |
 | determinism                     | no                                                 | `--seed` for randomness                                             | no      | designed: hermetic runs fix or deny clock and randomness                                    |
-| authority recorded with the code | no                                                | experimental: a hand-written permission set in `deno.json` (`-P`), process-wide | no | designed: the policy file beside the lockfile, inferred from the graph                 |
+| authority recorded with the code | no                                                | a hand-written permission set in `deno.json` (`-P`, since 2.5), process-wide    | no | designed: the policy file beside the lockfile, inferred from the graph                 |
 | a record of what a run reached  | no                                                 | `DENO_AUDIT_PERMISSIONS`                                            | no      | designed: the access manifest                                                               |
 | a sandboxed eval mode           | composed from flags (`--permission`, `--jitless`, `--disallow-code-generation-from-strings`, a heap limit) | composed from flags (`--v8-flags=--jitless`, a heap limit) | no      | designed: `gro eval`, its own process, JIT off by default, no code from strings, a heap cap  |
 | workers with fewer permissions  | no                                                 | yes, unstable                                                       | no      | later, if workers land                                                                      |
@@ -213,16 +221,16 @@ Gro's cells use five words.
 |                                            | Node                    | Deno                        | Bun                     | Gro                                             |
 | ------------------------------------------ | ----------------------- | --------------------------- | ----------------------- | ----------------------------------------------- |
 | `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed, as a declared grant                   |
-| `WebSocket`                                | yes                     | yes                         | yes                     | planned                                         |
+| `WebSocket`                                | yes                     | yes                         | yes                     | later, as a declared grant                      |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
-| `crypto.subtle`                            | yes                     | yes                         | yes                     | planned                                         |
-| `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | planned, on the determinism axis                |
+| `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
+| `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
 | WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | the conformance target, graded by its WPT subset under a full grant set |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
 | workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later                                           |
 | HTTP server                                | `node:http`             | `Deno.serve`                | `Bun.serve`             | planned, at the Node exit                       |
-| WebAssembly                                | yes                     | yes                         | yes                     | built, under the same grants when they land     |
+| WebAssembly                                | yes                     | yes                         | yes                     | built: the JS API; `.wasm` imports designed     |
 
 ### Toolchain
 
@@ -232,7 +240,7 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 | ---------------------- | --------------------------------- | ----------------------------- | --------------------- | ------------------------------------------------ |
 | package manager        | npm, separate                     | built in                      | built in              | npm; fuz's later                                 |
 | test runner            | `node:test`                       | `deno test`                   | `bun test`            | planned; vitest through `gro test` until then    |
-| formatter and linter   | none                              | `deno fmt`, `deno lint`       | none                  | `gro format` on tsv; lint later                  |
+| formatter and linter   | none                              | `deno fmt`, `deno lint`       | none                  | `gro format` on tsv, `gro lint` on ESLint        |
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed                                         |
 | single-file executable | SEA, experimental                 | `deno compile`                | `bun build --compile` | no                                               |
@@ -242,7 +250,8 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 ## Measured
 
 From the [bench](../../crates/gro_bench) (suite `baseline` v3, 2026-10-17, one quiet machine, interleaved, medians of 200 samples;
-Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot, before any host module).
+Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot, as built before the TypeScript strip
+and package resolution landed, so its size and startup are re-recorded with the next suite version).
 Node's row has its compile cache on, which changes nothing here (plain Node is within a tenth of a millisecond);
 the module-graph rows join in a later suite version.
 

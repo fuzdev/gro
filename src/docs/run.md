@@ -14,22 +14,28 @@ fgro run <file>   # a .js, .mjs, .ts, or .mts module, relative to the working di
 fgro --version    # the version, the V8 version, and whether a startup snapshot is embedded
 ```
 
-`run` takes only the entry file: an extra argument is a usage error, there are no script arguments,
-and nothing reads stdin or the environment (there is no `process`, `Deno`, or `Bun`).
+`run` takes only the entry file, so an extra argument is a usage error and there are no script arguments.
+User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise that never settles ends the run as an error, not a hang.
 Linux x86_64 only.
+A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
+while a plain `cargo build` runs only from its build tree.
 
 ## What loads
 
-- `.mjs`, `.ts`, and `.mts` modules, and `.js` modules under a `package.json` with `"type": "module"`;
-  a `.js` file without one is refused, never sniffed.
+- `.mjs`, `.ts`, and `.mts` modules, and `.js` modules under a `package.json` with `"type": "module"`.
+  A `.js` file without one is refused, never sniffed.
   TypeScript is stripped of its types in process ([typescript](typescript.md)).
 - Relative and absolute specifiers with their full extension,
   and bare specifiers through a package's `"exports"` in `node_modules` ([resolver](resolver.md)).
-- A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling.
-- Refused with the reason: JSON modules and other import attributes, `.cts`, `.tsx`, declaration files,
-  Svelte modules, `node:`, `npm:`, `jsr:`, `https:`, and `#` imports (the last comes later).
+  A module's `import.meta.url` is its real path, after symlinks.
+- A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
+  as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
+- Refused with the reason are JSON modules and other import attributes,
+  any other extension (`.cjs`, `.json`, `.wasm`), `.cts`, `.tsx`, declaration files, Svelte modules,
+  `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
+  A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
 
 ## The global scope
 
@@ -43,25 +49,36 @@ The ECMAScript globals, including `Intl`, `Temporal`, and `WebAssembly`, plus th
 - `Blob`, `File`, `CompressionStream`, `DecompressionStream`
 - `AbortController`, `AbortSignal`, `Event`, `EventTarget`, `CustomEvent`, `ErrorEvent`, `PromiseRejectionEvent`, `DOMException`
 
-Absent today, by design until a grant or a consumer brings them: `fetch`, `Headers`, `Request`, `Response`,
-`WebSocket`, `crypto`, `self`, `navigator`, `reportError`, `Worker`, and web storage.
+Absent today, by design until a grant or a consumer brings them, are `fetch`, `Headers`, `Request`, `Response`,
+`WebSocket`, `crypto`, `self`, `navigator`, `location`, `reportError`, `Worker`, `MessageChannel`,
+`MessagePort`, `BroadcastChannel`, `FileReader`, and web storage.
+The global object isn't an `EventTarget`, so there's no `addEventListener('unhandledrejection')`.
 
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.
+`import.meta.resolve` runs the same strict resolver as an import,
+so unlike the web's it throws a `TypeError` for a file that's missing or refused.
 
 ## Errors and exit codes
 
 Errors print to stderr prefixed `error:`.
-An uncaught error prints `Uncaught Error: message` (a module's top-level throw reads `Uncaught (in promise)`),
-then V8's frames as `at file:///path:line:column`, then each `cause` as `Caused by:` with its frames;
+An uncaught error prints `Uncaught Error: message`, read `Uncaught (in promise)` for a module's top-level throw
+or an unhandled rejection, then V8's frames as `at file:///path:line:column`,
+then each `cause` as `Caused by:` with its frames.
 TypeScript positions are the source's, with no source map.
-A refused TypeScript construct names itself, a fix, and its position.
-Console output is colored only on a terminal, and never with `NO_COLOR` or `CLAUDECODE` set non-empty.
+A module that fails to resolve, load, or strip prints its reason without `Uncaught`
+(`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
+A dynamic `import()` that fails rejects with a `TypeError` the code can catch.
 
-| exit | when                                                                                                                                                                  |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | the module ran to completion, or `--help` or `--version`                                                                                                              |
-| 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, or an import failed to resolve, load, or strip                                |
-| 2    | a usage error: no arguments, an extra argument, an unknown flag, or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+`console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr.
+Each stream is colored only when it's a terminal, and never with `NO_COLOR` or `CLAUDECODE` set non-empty.
 
-A TypeScript module nested deeper than the strip's stack aborts the process rather than failing the load;
-a depth limit in tsv closes that.
+| exit | when                                                                                                                                                                   |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | the module ran to completion, or `--help` or `--version`                                                                                                               |
+| 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start |
+| 2    | a usage error (no arguments, an unknown subcommand or flag, an extra argument, a non-UTF-8 argument), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+
+An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
+A TypeScript module nested deeper than the strip's stack can hold aborts the process (`SIGABRT`)
+rather than failing the load. In a release build V8's own depth limit usually refuses it first,
+with a `RangeError` and exit 1, and a depth limit in tsv closes the gap.
