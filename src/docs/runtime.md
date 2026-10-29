@@ -4,7 +4,8 @@
 > why it exists, the security model, the design, and the roadmap
 
 > **status**: experimental, with the direction settled and the design in progress.
-> Today `fgro run <file>` runs a JS or TypeScript module from disk on V8 (x86_64 Linux only),
+> Today `fgro run <file>` (renamed `gro` when ready) runs a JS or TypeScript module
+> from disk on V8 (x86_64 Linux only) using Deno's libraries,
 > and everything else below is designed, the confinement included, so nothing is enforced yet;
 > the [roadmap](#roadmap) marks what's built.
 > The design doesn't have every answer yet ([open questions](#open-questions)),
@@ -33,11 +34,13 @@ Runs can be hermetic too, with clock and randomness fixed or denied,
 so what a run depends on is known and it replays and caches by construction.
 It's built for code you didn't write, like your dependencies and your agents.
 
-Its primary verb is `gro run <file>`, which runs one module graph with no ambient authority,
+Its primary verb is `gro run <file>` (currently named `fgro` until ready),
+which runs one module graph with no ambient authority,
 reaching nothing the graph didn't import or the policy file didn't accept.
 `gro eval` is its confined one-shot sibling.
-`gro task <path>` is the workflow layer on top, running a project task by its full path,
-never by a searched name, while the builtins stay first-class subcommands (`gro check`, `gro dev`).
+`gro task <path>` is the workflow layer that carries the original TS Gro API forward,
+but instead runs tasks by full paths for explicit resolution,
+while the builtins stay first-class subcommands (`gro check`, `gro dev`).
 
 It starts with `gro eval`, then runs gro's own TS surface (tasks, gen, config),
 and grows into the toolchain for the whole Fuz stack,
