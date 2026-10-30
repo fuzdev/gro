@@ -94,7 +94,8 @@ like fewer hosts, one subdirectory, or read-only access.
 
 ## origin
 
-Where the resolver says a module came from, the project or a named package.
+Where the resolver says a module came from, the project or a named package:
+its [root](#root)'s, a function of the module's real path, never of who imported it.
 It decides which package a reach is attributed to and which grants need acceptance.
 [resolver](resolver.md) has the rules.
 
@@ -109,7 +110,9 @@ and `gro check` diffs it like a lockfile, failing on a widening until a person a
 The directory of the first `package.json` above a module, outside `node_modules`,
 that isn't a [type marker](#type-marker), found below any world-writable directory.
 The `node_modules` search ends there, and a module with none gets no bare imports
-except a self-reference, which resolves through its own package's `"exports"`.
+except a self-reference, which resolves through its own package's `"exports"`
+and stays inside its package.
+The entry's project root is its graph's first [root](#root).
 
 ## pure globals
 
@@ -140,6 +143,14 @@ Separate realms per package or trust tier are being explored as an opt-in, never
 
 Something that reports without enforcing, like the [scan](#scan) or the advisory grants on the Node gro.
 The docs and the CLI name each one as a signal, with what evades it, never as a boundary.
+
+## root
+
+A directory whose modules share an [origin](#origin): the entry's [project root](#project-root),
+or the real directory of a package a bare import admitted.
+A module's root is the innermost admitted one above its real path,
+and a relative or absolute import resolves only inside its importer's root,
+never into `node_modules` below it or into another root nested in it.
 
 ## run kinds
 

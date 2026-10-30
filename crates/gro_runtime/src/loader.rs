@@ -3,11 +3,20 @@
 //! process.
 //!
 //! Static imports, `import()`, and `import.meta.resolve` all reach
-//! [`resolver::resolve`] through `ModuleLoader::resolve`. The entry module is
-//! resolved before the runtime starts ([`resolver::resolve_entry`]), so its
-//! URL arrives here already final. The loader keeps the [`Origin`] each URL
-//! first resolved with, since the resolver takes the importer's origin as an
-//! input rather than reading it from the path.
+//! [`resolver::resolve`]. The entry module is resolved before the runtime
+//! starts ([`resolver::resolve_entry`]), so its URL arrives here already
+//! final, with the roots its graph starts with.
+//!
+//! The loader owns the graph's [`Roots`] and the [`Root`] each URL resolved
+//! inside, and passes the roots into every resolution. A bare specifier's
+//! package root is admitted when it resolves. Admitting a root around a
+//! module already recorded inside an outer one is an error naming both
+//! ([`ResolveErrorKind::RootConflict`]), since otherwise the import order
+//! would decide the module's origin; resolving a URL again inside the same
+//! root changes nothing. `import.meta.resolve` runs the same resolution and
+//! admits and records nothing, so importing the URL it returns resolves it
+//! again, as an absolute specifier: an installed package's file is then a
+//! path into `node_modules`, refused.
 //!
 //! A TypeScript module is stripped by `tsv_ts`, which blanks every type-only
 //! range rather than rewriting the code, so every surviving character keeps
@@ -21,6 +30,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use deno_core::error::ModuleLoaderError;
 use deno_core::{
@@ -30,26 +40,136 @@ use deno_core::{
 use tsv_ts::{ErrorReport, Goal, StripError, UnsupportedKind};
 use url::Url;
 
-use crate::resolver::{self, DiskTree, ModuleFormat, Origin, Resolution};
+use crate::resolver::{
+    self, DiskTree, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root, Roots,
+    SourceTree,
+};
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
 /// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
 /// stripped of their types.
 #[derive(Debug)]
 pub struct Loader {
-    /// The origin each URL first resolved with, the entry's included: what
-    /// the module's own imports resolve with. Not necessarily the origin its
-    /// module instance loaded under, since a URL can resolve again, from
-    /// another importer, with another origin.
-    origins: RefCell<HashMap<Url, Origin>>,
+    /// The roots admitted so far and the root of each URL resolved.
+    graph: RefCell<Graph>,
 }
 
 impl Loader {
-    /// A loader for the graph of `entry`, already resolved.
-    pub fn new(entry: &Resolution) -> Self {
+    /// A loader for the graph of `entry`, already resolved with `roots`.
+    pub fn new(entry: &Resolution, roots: Roots) -> Self {
         Self {
-            origins: RefCell::new(HashMap::from([(entry.url.clone(), entry.origin.clone())])),
+            graph: RefCell::new(Graph::new(entry, roots)),
         }
+    }
+
+    /// Resolves `specifier`, imported by the module at `referrer`, reading
+    /// `tree`. With `admit`, the result's root is admitted and its URL
+    /// recorded; without, as for `import.meta.resolve`, nothing changes.
+    fn resolve_in(
+        &self,
+        tree: &impl SourceTree,
+        specifier: &str,
+        referrer: &str,
+        admit: bool,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        let importer = Url::parse(referrer).map_err(|error| {
+            ModuleLoaderError::type_error(format!(
+                "cannot resolve '{specifier}': the importer '{referrer}' is not a URL: {error}"
+            ))
+        })?;
+        let mut graph = self.graph.borrow_mut();
+        // every importer was resolved here first, the entry by `Loader::new`
+        if !graph.records.contains_key(&importer) {
+            return Err(ModuleLoaderError::type_error(format!(
+                "cannot resolve '{specifier}': the importer '{referrer}' was never resolved"
+            )));
+        }
+        let error = |kind| {
+            ModuleLoaderError::type_error(
+                ResolveError {
+                    specifier: specifier.to_owned(),
+                    importer: referrer.to_owned(),
+                    kind,
+                }
+                .to_string(),
+            )
+        };
+        let resolution = resolver::resolve(tree, specifier, &importer, &graph.roots)
+            .map_err(|error| ModuleLoaderError::type_error(error.to_string()))?;
+        if admit {
+            graph.admit(&resolution).map_err(error)?;
+        }
+        Ok(resolution.url)
+    }
+}
+
+/// What a graph has resolved: the roots it admitted and the root each URL
+/// resolved inside.
+#[derive(Debug)]
+struct Graph {
+    /// The project's root, and every package root a bare specifier resolved
+    /// into.
+    roots: Roots,
+    /// The root each URL resolved inside, the entry's included.
+    records: HashMap<Url, Root>,
+}
+
+impl Graph {
+    /// The graph of `entry`, resolved with `roots`.
+    fn new(entry: &Resolution, roots: Roots) -> Self {
+        let root = Root {
+            dir: entry.root.clone(),
+            origin: entry.origin.clone(),
+        };
+        Self {
+            roots,
+            records: HashMap::from([(entry.url.clone(), root)]),
+        }
+    }
+
+    /// Admits the root of `resolution` and records its URL inside it,
+    /// changing nothing on an error.
+    ///
+    /// A new root around a module already recorded inside an outer one is
+    /// a conflict, never first-wins: the module's origin would depend on
+    /// which import ran first. A URL resolved again inside the same root is
+    /// no change, since `deno_core` can resolve a specifier twice; inside
+    /// another, a conflict.
+    fn admit(&mut self, resolution: &Resolution) -> Result<(), ResolveErrorKind> {
+        let root = Root {
+            dir: resolution.root.clone(),
+            origin: resolution.origin.clone(),
+        };
+        let conflict =
+            |path: PathBuf, recorded: &Root, admitted: &Root| ResolveErrorKind::RootConflict {
+                path,
+                recorded: Box::new(recorded.clone()),
+                admitted: Box::new(admitted.clone()),
+            };
+        if self.roots.get(&root.dir).is_none() {
+            for (url, recorded) in &self.records {
+                let Ok(path) = url.to_file_path() else {
+                    continue;
+                };
+                // one nested in the recorded root would now hold the module
+                if root.dir != recorded.dir
+                    && root.dir.starts_with(&recorded.dir)
+                    && root.contains(&path)
+                {
+                    return Err(conflict(path, recorded, &root));
+                }
+            }
+        }
+        if let Some(recorded) = self.records.get(&resolution.url) {
+            if recorded.dir == root.dir {
+                return Ok(());
+            }
+            let path = resolution.url.to_file_path().unwrap_or_default();
+            return Err(conflict(path, recorded, &root));
+        }
+        self.roots.admit(root.clone());
+        self.records.insert(resolution.url.clone(), root);
+        Ok(())
     }
 }
 
@@ -65,34 +185,18 @@ impl ModuleLoader for Loader {
             return Url::parse(specifier)
                 .map_err(|error| ModuleLoaderError::type_error(error.to_string()));
         }
-        let importer = Url::parse(referrer).map_err(|error| {
-            ModuleLoaderError::type_error(format!(
-                "cannot resolve '{specifier}': the importer '{referrer}' is not a URL: {error}"
-            ))
-        })?;
-        // every importer was resolved here first, the entry by `Loader::new`
-        let importer_origin = self
-            .origins
-            .borrow()
-            .get(&importer)
-            .cloned()
-            .ok_or_else(|| {
-                ModuleLoaderError::type_error(format!(
-                    "cannot resolve '{specifier}': the importer '{referrer}' was never resolved"
-                ))
-            })?;
-        let resolution = resolver::resolve(&DiskTree, specifier, &importer, &importer_origin)
-            .map_err(|error| ModuleLoaderError::type_error(error.to_string()))?;
-        // the first origin a URL resolves with stays, whatever resolves it later: an
-        // `import.meta.resolve` records one before any module instance exists, and a
-        // project's relative import of a file inside node_modules records `Project`
-        // TODO: settle the rule before sandboxed eval grants by origin: on a conflict keep the
-        // less-trusted origin, or record origins only when a module loads
-        self.origins
-            .borrow_mut()
-            .entry(resolution.url.clone())
-            .or_insert(resolution.origin);
-        Ok(resolution.url)
+        self.resolve_in(&DiskTree, specifier, referrer, true)
+    }
+
+    /// Resolves as an import does, roots and all, but admits no root and
+    /// records no URL: the URL it returns isn't imported, and importing it
+    /// resolves it again, as an absolute specifier.
+    fn import_meta_resolve(
+        &self,
+        specifier: &str,
+        referrer: &str,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        self.resolve_in(&DiskTree, specifier, referrer, false)
     }
 
     fn load(
@@ -241,7 +345,140 @@ const fn fix(kind: UnsupportedKind) -> Fix {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
     use super::*;
+    use crate::resolver::test_tree::MemoryTree;
+
+    /// A project at `/p` with `bar` installed and `lnk` linked to a checkout
+    /// inside the project.
+    fn tree() -> MemoryTree {
+        MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                ("/p/main.ts", ""),
+                (
+                    "/p/packages/lnk/package.json",
+                    r#"{"name": "lnk", "type": "module", "exports": {"./x.ts": "./x.ts"}}"#,
+                ),
+                ("/p/packages/lnk/x.ts", ""),
+                (
+                    "/p/node_modules/bar/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/bar/i.mjs", ""),
+            ]),
+            links: BTreeMap::from([("/p/node_modules/lnk", "/p/packages/lnk")]),
+            ..MemoryTree::default()
+        }
+    }
+
+    const MAIN: &str = "file:///p/main.ts";
+
+    fn new_loader(tree: &MemoryTree) -> Loader {
+        let (entry, roots) =
+            resolver::resolve_entry(tree, Path::new("/p/main.ts"), Path::new("/")).unwrap();
+        Loader::new(&entry, roots)
+    }
+
+    fn state(loader: &Loader) -> (Roots, HashMap<Url, Root>) {
+        let graph = loader.graph.borrow();
+        (graph.roots.clone(), graph.records.clone())
+    }
+
+    /// A file reached both by a relative specifier and through its package
+    /// is refused in either order, never loaded under the first one's root.
+    #[test]
+    fn a_root_conflict_is_refused_in_either_order() {
+        let tree = tree();
+        // the package first: the relative specifier is refused by the resolver
+        let loader = new_loader(&tree);
+        loader.resolve_in(&tree, "lnk/x.ts", MAIN, true).unwrap();
+        let error = loader
+            .resolve_in(&tree, "./packages/lnk/x.ts", MAIN, true)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(
+                "cannot resolve './packages/lnk/x.ts' from file:///p/main.ts: it resolves to \
+                 /p/packages/lnk/x.ts, inside package 'lnk' at /p/packages/lnk, which only a \
+                 bare specifier reaches"
+            ),
+            "{error}"
+        );
+        // the relative specifier first: admitting the package is the conflict
+        let loader = new_loader(&tree);
+        loader
+            .resolve_in(&tree, "./packages/lnk/x.ts", MAIN, true)
+            .unwrap();
+        let before = state(&loader);
+        let error = loader
+            .resolve_in(&tree, "lnk/x.ts", MAIN, true)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(
+                "cannot resolve 'lnk/x.ts' from file:///p/main.ts: /p/packages/lnk/x.ts was \
+                 resolved inside the project at /p, and package 'lnk' at /p/packages/lnk was \
+                 then admitted around it, so its origin would depend on the import order. Fix: \
+                 import it by name ('lnk' or a subpath it exports) everywhere, not by a relative \
+                 path"
+            ),
+            "{error}"
+        );
+        // nothing was admitted, so it fails the same way again
+        assert_eq!(state(&loader), before);
+        assert!(loader.resolve_in(&tree, "lnk/x.ts", MAIN, true).is_err());
+    }
+
+    /// `deno_core` can resolve a specifier twice: the same URL inside the
+    /// same root changes nothing.
+    #[test]
+    fn resolving_twice_is_no_change() {
+        let tree = tree();
+        let loader = new_loader(&tree);
+        let first = loader.resolve_in(&tree, "bar", MAIN, true).unwrap();
+        let after_first = state(&loader);
+        let second = loader.resolve_in(&tree, "bar", MAIN, true).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(state(&loader), after_first);
+        assert_eq!(after_first.0.iter().count(), 2);
+        assert_eq!(after_first.1.len(), 2);
+    }
+
+    /// `import.meta.resolve` resolves as an import does but admits and
+    /// records nothing, so importing what it returned for a package is a
+    /// path into `node_modules`, refused.
+    #[test]
+    fn import_meta_resolve_changes_nothing() {
+        let tree = tree();
+        let loader = new_loader(&tree);
+        let before = state(&loader);
+        let url = loader.resolve_in(&tree, "bar", MAIN, false).unwrap();
+        assert_eq!(url.as_str(), "file:///p/node_modules/bar/i.mjs");
+        assert_eq!(state(&loader), before);
+        let error = loader
+            .resolve_in(&tree, url.as_str(), MAIN, true)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("inside node_modules below /p") && error.contains("import it by name"),
+            "{error}"
+        );
+        // refused as an import is
+        assert!(
+            loader
+                .resolve_in(&tree, "./node_modules/bar/i.mjs", MAIN, false)
+                .is_err()
+        );
+        // and an importer must have been resolved here
+        let error = loader
+            .resolve_in(&tree, "./main.ts", url.as_str(), false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("was never resolved"), "{error}");
+    }
 
     fn url() -> Url {
         Url::parse("file:///p/a.ts").unwrap()

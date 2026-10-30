@@ -467,19 +467,29 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   its `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
   or the build fails), and the strict resolver as a pure module (`resolver.rs`,
   no deno_core types; it reads only through a `SourceTree` trait and returns
-  a record of the URL, the module's origin, and the `package.json` files it
-  consulted): relative and absolute specifiers with mandatory extensions, and
+  a record of the URL, the root the module is inside and its origin, and the
+  `package.json` files it consulted): relative and absolute specifiers with
+  mandatory extensions, and
   bare specifiers through a package's `"exports"` (Node's algorithm, with the
   conditions `gro`, `import`, `default` matched in the package's key order),
   found by self-reference or in `node_modules` up from the importer's real
-  path; the importer's origin is passed in, since a linked package's real
-  path has no `node_modules` in it. Deliberate departures from Node: the
-  `node_modules` search is bounded by the project root, found first (the
+  path. A module's origin is a function of its real path over the graph's
+  admitted roots (`Roots`: the entry's project root and each package root a
+  bare import resolved into, innermost by component winning, none with a
+  `node_modules` segment below it), which the loader owns and passes into
+  `resolve`; the loader refuses a root admitted around a module already
+  recorded in an outer one (`RootConflict`), and `import.meta.resolve`
+  admits nothing. Deliberate departures from Node: origin containment
+  (a relative or absolute specifier resolves only inside its importer's
+  root, never into `node_modules` below it or into another admitted root
+  nested in it, and `"exports"` targets and self-references stay inside
+  their package, all checked on the real path; an entry inside
+  `node_modules` runs as its package, and one in no package is refused), the `node_modules` search is bounded by the project root, found first (the
   first `package.json` outside `node_modules` that isn't a type marker, whose
   keys are all `"type"` or `"sideEffects"`, failing closed, so npm and yarn
   workspaces aren't supported), and a module with no project root gets no
   bare imports except a self-reference, which resolves through its own
-  package's `"exports"`; a world-writable directory (the other-write bit)
+  package's `"exports"` and stays inside its package; a world-writable directory (the other-write bit)
   ends every walk up, with no `package.json` or `node_modules` in it read,
   and a package found through one (its `node_modules`, `@scope`, root, a
   linked root's real holders, or a linked `node_modules`'s or `@scope`'s

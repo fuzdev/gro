@@ -475,8 +475,8 @@ run as Node subprocesses under the invocation's kernel rules.
 - [x] TypeScript by tsv's type strip, in process
 - [x] strict package resolution, through `node_modules` by `"exports"` up to the project root,
       with `"type": "module"` (`#` imports come later)
-- [ ] the resolver's [planned departure](resolver.md#planned-departures),
-      bounding every relative and absolute specifier by its origin
+- [x] origin containment in the resolver ([resolver](resolver.md#departures-from-node)),
+      keeping every module inside its project's or package's root
 - [ ] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack

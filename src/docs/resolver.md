@@ -3,19 +3,35 @@
 > How the runtime resolves module specifiers: strict ESM with mandatory extensions,
 > packages by `"exports"` only, and the deliberate departures from Node's algorithm
 
-> **status**: built for relative, absolute, and bare specifiers through `"exports"`;
+> **status**: built for relative, absolute, and bare specifiers through `"exports"`,
+> with every module contained in its project's or package's root;
 > `"imports"` for `#` subpaths comes later.
-> Relative and absolute specifiers aren't bounded by the project root yet;
-> a [planned departure](#planned-departures) closes that.
 
 The runtime resolves modules with its own strict algorithm, not Node's.
 Bridging on the legacy algorithm would let code work on gro by accident of legacy resolution
 and break when the bridge is removed, and the strict subset is small enough that a bridge saves little.
 It's written once in `gro_runtime` as a pure module with no engine types:
 it reads only through a source-tree trait and returns the resolved URL,
-the module's origin (project or package), and the `package.json` files it consulted,
-so other tools can reuse it and a test can drive it without V8.
+the root the module is inside and its origin (project or package), and the `package.json` files it consulted,
+so a test can drive it without V8, and other tools could reuse it once its roots can be built outside the crate.
+The module loader owns the roots a graph has admitted and passes them in;
+the resolver admits nothing.
 `import.meta.resolve` goes through it too, so it needs the file to exist.
+
+## Roots and origins
+
+A module's origin is a function of its real path over the graph's admitted roots:
+the project root, and the real root of every package a bare specifier resolved into.
+The innermost root above the path wins, by path component,
+and a path with a `node_modules` segment below that root is in none, so it's never the project's.
+The project root is the entry's: the directory of the `package.json` that bounds its search,
+or the entry's own directory when it has none.
+An entry inside `node_modules` runs as the package it's in, the one after the last `node_modules` segment,
+with the project root at the directory holding the first;
+one in no package (`node_modules/.bin/x.mjs`, `node_modules/loose.mjs`) has no origin and is refused.
+Roots are keyed by real directory,
+so a package directory reached under two names keeps its first admission's origin.
+A linked package's real path has no `node_modules` in it, so only its admission says it's a package.
 
 ## Specifiers
 
@@ -25,8 +41,7 @@ so other tools can reuse it and a test can drive it without V8.
   (`gro`, `import`, `default`, matched in the package's own key order, Node's algorithm),
   and `"imports"` for `#` subpaths (not built yet).
   The package is found by self-reference or in `node_modules`, walking up from the importer's real path
-  to its project root;
-  the importer's origin is passed in, since a linked package's real path has no `node_modules` in it.
+  to its project root.
 - **Files on disk only.** No `https:`, `jsr:`, or `npm:` imports,
   and gro never pre-bundles a project's dependencies.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
@@ -41,6 +56,29 @@ so other tools can reuse it and a test can drive it without V8.
 Otherwise the resolver follows Node's algorithm.
 Where it departs, it departs on purpose, and always toward failing closed:
 
+- **Every module stays inside its root** (origin containment), checked on its real path, after every symlink.
+  A relative or absolute specifier resolves only inside the importer's root:
+  the project root for project code, the package's real root for package code.
+  It never reaches into a `node_modules` segment below that root, by its real path or as written
+  (an in-tree checkout linked into `node_modules` has none in its real path),
+  and never into another admitted root nested in it,
+  such as an in-tree package reached as `./packages/foo/x.ts` once `foo` was imported by name.
+  Each is refused naming the path, the root, and the fix (import it by name),
+  except an installed package's own relative import out of its root,
+  which is the package reaching outside itself, so the fix is a version of the package that doesn't.
+  A package's `"exports"` target stays inside the package's real root by the same rules,
+  so a target symlinked out of the package is refused,
+  and a self-reference's stays inside both its package's directory
+  (the one its `package.json` was found in, so a symlinked `package.json` can't move it)
+  and the importer's root.
+  When import order would decide a module's root
+  (a file reached by a relative specifier, then its package admitted by name around it),
+  the import fails naming both roots, never choosing one;
+  when both are packages, one nested in the other holds the file, and the fix is to import it through only one.
+  `import.meta.resolve` runs the same checks and admits nothing,
+  so `import(import.meta.resolve('foo'))` for an installed `foo` is a path into `node_modules`, refused with the fix.
+  Node allows every crossing, and each one bypasses the package's `"exports"`,
+  the boundary a package declares and a grant decision reads its origin from.
 - **The `node_modules` search is bounded by the project root, found first:**
   the first `package.json` at or above the importer, outside `node_modules`,
   that isn't a type marker (a JSON object whose keys are all `"type"` or `"sideEffects"`,
@@ -53,7 +91,8 @@ Where it departs, it departs on purpose, and always toward failing closed:
   npm and yarn workspaces, whose packages install at the workspace's root, aren't supported.
   Node searches every ancestor's `node_modules`.
 - **A file with no project root gets no bare imports except a self-reference,**
-  which resolves through its own package's `"exports"` (a module in an installed package importing that package by name).
+  which resolves through its own package's `"exports"` and stays inside its package's directory
+  (a module in an installed package importing that package by name).
   With no `package.json` to bound the search, any other bare specifier is refused,
   naming the importer's directory and the fix:
   a `package.json` at the project root, with the package installed in the `node_modules` beside it.
@@ -89,13 +128,3 @@ Where it departs, it departs on purpose, and always toward failing closed:
   or `svelte` until the Svelte compiler is in.
 - **A pattern's match can't hide a `..` behind a tab or a line break** (`.\t.`), which URL parsing drops,
   where Node substitutes it unchecked and loads what it names outside the package.
-
-## Planned departures
-
-Decided, not built; it lands before `gro eval`:
-
-- **Origin containment.** A relative or absolute specifier resolves only inside the importer's root:
-  the project root (the directory of the `package.json` that bounds the search) for project code,
-  the package's real root for package code, and never into a `node_modules` segment or another package's root,
-  since each crossing bypasses `"exports"`.
-  Node allows all of them.

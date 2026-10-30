@@ -3,12 +3,20 @@
 //!
 //! A pure module: no V8 or `deno_core` types. It reads the filesystem only
 //! through [`SourceTree`] ([`DiskTree`] is the disk) and returns a
-//! [`Resolution`] record rather than a bare URL: the URL, the module's
-//! [`Origin`], and the `package.json` files read to get there. The module
-//! loader is a thin adapter over it, so static imports, `import()`, and the
-//! entry module all resolve the same way. The importer's origin is an input,
-//! not read from its path, since a linked package's real path has no
-//! `node_modules` in it.
+//! [`Resolution`] record rather than a bare URL: the URL, the [`Root`] the
+//! module is inside and its [`Origin`], and the `package.json` files read to
+//! get there. The module loader is a thin adapter over it, so static
+//! imports, `import()`, `import.meta.resolve`, and the entry module all
+//! resolve the same way.
+//!
+//! A module's origin is its root's, a function of its real path over the
+//! [`Roots`] its graph has admitted: the project root, which
+//! [`resolve_entry`] finds from the entry, and the real root of each
+//! package a bare specifier resolved into, the innermost one by path
+//! component winning, and none when a `node_modules` segment is below it.
+//! The caller owns the roots and passes them into [`resolve`], which admits
+//! nothing; a linked package's real path has no `node_modules` in it, so
+//! only the admission says it's a package.
 //!
 //! What resolves today:
 //!
@@ -17,7 +25,7 @@
 //!   mandatory: nothing is probed, no extension is added, and a directory
 //!   never resolves to an index file. The query and fragment survive
 //!   resolution, so `./a.js?x` is a separate module instance from `./a.js`.
-//!   They resolve with the importer's origin.
+//!   They resolve only inside the importer's root, with its origin.
 //! - **Bare specifiers** name a package (`svelte`, `@fuzdev/fuz_util/string.ts`;
 //!   a scoped name takes two segments) and resolve through its
 //!   `package.json` `"exports"`, Node's algorithm: exact subpaths, then
@@ -30,7 +38,8 @@
 //!   `node_modules/<name>` in each directory from the importer's real
 //!   location up to its project root, the first one that is a directory
 //!   winning. A package with no `"exports"` is refused: `main` and `module`
-//!   are never read.
+//!   are never read. The package's real root is the result's, admitted by
+//!   the caller; a self-reference's is the importer's.
 //! - **The file must exist**, and resolves to its real path (symlinks
 //!   followed), so a module's own imports resolve from where it really lives.
 //! - **`.js`, `.mjs`, `.ts`, and `.mts` load**, as ES modules, the TypeScript
@@ -46,6 +55,21 @@
 //!
 //! Where it departs from Node, deliberately:
 //!
+//! - **Every module stays inside its root** (origin containment), checked
+//!   on its real path after every symlink, before anything about it is
+//!   read. A relative or absolute specifier resolves only inside the
+//!   importer's root ([`ResolveErrorKind::OutsideRoot`]), never into a
+//!   `node_modules` segment below it, by its real path or as written, since
+//!   an in-tree checkout linked into `node_modules` has none in its real
+//!   path ([`ResolveErrorKind::IntoNodeModules`]), and never into another
+//!   admitted root nested in it ([`ResolveErrorKind::IntoPackageRoot`]): the
+//!   project reaches a package, and a package another, only by name, through
+//!   its `"exports"`. A package's `"exports"` target stays inside its real
+//!   root by the same rules, so a symlinked target can't leave it, and a
+//!   self-reference's stays inside both its package's directory, the one its
+//!   `package.json` was found in rather than that file's real path, and the
+//!   importer's root. An entry inside `node_modules` runs as the package it
+//!   is in. Node allows every crossing, each of which bypasses `"exports"`.
 //! - **The `node_modules` search is bounded by the project root, found
 //!   first**: the first directory at or above the importer, outside
 //!   `node_modules`, with a `package.json` that isn't a type marker. The walk
@@ -53,7 +77,8 @@
 //!   runs from the importer up to it, its own `node_modules` included, so a
 //!   `node_modules` above the project is never consulted. A module with no
 //!   project root gets no bare imports except a self-reference, which
-//!   resolves through its own package's `"exports"`: any other bare specifier is
+//!   resolves through its own package's `"exports"` and stays inside its
+//!   package's directory: any other bare specifier is
 //!   refused ([`ResolveErrorKind::NoProjectRoot`]), where Node searches every
 //!   ancestor. A marker is a JSON object whose keys
 //!   are all `"type"` or `"sideEffects"`, such as a `{"type": "module"}` in
@@ -104,7 +129,9 @@
 //! (remote and inline; only files on disk load), any other non-`file:`
 //! scheme, `#` package imports, a bare specifier other than a self-reference
 //! with no project root above the importer, a bare Node built-in name (`fs`,
-//! which is looked up as a package and not found), a `%2F`, `%5C`, or `%00`
+//! which is looked up as a package and not found), a module outside its
+//! root, in `node_modules` below it, or in another root nested in it, a
+//! `%2F`, `%5C`, or `%00`
 //! in a resolved path, a `.js` file outside `"type": "module"`, a symlink loop
 //! (named as one where the OS's `ELOOP` is known), a `package.json` over
 //! [`MAX_PACKAGE_JSON_SIZE`], one whose `"name"` or `"type"` isn't a string,
@@ -272,7 +299,11 @@ pub struct Resolution {
     /// The module's `file:` URL: its real path, with the specifier's query and
     /// fragment re-attached.
     pub url: Url,
-    /// Where the module comes from.
+    /// The real directory of the root the module is inside: its importer's
+    /// for a relative or absolute specifier or a self-reference, the
+    /// package's for any other bare one.
+    pub root: PathBuf,
+    /// Where the module comes from, its root's origin.
     pub origin: Origin,
     /// The `package.json` files read to resolve it, at their real paths, each
     /// once per role. A relative specifier to a `.mjs` or TypeScript file
@@ -300,6 +331,122 @@ pub enum Origin {
     // TODO: `Builtin` joins with the builtin modules
 }
 
+/// A directory whose modules share an origin: the project's root, or a
+/// package's real root. A relative or absolute specifier resolves only
+/// inside its importer's root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Root {
+    /// Its real path.
+    pub dir: PathBuf,
+    /// The origin of the modules inside it.
+    pub origin: Origin,
+}
+
+impl Root {
+    /// Whether the real path `path` is inside this root: under its
+    /// directory, with no `node_modules` segment below it. The segments
+    /// above it don't count, since where the root itself lives is the
+    /// installer's or the user's choice.
+    pub fn contains(&self, path: &Path) -> bool {
+        path.strip_prefix(&self.dir)
+            .is_ok_and(|below| !in_node_modules(below))
+    }
+
+    /// Its package's name, when it is an installed package's root, not
+    /// linked.
+    fn installed_name(&self) -> Option<&str> {
+        match &self.origin {
+            Origin::Package {
+                name,
+                linked: false,
+                ..
+            } => Some(name),
+            Origin::Package { linked: true, .. } | Origin::Project => None,
+        }
+    }
+}
+
+impl fmt::Display for Root {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.origin {
+            Origin::Project => write!(f, "the project at {}", self.dir.display()),
+            Origin::Package { name, .. } => {
+                write!(f, "package '{name}' at {}", self.dir.display())
+            }
+        }
+    }
+}
+
+/// The roots a module graph has admitted: the project's, and the root of
+/// each package a bare specifier resolved into.
+///
+/// They're keyed by real directory, so one directory reached under two
+/// names keeps its first admission's origin. A module's root is the
+/// innermost one its real path is inside.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Roots {
+    /// The project's root, the entry's project root.
+    project: Root,
+    /// The packages' roots, in the order they were admitted.
+    packages: Vec<Root>,
+}
+
+impl Roots {
+    /// The roots of a graph that has admitted only the project at
+    /// `project_dir`, a real path.
+    pub(crate) const fn new(project_dir: PathBuf) -> Self {
+        Self {
+            project: Root {
+                dir: project_dir,
+                origin: Origin::Project,
+            },
+            packages: Vec::new(),
+        }
+    }
+
+    /// The project's root.
+    pub const fn project(&self) -> &Root {
+        &self.project
+    }
+
+    /// Every admitted root, the project's first.
+    pub fn iter(&self) -> impl Iterator<Item = &Root> {
+        std::iter::once(&self.project).chain(&self.packages)
+    }
+
+    /// The root admitted at the real directory `dir`, if any.
+    pub fn get(&self, dir: &Path) -> Option<&Root> {
+        self.iter().find(|root| root.dir == dir)
+    }
+
+    /// The root the real path `path` is inside: the innermost admitted root
+    /// above it, by path component, unless a `node_modules` segment is below
+    /// that root, when it is in none.
+    pub fn containing(&self, path: &Path) -> Option<&Root> {
+        self.iter()
+            .filter(|root| path.starts_with(&root.dir))
+            .max_by_key(|root| root.dir.components().count())
+            .filter(|root| root.contains(path))
+    }
+
+    /// The innermost admitted root strictly inside `dir` that holds `path`,
+    /// a real path inside the root at `dir`.
+    fn inner(&self, dir: &Path, path: &Path) -> Option<&Root> {
+        self.iter()
+            .filter(|root| {
+                root.dir != dir && root.dir.starts_with(dir) && path.starts_with(&root.dir)
+            })
+            .max_by_key(|root| root.dir.components().count())
+    }
+
+    /// Admits `root`, unless its directory is admitted already.
+    pub(crate) fn admit(&mut self, root: Root) {
+        if self.get(&root.dir).is_none() {
+            self.packages.push(root);
+        }
+    }
+}
+
 /// A metadata file resolution read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsultedFile {
@@ -318,9 +465,13 @@ pub enum FileRole {
     /// an importer, for a self-reference's `"name"` and `"exports"`.
     PackageScope,
     /// A `package.json` on the walk for the project root that bounds the
-    /// `node_modules` search, read to tell a type marker, which the walk
-    /// passes, from the root it ends at, which is always read.
+    /// `node_modules` search, or for the entry's project root, read to tell
+    /// a type marker, which the walk passes, from the root it ends at, which
+    /// is always read.
     SearchBound,
+    /// The `package.json` of the package an entry inside `node_modules` is
+    /// in, for its `"version"`, its origin's.
+    Version,
 }
 
 /// A specifier that didn't resolve.
@@ -352,8 +503,9 @@ pub enum ResolveErrorKind {
     /// The empty string.
     Empty,
     /// A relative or absolute specifier that isn't a valid URL, a `file:` URL
-    /// that names no local path, or a resolved path with an encoded `/`, `\`,
-    /// or NUL in it.
+    /// that names no local path, a resolved path with an encoded `/`, `\`,
+    /// or NUL in it, or an importer that names no local path or is inside
+    /// no admitted root.
     InvalidUrl(String),
     /// A bare specifier whose package name is malformed: it starts with `.`,
     /// holds `%` or `\`, has an empty, `.`, or `..` segment, or is a scope
@@ -496,6 +648,57 @@ pub enum ResolveErrorKind {
     SvelteModule,
     /// An extension that isn't loaded as a module.
     UnsupportedExtension(String),
+    /// The module's real path is outside the root it must stay inside: the
+    /// importer's, for a relative or absolute specifier; the package's, for
+    /// an `"exports"` target; and for a self-reference, its package's
+    /// directory and the importer's root both.
+    OutsideRoot {
+        /// The module's real path, or its path as written when that is
+        /// already outside the root.
+        path: PathBuf,
+        /// The root's real directory.
+        root: PathBuf,
+        /// The package's name when the root is an installed package's, not
+        /// linked, whose files are the package's to fix, not the user's.
+        package: Option<Box<str>>,
+    },
+    /// The module's path has a `node_modules` segment below the root it must
+    /// stay inside, by its real path or as written. Only a bare specifier
+    /// reaches into `node_modules`, through the package's `"exports"`.
+    IntoNodeModules {
+        /// The module's path: its real path, or the path as written when
+        /// that is where the segment is.
+        path: PathBuf,
+        /// The root's real directory.
+        root: PathBuf,
+    },
+    /// The module's real path is inside another admitted root, nested in the
+    /// one it must stay inside: a package's, which only a bare specifier
+    /// reaches, through its `"exports"`, or the project's, which a package
+    /// never reaches.
+    IntoPackageRoot {
+        /// The module's real path.
+        path: PathBuf,
+        /// The nested root.
+        root: Box<Root>,
+    },
+    /// An entry inside `node_modules` but in no package: a file directly in
+    /// it, or in a directory that names no package (`.bin`, `.deno`), so it
+    /// has no origin.
+    InNoPackage(PathBuf),
+    /// A module recorded inside one root is inside another one admitted
+    /// after it, so which root it has would depend on the import order: a
+    /// file reached by a relative specifier and then admitted with its
+    /// package, or the reverse. The module loader raises it, since the
+    /// resolver records nothing.
+    RootConflict {
+        /// The module's real path.
+        path: PathBuf,
+        /// The root it was recorded inside.
+        recorded: Box<Root>,
+        /// The root admitted around it.
+        admitted: Box<Root>,
+    },
     /// The path leads into a symlink loop, so it names no file or directory.
     SymlinkLoop(PathBuf),
     /// Reading the tree failed.
@@ -617,6 +820,9 @@ const LOADING_EXTENSIONS: &str = ".js, .mjs, .ts, and .mts modules load";
 /// The fix for a package that can't load as an ES module.
 const PACKAGE_FIX: &str = "Fix: use a version with an ESM build, vendor an ESM bundle of it into \
                            the project, or run it under Node";
+
+/// The fix for an `"exports"` target whose real path leaves its package.
+const TARGET_FIX: &str = "Fix: use a version of the package whose \"exports\" stay inside it";
 
 impl fmt::Display for ResolveErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -785,6 +991,29 @@ impl fmt::Display for ResolveErrorKind {
                         "the package exports it as {path}, which is CommonJS (no \"type\": \
                          \"module\", not .mjs), and only ES modules load. {PACKAGE_FIX}"
                     ),
+                    Self::OutsideRoot {
+                        path: real, root, ..
+                    } => write!(
+                        f,
+                        "the package exports it as {path}, which resolves to {}, outside {}, and \
+                         an \"exports\" target stays inside its package. {TARGET_FIX}",
+                        real.display(),
+                        root.display()
+                    ),
+                    Self::IntoNodeModules { path: real, root } => write!(
+                        f,
+                        "the package exports it as {path}, which resolves to {}, inside \
+                         node_modules below {}, and an \"exports\" target stays inside its \
+                         package. {TARGET_FIX}",
+                        real.display(),
+                        root.display()
+                    ),
+                    Self::IntoPackageRoot { path: real, root } => write!(
+                        f,
+                        "the package exports it as {path}, which resolves to {}, inside {root}, \
+                         and an \"exports\" target stays inside its package. {TARGET_FIX}",
+                        real.display()
+                    ),
                     error => write!(f, "the package exports it as {path}: {error}"),
                 }
             }
@@ -851,6 +1080,83 @@ impl fmt::Display for ResolveErrorKind {
                 f,
                 "the extension '.{extension}' does not load as a module; {LOADING_EXTENSIONS}"
             ),
+            Self::OutsideRoot {
+                path,
+                root,
+                package: None,
+            } => write!(
+                f,
+                "it resolves to {}, outside {}, and a relative or absolute specifier resolves \
+                 only inside its importer's root, the project's directory or a package's own. \
+                 Fix: move the module inside {1}, or install it as a package and import it by name",
+                path.display(),
+                root.display()
+            ),
+            Self::OutsideRoot {
+                path,
+                root,
+                package: Some(name),
+            } => write!(
+                f,
+                "it resolves to {}, outside package '{name}' at {}, and a package's relative and \
+                 absolute specifiers resolve only inside it, so the package reaches outside \
+                 itself. Fix: use a version of the package that doesn't",
+                path.display(),
+                root.display()
+            ),
+            Self::InNoPackage(path) => write!(
+                f,
+                "it resolves to {}, inside node_modules but in no package, so it has no origin. \
+                 Fix: run a file inside a package (node_modules/<name>/...)",
+                path.display()
+            ),
+            Self::IntoNodeModules { path, root } => write!(
+                f,
+                "it resolves to {}, inside node_modules below {}, which only a bare specifier \
+                 reaches, through the package's \"exports\". Fix: import it by name",
+                path.display(),
+                root.display()
+            ),
+            Self::IntoPackageRoot { path, root } => {
+                write!(f, "it resolves to {}, inside {root}", path.display())?;
+                match &root.origin {
+                    Origin::Package { name, .. } => write!(
+                        f,
+                        ", which only a bare specifier reaches, through its \"exports\". Fix: \
+                         import it by name ('{name}' or a subpath it exports)"
+                    ),
+                    Origin::Project => f.write_str(", which a package's modules never reach"),
+                }
+            }
+            Self::RootConflict {
+                path,
+                recorded,
+                admitted,
+            } => {
+                write!(
+                    f,
+                    "{} was resolved inside {recorded}, and {admitted} was then admitted around \
+                     it, so its origin would depend on the import order",
+                    path.display()
+                )?;
+                // the project's root is admitted first, so only a package's is admitted around one
+                let Origin::Package { name, .. } = &admitted.origin else {
+                    return Ok(());
+                };
+                match &recorded.origin {
+                    Origin::Project => write!(
+                        f,
+                        ". Fix: import it by name ('{name}' or a subpath it exports) everywhere, \
+                         not by a relative path"
+                    ),
+                    Origin::Package { name: holder, .. } => write!(
+                        f,
+                        ". Two packages hold it, '{name}' inside '{holder}'. Fix: import it \
+                         through only one of them, or install '{name}' on its own rather than \
+                         inside '{holder}'"
+                    ),
+                }
+            }
             Self::SymlinkLoop(path) => write!(
                 f,
                 "{} leads into a symlink loop, so it names no file or directory. \
@@ -863,59 +1169,131 @@ impl fmt::Display for ResolveErrorKind {
     }
 }
 
-/// Resolves `specifier`, imported by the module at `importer`, which came
-/// from `importer_origin` (what resolving the importer returned).
+/// Resolves `specifier`, imported by the module at `importer`, a real path's
+/// URL inside one of `roots`, the roots its graph has admitted. The
+/// importer's root is the one its path is inside ([`Roots::containing`]).
+///
+/// A relative or absolute specifier resolves only inside the importer's
+/// root, never into a `node_modules` segment below it, by its real path or
+/// as written, and never into another admitted root nested in it. A bare
+/// one's real path stays inside its package's real root, and a
+/// self-reference's inside its package's directory and the importer's root
+/// both. The result names the root it is inside, which a caller admits for
+/// a package; nothing is admitted here.
 ///
 /// # Errors
 ///
-/// Returns a [`ResolveError`] when the specifier names no loadable module;
-/// its kind says why.
+/// Returns a [`ResolveError`] when the specifier names no loadable module
+/// inside its root; its kind says why.
 pub fn resolve(
     tree: &impl SourceTree,
     specifier: &str,
     importer: &Url,
-    importer_origin: &Origin,
+    roots: &Roots,
 ) -> Result<Resolution, ResolveError> {
     let error = |kind| ResolveError {
         specifier: specifier.to_owned(),
         importer: importer.to_string(),
         kind,
     };
+    let importer_path = importer.to_file_path().map_err(|()| {
+        error(ResolveErrorKind::InvalidUrl(
+            "the importer names no local path".to_owned(),
+        ))
+    })?;
+    let importer_root = roots.containing(&importer_path).ok_or_else(|| {
+        error(ResolveErrorKind::InvalidUrl(
+            "the importer is inside no admitted root".to_owned(),
+        ))
+    })?;
     let mut consulted = Consulted::default();
-    let (url, origin, hint) = match parse_specifier(specifier, importer).map_err(error)? {
-        Request::Url(url) => (url, importer_origin.clone(), Some(specifier)),
+    match parse_specifier(specifier, importer).map_err(error)? {
+        Request::Url(url) => {
+            let path = url_to_path(&url).map_err(error)?;
+            // as written too: an in-tree checkout linked into node_modules has none in its real path
+            if written_into_node_modules(&path, &importer_root.dir) {
+                // a segment past where it leaves the root is no segment below the root
+                if !path.starts_with(&importer_root.dir) {
+                    return Err(error(ResolveErrorKind::OutsideRoot {
+                        path,
+                        root: importer_root.dir.clone(),
+                        package: importer_root.installed_name().map(Box::from),
+                    }));
+                }
+                return Err(error(ResolveErrorKind::IntoNodeModules {
+                    path,
+                    root: importer_root.dir.clone(),
+                }));
+            }
+            let real_path = find_module(tree, &path, Some(specifier), &mut consulted, |real| {
+                contain(
+                    real,
+                    &importer_root.dir,
+                    importer_root.installed_name(),
+                    roots,
+                )
+            })
+            .map_err(error)?;
+            to_resolution(&real_path, &url, importer_root.clone(), consulted).map_err(error)
+        }
         Request::Package(specifier) => {
-            let (url, origin) =
-                resolve_package(tree, specifier, importer, importer_origin, &mut consulted)
-                    .map_err(error)?;
-            (url, origin, None)
+            let package = resolve_package(
+                tree,
+                specifier,
+                &importer_path,
+                importer_root,
+                roots,
+                &mut consulted,
+            )
+            .map_err(error)?;
+            let path = url_to_path(&package.url).map_err(error)?;
+            let name = package.root.installed_name();
+            let check = |real: &Path| {
+                if let Some(scope_dir) = &package.scope_dir {
+                    // the name is the importer root's, so only when the scope is that root
+                    contain(
+                        real,
+                        scope_dir,
+                        name.filter(|_| *scope_dir == package.root.dir),
+                        roots,
+                    )?;
+                }
+                contain(real, &package.root.dir, name, roots)
+            };
+            let real_path = match find_module(tree, &path, None, &mut consulted, check) {
+                Ok(real_path) => real_path,
+                Err(kind @ (ResolveErrorKind::Io { .. } | ResolveErrorKind::SymlinkLoop(_))) => {
+                    return Err(error(kind));
+                }
+                // the error names the file, not the specifier
+                Err(kind) => {
+                    return Err(error(ResolveErrorKind::Target {
+                        path,
+                        error: Box::new(kind),
+                    }));
+                }
+            };
+            to_resolution(&real_path, &package.url, package.root, consulted).map_err(error)
         }
-    };
-    let path = url_to_path(&url).map_err(error)?;
-    let real_path = match find_module(tree, &path, hint, &mut consulted) {
-        Ok(real_path) => real_path,
-        Err(kind @ (ResolveErrorKind::Io { .. } | ResolveErrorKind::SymlinkLoop(_))) => {
-            return Err(error(kind));
-        }
-        // a package's target: the error names the file, not the specifier
-        Err(kind) if hint.is_none() => {
-            return Err(error(ResolveErrorKind::Target {
-                path,
-                error: Box::new(kind),
-            }));
-        }
-        Err(kind) => return Err(error(kind)),
-    };
-    to_resolution(&real_path, &url, origin, consulted).map_err(error)
+    }
 }
 
-/// Resolves the entry module at `path`, relative to `cwd`.
+/// Resolves the entry module at `path`, relative to `cwd`, returning it and
+/// the roots its graph starts with.
 ///
 /// `cwd` is an absolute path, and an absolute `path` ignores it. The same
 /// rules apply as to an import: the extension is mandatory and the file must
 /// exist. It is a path, not a URL, so `%`, `?`, and `#` are file-name
-/// characters. Errors name the path as given, imported from `cwd`. The entry
-/// is the project's.
+/// characters. Errors name the path as given, imported from `cwd`.
+///
+/// The entry's origin comes from its real path, as every module's does. The
+/// project root is the entry's project root, the directory the walk for one
+/// finds, or with none (no `package.json` but type markers above it, or a
+/// world-writable directory first) the entry's own directory. An entry
+/// inside `node_modules` runs as the package it is in, the one after the
+/// last `node_modules` segment, whose `package.json` gives its version, and
+/// its project root is the directory holding the first segment; one in no
+/// package is refused.
 ///
 /// # Errors
 ///
@@ -924,7 +1302,7 @@ pub fn resolve_entry(
     tree: &impl SourceTree,
     path: &Path,
     cwd: &Path,
-) -> Result<Resolution, ResolveError> {
+) -> Result<(Resolution, Roots), ResolveError> {
     let specifier = path.display().to_string();
     let error = |kind| ResolveError {
         specifier: specifier.clone(),
@@ -939,17 +1317,121 @@ pub fn resolve_entry(
         )));
     }
     let mut consulted = Consulted::default();
-    let real_path = find_module(tree, &path, Some(&specifier), &mut consulted).map_err(error)?;
+    let real_path =
+        find_module(tree, &path, Some(&specifier), &mut consulted, |_| Ok(())).map_err(error)?;
+    let (roots, root) = entry_roots(tree, &real_path, &mut consulted).map_err(error)?;
     let url = Url::from_file_path(&real_path).map_err(|()| {
         error(ResolveErrorKind::InvalidUrl(
             "names no local path".to_owned(),
         ))
     })?;
-    Ok(Resolution {
+    let resolution = Resolution {
         url,
-        origin: Origin::Project,
+        root: root.dir,
+        origin: root.origin,
         files_consulted: consulted.0,
-    })
+    };
+    Ok((resolution, roots))
+}
+
+/// The roots a graph whose entry is the module at `real_path` starts with,
+/// and the entry's own root among them (see [`resolve_entry`]).
+fn entry_roots(
+    tree: &impl SourceTree,
+    real_path: &Path,
+    consulted: &mut Consulted,
+) -> Result<(Roots, Root), ResolveErrorKind> {
+    let dir = real_path.parent().unwrap_or(real_path);
+    let segments: Vec<usize> = real_path
+        .components()
+        .enumerate()
+        .filter(|(_, component)| component.as_os_str() == "node_modules")
+        .map(|(index, _)| index)
+        .collect();
+    let (Some(&first), Some(&last)) = (segments.first(), segments.last()) else {
+        let project_dir = match find_bound(tree, dir, None, consulted)? {
+            Walk::Found((bound_dir, _)) => bound_dir,
+            Walk::Ended | Walk::Stopped(_) => dir.to_owned(),
+        };
+        let roots = Roots::new(project_dir);
+        let root = roots.project().clone();
+        return Ok((roots, root));
+    };
+    let project_dir: PathBuf = real_path.components().take(first).collect();
+    let mut roots = Roots::new(project_dir);
+    // the package's name: one segment after node_modules, or a scope and one
+    let names: Vec<&str> = real_path
+        .components()
+        .skip(last + 1)
+        .map(|component| component.as_os_str().to_str().unwrap_or("%"))
+        .collect();
+    let length = if names.first().is_some_and(|name| name.starts_with('@')) {
+        2
+    } else {
+        1
+    };
+    let name = names.get(..length).map(|names| names.join("/"));
+    // the file itself is no package, and neither is `.bin` or `.deno`
+    let Some(name) = name.filter(|name| {
+        names.len() > length && parse_package_name(name).is_ok_and(|(_, subpath)| subpath == ".")
+    }) else {
+        return Err(ResolveErrorKind::InNoPackage(real_path.to_owned()));
+    };
+    let package_dir: PathBuf = real_path.components().take(last + 1 + length).collect();
+    let package_json = read_package_json(tree, &package_dir, FileRole::Version, consulted)?
+        .ok_or_else(|| ResolveErrorKind::NoPackageJson(package_dir.clone()))?;
+    let root = Root {
+        origin: Origin::Package {
+            name,
+            version: package_json.string("version").map(str::to_owned),
+            linked: false,
+        },
+        dir: package_dir,
+    };
+    roots.admit(root.clone());
+    Ok((roots, root))
+}
+
+/// Whether `path`, as written, has a `node_modules` segment past what it
+/// shares with the root at `root`, its importer's.
+fn written_into_node_modules(path: &Path, root: &Path) -> bool {
+    let shared = path
+        .components()
+        .zip(root.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    in_node_modules(&path.components().skip(shared).collect::<PathBuf>())
+}
+
+/// Checks that the real path `path` is inside the root at `dir`: under it,
+/// with no `node_modules` segment below it, and in no admitted root nested
+/// in it. `package` names the root's package when it is an installed one.
+fn contain(
+    path: &Path,
+    dir: &Path,
+    package: Option<&str>,
+    roots: &Roots,
+) -> Result<(), ResolveErrorKind> {
+    let Ok(below) = path.strip_prefix(dir) else {
+        return Err(ResolveErrorKind::OutsideRoot {
+            path: path.to_owned(),
+            root: dir.to_owned(),
+            package: package.map(Box::from),
+        });
+    };
+    if in_node_modules(below) {
+        return Err(ResolveErrorKind::IntoNodeModules {
+            path: path.to_owned(),
+            root: dir.to_owned(),
+        });
+    }
+    if let Some(inner) = roots.inner(dir, path) {
+        return Err(ResolveErrorKind::IntoPackageRoot {
+            path: path.to_owned(),
+            root: Box::new(inner.clone()),
+        });
+    }
+    Ok(())
 }
 
 /// A parsed specifier.
@@ -1265,22 +1747,35 @@ fn parse_package_name(specifier: &str) -> Result<(&str, String), ResolveErrorKin
     Ok((name, format!(".{rest}")))
 }
 
-/// Resolves a bare specifier to the URL its package's `"exports"` name, and
-/// the origin of what it names.
+/// What a bare specifier names: the URL its package's `"exports"` give, not
+/// yet checked to exist, and the root it must stay inside.
+struct Package {
+    /// The `"exports"` target's URL.
+    url: Url,
+    /// The package's root, or for a self-reference the importer's.
+    root: Root,
+    /// For a self-reference, its package's real directory, which the module
+    /// must stay inside too.
+    scope_dir: Option<PathBuf>,
+}
+
+/// Resolves a bare specifier, imported by the module at `importer_path`
+/// inside `importer_root`, to its package's `"exports"` target and root. A
+/// package root already in `roots` keeps the origin it was admitted with.
 fn resolve_package(
     tree: &impl SourceTree,
     specifier: &str,
-    importer: &Url,
-    importer_origin: &Origin,
+    importer_path: &Path,
+    importer_root: &Root,
+    roots: &Roots,
     consulted: &mut Consulted,
-) -> Result<(Url, Origin), ResolveErrorKind> {
+) -> Result<Package, ResolveErrorKind> {
     let (name, subpath) = parse_package_name(specifier)?;
-    let importer_path = importer.to_file_path().map_err(|()| {
-        ResolveErrorKind::InvalidUrl("the importer names no local path".to_owned())
-    })?;
-    let importer_dir = importer_path.parent().unwrap_or(&importer_path);
+    let importer_dir = importer_path.parent().unwrap_or(importer_path);
 
-    // a self-reference: the importer's own package, by its name
+    // a self-reference: the importer's own package, by its name, resolved from
+    // the directory the package.json was found in (the importer's real one),
+    // not the file's real path, which a symlinked package.json moves
     let scope = package_scope(tree, importer_dir, consulted)?;
     let scope = scope.found();
     if let Some(scope) = scope
@@ -1288,9 +1783,12 @@ fn resolve_package(
         && scope.string("name") == Some(name)
     {
         consulted.add(&scope.path, FileRole::Exports);
-        let root = scope.path.parent().unwrap_or(&scope.path);
-        let url = resolve_exports(root, &scope.path, exports, &subpath)?;
-        return Ok((url, importer_origin.clone()));
+        let url = resolve_exports(&scope.dir, &scope.path, exports, &subpath)?;
+        return Ok(Package {
+            url,
+            root: importer_root.clone(),
+            scope_dir: Some(scope.dir.clone()),
+        });
     }
 
     // the bound first, so no node_modules is consulted outside the project
@@ -1395,12 +1893,20 @@ fn resolve_package(
         .exports()
         .ok_or_else(|| ResolveErrorKind::NoExports(package_json.path.clone()))?;
     let url = resolve_exports(&root, &package_json.path, exports, &subpath)?;
-    let origin = Origin::Package {
-        name: name.to_owned(),
-        version: package_json.string("version").map(str::to_owned),
-        linked: !in_node_modules(&root),
-    };
-    Ok((url, origin))
+    // one directory under two names keeps its first admission's origin
+    let origin = roots.get(&root).map_or_else(
+        || Origin::Package {
+            name: name.to_owned(),
+            version: package_json.string("version").map(str::to_owned),
+            linked: !in_node_modules(&root),
+        },
+        |admitted| admitted.origin.clone(),
+    );
+    Ok(Package {
+        url,
+        root: Root { dir: root, origin },
+        scope_dir: None,
+    })
 }
 
 /// The error for a package the search didn't find up to the project root at
@@ -1749,8 +2255,9 @@ fn percent_decode(segment: &str) -> Vec<u8> {
     decoded
 }
 
-/// Checks the extension, finds the real file, and checks that it loads: its
-/// format by name, and a `.js` file's `"type"`. `hint` is the specifier for
+/// Checks the extension, finds the real file, checks it with `check` (its
+/// containment) before anything about it is read, and checks that it loads: its format
+/// by name, and a `.js` file's `"type"`. `hint` is the specifier for
 /// the messages' suggestions, unset for a package's target, whose messages
 /// name the path instead.
 fn find_module(
@@ -1758,6 +2265,7 @@ fn find_module(
     path: &Path,
     hint: Option<&str>,
     consulted: &mut Consulted,
+    check: impl FnOnce(&Path) -> Result<(), ResolveErrorKind>,
 ) -> Result<PathBuf, ResolveErrorKind> {
     let trailing_slash = path.as_os_str().as_encoded_bytes().ends_with(b"/");
 
@@ -1799,6 +2307,7 @@ fn find_module(
         }
     };
 
+    check(&real_path)?;
     // format by the real file's name, which a symlink can change, as the loader reads it
     module_format(&real_path)?;
     if real_path
@@ -1824,12 +2333,12 @@ fn find_module(
     Ok(real_path)
 }
 
-/// The resolution of the module at `real_path`, with `url`'s query and
-/// fragment re-attached.
+/// The resolution of the module at `real_path`, inside `root`, with `url`'s
+/// query and fragment re-attached.
 fn to_resolution(
     real_path: &Path,
     url: &Url,
-    origin: Origin,
+    root: Root,
     consulted: Consulted,
 ) -> Result<Resolution, ResolveErrorKind> {
     let mut resolved = Url::from_file_path(real_path)
@@ -1838,7 +2347,8 @@ fn to_resolution(
     resolved.set_fragment(url.fragment());
     Ok(Resolution {
         url: resolved,
-        origin,
+        root: root.dir,
+        origin: root.origin,
         files_consulted: consulted.0,
     })
 }
@@ -1880,7 +2390,9 @@ fn replace_extension(specifier: &str, extension: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_tree {
+    //! A source tree in memory, for the resolver's and the loader's tests.
+
     use std::collections::BTreeMap;
 
     use super::*;
@@ -1890,12 +2402,12 @@ mod tests {
     /// world-writable directories. A directory is any path a file or a
     /// listed directory is under.
     #[derive(Default)]
-    struct MemoryTree {
-        files: BTreeMap<&'static str, &'static str>,
-        dirs: Vec<&'static str>,
-        links: BTreeMap<&'static str, &'static str>,
-        loops: Vec<&'static str>,
-        world_writable: Vec<&'static str>,
+    pub struct MemoryTree {
+        pub files: BTreeMap<&'static str, &'static str>,
+        pub dirs: Vec<&'static str>,
+        pub links: BTreeMap<&'static str, &'static str>,
+        pub loops: Vec<&'static str>,
+        pub world_writable: Vec<&'static str>,
     }
 
     impl SourceTree for MemoryTree {
@@ -1941,6 +2453,14 @@ mod tests {
             Ok(self.world_writable.contains(&dir.to_str().unwrap()))
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::test_tree::MemoryTree;
+    use super::*;
 
     const MODULE: &str = r#"{"type": "module"}"#;
 
@@ -1964,17 +2484,20 @@ mod tests {
             "/p/state.svelte.test.ts",
             "/p/data.json",
             "/p/schema.ts",
+            "/p/real/linked.js",
             "/real/linked.js",
             "/abs.js",
         ];
         let mut files: BTreeMap<_, _> = files.into_iter().map(|path| (path, "")).collect();
         files.insert("/package.json", MODULE);
-        files.insert("/p/package.json", MODULE);
+        // the project root, which bounds every relative specifier from `/p`
+        files.insert("/p/package.json", r#"{"name": "p", "type": "module"}"#);
         MemoryTree {
             files,
             dirs: vec!["/p/dir.js"],
             links: BTreeMap::from([
-                ("/p/link.js", "/real/linked.js"),
+                ("/p/link.js", "/p/real/linked.js"),
+                ("/p/link_out.js", "/real/linked.js"),
                 ("/p/link_to_ts.js", "/p/typed.ts"),
             ]),
             loops: Vec::new(),
@@ -1986,15 +2509,34 @@ mod tests {
         Url::parse("file:///p/main.js").unwrap()
     }
 
+    /// The roots of a graph whose entry is `importer`, the entry's own
+    /// directory alone when the walk for them fails.
+    fn roots(tree: &impl SourceTree, importer: &Url) -> Roots {
+        let path = importer.to_file_path().unwrap();
+        entry_roots(tree, &path, &mut Consulted::default()).map_or_else(
+            |_| Roots::new(path.parent().unwrap().to_owned()),
+            |(roots, _)| roots,
+        )
+    }
+
+    /// Resolves `specifier` from `importer` in a graph whose entry it is.
+    fn from_entry(
+        tree: &impl SourceTree,
+        specifier: &str,
+        importer: &Url,
+    ) -> Result<Resolution, ResolveError> {
+        resolve(tree, specifier, importer, &roots(tree, importer))
+    }
+
     fn ok(specifier: &str) -> String {
-        resolve(&tree(), specifier, &importer(), &Origin::Project)
+        from_entry(&tree(), specifier, &importer())
             .unwrap_or_else(|error| panic!("{error}"))
             .url
             .to_string()
     }
 
     fn kind(specifier: &str) -> ResolveErrorKind {
-        resolve(&tree(), specifier, &importer(), &Origin::Project)
+        from_entry(&tree(), specifier, &importer())
             .unwrap_err()
             .kind
     }
@@ -2007,26 +2549,45 @@ mod tests {
         assert_eq!(ok("./lib/../a.js"), "file:///p/a.js");
     }
 
+    /// `..` resolves inside the project root, and past it is refused.
     #[test]
     fn parent() {
         let importer = Url::parse("file:///p/lib/c.js").unwrap();
-        let resolution = resolve(&tree(), "../a.js", &importer, &Origin::Project).unwrap();
+        let resolution = from_entry(&tree(), "../a.js", &importer).unwrap();
         assert_eq!(resolution.url.as_str(), "file:///p/a.js");
-        // `..` past the root stays at the root, as URL parsing does
-        let resolution = resolve(&tree(), "../../../abs.js", &importer, &Origin::Project).unwrap();
-        assert_eq!(resolution.url.as_str(), "file:///abs.js");
+        // `..` past the filesystem's root stays at it, as URL parsing does, outside `/p`
+        assert_eq!(
+            from_entry(&tree(), "../../../abs.js", &importer)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/abs.js"),
+                root: PathBuf::from("/p"),
+                package: None,
+            }
+        );
     }
 
+    /// An absolute specifier resolves inside the project root, and outside
+    /// it is refused.
     #[test]
     fn absolute() {
-        assert_eq!(ok("/abs.js"), "file:///abs.js");
-        assert_eq!(ok("file:///abs.js"), "file:///abs.js");
+        assert_eq!(ok("/p/a.js"), "file:///p/a.js");
+        assert_eq!(ok("file:///p/a.js"), "file:///p/a.js");
+        let outside = ResolveErrorKind::OutsideRoot {
+            path: PathBuf::from("/abs.js"),
+            root: PathBuf::from("/p"),
+            package: None,
+        };
+        assert_eq!(kind("/abs.js"), outside);
+        assert_eq!(kind("file:///abs.js"), outside);
     }
 
     #[test]
     fn record() {
-        let resolution = resolve(&tree(), "./a.js", &importer(), &Origin::Project).unwrap();
+        let resolution = from_entry(&tree(), "./a.js", &importer()).unwrap();
         assert_eq!(resolution.origin, Origin::Project);
+        assert_eq!(resolution.root, Path::new("/p"));
         // a `.js` file's scope, read for its `"type"`
         assert_eq!(
             resolution.files_consulted,
@@ -2035,16 +2596,22 @@ mod tests {
                 role: FileRole::PackageScope
             }]
         );
-        let resolution = resolve(&tree(), "./typed.ts", &importer(), &Origin::Project).unwrap();
+        let resolution = from_entry(&tree(), "./typed.ts", &importer()).unwrap();
         assert!(resolution.files_consulted.is_empty());
-        // a relative specifier resolves with the importer's origin
+        // a relative specifier resolves inside the importer's root, with its origin
         let origin = Origin::Package {
             name: "x".to_owned(),
             version: None,
             linked: true,
         };
-        let resolution = resolve(&tree(), "./a.js", &importer(), &origin).unwrap();
+        let mut roots = Roots::new(PathBuf::from("/"));
+        roots.admit(Root {
+            dir: PathBuf::from("/p"),
+            origin: origin.clone(),
+        });
+        let resolution = resolve(&tree(), "./a.js", &importer(), &roots).unwrap();
         assert_eq!(resolution.origin, origin);
+        assert_eq!(resolution.root, Path::new("/p"));
     }
 
     #[test]
@@ -2054,10 +2621,19 @@ mod tests {
         assert_eq!(ok("./a.js?v=1#x"), "file:///p/a.js?v=1#x");
     }
 
+    /// A symlink resolves to its real path, which must be inside the root.
     #[test]
     fn symlinks_resolve_to_the_real_path() {
-        assert_eq!(ok("./link.js"), "file:///real/linked.js");
-        assert_eq!(ok("./link.js?q"), "file:///real/linked.js?q");
+        assert_eq!(ok("./link.js"), "file:///p/real/linked.js");
+        assert_eq!(ok("./link.js?q"), "file:///p/real/linked.js?q");
+        assert_eq!(
+            kind("./link_out.js"),
+            ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/real/linked.js"),
+                root: PathBuf::from("/p"),
+                package: None,
+            }
+        );
     }
 
     #[test]
@@ -2239,7 +2815,7 @@ mod tests {
     #[test]
     fn entry() {
         let cwd = Path::new("/p");
-        let entry = |path| resolve_entry(&tree(), Path::new(path), cwd);
+        let entry = |path| resolve_entry(&tree(), Path::new(path), cwd).map(|(entry, _)| entry);
         assert_eq!(entry("main.js").unwrap().url.as_str(), "file:///p/main.js");
         assert_eq!(
             entry("lib/c.js").unwrap().url.as_str(),
@@ -2256,6 +2832,9 @@ mod tests {
             "file:///p/typed.ts"
         );
         assert_eq!(entry("main.js").unwrap().origin, Origin::Project);
+        // the entry defines the root, its project root, so outside a project is no refusal
+        assert_eq!(entry("main.js").unwrap().root, Path::new("/p"));
+        assert_eq!(entry("../abs.js").unwrap().root, Path::new("/"));
         assert_eq!(entry("view.tsx").unwrap_err().kind, ResolveErrorKind::Jsx);
         let error = entry("missing.js").unwrap_err();
         assert_eq!(error.kind, ResolveErrorKind::NotFound { ts_sibling: None });
@@ -2277,7 +2856,7 @@ mod tests {
     #[test]
     fn messages() {
         let message = |specifier| {
-            resolve(&tree(), specifier, &importer(), &Origin::Project)
+            from_entry(&tree(), specifier, &importer())
                 .unwrap_err()
                 .to_string()
         };
@@ -2609,7 +3188,7 @@ mod tests {
 
     fn package(specifier: &str) -> Result<Resolution, ResolveErrorKind> {
         let importer = Url::parse("file:///w/proj/main.js").unwrap();
-        resolve(&packages(), specifier, &importer, &Origin::Project).map_err(|error| error.kind)
+        from_entry(&packages(), specifier, &importer).map_err(|error| error.kind)
     }
 
     /// The cases checked against Node's resolver: the URL a specifier resolves
@@ -2722,10 +3301,10 @@ mod tests {
                 "looped",
                 Err(&["SymlinkLoop", "/w/proj/node_modules/looped"]),
             ),
-            // Node's scope search stops at node_modules too, then it guesses the format
+            // Node loads it, guessing its format: a relative specifier never reaches node_modules
             (
                 "./node_modules/loose.js",
-                Err(&["NoTypeScope { stopped_at: None }"]),
+                Err(&["IntoNodeModules", "/w/proj/node_modules/loose.js"]),
             ),
             (
                 "sugar_string",
@@ -2799,11 +3378,15 @@ mod tests {
                 "./no_type/a.js",
                 Err(&["NotModuleType", "/w/proj/no_type/package.json"]),
             ),
+            // Node loads them: they're outside the project
             (
                 "../../loose/a.js",
-                Err(&["NoTypeScope { stopped_at: None }"]),
+                Err(&["OutsideRoot", "/loose/a.js", "root: \"/w/proj\""]),
             ),
-            ("../../loose/b.mjs", Ok("file:///loose/b.mjs".to_owned())),
+            (
+                "../../loose/b.mjs",
+                Err(&["OutsideRoot", "/loose/b.mjs", "root: \"/w/proj\""]),
+            ),
             (
                 "./name_number/a.js",
                 Err(&["InvalidPackageJson", "\\\"name\\\" is not a string"]),
@@ -2922,7 +3505,7 @@ mod tests {
         let tree = packages();
         let from = |importer: &str, specifier: &str| {
             let importer = Url::parse(importer).unwrap();
-            resolve(&tree, specifier, &importer, &Origin::Project).map(|resolution| resolution.url)
+            from_entry(&tree, specifier, &importer).map(|resolution| resolution.url)
         };
         // a linked package's dependency, from its own node_modules, past the project's
         assert_eq!(
@@ -2973,6 +3556,12 @@ mod tests {
                 }),
             }
         );
+        // outside any package.json, a .js file has no "type" scope, as in Node, which then
+        // guesses its format
+        assert_eq!(
+            from("file:///loose/b.mjs", "./a.js").unwrap_err().kind,
+            ResolveErrorKind::NoTypeScope { stopped_at: None }
+        );
         // with no project root, no node_modules is searched
         assert_eq!(
             from("file:///loose/b.mjs", "t").unwrap_err().kind,
@@ -2991,7 +3580,7 @@ mod tests {
         let tree = packages();
         let from = |importer: &str, specifier: &str| {
             let importer = Url::parse(importer).unwrap();
-            resolve(&tree, specifier, &importer, &Origin::Project)
+            from_entry(&tree, specifier, &importer)
         };
         let t = "file:///w/proj/node_modules/t/main.js";
         for importer in [
@@ -3131,7 +3720,7 @@ mod tests {
             reads: std::cell::RefCell::default(),
         };
         let importer = Url::parse("file:///w/proj/dist/esm/x.js").unwrap();
-        resolve(&tree, "t", &importer, &Origin::Project).unwrap();
+        resolve(&tree, "t", &importer, &roots(&tree.tree, &importer)).unwrap();
         let reads = tree.reads.borrow();
         let scope_reads = reads
             .iter()
@@ -3174,7 +3763,7 @@ mod tests {
         }
         let real_root = root.canonicalize().unwrap();
         let importer = Url::from_file_path(real_root.join("main.mjs")).unwrap();
-        let from = |specifier| resolve(&DiskTree, specifier, &importer, &Origin::Project);
+        let from = |specifier| from_entry(&DiskTree, specifier, &importer);
         let package = from("fifo");
         let scope = from("./sub/a.js");
         // removed before any assertion, so a failure leaves no FIFO behind
@@ -3211,7 +3800,7 @@ mod tests {
         tree.files
             .insert("/w/proj/node_modules/large/package.json", large.leak());
         let importer = Url::parse("file:///w/proj/main.js").unwrap();
-        let error = resolve(&tree, "large", &importer, &Origin::Project).unwrap_err();
+        let error = from_entry(&tree, "large", &importer).unwrap_err();
         assert_eq!(
             error.kind,
             ResolveErrorKind::InvalidPackageJson {
@@ -3297,7 +3886,7 @@ mod tests {
         );
         let importer = Url::parse("file:///loose/b.mjs").unwrap();
         assert_eq!(
-            resolve(&packages(), "t", &importer, &Origin::Project)
+            from_entry(&packages(), "t", &importer)
                 .unwrap_err()
                 .kind
                 .to_string(),
@@ -3375,7 +3964,14 @@ mod tests {
              /w/proj/no_type/package.json does not set, and CommonJS is not supported. Fix: add \
              \"type\": \"module\" to it, or rename the file to .mjs"
         );
-        assert!(message("../../loose/a.js").contains("Fix: rename the file to .mjs"));
+        let loose = Url::parse("file:///loose/b.mjs").unwrap();
+        assert!(
+            from_entry(&packages(), "./a.js", &loose)
+                .unwrap_err()
+                .kind
+                .to_string()
+                .contains("Fix: rename the file to .mjs")
+        );
         assert!(message("@scope").contains("not a valid package name"));
         assert!(message("no_package").contains("has no package.json"));
         assert!(message("empty_exports").contains("(its \"exports\" are empty)"));
@@ -3405,9 +4001,7 @@ mod tests {
         for dir in ["/up/x", "/up/marked"] {
             let importer = Url::from_file_path(format!("{dir}/zap.ts")).unwrap();
             assert_eq!(
-                resolve(&tree, "foo", &importer, &Origin::Project)
-                    .unwrap_err()
-                    .kind,
+                from_entry(&tree, "foo", &importer).unwrap_err().kind,
                 ResolveErrorKind::NoProjectRoot {
                     dir: PathBuf::from(dir),
                     stopped_at: None,
@@ -3416,7 +4010,7 @@ mod tests {
         }
         // relative imports are unaffected
         let importer = Url::parse("file:///up/x/zap.ts").unwrap();
-        assert!(resolve(&tree, "./a.ts", &importer, &Origin::Project).is_ok());
+        assert!(from_entry(&tree, "./a.ts", &importer).is_ok());
     }
 
     /// A tree with a world-writable `/shared` holding everything a planted
@@ -3465,7 +4059,7 @@ mod tests {
             reads: std::cell::RefCell::default(),
         };
         let loose = Url::parse("file:///shared/loose/config.ts").unwrap();
-        let from = |specifier| resolve(&tree, specifier, &loose, &Origin::Project);
+        let from = |specifier| from_entry(&tree, specifier, &loose);
         let no_project_root = ResolveErrorKind::NoProjectRoot {
             dir: PathBuf::from("/shared/loose"),
             stopped_at: Some(PathBuf::from("/shared")),
@@ -3487,7 +4081,7 @@ mod tests {
         assert_eq!(resolution.files_consulted, []);
         // a project below it resolves its own packages, reading nothing in it
         let proj = Url::parse("file:///shared/proj/main.ts").unwrap();
-        let resolution = resolve(&tree, "bar", &proj, &Origin::Project).unwrap();
+        let resolution = from_entry(&tree, "bar", &proj).unwrap();
         assert_eq!(
             resolution.url.as_str(),
             "file:///shared/proj/node_modules/bar/i.mjs"
@@ -3508,9 +4102,7 @@ mod tests {
         );
         // and the not-found message's walk above the bound stops there too
         assert_eq!(
-            resolve(&tree, "foo", &proj, &Origin::Project)
-                .unwrap_err()
-                .kind,
+            from_entry(&tree, "foo", &proj).unwrap_err().kind,
             ResolveErrorKind::PackageNotFound {
                 name: "foo".to_owned(),
                 bound: Box::new(PackageSearchBound {
@@ -3552,7 +4144,7 @@ mod tests {
             ..MemoryTree::default()
         };
         let importer = Url::parse("file:///tmp/main.ts").unwrap();
-        let from = |specifier| resolve(&tree, specifier, &importer, &Origin::Project);
+        let from = |specifier| from_entry(&tree, specifier, &importer);
         assert_eq!(from("./a.ts").unwrap().url.as_str(), "file:///tmp/a.ts");
         assert_eq!(from("./b.mjs").unwrap().url.as_str(), "file:///tmp/b.mjs");
         let no_type_scope = ResolveErrorKind::NoTypeScope {
@@ -3561,6 +4153,7 @@ mod tests {
         assert_eq!(from("./c.js").unwrap_err().kind, no_type_scope);
         assert_eq!(
             resolve_entry(&tree, Path::new("c.js"), Path::new("/tmp"))
+                .map(|(entry, _)| entry)
                 .unwrap_err()
                 .kind,
             no_type_scope
@@ -3640,9 +4233,7 @@ mod tests {
         for (dir, specifier, name) in cases {
             let tree = installed(vec![dir]);
             assert_eq!(
-                resolve(&tree, specifier, &importer, &Origin::Project)
-                    .unwrap_err()
-                    .kind,
+                from_entry(&tree, specifier, &importer).unwrap_err().kind,
                 ResolveErrorKind::WorldWritablePackage {
                     name: name.to_owned(),
                     dir: PathBuf::from(dir),
@@ -3657,7 +4248,7 @@ mod tests {
         }
         // the outermost is named when several are
         let tree = installed(vec!["/p/node_modules", "/p/node_modules/foo"]);
-        let error = resolve(&tree, "foo", &importer, &Origin::Project).unwrap_err();
+        let error = from_entry(&tree, "foo", &importer).unwrap_err();
         assert_eq!(
             error.to_string(),
             "cannot resolve 'foo' from file:///p/main.ts: package 'foo' is found through \
@@ -3669,7 +4260,7 @@ mod tests {
         // a module file below the root, in a world-writable directory, still loads
         let tree = installed(vec!["/p/node_modules/foo/dist"]);
         assert_eq!(
-            resolve(&tree, "foo/d.mjs", &importer, &Origin::Project)
+            from_entry(&tree, "foo/d.mjs", &importer)
                 .unwrap()
                 .url
                 .as_str(),
@@ -3710,9 +4301,7 @@ mod tests {
                 tree.tree.dirs.push(from.rsplit_once('/').unwrap().0);
             }
             assert_eq!(
-                resolve(&tree, specifier, &importer, &Origin::Project)
-                    .unwrap_err()
-                    .kind,
+                from_entry(&tree, specifier, &importer).unwrap_err().kind,
                 ResolveErrorKind::WorldWritablePackage {
                     name: specifier.to_owned(),
                     dir: PathBuf::from(dir),
@@ -3751,13 +4340,13 @@ mod tests {
             ..MemoryTree::default()
         };
         let importer = Url::parse("file:///p/node_modules/.deno/a@1/node_modules/a/i.mjs").unwrap();
-        assert!(resolve(&store(vec![]), "b", &importer, &Origin::Project).is_ok());
+        assert!(from_entry(&store(vec![]), "b", &importer).is_ok());
         for dir in [
             "/p/node_modules/.deno/b@1",
             "/p/node_modules/.deno/b@1/node_modules",
         ] {
             assert_eq!(
-                resolve(&store(vec![dir]), "b", &importer, &Origin::Project)
+                from_entry(&store(vec![dir]), "b", &importer)
                     .unwrap_err()
                     .kind,
                 ResolveErrorKind::WorldWritablePackage {
@@ -3786,7 +4375,7 @@ mod tests {
             ..MemoryTree::default()
         };
         let importer = Url::parse("file:///p/main.ts").unwrap();
-        assert!(resolve(&linked(vec![]), "foo", &importer, &Origin::Project).is_ok());
+        assert!(from_entry(&linked(vec![]), "foo", &importer).is_ok());
         for dir in [
             "/q",
             "/q/nm/.deno",
@@ -3794,7 +4383,7 @@ mod tests {
             "/q/nm/.deno/foo@1/node_modules",
         ] {
             assert_eq!(
-                resolve(&linked(vec![dir]), "foo", &importer, &Origin::Project)
+                from_entry(&linked(vec![dir]), "foo", &importer)
                     .unwrap_err()
                     .kind,
                 ResolveErrorKind::WorldWritablePackage {
@@ -3820,10 +4409,10 @@ mod tests {
             world_writable,
             ..MemoryTree::default()
         };
-        assert!(resolve(&scoped(vec![]), "@s/bar", &importer, &Origin::Project).is_ok());
+        assert!(from_entry(&scoped(vec![]), "@s/bar", &importer).is_ok());
         for dir in ["/x", "/y"] {
             assert_eq!(
-                resolve(&scoped(vec![dir]), "@s/bar", &importer, &Origin::Project)
+                from_entry(&scoped(vec![dir]), "@s/bar", &importer)
                     .unwrap_err()
                     .kind,
                 ResolveErrorKind::WorldWritablePackage {
@@ -3843,9 +4432,7 @@ mod tests {
         let tree = installed(vec!["/p/node_modules"]);
         let importer = Url::parse("file:///p/node_modules/foo/i.mjs").unwrap();
         assert_eq!(
-            resolve(&tree, "@s/bar", &importer, &Origin::Project)
-                .unwrap_err()
-                .kind,
+            from_entry(&tree, "@s/bar", &importer).unwrap_err().kind,
             ResolveErrorKind::NoProjectRoot {
                 dir: PathBuf::from("/p/node_modules/foo"),
                 stopped_at: Some(PathBuf::from("/p/node_modules")),
@@ -3875,7 +4462,7 @@ mod tests {
             ..MemoryTree::default()
         };
         let importer = Url::parse("file:///x/node_modules/foo/b.mjs").unwrap();
-        let from = |specifier| resolve(&tree, specifier, &importer, &Origin::Project);
+        let from = |specifier| from_entry(&tree, specifier, &importer);
         assert_eq!(
             from("foo/a.mjs").unwrap().url.as_str(),
             "file:///x/node_modules/foo/a.mjs"
@@ -3927,9 +4514,7 @@ mod tests {
         };
         let from = |importer: &str| {
             let importer = Url::parse(importer).unwrap();
-            resolve(&tree, "t", &importer, &Origin::Project)
-                .unwrap_err()
-                .kind
+            from_entry(&tree, "t", &importer).unwrap_err().kind
         };
         let error = from("file:///w/proj/dist/esm/x.js");
         assert_eq!(
@@ -3970,9 +4555,7 @@ mod tests {
         };
         let importer = Url::parse("file:///p/node_modules/foo/lib/x.mjs").unwrap();
         assert_eq!(
-            resolve(&tree, "@s/bar", &importer, &Origin::Project)
-                .unwrap_err()
-                .kind,
+            from_entry(&tree, "@s/bar", &importer).unwrap_err().kind,
             ResolveErrorKind::Io {
                 path: PathBuf::from("/p/node_modules/foo"),
                 error: "permission denied".to_owned(),
@@ -3997,6 +4580,625 @@ mod tests {
         assert_eq!(
             writable,
             [false, false, false, true, true, true, false, true]
+        );
+    }
+
+    /// A project at `/p` with `bar` and `foo` installed, `foo` with a
+    /// dependency of its own and two `"exports"` targets symlinked out of
+    /// it, `lnk` linked to a checkout inside the project, and `src` a
+    /// project of its own whose `package.json` is a symlink to `/other`'s.
+    fn contained() -> MemoryTree {
+        MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                ("/p/main.ts", ""),
+                ("/p/sub/x.ts", ""),
+                (
+                    "/p/node_modules/bar/package.json",
+                    r#"{"type": "module", "exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/bar/i.mjs", ""),
+                ("/p/node_modules/bar/internal/secret.mjs", ""),
+                (
+                    "/p/node_modules/foo/package.json",
+                    r#"{"name": "foo", "version": "1.0.0", "type": "module", "exports": {".": "./i.mjs", "./own.mjs": "./own.mjs", "./out.mjs": "./out.mjs", "./nm.mjs": "./nm.mjs"}}"#,
+                ),
+                ("/p/node_modules/foo/i.mjs", ""),
+                ("/p/node_modules/foo/own.mjs", ""),
+                (
+                    "/p/node_modules/foo/node_modules/baz/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/foo/node_modules/baz/i.mjs", ""),
+                ("/p/node_modules/.bin/x.mjs", ""),
+                ("/elsewhere/evil.mjs", ""),
+                (
+                    "/p/packages/lnk/package.json",
+                    r#"{"name": "lnk", "type": "module", "exports": {"./x.ts": "./x.ts"}}"#,
+                ),
+                ("/p/packages/lnk/x.ts", ""),
+                (
+                    "/other/package.json",
+                    r#"{"name": "selfy", "type": "module", "exports": {"./evil.mjs": "./evil.mjs"}}"#,
+                ),
+                ("/other/evil.mjs", ""),
+                ("/p/src/main.ts", ""),
+                ("/p/src/evil.mjs", ""),
+            ]),
+            links: BTreeMap::from([
+                ("/p/node_modules/foo/out.mjs", "/elsewhere/evil.mjs"),
+                (
+                    "/p/node_modules/foo/nm.mjs",
+                    "/p/node_modules/foo/node_modules/baz/i.mjs",
+                ),
+                ("/p/node_modules/lnk", "/p/packages/lnk"),
+                ("/p/node_modules/alias", "/p/node_modules/bar"),
+                ("/p/src/package.json", "/other/package.json"),
+            ]),
+            ..MemoryTree::default()
+        }
+    }
+
+    fn url(path: &str) -> Url {
+        Url::from_file_path(path).unwrap()
+    }
+
+    fn package_root(dir: &str, name: &str, version: Option<&str>, linked: bool) -> Root {
+        Root {
+            dir: PathBuf::from(dir),
+            origin: Origin::Package {
+                name: name.to_owned(),
+                version: version.map(str::to_owned),
+                linked,
+            },
+        }
+    }
+
+    /// A relative or absolute specifier never reaches into `node_modules`
+    /// below its importer's root, as written or by its real path, which
+    /// would bypass the package's `"exports"`: Node loads all of these.
+    #[test]
+    fn a_relative_specifier_never_reaches_into_node_modules() {
+        let tree = contained();
+        let main = url("/p/main.ts");
+        let into = |path: &str| ResolveErrorKind::IntoNodeModules {
+            path: PathBuf::from(path),
+            root: PathBuf::from("/p"),
+        };
+        for specifier in [
+            "./node_modules/bar/internal/secret.mjs",
+            "/p/node_modules/bar/internal/secret.mjs",
+            "./sub/../node_modules/bar/internal/secret.mjs",
+        ] {
+            assert_eq!(
+                from_entry(&tree, specifier, &main).unwrap_err().kind,
+                into("/p/node_modules/bar/internal/secret.mjs"),
+                "{specifier}"
+            );
+        }
+        // as `import(import.meta.resolve('bar'))` would import it
+        assert_eq!(
+            from_entry(&tree, "file:///p/node_modules/bar/i.mjs", &main)
+                .unwrap_err()
+                .kind,
+            into("/p/node_modules/bar/i.mjs")
+        );
+        // as written: an in-tree checkout's real path has no node_modules in it
+        assert_eq!(
+            from_entry(&tree, "./node_modules/lnk/x.ts", &main)
+                .unwrap_err()
+                .kind,
+            into("/p/node_modules/lnk/x.ts")
+        );
+        // a package's own relative imports stay out of its node_modules too
+        let foo = url("/p/node_modules/foo/i.mjs");
+        assert_eq!(
+            from_entry(&tree, "./node_modules/baz/i.mjs", &foo)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::IntoNodeModules {
+                path: PathBuf::from("/p/node_modules/foo/node_modules/baz/i.mjs"),
+                root: PathBuf::from("/p/node_modules/foo"),
+            }
+        );
+        // a segment past where the path leaves the root is outside it, not below it
+        let error = from_entry(&tree, "../other/node_modules/z/i.mjs", &main).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/other/node_modules/z/i.mjs"),
+                root: PathBuf::from("/p"),
+                package: None,
+            }
+        );
+        assert_eq!(
+            error.kind.to_string(),
+            "it resolves to /other/node_modules/z/i.mjs, outside /p, and a relative or absolute \
+             specifier resolves only inside its importer's root, the project's directory or a \
+             package's own. Fix: move the module inside /p, or install it as a package and \
+             import it by name"
+        );
+        let error = from_entry(&tree, "./node_modules/bar/internal/secret.mjs", &main).unwrap_err();
+        assert!(error.kind.is_specifier_error());
+        assert_eq!(
+            error.to_string(),
+            "cannot resolve './node_modules/bar/internal/secret.mjs' from file:///p/main.ts: it \
+             resolves to /p/node_modules/bar/internal/secret.mjs, inside node_modules below /p, \
+             which only a bare specifier reaches, through the package's \"exports\". Fix: \
+             import it by name"
+        );
+    }
+
+    /// A package's relative imports stay inside its real root, and resolve
+    /// with its origin.
+    #[test]
+    fn a_package_stays_inside_its_root() {
+        let tree = contained();
+        let foo = url("/p/node_modules/foo/i.mjs");
+        let resolution = from_entry(&tree, "./own.mjs", &foo).unwrap();
+        assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+        assert_eq!(
+            resolution.origin,
+            package_root("/p/node_modules/foo", "foo", Some("1.0.0"), false).origin
+        );
+        // a sibling package, whose exports `../bar/` bypasses
+        let error = from_entry(&tree, "../bar/internal/secret.mjs", &foo).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/p/node_modules/bar/internal/secret.mjs"),
+                root: PathBuf::from("/p/node_modules/foo"),
+                package: Some("foo".into()),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "cannot resolve '../bar/internal/secret.mjs' from file:///p/node_modules/foo/i.mjs: \
+             it resolves to /p/node_modules/bar/internal/secret.mjs, outside package 'foo' at \
+             /p/node_modules/foo, and a package's relative and absolute specifiers resolve only \
+             inside it, so the package reaches outside itself. Fix: use a version of the \
+             package that doesn't"
+        );
+        // and the project's files
+        assert!(matches!(
+            from_entry(&tree, "../../main.ts", &foo).unwrap_err().kind,
+            ResolveErrorKind::OutsideRoot { .. }
+        ));
+    }
+
+    /// A relative specifier never reaches into a package root admitted
+    /// inside its importer's: an in-tree checkout linked into
+    /// `node_modules` is reached only by its name, once admitted.
+    #[test]
+    fn a_relative_specifier_never_reaches_into_an_admitted_package() {
+        let tree = contained();
+        let main = url("/p/main.ts");
+        let mut roots = roots(&tree, &main);
+        // before `lnk` is admitted, the file is the project's: the loader refuses
+        // the admission that would follow
+        let resolution = resolve(&tree, "./packages/lnk/x.ts", &main, &roots).unwrap();
+        assert_eq!(resolution.origin, Origin::Project);
+        let resolution = resolve(&tree, "lnk/x.ts", &main, &roots).unwrap();
+        let lnk = package_root("/p/packages/lnk", "lnk", None, true);
+        assert_eq!(resolution.url.as_str(), "file:///p/packages/lnk/x.ts");
+        assert_eq!(resolution.root, lnk.dir);
+        assert_eq!(resolution.origin, lnk.origin);
+        roots.admit(lnk.clone());
+        let error = resolve(&tree, "./packages/lnk/x.ts", &main, &roots).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::IntoPackageRoot {
+                path: PathBuf::from("/p/packages/lnk/x.ts"),
+                root: Box::new(lnk),
+            }
+        );
+        assert_eq!(
+            error.kind.to_string(),
+            "it resolves to /p/packages/lnk/x.ts, inside package 'lnk' at /p/packages/lnk, \
+             which only a bare specifier reaches, through its \"exports\". Fix: import it by \
+             name ('lnk' or a subpath it exports)"
+        );
+        // the package's own imports resolve inside it, with its origin
+        let x = url("/p/packages/lnk/x.ts");
+        let resolution = resolve(&tree, "./x.ts", &x, &roots).unwrap();
+        assert_eq!(resolution.root, Path::new("/p/packages/lnk"));
+        assert!(matches!(resolution.origin, Origin::Package { name, .. } if name == "lnk"));
+        // a package never reaches into the project's root nested in its own
+        let mut roots = Roots::new(PathBuf::from("/p/sub"));
+        roots.admit(package_root("/p", "outer", None, true));
+        assert_eq!(
+            resolve(&tree, "./sub/x.ts", &main, &roots)
+                .unwrap_err()
+                .kind
+                .to_string(),
+            "it resolves to /p/sub/x.ts, inside the project at /p/sub, which a package's \
+             modules never reach"
+        );
+    }
+
+    /// Every resolution's real path is checked against its root: an
+    /// `"exports"` target symlinked out of its package, or into its
+    /// `node_modules`, is refused.
+    #[test]
+    fn an_exports_target_stays_inside_its_package() {
+        let tree = contained();
+        let main = url("/p/main.ts");
+        let target = |specifier, path: &str, error| {
+            assert_eq!(
+                from_entry(&tree, specifier, &main).unwrap_err().kind,
+                ResolveErrorKind::Target {
+                    path: PathBuf::from(path),
+                    error: Box::new(error),
+                },
+                "{specifier}"
+            );
+        };
+        target(
+            "foo/out.mjs",
+            "/p/node_modules/foo/out.mjs",
+            ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/elsewhere/evil.mjs"),
+                root: PathBuf::from("/p/node_modules/foo"),
+                package: Some("foo".into()),
+            },
+        );
+        target(
+            "foo/nm.mjs",
+            "/p/node_modules/foo/nm.mjs",
+            ResolveErrorKind::IntoNodeModules {
+                path: PathBuf::from("/p/node_modules/foo/node_modules/baz/i.mjs"),
+                root: PathBuf::from("/p/node_modules/foo"),
+            },
+        );
+        assert_eq!(
+            from_entry(&tree, "foo/out.mjs", &main)
+                .unwrap_err()
+                .kind
+                .to_string(),
+            "the package exports it as /p/node_modules/foo/out.mjs, which resolves to \
+             /elsewhere/evil.mjs, outside /p/node_modules/foo, and an \"exports\" target stays \
+             inside its package. Fix: use a version of the package whose \"exports\" stay \
+             inside it"
+        );
+        // a package's root is its own, whatever the project around it holds
+        let resolution = from_entry(&tree, "foo", &main).unwrap();
+        assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+    }
+
+    /// A self-reference resolves from the directory its `package.json` was
+    /// found in, not the file's real path, and stays inside both that
+    /// directory and the importer's root.
+    #[test]
+    fn a_self_reference_stays_inside_its_scope_and_root() {
+        let tree = contained();
+        // `src/package.json` is a symlink to `/other`'s, which used to move the root there
+        let resolution = from_entry(&tree, "selfy/evil.mjs", &url("/p/src/main.ts")).unwrap();
+        assert_eq!(resolution.url.as_str(), "file:///p/src/evil.mjs");
+        assert_eq!(resolution.root, Path::new("/p/src"));
+        // a package's self-reference to a target symlinked out of it
+        assert_eq!(
+            from_entry(&tree, "foo/out.mjs", &url("/p/node_modules/foo/own.mjs"))
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::Target {
+                path: PathBuf::from("/p/node_modules/foo/out.mjs"),
+                error: Box::new(ResolveErrorKind::OutsideRoot {
+                    path: PathBuf::from("/elsewhere/evil.mjs"),
+                    root: PathBuf::from("/p/node_modules/foo"),
+                    package: Some("foo".into()),
+                }),
+            }
+        );
+        // the same with no project root above the package
+        let tree = MemoryTree {
+            files: BTreeMap::from([
+                (
+                    "/x/node_modules/foo/package.json",
+                    r#"{"name": "foo", "exports": {"./a.mjs": "./a.mjs"}}"#,
+                ),
+                ("/x/node_modules/foo/b.mjs", ""),
+                ("/elsewhere/evil.mjs", ""),
+            ]),
+            links: BTreeMap::from([("/x/node_modules/foo/a.mjs", "/elsewhere/evil.mjs")]),
+            ..MemoryTree::default()
+        };
+        assert!(matches!(
+            from_entry(&tree, "foo/a.mjs", &url("/x/node_modules/foo/b.mjs"))
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::Target { error, .. }
+                if matches!(*error, ResolveErrorKind::OutsideRoot { .. })
+        ));
+        // inside its package's directory but outside the importer's root
+        let tree = contained();
+        let roots = Roots::new(PathBuf::from("/p/sub"));
+        let mut files = tree.files;
+        files.insert(
+            "/p/package.json",
+            r#"{"name": "proj", "type": "module", "exports": {"./main.ts": "./main.ts"}}"#,
+        );
+        let tree = MemoryTree {
+            files,
+            ..contained()
+        };
+        assert_eq!(
+            resolve(&tree, "proj/main.ts", &url("/p/sub/x.ts"), &roots)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::Target {
+                path: PathBuf::from("/p/main.ts"),
+                error: Box::new(ResolveErrorKind::OutsideRoot {
+                    path: PathBuf::from("/p/main.ts"),
+                    root: PathBuf::from("/p/sub"),
+                    package: None,
+                }),
+            }
+        );
+    }
+
+    /// A self-reference's target stays inside its package's directory even
+    /// when the importer's root around it holds the target.
+    #[test]
+    fn a_self_reference_stays_inside_its_package_directory() {
+        let mut files = contained().files;
+        files.insert(
+            "/p/sub/package.json",
+            r#"{"name": "subpkg", "exports": {"./a.mjs": "./a.mjs"}}"#,
+        );
+        let mut links = contained().links;
+        links.insert("/p/sub/a.mjs", "/p/main.ts");
+        let tree = MemoryTree {
+            files,
+            links,
+            ..MemoryTree::default()
+        };
+        let main = url("/p/main.ts");
+        assert_eq!(
+            resolve(
+                &tree,
+                "subpkg/a.mjs",
+                &url("/p/sub/x.ts"),
+                &roots(&tree, &main)
+            )
+            .unwrap_err()
+            .kind,
+            ResolveErrorKind::Target {
+                path: PathBuf::from("/p/sub/a.mjs"),
+                error: Box::new(ResolveErrorKind::OutsideRoot {
+                    path: PathBuf::from("/p/main.ts"),
+                    root: PathBuf::from("/p/sub"),
+                    package: None,
+                }),
+            }
+        );
+        // a nested package.json inside an installed package names its own
+        // directory, not the installed package
+        let mut files = contained().files;
+        files.insert(
+            "/p/node_modules/foo/sub/package.json",
+            r#"{"name": "subpkg", "exports": {"./a.mjs": "./a.mjs"}}"#,
+        );
+        files.insert("/p/node_modules/foo/sub/x.mjs", "");
+        let mut links = contained().links;
+        links.insert(
+            "/p/node_modules/foo/sub/a.mjs",
+            "/p/node_modules/foo/own.mjs",
+        );
+        let tree = MemoryTree {
+            files,
+            links,
+            ..MemoryTree::default()
+        };
+        let importer = url("/p/node_modules/foo/sub/x.mjs");
+        assert_eq!(
+            resolve(&tree, "subpkg/a.mjs", &importer, &roots(&tree, &importer))
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::Target {
+                path: PathBuf::from("/p/node_modules/foo/sub/a.mjs"),
+                error: Box::new(ResolveErrorKind::OutsideRoot {
+                    path: PathBuf::from("/p/node_modules/foo/own.mjs"),
+                    root: PathBuf::from("/p/node_modules/foo/sub"),
+                    package: None,
+                }),
+            }
+        );
+    }
+
+    /// An entry inside `node_modules` runs as the package it is in, with
+    /// the project root at the directory holding the first segment.
+    #[test]
+    fn an_entry_inside_node_modules_runs_as_its_package() {
+        let tree = contained();
+        let (entry, roots) =
+            resolve_entry(&tree, Path::new("node_modules/foo/i.mjs"), Path::new("/p")).unwrap();
+        let foo = package_root("/p/node_modules/foo", "foo", Some("1.0.0"), false);
+        assert_eq!(entry.root, foo.dir);
+        assert_eq!(entry.origin, foo.origin);
+        // its package's, read for its version, and no walk for a project root
+        assert_eq!(
+            entry.files_consulted,
+            [ConsultedFile {
+                path: PathBuf::from("/p/node_modules/foo/package.json"),
+                role: FileRole::Version,
+            }]
+        );
+        // a project's entry reads the walk for its project root
+        let (project_entry, _) =
+            resolve_entry(&tree, Path::new("main.ts"), Path::new("/p")).unwrap();
+        assert_eq!(
+            project_entry.files_consulted,
+            [ConsultedFile {
+                path: PathBuf::from("/p/package.json"),
+                role: FileRole::SearchBound,
+            }]
+        );
+        assert_eq!(roots.project().dir, Path::new("/p"));
+        assert_eq!(roots.iter().collect::<Vec<_>>(), [roots.project(), &foo]);
+        assert!(matches!(
+            resolve(&tree, "../../main.ts", &entry.url, &roots)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::OutsideRoot { .. }
+        ));
+        // a store's nested layout runs as the package after the last segment
+        let mut files = contained().files;
+        files.insert(
+            "/p/node_modules/.deno/q@1/node_modules/q/package.json",
+            r#"{"exports": "./i.mjs"}"#,
+        );
+        files.insert("/p/node_modules/.deno/q@1/node_modules/q/i.mjs", "");
+        let tree = MemoryTree {
+            files,
+            ..MemoryTree::default()
+        };
+        let (entry, roots) = resolve_entry(
+            &tree,
+            Path::new("/p/node_modules/.deno/q@1/node_modules/q/i.mjs"),
+            Path::new("/"),
+        )
+        .unwrap();
+        assert_eq!(
+            entry.root,
+            Path::new("/p/node_modules/.deno/q@1/node_modules/q")
+        );
+        assert_eq!(roots.project().dir, Path::new("/p"));
+        // a file in node_modules but in no package
+        for (path, real) in [
+            ("node_modules/.bin/x.mjs", "/p/node_modules/.bin/x.mjs"),
+            ("node_modules/loose.mjs", "/p/node_modules/loose.mjs"),
+            ("node_modules/@scope/x.mjs", "/p/node_modules/@scope/x.mjs"),
+        ] {
+            let mut files = contained().files;
+            files.insert(real, "");
+            let tree = MemoryTree {
+                files,
+                ..contained()
+            };
+            let error = resolve_entry(&tree, Path::new(path), Path::new("/p"))
+                .map(|(entry, _)| entry)
+                .unwrap_err();
+            assert_eq!(
+                error.kind,
+                ResolveErrorKind::InNoPackage(PathBuf::from(real)),
+                "{path}"
+            );
+            assert!(error.kind.is_specifier_error());
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "cannot resolve '{path}' from /p: it resolves to {real}, inside \
+                     node_modules but in no package, so it has no origin. Fix: run a file inside \
+                     a package (node_modules/<name>/...)"
+                )
+            );
+        }
+    }
+
+    /// Roots are keyed by real directory: a package reached under a second
+    /// name keeps the origin it was admitted with.
+    #[test]
+    fn a_root_reached_under_two_names_keeps_its_first_origin() {
+        let tree = contained();
+        let main = url("/p/main.ts");
+        let mut roots = roots(&tree, &main);
+        let alias = resolve(&tree, "alias", &main, &roots).unwrap();
+        assert_eq!(alias.root, Path::new("/p/node_modules/bar"));
+        assert_eq!(
+            alias.origin,
+            package_root("/p/node_modules/bar", "alias", None, false).origin
+        );
+        roots.admit(package_root("/p/node_modules/bar", "bar", None, false));
+        assert_eq!(
+            resolve(&tree, "alias", &main, &roots).unwrap().origin,
+            package_root("/p/node_modules/bar", "bar", None, false).origin
+        );
+        // and a package linked to the project's own directory is the project
+        let mut files = contained().files;
+        files.insert(
+            "/p/package.json",
+            r#"{"name": "proj", "type": "module", "exports": {"./main.ts": "./main.ts"}}"#,
+        );
+        let mut links = contained().links;
+        links.insert("/p/node_modules/proj", "/p");
+        let tree = MemoryTree {
+            files,
+            links,
+            ..MemoryTree::default()
+        };
+        let resolution = resolve(&tree, "proj/main.ts", &url("/p/sub/x.ts"), &roots).unwrap();
+        assert_eq!(resolution.origin, Origin::Project);
+    }
+
+    /// A path's root is the innermost admitted one above it, by path
+    /// component, and none with a `node_modules` segment below that.
+    #[test]
+    fn a_path_is_inside_its_innermost_root() {
+        let mut roots = Roots::new(PathBuf::from("/p"));
+        roots.admit(package_root("/p/packages/a", "a", None, true));
+        roots.admit(package_root("/p/node_modules/b", "b", None, false));
+        let containing = |path: &str| roots.containing(Path::new(path)).map(|root| &root.dir);
+        assert_eq!(containing("/p/x.ts"), Some(&PathBuf::from("/p")));
+        assert_eq!(
+            containing("/p/packages/a/x.ts"),
+            Some(&PathBuf::from("/p/packages/a"))
+        );
+        // by component, not by string prefix
+        assert_eq!(
+            containing("/p/packages/ab/x.ts"),
+            Some(&PathBuf::from("/p"))
+        );
+        assert_eq!(
+            containing("/p/node_modules/b/x.ts"),
+            Some(&PathBuf::from("/p/node_modules/b"))
+        );
+        assert_eq!(containing("/p/node_modules/c/x.ts"), None);
+        assert_eq!(containing("/p/node_modules/b/node_modules/c/x.ts"), None);
+        assert_eq!(containing("/q/x.ts"), None);
+        // the segments above a root don't count
+        let roots = Roots::new(PathBuf::from("/home/node_modules/proj"));
+        assert!(
+            roots
+                .containing(Path::new("/home/node_modules/proj/x.ts"))
+                .is_some()
+        );
+        // one directory is admitted once
+        let mut roots = Roots::new(PathBuf::from("/p"));
+        roots.admit(package_root("/p", "p", None, true));
+        assert_eq!(roots.iter().count(), 1);
+    }
+
+    #[test]
+    fn a_root_conflict_names_both_roots() {
+        let kind = ResolveErrorKind::RootConflict {
+            path: PathBuf::from("/p/packages/lnk/x.ts"),
+            recorded: Box::new(Root {
+                dir: PathBuf::from("/p"),
+                origin: Origin::Project,
+            }),
+            admitted: Box::new(package_root("/p/packages/lnk", "lnk", None, true)),
+        };
+        assert!(kind.is_specifier_error());
+        assert_eq!(
+            kind.to_string(),
+            "/p/packages/lnk/x.ts was resolved inside the project at /p, and package 'lnk' at \
+             /p/packages/lnk was then admitted around it, so its origin would depend on the \
+             import order. Fix: import it by name ('lnk' or a subpath it exports) everywhere, \
+             not by a relative path"
+        );
+        // one file held by two packages, the inner linked into the outer
+        let kind = ResolveErrorKind::RootConflict {
+            path: PathBuf::from("/p/node_modules/aa/vendor/v.mjs"),
+            recorded: Box::new(package_root("/p/node_modules/aa", "aa", None, false)),
+            admitted: Box::new(package_root("/p/node_modules/aa/vendor", "bb", None, false)),
+        };
+        assert_eq!(
+            kind.to_string(),
+            "/p/node_modules/aa/vendor/v.mjs was resolved inside package 'aa' at \
+             /p/node_modules/aa, and package 'bb' at /p/node_modules/aa/vendor was then admitted \
+             around it, so its origin would depend on the import order. Two packages hold it, \
+             'bb' inside 'aa'. Fix: import it through only one of them, or install 'bb' on its \
+             own rather than inside 'aa'"
         );
     }
 }

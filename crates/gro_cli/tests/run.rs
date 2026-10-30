@@ -1072,6 +1072,203 @@ fn a_world_writable_node_modules_is_refused() {
     );
 }
 
+/// A relative or absolute specifier resolves only inside its importer's
+/// root: the project's, never into `node_modules` below it or into a
+/// package admitted inside it, and a package's own, never out of it. Every
+/// resolution is checked by its real path, so an `"exports"` target or a
+/// self-reference symlinked out of its package is refused too.
+#[test]
+fn imports_stay_inside_their_root() {
+    let fixtures = TempFixtures::new(
+        "containment",
+        &[
+            ("package.json", r#"{"name": "proj", "type": "module"}"#),
+            (
+                "node_modules/bar/package.json",
+                r#"{"type": "module", "exports": "./i.mjs"}"#,
+            ),
+            ("node_modules/bar/i.mjs", "export default 'bar';\n"),
+            (
+                "node_modules/bar/internal/secret.mjs",
+                "console.log('secret');\n",
+            ),
+            (
+                "node_modules/foo/package.json",
+                r#"{"name": "foo", "type": "module", "exports": {".": "./i.mjs", "./out.mjs": "./out.mjs", "./self.mjs": "./self.mjs"}}"#,
+            ),
+            (
+                "node_modules/foo/i.mjs",
+                "import '../bar/internal/secret.mjs';\n",
+            ),
+            ("node_modules/foo/self.mjs", "import 'foo/out.mjs';\n"),
+            (
+                "packages/lnk/package.json",
+                r#"{"name": "lnk", "type": "module", "exports": {"./x.ts": "./x.ts"}}"#,
+            ),
+            ("packages/lnk/x.ts", "console.log('x');\n"),
+            ("elsewhere/evil.mjs", "console.log('evil');\n"),
+            (
+                "into_node_modules.ts",
+                "import './node_modules/bar/internal/secret.mjs';\n",
+            ),
+            ("sibling.ts", "import 'foo';\n"),
+            (
+                "relative_first.ts",
+                "import './packages/lnk/x.ts';\nimport 'lnk/x.ts';\n",
+            ),
+            (
+                "name_first.ts",
+                "import 'lnk/x.ts';\nimport './packages/lnk/x.ts';\n",
+            ),
+            ("export_out.ts", "import 'foo/out.mjs';\n"),
+            ("self_out.ts", "import 'foo/self.mjs';\n"),
+            (
+                "meta_resolve_admits_nothing.ts",
+                "import './packages/lnk/x.ts';\nconsole.log(import.meta.resolve('lnk/x.ts'));\n",
+            ),
+            (
+                "meta_resolve.ts",
+                "try {\n  await import(import.meta.resolve('bar'));\n} catch (error) {\n  \
+                 console.log(String(error));\n}\n",
+            ),
+        ],
+    );
+    let root = &fixtures.0;
+    std::os::unix::fs::symlink(root.join("packages/lnk"), root.join("node_modules/lnk")).unwrap();
+    // the target is in the project, but outside `foo`
+    std::os::unix::fs::symlink(
+        root.join("elsewhere/evil.mjs"),
+        root.join("node_modules/foo/out.mjs"),
+    )
+    .unwrap();
+    let root = root.display();
+    let refused = |file: &str, stderr: String| {
+        let run = fixtures.run(file);
+        assert_eq!(run.code, 1, "{file}: {}", run.stderr);
+        assert_eq!(run.stdout, "", "{file}");
+        assert_eq!(run.stderr, stderr, "{file}");
+    };
+    refused(
+        "into_node_modules.ts",
+        format!(
+            "error: cannot resolve './node_modules/bar/internal/secret.mjs' from \
+             file://{root}/into_node_modules.ts: it resolves to \
+             {root}/node_modules/bar/internal/secret.mjs, inside node_modules below {root}, which \
+             only a bare specifier reaches, through the package's \"exports\". Fix: import it by \
+             name\n"
+        ),
+    );
+    refused(
+        "sibling.ts",
+        format!(
+            "error: cannot resolve '../bar/internal/secret.mjs' from \
+             file://{root}/node_modules/foo/i.mjs: it resolves to \
+             {root}/node_modules/bar/internal/secret.mjs, outside package 'foo' at \
+             {root}/node_modules/foo, and a package's relative and absolute specifiers resolve \
+             only inside it, so the package reaches outside itself. Fix: use a version of the \
+             package that doesn't\n"
+        ),
+    );
+    refused(
+        "relative_first.ts",
+        format!(
+            "error: cannot resolve 'lnk/x.ts' from file://{root}/relative_first.ts: \
+             {root}/packages/lnk/x.ts was resolved inside the project at {root}, and package \
+             'lnk' at {root}/packages/lnk was then admitted around it, so its origin would depend \
+             on the import order. Fix: import it by name ('lnk' or a subpath it exports) \
+             everywhere, not by a relative path\n"
+        ),
+    );
+    refused(
+        "name_first.ts",
+        format!(
+            "error: cannot resolve './packages/lnk/x.ts' from file://{root}/name_first.ts: it \
+             resolves to {root}/packages/lnk/x.ts, inside package 'lnk' at {root}/packages/lnk, \
+             which only a bare specifier reaches, through its \"exports\". Fix: import it by name \
+             ('lnk' or a subpath it exports)\n"
+        ),
+    );
+    let out = |importer: &str| {
+        format!(
+            "error: cannot resolve 'foo/out.mjs' from file://{root}/{importer}: the package \
+             exports it as {root}/node_modules/foo/out.mjs, which resolves to \
+             {root}/elsewhere/evil.mjs, outside {root}/node_modules/foo, and an \"exports\" \
+             target stays inside its package. Fix: use a version of the package whose \
+             \"exports\" stay inside it\n"
+        )
+    };
+    refused("export_out.ts", out("export_out.ts"));
+    refused("self_out.ts", out("node_modules/foo/self.mjs"));
+    // `import.meta.resolve` admits nothing: admitting `lnk` around the file the project
+    // already holds would be a conflict
+    let run = fixtures.run("meta_resolve_admits_nothing.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, format!("x\nfile://{root}/packages/lnk/x.ts\n"));
+    // so what it returns for an installed package is a path into node_modules
+    let run = fixtures.run("meta_resolve.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        format!(
+            "TypeError: cannot resolve 'file://{root}/node_modules/bar/i.mjs' from \
+             file://{root}/meta_resolve.ts: it resolves to {root}/node_modules/bar/i.mjs, inside \
+             node_modules below {root}, which only a bare specifier reaches, through the \
+             package's \"exports\". Fix: import it by name\n"
+        )
+    );
+}
+
+/// An entry inside `node_modules` runs as the package it is in, so its
+/// relative imports stay inside that package.
+#[test]
+fn an_entry_inside_node_modules_runs_as_its_package() {
+    let fixtures = TempFixtures::new(
+        "entry_in_node_modules",
+        &[
+            ("package.json", r#"{"name": "proj", "type": "module"}"#),
+            ("main.mjs", "console.log('project');\n"),
+            (
+                "node_modules/foo/package.json",
+                r#"{"name": "foo", "type": "module", "exports": {"./own.mjs": "./own.mjs"}}"#,
+            ),
+            ("node_modules/foo/own.mjs", "console.log('own');\n"),
+            (
+                "node_modules/foo/cli.mjs",
+                "import './own.mjs';\nimport 'foo/own.mjs';\n",
+            ),
+            ("node_modules/foo/up.mjs", "import '../../main.mjs';\n"),
+            ("node_modules/.bin/real.mjs", "console.log('real');\n"),
+        ],
+    );
+    let run = fixtures.run("node_modules/foo/cli.mjs");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "own\n");
+    let run = fixtures.run("node_modules/foo/up.mjs");
+    assert_eq!(run.code, 1);
+    let root = fixtures.0.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve '../../main.mjs' from file://{root}/node_modules/foo/up.mjs: \
+             it resolves to {root}/main.mjs, outside package 'foo' at {root}/node_modules/foo, \
+             and a package's relative and absolute specifiers resolve only inside it, so the \
+             package reaches outside itself. Fix: use a version of the package that doesn't\n"
+        )
+    );
+    // a file in node_modules but in no package has no origin: a usage error
+    let run = fixtures.run("node_modules/.bin/real.mjs");
+    assert_eq!(run.code, 2);
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'node_modules/.bin/real.mjs' from {root}: it resolves to \
+             {root}/node_modules/.bin/real.mjs, inside node_modules but in no package, so it has \
+             no origin. Fix: run a file inside a package (node_modules/<name>/...)\n"
+        )
+    );
+}
+
 /// A `node_modules` planted above a directory with no project root is never
 /// searched: the walk for the bound comes first, and with none, a bare
 /// specifier other than a self-reference is refused.

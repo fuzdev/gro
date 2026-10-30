@@ -33,9 +33,17 @@ while a plain `cargo build` runs only from its build tree.
 - Relative and absolute specifiers with their full extension,
   and bare specifiers through a package's `"exports"` in `node_modules`,
   searched from the importer up to its project root ([resolver](resolver.md)).
+  Every module stays inside its root, checked on its real path:
+  a relative or absolute specifier resolves only inside the importer's
+  (the entry's project root, or a package's real directory),
+  never into `node_modules` below it or into a package admitted inside it,
+  and a package's `"exports"` targets and self-references stay inside the package.
+  Each refusal names the path, the root, and a fix,
+  and so does a file reached both by a relative path and by its package's name, in either order.
+  An entry inside `node_modules` runs as the package it's in.
   A module with no project root above it (no `package.json` outside `node_modules` that isn't a type marker,
   below any world-writable directory) gets no bare imports except a self-reference,
-  which resolves through its own package's `"exports"`,
+  which resolves through its own package's `"exports"` and stays inside its package,
   and any other bare import is refused with the fix: a `package.json` at the project root,
   with the package installed in the `node_modules` beside it.
   A module's `import.meta.url` is its real path, after symlinks.
@@ -66,6 +74,12 @@ The global object isn't an `EventTarget`, so there's no `addEventListener('unhan
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.
 `import.meta.resolve` runs the same strict resolver as an import,
 so unlike the web's it throws a `TypeError` for a file that's missing or refused.
+It admits no package and records nothing, so the URL it returns for a package is only a path.
+For an installed package, `import(import.meta.resolve('foo'))` is refused as a path into `node_modules`,
+with the fix to import `foo` by name.
+A linked package's URL is a path like any other:
+an in-tree one loads as the project's file, since its package was never admitted around it,
+and an out-of-tree one is outside the project's root, refused.
 
 ## Errors and exit codes
 
