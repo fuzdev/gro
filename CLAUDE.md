@@ -465,7 +465,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   deno_core `JsRuntime` with `deno_webidl` and `deno_web`, gro's bootstrap
   extension (installs the pure web globals, removes `Deno` and `__bootstrap`;
   its `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
-  or the build fails), and the strict resolver as a pure module (`resolver.rs`,
+  or the build fails), and the strict resolver as a pure module (`resolver/`,
   no deno_core types; it reads only through a `SourceTree` trait and returns
   a record of the URL, the file's identity, the root the module is inside and
   its origin, and the `package.json` files it consulted): relative and
