@@ -49,12 +49,39 @@ fn output_within_deadline(command: &mut Command) -> Output {
     child.wait_with_output().unwrap()
 }
 
+/// The variables the host's color decision reads, all of them, so a test sets
+/// what it needs and the harness's own environment (Claude Code's
+/// `CLAUDECODE`, a CI's `FORCE_COLOR`) doesn't leak in.
+const COLOR_VARS: [&str; 5] = [
+    "FORCE_COLOR",
+    "NO_COLOR",
+    "NODE_DISABLE_COLORS",
+    "CLAUDECODE",
+    "TERM",
+];
+
+/// A command for `fgro` with every color variable cleared.
+fn fgro_command() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
+    for name in COLOR_VARS {
+        command.env_remove(name);
+    }
+    command
+}
+
 /// Runs `fgro` with `args` from the fixtures directory, with stdout and stderr
-/// piped (never terminals), so console output is uncolored.
+/// piped (never terminals) and no color variable set, so console output is
+/// uncolored.
 fn fgro(args: &[&str]) -> Output {
+    fgro_with_env(args, &[])
+}
+
+/// [`fgro`] with `env` set.
+fn fgro_with_env(args: &[&str], env: &[(&str, &str)]) -> Output {
     output_within_deadline(
-        Command::new(env!("CARGO_BIN_EXE_fgro"))
+        fgro_command()
             .args(args)
+            .envs(env.iter().copied())
             .current_dir(fixtures()),
     )
 }
@@ -415,11 +442,8 @@ impl TempFixtures {
     }
 
     fn run(&self, file: &str) -> Run {
-        let output = output_within_deadline(
-            Command::new(env!("CARGO_BIN_EXE_fgro"))
-                .args(["run", file])
-                .current_dir(&self.0),
-        );
+        let output =
+            output_within_deadline(fgro_command().args(["run", file]).current_dir(&self.0));
         Run {
             code: output
                 .status
@@ -471,7 +495,7 @@ console.log(ready, again.a, b);
             ),
         ],
     );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_fgro"))
+    let mut child = fgro_command()
         .args(["run", "main.js"])
         .current_dir(&fixtures.0)
         .stdin(Stdio::null())
@@ -1453,7 +1477,7 @@ fn non_utf8_argument_is_a_usage_error() {
     use std::os::unix::ffi::OsStrExt;
 
     let output = output_within_deadline(
-        Command::new(env!("CARGO_BIN_EXE_fgro"))
+        fgro_command()
             .arg("run")
             .arg(OsStr::from_bytes(b"\xff.js"))
             .current_dir(fixtures()),
@@ -1473,10 +1497,12 @@ fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
     let mut script = Command::new("script");
     script
         .args(["-qec", &command, "/dev/null"])
-        .current_dir(fixtures())
-        .env_remove("NO_COLOR")
-        .env_remove("CLAUDECODE")
-        .envs(env.iter().copied());
+        .current_dir(fixtures());
+    for name in COLOR_VARS {
+        script.env_remove(name);
+    }
+    // a terminal that colors, unless `env` says otherwise
+    script.env("TERM", "xterm").envs(env.iter().copied());
     // fail loudly rather than skip: the color policy has no other test
     SCRIPT_PROBED.get_or_init(|| {
         Command::new("script")
@@ -1517,15 +1543,57 @@ fn color_is_decided_per_stream() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn no_color_and_claudecode_turn_color_off_when_non_empty() {
+fn the_off_vars_turn_color_off_when_non_empty() {
     assert!(run_on_terminal(&[], "").contains('\x1b'));
-    for env in [[("NO_COLOR", "1")], [("CLAUDECODE", "1")]] {
+    for env in [
+        [("NO_COLOR", "1")],
+        [("NODE_DISABLE_COLORS", "1")],
+        [("CLAUDECODE", "1")],
+    ] {
         let output = run_on_terminal(&env, "");
         assert!(!output.contains('\x1b'), "{env:?}: {output:?}");
     }
     // set but empty counts as unset
-    for env in [[("NO_COLOR", "")], [("CLAUDECODE", "")]] {
+    for env in [
+        [("NO_COLOR", "")],
+        [("NODE_DISABLE_COLORS", "")],
+        [("CLAUDECODE", "")],
+    ] {
         let output = run_on_terminal(&env, "");
         assert!(output.contains('\x1b'), "{env:?}: {output:?}");
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn term_of_dumb_turns_color_off() {
+    let output = run_on_terminal(&[("TERM", "dumb")], "");
+    assert!(!output.contains('\x1b'), "{output:?}");
+}
+
+#[test]
+fn force_color_colors_a_pipe_and_its_other_values_do_not() {
+    let output = fgro_with_env(&["run", "console.js"], &[("FORCE_COLOR", "1")]);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stdout.contains("log \x1b["), "{stdout:?}");
+    assert!(stderr.contains("error Map(1) { \x1b["), "{stderr:?}");
+
+    // it wins over the variables that turn color off
+    let output = fgro_with_env(
+        &["run", "console.js"],
+        &[("FORCE_COLOR", ""), ("NO_COLOR", "1"), ("CLAUDECODE", "1")],
+    );
+    assert!(String::from_utf8(output.stdout).unwrap().contains('\x1b'));
+
+    let output = fgro_with_env(&["run", "console.js"], &[("FORCE_COLOR", "0")]);
+    assert!(!String::from_utf8(output.stdout).unwrap().contains('\x1b'));
+    assert!(!String::from_utf8(output.stderr).unwrap().contains('\x1b'));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn force_color_of_another_value_turns_a_terminal_off() {
+    let output = run_on_terminal(&[("FORCE_COLOR", "0")], "");
+    assert!(!output.contains('\x1b'), "{output:?}");
 }

@@ -103,7 +103,13 @@ A module whose file was replaced between resolving and loading isn't loaded
 the entry's included, which exits 1.
 
 `console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr.
-Each stream is colored only when it's a terminal, and never with `NO_COLOR` or `CLAUDECODE` set non-empty.
+Whether a stream is colored is decided once per process, in order:
+
+- `FORCE_COLOR` set, even empty: colored for `''`, `1`, `2`, `3`, or `true`, as in Node, and uncolored for any other value
+- `NO_COLOR`, `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM` of `dumb`: uncolored
+- otherwise each stream is colored only when it's a terminal
+
+`CLICOLOR`, `CLICOLOR_FORCE`, and `COLORTERM` aren't read.
 
 | exit | when                                                                                                                                                                   |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

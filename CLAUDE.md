@@ -525,7 +525,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   arguments yet (exit `0` success, `1` a run that fails, `2` a usage error,
   including an entry that doesn't resolve; the full table is in
   [src/docs/run.md](src/docs/run.md)); console output is colored per stream,
-  only on a terminal, and `NO_COLOR` or `CLAUDECODE` set non-empty turns it off. The
+  only on a terminal, unless `FORCE_COLOR` decides it or `NO_COLOR`,
+  `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM=dumb`, turns it off
+  (the order is in [src/docs/run.md](src/docs/run.md)). The
   whole command runs on one thread with a 32 MiB stack of its own (`STACK_SIZE` in
   `main.rs`), since the strip's parser recurses with a module's nesting and an
   overflow aborts; `gro_runtime::run_main` documents the requirement for any
