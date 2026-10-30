@@ -44,6 +44,14 @@ use deno_core::{JsRuntime, PollEventLoopOptions};
 use crate::resolver::{DiskTree, ResolveError};
 use crate::snapshot::StartupSnapshot;
 
+/// The stack to reserve for the thread [`run_main`] runs on: tsv's
+/// `STACK_SIZE`, 32 MiB, twice what its parsers need in a debug build (see
+/// [`run_main`]'s `# Stack`).
+///
+/// A reservation, not an allocation: pages commit as they're touched, so a
+/// run pays only for the stack it uses.
+pub const STACK_SIZE: usize = tsv_ts::STACK_SIZE;
+
 /// The version string of the V8 the runtime embeds, as V8 reports it.
 pub fn v8_version() -> &'static str {
     deno_core::v8::V8::get_version()
@@ -98,14 +106,16 @@ pub enum RunError {
 /// # Stack
 ///
 /// Everything runs on the calling thread, and the TypeScript strip is a
-/// recursive descent, so how deeply nested a `.ts` module can be is set by
-/// that thread's stack: past it the process aborts on a stack overflow, which
-/// nothing can catch, where JS nested as deeply fails as a catchable error.
-/// Call this on a thread with a stated stack, as `fgro` does with 32 MiB
-/// (`std::thread::Builder::stack_size`), not on the main thread, whose stack
-/// is the platform's: commonly 8 MiB on Linux, 1 MiB on Windows. V8's own
-/// limit for JS sits below wherever the runtime starts on that thread, so the
-/// size changes only the strip's depth.
+/// recursive descent. tsv's depth limits bound how deep it goes: a module
+/// nested or chained past them fails to load, with a message naming the
+/// limit, and every module within them strips in 2 MiB of stack in a release
+/// build and 16 MiB in a debug one. Call this on a thread reserving
+/// [`STACK_SIZE`], as `fgro` does (`std::thread::Builder::stack_size`), not on
+/// the main thread, whose stack is the platform's (commonly 8 MiB on Linux,
+/// 1 MiB on Windows): below tsv's contract, a module within the limits can
+/// still overflow the stack, which aborts the process. V8's own limit for JS
+/// sits below wherever the runtime starts on that thread, so the size doesn't
+/// change how deep JS can go.
 pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> {
     // nothing to grant yet; destructured so a new field can't go unread
     let RuntimeOptions {

@@ -55,7 +55,7 @@ use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
     ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
 };
-use tsv_ts::{ErrorReport, Goal, StripError, UnsupportedKind};
+use tsv_ts::{ErrorKind, ErrorReport, Goal, StripError, UnsupportedKind};
 use url::Url;
 
 use crate::resolver::{
@@ -325,16 +325,12 @@ fn load(
 ///
 /// Source with nothing type-only comes back as the same `String`, uncopied.
 ///
-/// The strip recurses with the source's nesting, on the caller's stack, so
-/// the thread `run_main` runs on sets the depth it reaches (see its docs).
+/// The strip recurses with the source's nesting, on the caller's stack, which
+/// must hold tsv's contract (`tsv_ts::STACK_SIZE`; see `run_main`). Input
+/// past tsv's depth limits fails the load rather than overflowing it.
 fn strip_types(source: String, url: &Url) -> Result<String, String> {
-    // one arena per module, freed when the strip returns
-    let arena = bumpalo::Bump::new();
-    // TODO: nesting past the thread's stack overflows it and aborts the process,
-    // since `tsv_ts` has no depth guard; one in tsv that returns a parse error
-    // closes it, as V8's checked limit does for JS
     // a module goal only: V8 evaluates every module as one, so no script retry
-    let stripped = match tsv_ts::strip_with_goal(&source, Some(Goal::Module), &arena) {
+    let stripped = match tsv_ts::strip_with_goal(&source, Goal::Module) {
         Ok(stripped) => match stripped.code {
             Cow::Borrowed(_) => None,
             Cow::Owned(code) => Some(code),
@@ -345,32 +341,39 @@ fn strip_types(source: String, url: &Url) -> Result<String, String> {
 }
 
 /// The message of a failed strip: the summary (a parse error's says it's
-/// one), a fix for a refusal, and the position as a V8 frame prints it
-/// (1-based line and UTF-16 column).
+/// one, and a depth limit's that it's a limit), a fix for a refusal, and the
+/// position as a V8 frame prints it (1-based line and UTF-16 column).
 fn strip_error_message(error: &StripError, source: &str, url: &Url) -> String {
     const PARSE_PREFIX: &str = "cannot parse the TypeScript: ";
-    let (report, fix) = match error {
-        StripError::Parse(error) => (error.report(), None),
+    const STRIP_PREFIX: &str = "cannot strip the TypeScript: ";
+    let (prefix, report, fix) = match error {
+        // a depth limit is a bound on the input, not a verdict on its grammar
+        StripError::Parse(parse) if parse.kind() == ErrorKind::TooDeep => {
+            (STRIP_PREFIX, parse.report(), None)
+        }
+        StripError::Parse(parse) => (PARSE_PREFIX, parse.report(), None),
+        // the summary is the construct's own `cannot strip ...`
         StripError::Unsupported { kind, span } => {
-            (Some(kind.report(*span, source)), Some(fix(*kind)))
+            ("", Some(kind.report(*span, source)), fix(*kind))
         }
+        // a failure a later tsv adds, until it gets an arm: its one-line
+        // `Display` (which carries any position it has) rather than
+        // `StripError::message`'s caret frame, which no other load error prints
+        _ => (STRIP_PREFIX, None, None),
     };
-    // a parse error has no report only past the 4 GiB source cap, so no position
+    // no report, so no `at` line: a source past the 4 GiB cap, or a failure
+    // without an arm
     let Some(ErrorReport { summary, start, .. }) = report else {
-        return format!("{PARSE_PREFIX}{error}");
+        return format!("{prefix}{error}");
     };
-    let message = match fix {
-        None => format!("{PARSE_PREFIX}{summary}"),
-        Some(Fix { how, erasable }) => {
-            let mut message = summary;
-            message.push_str(". Fix: ");
-            message.push_str(how);
-            if erasable {
-                message.push_str(" (TypeScript's erasableSyntaxOnly option reports these)");
-            }
-            message
+    let mut message = format!("{prefix}{summary}");
+    if let Some(Fix { how, erasable }) = fix {
+        message.push_str(". Fix: ");
+        message.push_str(how);
+        if erasable {
+            message.push_str(" (TypeScript's erasableSyntaxOnly option reports these)");
         }
-    };
+    }
     format!(
         "{message}\n    at {url}:{}:{}",
         start.line,
@@ -388,8 +391,9 @@ struct Fix {
     erasable: bool,
 }
 
-/// The fix for a refused construct.
-const fn fix(kind: UnsupportedKind) -> Fix {
+/// The fix for a refused construct, if gro knows one: a construct a later tsv
+/// refuses has none until it gets an arm.
+const fn fix(kind: UnsupportedKind) -> Option<Fix> {
     let (how, erasable) = match kind {
         UnsupportedKind::Enum => (
             "use a union of literal types, or an object with 'as const'",
@@ -406,8 +410,9 @@ const fn fix(kind: UnsupportedKind) -> Fix {
         UnsupportedKind::AssertionGrouping => {
             ("wrap the assertion in parentheses: '(x as T)'", false)
         }
+        _ => return None,
     };
-    Fix { how, erasable }
+    Some(Fix { how, erasable })
 }
 
 #[cfg(test)]
@@ -810,6 +815,30 @@ mod tests {
         );
         assert!(
             message.ends_with("\n    at file:///p/a.ts:1:10"),
+            "{message}"
+        );
+        assert_eq!(message.lines().count(), 2, "{message}");
+    }
+
+    #[test]
+    fn a_depth_limit_says_it_is_one_and_has_its_position() {
+        let nested = format!("const a = {}1{};", "(".repeat(255), ")".repeat(255));
+        let chained = format!("const a = 1{};", " + 1".repeat(7000));
+        // input up to the limits needs tsv's stack in a debug build, past the
+        // harness's 2 MiB threads
+        let (nested, message) =
+            tsv_ts::run_with_stack(|| (strip(&nested), strip(&chained))).unwrap();
+        assert_eq!(
+            nested.unwrap_err(),
+            "cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 levels\n    \
+             at file:///p/a.ts:1:266"
+        );
+        let message = message.unwrap_err();
+        assert!(
+            message.starts_with(
+                "cannot strip the TypeScript: Chain of operators, member accesses, calls, \
+                 assertions or type suffixes exceeds tsv's length limit\n    at file:///p/a.ts:1:"
+            ),
             "{message}"
         );
         assert_eq!(message.lines().count(), 2, "{message}");

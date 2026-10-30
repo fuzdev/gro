@@ -8,7 +8,6 @@ publish.workspace = true
 description = "gro's JS host: a minimal web-standards runtime on V8"
 
 [dependencies]
-bumpalo.workspace = true
 deno_core.workspace = true
 deno_web.workspace = true
 deno_webidl.workspace = true

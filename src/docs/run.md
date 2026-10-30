@@ -118,6 +118,6 @@ Whether a stream is colored is decided once per process, in order:
 | 2    | a usage error (no arguments, an unknown subcommand or flag, an extra argument, a non-UTF-8 argument), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
-A TypeScript module nested deeper than the strip's stack can hold aborts the process (`SIGABRT`)
-rather than failing the load. In a release build V8's own depth limit usually refuses it first,
-with a `RangeError` and exit 1, and a depth limit in tsv closes the gap.
+A TypeScript module nested or chained past tsv's depth limits fails to load, exit 1, with a
+message naming the limit (`cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256
+levels`), where the same JS, under V8's far deeper limit, may run.

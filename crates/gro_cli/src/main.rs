@@ -10,8 +10,11 @@
 //! with source positions (`file:///path:line:column`).
 //!
 //! The whole command runs on one thread with [`STACK_SIZE`] reserved, not on
-//! the main thread, so how deeply nested a TypeScript module can be is
-//! stated here rather than inherited from the platform (see the constant).
+//! the main thread, so a debug build stays inside the 16 MiB of stack tsv's
+//! TypeScript strip is sized for (a release build needs 2 MiB), whatever the
+//! platform's main thread has. A module nested or chained past tsv's depth
+//! limits fails to load (exit `1`) with a message naming the limit, rather
+//! than overflowing the stack.
 //!
 //! `fgro --version` prints one line,
 //! `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`: the git
@@ -47,7 +50,7 @@ use std::process::ExitCode;
 
 use argh::{EarlyExit, FromArgs};
 use gro_runtime::snapshot::StartupSnapshot;
-use gro_runtime::{RunError, RuntimeOptions};
+use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
 /// The snapshot this binary was built with: `snapshot.bin` and `residual.rs`
 /// from `fgro make-snapshot`, in the directory `GRO_SNAPSHOT_DIR` names.
@@ -81,30 +84,6 @@ const EXIT_FAILURE: u8 = 1;
 /// thread is joined rather than unwinding out of `main`. Only a debug build
 /// reaches it: the release profile aborts on a panic.
 const EXIT_PANIC: u8 = 101;
-
-/// The stack reserved for the thread `fgro` runs on, the same 32 MiB tsv's
-/// CLI states, for the same reason.
-///
-/// The TypeScript strip is `tsv_ts`'s recursive-descent parser, so nesting
-/// depth costs native stack, and an overflow aborts the process (`SIGABRT`)
-/// rather than failing the load. The JS V8 runs is unaffected: V8 sets its
-/// own checked limit below where the isolate starts on this thread, so deep
-/// JS recursion, and a deeply nested `.js` module, stay a catchable
-/// `RangeError` at the same depth as before. Inherited, the
-/// ceiling would be the process `RLIMIT_STACK` on the main thread (commonly
-/// 8 MiB, whatever the machine says) and 1 MiB on Windows.
-///
-/// In a release build the reservation reaches deeper than V8 itself
-/// compiles, so a module nested past V8's depth fails with the same
-/// `RangeError` the JS would; a debug build's far larger frames stop the
-/// strip near V8's depth instead. The main thread's 8 MiB would stop at a
-/// quarter of the reservation's depth. The deepest real code nests under a
-/// hundred levels; the exposure is generated and minified code.
-/// The reservation is address space, committed only as it's touched, so a run
-/// pays only for the stack it uses.
-// TODO: past that depth the strip still overflows, since `tsv_ts` has no
-// depth guard of its own; one that returns a parse error closes it
-const STACK_SIZE: usize = 32 * 1024 * 1024;
 
 /// gro on its own JS runtime (experimental)
 #[derive(FromArgs)]
@@ -228,13 +207,21 @@ fn main() -> ExitCode {
 }
 
 /// Runs [`run`] on a thread named `fgro` with [`STACK_SIZE`] reserved, so the
-/// runtime, the module loads, and the strip all share the one stated stack.
+/// runtime, the module loads, and the strip all share the one stated stack:
+/// tsv's, so a debug build keeps inside its 16 MiB contract (a release build
+/// needs 2 MiB), and the main thread's platform stack (commonly 8 MiB on
+/// Linux, 1 MiB on Windows) never decides whether a module within tsv's depth
+/// limits strips.
 ///
-/// A refused spawn runs on this thread instead, and says so, since a deep
-/// module would then overflow at the inherited ceiling with nothing saying
-/// why. That rescues only the commands that don't start V8 (`--version`,
-/// `--help`, a usage error): V8 needs threads of its own, so a process that
-/// can't start this one can't start the runtime either.
+/// Not `tsv_ts::run_with_stack`: that names its thread `tsv`, and resumes a
+/// panic rather than mapping it to [`EXIT_PANIC`], and drops its work when the
+/// spawn is refused.
+///
+/// A refused spawn runs on this thread instead, and says so, since a module
+/// could then overflow the inherited stack with nothing saying why. That
+/// rescues only the commands that don't start V8 (`--version`, `--help`, a
+/// usage error): V8 needs threads of its own, so a process that can't start
+/// this one can't start the runtime either.
 fn run_on_sized_stack(args: &[&str]) -> u8 {
     std::thread::scope(|scope| {
         let spawned = std::thread::Builder::new()

@@ -616,34 +616,82 @@ fn nested_parens(n: usize) -> String {
     )
 }
 
-/// The strip recurses with the nesting, on `fgro`'s own 32 MiB thread rather
-/// than the main thread, so a `.ts` module nested past the main thread's
-/// ceiling (8 MiB, or a raised `ulimit -s` of 16 MiB) runs as the same `.js`
-/// does instead of aborting on a stack overflow: in a debug build V8 runs it,
-/// in a release build V8's own depth limit refuses it with a `RangeError`
-/// first. The depths sit past the main thread's measured ceiling for each
-/// profile and within the reservation's.
+/// `n` binary operators chained after a `1`, logged.
+fn chained_operators(n: usize) -> String {
+    format!("const x = 1{};\nconsole.log('ok', x);\n", " + 1".repeat(n))
+}
+
+/// A `.ts` module nested or chained past tsv's depth limits fails to load
+/// with a message naming the limit, an error exit rather than a stack
+/// overflow, though V8, whose limit is far deeper, runs the same `.js`.
 #[test]
-fn deep_typescript_nesting_runs_as_the_same_js_does() {
-    let depth = if cfg!(debug_assertions) { 1200 } else { 30_000 };
-    let source = nested_parens(depth);
-    let fixtures = TempFixtures::new("deep", &[("deep.ts", &source), ("deep.js", &source)]);
-    let ts = fixtures.run("deep.ts");
-    let js = fixtures.run("deep.js");
-    assert!(
-        ts.stderr.is_empty()
-            || ts
-                .stderr
-                .contains("RangeError: Maximum call stack size exceeded"),
-        "{}",
-        ts.stderr
+fn typescript_past_tsv_depth_limits_fails_to_load() {
+    let nested = nested_parens(255);
+    let chained = chained_operators(7000);
+    let fixtures = TempFixtures::new(
+        "deep_limit",
+        &[
+            ("deep.ts", &nested),
+            ("deep.js", &nested),
+            ("chain.ts", &chained),
+            ("chain.js", &chained),
+        ],
     );
-    assert_eq!(ts.code, js.code, "{}\n{}", ts.stderr, js.stderr);
-    assert_eq!(ts.stdout, js.stdout);
-    assert_eq!(ts.stderr, js.stderr.replace("deep.js", "deep.ts"));
-    if cfg!(debug_assertions) {
-        assert_eq!(ts.code, 0, "{}", ts.stderr);
-        assert_eq!(ts.stdout, "ok 1\n");
+    let url = format!("file://{}", fixtures.0.display());
+    let run = fixtures.run("deep.ts");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert!(run.stdout.is_empty());
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 \
+             levels\n    at {url}/deep.ts:1:266\n"
+        )
+    );
+    let run = fixtures.run("chain.ts");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert!(run.stdout.is_empty());
+    // the column is where tsv's weighted count trips, so only the file is pinned
+    assert!(
+        run.stderr.starts_with(&format!(
+            "error: cannot strip the TypeScript: Chain of operators, member accesses, calls, \
+             assertions or type suffixes exceeds tsv's length limit\n    at {url}/chain.ts:1:"
+        )),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(run.stderr.lines().count(), 2, "{}", run.stderr);
+    for (file, out) in [("deep.js", "ok 1\n"), ("chain.js", "ok 7001\n")] {
+        let run = fixtures.run(file);
+        assert_eq!(run.code, 0, "{file}: {}", run.stderr);
+        assert_eq!(run.stdout, out, "{file}");
+    }
+}
+
+/// Within tsv's depth limits, deep TypeScript strips and runs as the same JS
+/// does, on `fgro`'s sized thread whatever the build profile.
+#[test]
+fn deep_typescript_within_the_limits_runs_as_the_same_js_does() {
+    // the deepest parens the nesting limit admits, the statement taking a level
+    let nested = nested_parens(254);
+    let chained = chained_operators(5000);
+    let fixtures = TempFixtures::new(
+        "deep",
+        &[
+            ("deep.ts", &nested),
+            ("deep.js", &nested),
+            ("chain.ts", &chained),
+            ("chain.js", &chained),
+        ],
+    );
+    for (name, out) in [("deep", "ok 1\n"), ("chain", "ok 5001\n")] {
+        let ts = fixtures.run(&format!("{name}.ts"));
+        let js = fixtures.run(&format!("{name}.js"));
+        assert_eq!(ts.code, 0, "{name}: {}", ts.stderr);
+        assert_eq!(js.code, 0, "{name}: {}", js.stderr);
+        assert_eq!(ts.stdout, out, "{name}");
+        assert_eq!(js.stdout, out, "{name}");
+        assert!(ts.stderr.is_empty() && js.stderr.is_empty(), "{name}");
     }
 }
 
