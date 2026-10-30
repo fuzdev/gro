@@ -36,27 +36,30 @@
 //! `cargo xtask bench <suite.json>` runs a measurement suite with `gro_bench`
 //! and appends the run's record to the history,
 //! `crates/gro_bench/history.jsonl` (`--history` writes elsewhere, relative to
-//! the current directory). When a runtime is `fgro` (named so, or with a
-//! program named so), it first builds the release snapshot `fgro` (as
-//! `build --release`, cached when nothing changed) and refuses the run unless
-//! that program is the binary just built, so a stale, debug, or
-//! snapshot-less build is never timed. A recorded run goes after
-//! `cargo xtask build --release`, so this build is a cache hit and doesn't
-//! load the machine just before timing. After the summary it prints each
-//! `fgro` row's median against its gate row (warm rows against
-//! `node_compile_cache`, cold ones against `node`, `deno` beside), a report
-//! that fails nothing. A failed run records nothing, and its exit code says
-//! what the caller must do:
+//! the current directory). The copies of corpora collections its workloads run
+//! inside go under the checkout's gitignored `target/bench/`. When a runtime
+//! is `fgro` (named so, or with a program named so), it first builds the
+//! release snapshot `fgro` (as `build --release`, cached when nothing
+//! changed) and refuses the run unless that program is the binary just
+//! built, so a stale, debug, or snapshot-less build is never timed. A
+//! recorded run goes after `cargo xtask build --release`, so this build is a
+//! cache hit and doesn't load the machine just before timing. After the
+//! summary it prints each `fgro` row's median against its gate row (warm
+//! rows against `node_compile_cache`, cold ones against `node`, `deno`
+//! beside), a report that fails nothing. A failed run records nothing, and
+//! its exit code says what the caller must do:
 //!
 //! - `0`: the run's record was appended
 //! - `2`: change something before re-running, since unchanged it fails the
 //!   same way: the suite is unreadable or invalid, a program, script, or file
 //!   argument it names is missing, a program is a script, a workload or
 //!   version probe exits unsuccessfully or prints no version, the suite's
-//!   corpora checkout isn't at its pinned tree or has local changes, or
-//!   `--history` is empty, names a directory, or names no file in an existing
-//!   directory, or the `fgro` it names isn't the release snapshot build (or
-//!   that build failed)
+//!   corpora checkout isn't at its pinned tree or has local changes, a
+//!   collection a workload names isn't in the pinned tree or holds a
+//!   symlink, a submodule, or a name that isn't UTF-8, a workload's entry
+//!   would replace a file of its collection, `--history` is empty, names a
+//!   directory, or names no file in an existing directory, or the `fgro` it
+//!   names isn't the release snapshot build (or that build failed)
 //! - `1`: anything else, such as an artifact changing mid-run or a failed
 //!   write
 //!
@@ -100,6 +103,10 @@ const TSC: &str = "node_modules/.bin/tsc";
 /// The measurement history, relative to the root: one JSON line per run,
 /// append-only, beside the harness that writes it.
 const HISTORY: &str = "crates/gro_bench/history.jsonl";
+
+/// Where a bench writes, relative to the root: its copies of corpora
+/// collections, under the gitignored `target/`.
+const BENCH_DIR: &str = "target/bench";
 
 /// The caller must change the suite (or a program it names) before re-running.
 const EXIT_INPUT: u8 = 2;
@@ -368,6 +375,7 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             } else {
                 MachineQuiet::Unchecked
             },
+            work_dir: root.join(BENCH_DIR),
         };
         println!(
             "[xtask] bench {} v{}: {} rows plus the noise row, {} samples each, interleaved",
@@ -885,6 +893,21 @@ mod tests {
             BenchError::NoVersion {
                 command: "c".to_owned(),
             },
+            BenchError::CollectionNotFound {
+                corpora: path(),
+                tree: "t".to_owned(),
+                name: "c".to_owned(),
+            },
+            BenchError::CollectionEntry {
+                name: "c".to_owned(),
+                path: path(),
+                mode: "120000".to_owned(),
+            },
+            BenchError::EntryCollides {
+                workload: "w".to_owned(),
+                collection: "c".to_owned(),
+                entry: path(),
+            },
         ];
         assert!(matches!(input[1], BenchError::SuiteParse { .. }));
         for error in &input {
@@ -903,6 +926,10 @@ mod tests {
                 paths: vec![path()],
             },
             BenchError::HistoryWrite {
+                path: path(),
+                source: io_error(),
+            },
+            BenchError::Write {
                 path: path(),
                 source: io_error(),
             },

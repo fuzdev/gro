@@ -22,6 +22,8 @@ fn context() -> RunContext {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
+        // only a suite naming a collection writes here, and those tests set their own
+        work_dir: std::env::temp_dir().join("gro_bench_unused_work"),
     }
 }
 
@@ -63,6 +65,7 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
                 warmup: 1,
                 cold: false,
                 weight: 1,
+                collection: None,
             })
             .collect(),
         corpora: None,
@@ -273,12 +276,15 @@ fn a_cold_row_runs_with_the_runtime_env_and_its_cold_env() {
     assert!(record.runtimes[0].gzip_bytes > 0);
 }
 
-#[test]
-fn a_corpora_checkout_off_its_pin_is_an_input_error() {
-    let dir = scratch("corpora", &[("a.sh", "")]);
+/// Commits `files` (relative to its `collections/`) in a fresh git checkout at
+/// `<dir>/corpora`.
+fn corpora_checkout(dir: &Path, files: &[(&str, &str)]) {
     let corpora = dir.join("corpora");
-    fs::create_dir_all(corpora.join("collections")).unwrap();
-    fs::write(corpora.join("collections/x.ts"), "").unwrap();
+    for (path, content) in files {
+        let path = corpora.join("collections").join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
     for args in [
         &["init", "--quiet"][..],
         &["add", "."],
@@ -303,6 +309,12 @@ fn a_corpora_checkout_off_its_pin_is_an_input_error() {
             .unwrap();
         assert!(status.success());
     }
+}
+
+#[test]
+fn a_corpora_checkout_off_its_pin_is_an_input_error() {
+    let dir = scratch("corpora", &[("a.sh", "")]);
+    corpora_checkout(&dir, &[("x.ts", "")]);
     let mut suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
     suite.corpora = Some(CorporaPin {
         path: PathBuf::from("corpora"),
@@ -320,4 +332,142 @@ fn a_corpora_checkout_off_its_pin_is_an_input_error() {
     });
     let record = run_in(&dir, &suite).unwrap();
     assert_eq!(record.corpora.as_ref(), Some(found));
+}
+
+/// The `collections/` tree id of the checkout `corpora_checkout` made in `dir`.
+fn corpora_tree(dir: &Path) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir.join("corpora"))
+        .args(["rev-parse", "HEAD:collections"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// A suite whose workloads run `scripts` inside the collection `c` of a
+/// corpora checkout in `dir`, holding `lib.sh` and `package.json`.
+fn collection_suite(dir: &Path, scripts: &[&str]) -> (Suite, RunContext) {
+    corpora_checkout(
+        dir,
+        &[
+            ("c/lib.sh", "LIB=1\n"),
+            ("c/package.json", "{}\n"),
+            ("d/other.sh", ""),
+        ],
+    );
+    let mut suite = suite(vec![sh(Vec::new())], scripts, 2);
+    suite.corpora = Some(CorporaPin {
+        path: PathBuf::from("corpora"),
+        tree: corpora_tree(dir),
+    });
+    for workload in &mut suite.workloads {
+        workload.collection = Some("c".to_owned());
+    }
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    (suite, context)
+}
+
+#[test]
+fn a_collection_workload_runs_from_a_fresh_copy() {
+    // it runs only beside the collection's `lib.sh`, from the suite's directory
+    let entry =
+        "test \"$(pwd -P)\" = \"$SUITE\" && . \"$(dirname \"$0\")/lib.sh\" && test \"$LIB\" = 1\n";
+    let dir = scratch("collection", &[("entry.sh", entry), ("plain.sh", "true\n")]);
+    let (mut suite, context) = collection_suite(&dir, &["entry.sh", "plain.sh"]);
+    suite.workloads[1].collection = None;
+    let canonical = dir.canonicalize().unwrap();
+    suite.runtimes[0].env = BTreeMap::from([("SUITE".to_owned(), canonical.display().to_string())]);
+    let tree = suite.corpora.as_ref().unwrap().tree.clone();
+    let copy = dir.join("work/corpora").join(&tree).join("c");
+    // a stale copy, which the run replaces
+    fs::create_dir_all(&copy).unwrap();
+    fs::write(copy.join("stale.sh"), "").unwrap();
+    let record = run(&suite, &dir, context).unwrap();
+    let mut listed: Vec<String> = fs::read_dir(&copy)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    listed.sort();
+    let copied_entry = fs::read_to_string(copy.join("entry.sh")).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(listed, ["entry.sh", "lib.sh", "package.json"]);
+    assert_eq!(copied_entry, entry);
+    assert_eq!(record.rows.len(), 2);
+    // the record names the scripts by their suite paths, not the copy's
+    assert_eq!(
+        record.artifacts.keys().collect::<Vec<_>>(),
+        ["entry.sh", "plain.sh"]
+    );
+    assert_eq!(record.corpora, Some(tree));
+}
+
+#[test]
+fn a_path_written_into_a_copy_discards_the_run() {
+    // as a runtime writing a lockfile beside the collection's `package.json` would
+    let dir = scratch(
+        "collection_write",
+        &[("writes.sh", ": > \"$(dirname \"$0\")/lock.json\"\n")],
+    );
+    let (suite, context) = collection_suite(&dir, &["writes.sh"]);
+    let result = run(&suite, &dir, context);
+    let lock = dir
+        .join("work/corpora")
+        .join(&suite.corpora.as_ref().unwrap().tree)
+        .join("c/lock.json")
+        .canonicalize()
+        .unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    match result {
+        Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lock]),
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_file_rewritten_in_a_copy_discards_the_run() {
+    // the path set is unchanged, so only the copy's hashes catch it
+    let dir = scratch(
+        "collection_rewrite",
+        &[(
+            "rewrites.sh",
+            "echo LIB=2 >> \"$(dirname \"$0\")/lib.sh\"\n",
+        )],
+    );
+    let (suite, context) = collection_suite(&dir, &["rewrites.sh"]);
+    let result = run(&suite, &dir, context);
+    let lib = dir
+        .join("work/corpora")
+        .join(&suite.corpora.as_ref().unwrap().tree)
+        .join("c/lib.sh")
+        .canonicalize()
+        .unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    match result {
+        Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lib]),
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_collection_entry_must_be_new_to_the_collection() {
+    let dir = scratch("collection_collides", &[("lib.sh", "true\n")]);
+    let (mut suite, context) = collection_suite(&dir, &["lib.sh"]);
+    let collides = run(&suite, &dir, context.clone()).unwrap_err();
+    // and the collection must exist in the pinned tree
+    suite.workloads[0].collection = Some("nope".to_owned());
+    let error = run(&suite, &dir, context).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        matches!(collides, BenchError::EntryCollides { ref entry, .. } if entry == Path::new("lib.sh")),
+        "{collides:?}"
+    );
+    assert!(collides.is_input_error());
+    assert!(
+        matches!(error, BenchError::CollectionNotFound { ref name, .. } if name == "nope"),
+        "{error:?}"
+    );
+    assert!(error.is_input_error());
 }

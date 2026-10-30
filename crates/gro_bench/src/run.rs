@@ -4,17 +4,21 @@
 //!
 //! 1. checks the suite's corpora checkout against its pin, resolves each
 //!    runtime's executable, refusing a script (a file starting with `#!`),
-//!    and hashes the artifacts (every executable, script, and file argument)
-//!    with blake3;
+//!    writes a fresh copy of each collection a workload names, with the
+//!    workload's script at its root ([`collection`](crate::collection)), and
+//!    hashes the artifacts (every executable, script, file argument, and
+//!    file of a copy) with blake3;
 //! 2. probes each runtime's version and measures its executable's size, as
 //!    is and gzipped;
 //! 3. runs each row's warmup processes, then its timed samples, in the
 //!    interleaved order of [`schedule`], with the
 //!    first row's A/A copy as one more row (a row is a workload and a runtime
 //!    that runs it);
-//! 4. hashes the artifacts and reads the corpora's tree again, and discards
-//!    the run if any changed, since a rebuild mid-run means the samples timed
-//!    different code;
+//! 4. hashes the artifacts, lists each copy, and reads the corpora's tree
+//!    again, and discards the run if any changed (a copy gaining or losing a
+//!    path counts), since a rebuild mid-run means the samples timed different
+//!    code: the copies cover what a collection's workloads run, and the
+//!    checkout's tree what the others read from it;
 //! 5. computes each row's statistics.
 //!
 //! Every sample is a fresh process, timed from just before its spawn to just
@@ -26,16 +30,19 @@
 //! Every process, samples and version probes alike, runs the canonical
 //! executable (the file hashed) with the suite's `program` as written as its
 //! `argv[0]`, as a shell would pass it, and with a cleared environment holding
-//! only the caller's `PATH` and `HOME` and the variables the suite sets.
+//! only the caller's `PATH` and `HOME` and the variables the suite sets. Its
+//! working directory is the suite's directory, a collection's workloads
+//! included.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Instant, SystemTime};
 
+use crate::collection::{list_paths, materialize};
 use crate::error::BenchError;
 use crate::record::{
     GitState, Machine, MachineQuiet, Metric, NoiseRecord, RECORD_VERSION, RowRecord, RunRecord,
@@ -45,12 +52,20 @@ use crate::schedule::schedule;
 use crate::stats::{Stats, ratio_deviation};
 use crate::suite::{Arg, FileArg, Runtime, Suite, Workload};
 
-/// What a run records but can't learn itself, from the caller.
+/// What a run takes from the caller: what it records but can't learn itself,
+/// and where it writes.
 #[derive(Debug, Clone)]
 pub struct RunContext {
     pub git: GitState,
     pub machine: Machine,
     pub machine_quiet: MachineQuiet,
+    /// The directory the run writes its collection copies under, at
+    /// `corpora/<tree>/<collection>`, each replaced on every run.
+    /// `cargo xtask bench` passes the gro checkout's gitignored
+    /// `target/bench/`, which is trusted like the rest of `target/` (a
+    /// symlink already in it is followed), since anyone who can write there
+    /// can already change build output.
+    pub work_dir: PathBuf,
 }
 
 /// One timed process. Counter mode adds its counts (`instructions:u`,
@@ -181,6 +196,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         .iter()
         .map(|workload| Ok((workload.name.as_str(), resolve(&workload.script)?)))
         .collect::<Result<BTreeMap<_, _>, BenchError>>()?;
+    let copies = materialize_collections(suite, corpora.as_ref(), &context.work_dir, &scripts)?;
     let program_of: BTreeMap<&str, &Program> = suite
         .runtimes
         .iter()
@@ -189,12 +205,9 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         .collect();
     let mut rows = Vec::new();
     for (workload, runtime) in suite.rows() {
-        let (args, env) = row_args(
-            runtime,
-            workload,
-            &scripts[workload.name.as_str()],
-            &mut resolve,
-        )?;
+        let name = workload.name.as_str();
+        let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
+        let (args, env) = row_args(runtime, workload, script, &mut resolve)?;
         rows.push(RowCommand {
             runtime: runtime.name.clone(),
             workload: workload.name.clone(),
@@ -204,7 +217,13 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             warmup: workload.warmup,
         });
     }
+    artifacts.extend(copies.files.iter().cloned());
     let before = hash_artifacts(&artifacts)?;
+    let listed = copies
+        .roots
+        .iter()
+        .map(|root| list_paths(root))
+        .collect::<Result<Vec<_>, _>>()?;
     let artifact_hashes: BTreeMap<String, String> = suite_files
         .into_iter()
         .map(|(file, resolved)| (file, before[&resolved].clone()))
@@ -249,6 +268,11 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
 
     let after = hash_artifacts(&artifacts)?;
     let mut changed = changed_artifacts(&before, &after);
+    for (root, before) in copies.roots.iter().zip(&listed) {
+        // a path written or removed in a copy, such as a lockfile or an install
+        let after = list_paths(root)?;
+        changed.extend(before.symmetric_difference(&after).cloned());
+    }
     if let Some((path, tree)) = &corpora {
         // a re-pin or a local change mid-run, which the tree id wouldn't name
         if read_corpora_tree(path).ok().as_ref() != Some(tree) {
@@ -288,6 +312,87 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         rows: rows_record,
         noise,
     })
+}
+
+/// The collections a run copied: what each workload with a collection runs,
+/// and what the run checks didn't change.
+#[derive(Debug, Default)]
+struct Copies {
+    /// Each copy's root, canonical.
+    roots: Vec<PathBuf>,
+    /// Every file of every copy, entries included.
+    files: Vec<PathBuf>,
+    /// The entry each workload with a collection runs, by workload name.
+    entries: BTreeMap<String, PathBuf>,
+}
+
+/// Copies each collection the suite's workloads name, once, from the pinned
+/// tree into `<work_dir>/corpora/<tree>/<collection>`, and writes each of its
+/// workloads' scripts (by their resolved paths in `scripts`) at its root
+/// under the script's own file name, refusing one the collection already has.
+fn materialize_collections(
+    suite: &Suite,
+    corpora: Option<&(PathBuf, String)>,
+    work_dir: &Path,
+    scripts: &BTreeMap<&str, PathBuf>,
+) -> Result<Copies, BenchError> {
+    let mut copies = Copies::default();
+    // each collection's copy root, by name, and the entries written
+    let mut roots: BTreeMap<&str, PathBuf> = BTreeMap::new();
+    let mut entries: BTreeSet<PathBuf> = BTreeSet::new();
+    for workload in &suite.workloads {
+        let Some(collection) = workload.collection.as_deref() else {
+            continue;
+        };
+        let Some((corpora_path, tree)) = corpora else {
+            return Err(BenchError::SuiteInvalid(format!(
+                "the workload `{}` names a collection, but the suite pins no `corpora`",
+                workload.name
+            )));
+        };
+        let root = if let Some(root) = roots.get(collection) {
+            root.clone()
+        } else {
+            // canonical, so the paths written are the paths hashed and run
+            fs::create_dir_all(work_dir).map_err(|source| BenchError::Write {
+                path: work_dir.to_owned(),
+                source,
+            })?;
+            let work_dir = work_dir.canonicalize().map_err(|source| BenchError::Read {
+                path: work_dir.to_owned(),
+                source,
+            })?;
+            // the tree id is git's own output, a hex id, matched to the pin
+            let root = work_dir.join("corpora").join(tree).join(collection);
+            copies
+                .files
+                .extend(materialize(corpora_path, tree, collection, &root)?);
+            copies.roots.push(root.clone());
+            roots.insert(collection, root.clone());
+            root
+        };
+        // validation gives every collection workload's script a file name
+        let file_name = workload.script.file_name().unwrap_or_default();
+        let entry = root.join(file_name);
+        if entries.insert(entry.clone()) {
+            if fs::symlink_metadata(&entry).is_ok() {
+                return Err(BenchError::EntryCollides {
+                    workload: workload.name.clone(),
+                    collection: collection.to_owned(),
+                    entry: PathBuf::from(file_name),
+                });
+            }
+            fs::copy(&scripts[workload.name.as_str()], &entry).map_err(|source| {
+                BenchError::Write {
+                    path: entry.clone(),
+                    source,
+                }
+            })?;
+            copies.files.push(entry.clone());
+        }
+        copies.entries.insert(workload.name.clone(), entry);
+    }
+    Ok(copies)
 }
 
 /// Finds a runtime's executable, canonicalized so the file hashed is the file
@@ -367,7 +472,7 @@ fn is_executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path)
+        fs::metadata(path)
             .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
     }
     #[cfg(not(unix))]
@@ -431,7 +536,7 @@ fn probe(
         .as_ref()
         .map(|args| probe_line(program, args, dir))
         .transpose()?;
-    let bytes = std::fs::metadata(&program.path)
+    let bytes = fs::metadata(&program.path)
         .map_err(|source| BenchError::Read {
             path: program.path.clone(),
             source,
@@ -605,9 +710,9 @@ mod tests {
     #[test]
     fn gzip_size_counts_the_compressed_bytes() {
         let path = std::env::temp_dir().join(format!("gro_bench_gzip_{}", std::process::id()));
-        std::fs::write(&path, "a".repeat(100_000)).unwrap();
+        fs::write(&path, "a".repeat(100_000)).unwrap();
         let size = gzip_size(&path);
-        std::fs::remove_file(&path).unwrap();
+        fs::remove_file(&path).unwrap();
         let size = size.unwrap();
         // a run of one byte compresses to a few hundred bytes, header included
         assert!((20..1000).contains(&size), "{size}");

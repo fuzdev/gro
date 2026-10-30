@@ -38,11 +38,20 @@
 //! (`NODE_OPTIONS`, `DENO_DIR`, cargo's `LD_LIBRARY_PATH`) changes what a run
 //! measures.
 //!
+//! A workload can name a `collection` of the pinned corpora: the run then
+//! writes a fresh copy of that collection from the pinned tree, puts the
+//! workload's script at the copy's root under its own file name, and runs it
+//! from there ([`collection`](crate::collection)), so the script's relative
+//! imports are relative to the copy (`./src/lib/array.ts`) and stay inside
+//! the collection's own root. The command still runs from the suite file's
+//! directory.
+//!
 //! Everything runtime-specific (a flag, a variable, a shim file) sits in the
 //! runtime's entry and counts against that runtime; workload scripts are web
 //! standards only, run unmodified by every runtime.
 
 use std::collections::{BTreeMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -81,14 +90,15 @@ pub struct Suite {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CorporaPin {
-    /// The checkout, relative to the suite file's directory. It must be the
-    /// checkout the workload scripts import from, since their imports
+    /// The checkout, relative to the suite file's directory. A workload with
+    /// a `collection` runs inside a copy written from this checkout's objects;
+    /// one without must import from this same checkout, since its imports
     /// hard-code their own relative path to it: the pin checks this path, the
     /// scripts read theirs.
     pub path: PathBuf,
     /// The tree id of its `collections/` at `HEAD`
     /// (`git rev-parse HEAD:collections`), which names the bytes the
-    /// workloads read.
+    /// workloads read, and the tree a workload's collection is copied from.
     pub tree: String,
 }
 
@@ -199,6 +209,14 @@ pub struct Workload {
     /// the suite's version, like the workload set.
     #[serde(default = "default_weight")]
     pub weight: u32,
+    /// A collection of the suite's pinned corpora (a directory of its
+    /// `collections/`) the workload runs inside: the run copies it from the
+    /// pinned tree and runs the script from the copy's root, so the script's
+    /// relative imports are written relative to that root. Absent runs the
+    /// script where it is, and serializes as no key, so the config hash of a
+    /// suite that names none doesn't depend on the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
 }
 
 const fn default_weight() -> u32 {
@@ -238,7 +256,9 @@ impl Suite {
 
     /// Checks what the types can't: something to run, an even sample count,
     /// unique names, runtime workload lists that name workloads (at least
-    /// one), and a `cold` entry on every runtime that runs a cold workload.
+    /// one), a `cold` entry on every runtime that runs a cold workload, and
+    /// workload collections that name a corpora pin's directory, each with
+    /// one script per entry file name.
     ///
     /// # Errors
     ///
@@ -291,6 +311,50 @@ impl Suite {
                 )));
             }
         }
+        self.validate_collections()
+    }
+
+    /// Checks each workload's `collection`: it needs the suite's `corpora`, it
+    /// names a directory of `collections/` (one plain path segment), and the
+    /// scripts sharing a collection's copy have distinct file names, since
+    /// each sits at the copy's root under its own.
+    fn validate_collections(&self) -> Result<(), BenchError> {
+        let mut entries: BTreeMap<(&str, &OsStr), &Path> = BTreeMap::new();
+        for workload in &self.workloads {
+            let Some(collection) = &workload.collection else {
+                continue;
+            };
+            if self.corpora.is_none() {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` names the collection `{collection}`, but the suite pins no `corpora`",
+                    workload.name
+                )));
+            }
+            if !is_plain_segment(collection) {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` names the collection `{collection}`, which isn't a single directory name",
+                    workload.name
+                )));
+            }
+            let Some(entry) = workload.script.file_name() else {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` has the script `{}`, which names no file",
+                    workload.name,
+                    workload.script.display()
+                )));
+            };
+            let script = entries
+                .entry((collection, entry))
+                .or_insert(&workload.script);
+            if *script != workload.script {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the scripts `{}` and `{}` would both be the entry `{}` of the collection `{collection}`",
+                    script.display(),
+                    workload.script.display(),
+                    entry.to_string_lossy()
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -308,6 +372,12 @@ impl Suite {
         let json = serde_json::to_vec(self).expect("a suite serializes to JSON");
         blake3::hash(&json).to_hex().to_string()
     }
+}
+
+/// Whether `name` is one plain path segment: not empty, `.`, or `..`, and
+/// with no separator.
+fn is_plain_segment(name: &str) -> bool {
+    !matches!(name, "" | "." | "..") && !name.contains(['/', '\\', '\0'])
 }
 
 fn unique<'a>(kind: &str, names: impl Iterator<Item = &'a str>) -> Result<(), BenchError> {
@@ -465,6 +535,89 @@ mod tests {
     }
 
     #[test]
+    fn a_workload_can_run_inside_a_corpora_collection() {
+        let suite = |corpora: bool, workloads: &str| {
+            let corpora = if corpora {
+                r#", "corpora": {"path": "../corpora", "tree": "abc"}"#
+            } else {
+                ""
+            };
+            format!(
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [{{"name": "r", "program": "r"}}],
+                    "workloads": [{workloads}]{corpora}}}"#
+            )
+        };
+        let parsed = parse(&suite(
+            true,
+            r#"{"name": "w", "script": "dir/w.js", "collection": "fuz_util"},
+               {"name": "v", "script": "dir/w.js", "collection": "fuz_util"},
+               {"name": "x", "script": "x.js", "collection": "fuz_util"},
+               {"name": "y", "script": "x.js"}"#,
+        ))
+        .unwrap();
+        assert_eq!(parsed.workloads[0].collection.as_deref(), Some("fuz_util"));
+        assert_eq!(parsed.workloads[3].collection, None);
+        // a collection needs the corpora it's copied from
+        assert!(matches!(
+            parse(&suite(false, r#"{"name": "w", "script": "w.js", "collection": "c"}"#)),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("pins no `corpora`")
+        ));
+        // one plain directory name
+        for bad in ["", ".", "..", "a/b", "/a", "a/", r"a\\b"] {
+            assert!(
+                matches!(
+                    parse(&suite(true, &format!(r#"{{"name": "w", "script": "w.js", "collection": "{bad}"}}"#))),
+                    Err(BenchError::SuiteInvalid(ref message)) if message.contains("single directory name")
+                ),
+                "{bad}"
+            );
+        }
+        // two scripts can't be one entry of a collection
+        assert!(matches!(
+            parse(&suite(
+                true,
+                r#"{"name": "w", "script": "a/w.js", "collection": "c"},
+                   {"name": "v", "script": "b/w.js", "collection": "c"}"#
+            )),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("entry `w.js`")
+        ));
+        // but they can in different collections
+        assert!(
+            parse(&suite(
+                true,
+                r#"{"name": "w", "script": "a/w.js", "collection": "c"},
+                   {"name": "v", "script": "b/w.js", "collection": "d"}"#
+            ))
+            .is_ok()
+        );
+        // a script naming no file
+        assert!(matches!(
+            parse(&suite(true, r#"{"name": "w", "script": "..", "collection": "c"}"#)),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("names no file")
+        ));
+    }
+
+    #[test]
+    fn an_absent_collection_leaves_the_config_hash_alone() {
+        let json = |collection: &str| {
+            format!(
+                r#"{{"name":"s","version":1,"samples":4,"runtimes":[{{"name":"r","program":"r"}}],
+                    "workloads":[{{"name":"w","script":"w.js"{collection}}}],
+                    "corpora":{{"path":"c","tree":"t"}}}}"#
+            )
+        };
+        let absent = parse(&json("")).unwrap();
+        let value = serde_json::to_value(&absent).unwrap();
+        // absent serializes as no key, so the hash of a suite without collections is unchanged
+        assert!(value["workloads"][0].get("collection").is_none(), "{value}");
+        let present = parse(&json(r#","collection":"c""#)).unwrap();
+        assert_ne!(absent.config_hash(), present.config_hash());
+        let other = parse(&json(r#","collection":"d""#)).unwrap();
+        assert_ne!(present.config_hash(), other.config_hash());
+    }
+
+    #[test]
     fn the_baseline_suite_is_valid() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/baseline");
         let suite = Suite::load(&dir.join("suite.json")).unwrap();
@@ -472,7 +625,40 @@ mod tests {
             assert!(dir.join(&workload.script).is_file(), "{workload:?}");
         }
         assert!(suite.workloads.iter().any(|w| w.cold));
-        assert!(suite.corpora.is_some());
+        let corpora = suite.corpora.as_ref().unwrap();
+        // the module-graph rows run inside fuz_util's root, importing only below it
+        let graph: Vec<&Workload> = suite
+            .workloads
+            .iter()
+            .filter(|w| w.collection.is_some())
+            .collect();
+        assert_eq!(graph.len(), 2);
+        for workload in graph {
+            let collection = workload.collection.as_deref().unwrap();
+            assert_eq!(collection, "fuz_util");
+            let script = fs::read_to_string(dir.join(&workload.script)).unwrap();
+            let imports: Vec<&str> = script
+                .lines()
+                .filter_map(|line| line.strip_prefix("import '")?.strip_suffix("';"))
+                .collect();
+            assert!(!imports.is_empty());
+            // in the sibling checkout, when there is one: each import is a file of the collection
+            let checkout = dir.join(&corpora.path).join("collections").join(collection);
+            for import in imports {
+                let path = Path::new(import);
+                assert!(import.starts_with("./src/lib/"), "{import}");
+                assert!(
+                    path.components()
+                        .skip(1)
+                        .all(|part| matches!(part, std::path::Component::Normal(_))),
+                    "{import}"
+                );
+                assert!(
+                    !checkout.is_dir() || checkout.join(path).is_file(),
+                    "{import}"
+                );
+            }
+        }
     }
 
     #[test]

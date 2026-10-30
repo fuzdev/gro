@@ -6,6 +6,8 @@
 //!
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
 //!   (a runtime can list the workloads it runs, when it can't run them all)
+//! - [`collection`]: a fresh copy of one collection of the pinned corpora,
+//!   for workloads that run inside the collection's own root
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,
 //!   with an A/A noise row, and refuses a run whose artifacts changed
 //! - [`schedule`]: the interleaved order of a run's samples
@@ -15,6 +17,7 @@
 //!
 //! `cargo xtask bench <suite.json>` runs a suite and appends its record.
 
+pub mod collection;
 pub mod error;
 pub mod record;
 pub mod run;

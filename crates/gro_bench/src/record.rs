@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 
@@ -239,7 +239,8 @@ impl GitState {
             status_args.push(format!(":(exclude){}", relative.display()));
         }
         let status_args: Vec<&str> = status_args.iter().map(String::as_str).collect();
-        let dirty = !git(root, &status_args)?.trim().is_empty();
+        // raw bytes, since `core.quotePath=false` prints names that aren't UTF-8
+        let dirty = !git_output(root, &status_args)?.trim_ascii().is_empty();
         Ok(Self { sha, dirty })
     }
 }
@@ -259,9 +260,9 @@ pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
     let tree = git(path, &["rev-parse", &format!("HEAD:{CORPORA_TREE}")])?
         .trim()
         .to_owned();
-    // untracked files count: a workload could import one
-    let status = git(path, &["status", "--porcelain", "--", CORPORA_TREE])?;
-    if !status.trim().is_empty() {
+    // untracked files count: a workload could import one, under any name
+    let status = git_output(path, &["status", "--porcelain", "--", CORPORA_TREE])?;
+    if !status.trim_ascii().is_empty() {
         return Err(BenchError::CorporaDirty {
             path: path.to_owned(),
         });
@@ -269,12 +270,26 @@ pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
     Ok(tree)
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<String, BenchError> {
-    let command = format!("git -C {} {}", root.display(), args.join(" "));
+/// Runs `git -C root` with `args` and returns its stdout as UTF-8, failing
+/// when it can't run, exits unsuccessfully, or prints anything else, so no
+/// name is ever read as another.
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, BenchError> {
+    String::from_utf8(git_output(root, args)?).map_err(|error| BenchError::Spawn {
+        command: git_command(root, args),
+        source: io::Error::new(io::ErrorKind::InvalidData, error),
+    })
+}
+
+/// Runs `git -C root` with `args` and returns its stdout's bytes, failing
+/// when it can't run or exits unsuccessfully.
+pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, BenchError> {
+    let command = git_command(root, args);
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
         .args(args)
+        // a local `git replace` would change the objects behind a matching id
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
@@ -288,7 +303,12 @@ fn git(root: &Path, args: &[&str]) -> Result<String, BenchError> {
             status: output.status,
         });
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(output.stdout)
+}
+
+/// The command line `git` and `git_output` name in their errors.
+fn git_command(root: &Path, args: &[&str]) -> String {
+    format!("git -C {} {}", root.display(), args.join(" "))
 }
 
 #[cfg(test)]

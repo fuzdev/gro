@@ -80,7 +80,47 @@ pub enum BenchError {
         path.display()
     )]
     CorporaDirty { path: PathBuf },
-    /// An artifact's hash, or the corpora's tree, changed during the run.
+    /// A workload names a collection the pinned corpora tree doesn't have.
+    #[error(
+        "the corpora tree {tree} (in {}) has no collection `{name}`",
+        corpora.display()
+    )]
+    CollectionNotFound {
+        corpora: PathBuf,
+        tree: String,
+        name: String,
+    },
+    /// A collection holds something a materialized copy doesn't support: a
+    /// symlink, a submodule, or a path that isn't UTF-8 or isn't plain
+    /// relative segments.
+    #[error(
+        "the collection `{name}` has {} with mode {mode}, but a materialized copy holds only regular and executable files at plain UTF-8 relative paths",
+        path.display()
+    )]
+    CollectionEntry {
+        name: String,
+        path: PathBuf,
+        mode: String,
+    },
+    /// A workload's entry script would replace a file of its collection.
+    #[error(
+        "the workload `{workload}` writes its entry {} at the root of the collection `{collection}`, which already has it",
+        entry.display()
+    )]
+    EntryCollides {
+        workload: String,
+        collection: String,
+        entry: PathBuf,
+    },
+    /// A file or directory the run writes couldn't be written or removed.
+    #[error("failed to write {}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    /// An artifact's hash, or the corpora's tree, changed during the run, or
+    /// a materialized collection gained or lost a path.
     #[error(
         "artifacts changed during the run, so its samples are discarded: {}",
         paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
@@ -97,9 +137,10 @@ pub enum BenchError {
 
 impl BenchError {
     /// Whether the input is at fault (the suite, a program or file it names,
-    /// a command that fails or prints no version, or a corpora checkout off its
-    /// pin), so the caller must change something before re-running: unchanged,
-    /// it fails the same way.
+    /// a command that fails or prints no version, a corpora checkout off its
+    /// pin, a collection the pinned tree lacks or a copy can't hold, or an
+    /// entry colliding with a collection's file), so the caller must change
+    /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
             self,
@@ -113,6 +154,9 @@ impl BenchError {
                 | Self::NoVersion { .. }
                 | Self::CorporaTree { .. }
                 | Self::CorporaDirty { .. }
+                | Self::CollectionNotFound { .. }
+                | Self::CollectionEntry { .. }
+                | Self::EntryCollides { .. }
         )
     }
 }

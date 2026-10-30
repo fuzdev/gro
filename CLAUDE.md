@@ -512,10 +512,14 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   runs, when it can't run them all). The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
-  and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned
-  by tree id, and `fgro` on both (it has no on-disk cache, so its cold and
-  warm graph rows run the same command); its workload weights are
-  provisional. A suite naming
+  and warm, and `fgro` on both (it has no on-disk cache, so its cold and warm
+  graph rows run the same command); its workload weights are provisional. The
+  graph is fuz_util's collection in a sibling `corpora` checkout
+  (`fuzdev/corpora`), pinned by tree id. A workload that names a `collection`
+  runs from a fresh copy of it, written from the pinned tree's objects into
+  the gitignored `target/bench/`, with the workload's script at the copy's
+  root so its relative imports stay inside the collection; the command still
+  runs from the suite's directory. A suite naming
   `fgro` gets the release snapshot build: the bench builds it first and
   refuses any other binary, then prints each `fgro` row against its gate row
   (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
