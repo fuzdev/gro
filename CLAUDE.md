@@ -517,9 +517,18 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   then any segments then `.js` or `.ts`) are refused with the reason, and a
   fix where there is one.
   It starts from a startup snapshot when the embedder passes one
-  (`snapshot.rs`; built in its own process from the same extension list), else
+  (`snapshot.rs`; built in its own process from the same extension list, with
+  the lazy scripts it didn't load embedded beside it as `residual.rs`), else
   from source, reading `deno_web`'s JS from the build tree; the per-process
-  steps run after startup either way
+  steps run after startup either way. `bootstrap::extensions` drops every
+  lazy and synthetic ES module the extensions declare (`deno_web`'s
+  `locks.js` and `webtransport.js`): deno_core falls back to a lazy ES module
+  of the exact name when the loader refuses an import, and dispatches a
+  synthetic one before asking the loader, so either would load into user
+  code past the resolver's refusal of `ext:`. `gro_runtime`'s tests import
+  every `ext:` specifier the build knows (deno_core's own, and every module
+  and script the extensions declare) statically, by `import()`, and by
+  `import.meta.resolve`, and expect the refusal
 - `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module (JS or
   TypeScript) from disk and takes only the entry file, with no script
   arguments yet (exit `0` success, `1` a run that fails, `2` a usage error,

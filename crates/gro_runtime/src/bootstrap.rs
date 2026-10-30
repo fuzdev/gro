@@ -128,7 +128,28 @@ deno_core::extension!(
 
 /// The runtime's extensions, in dependency order: `deno_webidl`, `deno_web`, and
 /// gro's bootstrap last, since it reads both.
+///
+/// Each extension's lazy ES modules (`deno_web`'s `locks.js` and
+/// `webtransport.js`) and synthetic ES modules (none today) are dropped from
+/// its declaration, so the runtime knows none. `deno_core` resolves an import
+/// its module loader refuses to the lazy ES module of that exact name when it
+/// knows one, whoever the importer, and that module resolves its own `ext:`
+/// imports as internal; it dispatches an import naming a synthetic ES module
+/// before asking the loader at all. Either way a user module's `import` would
+/// reach the module past the loader's refusal of every `ext:` specifier. gro
+/// installs no global from them, so nothing else changes.
 pub fn extensions() -> Vec<Extension> {
+    let mut extensions = declared_extensions();
+    for extension in &mut extensions {
+        extension.lazy_loaded_esm_files = Cow::Borrowed(&[]);
+        extension.synthetic_esm_modules = Cow::Borrowed(&[]);
+    }
+    extensions
+}
+
+/// The extensions as their crates declare them, before [`extensions`] drops
+/// the modules user code could reach.
+pub fn declared_extensions() -> Vec<Extension> {
     vec![
         deno_webidl::deno_webidl::init(),
         deno_web::deno_web::init(

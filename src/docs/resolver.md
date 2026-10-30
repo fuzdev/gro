@@ -46,7 +46,7 @@ A linked package's real path has no `node_modules` in it, so only its admission 
   and gro never pre-bundles a project's dependencies.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
   a CommonJS package or file, a `.js` file whose nearest `package.json` lacks `"type": "module"`,
-  schemes other than `file:`, and the file types [typescript](typescript.md#file-types) lists
+  schemes other than `file:` (the host's own `ext:` modules included), and the file types [typescript](typescript.md#file-types) lists
   (`.cts`, `.tsx`, declaration files, and Svelte modules).
   The fix for a package is a version with an ESM build,
   an ESM bundle of it vendored into the project, or running it on Node.

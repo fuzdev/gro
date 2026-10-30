@@ -371,6 +371,74 @@ fn dynamic_import_refusals_are_catchable() {
     }
 }
 
+/// `ext:` modules user code once reached or that carry the most authority:
+/// `deno_core`'s ops and `core`, and `deno_web`'s lazy ES modules, which
+/// `deno_core` falls back to when the loader refuses their names unless the
+/// runtime declares none. `gro_runtime`'s own tests cover every `ext:`
+/// specifier the build knows; these run against the built binary, a snapshot
+/// build's included.
+const EXT_SPECIFIERS: [&str; 4] = [
+    "ext:core/ops",
+    "ext:core/mod.js",
+    "ext:deno_web/locks.js",
+    "ext:deno_web/webtransport.js",
+];
+
+#[test]
+fn an_ext_specifier_is_refused_to_a_static_import() {
+    for (i, specifier) in EXT_SPECIFIERS.iter().enumerate() {
+        let source = format!("import * as m from {specifier:?};\nconsole.log('loaded', m);\n");
+        let fixtures = TempFixtures::new(&format!("ext_static_{i}"), &[("main.js", &source)]);
+        let run = fixtures.run("main.js");
+        assert_eq!(run.code, 1, "{specifier}: {}{}", run.stdout, run.stderr);
+        assert_eq!(run.stdout, "", "{specifier}");
+        assert!(
+            run.stderr.starts_with(&format!(
+                "error: cannot resolve '{specifier}' from file://{}/main.js: the scheme 'ext:' \
+                 is not supported",
+                fixtures.0.display()
+            )),
+            "{specifier}: {}",
+            run.stderr
+        );
+    }
+}
+
+#[test]
+fn an_ext_specifier_is_refused_to_import_and_import_meta_resolve() {
+    // Rust's debug form of the strings is a JS array literal of them
+    let source = format!(
+        "for (const specifier of {EXT_SPECIFIERS:?}) {{
+\tfor (const [form, attempt] of [
+\t\t['import()', () => import(specifier)],
+\t\t['import.meta.resolve', () => import.meta.resolve(specifier)],
+\t]) {{
+\t\ttry {{
+\t\t\tconsole.log(form, 'resolved', specifier, await attempt());
+\t\t}} catch (error) {{
+\t\t\tconsole.log(form, error instanceof TypeError, error.message.replace(import.meta.url, '<main>'));
+\t\t}}
+\t}}
+}}
+"
+    );
+    let fixtures = TempFixtures::new("ext_dynamic", &[("main.js", &source)]);
+    let run = fixtures.run("main.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let expected: String = EXT_SPECIFIERS
+        .iter()
+        .flat_map(|specifier| {
+            ["import()", "import.meta.resolve"].map(|form| {
+                format!(
+                    "{form} true cannot resolve '{specifier}' from <main>: the scheme 'ext:' \
+                         is not supported; only files on disk (file: URLs) load\n"
+                )
+            })
+        })
+        .collect();
+    assert_eq!(run.stdout, expected);
+}
+
 /// A directory of its own for `files`, so sources that must not pass the
 /// format check (a parse error) or that it skips (`.tsx`, `.cts`) live
 /// outside the fixtures. Removed on drop.

@@ -64,7 +64,6 @@ mod embedded {
 const STARTUP_SNAPSHOT: Option<StartupSnapshot> = Some(StartupSnapshot {
     bytes: embedded::SNAPSHOT,
     residual_lazy_js: embedded::RESIDUAL_LAZY_JS,
-    residual_lazy_esm: embedded::RESIDUAL_LAZY_ESM,
 });
 
 #[cfg(not(feature = "snapshot"))]

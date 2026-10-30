@@ -58,6 +58,8 @@ while a plain `cargo build` runs only from its build tree.
 - Refused with the reason are JSON modules and other import attributes,
   any other extension (`.cjs`, `.json`, `.wasm`), `.cts`, `.tsx`, declaration files, Svelte modules,
   `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
+  The host's own modules (`ext:`) are among the refused schemes:
+  none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
   A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
 
 ## The global scope
