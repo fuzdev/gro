@@ -242,7 +242,7 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 | test runner            | `node:test`                       | `deno test`                   | `bun test`            | planned; vitest through `gro test` until then    |
 | formatter and linter   | none                              | `deno fmt`, `deno lint`       | none                  | `gro format` on tsv, `gro lint` on ESLint        |
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
-| code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed                                         |
+| code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed; never read by `gro eval`               |
 | single-file executable | SEA, experimental                 | `deno compile`                | `bun build --compile` | no                                               |
 | task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | designed: `gro task <path>` with the builtins as subcommands (the Node gro searches `gro <name>` today) |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |

@@ -111,6 +111,7 @@ As designed, not yet built, a run gets:
   credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
 - **under `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
   and the JIT off unless a flag turns it on
+  (with the JIT off V8 has no `WebAssembly` at all, so a config that uses WASM needs the flag)
 - **for native code:** never the runtime's process, not even under `-A`,
   since FFI is a grant that loads the library in its own confined process
 
@@ -202,6 +203,8 @@ and catch a capability on its way through project code,
 so against it the bound is the invocation's whole grant set and the kernel backstop.
 Code that must be treated as hostile belongs in WASM or a separate process,
 not under a looser grant.
+WASM runs with V8's JIT on, so against an engine exploit
+what holds it is the kernel backstop, not the engine.
 Until the Node tools leave the loop, an invocation that spawns them
 is confined only as finely as the kernel backstop, by paths and ports rather than the grant set.
 Outside the model are the unconfined phases (`publish`, `deploy`, `-A`),
@@ -316,6 +319,9 @@ so each piece can be rewritten on its own as measurements justify it.
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns gro,
   never the project's compiler or framework.
 - **Startup.** A snapshot of the host, a code cache keyed by content, and lazy host init.
+  A cache entry is code to V8, so the cache directory is written only by gro,
+  never by a confined run or its children, and `gro eval` and hermetic runs never read it.
+  On a platform without the kernel backstop it stays off until that platform's sandbox exists.
 - **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
   (never a shell string) keep platform differences in a handful of files.
 
@@ -454,8 +460,6 @@ The design doesn't have every answer, and these are the ones it knows it's missi
 - **Where the builtins' grants live.** `gro check` spawns Node tools through gro's own tasks,
   so "nothing to declare" holds only once the builtins' grants ship with the binary
   and a project's policy file holds project tasks alone.
-- **Eval and WASM.** With the JIT off, WASM support is limited,
-  so a config that imports a WASM module may need the JIT flag.
 
 ## Roadmap
 
