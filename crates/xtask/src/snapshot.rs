@@ -14,7 +14,11 @@
 //! 2. `cargo build -p gro_cli --features snapshot`, with `GRO_SNAPSHOT_DIR`
 //!    naming that directory, embeds them, and the binary is hard-linked to
 //!    `<target>/gro_snapshot/<profile>/fgro`, so later plain builds, which
-//!    replace `<target>/<profile>/fgro`, leave it alone.
+//!    replace `<target>/<profile>/fgro`, leave it alone. The build also
+//!    embeds the checkout's commit through `GRO_COMMIT` ([`commit`]), read
+//!    right before it, which `fgro --version` prints; cargo tracks the
+//!    variable, so a new commit or a change to the tree's dirtiness rebuilds
+//!    `gro_cli`.
 //!
 //! Between the stage-one build and `make-snapshot`, the V8 library copy is
 //! checked against the pin ([`crate::v8_archive::verify_linked`]), before any
@@ -37,17 +41,59 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output, Stdio};
 
+use gro_bench::record::GitState;
+
 use crate::{StepResult, run};
 
 /// The fixture both runs of the off-build-tree check execute: a TypeScript
 /// entry over the web globals, so the snapshot build proves the strip too.
 const SMOKE_FIXTURE: &str = "smoke.ts";
 
-/// Builds the snapshot `fgro` and returns its path.
+/// The variable stage two embeds the commit from, which `gro_cli` reads with
+/// `option_env!`.
+const COMMIT_ENV: &str = "GRO_COMMIT";
+
+/// A snapshot build of `fgro`: the binary, and the `GRO_COMMIT` it was built
+/// with, which [`verify`]'s builds repeat so they reuse it rather than
+/// rebuilding `gro_cli` without it.
+pub struct SnapshotBuild {
+    /// `<target>/gro_snapshot/<profile>/fgro`.
+    pub binary: PathBuf,
+    commit: String,
+}
+
+/// The `GRO_COMMIT` value for the checkout at `root`: its `HEAD` SHA, with
+/// `-dirty` appended when the working tree differs from it, untracked files
+/// included, the default bench history excepted ([`GitState::read`], the
+/// state a bench record carries when `--history` isn't given). Empty,
+/// which `fgro --version` prints as `unknown`, when git can't say, with a
+/// warning: a source tree outside a checkout still builds.
+fn commit(root: &Path) -> String {
+    match GitState::read(root, &root.join(crate::HISTORY)) {
+        Ok(state) => commit_value(&state),
+        Err(error) => {
+            eprintln!(
+                "[xtask] warning: the build embeds no commit, since git can't read it: {error}"
+            );
+            String::new()
+        }
+    }
+}
+
+/// Formats `state` as `GRO_COMMIT` expects it.
+fn commit_value(state: &GitState) -> String {
+    if state.dirty {
+        format!("{}-dirty", state.sha)
+    } else {
+        state.sha.clone()
+    }
+}
+
+/// Builds the snapshot `fgro`.
 ///
 /// Its paths come from `target_dir`, cargo's target directory, which
 /// `CARGO_TARGET_DIR` or `build.target-dir` may move off the checkout.
-pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<PathBuf, ExitCode> {
+pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<SnapshotBuild, ExitCode> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
     let dir = target_dir.join("gro_snapshot").join(profile);
@@ -91,7 +137,14 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<PathBuf, E
         "snapshot",
     ];
     stage_two.extend(profile_args);
-    run(root, &[("GRO_SNAPSHOT_DIR", &dir_arg)], "cargo", &stage_two)?;
+    // read last, so it names the tree this build compiles
+    let commit = commit(root);
+    run(
+        root,
+        &[("GRO_SNAPSHOT_DIR", &dir_arg), (COMMIT_ENV, &commit)],
+        "cargo",
+        &stage_two,
+    )?;
     let built = target_dir.join(profile).join("fgro");
     let linked = dir.join("fgro");
     let _ = fs::remove_file(&linked);
@@ -104,7 +157,10 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<PathBuf, E
         ExitCode::FAILURE
     })?;
     println!("\n[xtask] built {}", linked.display());
-    Ok(linked)
+    Ok(SnapshotBuild {
+        binary: linked,
+        commit,
+    })
 }
 
 /// Whether `snapshot.bin` and `residual.rs` exist in `dir` and stage one last
@@ -121,14 +177,20 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
         && matches!((modified(stamp), modified(plain)), (Some(ran), Some(built)) if ran > built)
 }
 
-/// Checks the snapshot build at `binary`: the integration tests against it,
-/// then the off-build-tree run.
-pub fn verify(root: &Path, release: bool, binary: &Path) -> StepResult {
+/// Checks the snapshot `build`: the integration tests against it, then the
+/// off-build-tree run.
+pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
+    let binary = &build.binary;
     let dir = binary.parent().unwrap_or(root).display().to_string();
+    // the stage-two environment, so these builds reuse its gro_cli
+    let env = [
+        ("GRO_SNAPSHOT_DIR", dir.as_str()),
+        (COMMIT_ENV, build.commit.as_str()),
+    ];
     // the workspace clippy builds without the feature, so its code goes unlinted there
     run(
         root,
-        &[("GRO_SNAPSHOT_DIR", &dir)],
+        &env,
         "cargo",
         &[
             "clippy",
@@ -156,7 +218,7 @@ pub fn verify(root: &Path, release: bool, binary: &Path) -> StepResult {
     if release {
         test.push("--release");
     }
-    run(root, &[("GRO_SNAPSHOT_DIR", &dir)], "cargo", &test)?;
+    run(root, &env, "cargo", &test)?;
     off_build_tree(root, binary)
 }
 
@@ -281,4 +343,20 @@ fn cargo_home() -> PathBuf {
         },
         PathBuf::from,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_value_marks_a_dirty_tree() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let state = |dirty| GitState {
+            sha: sha.to_owned(),
+            dirty,
+        };
+        assert_eq!(commit_value(&state(false)), sha);
+        assert_eq!(commit_value(&state(true)), format!("{sha}-dirty"));
+    }
 }

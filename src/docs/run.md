@@ -11,8 +11,14 @@
 
 ```bash
 fgro run <file>   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
-fgro --version    # the version, the V8 version, and whether a startup snapshot is embedded
+fgro --version    # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
+
+`--version` prints one line, `fgro <version> (commit <sha>, V8 <version>, snapshot)`.
+The commit is the full SHA the binary was built from, with `-dirty` appended when the working tree differed from it,
+untracked files included and the bench's history file excepted;
+`cargo xtask build` embeds it, and a binary from a plain `cargo build` embeds none (`commit unknown`).
+The last part is `no snapshot` for a build without a startup snapshot.
 
 `run` takes only the entry file, so an extra argument is a usage error and there are no script arguments.
 User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`).

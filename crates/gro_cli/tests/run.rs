@@ -1412,14 +1412,25 @@ fn typescript_entry_runs() {
     assert!(run.stdout.ends_with("\nstripped\n"), "{}", run.stdout);
 }
 
-/// The bench reads this line, so it must say which build ran: the plain one
-/// under `cargo test`, the snapshot one under `cargo xtask build --verify`.
+/// The bench records this line, so it must say which build ran: the plain one
+/// under `cargo test`, with no commit, the snapshot one under
+/// `cargo xtask build --verify`, with the commit the xtask embedded (it builds
+/// these tests with the same `GRO_COMMIT`).
 #[test]
-fn version_names_v8_and_the_snapshot() {
+fn version_names_the_commit_v8_and_the_snapshot() {
     let output = fgro(&["--version"]);
     assert!(output.status.success(), "{output:?}");
     let line = String::from_utf8(output.stdout).unwrap();
-    assert!(line.starts_with("fgro ") && line.contains("(V8 "), "{line}");
+    let commit = option_env!("GRO_COMMIT")
+        .filter(|value| cfg!(feature = "snapshot") && !value.is_empty())
+        .unwrap_or("unknown");
+    assert!(
+        line.starts_with(&format!(
+            "fgro {} (commit {commit}, V8 ",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{line}"
+    );
     let expected = if cfg!(feature = "snapshot") {
         ", snapshot)\n"
     } else {

@@ -228,9 +228,9 @@ fn main() -> ExitCode {
         Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
         Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
             let target_dir = target_dir(&root)?;
-            let binary = snapshot::build(&root, &target_dir, release)?;
+            let build = snapshot::build(&root, &target_dir, release)?;
             if verify {
-                snapshot::verify(&root, release, &binary)?;
+                snapshot::verify(&root, release, &build)?;
             }
             Ok(())
         }),
@@ -349,8 +349,8 @@ fn check_rust(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
-    let binary = snapshot::build(root, &target_dir, false)?;
-    snapshot::verify(root, false, &binary)
+    let build = snapshot::build(root, &target_dir, false)?;
+    snapshot::verify(root, false, &build)
 }
 
 /// Runs a suite, prints a summary, and appends the record to the history.
@@ -430,7 +430,9 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
     let input = |_| ExitCode::from(EXIT_INPUT);
     fetch_v8(root).map_err(input)?;
     let target_dir = target_dir(root).map_err(input)?;
-    let built = snapshot::build(root, &target_dir, true).map_err(input)?;
+    let built = snapshot::build(root, &target_dir, true)
+        .map_err(input)?
+        .binary;
     let built = built.canonicalize().map_err(|error| {
         eprintln!("[xtask] bench failed: {}: {error}", built.display());
         ExitCode::FAILURE
@@ -518,13 +520,19 @@ fn print_summary(record: &RunRecord) {
             stats.n,
         );
     }
+    // the version column fits the longest line, fgro's with its full commit
+    let version_width = record
+        .runtimes
+        .iter()
+        .map(|runtime| runtime.version.len())
+        .fold("version".len(), usize::max);
     println!(
-        "\n{:<width$} {:<56} {:>10} {:>10}",
+        "\n{:<width$} {:<version_width$} {:>10} {:>10}",
         "runtime", "version", "MB", "gzip MB"
     );
     for runtime in &record.runtimes {
         println!(
-            "{:<width$} {:<56} {:>10.1} {:>10.1}",
+            "{:<width$} {:<version_width$} {:>10.1} {:>10.1}",
             runtime.name,
             runtime.version,
             mb(runtime.bytes),

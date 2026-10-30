@@ -530,8 +530,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `main.rs`), since the strip's parser recurses with a module's nesting and an
   overflow aborts; `gro_runtime::run_main` documents the requirement for any
   embedder.
-  `fgro --version` names the V8 version and whether a snapshot is embedded. Its
-  `snapshot` feature embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`;
+  `fgro --version` names the git commit it was built from (with `-dirty`, or
+  `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot
+  is embedded. Its `snapshot` feature embeds a startup snapshot read from
+  `GRO_SNAPSHOT_DIR`, and only that feature reads `GRO_COMMIT`;
   a plain `cargo build` builds it without one, so it runs only from its build
   tree
 - `gro_bench` - the measurement harness, independent of the runtime crates:
@@ -582,7 +584,10 @@ runs the fetch first, as the first step of `check-rust`.
 starts from a snapshot and runs off its build tree, in two stages: the plain
 `fgro` writes `snapshot.bin` and `residual.rs` with its internal
 `make-snapshot` subcommand, then `fgro` is rebuilt with the `snapshot`
-feature; the result is `<target>/gro_snapshot/<profile>/fgro` (`<target>` is
+feature and `GRO_COMMIT`, the checkout's `HEAD` with `-dirty` when the tree
+differs (untracked files count, the bench history doesn't), read just before
+that build and embedded with `option_env!` for `--version`; the result is
+`<target>/gro_snapshot/<profile>/fgro` (`<target>` is
 cargo's target directory, as `cargo metadata` reports it). `--verify` adds
 clippy over the feature's code, the integration tests against that build, and
 a run of a fixture with the cargo registry's sources and gro's own extension
