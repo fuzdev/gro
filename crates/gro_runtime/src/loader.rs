@@ -18,6 +18,23 @@
 //! again, as an absolute specifier: an installed package's file is then a
 //! path into `node_modules`, refused.
 //!
+//! The loader also records each URL's [`FileId`], the device and inode
+//! numbers and birth time the resolver took when it looked the file up, and
+//! reads a module only from a file it opened and found to have that identity:
+//! it opens the path without blocking, compares the open file's identity with
+//! the record, and reads the source from that same open file, never from the
+//! path again. The first resolution's record stands: resolving the URL again
+//! changes nothing, and a URL already loaded is served from `deno_core`'s
+//! module map. A file, or a directory on its path, swapped between resolving
+//! and loading is refused, a FIFO among them, except a file remade where the
+//! filesystem records no birth time, or within the same tick of its clock as
+//! the original's birth: the identity then falls back to the device and
+//! inode numbers, which ext4 reuses for a file made after one is removed.
+//! What it can't see is a swap inside the resolver's own lookup, between
+//! canonicalizing the path and reading its identity; the lookup reads that
+//! identity without following symlinks, so a last component swapped for a
+//! symlink there is refused, but a swapped directory above it isn't caught.
+//!
 //! A TypeScript module is stripped by `tsv_ts`, which blanks every type-only
 //! range rather than rewriting the code, so every surviving character keeps
 //! its line and column and V8's positions are the source's without a
@@ -30,6 +47,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
 
 use deno_core::error::ModuleLoaderError;
@@ -41,7 +59,7 @@ use tsv_ts::{ErrorReport, Goal, StripError, UnsupportedKind};
 use url::Url;
 
 use crate::resolver::{
-    self, DiskTree, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root, Roots,
+    self, DiskTree, FileId, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root, Roots,
     SourceTree,
 };
 
@@ -50,7 +68,7 @@ use crate::resolver::{
 /// stripped of their types.
 #[derive(Debug)]
 pub struct Loader {
-    /// The roots admitted so far and the root of each URL resolved.
+    /// The roots admitted so far, and the root and file of each URL resolved.
     graph: RefCell<Graph>,
 }
 
@@ -101,45 +119,85 @@ impl Loader {
         }
         Ok(resolution.url)
     }
+
+    /// Loads the module at `specifier`, a URL resolved here, from the file
+    /// its resolution found.
+    fn load_resolved(
+        &self,
+        specifier: &ModuleSpecifier,
+        requested: &RequestedModuleType,
+    ) -> Result<ModuleSource, ModuleLoaderError> {
+        let file_id = self
+            .graph
+            .borrow()
+            .records
+            .get(specifier)
+            .map(|record| record.file_id);
+        // `deno_core` loads only what `resolve` returned, which recorded it
+        let Some(file_id) = file_id else {
+            return Err(ModuleLoaderError::type_error(format!(
+                "cannot load {specifier}: it was never resolved"
+            )));
+        };
+        load(specifier, requested, file_id)
+    }
 }
 
-/// What a graph has resolved: the roots it admitted and the root each URL
-/// resolved inside.
+/// What a graph has resolved: the roots it admitted, and the root and file
+/// of each URL.
 #[derive(Debug)]
 struct Graph {
     /// The project's root, and every package root a bare specifier resolved
     /// into.
     roots: Roots,
-    /// The root each URL resolved inside, the entry's included.
-    records: HashMap<Url, Root>,
+    /// What each URL resolved to, the entry's included.
+    records: HashMap<Url, Record>,
+}
+
+/// What a URL resolved to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Record {
+    /// The root it resolved inside.
+    root: Root,
+    /// Its file's identity, the one loading it must find.
+    file_id: FileId,
+}
+
+impl Record {
+    /// The record of `resolution`.
+    fn new(resolution: &Resolution) -> Self {
+        Self {
+            root: Root {
+                dir: resolution.root.clone(),
+                origin: resolution.origin.clone(),
+            },
+            file_id: resolution.file_id,
+        }
+    }
 }
 
 impl Graph {
     /// The graph of `entry`, resolved with `roots`.
     fn new(entry: &Resolution, roots: Roots) -> Self {
-        let root = Root {
-            dir: entry.root.clone(),
-            origin: entry.origin.clone(),
-        };
         Self {
             roots,
-            records: HashMap::from([(entry.url.clone(), root)]),
+            records: HashMap::from([(entry.url.clone(), Record::new(entry))]),
         }
     }
 
-    /// Admits the root of `resolution` and records its URL inside it,
-    /// changing nothing on an error.
+    /// Admits the root of `resolution` and records its URL inside it, with
+    /// its file, changing nothing on an error.
     ///
     /// A new root around a module already recorded inside an outer one is
     /// a conflict, never first-wins: the module's origin would depend on
     /// which import ran first. A URL resolved again inside the same root is
-    /// no change, since `deno_core` can resolve a specifier twice; inside
-    /// another, a conflict.
+    /// no change, since `deno_core` can resolve a specifier twice, and its
+    /// first record stands: a load checks that file, and a URL already
+    /// loaded is served from `deno_core`'s module map, never read again.
+    /// Resolved again inside another root, it is a conflict.
     fn admit(&mut self, resolution: &Resolution) -> Result<(), ResolveErrorKind> {
-        let root = Root {
-            dir: resolution.root.clone(),
-            origin: resolution.origin.clone(),
-        };
+        let record = Record::new(resolution);
+        let root = &record.root;
         let conflict =
             |path: PathBuf, recorded: &Root, admitted: &Root| ResolveErrorKind::RootConflict {
                 path,
@@ -147,7 +205,7 @@ impl Graph {
                 admitted: Box::new(admitted.clone()),
             };
         if self.roots.get(&root.dir).is_none() {
-            for (url, recorded) in &self.records {
+            for (url, Record { root: recorded, .. }) in &self.records {
                 let Ok(path) = url.to_file_path() else {
                     continue;
                 };
@@ -156,19 +214,20 @@ impl Graph {
                     && root.dir.starts_with(&recorded.dir)
                     && root.contains(&path)
                 {
-                    return Err(conflict(path, recorded, &root));
+                    return Err(conflict(path, recorded, root));
                 }
             }
         }
         if let Some(recorded) = self.records.get(&resolution.url) {
-            if recorded.dir == root.dir {
-                return Ok(());
+            let path = || resolution.url.to_file_path().unwrap_or_default();
+            if recorded.root.dir != root.dir {
+                return Err(conflict(path(), &recorded.root, root));
             }
-            let path = resolution.url.to_file_path().unwrap_or_default();
-            return Err(conflict(path, recorded, &root));
+            // the first record stands
+            return Ok(());
         }
         self.roots.admit(root.clone());
-        self.records.insert(resolution.url.clone(), root);
+        self.records.insert(resolution.url.clone(), record);
         Ok(())
     }
 }
@@ -205,15 +264,16 @@ impl ModuleLoader for Loader {
         _referrer: Option<&ModuleLoadReferrer>,
         options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
-        ModuleLoadResponse::Sync(load(specifier, &options.requested_module_type))
+        ModuleLoadResponse::Sync(self.load_resolved(specifier, &options.requested_module_type))
     }
 }
 
-/// Reads the module at `specifier`, a URL the resolver produced, stripping a
-/// TypeScript module's types.
+/// Reads the module at `specifier`, a URL the resolver produced for the file
+/// `file_id` names, stripping a TypeScript module's types.
 fn load(
     specifier: &ModuleSpecifier,
     requested: &RequestedModuleType,
+    file_id: FileId,
 ) -> Result<ModuleSource, ModuleLoaderError> {
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
     if *requested != RequestedModuleType::None {
@@ -228,8 +288,15 @@ fn load(
     let format = resolver::module_format(&path).map_err(|kind| {
         ModuleLoaderError::type_error(format!("cannot load {specifier}: {kind}"))
     })?;
-    let code = std::fs::read(&path)
-        .map_err(|error| ModuleLoaderError::generic(format!("cannot load {specifier}: {error}")))?;
+    let io_error =
+        |error: io::Error| ModuleLoaderError::generic(format!("cannot load {specifier}: {error}"));
+    // read from the file checked, never the path again, which can change in between
+    let Some(code) = resolver::read_checked(&path, file_id, None).map_err(io_error)? else {
+        return Err(ModuleLoaderError::type_error(format!(
+            "cannot load {specifier}: the file at its path is not the one resolved, so it isn't \
+             loaded"
+        )));
+    };
     let code = match format {
         ModuleFormat::JavaScript => ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
         ModuleFormat::TypeScript => {
@@ -382,7 +449,7 @@ mod tests {
         Loader::new(&entry, roots)
     }
 
-    fn state(loader: &Loader) -> (Roots, HashMap<Url, Root>) {
+    fn state(loader: &Loader) -> (Roots, HashMap<Url, Record>) {
         let graph = loader.graph.borrow();
         (graph.roots.clone(), graph.records.clone())
     }
@@ -478,6 +545,221 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("was never resolved"), "{error}");
+    }
+
+    /// Files on disk in a fresh directory under the system's temp directory,
+    /// removed on drop, under a named `package.json`, so the project root
+    /// is the directory itself. Every directory is `0o755`, so a umask of 0
+    /// can't make one world-writable.
+    struct DiskFixtures(PathBuf);
+
+    impl DiskFixtures {
+        fn new(name: &str, files: &[(&str, &str)]) -> Self {
+            use std::os::unix::fs::PermissionsExt as _;
+            let dir =
+                std::env::temp_dir().join(format!("gro_loader_{}_{name}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let package_json = [("package.json", r#"{"name": "fixture", "type": "module"}"#)];
+            for (file, content) in files.iter().chain(&package_json) {
+                let path = dir.join(file);
+                let parent = path.parent().unwrap();
+                std::fs::create_dir_all(parent).unwrap();
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+                std::fs::write(path, content).unwrap();
+            }
+            Self(dir.canonicalize().unwrap())
+        }
+
+        fn path(&self, file: &str) -> PathBuf {
+            self.0.join(file)
+        }
+
+        fn url(&self, file: &str) -> Url {
+            Url::from_file_path(self.path(file)).unwrap()
+        }
+
+        /// A loader for the graph of `entry`.
+        fn loader(&self, entry: &str) -> Loader {
+            let (entry, roots) =
+                resolver::resolve_entry(&DiskTree, Path::new(entry), &self.0).unwrap();
+            Loader::new(&entry, roots)
+        }
+
+        /// Replaces the file at `file` with a new one holding `content`,
+        /// written beside it first and renamed over it, so the old file's
+        /// inode is still in use when the new one is made and can't be
+        /// reused for it.
+        fn replace(&self, file: &str, content: &str) {
+            let replacement = self.path(&format!("{file}.replacement"));
+            std::fs::write(&replacement, content).unwrap();
+            std::fs::rename(replacement, self.path(file)).unwrap();
+        }
+
+        /// Puts a symlink to `target` at `file`, made beside it and renamed
+        /// over whatever is there.
+        fn link(&self, file: &str, target: &str) {
+            let link = self.path(&format!("{file}.link"));
+            std::os::unix::fs::symlink(target, &link).unwrap();
+            std::fs::rename(link, self.path(file)).unwrap();
+        }
+    }
+
+    impl Drop for DiskFixtures {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const SOURCE: &str = "export const a = 1;\n";
+
+    fn load_disk(loader: &Loader, url: &Url) -> Result<String, String> {
+        loader
+            .load_resolved(url, &RequestedModuleType::None)
+            .map(|source| String::from_utf8(source.code.as_bytes().to_vec()).unwrap())
+            .map_err(|error| error.to_string())
+    }
+
+    fn assert_refused(result: Result<String, String>, url: &Url) {
+        let error = result.unwrap_err();
+        assert!(
+            error.contains(&format!(
+                "cannot load {url}: the file at its path is not the one resolved, so it isn't \
+                 loaded"
+            )),
+            "{error}"
+        );
+    }
+
+    /// The control: a file left alone between resolving and loading loads,
+    /// the entry's and an import's alike.
+    #[test]
+    fn an_unchanged_file_loads() {
+        let fixtures = DiskFixtures::new("unchanged", &[("main.ts", ""), ("a.js", SOURCE)]);
+        let loader = fixtures.loader("main.ts");
+        let main = fixtures.url("main.ts");
+        let url = loader
+            .resolve_in(&DiskTree, "./a.js", main.as_str(), true)
+            .unwrap();
+        assert_eq!(load_disk(&loader, &url).unwrap(), SOURCE);
+        assert_eq!(load_disk(&loader, &main).unwrap(), "");
+        // resolving it again finds the same file
+        loader
+            .resolve_in(&DiskTree, "./a.js", main.as_str(), true)
+            .unwrap();
+        // and a URL never resolved here isn't loaded
+        let error = load_disk(&loader, &fixtures.url("package.json")).unwrap_err();
+        assert!(error.contains("it was never resolved"), "{error}");
+    }
+
+    /// A file replaced by a rename after it was resolved isn't loaded, for an
+    /// import and the entry, and resolving its URL again keeps the first
+    /// record, so the load is still refused.
+    #[test]
+    fn a_file_renamed_over_is_refused() {
+        let fixtures = DiskFixtures::new("renamed", &[("main.ts", ""), ("a.js", SOURCE)]);
+        let loader = fixtures.loader("main.ts");
+        let main = fixtures.url("main.ts");
+        let url = loader
+            .resolve_in(&DiskTree, "./a.js", main.as_str(), true)
+            .unwrap();
+        fixtures.replace("a.js", "export const a = 2;\n");
+        assert_refused(load_disk(&loader, &url), &url);
+        // resolving it again keeps the first file, which the load still checks
+        loader
+            .resolve_in(&DiskTree, "./a.js", main.as_str(), true)
+            .unwrap();
+        assert_refused(load_disk(&loader, &url), &url);
+        fixtures.replace("main.ts", "");
+        assert_refused(load_disk(&loader, &main), &main);
+    }
+
+    /// A directory on the path swapped for a symlink to a twin directory
+    /// holding a file of the same name and content: the path now opens
+    /// another file, refused.
+    #[test]
+    fn a_directory_swapped_for_a_link_is_refused() {
+        let fixtures = DiskFixtures::new(
+            "component",
+            &[("main.ts", ""), ("sub/a.js", SOURCE), ("twin/a.js", SOURCE)],
+        );
+        let loader = fixtures.loader("main.ts");
+        let url = loader
+            .resolve_in(
+                &DiskTree,
+                "./sub/a.js",
+                fixtures.url("main.ts").as_str(),
+                true,
+            )
+            .unwrap();
+        std::fs::rename(fixtures.path("sub"), fixtures.path("old_sub")).unwrap();
+        fixtures.link("sub", "twin");
+        assert_refused(load_disk(&loader, &url), &url);
+    }
+
+    /// The file swapped for a symlink to an identical file: the open follows
+    /// it to a file with another identity, refused.
+    #[test]
+    fn a_file_swapped_for_a_link_is_refused() {
+        let fixtures = DiskFixtures::new(
+            "last_component",
+            &[("main.ts", ""), ("a.js", SOURCE), ("copy.js", SOURCE)],
+        );
+        let loader = fixtures.loader("main.ts");
+        let url = loader
+            .resolve_in(&DiskTree, "./a.js", fixtures.url("main.ts").as_str(), true)
+            .unwrap();
+        fixtures.link("a.js", "copy.js");
+        assert_refused(load_disk(&loader, &url), &url);
+    }
+
+    /// A file removed and made again after it was resolved isn't loaded,
+    /// though ext4 hands the new file the old one's freed inode number.
+    #[test]
+    fn a_file_removed_and_remade_is_refused() {
+        let fixtures = DiskFixtures::new("remade", &[("main.ts", ""), ("a.js", SOURCE)]);
+        let loader = fixtures.loader("main.ts");
+        let url = loader
+            .resolve_in(&DiskTree, "./a.js", fixtures.url("main.ts").as_str(), true)
+            .unwrap();
+        // past the filesystem clock's tick, so the birth times differ
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::remove_file(fixtures.path("a.js")).unwrap();
+        std::fs::write(fixtures.path("a.js"), "export const a = 2;\n").unwrap();
+        assert_refused(load_disk(&loader, &url), &url);
+    }
+
+    /// A FIFO put in the file's place after it was resolved is refused
+    /// without blocking on the open. The load runs on its own thread, so a
+    /// blocking open fails the test by its timeout rather than hanging it.
+    #[test]
+    fn a_fifo_swapped_in_is_refused_without_blocking() {
+        let fixtures = DiskFixtures::new("fifo", &[("main.ts", ""), ("a.js", SOURCE)]);
+        let loader = fixtures.loader("main.ts");
+        let url = loader
+            .resolve_in(&DiskTree, "./a.js", fixtures.url("main.ts").as_str(), true)
+            .unwrap();
+        let fifo = fixtures.path("a.js.fifo");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        std::fs::rename(fifo, fixtures.path("a.js")).unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let load_url = url.clone();
+        std::thread::spawn(move || {
+            let _ = send.send(load_disk(&loader, &load_url));
+        });
+        let Ok(result) = receive.recv_timeout(std::time::Duration::from_secs(5)) else {
+            // a writer releases the blocked open, so the thread ends
+            drop(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(fixtures.path("a.js")),
+            );
+            panic!("opening a FIFO in the file's place blocked");
+        };
+        assert_refused(result, &url);
     }
 
     fn url() -> Url {

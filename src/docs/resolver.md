@@ -79,6 +79,25 @@ Where it departs, it departs on purpose, and always toward failing closed:
   so `import(import.meta.resolve('foo'))` for an installed `foo` is a path into `node_modules`, refused with the fix.
   Node allows every crossing, and each one bypasses the package's `"exports"`,
   the boundary a package declares and a grant decision reads its origin from.
+- **The file loaded is the file resolved.**
+  The resolver takes each module file's identity, its device and inode numbers and its birth time,
+  when it looks the file up, reading them on the real path without following a symlink there.
+  The loader opens the path without blocking, compares the open file's identity with the one resolved,
+  and reads the source from that open file, never from the path again,
+  so a file, or a directory on its path, swapped between resolving and loading
+  (a file renamed over it, a symlink or a FIFO put in its place) is refused:
+  the load fails with `cannot load <url>: the file at its path is not the one resolved, so it isn't loaded`.
+  The first resolution of a URL is the one checked: resolving it again changes nothing,
+  and a module already loaded is served from the module map, not read again.
+  Each `package.json` is read the same way, checked against its own lookup.
+  A file removed and made again is told apart by its birth time,
+  since ext4 hands the new file the old one's inode number;
+  where the filesystem records no birth time, or the new file is made within the same tick of its clock as the original's birth,
+  the identity falls back to the device and inode numbers, and the remade file loads.
+  One window stays open, inside the lookup itself, between canonicalizing the path and reading the identity:
+  a directory on the path swapped there gives the new file's identity, which the loader then finds and loads.
+  A last component swapped there for a symlink reads as one and is refused.
+  Node reads whatever is at the path when it loads, after checking nothing.
 - **The `node_modules` search is bounded by the project root, found first:**
   the first `package.json` at or above the importer, outside `node_modules`,
   that isn't a type marker (a JSON object whose keys are all `"type"` or `"sideEffects"`,

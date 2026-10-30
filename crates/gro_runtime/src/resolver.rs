@@ -70,6 +70,19 @@
 //!   `package.json` was found in rather than that file's real path, and the
 //!   importer's root. An entry inside `node_modules` runs as the package it
 //!   is in. Node allows every crossing, each of which bypasses `"exports"`.
+//! - **A resolution names the file it found**: the [`FileId`] the lookup
+//!   took, its device and inode numbers and birth time, read on the real
+//!   path without following a symlink there, so a last component swapped
+//!   for a symlink after the path was canonicalized reads as one and is
+//!   refused. The module loader opens the path without blocking and loads
+//!   only a file with that identity, read from the handle it checked, and
+//!   every `package.json` read is checked against its own lookup the same
+//!   way ([`SourceTree::read`]). A file remade where the filesystem records
+//!   no birth time, or within the same tick of its clock as the original's
+//!   birth, has only its device and inode to tell it apart, and ext4 reuses
+//!   a removed file's inode. A directory on the path swapped between
+//!   canonicalizing and reading the identity isn't caught: the identity is
+//!   then the new file's. Node reads whatever is at the path.
 //! - **The `node_modules` search is bounded by the project root, found
 //!   first**: the first directory at or above the importer, outside
 //!   `node_modules`, with a `package.json` that isn't a type marker. The walk
@@ -182,25 +195,61 @@ const ELOOP: Option<i32> = if cfg!(all(
     None
 };
 
+/// `O_NONBLOCK`, the open flag that makes opening a FIFO return at once
+/// instead of waiting for a writer; it changes nothing about reading a
+/// regular file. `None` where it isn't known, and files open blocking.
+const O_NONBLOCK: Option<i32> = if cfg!(all(
+    any(target_os = "linux", target_os = "android"),
+    not(any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "mips32r6",
+        target_arch = "mips64r6",
+        target_arch = "sparc",
+        target_arch = "sparc64"
+    ))
+)) {
+    Some(0o4000)
+} else if cfg!(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+)) {
+    Some(4)
+} else {
+    None
+};
+
 /// A read-only view of the files modules resolve against.
 pub trait SourceTree {
     /// Looks up `path`, an absolute path. Returns `Ok(None)` when nothing
-    /// exists there, following symlinks.
+    /// exists there, following symlinks. A file comes back with its
+    /// [`FileId`], which [`SourceTree::read`] and the module loader check
+    /// the file they open against.
     ///
     /// # Errors
     ///
-    /// Returns any other failure to read the tree, such as a permission error.
+    /// Returns any other failure to read the tree, such as a permission
+    /// error, and for [`DiskTree`], an error when the real path turns out to
+    /// be a symlink (it changed while it was looked up), and off Unix, an
+    /// error of kind [`io::ErrorKind::Unsupported`] for a file (no file
+    /// identity to read), so resolution fails closed.
     fn lookup(&self, path: &Path) -> io::Result<Option<Entry>>;
 
     /// Reads the file at `path`, a real path [`SourceTree::lookup`] found a
-    /// file at. Only `package.json` files are read, so a file longer than
+    /// file at with the identity `id`, refusing when the file it opens has
+    /// another. Only `package.json` files are read, so a file longer than
     /// [`MAX_PACKAGE_JSON_SIZE`] is refused without reading it all.
     ///
     /// # Errors
     ///
     /// Returns an error of kind [`io::ErrorKind::FileTooLarge`] for a file
-    /// over [`MAX_PACKAGE_JSON_SIZE`], and any failure to read the file.
-    fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+    /// over [`MAX_PACKAGE_JSON_SIZE`], an error when the opened file isn't
+    /// the one `id` names, and any failure to read the file.
+    fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>>;
 
     /// Whether the directory at `dir`, a real path, is world-writable: its
     /// mode has the other-write bit (`0o002`), whatever its sticky bit. Any
@@ -220,7 +269,12 @@ pub trait SourceTree {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Entry {
     /// A regular file.
-    File(PathBuf),
+    File {
+        /// Its real path.
+        path: PathBuf,
+        /// Its identity when it was looked up.
+        id: FileId,
+    },
     /// A directory.
     Dir(PathBuf),
     /// Any other entry, such as a socket or a device.
@@ -245,32 +299,32 @@ impl SourceTree for DiskTree {
             }
             Err(error) => return Err(error),
         };
-        let metadata = std::fs::metadata(&real_path)?;
+        // not followed: a real path has no symlink in it, so a last component
+        // swapped for one since `canonicalize` reads as one and is refused
+        let metadata = std::fs::symlink_metadata(&real_path)?;
         Ok(Some(if metadata.is_file() {
-            Entry::File(real_path)
+            let id = FileId::of(&metadata)?;
+            Entry::File {
+                path: real_path,
+                id,
+            }
         } else if metadata.is_dir() {
             Entry::Dir(real_path)
+        } else if metadata.is_symlink() {
+            return Err(io::Error::other(format!(
+                "{} is a symlink, though it is the real path of {}, so it changed while it was \
+                 looked up",
+                real_path.display(),
+                path.display()
+            )));
         } else {
             Entry::Other
         }))
     }
 
-    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
-        use std::io::Read as _;
-        let too_large = || io::Error::from(io::ErrorKind::FileTooLarge);
-        let file = std::fs::File::open(path)?;
-        let size = file.metadata()?.len();
-        if size > MAX_PACKAGE_JSON_SIZE {
-            return Err(too_large());
-        }
-        // bounded again, since the file can grow after its size is read
-        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or_default());
-        file.take(MAX_PACKAGE_JSON_SIZE + 1)
-            .read_to_end(&mut bytes)?;
-        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_PACKAGE_JSON_SIZE {
-            return Err(too_large());
-        }
-        Ok(bytes)
+    fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
+        read_checked(path, id, Some(MAX_PACKAGE_JSON_SIZE))?
+            .ok_or_else(|| io::Error::other(FileId::MISMATCH))
     }
 
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
@@ -293,12 +347,126 @@ impl SourceTree for DiskTree {
     }
 }
 
+/// A file's identity, its device and inode numbers and its birth time, taken
+/// when the resolver looked it up.
+///
+/// The module loader opens the path and refuses the file when the one it
+/// opened has another, so a file or a directory on its path swapped between
+/// resolving and reading can't substitute another file, except a file remade
+/// with no birth time to tell it apart (see [`FileId::born`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FileId {
+    /// The device holding the file.
+    pub dev: u64,
+    /// The file's inode number on that device.
+    pub ino: u64,
+    /// When the inode was made, where the filesystem records it: ext4 hands
+    /// a file made after one is removed the freed inode number, so the
+    /// number alone can't tell them apart. `None` where the filesystem
+    /// records no birth time, and then a remade file that reuses the inode
+    /// isn't caught, nor is one made within the same tick of the
+    /// filesystem's clock as the original.
+    pub born: Option<std::time::SystemTime>,
+}
+
+/// Opens the file at `path`, checks that it is the file `id` names, and
+/// reads it from that open file, never from the path again, since the path
+/// can name another file by then. Returns `None` when the opened file has
+/// another identity: the file, or a directory on the way to it, was replaced
+/// since it was looked up. The path is followed as any open follows it, so a
+/// symlink put in its place opens its target, which has another identity.
+///
+/// The open doesn't block ([`O_NONBLOCK`]), so a FIFO put in the file's
+/// place is refused by its identity rather than waiting for a writer.
+///
+/// # Errors
+///
+/// Returns any failure to open, inspect, or read the file, an error of kind
+/// [`io::ErrorKind::FileTooLarge`] when it holds more than `max` bytes, one of
+/// kind [`io::ErrorKind::OutOfMemory`] when its size can't be reserved, and
+/// off Unix, an error of kind [`io::ErrorKind::Unsupported`] ([`FileId::of`]).
+pub(crate) fn read_checked(
+    path: &Path,
+    id: FileId,
+    max: Option<u64>,
+) -> io::Result<Option<Vec<u8>>> {
+    use std::io::Read as _;
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    if let Some(flag) = O_NONBLOCK {
+        options.custom_flags(flag);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if FileId::of(&metadata)? != id {
+        return Ok(None);
+    }
+    let size = metadata.len();
+    let too_large = || io::Error::from(io::ErrorKind::FileTooLarge);
+    if max.is_some_and(|max| size > max) {
+        return Err(too_large());
+    }
+    // reserved only once the size is known to fit, and fallibly, so a
+    // sparse file claiming a huge size errors rather than aborting
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(usize::try_from(size).unwrap_or(usize::MAX))?;
+    let Some(max) = max else {
+        (&file).read_to_end(&mut bytes)?;
+        return Ok(Some(bytes));
+    };
+    // bounded again, since the file can grow after its size is read
+    file.take(max.saturating_add(1)).read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
+        return Err(too_large());
+    }
+    Ok(Some(bytes))
+}
+
+impl FileId {
+    /// What a read says when the file it opened isn't the one looked up.
+    pub const MISMATCH: &str = "the file at its path is not the one looked up, so it isn't read";
+
+    /// The identity of the file `metadata` was read from.
+    ///
+    /// # Errors
+    ///
+    /// Off Unix, an error of kind [`io::ErrorKind::Unsupported`]: there is no
+    /// identity to read, so resolution and loading fail closed.
+    pub fn of(metadata: &std::fs::Metadata) -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            Ok(Self {
+                dev: metadata.dev(),
+                ino: metadata.ino(),
+                born: metadata.created().ok(),
+            })
+        }
+        // TODO: the volume serial and file index if gro ever runs off Unix,
+        // failing closed until then
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "telling a file's identity needs Unix device and inode numbers",
+            ))
+        }
+    }
+}
+
 /// A resolved module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolution {
     /// The module's `file:` URL: its real path, with the specifier's query and
     /// fragment re-attached.
     pub url: Url,
+    /// The module file's identity when it was resolved, which the loader
+    /// checks the file it opens against.
+    pub file_id: FileId,
     /// The real directory of the root the module is inside: its importer's
     /// for a relative or absolute specifier or a self-reference, the
     /// package's for any other bare one.
@@ -741,8 +909,8 @@ pub enum TargetFault {
 
 impl ResolveErrorKind {
     /// Whether the specifier must change for the import to resolve, the
-    /// common case, as opposed to a failure reading the files or a broken
-    /// symlink among them.
+    /// common case, as opposed to a failure reading the files, a broken
+    /// symlink among them, or a file replaced while it was resolved.
     pub const fn is_specifier_error(&self) -> bool {
         !matches!(self, Self::Io { .. } | Self::SymlinkLoop(_))
     }
@@ -1225,7 +1393,7 @@ pub fn resolve(
                     root: importer_root.dir.clone(),
                 }));
             }
-            let real_path = find_module(tree, &path, Some(specifier), &mut consulted, |real| {
+            let found = find_module(tree, &path, Some(specifier), &mut consulted, |real| {
                 contain(
                     real,
                     &importer_root.dir,
@@ -1234,7 +1402,7 @@ pub fn resolve(
                 )
             })
             .map_err(error)?;
-            to_resolution(&real_path, &url, importer_root.clone(), consulted).map_err(error)
+            to_resolution(found, &url, importer_root.clone(), consulted).map_err(error)
         }
         Request::Package(specifier) => {
             let package = resolve_package(
@@ -1260,8 +1428,8 @@ pub fn resolve(
                 }
                 contain(real, &package.root.dir, name, roots)
             };
-            let real_path = match find_module(tree, &path, None, &mut consulted, check) {
-                Ok(real_path) => real_path,
+            let found = match find_module(tree, &path, None, &mut consulted, check) {
+                Ok(found) => found,
                 Err(kind @ (ResolveErrorKind::Io { .. } | ResolveErrorKind::SymlinkLoop(_))) => {
                     return Err(error(kind));
                 }
@@ -1273,7 +1441,7 @@ pub fn resolve(
                     }));
                 }
             };
-            to_resolution(&real_path, &package.url, package.root, consulted).map_err(error)
+            to_resolution(found, &package.url, package.root, consulted).map_err(error)
         }
     }
 }
@@ -1317,7 +1485,7 @@ pub fn resolve_entry(
         )));
     }
     let mut consulted = Consulted::default();
-    let real_path =
+    let (real_path, file_id) =
         find_module(tree, &path, Some(&specifier), &mut consulted, |_| Ok(())).map_err(error)?;
     let (roots, root) = entry_roots(tree, &real_path, &mut consulted).map_err(error)?;
     let url = Url::from_file_path(&real_path).map_err(|()| {
@@ -1327,6 +1495,7 @@ pub fn resolve_entry(
     })?;
     let resolution = Resolution {
         url,
+        file_id,
         root: root.dir,
         origin: root.origin,
         files_consulted: consulted.0,
@@ -1568,7 +1737,9 @@ fn lookup(tree: &impl SourceTree, path: &Path) -> Result<Option<Entry>, ResolveE
 /// Reads `dir`'s `package.json`, when it has one. A leading byte order mark
 /// is skipped, as Node skips it. A `"name"` or `"type"` that isn't a string
 /// makes it invalid, as it does in Node, and so does a `package.json` that
-/// is a special file (a FIFO, a socket, or a device), which is never opened.
+/// is a special file (a FIFO, a socket, or a device) when it is looked up,
+/// which isn't opened; one swapped in after the lookup is opened without
+/// blocking and refused by its identity ([`read_checked`]).
 fn read_package_json(
     tree: &impl SourceTree,
     dir: &Path,
@@ -1576,8 +1747,8 @@ fn read_package_json(
     consulted: &mut Consulted,
 ) -> Result<Option<PackageJson>, ResolveErrorKind> {
     let path = dir.join("package.json");
-    let path = match lookup(tree, &path)? {
-        Some(Entry::File(path)) => path,
+    let (path, id) = match lookup(tree, &path)? {
+        Some(Entry::File { path, id }) => (path, id),
         Some(Entry::Other) => {
             return Err(ResolveErrorKind::InvalidPackageJson {
                 path,
@@ -1590,7 +1761,7 @@ fn read_package_json(
         path: path.clone(),
         reason,
     };
-    let bytes = match tree.read(&path) {
+    let bytes = match tree.read(&path, id) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::FileTooLarge => {
             return Err(invalid(format!(
@@ -1926,7 +2097,7 @@ fn package_not_found(
         .skip(1)
         .take_while(|dir| matches!(tree.is_world_writable(dir), Ok(false)))
         .find_map(|dir| match tree.lookup(&dir.join("package.json")) {
-            Ok(Some(Entry::File(path))) => Some(path),
+            Ok(Some(Entry::File { path, .. })) => Some(path),
             _ => None,
         });
     ResolveErrorKind::PackageNotFound {
@@ -2257,16 +2428,16 @@ fn percent_decode(segment: &str) -> Vec<u8> {
 
 /// Checks the extension, finds the real file, checks it with `check` (its
 /// containment) before anything about it is read, and checks that it loads: its format
-/// by name, and a `.js` file's `"type"`. `hint` is the specifier for
-/// the messages' suggestions, unset for a package's target, whose messages
-/// name the path instead.
+/// by name, and a `.js` file's `"type"`. Returns its real path and its
+/// identity. `hint` is the specifier for the messages' suggestions, unset
+/// for a package's target, whose messages name the path instead.
 fn find_module(
     tree: &impl SourceTree,
     path: &Path,
     hint: Option<&str>,
     consulted: &mut Consulted,
     check: impl FnOnce(&Path) -> Result<(), ResolveErrorKind>,
-) -> Result<PathBuf, ResolveErrorKind> {
+) -> Result<(PathBuf, FileId), ResolveErrorKind> {
     let trailing_slash = path.as_os_str().as_encoded_bytes().ends_with(b"/");
 
     if path.extension().is_none() || trailing_slash {
@@ -2275,7 +2446,7 @@ fn find_module(
             && !trailing_slash
         {
             for extension in SUGGESTED_EXTENSIONS {
-                if let Some(Entry::File(_)) = lookup(tree, &path.with_extension(extension))? {
+                if let Some(Entry::File { .. }) = lookup(tree, &path.with_extension(extension))? {
                     suggestion = Some(with_extension(hint, extension));
                     break;
                 }
@@ -2284,8 +2455,8 @@ fn find_module(
         return Err(ResolveErrorKind::NoExtension { suggestion });
     }
 
-    let real_path = match lookup(tree, path)? {
-        Some(Entry::File(real_path)) => real_path,
+    let (real_path, id) = match lookup(tree, path)? {
+        Some(Entry::File { path, id }) => (path, id),
         Some(Entry::Dir(_) | Entry::Other) => return Err(ResolveErrorKind::NotAFile),
         None => {
             let ts_extension = match path.extension().and_then(|extension| extension.to_str()) {
@@ -2294,7 +2465,7 @@ fn find_module(
                 _ => None,
             };
             let ts_sibling = if let Some(ts_extension) = ts_extension
-                && let Some(Entry::File(_)) = lookup(tree, &path.with_extension(ts_extension))?
+                && let Some(Entry::File { .. }) = lookup(tree, &path.with_extension(ts_extension))?
             {
                 Some(hint.map_or_else(
                     || path.with_extension(ts_extension).display().to_string(),
@@ -2330,23 +2501,24 @@ fn find_module(
             }
         }
     }
-    Ok(real_path)
+    Ok((real_path, id))
 }
 
-/// The resolution of the module at `real_path`, inside `root`, with `url`'s
-/// query and fragment re-attached.
+/// The resolution of the module `find_module` found, its real path and its
+/// identity, inside `root`, with `url`'s query and fragment re-attached.
 fn to_resolution(
-    real_path: &Path,
+    (real_path, file_id): (PathBuf, FileId),
     url: &Url,
     root: Root,
     consulted: Consulted,
 ) -> Result<Resolution, ResolveErrorKind> {
-    let mut resolved = Url::from_file_path(real_path)
+    let mut resolved = Url::from_file_path(&real_path)
         .map_err(|()| ResolveErrorKind::InvalidUrl("names no local path".to_owned()))?;
     resolved.set_query(url.query());
     resolved.set_fragment(url.fragment());
     Ok(Resolution {
         url: resolved,
+        file_id,
         root: root.dir,
         origin: root.origin,
         files_consulted: consulted.0,
@@ -2400,7 +2572,8 @@ pub(crate) mod test_tree {
     /// An in-memory tree: files by path with their contents, symlinks as a
     /// map to their target, symlink loops, which fail with `ELOOP`, and the
     /// world-writable directories. A directory is any path a file or a
-    /// listed directory is under.
+    /// listed directory is under. A file's identity is its place in `files`:
+    /// device 1, inode its index plus one.
     #[derive(Default)]
     pub struct MemoryTree {
         pub files: BTreeMap<&'static str, &'static str>,
@@ -2426,23 +2599,33 @@ pub(crate) mod test_tree {
                     .strip_prefix(path)
                     .is_some_and(|rest| rest.starts_with('/'))
             };
-            Ok(if self.files.contains_key(path) {
-                Some(Entry::File(PathBuf::from(path)))
-            } else if self.dirs.contains(&path)
-                || self.files.keys().copied().any(is_under)
-                || self.dirs.iter().copied().any(is_under)
-            {
-                Some(Entry::Dir(PathBuf::from(path)))
-            } else {
-                None
-            })
+            if let Some(id) = self.id(path) {
+                return Ok(Some(Entry::File {
+                    path: PathBuf::from(path),
+                    id,
+                }));
+            }
+            Ok(
+                if self.dirs.contains(&path)
+                    || self.files.keys().copied().any(is_under)
+                    || self.dirs.iter().copied().any(is_under)
+                {
+                    Some(Entry::Dir(PathBuf::from(path)))
+                } else {
+                    None
+                },
+            )
         }
 
-        fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
+            let path = path.to_str().unwrap();
             let content = self
                 .files
-                .get(path.to_str().unwrap())
+                .get(path)
                 .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+            if self.id(path) != Some(id) {
+                return Err(io::Error::other(FileId::MISMATCH));
+            }
             if content.len() as u64 > MAX_PACKAGE_JSON_SIZE {
                 return Err(io::Error::from(io::ErrorKind::FileTooLarge));
             }
@@ -2451,6 +2634,18 @@ pub(crate) mod test_tree {
 
         fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
             Ok(self.world_writable.contains(&dir.to_str().unwrap()))
+        }
+    }
+
+    impl MemoryTree {
+        /// The identity of the file at `path`, a real path, if one is there.
+        pub fn id(&self, path: &str) -> Option<FileId> {
+            let index = self.files.keys().position(|file| *file == path)?;
+            Some(FileId {
+                dev: 1,
+                ino: u64::try_from(index).unwrap() + 1,
+                born: None,
+            })
         }
     }
 }
@@ -3701,9 +3896,9 @@ mod tests {
             self.tree.lookup(path)
         }
 
-        fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
             self.reads.borrow_mut().push(path.to_owned());
-            self.tree.read(path)
+            self.tree.read(path, id)
         }
 
         fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
@@ -3734,8 +3929,8 @@ mod tests {
         );
     }
 
-    /// A `package.json` that is a FIFO is refused by its type, never opened,
-    /// so the read can't block: a package's, and a module's scope.
+    /// A `package.json` that is a FIFO when it is looked up is refused by its
+    /// type, not opened: a package's, and a module's scope.
     #[test]
     fn a_special_file_package_json_is_refused() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -3810,17 +4005,105 @@ mod tests {
         );
     }
 
+    /// A resolution carries the identity of the file it found, its real
+    /// file's when reached through a symlink, the entry's included.
+    #[test]
+    fn a_resolution_carries_its_file_id() {
+        let tree = tree();
+        let id = |path| tree.id(path).unwrap();
+        let file_id = |specifier| from_entry(&tree, specifier, &importer()).unwrap().file_id;
+        assert_eq!(file_id("./a.js"), id("/p/a.js"));
+        assert_eq!(file_id("./b.mjs"), id("/p/b.mjs"));
+        assert_ne!(id("/p/a.js"), id("/p/b.mjs"));
+        assert_eq!(file_id("./link.js"), id("/p/real/linked.js"));
+        assert_eq!(file_id("./real/linked.js"), id("/p/real/linked.js"));
+        let (entry, _) = resolve_entry(&tree, Path::new("main.js"), Path::new("/p")).unwrap();
+        assert_eq!(entry.file_id, id("/p/main.js"));
+        // a bare specifier's target too
+        let packages = packages();
+        let importer = Url::parse("file:///w/proj/main.js").unwrap();
+        let resolution = from_entry(&packages, "t", &importer).unwrap();
+        assert_eq!(
+            Some(resolution.file_id),
+            packages.id("/w/proj/node_modules/t/main.js")
+        );
+    }
+
+    /// A read checks the identity the lookup found, so a `package.json`
+    /// replaced in between isn't read.
+    #[test]
+    fn a_read_refuses_another_file() {
+        let tree = tree();
+        let path = Path::new("/p/package.json");
+        let Some(Entry::File { id, .. }) = tree.lookup(path).unwrap() else {
+            panic!("/p/package.json is a file");
+        };
+        assert!(tree.read(path, id).is_ok());
+        let other = tree.id("/p/a.js").unwrap();
+        assert_eq!(
+            tree.read(path, other).unwrap_err().to_string(),
+            FileId::MISMATCH
+        );
+    }
+
+    /// On disk, a lookup takes the file's device and inode, and a read
+    /// after the file was renamed over refuses it.
+    #[test]
+    fn a_disk_read_refuses_a_replaced_file() {
+        use std::os::unix::fs::MetadataExt as _;
+        let dir = std::env::temp_dir().join(format!("gro_resolver_id_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.canonicalize().unwrap().join("package.json");
+        std::fs::write(&path, "{}").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let entry = DiskTree.lookup(&path).unwrap();
+        let id = match &entry {
+            Some(Entry::File { id, .. }) => *id,
+            _ => FileId {
+                dev: 0,
+                ino: 0,
+                born: None,
+            },
+        };
+        let before = DiskTree.read(&path, id);
+        // made before the rename, so it can't reuse the replaced file's inode
+        let replacement = dir.join("replacement.json");
+        std::fs::write(&replacement, "{}").unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let after = DiskTree.read(&path, id);
+        // removed before any assertion, so a failure leaves nothing behind
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            entry,
+            Some(Entry::File {
+                path,
+                id: FileId {
+                    dev: metadata.dev(),
+                    ino: metadata.ino(),
+                    born: metadata.created().ok(),
+                },
+            })
+        );
+        assert_eq!(before.unwrap(), b"{}");
+        assert_eq!(after.unwrap_err().to_string(), FileId::MISMATCH);
+    }
+
     #[test]
     fn disk_reads_are_bounded() {
         let path =
             std::env::temp_dir().join(format!("gro_resolver_bounded_{}.json", std::process::id()));
         let file = std::fs::File::create(&path).unwrap();
-        // sparse, so nothing is written
+        // sparse, so nothing is written; refused before any allocation of
+        // its size, which would abort the process
+        file.set_len(1 << 40).unwrap();
+        let id = FileId::of(&file.metadata().unwrap()).unwrap();
+        let huge = DiskTree.read(&path, id).unwrap_err().kind();
         file.set_len(MAX_PACKAGE_JSON_SIZE + 1).unwrap();
-        let too_large = DiskTree.read(&path).unwrap_err().kind();
+        let too_large = DiskTree.read(&path, id).unwrap_err().kind();
         file.set_len(MAX_PACKAGE_JSON_SIZE).unwrap();
-        let at_most = DiskTree.read(&path).map(|bytes| bytes.len() as u64);
+        let at_most = DiskTree.read(&path, id).map(|bytes| bytes.len() as u64);
         std::fs::remove_file(&path).unwrap();
+        assert_eq!(huge, io::ErrorKind::FileTooLarge);
         assert_eq!(too_large, io::ErrorKind::FileTooLarge);
         assert_eq!(at_most.unwrap(), MAX_PACKAGE_JSON_SIZE);
     }
@@ -4489,11 +4772,11 @@ mod tests {
             self.tree.lookup(path)
         }
 
-        fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
             if path == Path::new(self.unreadable) {
                 return Err(io::Error::from(io::ErrorKind::PermissionDenied));
             }
-            self.tree.read(path)
+            self.tree.read(path, id)
         }
 
         fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {

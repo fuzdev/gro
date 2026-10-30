@@ -91,6 +91,10 @@ TypeScript positions are the source's, with no source map.
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
 A dynamic `import()` that fails rejects with a `TypeError` the code can catch.
+A module whose file was replaced between resolving and loading isn't loaded
+(`cannot load <url>: the file at its path is not the one resolved`;
+[resolver](resolver.md#departures-from-node) has what it catches and what it can't),
+the entry's included, which exits 1.
 
 `console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr.
 Each stream is colored only when it's a terminal, and never with `NO_COLOR` or `CLAUDECODE` set non-empty.

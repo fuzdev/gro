@@ -476,7 +476,8 @@ run as Node subprocesses under the invocation's kernel rules.
 - [x] strict package resolution, through `node_modules` by `"exports"` up to the project root,
       with `"type": "module"` (`#` imports come later)
 - [x] origin containment in the resolver ([resolver](resolver.md#departures-from-node)),
-      keeping every module inside its project's or package's root
+      keeping every module inside its project's or package's root,
+      and the loader reading only the file the resolver found
 - [ ] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack

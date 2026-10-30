@@ -437,6 +437,72 @@ impl Drop for TempFixtures {
     }
 }
 
+/// An editor saves a file by writing a new one beside it and renaming it
+/// over the old. A module loaded before that is served from the module map
+/// after it, never read again: a dynamic `import()` of it runs, and so does
+/// one of a new module that imports it, both with the first file's code.
+/// The run waits for the rename by importing `ready.js` until it exists.
+#[test]
+fn a_loaded_module_renamed_over_is_served_from_the_module_map() {
+    use std::io::{BufRead as _, Read as _};
+    let main = "const first = await import('./a.js');
+console.log('loaded', first.a);
+let ready = false;
+for (let i = 0; i < 3000 && !ready; i++) {
+\ttry {
+\t\tawait import('./ready.js');
+\t\tready = true;
+\t} catch {
+\t\tawait new Promise((resolve) => setTimeout(resolve, 10));
+\t}
+}
+const again = await import('./a.js');
+const {b} = await import('./b.js');
+console.log(ready, again.a, b);
+";
+    let fixtures = TempFixtures::new(
+        "renamed_over",
+        &[
+            ("main.js", main),
+            ("a.js", "export const a = 1;\n"),
+            (
+                "b.js",
+                "import {a} from './a.js';\nexport const b = a + 1;\n",
+            ),
+        ],
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fgro"))
+        .args(["run", "main.js"])
+        .current_dir(&fixtures.0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "loaded 1\n");
+    // made before the rename, so it can't reuse the replaced file's inode
+    let replacement = fixtures.0.join("a.js.replacement");
+    std::fs::write(&replacement, "export const a = 2;\n").unwrap();
+    std::fs::rename(replacement, fixtures.0.join("a.js")).unwrap();
+    std::fs::write(fixtures.0.join("ready.js"), "export {};\n").unwrap();
+    // the run ends by itself: its wait for `ready.js` is bounded
+    let mut rest = String::new();
+    stdout.read_to_string(&mut rest).unwrap();
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert_eq!(rest, "true 1 2\n", "{stderr}");
+    assert!(status.success(), "{stderr}");
+}
+
 #[test]
 fn a_typescript_parse_error_has_its_position() {
     let fixtures = TempFixtures::new(
