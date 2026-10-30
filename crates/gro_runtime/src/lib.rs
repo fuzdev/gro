@@ -234,7 +234,7 @@ mod tests {
     /// The modules `deno_core` provides itself, which it doesn't list publicly
     /// (`CONTEXT_SETUP_SOURCES`, `BUILTIN_SOURCES`, `BUILTIN_ES_MODULES`, and
     /// the virtual ops module, in its `runtime/jsruntime.rs`). Recheck this
-    /// list at every deno_core bump: a renamed module would leave the test
+    /// list at every `deno_core` bump: a renamed module would leave the test
     /// refusing a name that no longer exists while the new one goes
     /// untested (they load eagerly, so the loader's refusal still covers
     /// them).
