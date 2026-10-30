@@ -510,7 +510,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   file needs `"type": "module"` with no format sniffing, and `.ts` inside
   `node_modules` is stripped. `.js`/`.mjs` load as written and `.ts`/`.mts`
   load stripped of their types in process by tsv (`tsv_ts`, a git dependency
-  pinned by rev; the loader in `loader.rs` blanks types so positions never
+  pinned by rev; the loader in `loader/` blanks types so positions never
   move, and refuses TypeScript with runtime semantics, such as an `enum`, with
   its position and a fix); schemes, `#` imports, CommonJS, `.cts`, `.tsx`,
   declaration files, and Svelte modules (vite-plugin-svelte's rule: `.svelte.`
