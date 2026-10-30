@@ -5,7 +5,6 @@
 //! (Node, Deno, Bun) as readily as gro's own.
 //!
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
-//!   (a runtime can list the workloads it runs, when it can't run them all)
 //! - [`collection`]: a fresh copy of one collection of the pinned corpora,
 //!   for workloads that run inside the collection's own root
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,

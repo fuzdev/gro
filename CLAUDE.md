@@ -508,8 +508,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
-  run to `crates/gro_bench/history.jsonl` (a runtime can list the workloads it
-  runs, when it can't run them all). The baseline suite
+  run to `crates/gro_bench/history.jsonl`. The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, and `fgro` on both (it has no on-disk cache, so its cold and warm

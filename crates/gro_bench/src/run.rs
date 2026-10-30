@@ -12,8 +12,8 @@
 //!    is and gzipped;
 //! 3. runs each row's warmup processes, then its timed samples, in the
 //!    interleaved order of [`schedule`], with the
-//!    first row's A/A copy as one more row (a row is a workload and a runtime
-//!    that runs it);
+//!    first row's A/A copy as one more row (a row is a workload and a
+//!    runtime);
 //! 4. hashes the artifacts, lists each copy, and reads the corpora's tree
 //!    again, and discards the run if any changed (a copy gaining or losing a
 //!    path counts), since a rebuild mid-run means the samples timed different
@@ -190,7 +190,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         suite_files.insert(file.to_string_lossy().into_owned(), resolved.clone());
         Ok(resolved)
     };
-    // every workload's script, run by a runtime or not
+    // every workload's script
     let scripts = suite
         .workloads
         .iter()

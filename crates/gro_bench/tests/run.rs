@@ -47,7 +47,6 @@ fn sh(args: Vec<Arg>) -> Runtime {
         v8_args: None,
         env: BTreeMap::new(),
         cold: None,
-        workloads: None,
     }
 }
 
@@ -124,32 +123,6 @@ fn measures_every_row_and_the_noise_row() {
     assert_eq!(record.runtimes[0].blake3.len(), 64);
     assert_eq!(record.config_hash, suite.config_hash());
     assert_eq!(record.suite.name, "test");
-}
-
-#[test]
-fn a_runtime_that_lists_its_workloads_gets_only_their_rows() {
-    let dir = scratch("listed", &[("a.sh", "true\n"), ("b.sh", "true\n")]);
-    let mut partial = sh(Vec::new());
-    partial.name = "partial".to_owned();
-    partial.workloads = Some(vec!["b".to_owned()]);
-    // listed first, so the noise row is the first row it has, not one it skips
-    let suite = suite(vec![partial, sh(Vec::new())], &["a.sh", "b.sh"], 2);
-    let record = run_in(&dir, &suite).unwrap();
-    let rows: Vec<(&str, &str)> = record
-        .rows
-        .iter()
-        .map(|row| (row.runtime.as_str(), row.workload.as_str()))
-        .collect();
-    assert_eq!(rows, [("sh", "a"), ("partial", "b"), ("sh", "b")]);
-    assert_eq!(
-        (
-            record.noise.runtime.as_str(),
-            record.noise.workload.as_str()
-        ),
-        ("sh", "a")
-    );
-    // it's still probed and sized like every runtime
-    assert_eq!(record.runtimes.len(), 2);
 }
 
 #[test]
