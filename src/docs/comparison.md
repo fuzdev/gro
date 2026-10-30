@@ -249,19 +249,22 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 
 ## Measured
 
-From the [bench](../../crates/gro_bench) (suite `baseline` v3, 2026-10-17, one quiet machine, interleaved, medians of 200 samples;
-Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot, as built before the TypeScript strip
-and package resolution landed, so its size and startup are re-recorded with the next suite version).
-Node's row has its compile cache on, which changes nothing here (plain Node is within a tenth of a millisecond);
-the module-graph rows join in a later suite version.
+From the [bench](../../crates/gro_bench) (suite `baseline` v4, 2026-10-30, one quiet machine, interleaved, medians of 200 samples;
+Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot).
+The module graph is fuz_util's `src/lib` modules with only relative imports, loaded as TypeScript each runtime strips itself.
+Warm keeps each runtime's on-disk caches; cold turns off their transpile and compiled-code caches.
+Node's column has its compile cache on in its warm rows and off in its cold one, so it matters only for the warm graph (plain Node takes 81 ms there);
+`fgro` has no on-disk cache, so its cold and warm rows run the same command.
 
 |                              | Bun  | fgro | Node, compile cache | Deno  |
 | ---------------------------- | ---- | ---- | ------------------- | ----- |
-| empty script, ms             | 3.2  | 6.6  | 17.5                | 20.7  |
-| `console.log`, ms            | 3.3  | 6.8  | 18.9                | 20.8  |
-| one small import, ms         | 3.8  | 6.7  | 17.7                | 20.8  |
-| binary, MB                   | 89.0 | 55.8 | 122.5               | 107.9 |
-| binary, gzipped MB           | 42.0 | 20.2 | 43.6                | 43.8  |
+| empty script, ms             | 3.3  | 6.9  | 17.8                | 20.4  |
+| `console.log`, ms            | 3.4  | 7.0  | 19.4                | 20.4  |
+| one small import, ms         | 3.9  | 7.0  | 18.0                | 20.5  |
+| module graph, warm, ms       | 7.3  | 13.9 | 29.5                | 24.5  |
+| module graph, cold, ms       | 8.4  | 13.9 | 81.2                | 29.1  |
+| binary, MB                   | 89.0 | 56.3 | 122.5               | 107.9 |
+| binary, gzipped MB           | 42.0 | 20.5 | 43.6                | 43.8  |
 
 Bun's startup is JavaScriptCore's; the V8 runtimes share an engine floor of a few milliseconds that only a custom V8 build or process reuse reaches.
 The numbers move with every milestone and are re-recorded with the suite's version named, never compared across versions.

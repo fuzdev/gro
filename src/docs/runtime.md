@@ -469,7 +469,7 @@ Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svel
 run as Node subprocesses under the invocation's kernel rules.
 
 - [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
-      on the same workloads (gro on startup only, so far), the baseline every milestone is measured against
+      on the same workloads, the baseline every milestone is measured against
 - [x] `gro run` (as `fgro run` for now), running ESM from disk on V8 with web-standard globals
       and a startup snapshot
 - [x] TypeScript by tsv's type strip, in process

@@ -1,8 +1,8 @@
 {
 	"name": "baseline",
-	"version": 3,
+	"version": 4,
 	"samples": 200,
-	"corpora": {"path": "../../../../../corpora", "tree": "ba7a9a6c84524d78b8d4cbca9ec9b1ac64e5b291"},
+	"corpora": {"path": "../../../../../corpora", "tree": "d918a1ea471a59f5d1899af742d5c5383a71a936"},
 	"runtimes": [
 		{"name": "bun", "program": "bun", "cold": {"env": {"BUN_RUNTIME_TRANSPILER_CACHE_PATH": "0"}}},
 		{"name": "node", "program": "node", "v8_args": ["-p", "process.versions.v8"], "cold": {}},
@@ -25,7 +25,7 @@
 			"name": "fgro",
 			"program": "../../../../target/gro_snapshot/release/fgro",
 			"args": ["run"],
-			"workloads": ["empty", "console_log", "import_one"]
+			"cold": {}
 		}
 	],
 	"workloads": [

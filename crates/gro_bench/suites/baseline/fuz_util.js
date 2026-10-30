@@ -20,9 +20,9 @@
 //
 // The `fgro` runtime is gro's own, the release build with its startup
 // snapshot that `cargo xtask build --release` makes; `cargo xtask bench`
-// builds it before a run that names it. It runs the startup workloads only:
-// fgro loads this graph now, stripping its TS in process, but its rows here
-// join the suite in a later version of it.
+// builds it before a run that names it. It strips this graph's TS in process
+// and has no on-disk cache of any kind, so, like `node`, its cold and warm
+// rows run the same command.
 
 import '../../../../../corpora/collections/fuz_util/src/lib/array.ts';
 import '../../../../../corpora/collections/fuz_util/src/lib/async.ts';

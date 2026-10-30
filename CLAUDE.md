@@ -513,9 +513,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, read from a sibling `corpora` checkout (`fuzdev/corpora`) pinned
-  by tree id, and `fgro` on the startup scripts only (it loads the graph now,
-  but its graph rows join in a later suite version); its workload weights are
-  provisional until gro has numbers. A suite naming
+  by tree id, and `fgro` on both (it has no on-disk cache, so its cold and
+  warm graph rows run the same command); its workload weights are
+  provisional. A suite naming
   `fgro` gets the release snapshot build: the bench builds it first and
   refuses any other binary, then prints each `fgro` row against its gate row
   (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
