@@ -474,10 +474,17 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   found by self-reference or in `node_modules` up from the importer's real
   path; the importer's origin is passed in, since a linked package's real
   path has no `node_modules` in it. Deliberate departures from Node: the
-  `node_modules` search ends at the project root (the first `package.json`
-  outside `node_modules` that isn't a type marker, whose keys are all `"type"`
-  or `"sideEffects"`, failing closed, so npm and yarn workspaces aren't
-  supported), a package with no `"exports"` is refused (no `main`), a `.js`
+  `node_modules` search is bounded by the project root, found first (the
+  first `package.json` outside `node_modules` that isn't a type marker, whose
+  keys are all `"type"` or `"sideEffects"`, failing closed, so npm and yarn
+  workspaces aren't supported), and a module with no project root gets no
+  bare imports except a self-reference, which resolves through its own
+  package's `"exports"`; a world-writable directory (the other-write bit)
+  ends every walk up, with no `package.json` or `node_modules` in it read,
+  and a package found through one (its `node_modules`, `@scope`, root, a
+  linked root's real holders, or a linked `node_modules`'s or `@scope`'s
+  real parent) is refused (`SourceTree::is_world_writable`); a package with
+  no `"exports"` is refused (no `main`), a `.js`
   file needs `"type": "module"` with no format sniffing, and `.ts` inside
   `node_modules` is stripped. `.js`/`.mjs` load as written and `.ts`/`.mts`
   load stripped of their types in process by tsv (`tsv_ts`, a git dependency

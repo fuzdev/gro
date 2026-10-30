@@ -26,9 +26,18 @@ while a plain `cargo build` runs only from its build tree.
 
 - `.mjs`, `.ts`, and `.mts` modules, and `.js` modules under a `package.json` with `"type": "module"`.
   A `.js` file without one is refused, never sniffed.
+  A world-writable directory (other-write, like `/tmp`) ends the search for it, and for every `package.json`:
+  no `package.json` or `node_modules` in it is read,
+  and a package installed through one (its `node_modules`, `@scope`, root, a linked root's real holders, or a linked `node_modules`'s or `@scope`'s real parent) is refused.
   TypeScript is stripped of its types in process ([typescript](typescript.md)).
 - Relative and absolute specifiers with their full extension,
-  and bare specifiers through a package's `"exports"` in `node_modules` ([resolver](resolver.md)).
+  and bare specifiers through a package's `"exports"` in `node_modules`,
+  searched from the importer up to its project root ([resolver](resolver.md)).
+  A module with no project root above it (no `package.json` outside `node_modules` that isn't a type marker,
+  below any world-writable directory) gets no bare imports except a self-reference,
+  which resolves through its own package's `"exports"`,
+  and any other bare import is refused with the fix: a `package.json` at the project root,
+  with the package installed in the `node_modules` beside it.
   A module's `import.meta.url` is its real path, after symlinks.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.

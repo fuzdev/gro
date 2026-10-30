@@ -107,7 +107,9 @@ and `gro check` diffs it like a lockfile, failing on a widening until a person a
 ## project root
 
 The directory of the first `package.json` above a module, outside `node_modules`,
-that isn't a [type marker](#type-marker). The `node_modules` search ends there.
+that isn't a [type marker](#type-marker), found below any world-writable directory.
+The `node_modules` search ends there, and a module with none gets no bare imports
+except a self-reference, which resolves through its own package's `"exports"`.
 
 ## pure globals
 

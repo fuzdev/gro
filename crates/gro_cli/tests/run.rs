@@ -361,16 +361,57 @@ impl TempFixtures {
         fixtures
     }
 
-    /// The files alone, each at its relative path.
+    /// The files alone, each at its relative path. Every directory's mode
+    /// is set to `0o755`, so a umask of 0 can't make one world-writable,
+    /// which would end every walk up from the files at it.
     fn without_package_json(name: &str, files: &[(&str, &str)]) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
         let dir = std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
         for (file, content) in files {
             let path = dir.join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            for parent in path.ancestors().skip(1) {
+                if parent == dir {
+                    break;
+                }
+                std::fs::create_dir_all(parent).unwrap();
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
             std::fs::write(path, content).unwrap();
         }
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         Self(dir.canonicalize().unwrap())
+    }
+
+    /// Sets the mode of the directory at `path`, relative to the fixtures.
+    fn set_mode(&self, path: &str, mode: u32) {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(self.0.join(path), std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// The first world-writable directory at or above the fixtures, where
+    /// every walk up from them stops (`/tmp` is one), if any.
+    ///
+    /// # Panics
+    ///
+    /// Panics when a `package.json` is above the fixtures and below that
+    /// directory, since the walks from the fixtures would read it, and the
+    /// tests that expect them to find none would fail misleadingly.
+    fn world_writable_ancestor(&self) -> Option<PathBuf> {
+        use std::os::unix::fs::PermissionsExt as _;
+        for dir in self.0.ancestors() {
+            if std::fs::metadata(dir).unwrap().permissions().mode() & 0o002 != 0 {
+                return Some(dir.to_owned());
+            }
+            let package_json = dir.join("package.json");
+            assert!(
+                dir == self.0 || !package_json.exists(),
+                "TMPDIR is under a project: {} is above the temp dir, and the walks from the \
+                 fixtures read it. Set TMPDIR outside one",
+                package_json.display()
+            );
+        }
+        None
     }
 
     fn run(&self, file: &str) -> Run {
@@ -816,6 +857,10 @@ fn package_refusals_name_the_reason_and_a_fix() {
     let fixtures = TempFixtures::new(
         "package_refusals",
         &[
+            (
+                "package.json",
+                r#"{"name": "package_refusals", "type": "module"}"#,
+            ),
             ("main_only.js", "import 'main_only';\n"),
             (
                 "node_modules/main_only/package.json",
@@ -859,7 +904,16 @@ fn package_refusals_name_the_reason_and_a_fix() {
 /// `ELOOP`.
 #[test]
 fn a_symlink_loop_is_named() {
-    let fixtures = TempFixtures::new("symlink_loop", &[("main.js", "import 'looped';\n")]);
+    let fixtures = TempFixtures::new(
+        "symlink_loop",
+        &[
+            (
+                "package.json",
+                r#"{"name": "symlink_loop", "type": "module"}"#,
+            ),
+            ("main.js", "import 'looped';\n"),
+        ],
+    );
     let root = &fixtures.0;
     std::fs::create_dir_all(root.join("node_modules")).unwrap();
     std::os::unix::fs::symlink(
@@ -894,15 +948,31 @@ fn a_js_module_needs_type_module() {
             ("commonjs/c.js", "console.log('c');\n"),
         ],
     );
+    // where a temp dir is under `/tmp`, the search stops there
+    let stopped_at = fixtures.world_writable_ancestor();
     let run = fixtures.run("a.js");
     assert_eq!(run.code, 2);
+    let reason = stopped_at.map_or_else(
+        || {
+            "and none is above it (the format is never guessed from the code). Fix: rename the \
+             file to .mjs, or add a package.json with \"type\": \"module\""
+                .to_owned()
+        },
+        |stopped_at| {
+            format!(
+                "and the search for one stopped at {}, which is world-writable, so nothing in it \
+                 or above it is read (the format is never guessed from the code). Fix: rename the \
+                 file to .mjs, or move it under a package.json with \"type\": \"module\" in a \
+                 directory that isn't world-writable",
+                stopped_at.display()
+            )
+        },
+    );
     assert_eq!(
         run.stderr,
         format!(
             "error: cannot resolve 'a.js' from {}: a .js file is an ES module only under a \
-             package.json with \"type\": \"module\", and none is above it (the format is never \
-             guessed from the code). Fix: rename the file to .mjs, or add a package.json with \
-             \"type\": \"module\"\n",
+             package.json with \"type\": \"module\", {reason}\n",
             fixtures.0.display()
         )
     );
@@ -919,6 +989,127 @@ fn a_js_module_needs_type_module() {
     let run = fixtures.run("b.mjs");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "b\n");
+}
+
+/// A world-writable directory ends every walk up, and no `package.json` or
+/// `node_modules` in it is read:
+/// its `package.json` doesn't bound a project below it or name a
+/// self-reference, and its `node_modules` isn't searched. A module directly
+/// in it still runs, with relative imports only.
+#[test]
+fn a_world_writable_directory_ends_every_walk() {
+    let fixtures = TempFixtures::new(
+        "world_writable",
+        &[
+            (
+                "shared/package.json",
+                r#"{"name": "shared", "type": "module", "exports": {"./evil.ts": "./evil.ts"}}"#,
+            ),
+            ("shared/evil.ts", "console.log('evil');\n"),
+            (
+                "shared/node_modules/foo/package.json",
+                r#"{"exports": "./i.mjs"}"#,
+            ),
+            ("shared/node_modules/foo/i.mjs", "console.log('planted');\n"),
+            ("shared/loose/main.ts", "import 'foo';\n"),
+            ("shared/loose/self.ts", "import 'shared/evil.ts';\n"),
+            ("shared/direct.ts", "import './sibling.mjs';\n"),
+            ("shared/sibling.mjs", "console.log('relative');\n"),
+        ],
+    );
+    fixtures.set_mode("shared", 0o1777);
+    let root = fixtures.0.display();
+    let no_project_root = |specifier: &str, file: &str| {
+        format!(
+            "error: cannot resolve '{specifier}' from file://{root}/shared/loose/{file}: no \
+             project root is above {root}/shared/loose: a bare specifier resolves only under a \
+             package.json outside node_modules that holds more than \"type\" and \
+             \"sideEffects\", and the search for one stopped at {root}/shared, which is \
+             world-writable, so nothing in it or above it is read. Fix: add a package.json at \
+             the project root, with the package installed in the node_modules beside it\n"
+        )
+    };
+    let run = fixtures.run("shared/loose/main.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, no_project_root("foo", "main.ts"));
+    let run = fixtures.run("shared/loose/self.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    assert_eq!(run.stderr, no_project_root("shared/evil.ts", "self.ts"));
+    let run = fixtures.run("shared/direct.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "relative\n");
+}
+
+/// A package installed through a world-writable directory is refused, here
+/// a `node_modules` any user could plant a package in, though the project
+/// above it is sound.
+#[test]
+fn a_world_writable_node_modules_is_refused() {
+    let fixtures = TempFixtures::new(
+        "world_writable_node_modules",
+        &[
+            ("package.json", r#"{"name": "proj", "type": "module"}"#),
+            ("node_modules/foo/package.json", r#"{"exports": "./i.mjs"}"#),
+            ("node_modules/foo/i.mjs", "console.log('planted');\n"),
+            ("main.ts", "import 'foo';\n"),
+        ],
+    );
+    fixtures.set_mode("node_modules", 0o777);
+    let run = fixtures.run("main.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    let root = fixtures.0.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'foo' from file://{root}/main.ts: package 'foo' is found \
+             through {root}/node_modules, which is world-writable, so nothing in it is read: any \
+             user can plant or replace a package there. Fix: remove the directory's other-write \
+             bit (chmod o-w), then reinstall the package\n"
+        )
+    );
+}
+
+/// A `node_modules` planted above a directory with no project root is never
+/// searched: the walk for the bound comes first, and with none, a bare
+/// specifier other than a self-reference is refused.
+#[test]
+fn a_node_modules_above_a_package_less_dir_is_never_searched() {
+    let fixtures = TempFixtures::without_package_json(
+        "planted_above",
+        &[
+            ("node_modules/foo/package.json", r#"{"exports": "./i.mjs"}"#),
+            ("node_modules/foo/i.mjs", "console.log('planted');\n"),
+            ("x/zap.ts", "import 'foo';\n"),
+        ],
+    );
+    // where a temp dir is under `/tmp`, the search stops there
+    let stopped_at = fixtures.world_writable_ancestor();
+    let run = fixtures.run("x/zap.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    let root = fixtures.0.display();
+    let end = stopped_at.map_or_else(
+        || "reached the filesystem's root".to_owned(),
+        |stopped_at| {
+            format!(
+                "stopped at {}, which is world-writable, so nothing in it or above it is read",
+                stopped_at.display()
+            )
+        },
+    );
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'foo' from file://{root}/x/zap.ts: no project root is above \
+             {root}/x: a bare specifier resolves only under a package.json outside node_modules \
+             that holds more than \"type\" and \"sideEffects\", and the search for one {end}. \
+             Fix: add a package.json at the project root, with the package installed in the \
+             node_modules beside it\n"
+        )
+    );
 }
 
 #[test]

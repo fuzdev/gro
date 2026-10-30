@@ -23,12 +23,14 @@
 //!   `package.json` `"exports"`, Node's algorithm: exact subpaths, then
 //!   single-`*` patterns by Node's ordering, conditions matched in the
 //!   package's key order from the set [`CONDITIONS`], arrays as fallbacks,
-//!   and every target checked to start with `./` and stay inside the package.
+//!   and every target checked to start with `./` and stay inside the package
+//!   by its path.
 //!   The importer's own package comes first (a self-reference, when its
 //!   `package.json` has `"exports"` and its name matches), then
-//!   `node_modules/<name>` in each directory up from the importer's real
-//!   location, the first one that is a directory winning. A package with no
-//!   `"exports"` is refused: `main` and `module` are never read.
+//!   `node_modules/<name>` in each directory from the importer's real
+//!   location up to its project root, the first one that is a directory
+//!   winning. A package with no `"exports"` is refused: `main` and `module`
+//!   are never read.
 //! - **The file must exist**, and resolves to its real path (symlinks
 //!   followed), so a module's own imports resolve from where it really lives.
 //! - **`.js`, `.mjs`, `.ts`, and `.mts` load**, as ES modules, the TypeScript
@@ -44,22 +46,46 @@
 //!
 //! Where it departs from Node, deliberately:
 //!
-//! - **The `node_modules` search ends at the project root**: the first
-//!   directory outside `node_modules` with a `package.json` that isn't a
-//!   type marker, after checking that directory's own `node_modules`. A
-//!   marker is a JSON object whose keys are all `"type"` or `"sideEffects"`,
-//!   such as a `{"type": "module"}` in `dist/esm/` (the empty object is one
-//!   too); every other `package.json` ends the search, named or not, so an
-//!   unrecognized one fails closed. A project whose packages aren't installed
-//!   fails, rather than resolving a parent directory's, and so does a
-//!   package of an npm or yarn workspace that is installed only at the
-//!   workspace's root. Inside `node_modules` the search continues past
-//!   package roots, where npm hoists dependencies and where nested layouts
-//!   (`node_modules/.deno/<pkg>@<version>/node_modules/`) put them.
-//! - **Every `package.json` the search passes outside `node_modules` is
-//!   read**, to tell a marker from a bound, so one that isn't valid (not
-//!   JSON, a `"name"` or `"type"` that isn't a string, or a special file)
-//!   fails the import, where Node never reads it.
+//! - **The `node_modules` search is bounded by the project root, found
+//!   first**: the first directory at or above the importer, outside
+//!   `node_modules`, with a `package.json` that isn't a type marker. The walk
+//!   for it runs before any `node_modules` is looked up, and the search then
+//!   runs from the importer up to it, its own `node_modules` included, so a
+//!   `node_modules` above the project is never consulted. A module with no
+//!   project root gets no bare imports except a self-reference, which
+//!   resolves through its own package's `"exports"`: any other bare specifier is
+//!   refused ([`ResolveErrorKind::NoProjectRoot`]), where Node searches every
+//!   ancestor. A marker is a JSON object whose keys
+//!   are all `"type"` or `"sideEffects"`, such as a `{"type": "module"}` in
+//!   `dist/esm/` (the empty object is one too); every other `package.json`
+//!   ends the walk, named or not, so an unrecognized one fails closed. A
+//!   project whose packages aren't installed fails, rather than resolving a
+//!   parent directory's, and so does a package of an npm or yarn workspace
+//!   that is installed only at the workspace's root. Inside `node_modules`
+//!   the search continues past package roots, where npm hoists dependencies
+//!   and where nested layouts (`node_modules/.deno/<pkg>@<version>/node_modules/`)
+//!   put them.
+//! - **A world-writable directory ends every walk up**, and no `package.json`
+//!   or `node_modules` in it is read: not its `package.json` (as a project
+//!   root, a `"type"` scope, or a self-reference's scope), and not its
+//!   `node_modules`. A package the search finds through one, the
+//!   `node_modules` it is installed in, its scope's directory, its own root,
+//!   for a linked package the real directories holding it, or for a linked
+//!   `node_modules` or scope directory its real parent, is refused
+//!   ([`ResolveErrorKind::WorldWritablePackage`]), since any user can plant
+//!   or replace a package there. Module files are outside the rule: one in a
+//!   world-writable directory still loads by a relative specifier or as a
+//!   package's `"exports"` target, though a walk up from it still stops
+//!   there. World-writable is the other-write bit (`0o002`), whatever the
+//!   sticky bit; a group-writable directory doesn't stop a walk. The
+//!   importer's own directory counts, so a module directly in `/tmp` runs
+//!   with relative imports only, and a `.js` file there has no `"type"`
+//!   scope. Node reads them all, so a `package.json` or a `node_modules` any
+//!   user can plant in `/tmp` would resolve for every module below it.
+//! - **Every `package.json` the walk passes outside `node_modules` is read**,
+//!   to tell a marker from a bound, so one that isn't valid (not JSON, a
+//!   `"name"` or `"type"` that isn't a string, or a special file) fails the
+//!   import, where Node never reads it.
 //! - **A duplicated key keeps its last value**, as `JSON.parse` does, so
 //!   `{"type": 5, "type": "module"}` reads as a module scope, where Node
 //!   checks every occurrence and refuses it.
@@ -76,9 +102,10 @@
 //! What fails, loudly, with the reason and a fix: `node:` (no Node compat),
 //! `npm:` and `jsr:` (registry specifiers), `http:`, `https:`, and `data:`
 //! (remote and inline; only files on disk load), any other non-`file:`
-//! scheme, `#` package imports, a bare Node built-in name (`fs`, which is
-//! looked up as a package and not found), a `%2F`, `%5C`, or `%00` in a
-//! resolved path, a `.js` file outside `"type": "module"`, a symlink loop
+//! scheme, `#` package imports, a bare specifier other than a self-reference
+//! with no project root above the importer, a bare Node built-in name (`fs`,
+//! which is looked up as a package and not found), a `%2F`, `%5C`, or `%00`
+//! in a resolved path, a `.js` file outside `"type": "module"`, a symlink loop
 //! (named as one where the OS's `ELOOP` is known), a `package.json` over
 //! [`MAX_PACKAGE_JSON_SIZE`], one whose `"name"` or `"type"` isn't a string,
 //! or one that is a special file, and the empty specifier.
@@ -147,6 +174,18 @@ pub trait SourceTree {
     /// Returns an error of kind [`io::ErrorKind::FileTooLarge`] for a file
     /// over [`MAX_PACKAGE_JSON_SIZE`], and any failure to read the file.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+
+    /// Whether the directory at `dir`, a real path, is world-writable: its
+    /// mode has the other-write bit (`0o002`), whatever its sticky bit. Any
+    /// user can plant files in one, so an upward walk ends below it, reading
+    /// no `package.json` in it, and no package is read through one.
+    ///
+    /// # Errors
+    ///
+    /// Returns any failure to read the directory's metadata, and, for
+    /// [`DiskTree`] off Unix, an error of kind [`io::ErrorKind::Unsupported`]
+    /// (no mode bits to read), so resolution fails closed.
+    fn is_world_writable(&self, dir: &Path) -> io::Result<bool>;
 }
 
 /// What [`SourceTree::lookup`] found at a path, at its real path (every
@@ -206,6 +245,25 @@ impl SourceTree for DiskTree {
         }
         Ok(bytes)
     }
+
+    fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+        let metadata = std::fs::metadata(dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            Ok(metadata.permissions().mode() & 0o002 != 0)
+        }
+        // TODO: no mode bits to read; an ACL check if gro ever runs off Unix,
+        // failing closed until then
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "telling a world-writable directory needs Unix mode bits",
+            ))
+        }
+    }
 }
 
 /// A resolved module.
@@ -259,9 +317,9 @@ pub enum FileRole {
     /// The nearest `package.json` above a module, for its `"type"`, or above
     /// an importer, for a self-reference's `"name"` and `"exports"`.
     PackageScope,
-    /// A `package.json` beside the `node_modules` search, read to tell a
-    /// type marker, which the search passes, from the project root it ends
-    /// at.
+    /// A `package.json` on the walk for the project root that bounds the
+    /// `node_modules` search, read to tell a type marker, which the walk
+    /// passes, from the root it ends at, which is always read.
     SearchBound,
 }
 
@@ -301,14 +359,39 @@ pub enum ResolveErrorKind {
     /// holds `%` or `\`, has an empty, `.`, or `..` segment, or is a scope
     /// with no name after it.
     InvalidPackageName,
+    /// A bare specifier, other than a self-reference, from a module with no
+    /// project root above it: no `package.json` outside `node_modules` that
+    /// isn't a type marker, at or above the importer's directory and below
+    /// any world-writable directory. No `node_modules` is searched without
+    /// one.
+    NoProjectRoot {
+        /// The importer's directory, where the walk started.
+        dir: PathBuf,
+        /// The world-writable directory the walk stopped at, reading nothing
+        /// in it; unset when it reached the filesystem's root.
+        stopped_at: Option<PathBuf>,
+    },
     /// No `node_modules/<name>` directory was found, from the importer up to
-    /// the `package.json` that ended the search, or the filesystem's root.
+    /// the project root.
     PackageNotFound {
         /// The package name.
         name: String,
-        /// What ended the search, unset when it reached the filesystem's
-        /// root.
-        bound: Option<Box<PackageSearchBound>>,
+        /// The project root that bounded the search.
+        bound: Box<PackageSearchBound>,
+    },
+    /// A package the search found through a world-writable directory: the
+    /// `node_modules` it is in, its scope's directory, its own root, for a
+    /// linked package the real directories holding it, or for a linked
+    /// `node_modules` or scope directory its real parent. Any user can plant
+    /// or replace a package there, so nothing of the package is read.
+    WorldWritablePackage {
+        /// The package name.
+        name: String,
+        /// The world-writable directory, the first checked of those that are
+        /// (the `node_modules`, then the scope's, then a linked
+        /// `node_modules`'s real parent, then a linked scope directory's,
+        /// then a linked root's holders, outermost first, then the root).
+        dir: PathBuf,
     },
     /// A `node_modules/<name>` directory without a `package.json`.
     NoPackageJson(PathBuf),
@@ -386,12 +469,19 @@ pub enum ResolveErrorKind {
     /// A `.cts` file, TypeScript that compiles to `require` and
     /// `module.exports` rather than an ES module.
     CommonJs,
-    /// A `.js` file that isn't under `"type": "module"`, so it isn't an ES
-    /// module. `package_json` is the nearest `package.json`, unset when none
-    /// is above the file.
+    /// A `.js` file whose nearest `package.json` doesn't set `"type":
+    /// "module"`, so it isn't an ES module.
     NotModuleType {
         /// The `package.json` that doesn't set `"type": "module"`.
-        package_json: Option<PathBuf>,
+        package_json: PathBuf,
+    },
+    /// A `.js` file with no `package.json` above it to set `"type":
+    /// "module"`, so it isn't an ES module.
+    NoTypeScope {
+        /// The world-writable directory the search stopped at, reading
+        /// nothing in it; unset when it reached the filesystem's root or a
+        /// `node_modules` directory.
+        stopped_at: Option<PathBuf>,
     },
     /// A `.tsx` file: JSX isn't supported.
     Jsx,
@@ -409,20 +499,26 @@ pub enum ResolveErrorKind {
     /// The path leads into a symlink loop, so it names no file or directory.
     SymlinkLoop(PathBuf),
     /// Reading the tree failed.
-    Io(String),
+    Io {
+        /// The path that failed to read.
+        path: PathBuf,
+        /// The failure.
+        error: String,
+    },
 }
 
-/// The `package.json` that ended a `node_modules` search, one that isn't a
+/// The project root that bounded a `node_modules` search: the first
+/// `package.json` above the importer, outside `node_modules`, that isn't a
 /// type marker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageSearchBound {
-    /// The directory the search found it in, whose `node_modules` was the
-    /// last searched.
+    /// Its directory, whose `node_modules` was the last searched.
     pub dir: PathBuf,
     /// Its real path.
     pub package_json: PathBuf,
-    /// The nearest `package.json` above it, whose `node_modules` aren't
-    /// searched, as an npm or yarn workspace's root's aren't.
+    /// The nearest `package.json` above it and below any world-writable
+    /// directory, whose `node_modules` aren't searched, as an npm or yarn
+    /// workspace's root's aren't.
     pub above: Option<PathBuf>,
 }
 
@@ -445,7 +541,7 @@ impl ResolveErrorKind {
     /// common case, as opposed to a failure reading the files or a broken
     /// symlink among them.
     pub const fn is_specifier_error(&self) -> bool {
-        !matches!(self, Self::Io(_) | Self::SymlinkLoop(_))
+        !matches!(self, Self::Io { .. } | Self::SymlinkLoop(_))
     }
 }
 
@@ -553,10 +649,29 @@ impl fmt::Display for ResolveErrorKind {
                 "it is not a valid package name: a name can't start with '.' or hold '%' or '\\', \
                  and a scoped one is '@scope/name'",
             ),
-            Self::PackageNotFound {
-                name,
-                bound: Some(bound),
-            } => {
+            Self::NoProjectRoot { dir, stopped_at } => {
+                write!(
+                    f,
+                    "no project root is above {}: a bare specifier resolves only under a \
+                     package.json outside node_modules that holds more than \"type\" and \
+                     \"sideEffects\", and the search for one",
+                    dir.display()
+                )?;
+                match stopped_at {
+                    Some(stopped_at) => write!(
+                        f,
+                        " stopped at {}, which is world-writable, so nothing in it or above it \
+                         is read",
+                        stopped_at.display()
+                    )?,
+                    None => f.write_str(" reached the filesystem's root")?,
+                }
+                f.write_str(
+                    ". Fix: add a package.json at the project root, with the package installed in \
+                     the node_modules beside it",
+                )
+            }
+            Self::PackageNotFound { name, bound } => {
                 write!(
                     f,
                     "no package '{name}' is installed: no node_modules/{name} directory from the \
@@ -578,10 +693,12 @@ impl fmt::Display for ResolveErrorKind {
                     bound.dir.join("node_modules").display()
                 )
             }
-            Self::PackageNotFound { name, bound: None } => write!(
+            Self::WorldWritablePackage { name, dir } => write!(
                 f,
-                "no package '{name}' is installed: no node_modules/{name} directory in any \
-                 directory above the importer. Fix: install it into node_modules"
+                "package '{name}' is found through {}, which is world-writable, so nothing in it \
+                 is read: any user can plant or replace a package there. Fix: remove the \
+                 directory's other-write bit (chmod o-w), then reinstall the package",
+                dir.display()
             ),
             Self::NoPackageJson(dir) => write!(
                 f,
@@ -663,7 +780,7 @@ impl fmt::Display for ResolveErrorKind {
                         }
                         f.write_str(". Fix: reinstall the package")
                     }
-                    Self::NotModuleType { .. } => write!(
+                    Self::NotModuleType { .. } | Self::NoTypeScope { stopped_at: None } => write!(
                         f,
                         "the package exports it as {path}, which is CommonJS (no \"type\": \
                          \"module\", not .mjs), and only ES modules load. {PACKAGE_FIX}"
@@ -694,19 +811,28 @@ impl fmt::Display for ResolveErrorKind {
                 "a .cts file is CommonJS, and only ES modules load. \
                  Fix: rename it to .ts or .mts and use import and export",
             ),
-            Self::NotModuleType {
-                package_json: Some(package_json),
-            } => write!(
+            Self::NotModuleType { package_json } => write!(
                 f,
                 "a .js file is an ES module only under \"type\": \"module\", which {} does not \
                  set, and CommonJS is not supported. Fix: add \"type\": \"module\" to it, or \
                  rename the file to .mjs",
                 package_json.display()
             ),
-            Self::NotModuleType { package_json: None } => f.write_str(
+            Self::NoTypeScope { stopped_at: None } => f.write_str(
                 "a .js file is an ES module only under a package.json with \"type\": \"module\", \
                  and none is above it (the format is never guessed from the code). \
                  Fix: rename the file to .mjs, or add a package.json with \"type\": \"module\"",
+            ),
+            Self::NoTypeScope {
+                stopped_at: Some(stopped_at),
+            } => write!(
+                f,
+                "a .js file is an ES module only under a package.json with \"type\": \"module\", \
+                 and the search for one stopped at {}, which is world-writable, so nothing in it \
+                 or above it is read (the format is never guessed from the code). Fix: rename the \
+                 file to .mjs, or move it under a package.json with \"type\": \"module\" in a \
+                 directory that isn't world-writable",
+                stopped_at.display()
             ),
             Self::Jsx => write!(
                 f,
@@ -732,7 +858,7 @@ impl fmt::Display for ResolveErrorKind {
                  package, reinstall it)",
                 path.display()
             ),
-            Self::Io(error) => write!(f, "failed to read the file: {error}"),
+            Self::Io { path, error } => write!(f, "failed to read {}: {error}", path.display()),
         }
     }
 }
@@ -768,7 +894,7 @@ pub fn resolve(
     let path = url_to_path(&url).map_err(error)?;
     let real_path = match find_module(tree, &path, hint, &mut consulted) {
         Ok(real_path) => real_path,
-        Err(kind @ (ResolveErrorKind::Io(_) | ResolveErrorKind::SymlinkLoop(_))) => {
+        Err(kind @ (ResolveErrorKind::Io { .. } | ResolveErrorKind::SymlinkLoop(_))) => {
             return Err(error(kind));
         }
         // a package's target: the error names the file, not the specifier
@@ -949,7 +1075,10 @@ fn lookup(tree: &impl SourceTree, path: &Path) -> Result<Option<Entry>, ResolveE
         if ELOOP.is_some() && error.raw_os_error() == ELOOP {
             ResolveErrorKind::SymlinkLoop(path.to_owned())
         } else {
-            ResolveErrorKind::Io(error.to_string())
+            ResolveErrorKind::Io {
+                path: path.to_owned(),
+                error: error.to_string(),
+            }
         }
     })
 }
@@ -987,7 +1116,12 @@ fn read_package_json(
                 MAX_PACKAGE_JSON_SIZE / (1024 * 1024)
             )));
         }
-        Err(error) => return Err(ResolveErrorKind::Io(error.to_string())),
+        Err(error) => {
+            return Err(ResolveErrorKind::Io {
+                path: path.clone(),
+                error: error.to_string(),
+            });
+        }
     };
     consulted.add(&path, role);
     let json = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
@@ -1008,23 +1142,95 @@ fn read_package_json(
     }))
 }
 
+/// How an upward walk from a directory ended.
+enum Walk<T> {
+    /// It found what it walked for.
+    Found(T),
+    /// It reached the filesystem's root, or the end its rule sets, without
+    /// finding it.
+    Ended,
+    /// It stopped at this world-writable directory without finding it,
+    /// reading nothing in it.
+    Stopped(PathBuf),
+}
+
+impl<T> Walk<T> {
+    /// What it found, if anything.
+    const fn found(&self) -> Option<&T> {
+        match self {
+            Self::Found(found) => Some(found),
+            Self::Ended | Self::Stopped(_) => None,
+        }
+    }
+}
+
+/// Whether `dir` is world-writable, which ends every upward walk before
+/// anything in it is read.
+fn is_world_writable(tree: &impl SourceTree, dir: &Path) -> Result<bool, ResolveErrorKind> {
+    tree.is_world_writable(dir)
+        .map_err(|error| ResolveErrorKind::Io {
+            path: dir.to_owned(),
+            error: error.to_string(),
+        })
+}
+
 /// The package scope of `dir`: the nearest `package.json` at or above it,
-/// the search ending at a `node_modules` directory, as Node's is.
+/// the search ending at a `node_modules` directory, as Node's is, and at a
+/// world-writable directory, which Node's isn't.
 fn package_scope(
     tree: &impl SourceTree,
     dir: &Path,
     consulted: &mut Consulted,
-) -> Result<Option<PackageJson>, ResolveErrorKind> {
+) -> Result<Walk<PackageJson>, ResolveErrorKind> {
     for dir in dir.ancestors() {
         if dir.file_name().is_some_and(|name| name == "node_modules") {
             break;
         }
+        if is_world_writable(tree, dir)? {
+            return Ok(Walk::Stopped(dir.to_owned()));
+        }
         if let Some(package_json) = read_package_json(tree, dir, FileRole::PackageScope, consulted)?
         {
-            return Ok(Some(package_json));
+            return Ok(Walk::Found(package_json));
         }
     }
-    Ok(None)
+    Ok(Walk::Ended)
+}
+
+/// The project root above `dir`, which bounds its `node_modules` search: the
+/// first directory at or above it, outside `node_modules`, whose
+/// `package.json` isn't a type marker. The walk stops at a world-writable
+/// directory. `scope` is `dir`'s package scope, already read, so it isn't
+/// read again. Returns the root's directory and its `package.json`.
+fn find_bound(
+    tree: &impl SourceTree,
+    dir: &Path,
+    scope: Option<&PackageJson>,
+    consulted: &mut Consulted,
+) -> Result<Walk<(PathBuf, PathBuf)>, ResolveErrorKind> {
+    for dir in dir.ancestors() {
+        // checked inside node_modules too, since the search looks there
+        if is_world_writable(tree, dir)? {
+            return Ok(Walk::Stopped(dir.to_owned()));
+        }
+        if in_node_modules(dir) {
+            continue;
+        }
+        // any package.json but a type marker ends the walk, the scope's read once
+        let package_json = match scope {
+            Some(scope) if scope.dir == dir => {
+                consulted.add(&scope.path, FileRole::SearchBound);
+                (!scope.is_type_marker()).then(|| scope.path.clone())
+            }
+            _ => read_package_json(tree, dir, FileRole::SearchBound, consulted)?
+                .filter(|package_json| !package_json.is_type_marker())
+                .map(|package_json| package_json.path),
+        };
+        if let Some(package_json) = package_json {
+            return Ok(Walk::Found((dir.to_owned(), package_json)));
+        }
+    }
+    Ok(Walk::Ended)
 }
 
 /// Whether `path` has a `node_modules` component.
@@ -1076,7 +1282,8 @@ fn resolve_package(
 
     // a self-reference: the importer's own package, by its name
     let scope = package_scope(tree, importer_dir, consulted)?;
-    if let Some(scope) = &scope
+    let scope = scope.found();
+    if let Some(scope) = scope
         && let Some(exports) = scope.exports()
         && scope.string("name") == Some(name)
     {
@@ -1086,35 +1293,102 @@ fn resolve_package(
         return Ok((url, importer_origin.clone()));
     }
 
-    let mut bound = None;
+    // the bound first, so no node_modules is consulted outside the project
+    let (bound_dir, bound_package_json) = match find_bound(tree, importer_dir, scope, consulted)? {
+        Walk::Found(bound) => bound,
+        Walk::Ended => {
+            return Err(ResolveErrorKind::NoProjectRoot {
+                dir: importer_dir.to_owned(),
+                stopped_at: None,
+            });
+        }
+        Walk::Stopped(stopped_at) => {
+            return Err(ResolveErrorKind::NoProjectRoot {
+                dir: importer_dir.to_owned(),
+                stopped_at: Some(stopped_at),
+            });
+        }
+    };
     let mut found = None;
     for dir in importer_dir.ancestors() {
-        let package_dir = dir.join("node_modules").join(name);
+        let node_modules = dir.join("node_modules");
+        let package_dir = node_modules.join(name);
         if let Some(Entry::Dir(root)) = lookup(tree, &package_dir)? {
-            found = Some((package_dir, root));
+            found = Some((node_modules, package_dir, root));
             break;
         }
-        if in_node_modules(dir) {
-            continue;
-        }
-        // any package.json but a type marker ends the search, the scope's read once
-        let package_json = match &scope {
-            Some(scope) if scope.dir == dir => {
-                consulted.add(&scope.path, FileRole::SearchBound);
-                (!scope.is_type_marker()).then(|| scope.path.clone())
-            }
-            _ => read_package_json(tree, dir, FileRole::SearchBound, consulted)?
-                .filter(|package_json| !package_json.is_type_marker())
-                .map(|package_json| package_json.path),
-        };
-        if let Some(package_json) = package_json {
-            bound = Some((dir, package_json));
+        if dir == bound_dir {
             break;
         }
     }
-    let Some((package_dir, root)) = found else {
-        return Err(package_not_found(tree, name, bound));
+    let Some((node_modules, package_dir, root)) = found else {
+        return Err(package_not_found(tree, name, bound_dir, bound_package_json));
     };
+    // nothing in a world-writable directory is read: not the node_modules the
+    // package is found in, its scope's directory, or its root, nor, for a
+    // linked root, the real directories holding it (where pnpm's and Deno's
+    // stores install it), outermost first
+    let scope_dir = name
+        .split_once('/')
+        .map(|(scope, _)| node_modules.join(scope));
+    // a linked root is held by every directory between it and the first one
+    // already checked: the real node_modules it was found through (pnpm's and
+    // Deno's stores there), or the importer's directories up to the project
+    // root (a dependency's store entry beside its importer's included); one
+    // reaching neither is held by as many directories as its name has segments
+    let real_node_modules = match lookup(tree, &node_modules)? {
+        Some(Entry::Dir(path)) => path,
+        _ => node_modules.clone(),
+    };
+    // find_bound checked these
+    let walked: Vec<&Path> = importer_dir
+        .ancestors()
+        .take_while(|dir| dir.starts_with(&bound_dir))
+        .collect();
+    let between = root
+        .ancestors()
+        .skip(1)
+        .position(|dir| dir == real_node_modules || walked.contains(&dir));
+    let mut holders: Vec<&Path> = root
+        .ancestors()
+        .skip(1)
+        .take(between.unwrap_or_else(|| name.split('/').count()))
+        .collect();
+    holders.reverse();
+    // a linked node_modules or scope directory is held by its real parent, as
+    // a linked root is, unless that's already checked: the importer's
+    // directories, or for a scope directory the real node_modules
+    let real_scope_dir = match &scope_dir {
+        Some(scope_dir) => match lookup(tree, scope_dir)? {
+            Some(Entry::Dir(path)) => Some(path),
+            _ => None,
+        },
+        None => None,
+    };
+    let linked_holders = [Some(&real_node_modules), real_scope_dir.as_ref()]
+        .into_iter()
+        .flatten()
+        .filter_map(|dir| dir.parent())
+        .filter(|dir| *dir != real_node_modules && !walked.contains(dir));
+    let mut checked: Vec<&Path> = Vec::new();
+    for dir in [Some(node_modules.as_path()), scope_dir.as_deref()]
+        .into_iter()
+        .flatten()
+        .chain(linked_holders)
+        .chain(holders)
+        .chain([root.as_path()])
+    {
+        if checked.contains(&dir) {
+            continue;
+        }
+        checked.push(dir);
+        if is_world_writable(tree, dir)? {
+            return Err(ResolveErrorKind::WorldWritablePackage {
+                name: name.to_owned(),
+                dir: dir.to_owned(),
+            });
+        }
+    }
     let package_json = read_package_json(tree, &root, FileRole::Exports, consulted)?
         .ok_or(ResolveErrorKind::NoPackageJson(package_dir))?;
     let exports = package_json
@@ -1129,35 +1403,33 @@ fn resolve_package(
     Ok((url, origin))
 }
 
-/// The error for a package the search didn't find: `bound` is the directory
-/// and the `package.json` that ended it, if one did, and the nearest
-/// `package.json` above that directory is named as unsearched.
+/// The error for a package the search didn't find up to the project root at
+/// `dir`, whose `package.json` is `package_json`. The nearest `package.json`
+/// above that directory is named as unsearched, the walk to it stopping at a
+/// world-writable directory as every walk does.
 fn package_not_found(
     tree: &impl SourceTree,
     name: &str,
-    bound: Option<(&Path, PathBuf)>,
+    dir: PathBuf,
+    package_json: PathBuf,
 ) -> ResolveErrorKind {
-    let Some((dir, package_json)) = bound else {
-        return ResolveErrorKind::PackageNotFound {
-            name: name.to_owned(),
-            bound: None,
-        };
-    };
-    // only for the message, so a failure to look is no `package.json`
-    let above =
-        dir.ancestors()
-            .skip(1)
-            .find_map(|dir| match tree.lookup(&dir.join("package.json")) {
-                Ok(Some(Entry::File(path))) => Some(path),
-                _ => None,
-            });
+    // only for the message, so a failure to look is no `package.json`, and a
+    // failure to read a directory's mode stops the walk
+    let above = dir
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| matches!(tree.is_world_writable(dir), Ok(false)))
+        .find_map(|dir| match tree.lookup(&dir.join("package.json")) {
+            Ok(Some(Entry::File(path))) => Some(path),
+            _ => None,
+        });
     ResolveErrorKind::PackageNotFound {
         name: name.to_owned(),
-        bound: Some(Box::new(PackageSearchBound {
-            dir: dir.to_owned(),
+        bound: Box::new(PackageSearchBound {
+            dir,
             package_json,
             above,
-        })),
+        }),
     }
 }
 
@@ -1534,11 +1806,19 @@ fn find_module(
         .is_some_and(|extension| extension == "js")
     {
         let dir = real_path.parent().unwrap_or(&real_path);
-        let scope = package_scope(tree, dir, consulted)?;
-        if scope.as_ref().and_then(|scope| scope.string("type")) != Some("module") {
-            return Err(ResolveErrorKind::NotModuleType {
-                package_json: scope.map(|scope| scope.path),
-            });
+        match package_scope(tree, dir, consulted)? {
+            Walk::Found(scope) if scope.string("type") == Some("module") => {}
+            Walk::Found(scope) => {
+                return Err(ResolveErrorKind::NotModuleType {
+                    package_json: scope.path,
+                });
+            }
+            Walk::Ended => return Err(ResolveErrorKind::NoTypeScope { stopped_at: None }),
+            Walk::Stopped(stopped_at) => {
+                return Err(ResolveErrorKind::NoTypeScope {
+                    stopped_at: Some(stopped_at),
+                });
+            }
         }
     }
     Ok(real_path)
@@ -1606,14 +1886,16 @@ mod tests {
     use super::*;
 
     /// An in-memory tree: files by path with their contents, symlinks as a
-    /// map to their target, and symlink loops, which fail with `ELOOP`. A
-    /// directory is any path a file or a listed directory is under.
+    /// map to their target, symlink loops, which fail with `ELOOP`, and the
+    /// world-writable directories. A directory is any path a file or a
+    /// listed directory is under.
     #[derive(Default)]
     struct MemoryTree {
         files: BTreeMap<&'static str, &'static str>,
         dirs: Vec<&'static str>,
         links: BTreeMap<&'static str, &'static str>,
         loops: Vec<&'static str>,
+        world_writable: Vec<&'static str>,
     }
 
     impl SourceTree for MemoryTree {
@@ -1654,6 +1936,10 @@ mod tests {
             }
             Ok(content.as_bytes().to_vec())
         }
+
+        fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+            Ok(self.world_writable.contains(&dir.to_str().unwrap()))
+        }
     }
 
     const MODULE: &str = r#"{"type": "module"}"#;
@@ -1692,6 +1978,7 @@ mod tests {
                 ("/p/link_to_ts.js", "/p/typed.ts"),
             ]),
             loops: Vec::new(),
+            world_writable: Vec::new(),
         }
     }
 
@@ -2316,6 +2603,7 @@ mod tests {
                 ),
             ]),
             loops: vec!["/w/proj/node_modules/looped"],
+            world_writable: Vec::new(),
         }
     }
 
@@ -2437,7 +2725,7 @@ mod tests {
             // Node's scope search stops at node_modules too, then it guesses the format
             (
                 "./node_modules/loose.js",
-                Err(&["NotModuleType { package_json: None }"]),
+                Err(&["NoTypeScope { stopped_at: None }"]),
             ),
             (
                 "sugar_string",
@@ -2513,7 +2801,7 @@ mod tests {
             ),
             (
                 "../../loose/a.js",
-                Err(&["NotModuleType { package_json: None }"]),
+                Err(&["NoTypeScope { stopped_at: None }"]),
             ),
             ("../../loose/b.mjs", Ok("file:///loose/b.mjs".to_owned())),
             (
@@ -2579,12 +2867,13 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
-        // the importer's scope (a self-reference's), the package's exports, then the
-        // module's scope, which is the same file in another role
+        // the importer's scope (a self-reference's), the same file as the bound, the
+        // package's exports, then the module's scope, the same file in another role
         assert_eq!(
             resolution.files_consulted,
             consulted(&[
                 ("/w/proj/package.json", FileRole::PackageScope),
+                ("/w/proj/package.json", FileRole::SearchBound),
                 ("/w/proj/node_modules/t/package.json", FileRole::Exports),
                 (
                     "/w/proj/node_modules/t/package.json",
@@ -2603,7 +2892,7 @@ mod tests {
         );
         // the real paths, not the symlink's
         assert_eq!(
-            resolution.files_consulted[1].path,
+            resolution.files_consulted[2].path,
             Path::new("/w/linked/package.json")
         );
         // a nested layout's real root is inside node_modules, so it isn't linked
@@ -2647,11 +2936,11 @@ mod tests {
             from("file:///w/linked/i.js", "t").unwrap_err().kind,
             ResolveErrorKind::PackageNotFound {
                 name: "t".to_owned(),
-                bound: Some(Box::new(PackageSearchBound {
+                bound: Box::new(PackageSearchBound {
                     dir: PathBuf::from("/w/linked"),
                     package_json: PathBuf::from("/w/linked/package.json"),
                     above: Some(PathBuf::from("/w/package.json")),
-                })),
+                }),
             }
         );
         // inside node_modules, the search goes on past the package's root
@@ -2677,19 +2966,19 @@ mod tests {
                 .kind,
             ResolveErrorKind::PackageNotFound {
                 name: "parent_only".to_owned(),
-                bound: Some(Box::new(PackageSearchBound {
+                bound: Box::new(PackageSearchBound {
                     dir: PathBuf::from("/w/proj"),
                     package_json: PathBuf::from("/w/proj/package.json"),
                     above: Some(PathBuf::from("/w/package.json")),
-                })),
+                }),
             }
         );
-        // with no project root, it reaches the filesystem's root
+        // with no project root, no node_modules is searched
         assert_eq!(
             from("file:///loose/b.mjs", "t").unwrap_err().kind,
-            ResolveErrorKind::PackageNotFound {
-                name: "t".to_owned(),
-                bound: None,
+            ResolveErrorKind::NoProjectRoot {
+                dir: PathBuf::from("/loose"),
+                stopped_at: None,
             }
         );
     }
@@ -2716,11 +3005,11 @@ mod tests {
         }
         // a nameless package.json that isn't a marker ends it, as an `npm i` root's does
         let bound = |dir: &str| {
-            Some(Box::new(PackageSearchBound {
+            Box::new(PackageSearchBound {
                 dir: PathBuf::from(dir),
                 package_json: PathBuf::from(format!("{dir}/package.json")),
                 above: Some(PathBuf::from("/w/proj/package.json")),
-            }))
+            })
         };
         assert_eq!(
             from("file:///w/proj/deps/x.mjs", "t").unwrap_err().kind,
@@ -2746,12 +3035,13 @@ mod tests {
              /w/proj/package.json is not searched (npm and yarn workspaces, which install at \
              their root, aren't supported). Fix: install it into /w/proj/imports/node_modules"
         );
-        // the marker is the scope, read once and consulted in both roles, and
-        // the project's package.json ends no search that finds the package
+        // the marker is the scope, read once and consulted in both roles, and the
+        // walk reads every package.json up to the bound before any node_modules,
+        // even when the package is installed below it
         assert_eq!(
             from("file:///w/proj/dist/esm/x.js", "t")
                 .unwrap()
-                .files_consulted[..2],
+                .files_consulted[..4],
             [
                 ConsultedFile {
                     path: PathBuf::from("/w/proj/dist/esm/package.json"),
@@ -2761,6 +3051,14 @@ mod tests {
                     path: PathBuf::from("/w/proj/dist/esm/package.json"),
                     role: FileRole::SearchBound
                 },
+                ConsultedFile {
+                    path: PathBuf::from("/w/proj/dist/package.json"),
+                    role: FileRole::SearchBound
+                },
+                ConsultedFile {
+                    path: PathBuf::from("/w/proj/package.json"),
+                    role: FileRole::SearchBound
+                },
             ]
         );
         // a named nested project ends it, with the workspace's root above unsearched
@@ -2768,11 +3066,11 @@ mod tests {
             from("file:///w/proj/inner/x.js", "t").unwrap_err().kind,
             ResolveErrorKind::PackageNotFound {
                 name: "t".to_owned(),
-                bound: Some(Box::new(PackageSearchBound {
+                bound: Box::new(PackageSearchBound {
                     dir: PathBuf::from("/w/proj/inner"),
                     package_json: PathBuf::from("/w/proj/inner/package.json"),
                     above: Some(PathBuf::from("/w/proj/package.json")),
-                })),
+                }),
             }
         );
         // a package.json on the search that isn't JSON is an error, not passed over
@@ -2818,6 +3116,10 @@ mod tests {
             self.reads.borrow_mut().push(path.to_owned());
             self.tree.read(path)
         }
+
+        fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+            self.tree.is_world_writable(dir)
+        }
     }
 
     /// The importer's scope, read for a self-reference, isn't read again
@@ -2847,9 +3149,15 @@ mod tests {
     /// so the read can't block: a package's, and a module's scope.
     #[test]
     fn a_special_file_package_json_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
         let root = std::env::temp_dir().join(format!("gro_resolver_fifo_{}", std::process::id()));
         std::fs::create_dir_all(root.join("node_modules/fifo")).unwrap();
         std::fs::create_dir_all(root.join("sub")).unwrap();
+        // pinned, since a world-writable one would end the walks
+        for dir in ["", "node_modules", "node_modules/fifo", "sub"] {
+            std::fs::set_permissions(root.join(dir), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
         std::fs::write(
             root.join("package.json"),
             r#"{"name": "r", "type": "module"}"#,
@@ -2993,8 +3301,11 @@ mod tests {
                 .unwrap_err()
                 .kind
                 .to_string(),
-            "no package 't' is installed: no node_modules/t directory in any directory above \
-             the importer. Fix: install it into node_modules"
+            "no project root is above /loose: a bare specifier resolves only under a \
+             package.json outside node_modules that holds more than \"type\" and \
+             \"sideEffects\", and the search for one reached the filesystem's root. Fix: add a \
+             package.json at the project root, with the package installed in the node_modules \
+             beside it"
         );
         assert_eq!(
             message("t/nested_unmatched"),
@@ -3068,5 +3379,624 @@ mod tests {
         assert!(message("@scope").contains("not a valid package name"));
         assert!(message("no_package").contains("has no package.json"));
         assert!(message("empty_exports").contains("(its \"exports\" are empty)"));
+    }
+
+    /// A `node_modules` planted above a directory with no project root
+    /// never resolves: the bound is found before any `node_modules` is
+    /// looked up, and with none, a module gets no bare imports except a
+    /// self-reference, which resolves through its own package's `"exports"`.
+    #[test]
+    fn a_node_modules_above_a_package_less_dir_is_never_searched() {
+        let tree = MemoryTree {
+            files: BTreeMap::from([
+                (
+                    "/up/node_modules/foo/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/up/node_modules/foo/i.mjs", ""),
+                ("/up/x/zap.ts", ""),
+                ("/up/x/a.ts", ""),
+                // a marker is no bound
+                ("/up/marked/package.json", MODULE),
+                ("/up/marked/zap.ts", ""),
+            ]),
+            ..MemoryTree::default()
+        };
+        for dir in ["/up/x", "/up/marked"] {
+            let importer = Url::from_file_path(format!("{dir}/zap.ts")).unwrap();
+            assert_eq!(
+                resolve(&tree, "foo", &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::NoProjectRoot {
+                    dir: PathBuf::from(dir),
+                    stopped_at: None,
+                }
+            );
+        }
+        // relative imports are unaffected
+        let importer = Url::parse("file:///up/x/zap.ts").unwrap();
+        assert!(resolve(&tree, "./a.ts", &importer, &Origin::Project).is_ok());
+    }
+
+    /// A tree with a world-writable `/shared` holding everything a planted
+    /// project would: a `package.json` that would bound the search, its
+    /// `node_modules`, and a name a config's self-reference would match.
+    /// `/shared/proj` is a project below it, and `/shared/loose` none.
+    fn shared() -> MemoryTree {
+        MemoryTree {
+            files: BTreeMap::from([
+                (
+                    "/shared/package.json",
+                    r#"{"name": "@fuzdev/zap", "type": "module", "exports": {"./zap.ts": "./evil.ts"}}"#,
+                ),
+                ("/shared/evil.ts", ""),
+                (
+                    "/shared/node_modules/foo/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/shared/node_modules/foo/i.mjs", ""),
+                ("/shared/loose/config.ts", ""),
+                ("/shared/loose/a.mjs", ""),
+                ("/shared/loose/b.js", ""),
+                (
+                    "/shared/proj/package.json",
+                    r#"{"name": "proj", "type": "module"}"#,
+                ),
+                ("/shared/proj/main.ts", ""),
+                (
+                    "/shared/proj/node_modules/bar/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/shared/proj/node_modules/bar/i.mjs", ""),
+            ]),
+            world_writable: vec!["/shared"],
+            ..MemoryTree::default()
+        }
+    }
+
+    /// A world-writable directory ends every walk up, and no `package.json`
+    /// or `node_modules` in it is read: not as a bound, a self-reference's scope, or a `.js` file's
+    /// `"type"` scope, and not its `node_modules`.
+    #[test]
+    fn a_world_writable_directory_ends_every_walk() {
+        let tree = CountingTree {
+            tree: shared(),
+            reads: std::cell::RefCell::default(),
+        };
+        let loose = Url::parse("file:///shared/loose/config.ts").unwrap();
+        let from = |specifier| resolve(&tree, specifier, &loose, &Origin::Project);
+        let no_project_root = ResolveErrorKind::NoProjectRoot {
+            dir: PathBuf::from("/shared/loose"),
+            stopped_at: Some(PathBuf::from("/shared")),
+        };
+        assert_eq!(from("foo").unwrap_err().kind, no_project_root);
+        // the self-reference never reads the package.json that would name it
+        assert_eq!(
+            from("@fuzdev/zap/zap.ts").unwrap_err().kind,
+            no_project_root
+        );
+        assert_eq!(
+            from("./b.js").unwrap_err().kind,
+            ResolveErrorKind::NoTypeScope {
+                stopped_at: Some(PathBuf::from("/shared")),
+            }
+        );
+        let resolution = from("./a.mjs").unwrap();
+        assert_eq!(resolution.url.as_str(), "file:///shared/loose/a.mjs");
+        assert_eq!(resolution.files_consulted, []);
+        // a project below it resolves its own packages, reading nothing in it
+        let proj = Url::parse("file:///shared/proj/main.ts").unwrap();
+        let resolution = resolve(&tree, "bar", &proj, &Origin::Project).unwrap();
+        assert_eq!(
+            resolution.url.as_str(),
+            "file:///shared/proj/node_modules/bar/i.mjs"
+        );
+        // the bound's read is recorded in its role
+        assert!(resolution.files_consulted.contains(&ConsultedFile {
+            path: PathBuf::from("/shared/proj/package.json"),
+            role: FileRole::SearchBound,
+        }));
+        assert!(
+            resolution
+                .files_consulted
+                .iter()
+                .all(|file| !file.path.starts_with("/shared/package.json")
+                    && !file.path.starts_with("/shared/node_modules")),
+            "{:?}",
+            resolution.files_consulted
+        );
+        // and the not-found message's walk above the bound stops there too
+        assert_eq!(
+            resolve(&tree, "foo", &proj, &Origin::Project)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::PackageNotFound {
+                name: "foo".to_owned(),
+                bound: Box::new(PackageSearchBound {
+                    dir: PathBuf::from("/shared/proj"),
+                    package_json: PathBuf::from("/shared/proj/package.json"),
+                    above: None,
+                }),
+            }
+        );
+        let reads = tree.reads.borrow();
+        assert!(
+            reads
+                .iter()
+                .all(|path| !path.starts_with("/shared/package.json")
+                    && !path.starts_with("/shared/node_modules")),
+            "{reads:?}"
+        );
+    }
+
+    /// A module whose own directory is world-writable runs with relative
+    /// imports only: no bare specifier resolves, and a `.js` file has no
+    /// `"type"` scope, even with a marker beside it.
+    #[test]
+    fn a_world_writable_importer_dir_gets_relative_imports_only() {
+        let tree = MemoryTree {
+            files: BTreeMap::from([
+                ("/tmp/package.json", r#"{"name": "x", "type": "module"}"#),
+                ("/tmp/main.ts", ""),
+                ("/tmp/a.ts", ""),
+                ("/tmp/b.mjs", ""),
+                ("/tmp/c.js", ""),
+                (
+                    "/tmp/node_modules/foo/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/tmp/node_modules/foo/i.mjs", ""),
+            ]),
+            world_writable: vec!["/tmp"],
+            ..MemoryTree::default()
+        };
+        let importer = Url::parse("file:///tmp/main.ts").unwrap();
+        let from = |specifier| resolve(&tree, specifier, &importer, &Origin::Project);
+        assert_eq!(from("./a.ts").unwrap().url.as_str(), "file:///tmp/a.ts");
+        assert_eq!(from("./b.mjs").unwrap().url.as_str(), "file:///tmp/b.mjs");
+        let no_type_scope = ResolveErrorKind::NoTypeScope {
+            stopped_at: Some(PathBuf::from("/tmp")),
+        };
+        assert_eq!(from("./c.js").unwrap_err().kind, no_type_scope);
+        assert_eq!(
+            resolve_entry(&tree, Path::new("c.js"), Path::new("/tmp"))
+                .unwrap_err()
+                .kind,
+            no_type_scope
+        );
+        let error = from("foo").unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::NoProjectRoot {
+                dir: PathBuf::from("/tmp"),
+                stopped_at: Some(PathBuf::from("/tmp")),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "cannot resolve 'foo' from file:///tmp/main.ts: no project root is above /tmp: a \
+             bare specifier resolves only under a package.json outside node_modules that holds \
+             more than \"type\" and \"sideEffects\", and the search for one stopped at /tmp, \
+             which is world-writable, so nothing in it or above it is read. Fix: add a \
+             package.json at the project root, with the package installed in the node_modules \
+             beside it"
+        );
+        assert_eq!(
+            from("./c.js").unwrap_err().kind.to_string(),
+            "a .js file is an ES module only under a package.json with \"type\": \"module\", \
+             and the search for one stopped at /tmp, which is world-writable, so nothing in it \
+             or above it is read (the format is never guessed from the code). Fix: rename the \
+             file to .mjs, or move it under a package.json with \"type\": \"module\" in a \
+             directory that isn't world-writable"
+        );
+    }
+
+    /// A project with packages installed under `/p/node_modules`: `foo`
+    /// with a `.mjs` main, a `.js` subpath, and a `dist/` subpath, and the
+    /// scoped `@s/bar`. The world-writable directories are `world_writable`.
+    fn installed(world_writable: Vec<&'static str>) -> CountingTree {
+        CountingTree {
+            tree: MemoryTree {
+                files: BTreeMap::from([
+                    ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                    ("/p/main.ts", ""),
+                    (
+                        "/p/node_modules/foo/package.json",
+                        r#"{"type": "module", "exports": {".": "./i.mjs", "./x.js": "./x.js", "./d.mjs": "./dist/d.mjs"}}"#,
+                    ),
+                    ("/p/node_modules/foo/i.mjs", ""),
+                    ("/p/node_modules/foo/x.js", ""),
+                    ("/p/node_modules/foo/dist/d.mjs", ""),
+                    (
+                        "/p/node_modules/@s/bar/package.json",
+                        r#"{"exports": "./i.mjs"}"#,
+                    ),
+                    ("/p/node_modules/@s/bar/i.mjs", ""),
+                ]),
+                world_writable,
+                ..MemoryTree::default()
+            },
+            reads: std::cell::RefCell::default(),
+        }
+    }
+
+    /// A package the search finds through a world-writable directory is
+    /// refused, reading nothing in it: the `node_modules` it is installed
+    /// in, its scope's directory, its own root, or for a linked package the
+    /// real directories holding it.
+    #[test]
+    fn a_package_through_a_world_writable_dir_is_refused() {
+        let importer = Url::parse("file:///p/main.ts").unwrap();
+        let cases = [
+            ("/p/node_modules", "foo", "foo"),
+            ("/p/node_modules", "@s/bar", "@s/bar"),
+            ("/p/node_modules/@s", "@s/bar", "@s/bar"),
+            ("/p/node_modules/foo", "foo", "foo"),
+            // the type-scope walk would stop at the root, but the package is refused first
+            ("/p/node_modules/foo", "foo/x.js", "foo"),
+            ("/p/node_modules/@s/bar", "@s/bar", "@s/bar"),
+        ];
+        for (dir, specifier, name) in cases {
+            let tree = installed(vec![dir]);
+            assert_eq!(
+                resolve(&tree, specifier, &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::WorldWritablePackage {
+                    name: name.to_owned(),
+                    dir: PathBuf::from(dir),
+                },
+                "{dir} {specifier}"
+            );
+            let reads = tree.reads.borrow();
+            assert!(
+                reads.iter().all(|path| !path.starts_with(dir)),
+                "{dir} {specifier} {reads:?}"
+            );
+        }
+        // the outermost is named when several are
+        let tree = installed(vec!["/p/node_modules", "/p/node_modules/foo"]);
+        let error = resolve(&tree, "foo", &importer, &Origin::Project).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "cannot resolve 'foo' from file:///p/main.ts: package 'foo' is found through \
+             /p/node_modules, which is world-writable, so nothing in it is read: any user can \
+             plant or replace a package there. Fix: remove the directory's other-write bit \
+             (chmod o-w), then reinstall the package"
+        );
+        assert!(error.kind.is_specifier_error());
+        // a module file below the root, in a world-writable directory, still loads
+        let tree = installed(vec!["/p/node_modules/foo/dist"]);
+        assert_eq!(
+            resolve(&tree, "foo/d.mjs", &importer, &Origin::Project)
+                .unwrap()
+                .url
+                .as_str(),
+            "file:///p/node_modules/foo/dist/d.mjs"
+        );
+        // a linked root is refused through the real directories holding it
+        for (dir, specifier) in [
+            ("/s/nm", "foo"),
+            ("/s/nm", "@s/bar"),
+            ("/s/nm/@s", "@s/bar"),
+            ("/p/node_modules/.deno", "foo"),
+            ("/p/node_modules/.deno/x", "@s/bar"),
+        ] {
+            let mut tree = installed(vec![dir]);
+            let store = if dir.starts_with("/s/") {
+                "/s/nm"
+            } else {
+                "/p/node_modules/.deno/x/node_modules"
+            };
+            for (from, to) in [
+                ("/p/node_modules/foo", format!("{store}/foo")),
+                ("/p/node_modules/@s/bar", format!("{store}/@s/bar")),
+            ] {
+                let to: &'static str = Box::leak(to.into_boxed_str());
+                let moved: Vec<_> = tree
+                    .tree
+                    .files
+                    .keys()
+                    .copied()
+                    .filter(|path| path.starts_with(from))
+                    .collect();
+                for path in moved {
+                    let content = tree.tree.files.remove(path).unwrap();
+                    let real: &'static str = Box::leak(path.replacen(from, to, 1).into_boxed_str());
+                    tree.tree.files.insert(real, content);
+                }
+                tree.tree.links.insert(from, to);
+                tree.tree.dirs.push(from.rsplit_once('/').unwrap().0);
+            }
+            assert_eq!(
+                resolve(&tree, specifier, &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::WorldWritablePackage {
+                    name: specifier.to_owned(),
+                    dir: PathBuf::from(dir),
+                },
+                "{dir} {specifier}"
+            );
+        }
+    }
+
+    /// A store's every directory between a linked root and what is already
+    /// checked is checked: a dependency installed beside its dependent in
+    /// the store, a store inside a symlinked `node_modules`, and a package
+    /// under a symlinked scope directory.
+    #[test]
+    fn a_package_in_a_store_is_refused_through_its_every_holder() {
+        // `a` in Deno's store imports `b`, linked beside it to `b`'s own directory
+        let store = |world_writable| MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                (
+                    "/p/node_modules/.deno/a@1/node_modules/a/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/.deno/a@1/node_modules/a/i.mjs", ""),
+                (
+                    "/p/node_modules/.deno/b@1/node_modules/b/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/.deno/b@1/node_modules/b/i.mjs", ""),
+            ]),
+            links: BTreeMap::from([(
+                "/p/node_modules/.deno/a@1/node_modules/b",
+                "/p/node_modules/.deno/b@1/node_modules/b",
+            )]),
+            world_writable,
+            ..MemoryTree::default()
+        };
+        let importer = Url::parse("file:///p/node_modules/.deno/a@1/node_modules/a/i.mjs").unwrap();
+        assert!(resolve(&store(vec![]), "b", &importer, &Origin::Project).is_ok());
+        for dir in [
+            "/p/node_modules/.deno/b@1",
+            "/p/node_modules/.deno/b@1/node_modules",
+        ] {
+            assert_eq!(
+                resolve(&store(vec![dir]), "b", &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::WorldWritablePackage {
+                    name: "b".to_owned(),
+                    dir: PathBuf::from(dir)
+                },
+                "{dir}"
+            );
+        }
+        // `/p/node_modules` links to `/q/nm`, whose store holds `foo`
+        let linked = |world_writable| MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                ("/p/main.ts", ""),
+                (
+                    "/q/nm/.deno/foo@1/node_modules/foo/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/q/nm/.deno/foo@1/node_modules/foo/i.mjs", ""),
+            ]),
+            links: BTreeMap::from([
+                ("/p/node_modules", "/q/nm"),
+                ("/p/node_modules/foo", "/q/nm/.deno/foo@1/node_modules/foo"),
+            ]),
+            world_writable,
+            ..MemoryTree::default()
+        };
+        let importer = Url::parse("file:///p/main.ts").unwrap();
+        assert!(resolve(&linked(vec![]), "foo", &importer, &Origin::Project).is_ok());
+        for dir in [
+            "/q",
+            "/q/nm/.deno",
+            "/q/nm/.deno/foo@1",
+            "/q/nm/.deno/foo@1/node_modules",
+        ] {
+            assert_eq!(
+                resolve(&linked(vec![dir]), "foo", &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::WorldWritablePackage {
+                    name: "foo".to_owned(),
+                    dir: PathBuf::from(dir)
+                },
+                "{dir}"
+            );
+        }
+        // `/p/node_modules/@s` links to `/x/@s`, whose `bar` links to `/y/bar`
+        let scoped = |world_writable| MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                ("/p/main.ts", ""),
+                ("/y/bar/package.json", r#"{"exports": "./i.mjs"}"#),
+                ("/y/bar/i.mjs", ""),
+            ]),
+            dirs: vec!["/p/node_modules", "/x/@s"],
+            links: BTreeMap::from([
+                ("/p/node_modules/@s", "/x/@s"),
+                ("/p/node_modules/@s/bar", "/y/bar"),
+            ]),
+            world_writable,
+            ..MemoryTree::default()
+        };
+        assert!(resolve(&scoped(vec![]), "@s/bar", &importer, &Origin::Project).is_ok());
+        for dir in ["/x", "/y"] {
+            assert_eq!(
+                resolve(&scoped(vec![dir]), "@s/bar", &importer, &Origin::Project)
+                    .unwrap_err()
+                    .kind,
+                ResolveErrorKind::WorldWritablePackage {
+                    name: "@s/bar".to_owned(),
+                    dir: PathBuf::from(dir)
+                },
+                "{dir}"
+            );
+        }
+    }
+
+    /// A world-writable directory inside `node_modules` ends the walk for
+    /// the project root, as one outside it does, before the search reaches
+    /// it.
+    #[test]
+    fn a_world_writable_node_modules_ends_the_walk_for_the_bound() {
+        let tree = installed(vec!["/p/node_modules"]);
+        let importer = Url::parse("file:///p/node_modules/foo/i.mjs").unwrap();
+        assert_eq!(
+            resolve(&tree, "@s/bar", &importer, &Origin::Project)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::NoProjectRoot {
+                dir: PathBuf::from("/p/node_modules/foo"),
+                stopped_at: Some(PathBuf::from("/p/node_modules")),
+            }
+        );
+    }
+
+    /// A self-reference needs no project root: it reads only the importer's
+    /// own `package.json`, so it resolves through its own package's
+    /// `"exports"`, and nothing else bare does.
+    #[test]
+    fn a_self_reference_needs_no_project_root() {
+        let tree = MemoryTree {
+            files: BTreeMap::from([
+                (
+                    "/x/node_modules/foo/package.json",
+                    r#"{"name": "foo", "exports": {"./a.mjs": "./a.mjs"}}"#,
+                ),
+                ("/x/node_modules/foo/a.mjs", ""),
+                ("/x/node_modules/foo/b.mjs", ""),
+                (
+                    "/x/node_modules/bar/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/x/node_modules/bar/i.mjs", ""),
+            ]),
+            ..MemoryTree::default()
+        };
+        let importer = Url::parse("file:///x/node_modules/foo/b.mjs").unwrap();
+        let from = |specifier| resolve(&tree, specifier, &importer, &Origin::Project);
+        assert_eq!(
+            from("foo/a.mjs").unwrap().url.as_str(),
+            "file:///x/node_modules/foo/a.mjs"
+        );
+        assert_eq!(
+            from("bar").unwrap_err().kind,
+            ResolveErrorKind::NoProjectRoot {
+                dir: PathBuf::from("/x/node_modules/foo"),
+                stopped_at: None,
+            }
+        );
+    }
+
+    /// A tree whose reads of `package.json` files and mode checks of
+    /// directories fail, by path.
+    struct FailingTree {
+        tree: MemoryTree,
+        unreadable: &'static str,
+        unstatable: &'static str,
+    }
+
+    impl SourceTree for FailingTree {
+        fn lookup(&self, path: &Path) -> io::Result<Option<Entry>> {
+            self.tree.lookup(path)
+        }
+
+        fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+            if path == Path::new(self.unreadable) {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            self.tree.read(path)
+        }
+
+        fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+            if dir == Path::new(self.unstatable) {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            self.tree.is_world_writable(dir)
+        }
+    }
+
+    /// A failure to read on the walk names the path that failed.
+    #[test]
+    fn a_read_failure_names_its_path() {
+        let tree = FailingTree {
+            tree: packages(),
+            unreadable: "/w/proj/dist/package.json",
+            unstatable: "/w/proj/scripts",
+        };
+        let from = |importer: &str| {
+            let importer = Url::parse(importer).unwrap();
+            resolve(&tree, "t", &importer, &Origin::Project)
+                .unwrap_err()
+                .kind
+        };
+        let error = from("file:///w/proj/dist/esm/x.js");
+        assert_eq!(
+            error,
+            ResolveErrorKind::Io {
+                path: PathBuf::from("/w/proj/dist/package.json"),
+                error: "permission denied".to_owned(),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "failed to read /w/proj/dist/package.json: permission denied"
+        );
+        assert!(!error.is_specifier_error());
+        assert_eq!(
+            from("file:///w/proj/scripts/x.mjs"),
+            ResolveErrorKind::Io {
+                path: PathBuf::from("/w/proj/scripts"),
+                error: "permission denied".to_owned(),
+            }
+        );
+    }
+
+    /// A failure to read a directory's mode on the walk for the project
+    /// root fails the import, inside `node_modules` too, rather than
+    /// passing the directory.
+    #[test]
+    fn a_mode_failure_on_the_walk_for_the_bound_fails() {
+        let mut tree = installed(Vec::new()).tree;
+        // a scope below the unreadable directory, so the scope's walk never reaches it
+        tree.files
+            .insert("/p/node_modules/foo/lib/package.json", MODULE);
+        tree.files.insert("/p/node_modules/foo/lib/x.mjs", "");
+        let tree = FailingTree {
+            tree,
+            unreadable: "",
+            unstatable: "/p/node_modules/foo",
+        };
+        let importer = Url::parse("file:///p/node_modules/foo/lib/x.mjs").unwrap();
+        assert_eq!(
+            resolve(&tree, "@s/bar", &importer, &Origin::Project)
+                .unwrap_err()
+                .kind,
+            ResolveErrorKind::Io {
+                path: PathBuf::from("/p/node_modules/foo"),
+                error: "permission denied".to_owned(),
+            }
+        );
+    }
+
+    /// World-writable is the other-write bit alone: group-write doesn't
+    /// count, and the sticky bit changes nothing.
+    #[cfg(unix)]
+    #[test]
+    fn world_writable_is_the_other_write_bit() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("gro_resolver_mode_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let modes = [0o755, 0o775, 0o770, 0o757, 0o777, 0o1777, 0o1775, 0o702];
+        let writable = modes.map(|mode| {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
+            DiskTree.is_world_writable(&dir).unwrap()
+        });
+        std::fs::remove_dir(&dir).unwrap();
+        assert_eq!(
+            writable,
+            [false, false, false, true, true, true, false, true]
+        );
     }
 }

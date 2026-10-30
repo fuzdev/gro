@@ -473,10 +473,10 @@ run as Node subprocesses under the invocation's kernel rules.
 - [x] `gro run` (as `fgro run` for now), running ESM from disk on V8 with web-standard globals
       and a startup snapshot
 - [x] TypeScript by tsv's type strip, in process
-- [x] strict package resolution, through `node_modules` by `"exports"`, with `"type": "module"`
-      (`#` imports come later)
-- [ ] the resolver's [planned departures](resolver.md#planned-departures),
-      bounding every specifier by its origin and a file with no project
+- [x] strict package resolution, through `node_modules` by `"exports"` up to the project root,
+      with `"type": "module"` (`#` imports come later)
+- [ ] the resolver's [planned departure](resolver.md#planned-departures),
+      bounding every relative and absolute specifier by its origin
 - [ ] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       it replaces Deno for config eval in the Fuz stack
