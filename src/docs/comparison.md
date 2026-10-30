@@ -249,7 +249,7 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 
 ## Measured
 
-From the [bench](../../crates/gro_bench) (suite `baseline` v4, 2026-10-30, one quiet machine, interleaved, medians of 200 samples;
+From the [bench](../../crates/gro_bench) (suite `baseline` v5, 2026-10-30, one quiet machine, interleaved, medians of 200 samples;
 Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot).
 The module graph is fuz_util's `src/lib` modules with only relative imports, loaded as TypeScript each runtime strips itself.
 Warm keeps each runtime's on-disk caches; cold turns off their transpile and compiled-code caches.
@@ -258,11 +258,11 @@ Node's column has its compile cache on in its warm rows and off in its cold one,
 
 |                              | Bun  | fgro | Node, compile cache | Deno  |
 | ---------------------------- | ---- | ---- | ------------------- | ----- |
-| empty script, ms             | 3.3  | 6.9  | 17.8                | 20.4  |
-| `console.log`, ms            | 3.4  | 7.0  | 19.4                | 20.4  |
-| one small import, ms         | 3.9  | 7.0  | 18.0                | 20.5  |
-| module graph, warm, ms       | 7.3  | 13.9 | 29.5                | 24.5  |
-| module graph, cold, ms       | 8.4  | 13.9 | 81.2                | 29.1  |
+| empty script, ms             | 3.3  | 7.1  | 17.9                | 20.5  |
+| `console.log`, ms            | 3.4  | 7.4  | 19.3                | 20.5  |
+| one small import, ms         | 3.9  | 7.3  | 18.2                | 20.6  |
+| module graph, warm, ms       | 7.5  | 14.4 | 31.1                | 24.4  |
+| module graph, cold, ms       | 8.5  | 14.4 | 81.5                | 29.1  |
 | binary, MB                   | 89.0 | 56.3 | 122.5               | 107.9 |
 | binary, gzipped MB           | 42.0 | 20.5 | 43.6                | 43.8  |
 
