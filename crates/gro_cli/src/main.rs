@@ -44,11 +44,14 @@
 //! Without the feature, `fgro` evaluates the runtime's sources at startup,
 //! reading the web extensions' JS from the build tree.
 
+mod color;
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use argh::{EarlyExit, FromArgs};
+use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -261,10 +264,6 @@ fn run(args: &[&str]) -> u8 {
             |()| 0,
         );
     }
-    let options = RuntimeOptions {
-        snapshot: STARTUP_SNAPSHOT,
-        ..RuntimeOptions::default()
-    };
     match Args::from_args(&["fgro"], args) {
         Ok(Args {
             version: true,
@@ -291,6 +290,15 @@ fn run(args: &[&str]) -> u8 {
             version: false,
             command: Some(Command::Run(RunArgs { file })),
         }) => {
+            if let Err(error) = init_engine(&EngineOptions::default()) {
+                eprintln!("error: {error}");
+                return EXIT_FAILURE;
+            }
+            let options = RuntimeOptions {
+                snapshot: STARTUP_SNAPSHOT,
+                console: color::console_options(),
+                ..RuntimeOptions::default()
+            };
             // read here, not in the runtime, which takes it as an input
             let result = std::env::current_dir()
                 .map_err(RunError::Start)

@@ -578,10 +578,18 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   declaration files, and Svelte modules (vite-plugin-svelte's rule: `.svelte.`
   then any segments then `.js` or `.ts`) are refused with the reason, and a
   fix where there is one.
+  V8's process-wide setup is `engine::init_engine` (`EngineOptions`: V8's
+  entropy drawn from `getrandom`, always, and an optional ICU default
+  locale), once per process before the first runtime, defaults applied when
+  a runtime starts without it; each runtime's own choices are
+  `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
+  each level writes to and whether each is colored, read when the run
+  starts, never in the snapshot). The crate reads no environment variable;
+  `fgro` decides color.
   It starts from a startup snapshot when the embedder passes one
   (`snapshot.rs`; built in its own process from the same extension list, with
   the lazy scripts it didn't load embedded beside it as `residual.rs`), else
-  from source, reading `deno_web`'s JS from the build tree; the per-process
+  from source, reading `deno_web`'s JS from the build tree; the per-run
   steps run after startup either way. `bootstrap::extensions` drops every
   lazy and synthetic ES module the extensions declare (`deno_web`'s
   `locks.js` and `webtransport.js`): deno_core falls back to a lazy ES module

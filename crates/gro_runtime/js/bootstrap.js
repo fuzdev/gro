@@ -12,7 +12,7 @@
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 import { core } from 'ext:core/mod.js';
-import { op_gro_color } from 'ext:core/ops';
+import { op_gro_color, op_gro_console_stderr } from 'ext:core/ops';
 
 const load = core.loadExtScript;
 
@@ -31,19 +31,26 @@ const file_ns = load('ext:deno_web/09_file.js');
 const compression_ns = load('ext:deno_web/14_compression.js');
 const performance_ns = load('ext:deno_web/15_performance.js');
 
-// colored output as the host's `use_color` decides from the environment and
-// whether each stream is a terminal, once per process; asked per write, not at
-// bootstrap, so the snapshot never carries the answer
+// the run's console options, read from the host by `gro_start` when each run
+// starts; the snapshot carries only these placeholders, never a run's answer
+let all_to_stderr = false;
+let color_stdout = false;
+let color_stderr = false;
+
+// deno_web asks the first for the levels that go to stdout by default and the
+// second for the rest, so each answers for the stream its levels actually
+// write to
 console_ns.setNoColorFns(
-	() => !op_gro_color(false),
-	() => !op_gro_color(true)
+	() => !(all_to_stderr ? color_stderr : color_stdout),
+	() => !color_stderr
 );
 
 /** @type {Record<string, unknown>} */
 const globals = {
 	console: new console_ns.Console((/** @type {string} */ message, /** @type {number} */ level) =>
-		// `warn` and `error` (levels 2 and 3) go to stderr
-		core.print(message, level > 1)
+		// `warn`, `error`, and `trace` (levels 2 and up) go to stderr, and every
+		// level does when the run says so
+		core.print(message, all_to_stderr || level > 1)
 	),
 
 	URL: url_ns.URL,
@@ -114,12 +121,15 @@ for (const [name, value] of Object.entries(globals)) {
 	});
 }
 
-// the steps that must happen in each process, never in a snapshot: the
+// the steps that must happen in each run, never in a snapshot: the
 // runtime calls this once it has started, from a snapshot or not. deno_core
 // reads `Deno.core` while it starts from a snapshot, so the internals stay
 // until then.
 /** @type {any} */ (globalThis).__bootstrap.gro_start = () => {
 	performance_ns.setTimeOrigin();
+	all_to_stderr = op_gro_console_stderr();
+	color_stdout = op_gro_color(false);
+	color_stderr = op_gro_color(true);
 	// deno_core's internals: `Deno.core` reaches every op, and gro has no
 	// `Deno` namespace. Hygiene, not a boundary: no grant check relies on this.
 	delete (/** @type {any} */ (globalThis).__bootstrap);

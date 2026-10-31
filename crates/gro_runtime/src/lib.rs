@@ -21,19 +21,27 @@
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
 //!   `__bootstrap` from the global object
+//! - [`engine`]: V8's process-wide setup ([`engine::EngineOptions`]), applied
+//!   once per process before the first runtime, apart from each runtime's
+//!   [`RuntimeOptions`]
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
 //!
-//! `deno_core`'s types stay out of this crate's public API.
+//! `deno_core`'s types stay out of this crate's public API, and the crate
+//! reads no environment variable: what a runtime decides per run, such as the
+//! console's color and streams ([`ConsoleOptions`]), comes in through
+//! [`RuntimeOptions`] from the embedder.
 //!
 //! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
 //! `deno_web`'s JS is read from its crate's path on the build machine, so such
 //! a binary fails to start off its build tree. Started from a snapshot, it
 //! reads nothing from the build tree. Either way, the steps that must happen
-//! per process (the time origin, removing the internals from the global
-//! object) run once the runtime has started.
+//! in each run, never in a snapshot (the time origin, the console's
+//! [`ConsoleOptions`], removing the internals from the global object), run
+//! once the runtime has started.
 
 mod bootstrap;
+pub mod engine;
 mod loader;
 pub mod resolver;
 pub mod snapshot;
@@ -73,6 +81,35 @@ pub struct RuntimeOptions {
     /// this same build. Without one, the runtime evaluates its extensions'
     /// sources at startup.
     pub snapshot: Option<StartupSnapshot>,
+    /// Where the console writes and whether it colors.
+    pub console: ConsoleOptions,
+}
+
+/// The console's output: which stream each level writes to, and whether each
+/// stream is colored.
+///
+/// Decided per runtime, read when it starts, never carried in a snapshot. The
+/// default writes by level, uncolored.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConsoleOptions {
+    /// Which stream each level writes to.
+    pub routing: ConsoleRouting,
+    /// Whether output to stdout is colored.
+    pub color_stdout: bool,
+    /// Whether output to stderr is colored.
+    pub color_stderr: bool,
+}
+
+/// Which stream each console level writes to. Output is colored by the
+/// stream it goes to, whatever its level.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConsoleRouting {
+    /// `log`, `info`, and `debug` to stdout; `warn`, `error`, and `trace` to
+    /// stderr, as `fgro run` writes.
+    #[default]
+    ByLevel,
+    /// Every level to stderr, leaving stdout to the host.
+    Stderr,
 }
 
 /// The grant set: what the runtime's code may reach beyond pure computation.
@@ -144,6 +181,7 @@ pub(crate) fn run_recorded(
     let RuntimeOptions {
         grants: Grants {},
         snapshot,
+        console,
     } = options;
 
     let (entry, roots) = match resolver::resolve_entry(&DiskTree, entry, cwd) {
@@ -151,19 +189,22 @@ pub(crate) fn run_recorded(
         Err(error) => return (Err(error.into()), None),
     };
     let loader = Rc::new(Loader::new(&entry, roots, recording));
-    let result = run_loaded(*snapshot, &entry.url, Rc::clone(&loader));
+    let result = run_loaded(*snapshot, *console, &entry.url, Rc::clone(&loader));
     // the runtime, and its share of the loader, is gone once the run ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
     (result, Some(graph))
 }
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
-/// started from `snapshot` when there is one.
+/// started from `snapshot` when there is one, its console as `console` says.
+/// Sets the engine up with the default options first, unless it was already.
 fn run_loaded(
     snapshot: Option<StartupSnapshot>,
+    console: ConsoleOptions,
     entry: &Url,
     loader: Rc<Loader>,
 ) -> Result<(), RunError> {
+    engine::ensure_engine();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -178,6 +219,8 @@ fn run_loaded(
             ..Default::default()
         })
         .map_err(|error| uncaught(&error))?;
+        // before the bootstrap's start reads it
+        runtime.op_state().borrow_mut().put(console);
         bootstrap::start(&mut runtime).map_err(|error| RunError::Uncaught(report_js(&error)))?;
         let id = runtime
             .load_main_es_module(entry)

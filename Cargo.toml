@@ -17,6 +17,8 @@ blake3 = "1"
 deno_core = "0.412.0"
 deno_web = "0.290.0"
 deno_webidl = "0.259.0"
+# V8's entropy source, the operating system's random source
+getrandom = "0.4.3"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: a recorded f64 parses back to the same bits
 serde_json = { version = "1", features = ["float_roundtrip"] }
