@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest';
 import { resolve } from 'node:path';
 
-import { resolve_gro_module_path, spawn_with_loader } from '#lib/gro_helpers.ts';
+import { spawn_with_loader } from '#lib/gro_helpers.ts';
 
 import { TEST_TIMEOUT_MD } from './test_helpers.ts';
 
@@ -10,8 +10,8 @@ test(
 	async () => {
 		const test_script = resolve('src/test/fixtures/test_loader.ts');
 
-		// Use the same loader resolution logic as the CLI
-		const loader_path = resolve_gro_module_path('loader.js');
+		// the source loader, not a built `dist/` that may be stale
+		const loader_path = resolve('src/lib/loader.ts');
 
 		// Use the existing spawn_with_loader function
 		const result = await spawn_with_loader(loader_path, test_script, []);

@@ -6,9 +6,10 @@ import { resolve_specifier } from './resolve_specifier.ts';
 import { EVERYTHING_MATCHER } from './constants.ts';
 
 /**
- * Adds support for imports to both `.ts` and `.js`,
- * as well as imports without extensions that resolve to `.js` or `.ts`.
- * Prefers `.ts` over any `.js`, and falls back to `.ts` if no file is found.
+ * Resolves relative and absolute imports to exactly the file they name,
+ * loading `.ts` as TypeScript. Extensions are mandatory and `.js` never maps to `.ts`,
+ * so a specifier that doesn't name an existing file fails the build.
+ * Imports from inside `node_modules` use esbuild's default resolution.
  */
 export const esbuild_plugin_sveltekit_local_imports = (): esbuild.Plugin => ({
 	name: 'sveltekit_local_imports',
@@ -16,7 +17,8 @@ export const esbuild_plugin_sveltekit_local_imports = (): esbuild.Plugin => ({
 		build.onResolve({ filter: /^(\/|\.)/ }, async (args) => {
 			const { path, importer } = args;
 			if (!importer) return { path };
-			const { path_id, namespace } = await resolve_specifier(path, dirname(importer));
+			if (importer.includes('/node_modules/')) return undefined;
+			const { path_id, namespace } = await resolve_specifier(path, importer);
 			return { path: path_id, namespace }; // `namespace` may be `undefined`, but esbuild needs the absolute path for json etc
 		});
 		build.onLoad(

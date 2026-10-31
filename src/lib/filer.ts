@@ -1,6 +1,6 @@
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { OmitStrict } from '@fuzdev/fuz_util/types.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
@@ -18,7 +18,7 @@ import {
 } from './watch_dir.ts';
 import { paths } from './paths.ts';
 import { parse_imports } from './parse_imports.ts';
-import { resolve_specifier, to_missing_module_id } from './resolve_specifier.ts';
+import { to_specifier_path_id } from './resolve_specifier.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
 import type { Disknode } from './disknode.ts';
 
@@ -253,8 +253,6 @@ export class Filer {
 		file.contents = new_bytes !== null ? new_bytes.toString('utf8') : null;
 		file.content_hash = new_hash;
 
-		const dir = dirname(file.id);
-
 		const dependencies_before = new Set(file.dependencies.keys());
 		const dependencies_removed = new Set(dependencies_before);
 
@@ -269,25 +267,17 @@ export class Filer {
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
 			let path_id;
-			// TODO replace `resolve_specifier` with `import.meta.resolve` for local specifiers too
-			// once we move to explicit extensions (Deno-compatible) - the .js→.ts Vite convention
-			// is the only reason resolve_specifier is still needed here
 			if (specifier[0] === '.' || specifier[0] === '/') {
-				const resolved = await resolve_specifier(specifier, dir);
-				path_id = resolved.path_id;
+				// the exact named path, existing or not, so a file created later links to its importers
+				path_id = to_specifier_path_id(specifier, file.id);
 			} else {
 				const file_url = pathToFileURL(file.id);
 				let resolved_url;
 				try {
 					resolved_url = import.meta.resolve(specifier, file_url.href);
 				} catch (error) {
-					// a subpath import like `#lib/foo.js` naming a `.ts` file, the Vite convention
-					const missing_id = to_missing_module_id(error);
-					if (missing_id === null) {
-						this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
-						continue;
-					}
-					resolved_url = pathToFileURL((await resolve_specifier(missing_id, dir)).path_id).href;
+					this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
+					continue;
 				}
 				if (!resolved_url.startsWith('file:')) continue; // skip node:, npm:, https:, jsr:, etc.
 				path_id = fileURLToPath(resolved_url);

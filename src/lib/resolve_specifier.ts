@@ -1,7 +1,7 @@
-import { fileURLToPath } from 'node:url';
-import { extname, isAbsolute, join, relative } from 'node:path';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { stat } from 'node:fs/promises';
+import { dirname, extname, relative, resolve } from 'node:path';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
 import { replace_extension } from './paths.ts';
 
@@ -17,58 +17,72 @@ export interface ResolvedSpecifier {
 	 */
 	path_id_with_querystring: string;
 	specifier: string;
+	/**
+	 * The specifier relative to the importer's directory, with `.ts` mapped to the built `.js`.
+	 */
 	mapped_specifier: string;
 	namespace: undefined | 'sveltekit_local_imports_ts' | 'sveltekit_local_imports_js';
 	raw: boolean;
 }
 
+const DIRECTORY_LIKE_MATCHER = /(^|\/)\.{0,2}$/;
+
 /**
- * Maps an import `specifier` relative to `dir`,
- * and infer the correct extension following Vite conventions.
- * If no `.js` file is found for the specifier on the filesystem, it assumes `.ts`.
+ * The path a relative or absolute `specifier` names, whether or not it exists.
+ * @param specifier - a relative or absolute path, optionally ending in `?raw`
+ * @param importer - the path of the importing module
+ */
+export const to_specifier_path_id = (specifier: string, importer: PathId): PathId => {
+	const final_specifier = specifier.endsWith('?raw') ? specifier.slice(0, -4) : specifier;
+	const path_id = resolve(dirname(importer), final_specifier);
+	// a last segment of '', '.', or '..' names a directory, so keep the slash
+	// and a file is never reached through one, as in Node
+	return DIRECTORY_LIKE_MATCHER.test(final_specifier) && path_id !== '/' ? path_id + '/' : path_id;
+};
+
+/**
+ * Resolves a relative or absolute import `specifier` to exactly the file it names,
+ * the rule gro's runtime resolver follows: extensions are mandatory,
+ * nothing is probed, and `.js` never maps to `.ts`.
+ * The specifier is read as a filesystem path, never URL-decoded; `?raw` is the only query recognized.
+ * @param specifier - a relative or absolute path, optionally ending in `?raw`
+ * @param importer - the path of the importing module
+ * @throws if the specifier doesn't name an existing file, with the fix when there is one
+ *   and `code` `'ERR_MODULE_NOT_FOUND'` as Node sets it; any other filesystem error
+ *   (like `EACCES`) is rethrown naming the specifier and importer, the original as `cause`
  */
 export const resolve_specifier = async (
 	specifier: string,
-	dir: string
+	importer: PathId
 ): Promise<ResolvedSpecifier> => {
 	const raw = specifier.endsWith('?raw'); // TODO more robust detection? other values?
-	const final_specifier = raw ? specifier.substring(0, specifier.length - 4) : specifier;
-	const absolute_path = isAbsolute(final_specifier) ? final_specifier : join(dir, final_specifier);
+	const final_specifier = raw ? specifier.slice(0, -4) : specifier;
+	const path_id = to_specifier_path_id(specifier, importer);
+	const dir = dirname(importer);
 
-	let mapped_path;
-	let path_id;
-	let namespace: ResolvedSpecifier['namespace'];
-
-	const ext = extname(absolute_path);
-	const is_js = ext === '.js';
-	const is_ts = ext === '.ts';
-
-	if (!is_js && !is_ts && (await fs_exists(absolute_path))) {
-		// unrecognized extension and the file exists
-		mapped_path = absolute_path;
-		path_id = absolute_path;
-	} else if (is_ts) {
-		// explicitly ts
-		mapped_path = replace_extension(absolute_path, '.js');
-		path_id = absolute_path;
-		namespace = 'sveltekit_local_imports_ts';
-	} else {
-		// extensionless, or js that points to ts, or just js
-		const js_id = is_js ? absolute_path : absolute_path + '.js';
-		const ts_id = is_js ? replace_extension(absolute_path, '.ts') : absolute_path + '.ts';
-		const [ts_exists, js_exists] = await Promise.all([fs_exists(ts_id), fs_exists(js_id)]);
-		if (!ts_exists && js_exists) {
-			mapped_path = js_id;
-			path_id = js_id;
-			namespace = 'sveltekit_local_imports_js';
-		} else {
-			mapped_path = js_id;
-			path_id = ts_id;
-			namespace = 'sveltekit_local_imports_ts';
-		}
+	let refusal;
+	try {
+		refusal = await to_refusal(path_id, final_specifier);
+	} catch (error) {
+		throw new Error(`cannot resolve '${specifier}' from ${importer}: ${to_error_message(error)}`, {
+			cause: error
+		});
+	}
+	if (refusal !== null) {
+		throw Object.assign(new Error(`cannot resolve '${specifier}' from ${importer}: ${refusal}`), {
+			code: 'ERR_MODULE_NOT_FOUND'
+		});
 	}
 
-	let mapped_specifier = relative(dir, mapped_path);
+	const ext = extname(path_id);
+	const namespace: ResolvedSpecifier['namespace'] =
+		ext === '.ts'
+			? 'sveltekit_local_imports_ts'
+			: ext === '.js'
+				? 'sveltekit_local_imports_js'
+				: undefined;
+
+	let mapped_specifier = relative(dir, ext === '.ts' ? replace_extension(path_id, '.js') : path_id);
 	if (mapped_specifier[0] !== '.') mapped_specifier = './' + mapped_specifier;
 
 	return {
@@ -82,15 +96,48 @@ export const resolve_specifier = async (
 };
 
 /**
- * The file a failed Node resolution was looking for, if it failed because the file is missing -
- * Node maps a subpath import like `#lib/foo.js` through package.json `imports` before failing,
- * so this is the path a `.js`-for-`.ts` retry should start from.
- * @returns the missing file's path, or `null` for any other error
+ * Why `path_id` doesn't load, or `null` when it names a file.
+ * The sibling checks run only here, after the exact path fails,
+ * to name the fix - resolution itself never probes.
  */
-export const to_missing_module_id = (error: unknown): string | null => {
-	const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
-	if (code !== 'ERR_MODULE_NOT_FOUND' || typeof url !== 'string' || !url.startsWith('file:')) {
-		return null;
+const to_refusal = async (path_id: string, specifier: string): Promise<string | null> => {
+	const stats = await stat_or_null(path_id);
+	if (stats?.isFile()) return null;
+	const reason = stats
+		? 'it is not a regular file (a directory or a special file); name a module file'
+		: 'no such file';
+	const sibling = await find_sibling(path_id, specifier);
+	if (sibling !== null) {
+		const why = extname(path_id) === '.js' ? '.js never maps to .ts' : 'nothing is probed';
+		return `${reason}, but '${sibling}' exists; write the real extension (${why})`;
 	}
-	return fileURLToPath(url);
+	if (!stats && !extname(path_id)) {
+		return `${reason}; the path has no extension and nothing is probed, so write the real one`;
+	}
+	return reason;
+};
+
+/**
+ * The specifier a missing `path_id` likely meant:
+ * `.ts` in place of `.js`, or `.ts` or `.js` appended.
+ */
+const find_sibling = async (path_id: string, specifier: string): Promise<string | null> => {
+	if (extname(path_id) === '.js') {
+		const ts_id = replace_extension(path_id, '.ts');
+		return (await stat_or_null(ts_id))?.isFile() ? replace_extension(specifier, '.ts') : null;
+	}
+	for (const ext of ['.ts', '.js']) {
+		if ((await stat_or_null(path_id + ext))?.isFile()) return specifier + ext;
+	}
+	return null;
+};
+
+const stat_or_null = async (path: string): Promise<Awaited<ReturnType<typeof stat>> | null> => {
+	try {
+		return await stat(path);
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === 'ENOENT' || code === 'ENOTDIR') return null;
+		throw error;
+	}
 };

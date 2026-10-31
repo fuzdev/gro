@@ -9,8 +9,8 @@ import * as app_env from '$app/env';
 import * as env_public from '$app/env/public';
 // @ts-ignore
 import * as env_private from '$app/env/private';
-// a subpath import in the Vite convention, `.js` naming a `.ts` file
-import { LIB_PATH } from '#lib/constants.js';
+// a subpath import naming the real file
+import { LIB_PATH } from '#lib/constants.ts';
 
 const expected = {
 	app_env: { browser: false, building: false, dev: true },

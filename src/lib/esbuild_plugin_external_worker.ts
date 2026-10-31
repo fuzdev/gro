@@ -79,12 +79,12 @@ export const esbuild_plugin_external_worker = ({
 			return building;
 		};
 
-		build.onResolve({ filter: /\.worker(|\.js|\.ts)$/ }, async ({ path, resolveDir }) => {
-			const parsed = await resolve_specifier(path, resolveDir);
-			const { specifier, path_id, namespace } = parsed;
+		build.onResolve({ filter: /^(\.|\/).*\.worker\.(js|ts)$/ }, async ({ path, importer }) => {
+			const { path_id, mapped_specifier, namespace } = await resolve_specifier(path, importer);
 			const build_result = await build_worker(path_id);
 			if (log) print_build_result(log, build_result);
-			return { path: './' + basename(specifier), external: true, namespace };
+			// the worker builds to `.js`, so a `.ts` specifier is rewritten to the built file
+			return { path: './' + basename(mapped_specifier), external: true, namespace };
 		});
 	}
 });

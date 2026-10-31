@@ -1,5 +1,7 @@
 import { test, assert, vi } from 'vitest';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 import type { WatchNodeFs } from '#lib/watch_dir.ts';
 import { Filer, filter_dependents } from '#lib/filer.ts';
@@ -179,6 +181,53 @@ test('skips non-file schemes in transitive dependency resolution', async () => {
 	// Verify no file in the graph has a path containing 'crypto'
 	for (const [id] of filer.files) {
 		assert.ok(!id.includes('crypto'), `unexpected crypto entry in graph: ${id}`);
+	}
+});
+
+test('an import of a missing file links once the file is added', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_missing_dep_'));
+	try {
+		const importer_path = join(dir, 'importer.ts');
+		const dep_path = join(dir, 'dep.ts');
+		await writeFile(importer_path, "import {dep} from './dep.ts';\nexport const a = dep;\n");
+
+		let on_change_callback: ((change: any) => void) | null = null as any;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change_callback = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+
+		const filer = new Filer({ watch_dir: mock_watch_dir });
+		await filer.init();
+
+		// the edge is recorded to the exact named path before the file exists
+		const importer = filer.get_by_id(importer_path);
+		assert.ok(importer);
+		assert.ok(importer.dependencies.has(dep_path), 'importer should depend on the missing dep');
+		const dep_before = filer.get_by_id(dep_path);
+		assert.ok(dep_before);
+		assert.equal(dep_before.contents, null);
+
+		await writeFile(dep_path, 'export const dep = 1;\n');
+		assert.ok(on_change_callback);
+		on_change_callback({ type: 'add', path: dep_path, is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+
+		const dep = filer.get_by_id(dep_path);
+		assert.ok(dep);
+		assert.ok(dep.contents, 'dep contents should load once added');
+		assert.ok(dep.dependents.has(importer_path), 'dep should have importer as dependent');
+		assert.ok(filter_dependents(dep, filer.get_by_id).has(importer_path));
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
 	}
 });
 

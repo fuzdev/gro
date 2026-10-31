@@ -34,10 +34,54 @@ const run_tests = async () => {
 
 	// Test 1: Import .js
 	try {
-		const imported = await import(resolve('src/test/fixtures/modules/some_test_ts.js'));
+		const imported = await import(resolve('src/test/fixtures/modules/some_test_js.js'));
 		assert(imported && imported.a === 'ok', 'import .js works');
 	} catch (error) {
 		assert(false, `import .js failed: ${error.message}`);
+	}
+
+	// Test 1b: a `.js` specifier naming a missing file is refused, not mapped to its `.ts` sibling
+	try {
+		await import(resolve('src/test/fixtures/modules/some_test_ts.js'));
+		assert(false, 'import .js for a .ts file should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.message.includes("but '") && error.message.includes('some_test_ts.ts'),
+			`import .js for a .ts file fails naming the .ts file (got ${error.message})`
+		);
+	}
+
+	// Test 1c: an extensionless specifier is refused, not probed
+	try {
+		await import(resolve('src/test/fixtures/modules/some_test_ts'));
+		assert(false, 'extensionless import should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.message.includes('write the real extension'),
+			`extensionless import fails with the fix (got ${error.message})`
+		);
+	}
+
+	// Test 1d: a subpath import naming the real file resolves through package.json `imports`
+	try {
+		const imported = await import('#lib/constants.ts');
+		assert(typeof imported.EVERYTHING_MATCHER === 'object', 'import #lib/*.ts works');
+	} catch (error) {
+		assert(false, `import #lib/*.ts failed: ${error.message}`);
+	}
+
+	// Test 1e: a subpath import naming `.js` for a `.ts` file fails with the fix, never retried
+	try {
+		await import('#lib/constants.js');
+		assert(false, 'import #lib/*.js for a .ts file should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.code === 'ERR_MODULE_NOT_FOUND' &&
+				error.message.includes(
+					"'#lib/constants.ts' names the file that exists (.js never maps to .ts)"
+				),
+			`import #lib/*.js for a .ts file fails naming the .ts file (got ${error.message})`
+		);
 	}
 
 	// Test 2: Import .ts

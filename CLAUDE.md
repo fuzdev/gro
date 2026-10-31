@@ -150,8 +150,18 @@ Svelte config: read from the options passed to the `sveltekit()` plugin in
 `vite.config.ts` (SvelteKit 3 has no `svelte.config.js`), awaited only inside the
 `load` hook, which most invocations never reach. The `resolve` hook needs no
 config: package.json subpath imports (`#lib/*`, `#routes/*`) resolve through
-Node, with a fallback for the Vite convention of `.js` naming a `.ts` file, and
-SvelteKit's deprecated `alias` option isn't supported (Gro warns when it's set).
+Node, and SvelteKit's deprecated `alias` option isn't supported (Gro warns when
+it's set).
+
+Strict specifiers: a relative or absolute import resolves to exactly the file it
+names (`resolve_specifier.ts`), matching the extension rules of the runtime's
+[resolver](src/docs/resolver.md). Extensions are mandatory, nothing is probed,
+and `.js` never maps to `.ts`; a specifier naming no file is refused with the
+specifier, the importer, and the fix. The esbuild plugins for server builds
+follow the same rule, and the Filer's import graph records the exact path a
+specifier names (`to_specifier_path_id`), existing or not, so a file created
+later links to its importers; imports from inside `node_modules` keep Node's and
+esbuild's own resolution.
 
 SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
 to actual SvelteKit modules:

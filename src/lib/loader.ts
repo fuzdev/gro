@@ -1,8 +1,8 @@
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { LoadHook, ResolveHook } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { strip_typescript } from '@fuzdev/tsv';
 
@@ -20,9 +20,9 @@ import {
 	sveltekit_shim_app_specifiers
 } from './sveltekit_shim_app.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import { paths } from './paths.ts';
+import { paths, replace_extension } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
-import { resolve_specifier, to_missing_module_id } from './resolve_specifier.ts';
+import { resolve_specifier } from './resolve_specifier.ts';
 
 /*
 
@@ -230,20 +230,25 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(shimmed, context);
 	}
 
-	// Subpath imports like `#lib/*` resolve through package.json `imports`,
-	// falling back to the Vite convention of `.js` naming a `.ts` file
+	// Subpath imports like `#lib/*` resolve only through package.json `imports`;
+	// a `.js` naming a missing file with a `.ts` sibling gets the fix appended, never a retry
 	if (s[0] === '#') {
 		try {
 			return await nextResolve(s, context);
 		} catch (error) {
-			const id = to_missing_module_id(error);
-			if (id === null) throw error;
-			const resolved = await resolve_specifier(id, dir);
-			return {
-				url: pathToFileURL(resolved.path_id_with_querystring).href,
-				format: 'module',
-				shortCircuit: true
-			};
+			const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
+			if (
+				code === 'ERR_MODULE_NOT_FOUND' &&
+				typeof url === 'string' &&
+				url.startsWith('file:') &&
+				url.endsWith('.js') &&
+				s.endsWith('.js') &&
+				existsSync(replace_extension(fileURLToPath(url), '.ts'))
+			) {
+				(error as Error).message +=
+					`; '${replace_extension(s, '.ts')}' names the file that exists (.js never maps to .ts)`;
+			}
+			throw error;
 		}
 	}
 
@@ -252,7 +257,7 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(s, context);
 	}
 
-	// Resolve paths using Vite conventions
+	// Relative and absolute paths resolve to exactly the file they name
 	const parent_url = context.parentURL;
 	if (!parent_url) {
 		return nextResolve(s, context);
@@ -267,7 +272,7 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(s, context);
 	}
 
-	const resolved = await resolve_specifier(s, dirname(fileURLToPath(parent_url)));
+	const resolved = await resolve_specifier(s, fileURLToPath(parent_url));
 	const url = pathToFileURL(resolved.path_id_with_querystring).href;
 
 	// Safety net for project code doing `import './node_modules/...'`:

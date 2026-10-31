@@ -1,0 +1,5 @@
+---
+'@fuzdev/gro': minor
+---
+
+**breaking** feat: relative and absolute imports resolve to exactly the file they name in the loader, the Filer's import graph, and server builds, with no extensionless probing and no `.js`-to-`.ts` mapping (`./foo.ts`, not `./foo` or `./foo.js`); a `.js` specifier with a `.ts` sibling now loads the `.js`; in the loader and server builds an unresolvable import fails with the specifier, the importer, and the fix (the Filer records the edge to the named path so a file created later links), and a `#lib/x.js` naming a `.ts` file gets the fix appended to Node's error; `#lib/*` and other subpath imports resolve only through Node, with no `.js`-to-`.ts` retry; server builds externalize a relative or absolute `.worker.ts` import as its built `.js`; the worker plugin now handles only relative or absolute `.worker.ts`/`.worker.js` specifiers, so an extensionless `.worker` import or a bare `pkg/x.worker.js` gets esbuild's default resolution; `resolve_specifier` takes the importer's path instead of its directory and throws for a specifier naming no file; `to_missing_module_id` is removed and `to_specifier_path_id` added
