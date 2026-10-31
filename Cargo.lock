@@ -781,6 +781,7 @@ dependencies = [
 name = "gro_runtime"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "deno_core",
  "deno_web",
  "deno_webidl",

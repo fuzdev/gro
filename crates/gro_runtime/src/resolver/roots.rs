@@ -148,7 +148,7 @@ impl Roots {
 }
 
 /// A metadata file resolution read.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConsultedFile {
     /// Its real path.
     pub path: PathBuf,
@@ -157,7 +157,7 @@ pub struct ConsultedFile {
 }
 
 /// What a consulted file was read for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileRole {
     /// A package's `package.json`, for its `"exports"`.
     Exports,

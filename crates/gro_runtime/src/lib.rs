@@ -13,7 +13,10 @@
 //!   project's or package's root; `.mjs`, `.ts`, and `.mts` load, and `.js`
 //!   under `"type": "module"`)
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
-//!   that strips TypeScript's types in process with `tsv_ts`
+//!   that strips TypeScript's types in process with `tsv_ts`, and keeps the
+//!   run's module graph: its roots and each module's root and file, and,
+//!   recording in full, each load's format and hash, the imports between
+//!   modules, the files consulted, and what failed
 //! - `bootstrap`: the extension that installs the pure web globals from
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
@@ -40,7 +43,10 @@ use std::rc::Rc;
 
 use deno_core::error::{CoreError, CoreErrorKind, JsError, JsStackFrame};
 use deno_core::{JsRuntime, PollEventLoopOptions};
+use url::Url;
 
+use crate::loader::Loader;
+use crate::loader::graph::{Graph, Recording};
 use crate::resolver::{DiskTree, ResolveError};
 use crate::snapshot::StartupSnapshot;
 
@@ -120,21 +126,51 @@ pub enum RunError {
 /// sits below wherever the runtime starts on that thread, so the size doesn't
 /// change how deep JS can go.
 pub fn run_main(options: &RuntimeOptions, entry: &Path, cwd: &Path) -> Result<(), RunError> {
+    run_recorded(options, entry, cwd, Recording::Off).0
+}
+
+/// Runs as [`run_main`] does, and returns the run's result with the graph its
+/// loader recorded as `recording` says: in full, every module resolved and
+/// loaded with its format and hash, the imports between them, the files
+/// consulted, and the failures. The graph is unset only when the entry
+/// didn't resolve.
+pub(crate) fn run_recorded(
+    options: &RuntimeOptions,
+    entry: &Path,
+    cwd: &Path,
+    recording: Recording,
+) -> (Result<(), RunError>, Option<Graph>) {
     // nothing to grant yet; destructured so a new field can't go unread
     let RuntimeOptions {
         grants: Grants {},
         snapshot,
     } = options;
 
-    let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
+    let (entry, roots) = match resolver::resolve_entry(&DiskTree, entry, cwd) {
+        Ok(resolved) => resolved,
+        Err(error) => return (Err(error.into()), None),
+    };
+    let loader = Rc::new(Loader::new(&entry, roots, recording));
+    let result = run_loaded(*snapshot, &entry.url, Rc::clone(&loader));
+    // the runtime, and its share of the loader, is gone once the run ends
+    let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
+    (result, Some(graph))
+}
 
+/// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
+/// started from `snapshot` when there is one.
+fn run_loaded(
+    snapshot: Option<StartupSnapshot>,
+    entry: &Url,
+    loader: Rc<Loader>,
+) -> Result<(), RunError> {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(RunError::Start)?;
     tokio_runtime.block_on(async {
         let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
-            module_loader: Some(Rc::new(loader::Loader::new(&entry, roots))),
+            module_loader: Some(loader),
             // the same list the snapshot was made from, in the same order
             extensions: bootstrap::extensions(),
             startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
@@ -144,7 +180,7 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path, cwd: &Path) -> Result<()
         .map_err(|error| uncaught(&error))?;
         bootstrap::start(&mut runtime).map_err(|error| RunError::Uncaught(report_js(&error)))?;
         let id = runtime
-            .load_main_es_module(&entry.url)
+            .load_main_es_module(entry)
             .await
             .map_err(|error| uncaught(&error))?;
         let evaluation = runtime.mod_evaluate(id);
@@ -231,7 +267,9 @@ fn push_frames(report: &mut String, error: &JsError) {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{RunError, RuntimeOptions, STACK_SIZE, bootstrap, run_main};
+    use super::{
+        Graph, Recording, RunError, RuntimeOptions, STACK_SIZE, bootstrap, run_main, run_recorded,
+    };
 
     /// The modules `deno_core` provides itself, which it doesn't list publicly
     /// (`CONTEXT_SETUP_SOURCES`, `BUILTIN_SOURCES`, `BUILTIN_ES_MODULES`, and
@@ -383,5 +421,299 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         );
         let result = run_source("dynamic", &source);
         assert!(result.is_ok(), "{result:?}");
+    }
+
+    /// Writes `files` into a fresh directory named for `name`, runs its
+    /// `entry` recording as `recording` says, removes the directory, and
+    /// returns the run's result and graph, with the directory's real path.
+    fn run_graph(
+        name: &str,
+        files: &[(&str, &str)],
+        entry: &str,
+        recording: Recording,
+    ) -> (Result<(), RunError>, Option<Graph>, PathBuf) {
+        use crate::resolver::test_tree::disk_test_dir;
+
+        let dir = disk_test_dir(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        for (file, content) in files {
+            std::fs::write(dir.join(file), content).unwrap();
+        }
+        let entry = dir.join(entry);
+        let cwd = dir.clone();
+        let (result, graph) = std::thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || run_recorded(&RuntimeOptions::default(), &entry, &cwd, recording))
+            .unwrap()
+            .join()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        (result, graph, dir)
+    }
+
+    const PACKAGE_JSON: (&str, &str) = ("package.json", r#"{"name": "fixture", "type": "module"}"#);
+
+    /// A run records its graph in full: the static import and the modules a
+    /// dynamic one loads as edges, an `import()` that failed and was caught
+    /// as a failure, `import.meta.resolve` as neither, the files consulted
+    /// from the entry on, and the format and hash of each module's bytes
+    /// before the strip. Recording off, the same run keeps only its roots
+    /// and records.
+    #[test]
+    fn a_run_records_its_graph() {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use url::Url;
+
+        use crate::loader::graph::{
+            Edge, Failure, FailureError, FailureSite, Loaded, Reach, Reached,
+        };
+        use crate::resolver::{ConsultedFile, FileRole, ModuleFormat, ResolveErrorKind};
+
+        const MAIN: &str = "import {a} from './a.ts';
+let caught = false;
+try {
+\tawait import('./missing.js');
+} catch (error) {
+\tcaught = error instanceof TypeError;
+}
+if (!caught) throw new Error('the import() did not fail with a TypeError');
+const url = import.meta.resolve('./b.js');
+if (!url.endsWith('/b.js')) throw new Error(url);
+const {d} = await import('./c.js');
+if (a !== 1 || d !== 4) throw new Error('wrong values');
+";
+        const A: &str = "export const a: number = 1;\n";
+        const C: &str = "export {d} from './d.js';\n";
+        const D: &str = "export const d = 4;\n";
+        let files = [
+            PACKAGE_JSON,
+            ("main.js", MAIN),
+            ("a.ts", A),
+            ("b.js", "export {};\n"),
+            ("c.js", C),
+            ("d.js", D),
+        ];
+        let name = "run_records_its_graph";
+        let (result, graph, dir) = run_graph(name, &files, "main.js", Recording::Full);
+        assert!(result.is_ok(), "{result:?}");
+        let (off_result, off, _) = run_graph(name, &files, "main.js", Recording::Off);
+        assert!(off_result.is_ok(), "{off_result:?}");
+        let graph = graph.unwrap();
+        let off = off.unwrap();
+        let url = |file: &str| Url::from_file_path(dir.join(file)).unwrap();
+
+        let main = url("main.js");
+        let edge = |importer: &Url, specifier: &str, reach| Edge {
+            importer: importer.clone(),
+            specifier: specifier.to_owned(),
+            reach,
+        };
+        assert_eq!(
+            graph.edges,
+            BTreeMap::from([
+                (edge(&main, "./a.ts", Reach::Static), url("a.ts")),
+                (edge(&main, "./c.js", Reach::Dynamic), url("c.js")),
+                // a static import inside a dynamically loaded module
+                (edge(&url("c.js"), "./d.js", Reach::Dynamic), url("d.js")),
+            ])
+        );
+        // `import.meta.resolve` loaded nothing, and the failed import nothing
+        let mut recorded: Vec<_> = graph.records.keys().cloned().collect();
+        recorded.sort();
+        let mut expected = vec![main.clone(), url("a.ts"), url("c.js"), url("d.js")];
+        expected.sort();
+        assert_eq!(recorded, expected);
+        for (file, source, format) in [
+            ("main.js", MAIN, ModuleFormat::JavaScript),
+            ("a.ts", A, ModuleFormat::TypeScript),
+            ("c.js", C, ModuleFormat::JavaScript),
+            ("d.js", D, ModuleFormat::JavaScript),
+        ] {
+            let loaded = Loaded {
+                format,
+                hash: blake3::hash(source.as_bytes()),
+            };
+            assert_eq!(graph.records[&url(file)].loaded, Some(loaded), "{file}");
+        }
+
+        assert_eq!(graph.failures.len(), 1, "{:?}", graph.failures);
+        let site = FailureSite {
+            specifier: "./missing.js".to_owned(),
+            importer: Some(main.to_string()),
+            reached: Reached::Import(Reach::Dynamic),
+        };
+        assert!(
+            matches!(
+                graph.failures[&site].as_slice(),
+                [Failure {
+                    at: None,
+                    error: FailureError::Resolve(ResolveErrorKind::NotFound { .. }),
+                }]
+            ),
+            "{:?}",
+            graph.failures
+        );
+
+        let package_json = dir.join("package.json");
+        let consulted = |role| ConsultedFile {
+            path: package_json.clone(),
+            role,
+        };
+        assert_eq!(
+            graph.consulted,
+            BTreeSet::from([
+                consulted(FileRole::SearchBound),
+                consulted(FileRole::PackageScope),
+            ])
+        );
+
+        // off, the same roots and records, with nothing else
+        assert_eq!(off.roots, graph.roots);
+        let mut off_recorded: Vec<_> = off.records.keys().cloned().collect();
+        off_recorded.sort();
+        assert_eq!(off_recorded, expected);
+        assert!(off.records.values().all(|record| record.loaded.is_none()));
+        assert!(off.edges.is_empty());
+        assert!(off.consulted.is_empty());
+        assert!(off.failures.is_empty());
+    }
+
+    /// The graph is recorded for a run that fails, and there is none when
+    /// the entry doesn't resolve.
+    #[test]
+    fn a_failed_run_still_records_its_graph() {
+        use crate::loader::graph::{FailureError, LoadFailure};
+
+        let files = [("main.ts", "enum E { A }\n")];
+        let name = "failed_run_records_its_graph";
+        let (result, graph, _) = run_graph(name, &files, "main.ts", Recording::Full);
+        let (missing, none, _) = run_graph(name, &files, "missing.ts", Recording::Full);
+        assert!(matches!(result, Err(RunError::Uncaught(_))), "{result:?}");
+        let failures = graph.unwrap().failures;
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        let (site, failures) = failures.iter().next().unwrap();
+        // the entry's own load names no importer
+        assert_eq!(site.importer, None);
+        assert!(matches!(
+            failures.as_slice(),
+            [crate::loader::graph::Failure {
+                error: FailureError::Load(LoadFailure::Strip { .. }),
+                ..
+            }]
+        ));
+        assert!(matches!(missing, Err(RunError::Entry(_))), "{missing:?}");
+        assert!(none.is_none());
+    }
+
+    /// A load that fails is recorded by how `deno_core` reached it: the
+    /// module an `import()` call loads and every static import below it as
+    /// dynamic, the root with no importer and the import below it with its
+    /// importer and position, and a static import of the entry's graph as
+    /// static.
+    #[test]
+    fn a_load_failure_is_recorded_by_its_reach() {
+        use url::Url;
+
+        use crate::loader::graph::{
+            Failure, FailureError, FailureSite, LoadFailure, Position, Reach, Reached,
+        };
+
+        const MAIN: &str = "try {
+\tawait import('./e.ts');
+} catch {}
+try {
+\tawait import('./c.js');
+} catch {}
+await import('./s.js');
+";
+        let mut files = [
+            PACKAGE_JSON,
+            ("main.js", MAIN),
+            ("e.ts", "enum E { A }\n"),
+            ("c.js", "import './f.ts';\n"),
+            ("f.ts", "enum F { A }\n"),
+            ("s.js", "export {};\n"),
+        ];
+        let name = "load_failure_reach";
+        let (result, graph, dir) = run_graph(name, &files, "main.js", Recording::Full);
+        // the entry's own load, failing, is static with no importer
+        files[1].1 = "import './e.ts';\n";
+        let (failed, static_graph, _) = run_graph(name, &files, "main.js", Recording::Full);
+        let url = |file: &str| Url::from_file_path(dir.join(file)).unwrap().to_string();
+        assert!(result.is_ok(), "{result:?}");
+        assert!(failed.is_err());
+        let failures = graph.unwrap().failures;
+        let dynamic = Reached::Import(Reach::Dynamic);
+        let sites: Vec<_> = failures.keys().cloned().collect();
+        assert_eq!(
+            sites,
+            [
+                FailureSite {
+                    specifier: url("e.ts"),
+                    importer: None,
+                    reached: dynamic,
+                },
+                FailureSite {
+                    specifier: url("f.ts"),
+                    importer: Some(url("c.js")),
+                    reached: dynamic,
+                },
+            ]
+        );
+        assert!(matches!(
+            failures[&sites[1]].as_slice(),
+            [Failure {
+                at: Some(Position { line: 1, column: 8 }),
+                error: FailureError::Load(LoadFailure::Strip { .. }),
+            }]
+        ));
+        let failures = static_graph.unwrap().failures;
+        let sites: Vec<_> = failures.keys().cloned().collect();
+        assert_eq!(
+            sites,
+            [FailureSite {
+                specifier: url("e.ts"),
+                importer: Some(url("main.js")),
+                reached: Reached::Import(Reach::Static),
+            }]
+        );
+    }
+
+    /// A run records at most one failure reached statically: `deno_core`
+    /// stops the entry's load at its first error, and linking reuses the
+    /// specifiers it already resolved, so the other refused imports are
+    /// never loaded or resolved again.
+    #[test]
+    fn a_run_records_at_most_one_static_failure() {
+        use crate::loader::graph::{FailureError, LoadFailure, Reach, Reached};
+
+        let files = [
+            PACKAGE_JSON,
+            (
+                "main.js",
+                "import './z.ts';\nimport './a.ts';\nimport './y.ts';\n",
+            ),
+            ("z.ts", "enum E { A }\n"),
+            ("a.ts", "enum E { A }\n"),
+            ("y.ts", "enum E { A }\n"),
+        ];
+        let (result, graph, _) =
+            run_graph("one_static_failure", &files, "main.js", Recording::Full);
+        assert!(matches!(result, Err(RunError::Uncaught(_))), "{result:?}");
+        let failures = graph.unwrap().failures;
+        let all: Vec<_> = failures
+            .iter()
+            .flat_map(|(site, failures)| failures.iter().map(move |failure| (site, failure)))
+            .collect();
+        let [(site, failure)] = all.as_slice() else {
+            panic!("{failures:?}");
+        };
+        assert_eq!(site.reached, Reached::Import(Reach::Static));
+        assert!(matches!(
+            failure.error,
+            FailureError::Load(LoadFailure::Strip { .. })
+        ));
     }
 }
