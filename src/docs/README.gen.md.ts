@@ -1,4 +1,4 @@
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
 
@@ -36,7 +36,7 @@ const parse_listed_doc_paths = (content: string): Array<string> => {
  * with the runtime's docs grouped after the rest.
  */
 export const gen: Gen = {
-	dependencies: ({ origin_id }) => ({ files: [join(dirname(origin_id), RUNTIME_INDEX_FILE)] }),
+	inputs: { files: ['src/docs/runtime.md'] }, // `RUNTIME_INDEX_FILE`, as a literal
 	generate: async ({ origin_id }) => {
 		const ctx = create_gen_doc_context(origin_id);
 		const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;

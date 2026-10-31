@@ -36,7 +36,7 @@ export const gro_plugin_gen = ({
 
 	return {
 		name: 'gro_plugin_gen',
-		setup: async ({ watch, dev, log, config, graph, invoke_task, timings }) => {
+		setup: async ({ watch, dev, log, config, graph }) => {
 			// For production builds, we assume `gen` is already fresh,
 			// which should be checked by CI via `gro check` which calls `gro gen --check`.
 			if (!dev) return;
@@ -85,38 +85,17 @@ export const gro_plugin_gen = ({
 				{ delay: flush_debounce_delay, when: 'trailing' }
 			);
 
-			// When a file builds, check it and its tree of dependents
-			// for any `.gen.` files that need to run.
+			// When a file changes, check every `.gen.` file for whether it needs to run.
 			cleanup_watch = await graph.watch(async (change) => {
 				switch (change.type) {
 					case 'add':
 					case 'update': {
-						// Queue the gen file itself if it changed
-						if (is_gen_path(change.id)) {
-							queue_gen(change.id);
-						}
-
-						// Find all current gen files and check their dependencies
+						// queue each gen file that changed, imports the changed file, or declares it an input
 						const gen_file_ids = await graph.modules(is_gen_path);
 						for (const gen_file_id of gen_file_ids) {
-							const should_trigger = await should_trigger_gen(
-								gen_file_id,
-								change.id,
-								config,
-								graph,
-								log,
-								timings,
-								invoke_task
-							);
-							if (should_trigger) {
+							if (await should_trigger_gen(gen_file_id, change.id, graph, log)) {
 								queue_gen(gen_file_id);
 							}
-						}
-
-						// Check import-based dependents
-						const dependent_gen_file_ids = await graph.dependents(change.id, is_gen_path);
-						for (const dependent_gen_file_id of dependent_gen_file_ids) {
-							queue_gen(dependent_gen_file_id);
 						}
 						break;
 					}

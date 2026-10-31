@@ -170,5 +170,5 @@ export const gen_task_registry: GenConfig = {
 		const entries = await task_registry_find(config.task_root_dirs, config.search_filters);
 		return task_registry_render_project(entries, dirname(origin_id), origin_path);
 	},
-	dependencies: { patterns: [/\.task\.(ts|js)$/] }
+	inputs: { patterns: ['*.task.ts', '*.task.js'] }
 };

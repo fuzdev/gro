@@ -111,7 +111,7 @@ export const gen: Gen = (ctx) => {
 
 export const gen: Gen = {
 	generate: (ctx) => 'generated content',
-	dependencies, // optional, see docs below
+	inputs, // optional, see docs below
 };
 ```
 
@@ -132,12 +132,6 @@ export interface GenContext {
 	 * The `origin_id` relative to the root dir.
 	 */
 	origin_path: string;
-	/**
-	 * The file that triggered dependency checking.
-	 * Only available when resolving dependencies dynamically.
-	 * `undefined` during actual generation.
-	 */
-	changed_file_id: PathId | undefined;
 }
 // export const gen: Gen = ({config, svelte_config, origin_id, origin_path, log}) => {
 ```
@@ -255,47 +249,35 @@ and `src/data/thing.json`:
 }
 ```
 
-### dependencies
+### inputs
 
-Gen files can declare dependencies to control when they regenerate in watch mode.
-By default, they regenerate only when their imported dependencies or the file itself change.
-The `dependencies` option provides fine-grained control:
-
-Regenerate on all file changes:
+In `gro dev`, a gen file reruns when it or any module it imports changes.
+`inputs` declares the other files it reads, as plain data:
 
 ```ts
 import type {GenConfig} from '@fuzdev/gro';
 
 export const gen: GenConfig = {
 	generate: () => 'returns generated contents',
-	dependencies: 'all',
-};
-```
-
-Static configuration with patterns and files:
-
-```ts
-export const gen: GenConfig = {
-	generate: () => 'returns generated contents',
-	dependencies: {
-		patterns: [/\.json$/, /config\//], // regex patterns to match file paths
-		files: ['src/data/schema.ts', 'package.json'], // specific file paths
+	inputs: {
+		patterns: ['*.json', '/src/data/'], // gitignore syntax, anchored at the project root
+		files: ['package.json'], // exact paths, relative to the project root or absolute
 	},
 };
 ```
 
-Dynamic resolver function:
+`patterns` read like a `.gitignore` at the project root:
+`*.json` matches at any depth, `/package.json` only at the root,
+`src/data/` everything under that directory,
+and `!` excludes a file an earlier pattern matched
+(as in git, not one under a directory an earlier pattern matched).
+Patterns take no `./` prefix.
+They match only files inside the project root; `files` can name any path.
+`inputs: 'all'` reruns the gen file on every change `gro dev` sees.
 
-```ts
-export const gen: GenConfig = {
-	generate: () => 'returns generated contents',
-	dependencies: (ctx) => {
-		return ctx.changed_file_id?.endsWith('.json')
-			? {files: ['package.json', ctx.changed_file_id]}
-			: null; // same as `{}` and `{patterns: [], files: []}`
-	},
-};
-```
+`gro dev` sees changes only under `watch.dir` in the [config](config.md) (default `src/`),
+so an input outside it doesn't trigger a rerun.
+`gro gen` and `gro gen --check` always run every gen file.
 
 ### checking generated files
 

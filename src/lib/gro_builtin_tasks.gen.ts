@@ -14,5 +14,5 @@ export const gen: Gen = {
 		const entries = await task_registry_find([paths.lib], config.search_filters);
 		return task_registry_render_builtins(entries, dirname(origin_id), origin_path);
 	},
-	dependencies: { patterns: [/\.task\.ts$/] }
+	inputs: { patterns: ['*.task.ts'] }
 };

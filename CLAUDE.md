@@ -201,12 +201,14 @@ Return values:
 - Array: multiple files from one genfile
 - `null`: no-op
 
-Dependencies: By default, genfiles regenerate when they or their imports change.
-Customize via `dependencies` property:
+Inputs: in `gro dev`, genfiles regenerate when they or their imports change.
+The static `inputs` property declares the other files they read:
 
-- `'all'` - regenerate on any file change
-- `{patterns: [/\.json$/], files: ['package.json']}` - static patterns/files
-- Function returning config - dynamic based on which file changed
+- `'all'` - regenerate on any change the dev watch reports
+- `{patterns: ['*.json'], files: ['package.json']}` - gitignore patterns
+  anchored at the project root (matched by tsv's `IgnoreStack`, files inside the
+  root only) and exact paths (anywhere); only changes under `watch.dir` (default
+  `src/`) trigger
 
 When it runs:
 
@@ -227,7 +229,6 @@ interface GenContext {
 	invoke_task: InvokeTask;
 	origin_id: PathId; // Same as import.meta.url in path form
 	origin_path: string; // origin_id relative to root dir
-	changed_file_id: PathId | undefined; // Only during dependency checking
 }
 ```
 
@@ -247,11 +248,11 @@ export const gen: Gen = async () => [
 	{content: '{"version": 1}', filename: 'data.json'},
 ];
 
-// With dependencies:
+// With inputs:
 export const gen: GenConfig = {
 	generate: () => 'generated content',
-	dependencies: {
-		patterns: [/\.json$/],
+	inputs: {
+		patterns: ['*.json'],
 		files: ['package.json'],
 	},
 };
@@ -297,7 +298,7 @@ interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
 
 Builtin plugins:
 
-- `gro_plugin_gen` - watches files, queues genfiles when they or dependencies
+- `gro_plugin_gen` - watches files, queues genfiles when they, their imports, or their inputs
   change
 - `gro_plugin_sveltekit_app` - runs `vite dev` or `vite build` for SvelteKit
   frontends ([docs](src/docs/gro_plugin_sveltekit_app.md))

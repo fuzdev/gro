@@ -11,6 +11,7 @@ import {
 	type TaskRegistryEntry
 } from '#lib/task_registry.ts';
 import { create_gen_context } from '#lib/gen.ts';
+import { gen_inputs_match } from '#lib/gen_helpers.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { GRO_DIST_DIR } from '#lib/paths.ts';
 import type { InvokeTask } from '#lib/task.ts';
@@ -160,9 +161,9 @@ describe('gen_task_registry', () => {
 	});
 
 	test('regenerates when a task file changes', () => {
-		const { dependencies } = gen_task_registry;
-		assert.ok(dependencies && typeof dependencies === 'object' && dependencies.patterns);
-		const matches = (id: string) => dependencies.patterns!.some((p) => p.test(id));
+		const { inputs } = gen_task_registry;
+		assert.ok(inputs);
+		const matches = (id: string) => gen_inputs_match(inputs, id, '/p/');
 		assert.ok(matches('/p/src/lib/a.task.ts'));
 		assert.ok(matches('/p/src/lib/a.task.js'));
 		assert.ok(!matches('/p/src/lib/a.ts'));

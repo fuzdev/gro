@@ -37,16 +37,29 @@ export interface GenFile {
 	format: boolean;
 }
 
-export type GenDependencies = 'all' | GenDependenciesConfig | GenDependenciesResolver;
-
-export interface GenDependenciesConfig {
-	patterns?: Array<RegExp>;
-	files?: Array<PathId>;
-}
-
-export type GenDependenciesResolver = (
-	ctx: GenContext
-) => GenDependenciesConfig | 'all' | null | Promise<GenDependenciesConfig | 'all' | null>;
+/**
+ * What a genfile reads besides its imports, so `gro dev` reruns it when one changes:
+ * `'all'` for every change the dev watch reports,
+ * or files and patterns that add to its imports.
+ * Plain data, read from the genfile's `gen` export.
+ * `gro dev` sees changes only under `GroConfig.watch.dir` (default `src/`),
+ * so an input outside it is declared but doesn't trigger a rerun.
+ */
+export type GenInputs =
+	| 'all'
+	| {
+			/**
+			 * Exact paths, relative to the project root or absolute, possibly outside the root.
+			 */
+			files?: Array<string>;
+			/**
+			 * Gitignore-syntax patterns anchored at the project root, like a root `.gitignore`,
+			 * so `*.json` matches at any depth, `/package.json` only at the root,
+			 * and `!` excludes a file an earlier pattern matched.
+			 * They match only files inside the root.
+			 */
+			patterns?: Array<string>;
+	  };
 
 export type Gen = GenFunction | GenConfig;
 
@@ -55,7 +68,11 @@ export type GenFunction = (ctx: GenContext) => RawGenResult | Promise<RawGenResu
 // TODO add a GenConfigRaw variant and change `normalize_gen_config` to `gen_cook_config`
 export interface GenConfig {
 	generate: GenFunction;
-	dependencies?: GenDependencies;
+	/**
+	 * What the genfile reads besides its imports.
+	 * Changes to its imports and to the genfile itself always rerun it.
+	 */
+	inputs?: GenInputs;
 	// TODO think about what could be added
 	// cache?: boolean;
 }
@@ -78,12 +95,6 @@ export interface GenContext {
 	 * The `origin_id` relative to the root dir.
 	 */
 	origin_path: string;
-	/**
-	 * The file that triggered dependency checking.
-	 * Only available when resolving dependencies dynamically.
-	 * `undefined` during actual generation.
-	 */
-	changed_file_id: PathId | undefined;
 }
 
 /**
@@ -93,22 +104,16 @@ export interface GenContext {
 export type GenContextBase = Pick<GenContext, 'config' | 'log' | 'timings' | 'invoke_task'>;
 
 /**
- * Builds a `GenContext` for one genfile, so generating and resolving dependencies
- * see the same context - notably the lazy `svelte_config`, which is a getter
- * rather than a value so a genfile that ignores it never resolves it.
+ * Builds a `GenContext` for one genfile, with a lazy `svelte_config`
+ * that's a getter rather than a value so a genfile that ignores it never resolves it.
  */
-export const create_gen_context = (
-	base: GenContextBase,
-	origin_id: PathId,
-	changed_file_id?: PathId
-): GenContext => ({
+export const create_gen_context = (base: GenContextBase, origin_id: PathId): GenContext => ({
 	...base,
 	get svelte_config() {
 		return load_default_svelte_config();
 	},
 	origin_id,
-	origin_path: to_root_path(origin_id),
-	changed_file_id
+	origin_path: to_root_path(origin_id)
 });
 
 // TODO consider other return data - metadata? effects? non-file build artifacts?
