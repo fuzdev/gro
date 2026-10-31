@@ -40,7 +40,7 @@ which runs one module graph with no ambient authority,
 reaching nothing the graph didn't import or the policy file didn't accept.
 `gro eval` is its confined one-shot sibling.
 `gro task <path>` is the workflow layer that carries the original TS Gro API forward,
-but instead runs tasks by full paths for explicit resolution,
+running project tasks by full paths for explicit resolution,
 while the builtins stay first-class subcommands (`gro check`, `gro dev`).
 
 It starts with `gro eval`, then runs gro's own TS surface (tasks, gen, config),
@@ -490,9 +490,9 @@ run as Node subprocesses under the invocation's kernel rules.
       with every web global and member classified by the authority it carries as the oracle,
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] on the Node gro, `gro task <path>` replaces the bare `gro <name>` task search
-      and the loader turns strict, so the scripts the Deno exit ports are written once, in the final shape;
-      then `gro check` infers each task's grants, records each package's use of the authority globals,
+- [x] on the Node gro, `gro task <path>` replaces the bare `gro <name>` task search
+      and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
+- [ ] on the Node gro, `gro check` infers each task's grants, records each package's use of the authority globals,
       and diffs both against the committed policy file, labeled advisory,
       since Node enforces none of it
 - [ ] the Deno exit, with config eval on `gro eval` and the stack's other Deno uses on Node

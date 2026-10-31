@@ -210,7 +210,7 @@ export const gen: Gen = () => {
 	return [
 		{
 			content: `
-				import {Thing} from './index';
+				import type {Thing} from './index.ts';
 				export const isThing = (t: any): t is Thing => t?.field === ${fieldValue};
 			`,
 		},

@@ -30,8 +30,8 @@ Gro's builtin plugins:
   see [the docs](./gro_plugin_sveltekit_library.md)
 - [`@fuzdev/gro/gro_plugin_sveltekit_app.ts`](../lib/gro_plugin_sveltekit_app.ts) -
   see [the docs](./gro_plugin_sveltekit_app.md)
-- [`@fuzdev/gro/gro_plugin_gen.ts`](../lib/gro_plugin_gen.ts) - watch `src/`
-  and efficiently run `gen` when genfiles or their deps change
+- [`@fuzdev/gro/gro_plugin_gen.ts`](../lib/gro_plugin_gen.ts) - watch the config's `watch.dir` (default `src/`)
+  and efficiently run `gen` when genfiles, their imports, or their `inputs` change
 
 > server and gen plugin docs are not yet written
 

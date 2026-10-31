@@ -32,4 +32,6 @@ gro deploy --clean # if something goes wrong, use this to reset git and gro stat
 Run `gro deploy --help` or see [`src/lib/deploy.task.ts`](/src/lib/deploy.task.ts) for the details.
 
 For needs more advanced than pushing to a remote branch,
-projects can implement a custom `src/lib/deploy.task.ts`.
+projects can write their own task, like `src/lib/deploy.task.ts`,
+run with `gro task src/lib/deploy.task.ts`,
+which can call the builtin with `invoke_task('deploy')`.

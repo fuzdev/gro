@@ -245,7 +245,7 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed; never read by `gro eval`               |
 | single-file executable | SEA, experimental                 | `deno compile`                | `bun build --compile` | no                                               |
-| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | designed: `gro task <path>` with the builtins as subcommands (the Node gro searches `gro <name>` today) |
+| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node gro: `gro task <path>` with the builtins as subcommands |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |
 
 ## Measured

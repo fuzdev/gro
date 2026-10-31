@@ -34,8 +34,8 @@ and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussio
 
 The Node tool includes:
 
-- a [task runner](/src/docs/task.md) that discovers `*.task.ts` modules by filesystem convention,
-  with many [builtin tasks](/src/docs/tasks.md) that projects override and compose
+- a [task runner](/src/docs/task.md) that runs its [builtin tasks](/src/docs/tasks.md) by name
+  and a project's `*.task.ts` modules by path, composed in plain TypeScript
 - [dev](/src/docs/dev.md), [build](/src/docs/build.md), [test](/src/docs/test.md),
   [deploy](/src/docs/deploy.md), and [publish](/src/docs/publish.md) workflows
   for SvelteKit apps, library packages, and Node servers,
@@ -98,20 +98,17 @@ gro
 
 ## Usage
 
-Gro has a task runner that discovers TypeScript modules with the `.task.` subextension,
-and runs them in-process with explicit composition.
-Running `gro` with no args prints the tasks
-it finds in the current directory along with its builtin tasks:
+Gro has a task runner that runs TypeScript modules with the `.task.` subextension
+in-process with explicit composition.
+Builtins run by name and project tasks by path.
+Running `gro` with no args prints the builtins and usage:
 
 ```bash
-gro # prints available tasks - defers to any local gro installation
+gro # prints the builtins - defers to any local gro installation
 ```
 
 ```
-Run a task: gro [name]
-View help:  gro [name] --help
-
-19 tasks in gro:
+18 builtin tasks:
 
 build      build the project
 changeset  call changeset with gro patterns
@@ -126,25 +123,27 @@ lint       run eslint
 publish    bump version, publish to the configured registry, and git push
 reinstall  refreshes package-lock.json with the latest and cleanest deps
 release    publish and deploy
-resolve    diagnostic that logs resolved filesystem info for the given input paths
 run        execute a file with the loader, like `node` but works for TypeScript
 sync       run `gro gen`, update `package.json`, and optionally install packages to sync up
 test       run tests with vitest
 typecheck  run svelte-check or tsc on the project without emitting any files
 upgrade    upgrade deps
+
+Run a builtin:        gro [name]
+View its help:        gro [name] --help
+Run a project task:   gro task [path/to/file.task.ts]
+List project tasks:   gro task [dir], defaults to src/
 ```
 
-Today Gro matches your CLI input against its filesystem conventions.
-The name search is going away: project tasks will run as `gro task <path>`
-(see the [roadmap](/src/docs/runtime.md#roadmap)).
+A name always means a builtin, so a project task never shadows one,
+and a path names exactly one task file, with nothing searched for:
 
 ```bash
-gro # displays all available tasks matching `src/lib/**/*.task.ts` and Gro's builtins
-gro a # tries to run `src/lib/a.task.ts`, then `./a.task.ts`, then Gro's builtin if one exists
-gro a --help # displays docs for the "a" task and its args, works for every task
-gro some/dir # lists all tasks inside `src/lib/some/dir`
-gro some/file # runs `src/lib/some/file.task.ts`
-gro some/file.task.ts # same as above
+gro check # runs the builtin `check`
+gro check --help # displays docs for the task and its args, works for every task
+gro task # lists the project's tasks under `src/`
+gro task src/lib/some/ # lists the tasks under `src/lib/some/`
+gro task src/lib/some/file.task.ts # runs that task file
 ```
 
 Gro can also run non-task TypeScript files directly

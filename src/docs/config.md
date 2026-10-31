@@ -81,7 +81,7 @@ const config: CreateGroConfig = async (cfg) => {
 	// example setting your own plugins):
 	cfg.plugins = async () => [
 		gro_plugin_sveltekit_app(),
-		(await import('./src/custom_plugin.js')).plugin(),
+		(await import('./src/custom_plugin.ts')).plugin(),
 	];
 
 	// example extending the default plugins:

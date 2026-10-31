@@ -86,7 +86,7 @@ Task composition patterns:
   a literal task path not in the registry, or a name widened to `string`, takes
   loose `Args`
   ([docs](src/docs/task.md#types-for-invoke_task))
-- Direct import - `import {task} from './test.task.js'; await task.run(ctx)` -
+- Direct import - `import {task} from './test.task.ts'; await task.run(ctx)` -
   faster, tight coupling
 
 Task context:
