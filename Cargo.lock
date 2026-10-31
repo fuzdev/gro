@@ -1774,7 +1774,7 @@ dependencies = [
 [[package]]
 name = "tsv_lang"
 version = "0.7.1"
-source = "git+https://github.com/fuzdev/tsv?rev=bf68002f7c31ef544fc8a36657fe932e69bb06bf#bf68002f7c31ef544fc8a36657fe932e69bb06bf"
+source = "git+https://github.com/fuzdev/tsv?rev=509ba615d1c381548a987a71b60717216d55f839#509ba615d1c381548a987a71b60717216d55f839"
 dependencies = [
  "smallvec",
  "unicode-ident",
@@ -1785,7 +1785,7 @@ dependencies = [
 [[package]]
 name = "tsv_ts"
 version = "0.7.1"
-source = "git+https://github.com/fuzdev/tsv?rev=bf68002f7c31ef544fc8a36657fe932e69bb06bf#bf68002f7c31ef544fc8a36657fe932e69bb06bf"
+source = "git+https://github.com/fuzdev/tsv?rev=509ba615d1c381548a987a71b60717216d55f839#509ba615d1c381548a987a71b60717216d55f839"
 dependencies = [
  "bumpalo",
  "smallvec",

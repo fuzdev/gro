@@ -27,7 +27,7 @@ tokio = { version = "1", features = ["rt"] }
 # stack overflow), the `STACK_SIZE` they're sized for, and the arena-free
 # strip. Without default features: the strip needs none of tsv's wire-JSON
 # layer (its `json` feature)
-tsv_ts = { git = "https://github.com/fuzdev/tsv", rev = "bf68002f7c31ef544fc8a36657fe932e69bb06bf", default-features = false }
+tsv_ts = { git = "https://github.com/fuzdev/tsv", rev = "509ba615d1c381548a987a71b60717216d55f839", default-features = false }
 url = "2.5"
 
 [workspace.lints.rust]

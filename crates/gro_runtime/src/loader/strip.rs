@@ -34,24 +34,20 @@ pub(super) fn strip_types(source: String, url: &Url) -> Result<String, String> {
 fn strip_error_message(error: &StripError, source: &str, url: &Url) -> String {
     const PARSE_PREFIX: &str = "cannot parse the TypeScript: ";
     const STRIP_PREFIX: &str = "cannot strip the TypeScript: ";
-    let (prefix, report, fix) = match error {
+    let (prefix, fix) = match error {
         // a depth limit is a bound on the input, not a verdict on its grammar
-        StripError::Parse(parse) if parse.kind() == ErrorKind::TooDeep => {
-            (STRIP_PREFIX, parse.report(), None)
-        }
-        StripError::Parse(parse) => (PARSE_PREFIX, parse.report(), None),
+        StripError::Parse(parse) if parse.kind() == ErrorKind::TooDeep => (STRIP_PREFIX, None),
+        StripError::Parse(_) => (PARSE_PREFIX, None),
         // the summary is the construct's own `cannot strip ...`
-        StripError::Unsupported { kind, span } => {
-            ("", Some(kind.report(*span, source)), fix(*kind))
-        }
-        // a failure a later tsv adds, until it gets an arm: its one-line
-        // `Display` (which carries any position it has) rather than
-        // `StripError::message`'s caret frame, which no other load error prints
-        _ => (STRIP_PREFIX, None, None),
+        StripError::Unsupported { kind, .. } => ("", fix(*kind)),
+        // a failure a later tsv adds, until it gets an arm: tsv's own report
+        // of it, never `StripError::message`'s caret frame, which no other load
+        // error prints
+        _ => (STRIP_PREFIX, None),
     };
-    // no report, so no `at` line: a source past the 4 GiB cap, or a failure
-    // without an arm
-    let Some(ErrorReport { summary, start, .. }) = report else {
+    // no report, so no `at` line: a source past the 4 GiB cap, or a later
+    // failure tsv reports nothing for, printed by its one-line `Display`
+    let Some(ErrorReport { summary, start, .. }) = error.report(source) else {
         return format!("{prefix}{error}");
     };
     let mut message = format!("{prefix}{summary}");
