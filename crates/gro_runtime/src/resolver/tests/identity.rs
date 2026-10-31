@@ -4,6 +4,7 @@ use std::path::Path;
 use url::Url;
 
 use super::{from_entry, importer, packages, tree};
+use crate::resolver::test_tree::disk_test_dir;
 use crate::resolver::{DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, SourceTree, resolve_entry};
 
 /// A resolution carries the identity of the file it found, its real
@@ -52,7 +53,7 @@ fn a_read_refuses_another_file() {
 #[test]
 fn a_disk_read_refuses_a_replaced_file() {
     use std::os::unix::fs::MetadataExt as _;
-    let dir = std::env::temp_dir().join(format!("gro_resolver_id_{}", std::process::id()));
+    let dir = disk_test_dir("resolver_id");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.canonicalize().unwrap().join("package.json");
     std::fs::write(&path, "{}").unwrap();
@@ -87,6 +88,36 @@ fn a_disk_read_refuses_a_replaced_file() {
     );
     assert_eq!(before.unwrap(), b"{}");
     assert_eq!(after.unwrap_err().to_string(), FileId::MISMATCH);
+}
+
+/// A file with the device and inode looked up but another birth time, as
+/// one remade on a freed inode number has, is refused.
+#[test]
+fn a_disk_read_refuses_another_birth_time() {
+    let dir = disk_test_dir("resolver_born");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.canonicalize().unwrap().join("package.json");
+    std::fs::write(&path, "{}").unwrap();
+    let id = match DiskTree.lookup(&path).unwrap() {
+        Some(Entry::File { id, .. }) => Some(id),
+        _ => None,
+    };
+    let remade = id.map(|id| FileId {
+        born: id
+            .born
+            .map(|born| born + std::time::Duration::from_nanos(1)),
+        ..id
+    });
+    let same = id.map(|id| DiskTree.read(&path, id));
+    let other = remade.map(|remade| DiskTree.read(&path, remade));
+    // removed before any assertion, so a failure leaves nothing behind
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        id.is_some_and(|id| id.born.is_some()),
+        "this filesystem records birth times"
+    );
+    assert_eq!(same.unwrap().unwrap(), b"{}");
+    assert_eq!(other.unwrap().unwrap_err().to_string(), FileId::MISMATCH);
 }
 
 #[test]

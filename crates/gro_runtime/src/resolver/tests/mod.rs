@@ -5,6 +5,7 @@ mod exports;
 mod identity;
 mod packages;
 mod specifier;
+mod tree;
 mod walk;
 
 use std::collections::BTreeMap;

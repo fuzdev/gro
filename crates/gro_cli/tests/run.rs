@@ -21,9 +21,12 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/run")
 }
 
-/// The fixtures directory as a `file:` URL prefix, as error positions name it.
+/// The fixtures directory as a `file:` URL prefix, as error positions name it,
+/// percent-encoded as the runtime's URLs are.
 fn fixtures_url() -> String {
-    format!("file://{}", fixtures().canonicalize().unwrap().display())
+    url::Url::from_file_path(fixtures().canonicalize().unwrap())
+        .unwrap()
+        .into()
 }
 
 /// Runs `command` with stdout and stderr piped, killing it at the deadline so

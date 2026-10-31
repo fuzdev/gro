@@ -627,7 +627,8 @@ fn a_package_in_a_store_is_refused_through_its_every_holder() {
             "{dir}"
         );
     }
-    // `/p/node_modules` links to `/q/nm`, whose store holds `foo`
+    // `/p/node_modules` links to `/q/nm`, whose store holds `foo`, linked
+    // relatively, as Deno links it
     let linked = |world_writable| MemoryTree {
         files: BTreeMap::from([
             ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
@@ -640,7 +641,7 @@ fn a_package_in_a_store_is_refused_through_its_every_holder() {
         ]),
         links: BTreeMap::from([
             ("/p/node_modules", "/q/nm"),
-            ("/p/node_modules/foo", "/q/nm/.deno/foo@1/node_modules/foo"),
+            ("/q/nm/foo", ".deno/foo@1/node_modules/foo"),
         ]),
         world_writable,
         ..MemoryTree::default()
@@ -672,11 +673,8 @@ fn a_package_in_a_store_is_refused_through_its_every_holder() {
             ("/y/bar/package.json", r#"{"exports": "./i.mjs"}"#),
             ("/y/bar/i.mjs", ""),
         ]),
-        dirs: vec!["/p/node_modules", "/x/@s"],
-        links: BTreeMap::from([
-            ("/p/node_modules/@s", "/x/@s"),
-            ("/p/node_modules/@s/bar", "/y/bar"),
-        ]),
+        dirs: vec!["/p/node_modules"],
+        links: BTreeMap::from([("/p/node_modules/@s", "/x/@s"), ("/x/@s/bar", "/y/bar")]),
         world_writable,
         ..MemoryTree::default()
     };

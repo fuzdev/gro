@@ -1,5 +1,6 @@
 //! The roots a module graph has admitted, and the origin a module takes from its root.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -76,13 +77,16 @@ impl fmt::Display for Root {
 ///
 /// They're keyed by real directory, so one directory reached under two
 /// names keeps its first admission's origin. A module's root is the
-/// innermost one its real path is inside.
+/// innermost one its real path is inside. Lookups walk a path's ancestors,
+/// each found in an ordered map, so their cost grows with the path's depth,
+/// and only logarithmically with the number of roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Roots {
     /// The project's root, the entry's project root.
     project: Root,
-    /// The packages' roots, in the order they were admitted.
-    packages: Vec<Root>,
+    /// The packages' roots, by real directory, which `Path`'s ordering
+    /// compares by component. None is at the project's directory.
+    packages: BTreeMap<PathBuf, Root>,
 }
 
 impl Roots {
@@ -94,7 +98,7 @@ impl Roots {
                 dir: project_dir,
                 origin: Origin::Project,
             },
-            packages: Vec::new(),
+            packages: BTreeMap::new(),
         }
     }
 
@@ -103,40 +107,42 @@ impl Roots {
         &self.project
     }
 
-    /// Every admitted root, the project's first.
+    /// Every admitted root, the project's first, then the packages' by
+    /// directory.
     pub fn iter(&self) -> impl Iterator<Item = &Root> {
-        std::iter::once(&self.project).chain(&self.packages)
+        std::iter::once(&self.project).chain(self.packages.values())
     }
 
     /// The root admitted at the real directory `dir`, if any.
     pub fn get(&self, dir: &Path) -> Option<&Root> {
-        self.iter().find(|root| root.dir == dir)
+        if self.project.dir == dir {
+            Some(&self.project)
+        } else {
+            self.packages.get(dir)
+        }
     }
 
     /// The root the real path `path` is inside: the innermost admitted root
     /// above it, by path component, unless a `node_modules` segment is below
     /// that root, when it is in none.
     pub fn containing(&self, path: &Path) -> Option<&Root> {
-        self.iter()
-            .filter(|root| path.starts_with(&root.dir))
-            .max_by_key(|root| root.dir.components().count())
+        path.ancestors()
+            .find_map(|dir| self.get(dir))
             .filter(|root| root.contains(path))
     }
 
     /// The innermost admitted root strictly inside `dir` that holds `path`,
     /// a real path inside the root at `dir`.
     pub(super) fn inner(&self, dir: &Path, path: &Path) -> Option<&Root> {
-        self.iter()
-            .filter(|root| {
-                root.dir != dir && root.dir.starts_with(dir) && path.starts_with(&root.dir)
-            })
-            .max_by_key(|root| root.dir.components().count())
+        path.ancestors()
+            .take_while(|ancestor| *ancestor != dir && ancestor.starts_with(dir))
+            .find_map(|ancestor| self.get(ancestor))
     }
 
     /// Admits `root`, unless its directory is admitted already.
     pub(crate) fn admit(&mut self, root: Root) {
         if self.get(&root.dir).is_none() {
-            self.packages.push(root);
+            self.packages.insert(root.dir.clone(), root);
         }
     }
 }

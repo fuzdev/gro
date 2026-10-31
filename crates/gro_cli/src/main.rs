@@ -290,13 +290,19 @@ fn run(args: &[&str]) -> u8 {
         Ok(Args {
             version: false,
             command: Some(Command::Run(RunArgs { file })),
-        }) => match gro_runtime::run_main(&options, &file) {
-            Ok(()) => 0,
-            Err(error) => {
-                eprintln!("error: {error}");
-                exit_code(&error)
+        }) => {
+            // read here, not in the runtime, which takes it as an input
+            let result = std::env::current_dir()
+                .map_err(RunError::Start)
+                .and_then(|cwd| gro_runtime::run_main(&options, &file, &cwd));
+            match result {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    exit_code(&error)
+                }
             }
-        },
+        }
         // argh's `from_env` exits `1` on a usage error, so map its result by hand
         Err(EarlyExit {
             output,

@@ -237,7 +237,7 @@ mod tests {
 
     use super::graph::Record;
     use super::*;
-    use crate::resolver::test_tree::MemoryTree;
+    use crate::resolver::test_tree::{MemoryTree, disk_test_dir};
 
     /// A project at `/p` with `bar` installed and `lnk` linked to a checkout
     /// inside the project.
@@ -368,17 +368,16 @@ mod tests {
         assert!(error.contains("was never resolved"), "{error}");
     }
 
-    /// Files on disk in a fresh directory under the system's temp directory,
-    /// removed on drop, under a named `package.json`, so the project root
-    /// is the directory itself. Every directory is `0o755`, so a umask of 0
-    /// can't make one world-writable.
+    /// Files on disk in a fresh directory (see [`disk_test_dir`]), removed on
+    /// drop, under a named `package.json`, so the project root is the
+    /// directory itself. Every directory is `0o755`, so a umask of 0 can't
+    /// make one world-writable.
     struct DiskFixtures(PathBuf);
 
     impl DiskFixtures {
         fn new(name: &str, files: &[(&str, &str)]) -> Self {
             use std::os::unix::fs::PermissionsExt as _;
-            let dir =
-                std::env::temp_dir().join(format!("gro_loader_{}_{name}", std::process::id()));
+            let dir = disk_test_dir(&format!("loader_{name}"));
             std::fs::create_dir_all(&dir).unwrap();
             let package_json = [("package.json", r#"{"name": "fixture", "type": "module"}"#)];
             for (file, content) in files.iter().chain(&package_json) {

@@ -593,6 +593,113 @@ fn a_path_is_inside_its_innermost_root() {
     assert_eq!(roots.iter().count(), 1);
 }
 
+/// An `"exports"` target under a symlinked directory is checked on its real
+/// path: one inside the package loads, one out of it is refused. And a
+/// package linked by a relative symlink reads its `package.json` through it.
+#[test]
+fn an_exports_target_under_a_linked_directory_is_checked_on_its_real_path() {
+    let tree = MemoryTree {
+        files: BTreeMap::from([
+            ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+            ("/p/main.ts", ""),
+            (
+                "/p/node_modules/foo/package.json",
+                r#"{"type": "module", "exports": {"./in.mjs": "./lib/i.mjs", "./out.mjs": "./ext/i.mjs"}}"#,
+            ),
+            ("/p/node_modules/foo/dist/i.mjs", ""),
+            ("/elsewhere/i.mjs", ""),
+            (
+                "/linked/bar/package.json",
+                r#"{"type": "module", "exports": "./i.mjs"}"#,
+            ),
+            ("/linked/bar/i.mjs", ""),
+        ]),
+        links: BTreeMap::from([
+            ("/p/node_modules/foo/lib", "dist"),
+            ("/p/node_modules/foo/ext", "../../../elsewhere"),
+            ("/p/node_modules/bar", "../../linked/bar"),
+        ]),
+        ..MemoryTree::default()
+    };
+    let main = url("/p/main.ts");
+    let resolution = from_entry(&tree, "foo/in.mjs", &main).unwrap();
+    assert_eq!(
+        resolution.url.as_str(),
+        "file:///p/node_modules/foo/dist/i.mjs"
+    );
+    assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+    assert_eq!(
+        from_entry(&tree, "foo/out.mjs", &main).unwrap_err().kind,
+        ResolveErrorKind::Target {
+            path: PathBuf::from("/p/node_modules/foo/ext/i.mjs"),
+            error: Box::new(ResolveErrorKind::OutsideRoot {
+                path: PathBuf::from("/elsewhere/i.mjs"),
+                root: PathBuf::from("/p/node_modules/foo"),
+                package: Some("foo".into()),
+            }),
+        }
+    );
+    let resolution = from_entry(&tree, "bar", &main).unwrap();
+    assert_eq!(resolution.url.as_str(), "file:///linked/bar/i.mjs");
+    assert_eq!(resolution.root, Path::new("/linked/bar"));
+    assert!(matches!(
+        resolution.origin,
+        Origin::Package { name, linked: true, .. } if name == "bar"
+    ));
+}
+
+/// Roots are matched by path component, so a sibling whose name extends a
+/// root's (`/a/b-c` beside `/a/b`) is never inside it, and one nested in it
+/// (`/a/b/c`) is, as the innermost.
+#[test]
+fn roots_match_by_component_not_by_string_prefix() {
+    let mut roots = Roots::new(PathBuf::from("/a"));
+    roots.admit(package_root("/a/b/c", "c", None, true));
+    roots.admit(package_root("/a/b-c", "bc", None, true));
+    roots.admit(package_root("/a/b", "b", None, true));
+    let containing = |path: &str| roots.containing(Path::new(path)).map(|root| &root.dir);
+    assert_eq!(containing("/a/b/x.ts"), Some(&PathBuf::from("/a/b")));
+    assert_eq!(containing("/a/b-c/x.ts"), Some(&PathBuf::from("/a/b-c")));
+    assert_eq!(containing("/a/b/c/x.ts"), Some(&PathBuf::from("/a/b/c")));
+    assert_eq!(containing("/a/b/c-d/x.ts"), Some(&PathBuf::from("/a/b")));
+    assert_eq!(containing("/a/b.ts"), Some(&PathBuf::from("/a")));
+    // a root's own directory is inside it
+    assert_eq!(containing("/a/b"), Some(&PathBuf::from("/a/b")));
+    // the innermost root decides, and a node_modules segment below it means none
+    assert_eq!(containing("/a/b/c/node_modules/d/x.ts"), None);
+    assert_eq!(containing("/a/b/node_modules/c/x.ts"), None);
+    assert_eq!(containing("/b/x.ts"), None);
+    let get = |dir: &str| roots.get(Path::new(dir)).map(|root| &root.dir);
+    assert_eq!(get("/a/b"), Some(&PathBuf::from("/a/b")));
+    assert_eq!(get("/a"), Some(&PathBuf::from("/a")));
+    assert_eq!(get("/a/b/"), Some(&PathBuf::from("/a/b")));
+    assert_eq!(get("/a/b-"), None);
+    assert_eq!(get("/a/b/c/x.ts"), None);
+    // the innermost admitted root strictly inside a directory
+    let inner = |dir: &str, path: &str| {
+        roots
+            .inner(Path::new(dir), Path::new(path))
+            .map(|root| &root.dir)
+    };
+    assert_eq!(inner("/a", "/a/b/c/x.ts"), Some(&PathBuf::from("/a/b/c")));
+    assert_eq!(inner("/a", "/a/b/x.ts"), Some(&PathBuf::from("/a/b")));
+    assert_eq!(inner("/a", "/a/b-c/x.ts"), Some(&PathBuf::from("/a/b-c")));
+    assert_eq!(inner("/a", "/a/x.ts"), None);
+    assert_eq!(inner("/a/b", "/a/b/c/x.ts"), Some(&PathBuf::from("/a/b/c")));
+    assert_eq!(inner("/a/b", "/a/b/x.ts"), None);
+    assert_eq!(inner("/a/b", "/a/b-c/x.ts"), None);
+    assert_eq!(inner("/a/b/c", "/a/b/c/x.ts"), None);
+    // the project comes first; a directory admitted again keeps its first origin
+    roots.admit(package_root("/a/b", "other", None, false));
+    let dirs: Vec<&Path> = roots.iter().map(|root| root.dir.as_path()).collect();
+    assert_eq!(dirs.first(), Some(&Path::new("/a")));
+    assert_eq!(dirs.len(), 4);
+    assert_eq!(
+        roots.get(Path::new("/a/b")),
+        Some(&package_root("/a/b", "b", None, true))
+    );
+}
+
 #[test]
 fn a_root_conflict_names_both_roots() {
     let kind = ResolveErrorKind::RootConflict {

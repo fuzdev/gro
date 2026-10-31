@@ -89,8 +89,11 @@ pub enum RunError {
     Uncaught(String),
 }
 
-/// Runs the ES module at `entry` (relative to the working directory, or
-/// absolute) and drives the event loop until no work is left.
+/// Runs the ES module at `entry` (relative to `cwd`, or absolute) and drives
+/// the event loop until no work is left.
+///
+/// `cwd` is the working directory, an absolute path. It is an input, not
+/// read from the process, so an embedder decides it; `fgro` passes its own.
 ///
 /// The event loop drains before the entry's evaluation is checked, so a
 /// top-level `await` on a promise that never settles ends the run as an
@@ -116,15 +119,14 @@ pub enum RunError {
 /// still overflow the stack, which aborts the process. V8's own limit for JS
 /// sits below wherever the runtime starts on that thread, so the size doesn't
 /// change how deep JS can go.
-pub fn run_main(options: &RuntimeOptions, entry: &Path) -> Result<(), RunError> {
+pub fn run_main(options: &RuntimeOptions, entry: &Path, cwd: &Path) -> Result<(), RunError> {
     // nothing to grant yet; destructured so a new field can't go unread
     let RuntimeOptions {
         grants: Grants {},
         snapshot,
     } = options;
 
-    let cwd = std::env::current_dir().map_err(RunError::Start)?;
-    let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, &cwd)?;
+    let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
 
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -285,9 +287,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let entry: PathBuf = dir.join("main.mjs");
         std::fs::write(&entry, source).unwrap();
+        let cwd = dir.clone();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
-            .spawn(move || run_main(&RuntimeOptions::default(), &entry))
+            .spawn(move || run_main(&RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
             .unwrap();

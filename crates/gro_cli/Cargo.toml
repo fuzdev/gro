@@ -15,6 +15,9 @@ path = "src/main.rs"
 argh.workspace = true
 gro_runtime = { path = "../gro_runtime" }
 
+[dev-dependencies]
+url.workspace = true
+
 [features]
 # start from a snapshot embedded at compile time, read from `GRO_SNAPSHOT_DIR`;
 # `cargo xtask build` sets it up
