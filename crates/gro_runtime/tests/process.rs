@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use gro_runtime::engine::{EngineError, EngineOptions, init_engine};
+use gro_runtime::engine::{Engine, EngineError, EngineOptions, init_engine};
 use gro_runtime::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
 /// The variable naming the case a child runs.
@@ -31,9 +31,9 @@ console.error(1005);
 /// sets, is ICU's default under `LANG=C`.)
 const LOCALE: &str = "fr_CA";
 
-/// Runs `source` as an `.mjs` entry in a fresh directory, on a thread
-/// reserving [`STACK_SIZE`] as `run_main` requires.
-fn run_source(name: &str, source: &str, options: RuntimeOptions) {
+/// Runs `source` as an `.mjs` entry in a fresh directory on `engine`, on a
+/// thread reserving [`STACK_SIZE`] as `run_main` requires.
+fn run_source(engine: Engine, name: &str, source: &str, options: RuntimeOptions) {
     let dir =
         std::env::temp_dir().join(format!("gro_runtime_process_{}_{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -42,7 +42,7 @@ fn run_source(name: &str, source: &str, options: RuntimeOptions) {
     let cwd = dir.clone();
     let result = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_main(&options, &entry, &cwd))
+        .spawn(move || run_main(engine, &options, &entry, &cwd))
         .unwrap()
         .join()
         .unwrap();
@@ -55,7 +55,8 @@ fn console_case(console: ConsoleOptions) {
         console,
         ..RuntimeOptions::default()
     };
-    run_source("console", CONSOLE_SOURCE, options);
+    let engine = init_engine(&EngineOptions::default()).unwrap();
+    run_source(engine, "console", CONSOLE_SOURCE, options);
 }
 
 /// The child: runs the case [`CASE`] names, and nothing when it's unset, as
@@ -84,14 +85,16 @@ fn child() {
             let options = EngineOptions {
                 locale: Some(LOCALE),
             };
-            init_engine(&options).unwrap();
+            let engine = init_engine(&options).unwrap();
+            assert_eq!(engine.options(), &options);
             // equal options again are accepted, others refused
-            init_engine(&options).unwrap();
+            assert_eq!(init_engine(&options).unwrap().options(), &options);
             assert!(matches!(
                 init_engine(&EngineOptions::default()),
                 Err(EngineError::Conflict(applied)) if applied == options
             ));
             run_source(
+                engine,
                 "locale",
                 "const locales = [
 \tnew Intl.NumberFormat().resolvedOptions().locale,

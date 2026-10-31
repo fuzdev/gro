@@ -22,8 +22,9 @@
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
 //!   `__bootstrap` from the global object
 //! - [`engine`]: V8's process-wide setup ([`engine::EngineOptions`]), applied
-//!   once per process before the first runtime, apart from each runtime's
-//!   [`RuntimeOptions`]
+//!   once per process by [`engine::init_engine`] before the first runtime,
+//!   whose token ([`engine::Engine`]) every runtime start takes, apart from
+//!   each runtime's [`RuntimeOptions`]
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
 //!
@@ -53,6 +54,7 @@ use deno_core::error::{CoreError, CoreErrorKind, JsError, JsStackFrame};
 use deno_core::{JsRuntime, PollEventLoopOptions};
 use url::Url;
 
+use crate::engine::Engine;
 use crate::loader::Loader;
 use crate::loader::graph::{Graph, Recording};
 use crate::resolver::{DiskTree, ResolveError};
@@ -133,7 +135,7 @@ pub enum RunError {
 }
 
 /// Runs the ES module at `entry` (relative to `cwd`, or absolute) and drives
-/// the event loop until no work is left.
+/// the event loop until no work is left, on the engine `engine` names.
 ///
 /// `cwd` is the working directory, an absolute path. It is an input, not
 /// read from the process, so an embedder decides it; `fgro` passes its own.
@@ -162,8 +164,13 @@ pub enum RunError {
 /// still overflow the stack, which aborts the process. V8's own limit for JS
 /// sits below wherever the runtime starts on that thread, so the size doesn't
 /// change how deep JS can go.
-pub fn run_main(options: &RuntimeOptions, entry: &Path, cwd: &Path) -> Result<(), RunError> {
-    run_recorded(options, entry, cwd, Recording::Off).0
+pub fn run_main(
+    engine: Engine,
+    options: &RuntimeOptions,
+    entry: &Path,
+    cwd: &Path,
+) -> Result<(), RunError> {
+    run_recorded(engine, options, entry, cwd, Recording::Off).0
 }
 
 /// Runs as [`run_main`] does, and returns the run's result with the graph its
@@ -172,6 +179,7 @@ pub fn run_main(options: &RuntimeOptions, entry: &Path, cwd: &Path) -> Result<()
 /// consulted, and the failures. The graph is unset only when the entry
 /// didn't resolve.
 pub(crate) fn run_recorded(
+    engine: Engine,
     options: &RuntimeOptions,
     entry: &Path,
     cwd: &Path,
@@ -189,7 +197,7 @@ pub(crate) fn run_recorded(
         Err(error) => return (Err(error.into()), None),
     };
     let loader = Rc::new(Loader::new(&entry, roots, recording));
-    let result = run_loaded(*snapshot, *console, &entry.url, Rc::clone(&loader));
+    let result = run_loaded(engine, *snapshot, *console, &entry.url, Rc::clone(&loader));
     // the runtime, and its share of the loader, is gone once the run ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
     (result, Some(graph))
@@ -197,14 +205,14 @@ pub(crate) fn run_recorded(
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
 /// started from `snapshot` when there is one, its console as `console` says.
-/// Sets the engine up with the default options first, unless it was already.
+/// `_engine` is the proof the engine was set up before V8 initializes.
 fn run_loaded(
+    _engine: Engine,
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
     entry: &Url,
     loader: Rc<Loader>,
 ) -> Result<(), RunError> {
-    engine::ensure_engine();
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -310,6 +318,8 @@ fn push_frames(report: &mut String, error: &JsError) {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::engine::{EngineOptions, init_engine};
+
     use super::{
         Graph, Recording, RunError, RuntimeOptions, STACK_SIZE, bootstrap, run_main, run_recorded,
     };
@@ -364,6 +374,7 @@ mod tests {
     /// Runs `source` as an `.mjs` entry in a fresh directory, on a thread
     /// reserving [`STACK_SIZE`] as `run_main` requires.
     fn run_source(name: &str, source: &str) -> Result<(), RunError> {
+        let engine = init_engine(&EngineOptions::default()).unwrap();
         let dir = std::env::temp_dir().join(format!("gro_runtime_{}_{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let entry: PathBuf = dir.join("main.mjs");
@@ -371,7 +382,7 @@ mod tests {
         let cwd = dir.clone();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
-            .spawn(move || run_main(&RuntimeOptions::default(), &entry, &cwd))
+            .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
             .unwrap();
@@ -477,6 +488,7 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
     ) -> (Result<(), RunError>, Option<Graph>, PathBuf) {
         use crate::resolver::test_tree::disk_test_dir;
 
+        let engine = init_engine(&EngineOptions::default()).unwrap();
         let dir = disk_test_dir(name);
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
@@ -487,7 +499,9 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         let cwd = dir.clone();
         let (result, graph) = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
-            .spawn(move || run_recorded(&RuntimeOptions::default(), &entry, &cwd, recording))
+            .spawn(move || {
+                run_recorded(engine, &RuntimeOptions::default(), &entry, &cwd, recording)
+            })
             .unwrap()
             .join()
             .unwrap();

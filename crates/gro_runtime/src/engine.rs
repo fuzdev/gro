@@ -6,6 +6,11 @@
 //! before the first runtime; [`RuntimeOptions`](crate::RuntimeOptions) carries
 //! what each runtime decides for itself.
 //!
+//! [`init_engine`] returns an [`Engine`], the token every runtime start takes
+//! ([`crate::run_main`], [`crate::snapshot::make_snapshot`]). Only
+//! [`init_engine`] makes one, so no runtime starts on an engine nobody chose,
+//! and the token names the options the engine has.
+//!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
 //! opens `/dev/urandom` itself and falls back to the clock, without a word,
@@ -46,23 +51,34 @@ pub enum EngineError {
 /// process, whichever runtime asked first.
 static ENGINE: OnceLock<EngineOptions> = OnceLock::new();
 
+/// The engine, set up: proof that [`init_engine`] ran in this process, and
+/// with which options. Every runtime start takes one.
+#[derive(Debug, Clone, Copy)]
+pub struct Engine(&'static EngineOptions);
+
+impl Engine {
+    /// The options the engine was set up with.
+    #[must_use]
+    pub const fn options(self) -> &'static EngineOptions {
+        self.0
+    }
+}
+
 /// Sets the engine up with `options`, once per process, before the first
-/// runtime starts: `fgro` calls it before `run_main`.
+/// runtime starts, and returns the token runtimes start with.
 ///
-/// A second call with equal options does nothing, so callers needn't track
-/// whether it ran. A process that never calls it gets the default options,
-/// applied when its first runtime starts ([`crate::run_main`] or
-/// [`crate::snapshot::make_snapshot`]); a call after that is a second call.
+/// A second call with equal options does nothing but return the token again,
+/// so callers needn't track whether it ran.
 ///
 /// # Errors
 ///
-/// Returns [`EngineError::Conflict`] when the engine was set up already,
-/// by a call or a runtime's start, with options other than `options`.
+/// Returns [`EngineError::Conflict`] when the engine was set up already with
+/// options other than `options`.
 ///
 /// # Panics
 ///
 /// When the locale contains a NUL byte, which no locale name does.
-pub fn init_engine(options: &EngineOptions) -> Result<(), EngineError> {
+pub fn init_engine(options: &EngineOptions) -> Result<Engine, EngineError> {
     let mut applied_here = false;
     let applied = ENGINE.get_or_init(|| {
         applied_here = true;
@@ -70,20 +86,10 @@ pub fn init_engine(options: &EngineOptions) -> Result<(), EngineError> {
         options.clone()
     });
     if applied_here || applied == options {
-        Ok(())
+        Ok(Engine(applied))
     } else {
         Err(EngineError::Conflict(applied.clone()))
     }
-}
-
-/// Sets the engine up with the default options unless it was set up already.
-/// Called before each runtime starts.
-pub(crate) fn ensure_engine() {
-    ENGINE.get_or_init(|| {
-        let options = EngineOptions::default();
-        apply(&options);
-        options
-    });
 }
 
 /// Applies `options` to V8, in the order the module doc gives.
@@ -116,10 +122,11 @@ mod tests {
     /// source.
     pub(super) static ENTROPY_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-    /// The unit tests share one process and the default engine, so a run
-    /// here sets it up if no test did yet, and V8 has asked the source.
+    /// The unit tests share one process and the default engine, so whichever
+    /// test sets it up first, a run here has V8 asking the source.
     #[test]
     fn v8_draws_its_entropy_from_the_source() {
+        let engine = init_engine(&EngineOptions::default()).unwrap();
         let dir = std::env::temp_dir().join(format!("gro_runtime_{}_entropy", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let entry: PathBuf = dir.join("main.mjs");
@@ -127,7 +134,7 @@ mod tests {
         let cwd = dir.clone();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
-            .spawn(move || run_main(&RuntimeOptions::default(), &entry, &cwd))
+            .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
             .unwrap();

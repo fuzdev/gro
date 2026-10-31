@@ -290,10 +290,13 @@ fn run(args: &[&str]) -> u8 {
             version: false,
             command: Some(Command::Run(RunArgs { file })),
         }) => {
-            if let Err(error) = init_engine(&EngineOptions::default()) {
-                eprintln!("error: {error}");
-                return EXIT_FAILURE;
-            }
+            let engine = match init_engine(&EngineOptions::default()) {
+                Ok(engine) => engine,
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    return EXIT_FAILURE;
+                }
+            };
             let options = RuntimeOptions {
                 snapshot: STARTUP_SNAPSHOT,
                 console: color::console_options(),
@@ -302,7 +305,7 @@ fn run(args: &[&str]) -> u8 {
             // read here, not in the runtime, which takes it as an input
             let result = std::env::current_dir()
                 .map_err(RunError::Start)
-                .and_then(|cwd| gro_runtime::run_main(&options, &file, &cwd));
+                .and_then(|cwd| gro_runtime::run_main(engine, &options, &file, &cwd));
             match result {
                 Ok(()) => 0,
                 Err(error) => {
@@ -333,8 +336,10 @@ fn run(args: &[&str]) -> u8 {
 /// unwritable directory fails before the snapshot is built.
 fn make_snapshot(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
+    // the engine `fgro run` sets up
+    let engine = init_engine(&EngineOptions::default())?;
     // the xtask's stamp decides when to rerun
-    gro_runtime::snapshot::make_snapshot()?.write_to(dir)?;
+    gro_runtime::snapshot::make_snapshot(engine)?.write_to(dir)?;
     Ok(())
 }
 

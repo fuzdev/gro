@@ -23,6 +23,7 @@ use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot};
 use deno_core::{Extension, ExtensionFileSourceCode};
 
 use crate::bootstrap;
+use crate::engine::Engine;
 
 /// A snapshot to start from, as the binary embeds it.
 ///
@@ -157,16 +158,14 @@ pub enum SnapshotError {
 /// Builds the startup snapshot from the runtime's extensions.
 ///
 /// Must run in a process that runs no other runtime: V8 initializes once per
-/// process, and this initializes it for snapshotting. The engine is set up
-/// with the default options first, unless it was already
-/// ([`crate::engine`]).
+/// process, and this initializes it for snapshotting, on the engine `_engine`
+/// names ([`crate::engine`]).
 ///
 /// # Errors
 ///
 /// Returns [`SnapshotError`] when an extension source can't be read or isn't
 /// ASCII, or when evaluating the extensions fails.
-pub fn make_snapshot() -> Result<Snapshot, SnapshotError> {
-    crate::engine::ensure_engine();
+pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
     // a second copy of the same list, to read the sources the snapshot leaves out
     let extensions = bootstrap::extensions();
     for path in disk_sources(&extensions) {

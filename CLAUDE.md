@@ -587,8 +587,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   fix where there is one.
   V8's process-wide setup is `engine::init_engine` (`EngineOptions`: V8's
   entropy drawn from `getrandom`, always, and an optional ICU default
-  locale), once per process before the first runtime, defaults applied when
-  a runtime starts without it; each runtime's own choices are
+  locale), once per process before the first runtime; it returns an
+  `Engine` token, which `run_main` and `snapshot::make_snapshot` require, so
+  no runtime starts on an engine nobody chose; each runtime's own choices are
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
   each level writes to and whether each is colored, read when the run
   starts, never in the snapshot). The crate reads no environment variable;
