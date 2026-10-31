@@ -62,7 +62,10 @@ export const resolve_specifier = async (
 
 	let refusal;
 	try {
-		refusal = await to_refusal(path_id, final_specifier);
+		// Node reads a specifier as a URL, where a leading '//' names a host
+		refusal = final_specifier.startsWith('//')
+			? "a leading '//' names a URL host, not a path; write a single '/'"
+			: await to_refusal(path_id, final_specifier);
 	} catch (error) {
 		throw new Error(`cannot resolve '${specifier}' from ${importer}: ${to_error_message(error)}`, {
 			cause: error

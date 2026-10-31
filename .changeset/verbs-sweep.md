@@ -31,3 +31,13 @@ fix: `is_gen_path` tests the file name only, so a project under a directory like
 fix: a task that fails is reported once: `invoke_task` logs its error (with the stack for an unexpected one) and throws a `SilentError` with the original error as its `cause`, so an invoking task says only that it failed and the CLI prints no duplicate error and stack
 
 fix: a task whose nested `invoke_task` fails, like one invoking a name that's no builtin, reports that it failed instead of an unexpected error suggesting `npm install` and `gro clean`
+
+fix: the loader and server builds compile Svelte runes in any module with `.svelte.` in its file name followed by `.js` or `.ts`, like `state.svelte.test.ts`, vite-plugin-svelte's default rule, where `SVELTE_RUNES_MATCHER` matched only a `.svelte.js` or `.svelte.ts` suffix
+
+fix: an import specifier starting with `//` (`//home/x/a.ts`) is refused naming the fix, a single `/`, where the loader and server builds loaded `/home/x/a.ts` and Node refuses it as a URL host
+
+fix: `gro publish` fails with a `TaskError` when its release `git commit` or final `git push --follow-tags` fails, saying the version is already published to the registry and naming the manual recovery, where it reported success
+
+fix: the top-level task prints its timings and total time on success, which no task printed while every nested `invoke_task` printed the shared ones, and a task that fails still closes the module graph and watcher its `invoke_task` created
+
+fix: the module graph records `export * from` and `export * as ns from` re-exports, and dynamic imports anywhere in a module are read decoded from the parser, so an escaped quote no longer drops one

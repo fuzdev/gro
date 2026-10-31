@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import ts from 'typescript';
 import { vi } from 'vitest';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
@@ -103,6 +103,11 @@ export const mock_dir_entry = (name: string): any => ({
 });
 
 export const TEST_TIMEOUT_MD = 20_000;
+
+/**
+ * Gro's source loader, which tests spawn rather than a built `dist/` that may be stale or absent.
+ */
+export const LOADER_SOURCE_PATH = resolve('src/lib/loader.ts');
 
 /**
  * Creates a TypeScript environment for testing.

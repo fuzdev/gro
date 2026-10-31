@@ -249,7 +249,6 @@ test('parse dynamic imports with expressions', () => {
 	expect(parsed).toEqual(['simple_dynamic']);
 });
 
-// dynamic imports outside an `await` statement go through the source-text fallback
 test('parse dynamic imports outside await statements, string literals only', () => {
 	const parsed = parse_imports(
 		'a.ts',
@@ -280,4 +279,32 @@ test('parse static import specifiers decoded, escapes included', () => {
     `
 	);
 	expect(parsed).toEqual(["./a'b.ts", './c\\d.ts', './e.ts']);
+});
+
+test('parse dynamic import specifiers decoded anywhere, escapes included', () => {
+	const parsed = parse_imports(
+		'a.ts',
+		`
+      const a = await import('./a\\'b.ts');
+      const f = () => import("./c\\\\d.ts");
+      if (x) await import(\`./\\x65.ts\`);
+    `
+	);
+	expect(parsed).toEqual(["./a'b.ts", './c\\d.ts', './e.ts']);
+});
+
+test('parse export-all re-exports', () => {
+	const source = `
+      export * from './star.ts';
+      export * as ns from './ns.ts';
+      export type * from './type_star.ts';
+      export type * as TypeNs from './type_ns.ts';
+    `;
+	expect(parse_imports('a.ts', source)).toEqual(['./star.ts', './ns.ts']);
+	expect(parse_imports('a.ts', source, false)).toEqual([
+		'./star.ts',
+		'./ns.ts',
+		'./type_star.ts',
+		'./type_ns.ts'
+	]);
 });

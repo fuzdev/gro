@@ -154,7 +154,8 @@ Capabilities:
 - TypeScript files (`.ts`) via Node's experimental type stripping
   (`--experimental-strip-types`)
 - Svelte components (`.svelte`) with SSR compilation using `compile()`
-- Svelte runes in TypeScript (`.svelte.ts`) using `compileModule()`
+- Svelte runes in JS and TypeScript modules (`.svelte.ts`, and `.svelte.` as an infix
+  like `.svelte.test.ts`, vite-plugin-svelte's rule) using `compileModule()`
 - JSON imports (any extension with `type: 'json'` import attribute)
 - Raw text imports (`.css`, `.svg`, or `?raw` suffix)
 

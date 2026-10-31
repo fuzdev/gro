@@ -230,8 +230,21 @@ export const task: Task<Args> = {
 		if (!changelog_exists && (await fs_exists(changelog))) {
 			await spawn('git', ['add', changelog]);
 		}
-		await spawn('git', ['commit', '-a', '-m', `publish v${version}`]);
-		await spawn('git', ['push', '--follow-tags']);
+		const commit_result = await spawn('git', ['commit', '-a', '-m', `publish v${version}`]);
+		if (!commit_result.ok) {
+			throw new TaskError(
+				`the release commit failed, but v${version} is already published to the registry -` +
+					` resolve the failure, commit, then push with \`git push --follow-tags\``
+			);
+		}
+		const push_result = await spawn('git', ['push', '--follow-tags']);
+		if (!push_result.ok) {
+			throw new TaskError(
+				`\`git push --follow-tags\` failed: the release commit and tag v${version} are local only,` +
+					` but v${version} is already published to the registry - resolve the failure,` +
+					' then push manually with `git push --follow-tags`'
+			);
+		}
 
 		log.info(st('green', `published to branch ${st('cyan', branch)}!`));
 	}

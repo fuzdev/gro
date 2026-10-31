@@ -4,13 +4,14 @@ import { existsSync } from 'node:fs';
 import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
-import { resolve_gro_module_path, spawn_with_loader } from '#lib/gro_helpers.ts';
+import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { run_task } from '#lib/run_task.ts';
 import { SilentError, TaskError, type Task, type TaskContext } from '#lib/task.ts';
 import { task as run_task_task } from '#lib/run.task.ts';
 
 import {
 	TEST_TIMEOUT_MD,
+	LOADER_SOURCE_PATH,
 	create_mock_config,
 	create_mock_module_graph,
 	create_mock_watcher,
@@ -29,11 +30,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		// Use the same loader resolution logic as the CLI
-		const loaderPath = resolve_gro_module_path('loader.js');
-
-		// Use the existing spawn_with_loader function
-		const result = await spawn_with_loader(loaderPath, testScript, []);
+		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
 
 		expect(result.ok).toBe(true);
 	},
@@ -51,11 +48,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		// Use the same loader resolution logic as the CLI
-		const loaderPath = resolve_gro_module_path('loader.js');
-
-		// Use the existing spawn_with_loader function
-		const result = await spawn_with_loader(loaderPath, testScript, []);
+		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
 
 		expect(result.ok).toBe(true);
 	},
@@ -73,11 +66,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		// Use the same loader resolution logic as the CLI
-		const loaderPath = resolve_gro_module_path('loader.js');
-
-		// Use the existing spawn_with_loader function
-		const result = await spawn_with_loader(loaderPath, testScript, []);
+		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
 
 		expect(result.ok).toBe(true);
 	},

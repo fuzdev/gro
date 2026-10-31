@@ -64,7 +64,12 @@ export const TS_MATCHER = /\.(ts|mts|cts)$/;
 export const JS_MATCHER = /\.(js|mjs|cjs)$/;
 export const JSON_MATCHER = /\.json$/;
 export const SVELTE_MATCHER = /\.svelte$/;
-export const SVELTE_RUNES_MATCHER = /\.svelte\.(js|ts)$/; // TODO probably let `.svelte.` appear anywhere - https://github.com/sveltejs/svelte/issues/11536
+/**
+ * Svelte modules compiled for runes, vite-plugin-svelte's default rule:
+ * `.svelte.` in the file name, then any segments, then `.js` or `.ts`,
+ * like `state.svelte.ts` and `state.svelte.test.ts`.
+ */
+export const SVELTE_RUNES_MATCHER = /\.svelte\.(?:[^.\\/]+\.)*(?:js|ts)$/;
 export const CSS_MATCHER = /\.css$/;
 /** Extracts the script content from Svelte files. */
 export const SVELTE_SCRIPT_MATCHER = /<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gim; // TODO maybe this shouldnt be global? or make a getter?

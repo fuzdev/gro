@@ -1,7 +1,7 @@
 import { describe, test, assert, vi, beforeEach } from 'vitest';
 
 import { task as publish_task, type Args } from '#lib/publish.task.ts';
-import type { TaskContext } from '#lib/task.ts';
+import { TaskError, type TaskContext } from '#lib/task.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 
@@ -102,6 +102,9 @@ describe('publish_task version bump', () => {
 
 		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 		fs_exists.mockResolvedValue(true);
+
+		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		spawn.mockResolvedValue({ kind: 'exited', ok: true, child: {} as any, code: 0 });
 	});
 
 	test('re-syncs SvelteKit after the post-bump install and before gen', async () => {
@@ -147,5 +150,50 @@ describe('publish_task version bump', () => {
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 0);
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 0);
 		assert.ok(invoke_task.mock.calls.some(([name]) => name === 'gen'));
+	});
+
+	test('fails loud when the final git push is rejected', async () => {
+		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		spawn.mockImplementation(async (_command, args) =>
+			args?.[0] === 'push'
+				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
+				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
+		);
+		const ctx = create_mock_publish_task_context();
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert(error instanceof TaskError, 'expected a rejected push to throw a TaskError');
+		assert.include(error.message, `tag v${VERSION_AFTER} are local only`);
+		assert.include(error.message, 'already published to the registry');
+		assert.include(error.message, '`git push --follow-tags`');
+		assert.deepEqual(spawn.mock.calls.at(-1)!.slice(0, 2), ['git', ['push', '--follow-tags']]);
+	});
+
+	test('fails loud when the release commit fails, without pushing', async () => {
+		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		spawn.mockImplementation(async (_command, args) =>
+			args?.[0] === 'commit'
+				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
+				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
+		);
+		const ctx = create_mock_publish_task_context();
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert(error instanceof TaskError, 'expected a failed commit to throw a TaskError');
+		assert.include(error.message, 'the release commit failed');
+		assert.include(error.message, `v${VERSION_AFTER} is already published to the registry`);
+		assert.ok(!spawn.mock.calls.some(([, args]) => args?.[0] === 'push'), 'expected no push');
 	});
 });

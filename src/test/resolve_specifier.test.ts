@@ -176,6 +176,21 @@ describe('resolve_specifier', () => {
 		await assert_refused('./test_ts.ts/.', 'no such file');
 	});
 
+	test("refuses a leading '//', which Node reads as a URL host", async () => {
+		const specifier = '/' + join(dir, 'test_ts.ts');
+		const expected = "a leading '//' names a URL host, not a path; write a single '/'";
+		await assert_refused(specifier, expected);
+		await assert_refused(specifier + '?raw', expected);
+		let error;
+		try {
+			await resolve_specifier(specifier, importer);
+		} catch (e) {
+			error = e;
+		}
+		assert(error instanceof Error);
+		expect((error as NodeJS.ErrnoException).code).toBe('ERR_MODULE_NOT_FOUND');
+	});
+
 	test('refuses a directory', async () => {
 		await assert_refused(
 			'./modules',

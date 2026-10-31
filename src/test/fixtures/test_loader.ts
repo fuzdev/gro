@@ -188,6 +188,18 @@ const run_tests = async () => {
 		assert(false, `import .svelte.ts failed: ${error.message}`);
 	}
 
+	// Test 11b: `.svelte.` as an infix, like `state.svelte.test.ts`, compiles runes too
+	try {
+		const imported = await import(
+			resolve('src/test/fixtures/modules/some_test_svelte_infix.svelte.module.ts')
+		);
+		assert(imported?.SomeTestSvelteInfix, 'import .svelte.*.ts works');
+		const instance = new imported.SomeTestSvelteInfix();
+		assert(instance.a === 'ok', 'import .svelte.*.ts instance works');
+	} catch (error) {
+		assert(false, `import .svelte.*.ts failed: ${error.message}`);
+	}
+
 	// Test 12: An ESM file inside `node_modules` that statically imports a CJS sibling and
 	// reads `default` — the `ws/wrapper.mjs` pattern that regressed in PR #586. We mint
 	// the fixture into `node_modules/` at test time so the path contains `/node_modules/`

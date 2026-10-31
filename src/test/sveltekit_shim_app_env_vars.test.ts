@@ -2,21 +2,20 @@ import { describe, test, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 
-import { resolve_gro_module_path, spawn_with_loader_args } from '#lib/gro_helpers.ts';
+import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
 import { resolve_env_vars, type EnvVarDeclarations } from '#lib/env.ts';
 import { render_sveltekit_shim_app_env_vars } from '#lib/sveltekit_shim_app_env_vars.ts';
 
-import { TEST_TIMEOUT_MD } from './test_helpers.ts';
+import { LOADER_SOURCE_PATH, TEST_TIMEOUT_MD } from './test_helpers.ts';
 
 const FIXTURE_DIR = resolve('src/test/fixtures/sveltekit_app_env_project');
 const CIRCULAR_FIXTURE_DIR = resolve('src/test/fixtures/sveltekit_app_env_circular_project');
 
 const spawn_fixture = (dir: string, env?: Record<string, string>) =>
-	spawn(
-		'node',
-		spawn_with_loader_args(resolve_gro_module_path('loader.js'), resolve(dir, 'main.ts'), []),
-		{ cwd: dir, env: { ...process.env, ...env } }
-	);
+	spawn('node', spawn_with_loader_args(LOADER_SOURCE_PATH, resolve(dir, 'main.ts'), []), {
+		cwd: dir,
+		env: { ...process.env, ...env }
+	});
 
 describe('resolve_env_vars', () => {
 	const variables: EnvVarDeclarations = {

@@ -1,33 +1,21 @@
-import { parseSync, type ImportDeclaration } from 'oxc-parser';
+import { parseSync, Visitor, type Expression, type ImportDeclaration } from 'oxc-parser';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
-import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER } from '../constants.ts';
 
 export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 
-// TODO this is probably way more complicated that it should be, maybe report the issues upstream unless I made a mistake here
-
 /**
- * Extracts the string value from a module request, handling different quote styles.
- * Returns null if the value is not a single string literal: a concatenation
- * (`'./x' + 'y'`) starts and ends with quotes but contains its own quote
- * character, and a template literal with a substitution (`./locales/${lang}.ts`)
- * contains `${`.
+ * The decoded value of a dynamic import's source when it's a single string:
+ * a string literal or a template literal without substitutions.
  */
-const extract_string_literal = (content: string, start: number, end: number): string | null => {
-	const value = content.substring(start, end);
-	if (value.length < 2) return null;
-
-	const quote = value[0];
-	if ((quote !== "'" && quote !== '"' && quote !== '`') || !value.endsWith(quote)) return null;
-
-	const inner = value.slice(1, -1);
-	if (inner.includes(quote)) return null;
-	if (quote === '`' && inner.includes('${')) return null;
-
-	return inner;
+const to_import_expression_value = (source: Expression): string | null => {
+	if (source.type === 'Literal') return typeof source.value === 'string' ? source.value : null;
+	if (source.type === 'TemplateLiteral' && source.expressions.length === 0) {
+		return source.quasis[0]?.value.cooked ?? null;
+	}
+	return null;
 };
 
 export const parse_imports = (
@@ -75,60 +63,27 @@ export const parse_imports = (
 			specifiers.push(value);
 		}
 
-		// Process dynamic imports
-		for (const dynamic_import of parsed.module.dynamicImports) {
-			// Find the corresponding AST node
-			let found = false;
-			for (const node of parsed.program.body) {
-				if (
-					node.type === 'ExpressionStatement' &&
-					node.expression.type === 'AwaitExpression' &&
-					node.expression.argument.type === 'ImportExpression'
-				) {
-					const import_expr = node.expression.argument;
-					if (import_expr.start === dynamic_import.start) {
-						// Only process string literals (not expressions or variables)
-						if (import_expr.source.type === 'Literal') {
-							const value = String(import_expr.source.value);
-							if (value) {
-								specifiers.push(value);
-							}
-						}
-						found = true;
-						break;
-					}
-				}
+		// Process dynamic imports anywhere in the module, from the parser's decoded values
+		new Visitor({
+			ImportExpression: (node) => {
+				const value = to_import_expression_value(node.source);
+				if (value) specifiers.push(value);
 			}
+		}).visit(parsed.program);
 
-			// If we didn't find a match through AST, fall back to the original approach
-			// but only for simple string literals
-			if (!found) {
-				const value = extract_string_literal(
-					s,
-					dynamic_import.moduleRequest.start,
-					dynamic_import.moduleRequest.end
-				);
-				if (value) {
-					specifiers.push(value);
-				}
-			}
-		}
-
-		// Process re-exports
+		// Process re-exports, `export {x} from` and `export * from`
 		for (const node of parsed.program.body) {
-			if (node.type === 'ExportNamedDeclaration' && node.source) {
+			if (
+				(node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') &&
+				node.source
+			) {
 				// Skip type-only exports if ignore_types is true
 				if (ignore_types && node.exportKind === 'type') {
 					continue;
 				}
-
-				if (node.source.type === 'Literal') {
-					const value = node.source.value;
-					if (value) {
-						specifiers.push(value);
-					}
-				} else {
-					throw new UnreachableError(node.source.type);
+				const value = node.source.value;
+				if (value) {
+					specifiers.push(value);
 				}
 			}
 		}

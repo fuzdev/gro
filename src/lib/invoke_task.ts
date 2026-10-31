@@ -52,7 +52,7 @@ const REMOVED_BUILTIN_PREFIX = 'gro/';
  * @param args - the CLI args to pass to the task
  * @param config - the Gro configuration
  * @param initial_watching - the `graph` and `watcher` from the invoking task, created from `config.watch` and closed on finish when absent
- * @param initial_timings - the timings to use for the top-level task, `null` for composed tasks
+ * @param initial_timings - the invoking task's timings, shared by nested tasks; absent for the top-level task, which creates them and prints them on success
  * @param parent_log - the invoking task's logger, which labels this task's logger as its child
  */
 export const invoke_task = async (
@@ -101,16 +101,6 @@ export const invoke_task = async (
 	const timings = initial_timings ?? new Timings();
 
 	const total_timing = create_stopwatch();
-	const finish = async () => {
-		// close only what we created, a no-op when it never loaded
-		if (owns_watching) {
-			await Promise.all([graph.close(), watcher.close()]);
-		}
-
-		if (owns_timings) return; // kinda weird, print timings only for the top-level task
-		print_timings(timings, log);
-		log.info(`🕒 ${print_ms(total_timing())}`);
-	};
 
 	log.info(
 		`→ ${st('cyan', task.name)} ${
@@ -119,16 +109,24 @@ export const invoke_task = async (
 	);
 
 	const timing_to_run_task = timings.start('run task ' + task.name);
-	const result = await run_task(
-		task,
-		merge_forwarded_args(args, forwarded),
-		invoke_task,
-		config,
-		graph,
-		watcher,
-		log,
-		timings
-	);
+	let result;
+	try {
+		result = await run_task(
+			task,
+			merge_forwarded_args(args, forwarded),
+			invoke_task,
+			config,
+			graph,
+			watcher,
+			log,
+			timings
+		);
+	} finally {
+		// close only what we created, failed or not, a no-op when it never loaded
+		if (owns_watching) {
+			await Promise.all([graph.close(), watcher.close()]);
+		}
+	}
 	timing_to_run_task();
 	if (!result.ok) {
 		log.info(`${st('red', '🞩')} ${st('cyan', task.name)}`);
@@ -143,7 +141,11 @@ export const invoke_task = async (
 	}
 	log.info(`✓ ${st('cyan', task.name)}`);
 
-	await finish();
+	// only the top-level task prints the timings, which nested tasks share
+	if (owns_timings) {
+		print_timings(timings, log);
+		log.info(`🕒 ${print_ms(total_timing())}`);
+	}
 };
 
 /**
