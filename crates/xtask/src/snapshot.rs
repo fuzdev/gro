@@ -214,6 +214,8 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         "snapshot",
         "--test",
         "run",
+        "--test",
+        "eval",
     ];
     if release {
         test.push("--release");

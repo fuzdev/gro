@@ -34,6 +34,18 @@ The default [run kind](#run-kinds), bounded by its grants and not replayable.
 A grant a person writes, in a static `grants` literal or a flag, rather than one [inferred](#inference).
 Authority globals are always declared. A declaration is a proposal until the [policy file](#policy-file) accepts it.
 
+## driver
+
+A module a tool hands `gro eval` on stdin to drive the evaluated module, rather than reading an export:
+it evaluates first, is called with the module's namespace, and returns the value.
+It's import-free. [eval](eval.md#the-driver) has the contract.
+
+## envelope
+
+The one JSON object `gro eval` writes, success or failure:
+the value, or an error with its kind, which a caller branches on.
+[eval](eval.md#the-envelope) has its fields.
+
 ## escape hatch
 
 `-A` (`--allow-all`), which runs a run [unconfined](#unconfined).

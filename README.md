@@ -72,7 +72,7 @@ The Node tool includes:
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) does today,
+- the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) and [`fgro eval`](/src/docs/eval.md) do today,
   how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)

@@ -27,8 +27,8 @@ console.error(1005);
 ";
 
 /// The locale the locale case sets: one no host is likely to default to, so
-/// the test can't pass by the host's choice. (`en_US_POSIX`, the one eval
-/// sets, is ICU's default under `LANG=C`.)
+/// the test can't pass by the host's choice. (`en-US`, the one eval sets,
+/// is ICU's default under `LANG=C`.)
 const LOCALE: &str = "fr_CA";
 
 /// Runs `source` as an `.mjs` entry in a fresh directory on `engine`, on a
@@ -84,6 +84,7 @@ fn child() {
         "locale" => {
             let options = EngineOptions {
                 locale: Some(LOCALE),
+                ..EngineOptions::default()
             };
             let engine = init_engine(&options).unwrap();
             assert_eq!(engine.options(), &options);

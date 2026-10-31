@@ -45,6 +45,14 @@
 //! print. Like every load failure but an I/O error reading the file, it
 //! reaches JS as a `TypeError`, which `import()` can catch.
 //!
+//! Its [`Rules`] refuse more than the resolver does, for eval: every
+//! `import()`, before anything is resolved, and every import from the
+//! driver, a module whose source the host provides and that resolves to
+//! itself, as the root of its own load, and to nothing else. Both are
+//! recorded as failures of their own ([`FailureError::DriverImport`],
+//! [`FailureError::DynamicImport`]), and reach JS as a `TypeError`. The
+//! default rules refuse nothing more.
+//!
 //! The loader keeps the run's [`Graph`]. With recording off, what a plain
 //! run uses, it keeps only what loading needs, the roots and each URL's root
 //! and file, and does no work for anything else: no hash, edge, or failure
@@ -65,7 +73,7 @@
 //! consulted files and failures are recorded.
 
 pub mod graph;
-mod strip;
+pub mod strip;
 
 use std::cell::RefCell;
 use std::io;
@@ -93,7 +101,26 @@ pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
     /// of its record.
     graph: RefCell<Graph>,
+    /// What it refuses beyond the resolver's rules.
+    rules: Rules,
 }
+
+/// What a loader refuses beyond the resolver's rules, fixed when it is made.
+/// The default refuses nothing more, as `fgro run` loads.
+#[derive(Debug, Clone, Default)]
+pub struct Rules {
+    /// Refuses every `import()`, whatever its specifier, before resolving
+    /// it, so nothing a dynamic import names is read.
+    pub refuse_dynamic_import: bool,
+    /// The URL of the driver, a module whose source the host provides
+    /// itself (eval's stdin driver): it resolves to itself as the root of
+    /// its own load, and every import and `import.meta.resolve` from it is
+    /// refused, since it has no place on disk to resolve against.
+    pub driver: Option<Url>,
+}
+
+/// Why an import from the driver is refused, the reason in its message.
+const DRIVER_IMPORT_FREE: &str = "a stdin driver is import-free";
 
 /// A failed resolution or load: the reason as data, built only when the
 /// graph records failures, and the error `deno_core` rethrows to JS. The
@@ -117,7 +144,67 @@ impl Loader {
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
+            rules: Rules::default(),
         }
+    }
+
+    /// The loader, refusing what `rules` says beyond the resolver's rules.
+    pub fn with_rules(self, rules: Rules) -> Self {
+        Self { rules, ..self }
+    }
+
+    /// Refuses `specifier`, reached from `referrer` as `reached`, for a
+    /// rule of this loader's, recording `error` as the failure.
+    fn refuse(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reached: Reached,
+        error: FailureError,
+        message: String,
+    ) -> ModuleLoaderError {
+        let mut graph = self.graph.borrow_mut();
+        if let Some(error) = reason(graph.recording(), || error) {
+            let failure = Failure {
+                at: None,
+                error: *error,
+            };
+            graph.fail(specifier, Some(referrer), reached, failure);
+        }
+        ModuleLoaderError::type_error(message)
+    }
+
+    /// Refuses an import or `import.meta.resolve` reached from the driver,
+    /// when `referrer` is the driver.
+    fn refuse_from_driver(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reached: Reached,
+    ) -> Result<(), ModuleLoaderError> {
+        if self
+            .rules
+            .driver
+            .as_ref()
+            .is_none_or(|driver| driver.as_str() != referrer)
+        {
+            return Ok(());
+        }
+        let verb = if reached == Reached::MetaResolve {
+            "resolve"
+        } else {
+            "import"
+        };
+        Err(self.refuse(
+            specifier,
+            referrer,
+            reached,
+            FailureError::DriverImport,
+            format!(
+                "cannot {verb} '{specifier}' from the driver: {DRIVER_IMPORT_FREE}, so it can \
+                 neither import nor resolve a module"
+            ),
+        ))
     }
 
     /// The graph, taken from the loader.
@@ -229,7 +316,30 @@ impl ModuleLoader for Loader {
             ResolutionKind::Import => Reach::Static,
             ResolutionKind::DynamicImport => Reach::Dynamic,
         };
-        self.resolve_reached(&DiskTree, specifier, referrer, Reached::Import(reach))
+        // the root of the driver's own load, which `deno_core` resolves as a
+        // static import from "."
+        if let Some(driver) = &self.rules.driver
+            && reach == Reach::Static
+            && referrer == "."
+            && specifier == driver.as_str()
+        {
+            return Ok(driver.clone());
+        }
+        let reached = Reached::Import(reach);
+        self.refuse_from_driver(specifier, referrer, reached)?;
+        if reach == Reach::Dynamic && self.rules.refuse_dynamic_import {
+            return Err(self.refuse(
+                specifier,
+                referrer,
+                reached,
+                FailureError::DynamicImport,
+                format!(
+                    "cannot import '{specifier}' from {referrer}: import() is refused in eval, \
+                     whatever it names. Fix: import the module with a static import"
+                ),
+            ));
+        }
+        self.resolve_reached(&DiskTree, specifier, referrer, reached)
     }
 
     /// Resolves as an import does, roots and all, but admits no root and
@@ -240,6 +350,7 @@ impl ModuleLoader for Loader {
         specifier: &str,
         referrer: &str,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        self.refuse_from_driver(specifier, referrer, Reached::MetaResolve)?;
         self.resolve_reached(&DiskTree, specifier, referrer, Reached::MetaResolve)
     }
 

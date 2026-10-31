@@ -516,6 +516,8 @@ is the hub: an index of the runtime docs under its status block, then the
 thesis, why, the security model, the design, open questions, and the roadmap.
 The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
 reference for the built binary (what loads, the globals, errors, exit codes),
+[src/docs/eval.md](src/docs/eval.md) the reference for `fgro eval` (the driver,
+the serializer, the envelope and its error kinds),
 [src/docs/resolver.md](src/docs/resolver.md) the resolver's rules and
 departures from Node, [src/docs/typescript.md](src/docs/typescript.md) the
 type-strip rules, and [src/docs/comparison.md](src/docs/comparison.md) the
@@ -543,7 +545,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   recorded in an outer one (`RootConflict`), and `import.meta.resolve`
   admits nothing. The loader keeps the run's `Graph` (`loader/graph.rs`):
   with `Recording::Off`, what `fgro run` uses, only the roots and each URL's
-  root and file, the minimum loading needs; with `Recording::Full`, also each
+  root and file, the minimum loading needs; with `Recording::Full`, what
+  `fgro eval` uses, also each
   import edge and how it was reached, each loaded module's format and the
   blake3 of the bytes read, the union of the `package.json` files consulted
   (the entry's included), and each failure as data (resolve or load, with
@@ -586,8 +589,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   then any segments then `.js` or `.ts`) are refused with the reason, and a
   fix where there is one.
   V8's process-wide setup is `engine::init_engine` (`EngineOptions`: V8's
-  entropy drawn from `getrandom`, always, and an optional ICU default
-  locale), once per process before the first runtime; it returns an
+  entropy drawn from `getrandom`, always, an optional ICU default locale,
+  and two V8 flags set before V8 starts, `jitless` and
+  `disallow_code_generation_from_strings`, both off for `fgro run`), once
+  per process before the first runtime; it returns an
   `Engine` token, which `run_main` and `snapshot::make_snapshot` require, so
   no runtime starts on an engine nobody chose; each runtime's own choices are
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
@@ -603,7 +608,27 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `locks.js` and `webtransport.js`): deno_core falls back to a lazy ES module
   of the exact name when the loader refuses an import, and dispatches a
   synthetic one before asking the loader, so either would load into user
-  code past the resolver's refusal of `ext:`. `gro_runtime`'s tests import
+  code past the resolver's refusal of `ext:`. `eval/` is `fgro eval`'s
+  protocol (`eval::eval`, which always returns an `Envelope`): the engine
+  `eval::engine_options` gives (jitless unless `--jit`, code generation from
+  strings off, locale `en-US`, checked against the `Engine` token), the
+  console to stderr uncolored, the stdin driver evaluated first as a side
+  module at the synthetic URL `gro:driver`, then the entry, then
+  `driver.default(namespace)` or the export, the strict host serializer
+  (`eval/serialize.rs`: an iterative walk over V8 values in Rust, on a
+  stack of its own, in batches each in its own handle scope, inside V8's
+  `DisallowJavascriptExecutionScope`, reading property descriptors so no
+  getter or `toJSON` runs, refusing non-plain objects, cycles, lone
+  surrogates, and nesting past 1000 with the JS path), the drain, and the
+  driver's optional `after_drain`; the error kind comes from the phase that
+  failed plus the first static failure the graph recorded, never from a
+  message. The loader's `Rules` carry eval's refusals: every `import()`
+  before anything resolves (the entry graph's listed in the envelope's
+  `access.dynamic`), and every import from the driver ("a stdin driver is
+  import-free"), each recorded as its own `FailureError`. `deno_core::scope!` and the `v8`
+  scope macros hide `unsafe` inside dependency macros, outside the
+  `unsafe_code` lint; eval uses them to open handle scopes on the runtime.
+  `gro_runtime`'s tests import
   every `ext:` specifier the build knows (deno_core's own, and every module
   and script the extensions declare) statically, by `import()`, and by
   `import.meta.resolve`, and expect the refusal
@@ -614,7 +639,11 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   [src/docs/run.md](src/docs/run.md)); console output is colored per stream,
   only on a terminal, unless `FORCE_COLOR` decides it or `NO_COLOR`,
   `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM=dumb`, turns it off
-  (the order is in [src/docs/run.md](src/docs/run.md)). The
+  (the order is in [src/docs/run.md](src/docs/run.md)). `fgro eval <module>
+  [--driver -] [--export NAME] [--jit]` prints one envelope on stdout and
+  exits by the same table (`2` only for a usage error or an entry that
+  doesn't resolve); it reads stdin for the driver and no environment
+  variable ([src/docs/eval.md](src/docs/eval.md)). The
   whole command runs on one thread with a 32 MiB stack of its own
   (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
   the 16 MiB its strip is sized for (a release build needs 2 MiB); a module

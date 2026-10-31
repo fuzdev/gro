@@ -18,7 +18,10 @@
 //!
 //! The order, before `deno_core` initializes V8 in the first
 //! `JsRuntime::try_new` (its `setup::init_v8`): the entropy source, which V8
-//! reads from platform init on; then the ICU default locale, which each
+//! reads from platform init on; then V8's flags (the JIT and code generation
+//! from strings), which V8 freezes once its platform starts, and to which
+//! `deno_core` adds its own without touching these; then the ICU default
+//! locale, which each
 //! isolate reads when its `Intl` first asks. ICU's data is linked into the V8
 //! library (`icu_use_data_file = false` in the `v8` crate's build), and
 //! `deno_core` loads data of its own (`set_common_data_77`) only under its
@@ -29,13 +32,37 @@ use std::sync::OnceLock;
 
 use deno_core::v8;
 
-/// The engine's process-wide options. The default is what `fgro run` uses.
+/// The engine's process-wide options. The default is what `fgro run` uses:
+/// the JIT on, code generation from strings allowed, and ICU's own locale.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EngineOptions {
     /// The ICU default locale every runtime's `Intl` starts from, such as
-    /// `en_US_POSIX`. `None` keeps ICU's own default, which it takes from the
+    /// `en-US`. `None` keeps ICU's own default, which it takes from the
     /// host (`LC_ALL`, then `LC_MESSAGES`, then `LANG`).
     pub locale: Option<&'static str>,
+    /// V8's `--jitless`: JS runs in the interpreter alone, with no code
+    /// compiled at run time, and `WebAssembly` is absent from every global
+    /// scope, since it needs the compilers.
+    pub jitless: bool,
+    /// V8's `--disallow-code-generation-from-strings`: `eval`, the
+    /// `Function` constructors (async and generator ones included), and a
+    /// string passed to `setTimeout` or `setInterval` throw an `EvalError`.
+    pub disallow_code_generation_from_strings: bool,
+}
+
+impl EngineOptions {
+    /// The V8 flags these options set, as V8 parses them: empty when they
+    /// set none.
+    fn v8_flags(&self) -> String {
+        let mut flags = Vec::new();
+        if self.jitless {
+            flags.push("--jitless");
+        }
+        if self.disallow_code_generation_from_strings {
+            flags.push("--disallow-code-generation-from-strings");
+        }
+        flags.join(" ")
+    }
 }
 
 /// Why [`init_engine`] refused.
@@ -95,6 +122,10 @@ pub fn init_engine(options: &EngineOptions) -> Result<Engine, EngineError> {
 /// Applies `options` to V8, in the order the module doc gives.
 fn apply(options: &EngineOptions) {
     v8::V8::set_entropy_source(fill_entropy);
+    let flags = options.v8_flags();
+    if !flags.is_empty() {
+        v8::V8::set_flags_from_string(&flags);
+    }
     if let Some(locale) = options.locale {
         v8::icu::set_default_locale(locale);
     }
@@ -141,13 +172,16 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(result.is_ok(), "{result:?}");
         assert!(ENTROPY_CALLS.load(Ordering::Relaxed) > 0);
+        // the default sets no flag
+        assert_eq!(EngineOptions::default().v8_flags(), "");
         // and the source fills, so V8 never falls back to its own seeding
         assert!(super::fill_entropy(&mut [0; 8]));
         // set up with the default options, so equal ones are accepted and
         // others refused
         assert!(init_engine(&EngineOptions::default()).is_ok());
         let other = EngineOptions {
-            locale: Some("en_US_POSIX"),
+            locale: Some("en-US"),
+            ..EngineOptions::default()
         };
         assert!(matches!(
             init_engine(&other),

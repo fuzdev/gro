@@ -773,7 +773,9 @@ name = "gro_cli"
 version = "0.0.0"
 dependencies = [
  "argh",
+ "blake3",
  "gro_runtime",
+ "serde_json",
  "url",
 ]
 
@@ -786,6 +788,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "getrandom",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

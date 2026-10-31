@@ -9,6 +9,17 @@
 //! to stderr, prefixed `error:`; an uncaught error's report carries its stack
 //! with source positions (`file:///path:line:column`).
 //!
+//! `fgro eval <module> [--driver -] [--export NAME] [--jit]` evaluates a
+//! module to JSON data and prints one envelope on stdout
+//! (`gro_runtime::eval`): with no driver, the module's export (`default`
+//! unless `--export` names another); with `--driver -`, a driver module read
+//! from stdin, whose default export is called with the module's namespace.
+//! It runs jitless unless `--jit`, with code generation from strings off and
+//! the locale `en-US`, and its console writes every level to stderr,
+//! uncolored. It reads no environment variable for its own configuration.
+//! Once eval starts, the envelope is always written, `ok: false` with an
+//! error kind on failure; a usage error prints to stderr with no envelope.
+//!
 //! The whole command runs on one thread with [`STACK_SIZE`] reserved, not on
 //! the main thread, so a debug build stays inside the 16 MiB of stack tsv's
 //! TypeScript strip is sized for (a release build needs 2 MiB), whatever the
@@ -23,15 +34,18 @@
 //! `cargo build` doesn't), and whether a startup snapshot is embedded
 //! (`no snapshot` otherwise).
 //!
-//! Exit codes:
+//! Exit codes, the same for `run` and `eval`:
 //!
-//! - `0`: the program ran to completion, `--help`, or `--version`
+//! - `0`: the program ran to completion (for `eval`, its value serialized),
+//!   `--help`, or `--version`
 //! - `1`: the program threw, rejected a promise no one handled, or failed to
 //!   load a module (a TypeScript module the strip refuses included), or the
-//!   runtime failed to start
+//!   runtime failed to start; for `eval`, any failure after the entry
+//!   resolved, whose kind the envelope names
 //! - `2`: a usage error, so the command line must change: an unknown
 //!   subcommand or flag, a missing argument (including no arguments at all),
-//!   an argument that isn't UTF-8, or an entry file that doesn't resolve
+//!   an argument that isn't UTF-8, `eval`'s `--driver` other than `-` or
+//!   with `--export`, or an entry file that doesn't resolve
 //!   (missing, not a `.js`, `.mjs`, `.ts`, or `.mts` file, or a `.js` file
 //!   not under `"type": "module"`)
 //!
@@ -47,11 +61,13 @@
 mod color;
 
 use std::ffi::OsString;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use argh::{EarlyExit, FromArgs};
 use gro_runtime::engine::{EngineOptions, init_engine};
+use gro_runtime::eval::{ErrorKind, EvalError, EvalOptions, RuntimeInfo};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -178,6 +194,7 @@ fn version_line() -> String {
 #[argh(subcommand)]
 enum Command {
     Run(RunArgs),
+    Eval(EvalArgs),
 }
 
 /// run an ES module (.js, .mjs, .ts, or .mts) from disk
@@ -188,6 +205,28 @@ struct RunArgs {
     #[argh(positional)]
     file: PathBuf,
 }
+
+/// evaluate an ES module to JSON data, written as one envelope on stdout
+#[derive(FromArgs)]
+#[argh(subcommand, name = "eval")]
+struct EvalArgs {
+    /// the module to evaluate: a path relative to the working directory, or absolute
+    #[argh(positional)]
+    module: PathBuf,
+    /// read a driver module from stdin (pass `-`), whose default export is
+    /// called with the module's namespace and returns the value
+    #[argh(option)]
+    driver: Option<String>,
+    /// the export to serialize, with no driver (default: default)
+    #[argh(option)]
+    export: Option<String>,
+    /// turn V8's JIT on, and with it WebAssembly
+    #[argh(switch)]
+    jit: bool,
+}
+
+/// The `--driver` value that reads the driver from stdin, the only one so far.
+const DRIVER_STDIN: &str = "-";
 
 fn main() -> ExitCode {
     let args: Result<Vec<String>, OsString> = std::env::args_os()
@@ -314,6 +353,10 @@ fn run(args: &[&str]) -> u8 {
                 }
             }
         }
+        Ok(Args {
+            version: false,
+            command: Some(Command::Eval(args)),
+        }) => eval(args),
         // argh's `from_env` exits `1` on a usage error, so map its result by hand
         Err(EarlyExit {
             output,
@@ -329,6 +372,90 @@ fn run(args: &[&str]) -> u8 {
             eprintln!("{}", output.trim_end());
             EXIT_USAGE
         }
+    }
+}
+
+/// Runs `fgro eval`: checks the flags, reads the driver from stdin when
+/// asked, evaluates on eval's engine, and prints the envelope to stdout,
+/// returning the exit code. A usage error prints to stderr with no envelope.
+fn eval(args: EvalArgs) -> u8 {
+    let EvalArgs {
+        module,
+        driver,
+        export,
+        jit,
+    } = args;
+    match (driver.as_deref(), &export) {
+        (Some(DRIVER_STDIN) | None, None) | (None, Some(_)) => {}
+        (Some(DRIVER_STDIN), Some(_)) => {
+            eprintln!(
+                "error: --export reads an export with no driver; a driver is handed the whole \
+                 namespace"
+            );
+            return EXIT_USAGE;
+        }
+        (Some(path), _) => {
+            eprintln!(
+                "error: --driver takes `-`, to read the driver from stdin, not {path:?}: a \
+                 driver from a file isn't supported yet"
+            );
+            return EXIT_USAGE;
+        }
+    }
+    let engine = match init_engine(&gro_runtime::eval::engine_options(jit)) {
+        Ok(engine) => engine,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return EXIT_FAILURE;
+        }
+    };
+    let mut options = EvalOptions {
+        entry: module,
+        cwd: PathBuf::new(),
+        export,
+        driver: None,
+        jit,
+        snapshot: STARTUP_SNAPSHOT,
+        runtime: RuntimeInfo::new(env!("CARGO_PKG_VERSION"), COMMIT),
+    };
+    let mut read = || -> Result<(), String> {
+        // read here, not in the runtime, which takes them as inputs
+        options.cwd = std::env::current_dir()
+            .map_err(|error| format!("failed to read the working directory: {error}"))?;
+        if driver.is_some() {
+            let mut source = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut source)
+                .map_err(|error| format!("failed to read the driver from stdin: {error}"))?;
+            options.driver = Some(source);
+        }
+        Ok(())
+    };
+    let envelope = match read() {
+        Ok(()) => gro_runtime::eval::eval(engine, &options),
+        Err(message) => {
+            gro_runtime::eval::failed(&options, EvalError::new(ErrorKind::Internal, message))
+        }
+    };
+    // written and flushed by hand: `println!` panics when stdout fails (a
+    // closed pipe, a full disk)
+    let written = envelope
+        .to_json()
+        .map_err(|error| error.to_string())
+        .and_then(|json| {
+            let mut stdout = std::io::stdout().lock();
+            writeln!(stdout, "{json}")
+                .and_then(|()| stdout.flush())
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = written {
+        eprintln!("error: failed to write the envelope: {error}");
+        return EXIT_FAILURE;
+    }
+    match &envelope.result {
+        Ok(_) => 0,
+        Err(error) if error.usage => EXIT_USAGE,
+        Err(_) => EXIT_FAILURE,
     }
 }
 
@@ -359,6 +486,7 @@ mod tests {
         assert_eq!(run(&["--help"]), 0);
         assert_eq!(run(&["--version"]), 0);
         assert_eq!(run(&["run", "--help"]), 0);
+        assert_eq!(run(&["eval", "--help"]), 0);
     }
 
     #[test]
@@ -418,5 +546,14 @@ mod tests {
         assert_eq!(run(&["make-snapshot", "a", "b"]), EXIT_USAGE);
         assert_eq!(run(&["make-snapshot", "--help"]), EXIT_USAGE);
         assert_eq!(run(&["make-snapshot", "-x"]), EXIT_USAGE);
+        assert_eq!(run(&["eval"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "b.js"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--driver", "d.js"]), EXIT_USAGE);
+        assert_eq!(
+            run(&["eval", "a.js", "--driver", "-", "--export", "x"]),
+            EXIT_USAGE
+        );
+        assert_eq!(run(&["eval", "a.js", "--timeout", "1"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--graph"]), EXIT_USAGE);
     }
 }

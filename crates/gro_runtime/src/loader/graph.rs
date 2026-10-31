@@ -43,10 +43,6 @@ pub enum Recording {
     Off,
     /// The whole record: besides what loading needs, each load's format and
     /// hash, the edges, the consulted files, and the failures.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests record in full so far")
-    )]
     Full,
 }
 
@@ -195,6 +191,12 @@ pub enum FailureError {
     UnknownImporter,
     /// The resolved module didn't load.
     Load(LoadFailure),
+    /// An import or `import.meta.resolve` from the driver, a module whose
+    /// source the host provides itself and which imports nothing.
+    DriverImport,
+    /// An `import()`, in a graph that refuses every one, whatever its
+    /// specifier.
+    DynamicImport,
 }
 
 /// Why a resolved module didn't load.

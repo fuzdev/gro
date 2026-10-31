@@ -27,6 +27,9 @@
 //!   each runtime's [`RuntimeOptions`]
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
+//! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
+//!   an optional driver module, written by a strict host serializer into one
+//!   envelope that reports success or the kind of failure
 //!
 //! `deno_core`'s types stay out of this crate's public API, and the crate
 //! reads no environment variable: what a runtime decides per run, such as the
@@ -43,6 +46,7 @@
 
 mod bootstrap;
 pub mod engine;
+pub mod eval;
 mod loader;
 pub mod resolver;
 pub mod snapshot;
@@ -218,18 +222,7 @@ fn run_loaded(
         .build()
         .map_err(RunError::Start)?;
     tokio_runtime.block_on(async {
-        let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
-            module_loader: Some(loader),
-            // the same list the snapshot was made from, in the same order
-            extensions: bootstrap::extensions(),
-            startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
-            residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
-            ..Default::default()
-        })
-        .map_err(|error| uncaught(&error))?;
-        // before the bootstrap's start reads it
-        runtime.op_state().borrow_mut().put(console);
-        bootstrap::start(&mut runtime).map_err(|error| RunError::Uncaught(report_js(&error)))?;
+        let mut runtime = start_runtime(snapshot, console, loader).map_err(RunError::Uncaught)?;
         let id = runtime
             .load_main_es_module(entry)
             .await
@@ -243,13 +236,42 @@ fn run_loaded(
     })
 }
 
+/// Starts a runtime over `loader` from `snapshot` when there is one, and
+/// runs the bootstrap's per-run steps with the console as `console` says,
+/// returning the report of what failed when either fails. Must run inside a
+/// tokio runtime, which `deno_core` drives its event loop with.
+fn start_runtime(
+    snapshot: Option<StartupSnapshot>,
+    console: ConsoleOptions,
+    loader: Rc<Loader>,
+) -> Result<JsRuntime, String> {
+    let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
+        module_loader: Some(loader),
+        // the same list the snapshot was made from, in the same order
+        extensions: bootstrap::extensions(),
+        startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
+        residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
+        ..Default::default()
+    })
+    .map_err(|error| report(&error))?;
+    // before the bootstrap's start reads it
+    runtime.op_state().borrow_mut().put(console);
+    bootstrap::start(&mut runtime).map_err(|error| report_js(&error))?;
+    Ok(runtime)
+}
+
 /// Renders a failed run: a JS error as its message and stack frames, with
 /// each `cause`; anything else by its message chain.
 fn uncaught(error: &CoreError) -> RunError {
-    RunError::Uncaught(match &*error.0 {
+    RunError::Uncaught(report(error))
+}
+
+/// The report [`uncaught`] makes of `error`.
+fn report(error: &CoreError) -> String {
+    match &*error.0 {
         CoreErrorKind::Js(error) => report_js(error),
         _ => error.print_with_cause(),
-    })
+    }
 }
 
 /// `Uncaught Error: message`, then V8's frames, each `at

@@ -1,0 +1,756 @@
+//! `fgro eval`: one module evaluated to JSON data, written into one
+//! [`Envelope`] that reports the value or the kind of failure.
+//!
+//! The protocol, in order:
+//!
+//! 1. The entry resolves, as `fgro run`'s does; a failure is a `resolve`.
+//! 2. With a driver (its source from stdin), the driver loads and evaluates
+//!    first, so it holds the realm's primordials before any of the config's
+//!    code can patch them. It's a module with a synthetic URL
+//!    ([`DRIVER_SPECIFIER`]) that the loader resolves to nothing: every
+//!    import and `import.meta.resolve` in it is refused ("a stdin driver is
+//!    import-free").
+//! 3. The entry's graph loads and evaluates. Every `import()` in the run is
+//!    refused before anything is resolved, whatever it names, and each in
+//!    the entry's graph is listed in the envelope's `access.dynamic`.
+//! 4. With a driver, its `default` export is called with the entry's module
+//!    namespace and awaited; without one, the namespace's export
+//!    ([`DEFAULT_EXPORT`] unless the caller names another) is the value.
+//! 5. The value is serialized by the strict host serializer
+//!    (the rules in `serialize.rs`), which runs no JS.
+//! 6. The event loop drains: whatever work is still pending runs, and an
+//!    uncaught error or unhandled rejection in it fails the eval as a
+//!    `late_rejection`, with no value.
+//! 7. With a driver that exports [`AFTER_DRAIN`], the host calls it, and a
+//!    throw is a `late_rejection` too: it lets a driver fail a run whose
+//!    code made a call into it too late, after the value was taken, even when
+//!    that code caught the driver's error.
+//!
+//! The engine eval runs on is [`engine_options`]'s: jitless unless the
+//! caller turns the JIT on (and with it `WebAssembly`), code generation from
+//! strings off in both modes, and the locale [`LOCALE`]. [`eval`] checks its
+//! [`Engine`] token against them. The console writes every level to stderr,
+//! uncolored, leaving stdout to the envelope. Eval reads no environment
+//! variable.
+//!
+//! An error's kind comes from the phase that failed and, for a load, from
+//! the failure the loader recorded for the graph's static load, never from a
+//! message: a resolution's failure is `resolve`, a load's or none at all is
+//! `link` (a syntax error, a missing export binding, a strip refusal), and a
+//! failure that only a host bug or a file changed on disk can cause is
+//! `internal`.
+
+mod envelope;
+mod serialize;
+
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::task::Poll;
+
+use deno_core::error::CoreError;
+use deno_core::{JsRuntime, PollEventLoopOptions, v8};
+use url::Url;
+
+pub use self::envelope::{
+    Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
+    RuntimeInfo, TSV_REV,
+};
+use crate::engine::{Engine, EngineOptions};
+use crate::loader::graph::{
+    Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
+};
+use crate::loader::{Loader, Rules};
+use crate::resolver::{self, DiskTree};
+use crate::snapshot::StartupSnapshot;
+use crate::{ConsoleOptions, ConsoleRouting, report, report_js, start_runtime};
+
+/// The driver's URL: a scheme the resolver refuses, so no module can import
+/// it, and no path on disk.
+pub const DRIVER_SPECIFIER: &str = "gro:driver";
+
+/// The export serialized with no driver, unless the caller names another.
+pub const DEFAULT_EXPORT: &str = "default";
+
+/// The driver's optional export the host calls after the drain.
+pub const AFTER_DRAIN: &str = "after_drain";
+
+/// The ICU locale eval's `Intl` uses, whatever the host's: `en-US`, whose
+/// output V8 gives byte for byte as ICU's `en_US_POSIX`.
+pub const LOCALE: &str = "en-US";
+
+/// The engine eval runs on: jitless unless `jit`, code generation from
+/// strings off either way, and [`LOCALE`].
+pub const fn engine_options(jit: bool) -> EngineOptions {
+    EngineOptions {
+        locale: Some(LOCALE),
+        jitless: !jit,
+        disallow_code_generation_from_strings: true,
+    }
+}
+
+/// What to evaluate, and how.
+#[derive(Debug, Clone)]
+pub struct EvalOptions {
+    /// The entry module: relative to `cwd`, or absolute.
+    pub entry: PathBuf,
+    /// The working directory, an absolute path.
+    pub cwd: PathBuf,
+    /// The export to serialize with no driver; [`DEFAULT_EXPORT`] when
+    /// unset. Ignored with a driver.
+    pub export: Option<String>,
+    /// The driver's source, as read from stdin; invalid UTF-8 reads as
+    /// U+FFFD, as V8 decodes a module's bytes.
+    pub driver: Option<Vec<u8>>,
+    /// Whether the JIT is on, which [`engine_options`] the engine must have.
+    pub jit: bool,
+    /// The snapshot to start from, as for `fgro run`.
+    pub snapshot: Option<StartupSnapshot>,
+    /// The runtime the envelope reports.
+    pub runtime: RuntimeInfo,
+}
+
+/// Evaluates as the module doc describes, on the engine `engine` names, and
+/// returns the envelope, whatever happened.
+///
+/// Runs on the calling thread, which must reserve
+/// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
+pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
+    let driver_url = Url::parse(DRIVER_SPECIFIER).ok();
+    let mut envelope = failed(
+        options,
+        EvalError::new(ErrorKind::Internal, "not evaluated"),
+    );
+    let expected = engine_options(options.jit);
+    if engine.options() != &expected {
+        envelope.result = Err(EvalError::new(
+            ErrorKind::Internal,
+            format!(
+                "the engine is set up with {:?}, not eval's {expected:?}",
+                engine.options()
+            ),
+        ));
+        return envelope;
+    }
+    let Some(driver_url) = driver_url else {
+        envelope.result = Err(EvalError::new(
+            ErrorKind::Internal,
+            format!("the driver's URL {DRIVER_SPECIFIER} doesn't parse"),
+        ));
+        return envelope;
+    };
+    let (entry, roots) = match resolver::resolve_entry(&DiskTree, &options.entry, &options.cwd) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            let mut failure = EvalError::new(ErrorKind::Resolve, error.to_string());
+            failure.usage = error.kind.is_specifier_error();
+            failure.specifier = Some(error.specifier);
+            failure.importer = Some(error.importer);
+            envelope.result = Err(failure);
+            return envelope;
+        }
+    };
+    if let Ok(path) = entry.url.to_file_path() {
+        envelope.entry.id = path.to_string_lossy().into_owned();
+    }
+    let rules = Rules {
+        refuse_dynamic_import: true,
+        driver: options.driver.is_some().then(|| driver_url.clone()),
+    };
+    let loader = Rc::new(
+        Loader::new(&entry, roots, crate::loader::graph::Recording::Full).with_rules(rules),
+    );
+    let result = evaluate(options, &entry.url, &driver_url, Rc::clone(&loader));
+    // the runtime, and its share of the loader, is gone once the eval ends
+    let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
+    envelope.access = access(&graph);
+    envelope.result = result.map_err(|failed| failed.into_error(&graph));
+    envelope
+}
+
+/// The envelope of an eval of `options` that failed with `error` before it
+/// started, such as when the driver couldn't be read: the entry as given.
+pub fn failed(options: &EvalOptions, error: EvalError) -> Envelope {
+    Envelope {
+        runtime: options.runtime.clone(),
+        entry: Entry {
+            id: options.entry.to_string_lossy().into_owned(),
+            export: options.driver.is_none().then(|| {
+                options
+                    .export
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_EXPORT.to_owned())
+            }),
+            driver_blake3: options
+                .driver
+                .as_ref()
+                .map(|driver| blake3::hash(driver).to_hex().to_string()),
+        },
+        result: Err(error),
+        access: Access::default(),
+    }
+}
+
+/// The phase of an eval, which decides a failure's kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// Starting the runtime.
+    Start,
+    /// Loading and linking the driver.
+    DriverLoad,
+    /// Evaluating the driver.
+    DriverEvaluate,
+    /// Reading the driver's exports.
+    DriverExports,
+    /// Loading and linking the entry's graph.
+    Load,
+    /// Evaluating the entry's graph.
+    Evaluate,
+    /// Reading the export, with no driver.
+    Export,
+    /// Calling the driver's `default`.
+    Call,
+    /// Serializing the value.
+    Serialize,
+    /// Draining the event loop, and calling the driver's `after_drain`.
+    Drain,
+    /// The host broke an invariant of its own.
+    Internal,
+}
+
+/// A failed phase: which, the message, and where when the serializer says.
+#[derive(Debug)]
+struct Failed {
+    /// The phase that failed.
+    phase: Phase,
+    /// What failed.
+    message: String,
+    /// The JS path the serializer refused.
+    at: Option<String>,
+}
+
+impl Failed {
+    fn new(phase: Phase, message: impl Into<String>) -> Self {
+        Self {
+            phase,
+            message: message.into(),
+            at: None,
+        }
+    }
+
+    /// The failure in `phase` that `error` reports.
+    fn core(phase: Phase, error: &CoreError) -> Self {
+        Self::new(phase, report(error))
+    }
+
+    /// The envelope's error: the kind from the phase and, for a load, the
+    /// first failure of the static load in `graph`.
+    fn into_error(self, graph: &Graph) -> EvalError {
+        let kind = match self.phase {
+            Phase::Start | Phase::Internal => ErrorKind::Internal,
+            Phase::DriverLoad | Phase::Load => {
+                return load_error(self.message, first_static_failure(graph));
+            }
+            Phase::DriverEvaluate | Phase::Evaluate | Phase::Call => ErrorKind::ModuleThrew,
+            Phase::DriverExports | Phase::Export => ErrorKind::ExportMissing,
+            Phase::Serialize => ErrorKind::Serialize,
+            Phase::Drain => ErrorKind::LateRejection,
+        };
+        let mut error = EvalError::new(kind, self.message);
+        error.at = self.at;
+        error
+    }
+}
+
+/// The first failure of a static load: a load records at most one, since
+/// `deno_core` stops it at the first error and linking resolves nothing
+/// again, and a failed driver load ends the eval before the entry's.
+fn first_static_failure(graph: &Graph) -> Option<(&FailureSite, &Failure)> {
+    graph
+        .failures
+        .iter()
+        .filter(|(site, _)| site.reached == Reached::Import(Reach::Static))
+        .find_map(|(site, failures)| failures.first().map(|failure| (site, failure)))
+}
+
+/// The error of a failed load, its kind from the first static failure
+/// recorded: a resolution's is `resolve`; a load's is `link`, unless only a
+/// host bug or a file changed on disk causes it; none is `link`.
+fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> EvalError {
+    let Some((site, failure)) = failure else {
+        return EvalError::new(ErrorKind::Link, message);
+    };
+    let kind = match &failure.error {
+        FailureError::Resolve(_) | FailureError::DriverImport => ErrorKind::Resolve,
+        FailureError::Load(LoadFailure::Strip { .. } | LoadFailure::ImportAttributes) => {
+            ErrorKind::Link
+        }
+        FailureError::Load(
+            LoadFailure::NeverResolved
+            | LoadFailure::IdentityMismatch
+            | LoadFailure::Read(_)
+            | LoadFailure::NotAFile
+            | LoadFailure::Format(_),
+        )
+        | FailureError::UnknownImporter
+        // never static: an `import()` is refused before it loads anything
+        | FailureError::DynamicImport => ErrorKind::Internal,
+    };
+    let at = match &failure.error {
+        // a position in the module stripped
+        FailureError::Load(LoadFailure::Strip { at: Some(at), .. }) => {
+            Some(format!("{}:{}:{}", site.specifier, at.line, at.column))
+        }
+        // the import's position in its importer
+        _ => failure.at.and_then(|at| {
+            site.importer
+                .as_ref()
+                .map(|importer| format!("{importer}:{}:{}", at.line, at.column))
+        }),
+    };
+    let mut error = EvalError::new(kind, message);
+    error.at = at;
+    error.specifier = Some(site.specifier.clone());
+    error.importer.clone_from(&site.importer);
+    error
+}
+
+/// Every `import()` the graph refused, in specifier order, then importer
+/// order, one entry per specifier and importer; the driver's are recorded as
+/// driver imports, not listed.
+fn access(graph: &Graph) -> Access {
+    let dynamic = graph
+        .failures
+        .iter()
+        .filter(|(_, failures)| {
+            failures
+                .iter()
+                .any(|failure| failure.error == FailureError::DynamicImport)
+        })
+        .filter_map(|(site, _)| {
+            Some(DynamicImport {
+                specifier: site.specifier.clone(),
+                importer: site.importer.clone()?,
+            })
+        })
+        .collect();
+    Access { dynamic }
+}
+
+/// The console eval writes with: every level to stderr, uncolored.
+const CONSOLE: ConsoleOptions = ConsoleOptions {
+    routing: ConsoleRouting::Stderr,
+    color_stdout: false,
+    color_stderr: false,
+};
+
+/// The driver's exports the host calls, read once it has evaluated.
+struct Driver {
+    /// Its `default`, called with the entry's namespace.
+    default: v8::Global<v8::Function>,
+    /// Its `after_drain`, when it exports one.
+    after_drain: Option<v8::Global<v8::Function>>,
+}
+
+/// Runs the eval's phases on a runtime over `loader`, returning the value
+/// as JSON text, or the phase that failed.
+fn evaluate(
+    options: &EvalOptions,
+    entry: &Url,
+    driver_url: &Url,
+    loader: Rc<Loader>,
+) -> Result<String, Failed> {
+    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            Failed::new(
+                Phase::Start,
+                format!("failed to start the runtime: {error}"),
+            )
+        })?;
+    tokio_runtime.block_on(async {
+        let mut runtime = start_runtime(options.snapshot, CONSOLE, loader)
+            .map_err(|message| Failed::new(Phase::Start, message))?;
+        let driver = match &options.driver {
+            Some(source) => Some(load_driver(&mut runtime, driver_url, source).await?),
+            None => None,
+        };
+        let id = runtime
+            .load_main_es_module(entry)
+            .await
+            .map_err(|error| Failed::core(Phase::Load, &error))?;
+        let evaluation = runtime.mod_evaluate(id);
+        settle(&mut runtime, evaluation)
+            .await
+            .map_err(|unsettled| unsettled.failed(Phase::Evaluate, "the module's evaluation"))?;
+        let namespace = runtime
+            .get_module_namespace(id)
+            .map_err(|error| Failed::core(Phase::Internal, &error))?;
+        let value = if let Some(driver) = &driver {
+            let namespace = to_value(&mut runtime, &namespace);
+            let call = runtime.call_with_args(&driver.default, &[namespace]);
+            settle(&mut runtime, call)
+                .await
+                .map_err(|unsettled| unsettled.failed(Phase::Call, "the driver's call"))?
+        } else {
+            let name = options.export.as_deref().unwrap_or(DEFAULT_EXPORT);
+            read_export(&mut runtime, &namespace, name, Phase::Evaluate)?.ok_or_else(|| {
+                Failed::new(
+                    Phase::Export,
+                    format!("the module has no export named `{name}` to evaluate"),
+                )
+            })?
+        };
+        let json = serialize_value(&mut runtime, &value)?;
+        runtime
+            .run_event_loop(PollEventLoopOptions::default())
+            .await
+            .map_err(|error| Failed::core(Phase::Drain, &error))?;
+        if let Some(after_drain) = driver
+            .as_ref()
+            .and_then(|driver| driver.after_drain.as_ref())
+        {
+            let call = runtime.call(after_drain);
+            settle(&mut runtime, call)
+                .await
+                .map_err(|unsettled| unsettled.failed(Phase::Drain, "the driver's after_drain"))?;
+        }
+        Ok(json)
+    })
+}
+
+/// Loads and evaluates the driver from `source` at `url`, and reads the
+/// exports the host calls.
+#[expect(
+    clippy::future_not_send,
+    reason = "a runtime stays on its thread, driven by a current-thread tokio runtime"
+)]
+async fn load_driver(runtime: &mut JsRuntime, url: &Url, source: &[u8]) -> Result<Driver, Failed> {
+    let source = String::from_utf8_lossy(source).into_owned();
+    let id = runtime
+        .load_side_es_module_from_code(url, source)
+        .await
+        .map_err(|error| Failed::core(Phase::DriverLoad, &error))?;
+    let evaluation = runtime.mod_evaluate(id);
+    settle(runtime, evaluation)
+        .await
+        .map_err(|unsettled| unsettled.failed(Phase::DriverEvaluate, "the driver's evaluation"))?;
+    let namespace = runtime
+        .get_module_namespace(id)
+        .map_err(|error| Failed::core(Phase::Internal, &error))?;
+    let function = |runtime: &mut JsRuntime, name: &str| {
+        let Some(value) = read_export(runtime, &namespace, name, Phase::DriverEvaluate)? else {
+            return Ok(None);
+        };
+        deno_core::scope!(scope, runtime);
+        let value = v8::Local::new(scope, value);
+        if value.is_undefined() {
+            return Ok(None);
+        }
+        let function = value.try_cast::<v8::Function>().map_err(|_| {
+            Failed::new(
+                Phase::DriverExports,
+                format!("the driver's `{name}` export is not a function"),
+            )
+        })?;
+        Ok(Some(v8::Global::new(scope, function)))
+    };
+    let default = function(runtime, DEFAULT_EXPORT)?.ok_or_else(|| {
+        Failed::new(
+            Phase::DriverExports,
+            "the driver has no `default` export function to call with the module's namespace",
+        )
+    })?;
+    let after_drain = function(runtime, AFTER_DRAIN)?;
+    Ok(Driver {
+        default,
+        after_drain,
+    })
+}
+
+/// `namespace` as a value to pass to a call.
+fn to_value(runtime: &mut JsRuntime, namespace: &v8::Global<v8::Object>) -> v8::Global<v8::Value> {
+    deno_core::scope!(scope, runtime);
+    let namespace = v8::Local::new(scope, namespace);
+    v8::Global::new(scope, v8::Local::<v8::Value>::from(namespace))
+}
+
+/// The export `name` of the module `namespace`, or `None` when it has no
+/// such export. Reading a binding still uninitialized throws, a failure in
+/// `phase`.
+fn read_export(
+    runtime: &mut JsRuntime,
+    namespace: &v8::Global<v8::Object>,
+    name: &str,
+    phase: Phase,
+) -> Result<Option<v8::Global<v8::Value>>, Failed> {
+    deno_core::scope!(scope, runtime);
+    v8::tc_scope!(let scope, scope);
+    let namespace = v8::Local::new(scope, namespace);
+    let internal = || Failed::new(Phase::Internal, format!("can't read the export `{name}`"));
+    let key = v8::String::new(scope, name).ok_or_else(internal)?;
+    // a namespace's own properties are its exports, read without running JS
+    let has = namespace.has_own_property(scope, key.into());
+    let value = match has {
+        Some(false) => return Ok(None),
+        Some(true) => namespace.get(scope, key.into()),
+        None => None,
+    };
+    if let Some(value) = value {
+        return Ok(Some(v8::Global::new(scope, value)));
+    }
+    Err(scope.exception().map_or_else(internal, |exception| {
+        let error = deno_core::error::JsError::from_v8_exception(scope, exception);
+        Failed::new(phase, report_js(&error))
+    }))
+}
+
+/// `value` serialized by the strict host serializer.
+fn serialize_value(
+    runtime: &mut JsRuntime,
+    value: &v8::Global<v8::Value>,
+) -> Result<String, Failed> {
+    deno_core::scope!(scope, runtime);
+    let value = v8::Local::new(scope, value);
+    serialize::to_json(scope, value).map_err(|error| Failed {
+        phase: if error.is_internal() {
+            Phase::Internal
+        } else {
+            Phase::Serialize
+        },
+        message: error.to_string(),
+        at: Some(error.at),
+    })
+}
+
+/// Why a future the event loop drives didn't settle.
+enum Unsettled {
+    /// It failed, or the event loop did while it was pending: an uncaught
+    /// error, an unhandled rejection, or a stalled top-level `await`.
+    Failed(CoreError),
+    /// The event loop ran out of work with it still pending.
+    Pending,
+}
+
+impl Unsettled {
+    /// The failure in `phase`, `what` naming what never settled.
+    fn failed(self, phase: Phase, what: &str) -> Failed {
+        match self {
+            Self::Failed(error) => Failed::core(phase, &error),
+            Self::Pending => Failed::new(
+                phase,
+                format!("{what} never settled: it awaits a promise nothing is left to settle"),
+            ),
+        }
+    }
+}
+
+/// Drives `future` with `runtime`'s event loop until it settles, polling
+/// the event loop first each time, so an error the loop reports (an
+/// unhandled rejection: `deno_core` settles a module's evaluation even when
+/// it throws, and reports the throw through the loop) wins over the future's
+/// settling in the same turn.
+#[expect(
+    clippy::future_not_send,
+    reason = "a runtime stays on its thread, driven by a current-thread tokio runtime"
+)]
+async fn settle<T, E>(
+    runtime: &mut JsRuntime,
+    future: impl Future<Output = Result<T, E>>,
+) -> Result<T, Unsettled>
+where
+    CoreError: From<E>,
+{
+    let mut future = Box::pin(future);
+    std::future::poll_fn(|cx| {
+        let looped = runtime.poll_event_loop(cx, PollEventLoopOptions::default());
+        if let Poll::Ready(Err(error)) = looped {
+            return Poll::Ready(Err(Unsettled::Failed(error)));
+        }
+        if let Poll::Ready(result) = Pin::as_mut(&mut future).poll(cx) {
+            return Poll::Ready(result.map_err(|error| Unsettled::Failed(error.into())));
+        }
+        if looped.is_ready() {
+            return Poll::Ready(Err(Unsettled::Pending));
+        }
+        Poll::Pending
+    })
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::loader::graph::{Position, Recording};
+    use crate::loader::strip::StripFailure;
+    use crate::resolver::{FileId, Origin, Resolution, ResolveErrorKind, Roots};
+
+    /// A graph of `/p/main.js` with `failures` recorded, each at its own
+    /// site and reached as given.
+    fn graph(failures: &[(&str, Reached, FailureError)]) -> Graph {
+        let entry = Resolution {
+            url: Url::parse("file:///p/main.js").unwrap(),
+            file_id: FileId {
+                dev: 1,
+                ino: 1,
+                born: None,
+            },
+            root: PathBuf::from("/p"),
+            origin: Origin::Project,
+            files_consulted: Vec::new(),
+        };
+        let mut graph = Graph::new(&entry, Roots::new(PathBuf::from("/p")), Recording::Full);
+        for (specifier, reached, error) in failures {
+            let failure = Failure {
+                at: Some(Position { line: 2, column: 8 }),
+                error: error.clone(),
+            };
+            graph.fail(specifier, Some("file:///p/main.js"), *reached, failure);
+        }
+        graph
+    }
+
+    const STATIC: Reached = Reached::Import(Reach::Static);
+    const DYNAMIC: Reached = Reached::Import(Reach::Dynamic);
+
+    fn load_kind(error: FailureError) -> ErrorKind {
+        Failed::new(Phase::Load, "failed")
+            .into_error(&graph(&[("./x.js", STATIC, error)]))
+            .kind
+    }
+
+    /// A load's kind comes from its static failure's variant, never its
+    /// message: a resolution's is `resolve`, a strip refusal or import
+    /// attributes `link`, and what only a host bug or a file changed on disk
+    /// causes `internal`.
+    #[test]
+    fn a_load_failure_takes_its_kind_from_the_recorded_failure() {
+        let not_found = ResolveErrorKind::NotFound { ts_sibling: None };
+        for (error, kind) in [
+            (FailureError::Resolve(not_found.clone()), ErrorKind::Resolve),
+            (FailureError::DriverImport, ErrorKind::Resolve),
+            (
+                FailureError::Load(LoadFailure::Strip {
+                    failure: StripFailure::Parse,
+                    at: None,
+                }),
+                ErrorKind::Link,
+            ),
+            (
+                FailureError::Load(LoadFailure::ImportAttributes),
+                ErrorKind::Link,
+            ),
+            (
+                FailureError::Load(LoadFailure::IdentityMismatch),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Load(LoadFailure::Read(io::ErrorKind::PermissionDenied)),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Load(LoadFailure::NeverResolved),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Load(LoadFailure::NotAFile),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Load(LoadFailure::Format(not_found)),
+                ErrorKind::Internal,
+            ),
+            (FailureError::UnknownImporter, ErrorKind::Internal),
+        ] {
+            assert_eq!(load_kind(error.clone()), kind, "{error:?}");
+        }
+    }
+
+    /// With no static failure, a failed load is `link` (a syntax error, a
+    /// missing export binding), whatever failed dynamically; a failure's
+    /// site and position are reported.
+    #[test]
+    fn a_load_with_no_static_failure_is_link() {
+        let dynamic = graph(&[("./y.js", DYNAMIC, FailureError::DynamicImport)]);
+        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic);
+        assert_eq!(
+            (error.kind, error.specifier, error.importer, error.at),
+            (ErrorKind::Link, None, None, None)
+        );
+        let error = Failed::new(Phase::DriverLoad, "refused").into_error(&graph(&[(
+            "./x.js",
+            STATIC,
+            FailureError::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
+        )]));
+        assert_eq!(error.kind, ErrorKind::Resolve);
+        assert_eq!(error.specifier.as_deref(), Some("./x.js"));
+        assert_eq!(error.importer.as_deref(), Some("file:///p/main.js"));
+        assert_eq!(error.at.as_deref(), Some("file:///p/main.js:2:8"));
+        assert!(!error.usage);
+    }
+
+    #[test]
+    fn every_other_phase_has_its_kind() {
+        let graph = graph(&[]);
+        for (phase, kind) in [
+            (Phase::Start, ErrorKind::Internal),
+            (Phase::Internal, ErrorKind::Internal),
+            (Phase::DriverEvaluate, ErrorKind::ModuleThrew),
+            (Phase::Evaluate, ErrorKind::ModuleThrew),
+            (Phase::Call, ErrorKind::ModuleThrew),
+            (Phase::DriverExports, ErrorKind::ExportMissing),
+            (Phase::Export, ErrorKind::ExportMissing),
+            (Phase::Serialize, ErrorKind::Serialize),
+            (Phase::Drain, ErrorKind::LateRejection),
+        ] {
+            assert_eq!(
+                Failed::new(phase, "x").into_error(&graph).kind,
+                kind,
+                "{phase:?}"
+            );
+        }
+    }
+
+    /// `access.dynamic` lists the refused `import()` calls, not other
+    /// failures.
+    #[test]
+    fn access_lists_the_refused_dynamic_imports() {
+        let graph = graph(&[
+            ("./b.js", DYNAMIC, FailureError::DynamicImport),
+            ("./a.js", DYNAMIC, FailureError::DynamicImport),
+            ("./c.js", STATIC, FailureError::DriverImport),
+        ]);
+        let importer = "file:///p/main.js".to_owned();
+        assert_eq!(
+            access(&graph).dynamic,
+            [
+                DynamicImport {
+                    specifier: "./a.js".to_owned(),
+                    importer: importer.clone(),
+                },
+                DynamicImport {
+                    specifier: "./b.js".to_owned(),
+                    importer,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn eval_s_engine_is_jitless_unless_asked_and_never_generates_code() {
+        assert_eq!(
+            engine_options(false),
+            EngineOptions {
+                locale: Some("en-US"),
+                jitless: true,
+                disallow_code_generation_from_strings: true,
+            }
+        );
+        assert!(!engine_options(true).jitless);
+        assert!(engine_options(true).disallow_code_generation_from_strings);
+    }
+}
