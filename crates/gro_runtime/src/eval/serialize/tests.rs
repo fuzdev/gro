@@ -55,7 +55,7 @@ impl Realm {
         let runtime = &mut self.runtime;
         deno_core::scope!(scope, runtime);
         let value = v8::Local::new(scope, value);
-        to_json(scope, value)
+        to_json(scope, value, &|| false)
     }
 
     /// The completion value of `source`, a string, as Rust's.
@@ -456,5 +456,32 @@ fn an_identity_hash_collision_is_not_a_cycle() {
             "$.x.child.back",
             &Reason::Cycle,
         );
+    });
+}
+
+/// The walk asks before each batch whether the run was stopped, and ends
+/// there: a value of a few batches stops after the first once asked to, at
+/// the member the walk had reached.
+#[test]
+fn a_stop_ends_the_walk_at_a_batch() {
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        let value = realm.run("Array.from({length: 4096}, (_, i) => [i])");
+        let runtime = &mut realm.runtime;
+        deno_core::scope!(scope, runtime);
+        let value = v8::Local::new(scope, value);
+        let asked = std::cell::Cell::new(0);
+        let stopped = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 1
+        };
+        let error = to_json(scope, value, &stopped).unwrap_err();
+        assert_eq!(error.reason, Reason::Stopped);
+        assert_eq!(asked.get(), 2);
+        assert!(!error.is_internal());
+        // the first batch's steps read into the array's members
+        assert!(error.at.starts_with("$["), "{}", error.at);
+        // never asked, a walk of the same value runs to its end
+        assert!(to_json(scope, value, &|| false).is_ok());
     });
 }

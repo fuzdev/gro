@@ -24,8 +24,10 @@ pub struct Envelope {
     pub entry: Entry,
     /// The value as compact JSON text, or why there is none.
     pub result: Result<String, EvalError>,
-    /// What the run tried to reach and was refused.
-    pub access: Access,
+    /// What the run tried to reach and was refused; unset only in the
+    /// envelope the out-of-memory backstop writes, prepared before the run
+    /// and written without it.
+    pub access: Option<Access>,
 }
 
 /// The runtime that evaluated, for display only: two binaries can share
@@ -108,6 +110,14 @@ pub enum ErrorKind {
     /// After the value was serialized, the event loop's remaining work
     /// threw or rejected, or the driver's `after_drain` threw.
     LateRejection,
+    /// The heap reached its cap: the run was stopped, or, out of memory,
+    /// the process wrote a prepared envelope and exited.
+    Heap,
+    /// The run passed its timeout and was stopped.
+    Timeout,
+    /// The process's environment can't give the same result everywhere:
+    /// its time zone isn't UTC.
+    Environment,
     /// The host failed: a module changed on disk between resolving and
     /// loading, a read failed, or the host broke one of its own invariants.
     Internal,
@@ -133,6 +143,11 @@ pub struct EvalError {
     /// resolve, the working directory it was resolved from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub importer: Option<String>,
+    /// What to change, when the host can tell more than the message says:
+    /// a fix for a person, apart from the message, which stays the error's
+    /// own report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
     /// Whether the command line must change: the entry didn't resolve as a
     /// specifier. Not written; it decides the exit code.
     #[serde(skip)]
@@ -148,6 +163,7 @@ impl EvalError {
             at: None,
             specifier: None,
             importer: None,
+            hint: None,
             usage: false,
         }
     }
@@ -181,7 +197,8 @@ impl Envelope {
 
     /// The envelope as one line of compact JSON, its fields in this order:
     /// `eval_protocol`, `ok`, `runtime`, `entry`, then `value` or `error`,
-    /// then `access`. The value is spliced in as the serializer wrote it.
+    /// then `access` (`null` when unset). The value is spliced in as the
+    /// serializer wrote it.
     ///
     /// # Errors
     ///
@@ -231,12 +248,12 @@ mod tests {
                 driver_blake3: None,
             },
             result,
-            access: Access {
+            access: Some(Access {
                 dynamic: vec![DynamicImport {
                     specifier: "./x.js".to_owned(),
                     importer: "file:///p/main.ts".to_owned(),
                 }],
-            },
+            }),
         }
     }
 
@@ -266,6 +283,17 @@ mod tests {
             serde_json::json!({"kind": "late_rejection", "message": "late", "at": "$"})
         );
         assert!(parsed.get("value").is_none());
+        // a hint is written when there is one, and an unset access as null
+        let mut error = EvalError::new(ErrorKind::Timeout, "slow");
+        error.hint = Some("faster".to_owned());
+        let mut unset = envelope(Err(error));
+        unset.access = None;
+        let parsed: serde_json::Value = serde_json::from_str(&unset.to_json().unwrap()).unwrap();
+        assert_eq!(
+            parsed["error"],
+            serde_json::json!({"kind": "timeout", "message": "slow", "hint": "faster"})
+        );
+        assert_eq!(parsed["access"], serde_json::Value::Null);
     }
 
     #[test]

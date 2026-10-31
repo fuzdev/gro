@@ -50,6 +50,8 @@
 //! so the host's native stack stays the same depth however deep the value
 //! nests, and it reads in batches, each in a handle scope of its own, so
 //! what it holds is its output and its stack, whatever the value's size.
+//! Before each batch it asks whether the host has stopped the run (a
+//! timeout, the heap's cap), since no terminate interrupts a Rust loop.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -104,6 +106,9 @@ pub enum Reason {
     /// V8 refused a read the walk made, which only a host bug can cause:
     /// every read is one that runs no JS.
     Refused,
+    /// The host stopped the run (a timeout, the heap's cap) during the
+    /// walk, which the host reports as such.
+    Stopped,
 }
 
 impl SerializeError {
@@ -165,6 +170,7 @@ impl fmt::Display for SerializeError {
                 "V8 refused to read {at} without running JS, a host bug: the serializer reads \
                  only what runs no JS"
             ),
+            Reason::Stopped => write!(f, "the run was stopped while {at} was serialized"),
         }
     }
 }
@@ -178,13 +184,17 @@ const BATCH: usize = 1024;
 /// `value` as compact JSON text, by the rules in the module doc.
 ///
 /// `scope` must have a context entered; the walk runs no JS in it.
+/// `stopped` is asked before each batch whether the host has stopped the
+/// run, which ends the walk.
 ///
 /// # Errors
 ///
-/// Returns where and why `value` isn't JSON data.
+/// Returns where and why `value` isn't JSON data, or where the walk was
+/// when `stopped` said so.
 pub fn to_json(
     scope: &mut v8::PinScope<'_, '_>,
     value: v8::Local<'_, v8::Value>,
+    stopped: &dyn Fn() -> bool,
 ) -> Result<String, SerializeError> {
     v8::tc_scope!(let tc, scope);
     v8::disallow_javascript_execution_scope!(let scope, tc, v8::OnFailure::ThrowOnFailure);
@@ -213,8 +223,11 @@ pub fn to_json(
     };
     walker.visit(scope, value)?;
     while !walker.frames.is_empty() {
-        // once per batch: where a deadline, a heap limit, or an output
-        // budget is checked
+        // once per batch: a terminate, the timeout's or the heap's, can't
+        // interrupt this loop, which runs no JS
+        if stopped() {
+            return Err(walker.error(Reason::Stopped));
+        }
         walker.batch(scope)?;
     }
     Ok(walker.out)

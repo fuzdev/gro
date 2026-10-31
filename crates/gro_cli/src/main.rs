@@ -9,14 +9,19 @@
 //! to stderr, prefixed `error:`; an uncaught error's report carries its stack
 //! with source positions (`file:///path:line:column`).
 //!
-//! `fgro eval <module> [--driver -] [--export NAME] [--jit]` evaluates a
-//! module to JSON data and prints one envelope on stdout
+//! `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]`
+//! evaluates a module to JSON data and prints one envelope on stdout
 //! (`gro_runtime::eval`): with no driver, the module's export (`default`
 //! unless `--export` names another); with `--driver -`, a driver module read
 //! from stdin, whose default export is called with the module's namespace.
-//! It runs jitless unless `--jit`, with code generation from strings off and
-//! the locale `en-US`, and its console writes every level to stderr,
-//! uncolored. It reads no environment variable for its own configuration.
+//! It runs jitless unless `--jit`, with code generation from strings off,
+//! the locale `en-US`, the clock and randomness denied, the heap capped, and
+//! a timeout (`--timeout`, else `gro_runtime::eval::DEFAULT_TIMEOUT`), and
+//! its console writes every level to stderr, uncolored. It reads no
+//! environment variable for its own configuration, and refuses a time zone
+//! other than UTC, which ICU reads from `TZ`. Out of memory, the runtime
+//! writes a prepared envelope through its own handle to stdout, duplicated
+//! here before the run.
 //! Once eval starts, the envelope is always written, `ok: false` with an
 //! error kind on failure; a usage error prints to stderr with no envelope.
 //!
@@ -45,7 +50,8 @@
 //! - `2`: a usage error, so the command line must change: an unknown
 //!   subcommand or flag, a missing argument (including no arguments at all),
 //!   an argument that isn't UTF-8, `eval`'s `--driver` other than `-` or
-//!   with `--export`, or an entry file that doesn't resolve
+//!   with `--export` or its `--timeout` below 1, or an entry file that
+//!   doesn't resolve
 //!   (missing, not a `.js`, `.mjs`, `.ts`, or `.mts` file, or a `.js` file
 //!   not under `"type": "module"`)
 //!
@@ -61,9 +67,13 @@
 mod color;
 
 use std::ffi::OsString;
+use std::fs::File;
 use std::io::{Read as _, Write as _};
+use std::os::fd::AsFd as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::time::Duration;
 
 use argh::{EarlyExit, FromArgs};
 use gro_runtime::engine::{EngineOptions, init_engine};
@@ -223,6 +233,9 @@ struct EvalArgs {
     /// turn V8's JIT on, and with it WebAssembly
     #[argh(switch)]
     jit: bool,
+    /// stop the eval after this many milliseconds, at least 1 (default: 10000)
+    #[argh(option)]
+    timeout: Option<u64>,
 }
 
 /// The `--driver` value that reads the driver from stdin, the only one so far.
@@ -384,7 +397,16 @@ fn eval(args: EvalArgs) -> u8 {
         driver,
         export,
         jit,
+        timeout,
     } = args;
+    let timeout = match timeout {
+        None => gro_runtime::eval::DEFAULT_TIMEOUT,
+        Some(0) => {
+            eprintln!("error: --timeout takes a number of milliseconds of at least 1");
+            return EXIT_USAGE;
+        }
+        Some(ms) => Duration::from_millis(ms),
+    };
     match (driver.as_deref(), &export) {
         (Some(DRIVER_STDIN) | None, None) | (None, Some(_)) => {}
         (Some(DRIVER_STDIN), Some(_)) => {
@@ -417,6 +439,15 @@ fn eval(args: EvalArgs) -> u8 {
         jit,
         snapshot: STARTUP_SNAPSHOT,
         runtime: RuntimeInfo::new(env!("CARGO_PKG_VERSION"), COMMIT),
+        timeout,
+        // the out-of-memory backstop writes through its own handle, never
+        // through stdout's lock, which another thread may hold then; without
+        // one, it exits with no envelope
+        backstop: std::io::stdout()
+            .as_fd()
+            .try_clone_to_owned()
+            .ok()
+            .map(|fd| Arc::new(File::from(fd))),
     };
     let mut read = || -> Result<(), String> {
         // read here, not in the runtime, which takes them as inputs
@@ -553,7 +584,9 @@ mod tests {
             run(&["eval", "a.js", "--driver", "-", "--export", "x"]),
             EXIT_USAGE
         );
-        assert_eq!(run(&["eval", "a.js", "--timeout", "1"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--timeout", "0"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--graph"]), EXIT_USAGE);
     }
 }

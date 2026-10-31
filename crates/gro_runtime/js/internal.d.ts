@@ -13,4 +13,5 @@ declare module 'ext:core/mod.js' {
 declare module 'ext:core/ops' {
 	export const op_gro_color: (stderr: boolean) => boolean;
 	export const op_gro_console_stderr: () => boolean;
+	export const op_gro_deny: () => boolean;
 }

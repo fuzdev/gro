@@ -1,9 +1,10 @@
-// the value is taken, then the timer's error fails the eval: its delay
-// outlasts the evaluation and the export's read by far, so it fires in the
-// drain (a timer due sooner can fire before the value is taken, a
-// `module_threw`)
-setTimeout(() => {
+// eval has no timers, so work left after the evaluation runs as promise jobs,
+// which all run before the value is taken: an error in one fails the
+// evaluation, not the drain
+let jobs = Promise.resolve();
+for (let i = 0; i < 100; i++) jobs = jobs.then(() => {});
+jobs.then(() => {
 	throw new Error('late');
-}, 500);
+});
 
 export default 1;

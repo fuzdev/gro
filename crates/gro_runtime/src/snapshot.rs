@@ -167,7 +167,7 @@ pub enum SnapshotError {
 /// ASCII, or when evaluating the extensions fails.
 pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
     // a second copy of the same list, to read the sources the snapshot leaves out
-    let extensions = bootstrap::extensions();
+    let extensions = bootstrap::extensions(false);
     for path in disk_sources(&extensions) {
         check_ascii(path)?;
     }
@@ -177,7 +177,7 @@ pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
             skip_op_registration: false,
-            extensions: bootstrap::extensions(),
+            extensions: bootstrap::extensions(false),
             extension_transpiler: None,
             with_runtime_cb: None,
         },

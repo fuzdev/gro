@@ -5,9 +5,9 @@
 
 > **status**: built in part; the reference for the current binary, which has no release yet.
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
-> Built today are the protocol, the serializer, and the engine's settings.
-> Not yet built are the determinism rules (the clock and randomness are still live, and the timers present),
-> the time and memory limits, and the kernel backstop ([runtime](runtime.md#roadmap)).
+> Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
+> and the heap and time limits.
+> Not yet built is the kernel backstop ([runtime](runtime.md#roadmap)).
 
 ## Usage
 
@@ -16,12 +16,14 @@ fgro eval <module>                      # serialize the module's default export
 fgro eval <module> --export NAME        # serialize another export
 fgro eval <module> --driver - < d.js    # call a driver read from stdin with the module's namespace
 fgro eval <module> --jit                # turn V8's JIT on, and with it WebAssembly
+fgro eval <module> --timeout 2000       # stop the eval after 2000 ms (default: 10000)
 ```
 
 The module is a `.js`, `.mjs`, `.ts`, or `.mts` file, relative to the working directory or absolute.
 `--export` and `--driver` don't combine: a driver is handed the whole namespace.
 `--driver` takes only `-`.
 Eval reads no environment variable for its own configuration: every setting is a flag.
+It runs only with the time zone UTC (below), which ICU takes from the host's `TZ`, so run it with `TZ=UTC`.
 
 ## The engine
 
@@ -33,6 +35,54 @@ Eval reads no environment variable for its own configuration: every setting is a
 - **The locale is `en-US`**, whatever the host's `LC_ALL` or `LANG`, so `Intl` formats the same everywhere.
 - **The console** writes every level to stderr, uncolored, whatever `FORCE_COLOR` says,
   leaving stdout to the envelope.
+- **The time zone is UTC**, or the eval fails as `environment` before any code runs,
+  with a message naming `TZ=UTC`.
+  UTC's aliases that display as UTC (`Etc/UTC`, `Universal`, `Zulu`, `UCT`) are accepted;
+  those that display another name (`Etc/GMT`, `GMT0`, `Greenwich`, which dates name `Greenwich Mean Time`)
+  are refused, and so is a zone ICU doesn't know.
+- **The heap is capped at 512 MiB**, a provisional cap until it's measured against real configs.
+  Near it, the run is stopped and fails as `heap`.
+  What a stop can't interrupt (one long builtin call, or allocation under the JIT)
+  runs out of memory instead: the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
+  V8 prints its last garbage collections to stderr first.
+  The cap counts V8's heap only: the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array
+  live outside it, uncapped, so a runaway allocation there can end the process with no envelope.
+  A caller treats a missing envelope as a failure.
+- **The timeout** stops the run after `--timeout` milliseconds, 10000 by default, and fails it as `timeout`.
+  It counts from the runtime's start to the drain's end, and stops JS and the serializer's walk;
+  a module load in progress finishes first, and so does a builtin call in progress
+  (one long `JSON.stringify`, say), bounded by the heap's cap, so a stop can come seconds late.
+
+## Determinism
+
+Eval's one mode is `determinism: deny`: what reads the clock, randomness, or a fact of the machine,
+or schedules a timer, throws an `Error` naming the operation and the reason
+(`clock`, `random`, `machine`, or `timer`), installed before the driver or any module runs.
+Each is replaced where it lives, with its property's attributes kept,
+so no global, member, descriptor, prototype, or subclass the run's code can reach leads back to the original.
+The web classes' own internals still hold the originals they captured when they loaded,
+which no code in the run can read; where one of them would put the clock or randomness in an object's own state,
+the class is absent instead (below).
+
+Refused:
+
+- `Math.random()`
+- `performance.now()`, `mark()`, `measure()`, `toJSON()`, and `performance.timeOrigin`
+- every `Temporal.Now` function
+- `Date()`, `new Date()`, and `Date.now()`;
+  `new Date(value)`, `Date.UTC`, and `Date.parse` are kept
+- `Intl.DateTimeFormat`'s `format()` and `formatToParts()` with no date
+- `AbortSignal.timeout()`, and `Atomics.waitAsync()` with a finite timeout
+- `Atomics.wait()`, which can't block the main thread (a `TypeError`)
+
+Absent: `setTimeout`, `setInterval`, `clearTimeout`, and `clearInterval`.
+With no timers, work left after the evaluation runs as promise jobs, which all run before the value is taken.
+Absent too: `Blob`, `File`, `URL.createObjectURL()`, and `URL.revokeObjectURL()`.
+A `File` keeps the time it was made in a field of its own, which `structuredClone` copies, and every blob part has a random id.
+
+Inert: `WeakRef` holds its target, so `deref()` always returns it;
+`FinalizationRegistry` never calls its callback;
+`console.time()`, `timeLog()`, and `timeEnd()` print nothing.
 
 ## The protocol
 
@@ -126,11 +176,16 @@ A usage error prints to stderr with no envelope.
 - `entry.id` is the module's canonical path, or the path as given when it didn't resolve.
   `export` is null with a driver, and `driver_blake3` is the BLAKE3 of the driver's bytes, in hex, or null.
 - `value` is present when `ok` is true; `error` takes its place when it's false:
-  `{kind, message, at?, specifier?, importer?}`.
+  `{kind, message, at?, specifier?, importer?, hint?}`.
   `at` is the JS path the serializer refused, or the `url:line:column` of a load failure;
   `specifier` and `importer` name the import that failed to resolve or load.
+  `hint` is a fix, apart from the message, which stays the error's own report:
+  `--jit` for `WebAssembly` not defined in a jitless eval and for a jitless `timeout`,
+  and that code generation from strings is off for an uncaught `EvalError`
+  (V8 throws one natively for nothing else).
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
+  `access` is `null` only in the out-of-memory envelope, prepared before the run.
 
 The kinds, the contract a caller branches on, derived from the phase that failed and the loader's record,
 never from a message:
@@ -143,6 +198,9 @@ never from a message:
 | `export_missing` | the export to serialize is absent, or the driver has no `default` function (or an `after_drain` that isn't one)       |
 | `serialize`      | the value isn't data by the rules above                                                                                |
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
+| `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
+| `timeout`        | the run passed its timeout and was stopped                                                                             |
+| `environment`    | the process's time zone isn't UTC                                                                                      |
 | `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, or a host invariant broke     |
 
 ## Exit codes
@@ -153,7 +211,7 @@ The same table as [run](run.md#errors-and-exit-codes):
 | ---- | -------------------------------------------------------------------------------------------------------- |
 | 0    | the value serialized, or `--help`                                                                        |
 | 1    | any failure after the module resolved, the kind in the envelope                                          |
-| 2    | a usage error (an unknown flag, `--driver` other than `-`, `--driver` with `--export`), or a module that doesn't resolve |
+| 2    | a usage error (an unknown flag, `--driver` other than `-`, `--driver` with `--export`, a `--timeout` below 1), or a module that doesn't resolve |
 
 A module that fails to resolve on an I/O error or a symlink loop exits 1, not 2, as in `run`.
 A failure writing the envelope (a closed pipe, a full disk) is reported on stderr and exits 1, whatever the eval's outcome.

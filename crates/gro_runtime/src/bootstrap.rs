@@ -17,12 +17,24 @@
 //! run's [`ConsoleOptions`], which the embedder puts in the runtime's
 //! `OpState` and the bootstrap's start reads once. This module reads no
 //! environment and asks no stream whether it's a terminal.
+//!
+//! So does eval's [`Deny`]: when it's on, the start installs
+//! `determinism: deny` (the bootstrap's `deny`, which refuses the clock,
+//! randomness, and the machine's facts, and deletes the timers, `Blob`,
+//! and `File`), before
+//! any user or driver code runs. One snapshot serves both: the snapshot
+//! holds the function, and only the run's start calls it. Beneath it,
+//! [`refuse_ops`] is the op middleware an eval runtime is built with: it
+//! replaces each op in [`REFUSED_OPS`] with [`op_gro_refused`], which
+//! throws, so a path past the bootstrap's refusals still finds none of
+//! them.
 
 use std::borrow::Cow;
 
 use deno_core::error::JsError;
 use deno_core::{
-    Extension, ExtensionFileSource, JsRuntime, OpState, ascii_str, ascii_str_include, op2,
+    Extension, ExtensionFileSource, JsRuntime, OpDecl, OpState, ascii_str, ascii_str_include, op2,
+    v8,
 };
 
 use crate::{ConsoleOptions, ConsoleRouting};
@@ -55,10 +67,85 @@ fn op_gro_console_stderr(state: &OpState) -> bool {
     state.borrow::<ConsoleOptions>().routing == ConsoleRouting::Stderr
 }
 
+/// Whether the run is an eval, which denies the clock, randomness, the
+/// machine's facts, and timers: put in the runtime's `OpState` before the
+/// bootstrap's start reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Deny(pub bool);
+
+/// Whether the bootstrap's start installs `determinism: deny`, as the run's
+/// [`Deny`] says.
+#[op2(fast)]
+fn op_gro_deny(state: &OpState) -> bool {
+    state.borrow::<Deny>().0
+}
+
+/// What [`op_gro_refused`] throws.
+pub const REFUSED: &str = "a host operation eval refuses was called: eval has no timers, no \
+                          clock or machine reads, no blobs, no code generation from strings, \
+                          and no import past its loader";
+
+/// The implementation [`refuse_ops`] puts in place of each op in
+/// [`REFUSED_OPS`]: it throws an `Error` saying so, whatever it's passed.
+/// Slow only (it takes the scope, which a fast call has none of), so no
+/// fast call can skip the throw, as `OpDecl::disable`'s fast path does.
+#[op2]
+fn op_gro_refused(scope: &v8::PinScope<'_, '_>) {
+    if let Some(message) = v8::String::new(scope, REFUSED) {
+        let error = v8::Exception::error(scope, message);
+        scope.throw_exception(error);
+    }
+}
+
+/// The ops an eval runtime refuses, each `deno_core`'s or `deno_web`'s:
+/// the timers (`setTimeout`'s and `AbortSignal.timeout`'s path), the
+/// clock and memory reads, the ops that compile code past the
+/// code-generation flag (`op_eval_context`, `op_compile_function`) or load
+/// a module past the loader (`op_import_sync*`), and the blob ops, which
+/// only `Blob`, `File`, and the object URLs call (eval deletes all of them;
+/// a blob part's id is random). None is reachable from user code, which
+/// sees no op; this is defence in depth. `op_time_origin` stays: the start
+/// calls it, before any user code.
+pub const REFUSED_OPS: [&str; 17] = [
+    "op_timer_schedule",
+    "op_timer_track",
+    "op_timer_now",
+    "op_now",
+    "op_memory_usage",
+    "op_eval_context",
+    "op_compile_function",
+    "op_import_sync",
+    "op_import_sync_with_source",
+    "op_blob_create_part",
+    "op_blob_slice_part",
+    "op_blob_read_part",
+    "op_blob_remove_part",
+    "op_blob_clone_part",
+    "op_blob_create_object_url",
+    "op_blob_revoke_object_url",
+    "op_blob_from_object_url",
+];
+
+/// The op middleware of an eval runtime: an op in [`REFUSED_OPS`] gets
+/// [`op_gro_refused`]'s implementation, keeping its name, and every other
+/// op is kept as is.
+pub fn refuse_ops(op: OpDecl) -> OpDecl {
+    if REFUSED_OPS.contains(&op.name) {
+        op.with_implementation_from(&op_gro_refused())
+    } else {
+        op
+    }
+}
+
 deno_core::extension!(
     gro,
     deps = [deno_webidl, deno_web],
-    ops = [op_gro_color, op_gro_console_stderr],
+    ops = [
+        op_gro_color,
+        op_gro_console_stderr,
+        op_gro_deny,
+        op_gro_refused
+    ],
     customizer = |extension: &mut Extension| {
         // the macro's own `esm` list reads files from the build tree at runtime
         extension.esm_files = Cow::Borrowed(BOOTSTRAP_ESM);
@@ -67,7 +154,9 @@ deno_core::extension!(
 );
 
 /// The runtime's extensions, in dependency order: `deno_webidl`, `deno_web`, and
-/// gro's bootstrap last, since it reads both.
+/// gro's bootstrap last, since it reads both. With `refuse`, the bootstrap's
+/// extension carries [`refuse_ops`], which `deno_core` applies to every
+/// op, its own included.
 ///
 /// Each extension's lazy ES modules (`deno_web`'s `locks.js` and
 /// `webtransport.js`) and synthetic ES modules (none today) are dropped from
@@ -78,11 +167,14 @@ deno_core::extension!(
 /// before asking the loader at all. Either way a user module's `import` would
 /// reach the module past the loader's refusal of every `ext:` specifier. gro
 /// installs no global from them, so nothing else changes.
-pub fn extensions() -> Vec<Extension> {
+pub fn extensions(refuse: bool) -> Vec<Extension> {
     let mut extensions = declared_extensions();
     for extension in &mut extensions {
         extension.lazy_loaded_esm_files = Cow::Borrowed(&[]);
         extension.synthetic_esm_modules = Cow::Borrowed(&[]);
+        if refuse && extension.name == "gro" {
+            extension.middleware_fn = Some(Box::new(refuse_ops));
+        }
     }
     extensions
 }
@@ -103,8 +195,9 @@ pub fn declared_extensions() -> Vec<Extension> {
 }
 
 /// Runs the bootstrap's per-run steps on a started runtime, from a snapshot
-/// or not: what a snapshot must not carry (the time origin, and the console's
-/// [`ConsoleOptions`], which must be in the runtime's `OpState` by now) and
+/// or not: what a snapshot must not carry (the time origin, the console's
+/// [`ConsoleOptions`] and the run's [`Deny`], which must be in the runtime's
+/// `OpState` by now, and with it on, `determinism: deny`) and
 /// what `deno_core` still reads while it starts from one (`Deno.core`, removed
 /// here with `__bootstrap`).
 ///

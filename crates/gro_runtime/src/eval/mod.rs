@@ -33,6 +33,40 @@
 //! uncolored, leaving stdout to the envelope. Eval reads no environment
 //! variable.
 //!
+//! Each eval's runtime starts from the same snapshot as `fgro run`'s and is
+//! then made eval's, per run:
+//!
+//! - **`determinism: deny`**, installed by the bootstrap's start before the
+//!   driver or any module runs (`js/bootstrap.js`'s `deny`): `Math.random`,
+//!   `performance`'s `now`, `mark`, `measure`, `toJSON`, and `timeOrigin`,
+//!   every `Temporal.Now` function, `Date()`, `new Date()`, and `Date.now`,
+//!   `Intl.DateTimeFormat`'s `format` and `formatToParts` given no date,
+//!   `AbortSignal.timeout`, and `Atomics.waitAsync` with a finite timeout
+//!   throw an `Error` naming the operation and the reason; `WeakRef` and
+//!   `FinalizationRegistry` are inert stand-ins, and `console.time`,
+//!   `timeLog`, and `timeEnd` print nothing. Each is replaced where it
+//!   lives, keeping its property's attributes, so no global or member user
+//!   code can name leads to the original.
+//! - **No timers and no blobs**: `setTimeout`, `setInterval`,
+//!   `clearTimeout`, and `clearInterval` are deleted, and so are `Blob`,
+//!   `File`, `URL.createObjectURL`, and `URL.revokeObjectURL` (a `File`
+//!   keeps the clock in its own state, and a blob part a random id);
+//!   beneath them the op middleware refuses the timer ops, the clock and
+//!   memory ops, the blob ops, and the ops that compile code or import past
+//!   the loader (`bootstrap::REFUSED_OPS`); `Atomics.wait` is refused on
+//!   the isolate. Late work is promise jobs.
+//! - **The time zone is checked**: ICU takes it from the host's `TZ`, which
+//!   eval doesn't read, so a zone other than UTC fails the eval as
+//!   `environment` before the driver or module runs.
+//! - **The limits** (`limits.rs`): the heap capped at [`HEAP_LIMIT`], with
+//!   an out-of-memory backstop, and a timeout ([`DEFAULT_TIMEOUT`] unless the
+//!   caller sets one), each failing the eval as `heap` or `timeout`.
+//!
+//! A failure can carry a hint, apart from its message: `WebAssembly` not
+//! defined in a jitless eval, or a timeout in one, names `--jit`; an
+//! uncaught `EvalError`, which V8 throws only when code generation from
+//! strings is refused, says it's off.
+//!
 //! An error's kind comes from the phase that failed and, for a load, from
 //! the failure the loader recorded for the graph's static load, never from a
 //! message: a resolution's failure is `resolve`, a load's or none at all is
@@ -41,21 +75,27 @@
 //! `internal`.
 
 mod envelope;
+mod limits;
 mod serialize;
 
+use std::fs::File;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Poll;
+use std::time::Duration;
 
-use deno_core::error::CoreError;
-use deno_core::{JsRuntime, PollEventLoopOptions, v8};
+use deno_core::error::{CoreError, CoreErrorKind, JsError};
+use deno_core::{JsRuntime, PollEventLoopOptions, ascii_str, v8};
 use url::Url;
 
 pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
     RuntimeInfo, TSV_REV,
 };
+pub use self::limits::{DEFAULT_TIMEOUT, HEAP_LIMIT};
+use self::limits::{Stop, Stopped, Watchdog};
 use crate::engine::{Engine, EngineOptions};
 use crate::loader::graph::{
     Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
@@ -63,7 +103,7 @@ use crate::loader::graph::{
 use crate::loader::{Loader, Rules};
 use crate::resolver::{self, DiskTree};
 use crate::snapshot::StartupSnapshot;
-use crate::{ConsoleOptions, ConsoleRouting, report, report_js, start_runtime};
+use crate::{ConsoleOptions, ConsoleRouting, Mode, report, report_js, start_runtime};
 
 /// The driver's URL: a scheme the resolver refuses, so no module can import
 /// it, and no path on disk.
@@ -78,6 +118,16 @@ pub const AFTER_DRAIN: &str = "after_drain";
 /// The ICU locale eval's `Intl` uses, whatever the host's: `en-US`, whose
 /// output V8 gives byte for byte as ICU's `en_US_POSIX`.
 pub const LOCALE: &str = "en-US";
+
+/// The only time zone eval runs in, as `Intl` resolves it.
+pub const TIME_ZONE: &str = "UTC";
+
+/// The epoch as `Date#toString` writes it in [`TIME_ZONE`] under [`LOCALE`].
+///
+/// It names the zone as `Date` and `Intl` display it. A zone ICU resolves
+/// to `UTC` can still display another name (`Etc/GMT`, `GMT0`, and
+/// `Greenwich` print `Greenwich Mean Time`), so eval requires this too.
+pub const UTC_EPOCH: &str = "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)";
 
 /// The engine eval runs on: jitless unless `jit`, code generation from
 /// strings off either way, and [`LOCALE`].
@@ -108,6 +158,15 @@ pub struct EvalOptions {
     pub snapshot: Option<StartupSnapshot>,
     /// The runtime the envelope reports.
     pub runtime: RuntimeInfo,
+    /// How long the run may take, from the runtime's start to the drain's
+    /// end, before it's stopped as a `timeout`.
+    pub timeout: Duration,
+    /// Where the out-of-memory backstop writes its `heap` envelope: a
+    /// handle to the stream the envelope goes to, opened before the run.
+    /// Set by the first eval in a process that passes one; a later eval
+    /// that passes another fails as `internal`. Without one, the process
+    /// still exits 1 out of memory, with no envelope.
+    pub backstop: Option<Arc<File>>,
 }
 
 /// Evaluates as the module doc describes, on the engine `engine` names, and
@@ -153,6 +212,16 @@ pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
     if let Ok(path) = entry.url.to_file_path() {
         envelope.entry.id = path.to_string_lossy().into_owned();
     }
+    if let Some(out) = &options.backstop
+        && let Some(json) = backstop_envelope(&envelope)
+        && !limits::set_backstop(Arc::clone(out), json)
+    {
+        envelope.result = Err(EvalError::new(
+            ErrorKind::Internal,
+            "the out-of-memory backstop is set once per process, and an earlier eval set it",
+        ));
+        return envelope;
+    }
     let rules = Rules {
         refuse_dynamic_import: true,
         driver: options.driver.is_some().then(|| driver_url.clone()),
@@ -160,13 +229,86 @@ pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
     let loader = Rc::new(
         Loader::new(&entry, roots, crate::loader::graph::Recording::Full).with_rules(rules),
     );
-    let result = evaluate(options, &entry.url, &driver_url, Rc::clone(&loader));
+    let stopped = Stopped::default();
+    let result = evaluate(
+        options,
+        &entry.url,
+        &driver_url,
+        Rc::clone(&loader),
+        &stopped,
+    );
     // the runtime, and its share of the loader, is gone once the eval ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
-    envelope.access = access(&graph);
-    envelope.result = result.map_err(|failed| failed.into_error(&graph));
+    envelope.access = Some(access(&graph));
+    // a stop decides the kind, whatever the run reported after it
+    envelope.result = match (result, stopped.get()) {
+        (_, Some(stop)) => Err(stop_error(stop, options)),
+        (result, None) => result.map_err(|failed| failed.into_error(&graph, options.jit)),
+    };
     envelope
 }
+
+/// The error of a run the host stopped.
+fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
+    match stop {
+        Stop::Heap => EvalError::new(
+            ErrorKind::Heap,
+            format!(
+                "the eval's heap reached its cap of {} MiB, and the run was stopped",
+                HEAP_LIMIT >> 20
+            ),
+        ),
+        Stop::Timeout => {
+            let mut error = EvalError::new(
+                ErrorKind::Timeout,
+                format!(
+                    "the eval ran past its timeout of {} ms, and the run was stopped",
+                    options.timeout.as_millis()
+                ),
+            );
+            if !options.jit {
+                error.hint = Some(TIMEOUT_HINT.to_owned());
+            }
+            error
+        }
+    }
+}
+
+/// The `heap` envelope the out-of-memory backstop writes for an eval whose
+/// envelope so far is `envelope`, one line: written without the run, it
+/// carries no `access`.
+fn backstop_envelope(envelope: &Envelope) -> Option<String> {
+    let backstop = Envelope {
+        runtime: envelope.runtime.clone(),
+        entry: envelope.entry.clone(),
+        result: Err(EvalError::new(
+            ErrorKind::Heap,
+            format!(
+                "the eval's heap reached its cap of {} MiB with nothing left to give: one \
+                 operation V8 can't stop ran out of memory, so the process exited",
+                HEAP_LIMIT >> 20
+            ),
+        )),
+        access: None,
+    };
+    let mut json = backstop.to_json().ok()?;
+    json.push('\n');
+    Some(json)
+}
+
+/// The hint for a `WebAssembly` that isn't defined in a jitless eval.
+const WASM_HINT: &str = "eval runs jitless unless asked, and WebAssembly comes only with V8's \
+                         JIT: pass --jit to turn it on";
+
+/// The hint for an uncaught `EvalError`.
+const CODE_GENERATION_HINT: &str = "eval turns code generation from strings off, with or \
+                                    without --jit: eval(), new Function(), and the other \
+                                    function constructors throw an EvalError; write the code \
+                                    in the module instead";
+
+/// The hint for a jitless eval that timed out.
+const TIMEOUT_HINT: &str = "eval runs jitless unless asked, in V8's interpreter alone: \
+                            --jit runs compute-heavy code faster, or pass a longer --timeout";
 
 /// The envelope of an eval of `options` that failed with `error` before it
 /// started, such as when the driver couldn't be read: the entry as given.
@@ -187,7 +329,7 @@ pub fn failed(options: &EvalOptions, error: EvalError) -> Envelope {
                 .map(|driver| blake3::hash(driver).to_hex().to_string()),
         },
         result: Err(error),
-        access: Access::default(),
+        access: Some(Access::default()),
     }
 }
 
@@ -214,6 +356,9 @@ enum Phase {
     Serialize,
     /// Draining the event loop, and calling the driver's `after_drain`.
     Drain,
+    /// Checking the process's environment, the time zone, before any code
+    /// runs.
+    Environment,
     /// The host broke an invariant of its own.
     Internal,
 }
@@ -227,6 +372,17 @@ struct Failed {
     message: String,
     /// The JS path the serializer refused.
     at: Option<String>,
+    /// The uncaught JS error, when one failed the phase.
+    thrown: Option<Thrown>,
+}
+
+/// An uncaught JS error, as V8 named it: what the hints read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Thrown {
+    /// Its `name`, the class for a native error (`EvalError`).
+    name: Option<String>,
+    /// Its `message`.
+    message: Option<String>,
 }
 
 impl Failed {
@@ -235,17 +391,32 @@ impl Failed {
             phase,
             message: message.into(),
             at: None,
+            thrown: None,
         }
     }
 
     /// The failure in `phase` that `error` reports.
     fn core(phase: Phase, error: &CoreError) -> Self {
-        Self::new(phase, report(error))
+        match &*error.0 {
+            CoreErrorKind::Js(error) => Self::js(phase, error),
+            _ => Self::new(phase, report(error)),
+        }
+    }
+
+    /// The failure in `phase` of the uncaught JS `error`.
+    fn js(phase: Phase, error: &JsError) -> Self {
+        let mut failed = Self::new(phase, report_js(error));
+        failed.thrown = Some(Thrown {
+            name: error.name.clone(),
+            message: error.message.clone(),
+        });
+        failed
     }
 
     /// The envelope's error: the kind from the phase and, for a load, the
-    /// first failure of the static load in `graph`.
-    fn into_error(self, graph: &Graph) -> EvalError {
+    /// first failure of the static load in `graph`, with a hint when the
+    /// uncaught error has one in an eval with the JIT as `jit` says.
+    fn into_error(self, graph: &Graph, jit: bool) -> EvalError {
         let kind = match self.phase {
             Phase::Start | Phase::Internal => ErrorKind::Internal,
             Phase::DriverLoad | Phase::Load => {
@@ -255,10 +426,26 @@ impl Failed {
             Phase::DriverExports | Phase::Export => ErrorKind::ExportMissing,
             Phase::Serialize => ErrorKind::Serialize,
             Phase::Drain => ErrorKind::LateRejection,
+            Phase::Environment => ErrorKind::Environment,
         };
         let mut error = EvalError::new(kind, self.message);
         error.at = self.at;
+        error.hint = self.thrown.as_ref().and_then(|thrown| hint(thrown, jit));
         error
+    }
+}
+
+/// The hint for an uncaught `thrown` in an eval with the JIT as `jit`
+/// says, keyed on V8's class and, for `WebAssembly`, on the one message V8
+/// gives an undefined name, the only signal there is.
+fn hint(thrown: &Thrown, jit: bool) -> Option<String> {
+    match (thrown.name.as_deref(), thrown.message.as_deref()) {
+        // V8 throws an EvalError natively only for code generation refused
+        (Some("EvalError"), _) => Some(CODE_GENERATION_HINT.to_owned()),
+        (Some("ReferenceError"), Some("WebAssembly is not defined")) if !jit => {
+            Some(WASM_HINT.to_owned())
+        }
+        _ => None,
     }
 }
 
@@ -359,6 +546,7 @@ fn evaluate(
     entry: &Url,
     driver_url: &Url,
     loader: Rc<Loader>,
+    stopped: &Stopped,
 ) -> Result<String, Failed> {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -370,8 +558,18 @@ fn evaluate(
             )
         })?;
     tokio_runtime.block_on(async {
-        let mut runtime = start_runtime(options.snapshot, CONSOLE, loader)
+        let mut runtime = start_runtime(options.snapshot, CONSOLE, loader, Mode::Eval)
             .map_err(|message| Failed::new(Phase::Start, message))?;
+        limits::watch_heap(&mut runtime, stopped.clone());
+        // stopped, and joined, when the eval returns
+        let _watchdog =
+            Watchdog::start(&mut runtime, options.timeout, stopped.clone()).map_err(|error| {
+                Failed::new(
+                    Phase::Start,
+                    format!("failed to start the timeout's watchdog: {error}"),
+                )
+            })?;
+        check_time_zone(&mut runtime)?;
         let driver = match &options.driver {
             Some(source) => Some(load_driver(&mut runtime, driver_url, source).await?),
             None => None,
@@ -402,7 +600,7 @@ fn evaluate(
                 )
             })?
         };
-        let json = serialize_value(&mut runtime, &value)?;
+        let json = serialize_value(&mut runtime, &value, stopped)?;
         runtime
             .run_event_loop(PollEventLoopOptions::default())
             .await
@@ -418,6 +616,49 @@ fn evaluate(
         }
         Ok(json)
     })
+}
+
+/// Refuses a time zone other than [`TIME_ZONE`] on the started runtime,
+/// before any user code runs: one `Intl` resolves to another id, one ICU
+/// doesn't know, or an alias of `UTC` that `Date` and `Intl` display by
+/// another name (anything whose epoch isn't [`UTC_EPOCH`]). ICU takes the
+/// zone from the host's `TZ`, which eval doesn't read.
+fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
+    // the id, empty when ICU knows no zone by that name, then the epoch;
+    // `new Date(value)` is kept under `determinism: deny`
+    let read = runtime
+        .execute_script(
+            "ext:gro/time_zone.js",
+            ascii_str!(
+                "((zone) => `${typeof zone === 'string' && zone !== 'Etc/Unknown' ? zone : ''}\n${new \
+                 Date(0)}`)(new Intl.DateTimeFormat().resolvedOptions().timeZone)"
+            ),
+        )
+        .map_err(|error| Failed::new(Phase::Internal, report_js(&error)))?;
+    deno_core::scope!(scope, runtime);
+    let read = v8::Local::new(scope, read).to_rust_string_lossy(scope);
+    let (zone, epoch) = read.split_once('\n').unwrap_or((&read, ""));
+    if zone == TIME_ZONE && epoch == UTC_EPOCH {
+        return Ok(());
+    }
+    let found = if zone.is_empty() {
+        "this process's time zone isn't one ICU knows".to_owned()
+    } else if zone == TIME_ZONE {
+        // the name `Date#toString` gives in parentheses
+        let name = epoch
+            .rsplit_once(" (")
+            .map_or(epoch, |(_, name)| name.trim_end_matches(')'));
+        format!("this process's is an alias of {TIME_ZONE} that dates name {name}")
+    } else {
+        format!("this process's is {zone}")
+    };
+    Err(Failed::new(
+        Phase::Environment,
+        format!(
+            "eval runs only in the time zone {TIME_ZONE}, so dates read and format the same \
+             everywhere, and {found}: run fgro with TZ=UTC in its environment"
+        ),
+    ))
 }
 
 /// Loads and evaluates the driver from `source` at `url`, and reads the
@@ -501,19 +742,21 @@ fn read_export(
         return Ok(Some(v8::Global::new(scope, value)));
     }
     Err(scope.exception().map_or_else(internal, |exception| {
-        let error = deno_core::error::JsError::from_v8_exception(scope, exception);
-        Failed::new(phase, report_js(&error))
+        let error = JsError::from_v8_exception(scope, exception);
+        Failed::js(phase, &error)
     }))
 }
 
-/// `value` serialized by the strict host serializer.
+/// `value` serialized by the strict host serializer, which ends early once
+/// `stopped` records a stop.
 fn serialize_value(
     runtime: &mut JsRuntime,
     value: &v8::Global<v8::Value>,
+    stopped: &Stopped,
 ) -> Result<String, Failed> {
     deno_core::scope!(scope, runtime);
     let value = v8::Local::new(scope, value);
-    serialize::to_json(scope, value).map_err(|error| Failed {
+    serialize::to_json(scope, value, &|| stopped.get().is_some()).map_err(|error| Failed {
         phase: if error.is_internal() {
             Phase::Internal
         } else {
@@ -521,6 +764,7 @@ fn serialize_value(
         },
         message: error.to_string(),
         at: Some(error.at),
+        thrown: None,
     })
 }
 
@@ -619,7 +863,7 @@ mod tests {
 
     fn load_kind(error: FailureError) -> ErrorKind {
         Failed::new(Phase::Load, "failed")
-            .into_error(&graph(&[("./x.js", STATIC, error)]))
+            .into_error(&graph(&[("./x.js", STATIC, error)]), false)
             .kind
     }
 
@@ -676,16 +920,19 @@ mod tests {
     #[test]
     fn a_load_with_no_static_failure_is_link() {
         let dynamic = graph(&[("./y.js", DYNAMIC, FailureError::DynamicImport)]);
-        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic);
+        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic, false);
         assert_eq!(
             (error.kind, error.specifier, error.importer, error.at),
             (ErrorKind::Link, None, None, None)
         );
-        let error = Failed::new(Phase::DriverLoad, "refused").into_error(&graph(&[(
-            "./x.js",
-            STATIC,
-            FailureError::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
-        )]));
+        let error = Failed::new(Phase::DriverLoad, "refused").into_error(
+            &graph(&[(
+                "./x.js",
+                STATIC,
+                FailureError::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
+            )]),
+            false,
+        );
         assert_eq!(error.kind, ErrorKind::Resolve);
         assert_eq!(error.specifier.as_deref(), Some("./x.js"));
         assert_eq!(error.importer.as_deref(), Some("file:///p/main.js"));
@@ -706,9 +953,10 @@ mod tests {
             (Phase::Export, ErrorKind::ExportMissing),
             (Phase::Serialize, ErrorKind::Serialize),
             (Phase::Drain, ErrorKind::LateRejection),
+            (Phase::Environment, ErrorKind::Environment),
         ] {
             assert_eq!(
-                Failed::new(phase, "x").into_error(&graph).kind,
+                Failed::new(phase, "x").into_error(&graph, false).kind,
                 kind,
                 "{phase:?}"
             );

@@ -8,7 +8,6 @@ Atomics
 BigInt
 BigInt64Array
 BigUint64Array
-Blob
 Boolean
 ByteLengthQueuingStrategy
 CompressionStream
@@ -24,7 +23,6 @@ ErrorEvent
 EvalError
 Event
 EventTarget
-File
 FinalizationRegistry
 Float16Array
 Float32Array
@@ -85,8 +83,6 @@ WritableStreamDefaultController
 WritableStreamDefaultWriter
 atob
 btoa
-clearInterval
-clearTimeout
 console
 decodeURI
 decodeURIComponent
@@ -101,8 +97,6 @@ parseFloat
 parseInt
 performance
 queueMicrotask
-setInterval
-setTimeout
 structuredClone
 undefined
 unescape

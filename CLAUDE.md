@@ -517,7 +517,7 @@ thesis, why, the security model, the design, open questions, and the roadmap.
 The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
 reference for the built binary (what loads, the globals, errors, exit codes),
 [src/docs/eval.md](src/docs/eval.md) the reference for `fgro eval` (the driver,
-the serializer, the envelope and its error kinds),
+determinism, the limits, the serializer, the envelope and its error kinds),
 [src/docs/resolver.md](src/docs/resolver.md) the resolver's rules and
 departures from Node, [src/docs/typescript.md](src/docs/typescript.md) the
 type-strip rules, and [src/docs/comparison.md](src/docs/comparison.md) the
@@ -622,7 +622,30 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   surrogates, and nesting past 1000 with the JS path), the drain, and the
   driver's optional `after_drain`; the error kind comes from the phase that
   failed plus the first static failure the graph recorded, never from a
-  message. The loader's `Rules` carry eval's refusals: every `import()`
+  message. Eval's runtime starts from the same snapshot as `run`'s and is
+  made eval's per run (`Mode::Eval`, never frozen into the snapshot): the
+  bootstrap's start reads `op_gro_deny` and installs `determinism: deny`
+  (`js/bootstrap.js`'s `deny`: the clock, randomness, and machine reads and
+  `AbortSignal.timeout` throw a refusal naming the operation and reason,
+  each replaced where it lives; `WeakRef`, `FinalizationRegistry`, and
+  `console.time*` inert; the four timer globals, `Blob`, `File`, and the
+  object-URL functions deleted, since a `File` keeps the clock and a blob
+  part a random id in their own state) before the driver;
+  the op middleware `bootstrap::refuse_ops` gives each op in
+  `REFUSED_OPS` (the timer, clock, memory, and blob ops, `op_eval_context`,
+  `op_compile_function`, `op_import_sync*`) the slow-only
+  `op_gro_refused`'s implementation, and a test pins every registered op
+  name (`crates/gro_runtime/tests/op_names.txt`); the isolate refuses
+  `Atomics.wait` and caps V8's heap, not array-buffer memory
+  (`eval/limits.rs`: the near-heap-limit callback stops the run and raises the cap once, and an out-of-memory
+  handler, the one process static besides the engine's, writes a prepared
+  `heap` envelope through a handle opened before the run and exits 1); a
+  watchdog thread stops the run at `--timeout`, and the serializer checks
+  for a stop once per batch; a time zone other than UTC (by `Intl`'s id and
+  `new Date(0).toString()`, so an alias named otherwise fails too) fails as
+  `environment` before the driver; `heap` and `timeout` come from the stop
+  recorded, never a message, and an `error.hint` names `--jit` or that
+  code generation is off. The loader's `Rules` carry eval's refusals: every `import()`
   before anything resolves (the entry graph's listed in the envelope's
   `access.dynamic`), and every import from the driver ("a stdin driver is
   import-free"), each recorded as its own `FailureError`. `deno_core::scope!` and the `v8`
@@ -640,7 +663,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   only on a terminal, unless `FORCE_COLOR` decides it or `NO_COLOR`,
   `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM=dumb`, turns it off
   (the order is in [src/docs/run.md](src/docs/run.md)). `fgro eval <module>
-  [--driver -] [--export NAME] [--jit]` prints one envelope on stdout and
+  [--driver -] [--export NAME] [--jit] [--timeout MS]` prints one envelope on stdout and
   exits by the same table (`2` only for a usage error or an entry that
   doesn't resolve); it reads stdin for the driver and no environment
   variable ([src/docs/eval.md](src/docs/eval.md)). The
