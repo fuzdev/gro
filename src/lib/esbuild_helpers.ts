@@ -41,7 +41,7 @@ export const to_define_import_meta_env = (
 	[import_meta_env + 'BASE_URL']: JSON.stringify(base_url || '/')
 });
 
-export const default_ts_transform_options: esbuild.TransformOptions = {
+export const TS_TRANSFORM_OPTIONS_DEFAULT: esbuild.TransformOptions = {
 	target: 'esnext', // TODO load local tsconfig
 	format: 'esm',
 	loader: 'ts',

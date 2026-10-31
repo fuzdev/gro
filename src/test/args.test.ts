@@ -15,11 +15,11 @@ import {
 	to_raw_rest_args,
 	to_task_args
 } from '#lib/args.ts';
+import { TaskError } from '#lib/task.ts';
 import {
-	TaskError,
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
-} from '#lib/task.ts';
+} from '#lib/internal/task_hints.ts';
 
 describe('to_forwarded_args_by_command', () => {
 	test('parses only gro sections, keyed by the task', () => {
@@ -120,7 +120,7 @@ describe('to_forwarded_args_by_command', () => {
 			// a forwarded section can't list, so a directory gets no listing hint
 			[
 				'src/lib',
-				'`src/lib` is a path, not a builtin name. Task paths end in `.task.ts` or `.task.js`.'
+				'`src/lib` is a path, not a builtin name: task paths end in `.task.ts` or `.task.js`.'
 			],
 			[
 				'src/lib/check',
@@ -404,6 +404,9 @@ describe('to_task_args', () => {
 			[['--c', 'v', 'src/x.task.ts', '--d'], '`gro task src/x.task.ts --c v --d`'],
 			[['--max', '3', 'src/lib/foo.task.ts'], '`gro task src/lib/foo.task.ts --max 3`'],
 			[['--max', '3', 'foo'], '`gro task <path> --max 3 foo`'],
+			// with no task path, a help flag takes no value, so the next arg is the path
+			[['--help', 'src/lib'], '`gro task src/lib --help`'],
+			[['--help', 'src/lib', '--c'], '`gro task src/lib --help --c`'],
 			[['--c'], '`gro task <path> --c`'],
 			[['--help', '--c', '--', 'x'], '`gro task <path> --help --c -- x`'],
 			[['--out=a.task.ts', 'src/b.task.ts'], '`gro task src/b.task.ts --out=a.task.ts`'],

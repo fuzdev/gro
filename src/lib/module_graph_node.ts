@@ -19,7 +19,7 @@ export interface NodeModuleGraphOptions {
 	 */
 	watch: WatchOptions;
 	/**
-	 * The logger the underlying `Filer` reports through,
+	 * The logger the graph reports through, like a file whose imports fail to parse,
 	 * which also warns of a watch error, like `EACCES` reading a directory;
 	 * absent, a watch error warns through `console`,
 	 * and so does a failure processing a change, like an unexpected read error.
@@ -28,8 +28,11 @@ export interface NodeModuleGraphOptions {
 }
 
 /**
- * Creates the Node `ModuleGraph`, over the `Filer`.
- * The `Filer` (and so chokidar and the import parser) is imported on first use,
+ * Creates the Node `ModuleGraph`, which watches `watch.dir` with chokidar
+ * and reads each module's imports, following them outside `watch.dir`,
+ * except that a file reached by a bare specifier, like a package's even when linked,
+ * is an edge to a file never read, so its imports aren't edges.
+ * Its implementation (with chokidar and the import parser) is imported on first use,
  * so a task that never queries the graph never loads them.
  */
 export const create_node_module_graph = (options: NodeModuleGraphOptions): ModuleGraph => {

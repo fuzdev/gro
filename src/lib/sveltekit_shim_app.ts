@@ -9,7 +9,7 @@ export const SVELTEKIT_SHIM_APP_ENV_MATCHER = /\/sveltekit_shim_app_env\.(js|ts)
  * `$app/env/public` and `$app/env/private` aren't files, see `sveltekit_shim_app_env_vars.ts`.
  * @see https://svelte.dev/docs/kit/$app-env
  */
-export const sveltekit_shim_app_specifiers = new Map([
+export const SVELTEKIT_SHIM_APP_SPECIFIERS = new Map([
 	['$app/env', '@fuzdev/gro/sveltekit_shim_app_env.js'],
 	['$app/forms', '@fuzdev/gro/sveltekit_shim_app_forms.js'],
 	['$app/navigation', '@fuzdev/gro/sveltekit_shim_app_navigation.js'],

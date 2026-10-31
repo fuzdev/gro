@@ -481,22 +481,16 @@ test('an unexpected error processing a change goes to `console` with no log', as
 	}
 });
 
-test('an unresolvable bare import logs at debug inside `node_modules` and as an error outside', async () => {
+test('an unresolvable bare import logs as an error', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_unresolvable_'));
 	try {
 		const src_dir = join(dir, 'src');
-		const package_dir = join(dir, 'node_modules', 'some_package');
 		await mkdir(src_dir, { recursive: true });
-		await mkdir(package_dir, { recursive: true });
-		const source = "import 'gro_test_missing_package';\n";
-		const package_path = join(package_dir, 'index.js');
 		const project_path = join(src_dir, 'a.ts');
-		await writeFile(package_path, source);
-		await writeFile(project_path, source);
+		await writeFile(project_path, "import 'gro_test_missing_package';\n");
 		const mock_watch_dir = vi.fn((options) => {
 			const mock_watcher: WatchNodeFs = {
 				init: vi.fn(async () => {
-					options.on_change({ type: 'add', path: package_path, is_directory: false });
 					options.on_change({ type: 'add', path: project_path, is_directory: false });
 				}),
 				close: vi.fn(async () => {})
@@ -511,10 +505,11 @@ test('an unresolvable bare import logs at debug inside `node_modules` and as an 
 		});
 		await filer.init();
 
-		const failures = (calls: Array<Array<unknown>>) =>
-			calls.filter((c) => c[0] === '[filer] failed to resolve path').map((c) => c[2]);
-		assert.deepEqual(failures(vi.mocked(log.debug).mock.calls), [pathToFileURL(package_path).href]);
-		assert.deepEqual(failures(vi.mocked(log.error).mock.calls), [pathToFileURL(project_path).href]);
+		const failures = vi
+			.mocked(log.error)
+			.mock.calls.filter((c) => c[0] === '[filer] failed to resolve path')
+			.map((c) => c[2]);
+		assert.deepEqual(failures, [pathToFileURL(project_path).href]);
 
 		await filer.close();
 	} finally {

@@ -41,7 +41,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(await resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			path_id_with_querystring: path_id,
 			specifier,
 			namespace: undefined,
 			raw: false
@@ -53,7 +52,6 @@ describe('resolve_specifier', () => {
 		const path_id = join(dir, specifier);
 		expect(await resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			path_id_with_querystring: path_id,
 			specifier,
 			namespace: undefined,
 			raw: false
@@ -65,7 +63,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(await resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			path_id_with_querystring: path_id,
 			specifier,
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
@@ -78,7 +75,6 @@ describe('resolve_specifier', () => {
 		const path_id = path;
 		expect(await resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			path_id_with_querystring: path_id + '?raw',
 			specifier,
 			namespace: 'sveltekit_local_imports_ts',
 			raw: true
@@ -89,7 +85,6 @@ describe('resolve_specifier', () => {
 		const path_id1 = join(dir, 'test_ts.ts');
 		expect(await resolve_specifier('./test_ts.ts', importer)).toEqual({
 			path_id: path_id1,
-			path_id_with_querystring: path_id1,
 			specifier: './test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
@@ -97,7 +92,6 @@ describe('resolve_specifier', () => {
 		const path_id2 = join(dir, 'modules/some_test_ts.ts');
 		expect(await resolve_specifier('./modules/some_test_ts.ts', importer)).toEqual({
 			path_id: path_id2,
-			path_id_with_querystring: path_id2,
 			specifier: './modules/some_test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
@@ -105,14 +99,12 @@ describe('resolve_specifier', () => {
 		const path_id3 = join(dir, 'test_ts.ts');
 		expect(await resolve_specifier('../fixtures/test_ts.ts', importer)).toEqual({
 			path_id: path_id3,
-			path_id_with_querystring: path_id3,
 			specifier: '../fixtures/test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		expect(await resolve_specifier('../fixtures/test_ts.ts?raw', importer)).toEqual({
 			path_id: path_id3,
-			path_id_with_querystring: path_id3 + '?raw',
 			specifier: '../fixtures/test_ts.ts?raw',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: true
@@ -124,7 +116,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(await resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			path_id_with_querystring: path_id,
 			specifier,
 			namespace: 'sveltekit_local_imports_js',
 			raw: false
@@ -160,6 +151,19 @@ describe('resolve_specifier', () => {
 			'./test_ts.js?raw',
 			"no such file, but './test_ts.ts?raw' exists; write the real extension (.js never maps to .ts)"
 		);
+	});
+
+	test('refuses a ts specifier for a missing file, naming its js sibling', async () => {
+		await assert_refused(
+			'./test_js.ts',
+			"no such file, but './test_js.js' exists; write the real extension (.ts never maps to .js)"
+		);
+	});
+
+	test('appends no extension to a path that has one', async () => {
+		// a missing `x.css` or `x.ts` is never probed as `x.css.ts` or `x.ts.ts`
+		await assert_refused('./test_ts.css', 'no such file');
+		await assert_refused('./test_missing.ts', 'no such file');
 	});
 
 	test('refuses a js specifier for a missing file with no sibling', async () => {

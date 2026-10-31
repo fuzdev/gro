@@ -45,8 +45,8 @@ export const has_sveltekit_library = async (
 		return has_sveltekit_app_result;
 	}
 
-	// Checked before the lib directory because it's the cheaper of the two and it's what
-	// Peer deps don't count here, for the same reason as `has_sveltekit_app`.
+	// checked before the lib directory because it's the cheaper of the two and it's what
+	// distinguishes a library from an app; peer deps don't count, as in `has_sveltekit_app`
 	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
 		return {
 			ok: false,
@@ -246,7 +246,6 @@ const SVELTE_PACKAGE_BOOLEAN_ALIASES: Record<string, string | undefined> = {
  * @param forwarded_argv - the verbatim args forwarded to `svelte-package`
  * @returns the args for the configured options, to precede `forwarded_argv`
  */
-
 const serialize_svelte_package_options = (
 	options: SveltePackageOptions | undefined,
 	forwarded_argv: Array<string>

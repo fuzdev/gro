@@ -10,7 +10,7 @@ const ESLINT_CLI = 'eslint';
 
 /** @nodocs */
 export const Args = s.object({
-	_: s.with_default_fn(meta(s.array(s.string), { description: 'paths to serve' }), () => []),
+	_: s.with_default_fn(meta(s.array(s.string), { description: 'paths to lint' }), () => []),
 	eslint_cli: s.with_default(meta(s.string, { description: 'the ESLint CLI to use' }), ESLINT_CLI)
 });
 export type Args = s.Infer<typeof Args>;
@@ -36,9 +36,9 @@ export const task: Task<Args> = {
 			serialized_args.push('--max-warnings', '0');
 		}
 		serialized_args.push(...forwarded_argv);
-		const eslintResult = await spawn_cli(found_eslint_cli, serialized_args, log);
-		if (!eslintResult?.ok) {
-			throw new TaskError(`ESLint found some problems. ${print_spawn_result(eslintResult!)}`);
+		const eslint_result = await spawn_cli(found_eslint_cli, serialized_args, log);
+		if (!eslint_result?.ok) {
+			throw new TaskError(`ESLint found some problems. ${print_spawn_result(eslint_result!)}`);
 		}
 	}
 };

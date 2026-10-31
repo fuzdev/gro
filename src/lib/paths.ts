@@ -81,17 +81,25 @@ export const replace_extension = (path: string, new_extension: string): string =
  */
 export const paths = create_paths(process.cwd());
 
-// TODO document these conditions with comments
-// TODO there's probably a more robust way to do this
-const filename = fileURLToPath(import.meta.url);
-const gro_package_dir_path = join(
-	filename,
-	filename.includes('/gro/src/lib/')
-		? '../../../'
-		: filename.includes('/gro/dist/')
-			? '../../'
-			: '../'
-);
+/**
+ * Finds the Gro package directory from the path of Gro's own `paths` module,
+ * by its location in the package (`src/lib/paths.ts` from source, `dist/paths.js` built),
+ * so a checkout or worktree of any name works.
+ * @param module_path - the absolute path of Gro's `paths` module
+ * @returns the package directory with a trailing slash
+ * @internal
+ */
+export const to_gro_package_dir = (module_path: PathId): string =>
+	join(
+		module_path,
+		module_path.endsWith('/src/lib/paths.ts')
+			? '../../../'
+			: module_path.endsWith('/dist/paths.js')
+				? '../../'
+				: '../'
+	);
+
+const gro_package_dir_path = to_gro_package_dir(fileURLToPath(import.meta.url));
 export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 /**
  * `Paths` for the Gro package being used by the user repo.

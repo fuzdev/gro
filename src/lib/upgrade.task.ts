@@ -30,9 +30,12 @@ export const Args = s.object({
 		),
 		() => []
 	),
-	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin'),
+	origin: s.with_default(
+		meta(GitOrigin, { description: 'git origin to pull from before upgrading' }),
+		'origin'
+	),
 	force: s.with_default(
-		meta(s.boolean, { description: 'if true, print out the planned upgrades' }),
+		meta(s.boolean, { description: 'if true, passes --force to the package manager install' }),
 		false
 	),
 	pull: s.with_default(meta(s.boolean, { description: 'dual of no-pull' }), true),

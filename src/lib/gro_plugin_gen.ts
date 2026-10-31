@@ -1,4 +1,3 @@
-import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 import { throttle } from '@fuzdev/fuz_util/throttle.ts';
@@ -14,19 +13,22 @@ const FLUSH_DEBOUNCE_DELAY = 500;
 
 const gen = (files: Array<string> = []) => spawn_cli('gro', ['gen', ...files]);
 
-export interface TaskArgs extends Args {
-	watch?: boolean;
-}
-
+/**
+ * Options for `gro_plugin_gen`.
+ */
 export interface GroPluginGenOptions {
-	input_paths?: Array<string>;
-	root_dirs?: Array<string>;
+	/**
+	 * How long to wait after a change before running `gro gen`, batching the changes in between.
+	 */
 	flush_debounce_delay?: number;
 }
 
+/**
+ * Runs `gro gen` in development: with no watch, once if there are genfiles under `src/`,
+ * and with watch, for each genfile in the module graph (`watch.dir`, default `src/`)
+ * that a change affects.
+ */
 export const gro_plugin_gen = ({
-	input_paths = [paths.source],
-	root_dirs = [paths.source],
 	flush_debounce_delay = FLUSH_DEBOUNCE_DELAY
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
@@ -46,7 +48,7 @@ export const gro_plugin_gen = ({
 				// Some parts of the build may have already happened,
 				// making us miss `build` events for gen dependencies,
 				// so we run a full `gen` here even if it's usually wasteful.
-				const found = await find_genfiles(input_paths, root_dirs, config);
+				const found = await find_genfiles([paths.source], [paths.source], config);
 				if (found.ok && found.value.resolved_input_files.length > 0) {
 					await gen();
 				}

@@ -10,7 +10,7 @@ import {
 import { readFile } from 'node:fs/promises';
 import { dirname, relative } from 'node:path';
 
-import { to_define_import_meta_env, default_ts_transform_options } from './esbuild_helpers.ts';
+import { to_define_import_meta_env, TS_TRANSFORM_OPTIONS_DEFAULT } from './esbuild_helpers.ts';
 import {
 	SVELTE_COMPILE_OPTIONS_DEFAULT,
 	to_default_compile_module_options,
@@ -43,7 +43,7 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 		svelte_compile_options = SVELTE_COMPILE_OPTIONS_DEFAULT,
 		svelte_compile_module_options = to_default_compile_module_options(svelte_compile_options),
 		svelte_preprocessors,
-		ts_transform_options = default_ts_transform_options,
+		ts_transform_options = TS_TRANSFORM_OPTIONS_DEFAULT,
 		is_ts = (f) => TS_MATCHER.test(f)
 	} = options;
 

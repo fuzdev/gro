@@ -40,8 +40,8 @@ export const task: Task<Args> = {
 		// Prefer svelte-check if available.
 		const found_svelte_check_cli = await find_cli(svelte_check_cli);
 		if (found_svelte_check_cli) {
-			const serialized = to_forwarded_argv(svelte_check_cli);
-			const spawned = await spawn_cli_process(found_svelte_check_cli, serialized, undefined, {
+			const forwarded_argv = to_forwarded_argv(svelte_check_cli);
+			const spawned = await spawn_cli_process(found_svelte_check_cli, forwarded_argv, undefined, {
 				stdio: ['inherit', 'pipe', 'pipe'],
 				env: { ...process.env, FORCE_COLOR: '1' } // Needed for colors (maybe make an option)
 			});
@@ -67,12 +67,12 @@ export const task: Task<Args> = {
 			const forwarded_argv = to_forwarded_argv(typescript_cli);
 			// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
 			// and `--noEmit` goes last because `--build` must be tsc's first arg
-			const serialized = has_forwarded_flag(forwarded_argv, 'noEmit', true)
+			const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)
 				? forwarded_argv
 				: [...forwarded_argv, '--noEmit'];
-			const svelte_check_result = await spawn_cli(found_typescript_cli, serialized, log);
-			if (!svelte_check_result?.ok) {
-				throw new TaskError(`Failed to typecheck. ${print_spawn_result(svelte_check_result!)}`);
+			const tsc_result = await spawn_cli(found_typescript_cli, tsc_argv, log);
+			if (!tsc_result?.ok) {
+				throw new TaskError(`Failed to typecheck. ${print_spawn_result(tsc_result!)}`);
 			}
 			return;
 		}

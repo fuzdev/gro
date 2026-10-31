@@ -15,26 +15,29 @@ import {
 } from './args.ts';
 import { run_task } from './run_task.ts';
 import {
-	find_task_file_for_input,
 	is_builtin_task_name,
-	is_removed_builtin_prefix,
 	is_task_path,
 	is_task_path_input,
 	load_task,
 	SilentError,
 	TaskError,
 	to_builtin_task_id,
-	to_removed_builtin_prefix_message,
 	to_task_command,
 	to_task_path,
-	to_run_task_file_hint,
-	to_task_path_hint,
-	to_task_path_without_verb_message,
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB,
 	type TaskContext,
 	type TaskModuleMeta
 } from './task.ts';
+import {
+	TASK_PATH_SUFFIX_RULE,
+	find_task_file_for_input,
+	is_removed_builtin_prefix,
+	to_removed_builtin_prefix_message,
+	to_run_task_file_hint,
+	to_task_path_hint,
+	to_task_path_without_verb_message
+} from './internal/task_hints.ts';
 import { package_json_load_for_gro } from './package_json.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from './task_logging.ts';
 import type { GroConfig } from './gro_config.ts';
@@ -192,6 +195,15 @@ export const resolve_task = async (
 	root: string = process.cwd()
 ): Promise<ResolveTaskResult> => {
 	if (!is_task_path_input(task_name)) {
+		if (task_name === TASK_VERB) {
+			return {
+				ok: false,
+				reasons: [
+					`\`${TASK_VERB}\` is the CLI verb \`gro ${TASK_VERB} <path>\`, not a builtin: ` +
+						`invoke a project task by its path, like \`${LIB_DIR}foo${TASK_FILE_SUFFIX_TS}\`.`
+				]
+			};
+		}
 		if (is_builtin_task_name(task_name)) {
 			return { ok: true, id: to_builtin_task_id(task_name), name: task_name };
 		}
@@ -201,9 +213,7 @@ export const resolve_task = async (
 		if (is_removed_builtin_prefix(task_name)) {
 			return { ok: false, reasons: [to_removed_builtin_prefix_message(task_name)] };
 		}
-		const reasons = [
-			`\`${task_name}\` is not a task path: task paths end in \`.task.ts\` or \`.task.js\`.`
-		];
+		const reasons = [`\`${task_name}\` is not a task path: ${TASK_PATH_SUFFIX_RULE}.`];
 		const hint = to_task_path_hint(task_name, root);
 		if (hint !== null) reasons.push(hint);
 		return { ok: false, reasons };
@@ -313,9 +323,7 @@ const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): P
 			]);
 			throw new SilentError();
 		}
-		const reasons = [
-			`\`${dir}\` is not a directory or a task file: task paths end in \`.task.ts\` or \`.task.js\`.`
-		];
+		const reasons = [`\`${dir}\` is not a directory or a task file: ${TASK_PATH_SUFFIX_RULE}.`];
 		if (is_builtin_task_name(dir)) {
 			reasons.push(`\`${dir}\` is a builtin: run it with \`gro ${dir}\`.`);
 		} else {

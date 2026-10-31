@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach, assert } from 'vitest';
 import { resolve } from 'node:path';
 
 import { task as deploy_task } from '#lib/deploy.task.ts';
@@ -8,7 +8,9 @@ import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	mock_spawn_results,
+	to_spawn_result
 } from './deploy_task_test_helpers.ts';
 
 // Mock dependencies
@@ -27,7 +29,7 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn()
+		git_current_branch_first_commit_hash: vi.fn()
 	};
 });
 
@@ -287,118 +289,82 @@ describe('deploy_task commit and push', () => {
 	});
 
 	describe('error handling', () => {
-		test('catches and logs git add failure', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		const run_failing = async (
+			fail: (command: string, args: ReadonlyArray<string>) => boolean
+		): Promise<TaskError> => {
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
-
-			// Make git add fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'add') {
-					throw new Error('Git add failed');
-				}
-				return { code: 0 } as any;
-			});
-
+			await mock_spawn_results(fail);
 			const ctx = create_mock_deploy_task_context({ dry: false });
-
-			let error: TaskError | undefined;
+			let error: unknown;
 			try {
 				await deploy_task.run(ctx);
 			} catch (e) {
-				error = e as TaskError;
+				error = e;
 			}
-			expect(error).toBeInstanceOf(TaskError);
-			expect(error!.message).toContain('Deploy failed in a bad state');
+			assert(error instanceof TaskError);
+			expect(error.message).toContain('Deploy failed in a bad state: built but not pushed');
+			expect(ctx.log.info).not.toHaveBeenCalledWith(expect.stringContaining('deployed'));
+			return error;
+		};
 
-			expect(ctx.log.error).toHaveBeenCalledWith(
-				expect.stringContaining('updating git failed'),
-				expect.anything()
-			);
+		test('a failed git add fails the deploy', async () => {
+			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'add');
+			expect(error.message).toContain('`git add` failed');
 		});
 
-		test('catches and logs git commit failure', async () => {
+		test('a failed git commit fails the deploy without pushing', async () => {
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			vi.mocked(fs_exists).mockResolvedValue(true);
-
-			// Make git commit fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'commit') {
-					throw new Error('Nothing to commit');
-				}
-				return { code: 0 } as any;
-			});
-
-			const ctx = create_mock_deploy_task_context({ dry: false });
-
-			let error: TaskError | undefined;
-			try {
-				await deploy_task.run(ctx);
-			} catch (e) {
-				error = e as TaskError;
-			}
-			expect(error).toBeInstanceOf(TaskError);
-			expect(error!.message).toContain('Deploy failed in a bad state');
-
-			expect(ctx.log.error).toHaveBeenCalledWith(
-				expect.stringContaining('updating git failed'),
-				expect.anything()
-			);
+			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'commit');
+			expect(error.message).toContain('`git commit` failed');
+			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'push')).toBe(false);
 		});
 
-		test('catches and logs git push failure', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			vi.mocked(fs_exists).mockResolvedValue(true);
-
-			// Make git push fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'push') {
-					throw new Error('Push rejected');
-				}
-				return { code: 0 } as any;
-			});
-
-			const ctx = create_mock_deploy_task_context({ dry: false });
-
-			let error: TaskError | undefined;
-			try {
-				await deploy_task.run(ctx);
-			} catch (e) {
-				error = e as TaskError;
-			}
-			expect(error).toBeInstanceOf(TaskError);
-			expect(error!.message).toContain('Deploy failed in a bad state');
-
-			expect(ctx.log.error).toHaveBeenCalledWith(
-				expect.stringContaining('updating git failed'),
-				expect.anything()
-			);
+		test('a failed git push fails the deploy', async () => {
+			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'push');
+			expect(error.message).toContain('`git push origin deploy -f` failed');
+			expect(error.message).toContain('deploy again');
 		});
 
-		test('error message indicates bad state (built but not pushed)', async () => {
+		test('a git diff that errors fails the deploy without committing', async () => {
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
+			await mock_spawn_results();
+			const default_impl = spawn.getMockImplementation()!;
+			spawn.mockImplementation(async (command, args, options) =>
+				command === 'git' && args?.[0] === 'diff'
+					? to_spawn_result(128)
+					: default_impl(command, args, options)
+			);
+			const ctx = create_mock_deploy_task_context({ dry: false });
+			await expect(deploy_task.run(ctx)).rejects.toThrow('`git diff --cached --quiet` failed');
+			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
+		});
+	});
 
-			// Make push fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'push') {
-					throw new Error('Network error');
-				}
-				return { code: 0 } as any;
-			});
+	describe('nothing to commit', () => {
+		test('an identical redeploy skips the commit, pushes, and succeeds', async () => {
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			vi.mocked(fs_exists).mockResolvedValue(true);
+			// `git diff --cached --quiet` exits 0: nothing staged
+			spawn.mockResolvedValue(to_spawn_result(0));
 
 			const ctx = create_mock_deploy_task_context({ dry: false });
 
-			let error: TaskError | undefined;
-			try {
-				await deploy_task.run(ctx);
-			} catch (e) {
-				error = e as TaskError;
-			}
-			expect(error!.message).toContain('built but not pushed');
+			await deploy_task.run(ctx);
+
+			expect(spawn).toHaveBeenCalledWith('git', ['diff', '--cached', '--quiet'], {
+				cwd: resolve('.gro/deploy')
+			});
+			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
+			expect(spawn).toHaveBeenCalledWith('git', ['push', 'origin', 'deploy', '-f'], {
+				cwd: resolve('.gro/deploy')
+			});
+			expect(ctx.log.info).toHaveBeenCalledWith(
+				expect.stringContaining('deployed with no changes')
+			);
 		});
 	});
 

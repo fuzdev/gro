@@ -103,6 +103,16 @@ describe('resolve_task', () => {
 		});
 	});
 
+	test('`task` is the CLI verb, not a builtin, naming the path form', async () => {
+		assert.deepEqual(await resolve_task('task', dir), {
+			ok: false,
+			reasons: [
+				'`task` is the CLI verb `gro task <path>`, not a builtin: ' +
+					'invoke a project task by its path, like `src/lib/foo.task.ts`.'
+			]
+		});
+	});
+
 	test('the `gro/` prefix errors naming the plain builtin', async () => {
 		const resolved = await resolve_task('gro/check', dir);
 		assert.deepEqual(resolved, {

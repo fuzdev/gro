@@ -44,8 +44,13 @@ export class Filer {
 	#watching: WatchNodeFs | undefined;
 	#initing: Promise<void> | undefined;
 	#closing: Promise<void> | undefined;
+	// set by `close` or a failed `init` until the next `init`,
+	// the one check that stops processing: every queued change is skipped while it's set
+	#closed = false;
 
 	#change_queue: Array<WatcherChange> = [];
+	// the external nodes never read, reached only by bare specifiers so far
+	#unread: Set<PathId> = new Set();
 	#processing_promise: Promise<void> | null = null;
 
 	constructor(options: FilerOptions = EMPTY_OBJECT) {
@@ -66,9 +71,19 @@ export class Filer {
 		return this.files.get(id);
 	};
 
-	get_or_create = (id: PathId): Disknode => {
+	/**
+	 * Gets the node for `id`, creating it if needed.
+	 * @param read - whether an external node is read and parsed, `false` for a file
+	 *   reached by a bare specifier, which stays a contentless node until a path or `#` import
+	 *   of the same file asks for it to be read
+	 */
+	get_or_create = (id: PathId, read = true): Disknode => {
 		const existing = this.get_by_id(id);
-		if (existing) return existing;
+		if (existing) {
+			// a file first reached by a bare specifier is read once something imports it by path
+			if (read && this.#unread.delete(id)) this.#queue_external_add(id);
+			return existing;
+		}
 		const file: Disknode = {
 			id,
 			contents: null,
@@ -80,14 +95,19 @@ export class Filer {
 			dependencies: new Map()
 		};
 		this.files.set(id, file);
-		// Defer external file change notification to avoid reentrancy during queue processing
 		if (file.external) {
-			queueMicrotask(() => {
-				this.#on_change({ type: 'add', path: file.id, is_directory: false });
-			});
+			if (read) this.#queue_external_add(id);
+			else this.#unread.add(id);
 		}
 		return file;
 	};
+
+	// Defer external file change notification to avoid reentrancy during queue processing
+	#queue_external_add(id: PathId): void {
+		queueMicrotask(() => {
+			this.#on_change({ type: 'add', path: id, is_directory: false });
+		});
+	}
 
 	filter(predicate: (disknode: Disknode) => boolean): Array<Disknode> | null {
 		let found: Array<Disknode> | null = null;
@@ -105,6 +125,9 @@ export class Filer {
 	 * Used by gen files to access the file graph.
 	 */
 	async init(): Promise<void> {
+		// a close in flight cleans up when it finishes, so let it before initing again
+		if (this.#closing) await this.#closing.catch(() => {});
+
 		// if already initing, return the existing promise
 		if (this.#initing) return this.#initing;
 
@@ -114,11 +137,14 @@ export class Filer {
 		}
 
 		// start new initialization
+		this.#closed = false;
 		this.#initing = this.#init();
 		try {
 			await this.#initing;
 		} catch (error) {
-			// use shared cleanup logic
+			// stop processing before the shared cleanup, like `close`
+			this.#closed = true;
+			await this.#processing_promise;
 			this.#cleanup();
 			throw error;
 		} finally {
@@ -171,10 +197,11 @@ export class Filer {
 	#cleanup(): void {
 		this.#listeners.clear();
 		this.files.clear();
+		this.#unread.clear();
 		this.#watching = undefined;
 		this.#change_queue = [];
-		this.#processing_promise = null;
-		// #initing is handled in finally block of init()
+		// #initing is handled in finally block of init(),
+		// and #processing_promise by the run that set it, which closing awaits
 	}
 
 	close(): Promise<void> {
@@ -184,7 +211,8 @@ export class Filer {
 		// if already closed and not initing, nothing to do
 		if (!this.#watching && !this.#initing) return Promise.resolve();
 
-		// start new close operation
+		// start new close operation, stopping any change from processing
+		this.#closed = true;
 		const closing = this.#close();
 		this.#closing = closing;
 		// Clean up after completion, but don't change the returned promise
@@ -214,6 +242,10 @@ export class Filer {
 		if (this.#watching) {
 			await this.#watching.close();
 		}
+
+		// wait for the in-flight run, which skips the rest of the queue,
+		// so the graph doesn't change after closing
+		await this.#processing_promise;
 
 		// clean up all state
 		this.#cleanup();
@@ -278,6 +310,12 @@ export class Filer {
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
 			let path_id;
+			// a file reached by a bare specifier, a package's, is never read or parsed,
+			// since nothing reads a package's contents and its edge is all a dependent needs,
+			// even when it's linked from outside `node_modules`;
+			// a subpath import like `#lib/x.ts` names a project file, so it's read,
+			// and so is a file a path or subpath import also reaches, whichever came first
+			let read = true;
 			if (is_path_specifier(specifier)) {
 				// the exact named path, existing or not, so a file created later links to its importers
 				path_id = to_specifier_path_id(specifier, file.id);
@@ -287,20 +325,17 @@ export class Filer {
 				try {
 					resolved_url = import.meta.resolve(specifier, file_url.href);
 				} catch (error) {
-					// a package's unresolvable import, like an optional peer, is routine
-					if (file.id.includes('/node_modules/')) {
-						this.#log?.debug('[filer] failed to resolve path', specifier, file_url.href, error);
-					} else {
-						this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
-					}
+					this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
 					continue;
 				}
 				if (!resolved_url.startsWith('file:')) continue; // skip node:, npm:, https:, jsr:, etc.
 				path_id = fileURLToPath(resolved_url);
+				read = specifier[0] === '#';
 			}
 			dependencies_removed.delete(path_id);
+			// an existing edge may now be a path or `#` import asking for the read
+			const d = this.get_or_create(path_id, read);
 			if (!dependencies_before.has(path_id)) {
-				const d = this.get_or_create(path_id);
 				file.dependencies.set(d.id, d);
 				d.dependents.set(file.id, file);
 			}
@@ -309,8 +344,7 @@ export class Filer {
 		// update any removed dependencies
 		for (const dependency_removed of dependencies_removed) {
 			file.dependencies.delete(dependency_removed);
-			const dependency_removed_file = this.get_or_create(dependency_removed);
-			dependency_removed_file.dependents.delete(file.id);
+			this.get_by_id(dependency_removed)?.dependents.delete(file.id);
 		}
 
 		return file;
@@ -366,6 +400,8 @@ export class Filer {
 
 		// ensure initialized
 		await this.init();
+		// a close in flight, which `init` waits for, clears the listeners
+		this.#listeners.add(listener);
 
 		// notify of existing files
 		this.#sync_listener_with_files(listener);
@@ -394,15 +430,8 @@ export class Filer {
 			(this.#log ?? console).error('[filer] failed to process changes', error);
 		});
 		this.#processing_promise = processing;
-
-		try {
-			await processing;
-		} finally {
-			// a run outliving `close` must not clear a newer run's promise
-			if (this.#processing_promise === processing) this.#processing_promise = null;
-		}
-
-		if (this.#closing) return;
+		await processing;
+		this.#processing_promise = null;
 
 		// a change queued after the loop drained but before the reset above,
 		// like the rest of a burst of synchronous deletes, or the changes behind a failure;
@@ -414,7 +443,7 @@ export class Filer {
 		while (this.#change_queue.length > 0) {
 			const change = this.#change_queue.shift()!;
 
-			if (this.#closing) continue; // ignore changes during close
+			if (this.#closed) continue; // ignore changes during and after close
 			if (change.is_directory) continue; // TODO manage directories?
 
 			let disknode: Disknode | null;

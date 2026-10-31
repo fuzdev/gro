@@ -81,7 +81,7 @@ const run_tests = async () => {
 		assert(
 			error.code === 'ERR_MODULE_NOT_FOUND' &&
 				error.message.includes(
-					"'#lib/constants.ts' names the file that exists (.js never maps to .ts)"
+					"; '#lib/constants.ts' exists; write the real extension (.js never maps to .ts)"
 				),
 			`import #lib/*.js for a .ts file fails naming the .ts file (got ${error.message})`
 		);
@@ -220,6 +220,24 @@ const run_tests = async () => {
 		assert(imported.default?.value === 'ok', 'node_modules ESM imports CJS sibling default works');
 	} catch (error) {
 		assert(false, `node_modules esm-imports-cjs default failed: ${error.message}`);
+	}
+
+	// Test 12b: `?raw` is a real URL query, as Node gives it, and the raw import loads the file's text
+	try {
+		const raw_url = import.meta.resolve('./modules/some_test_ts.ts?raw');
+		assert_equal(
+			raw_url,
+			new URL('./modules/some_test_ts.ts', import.meta.url).href + '?raw',
+			'import.meta.resolve keeps `?raw` as a query'
+		);
+		const imported = await import(unchecked('./modules/some_test_ts.ts?raw'));
+		assert_equal(
+			imported.default,
+			readFileSync(resolve('src/test/fixtures/modules/some_test_ts.ts'), 'utf8'),
+			'import of a relative `.ts?raw` specifier loads the text'
+		);
+	} catch (error) {
+		assert(false, `\`?raw\` as a query failed: ${error.message}`);
 	}
 
 	// Test 13: `import.meta.resolve` returns the URL of a path that doesn't load, as Node does,

@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resolve } from 'node:path';
 
 import { task as deploy_task } from '#lib/deploy.task.ts';
 
@@ -6,7 +7,9 @@ import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	mock_spawn_results,
+	FIRST_COMMIT_HASH
 } from './deploy_task_test_helpers.ts';
 
 // Mock dependencies
@@ -25,7 +28,7 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn()
+		git_current_branch_first_commit_hash: vi.fn()
 	};
 });
 
@@ -185,21 +188,21 @@ describe('deploy_task error handling', () => {
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Cannot delete checked out branch');
 		});
 
-		test('propagates git_reset_branch_to_first_commit errors', async () => {
-			const { git_reset_branch_to_first_commit } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+		test('a failed reset to the first commit fails the deploy without pushing', async () => {
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 
 			vi.mocked(fs_exists).mockResolvedValue(true);
-			vi.mocked(git_reset_branch_to_first_commit).mockRejectedValue(new Error('Reset failed'));
+			await mock_spawn_results(
+				(cmd, args) => cmd === 'git' && args[0] === 'reset' && args[2] === FIRST_COMMIT_HASH
+			);
 
-			const ctx = create_mock_deploy_task_context({
-				reset: true,
-				dry: true
-			});
+			const ctx = create_mock_deploy_task_context({ reset: true, dry: false });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Reset failed');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				`\`git reset --hard ${FIRST_COMMIT_HASH}\` failed resetting the target branch 'deploy'`
+			);
+			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'push')).toBe(false);
 		});
 	});
 
@@ -284,48 +287,65 @@ describe('deploy_task error handling', () => {
 	});
 
 	describe('spawn operation failures', () => {
-		test('propagates spawn errors for git reset', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		test('a failed git reset recreates the deploy dir', async () => {
+			const { rm } = vi.mocked(await import('node:fs/promises'));
+			const { git_pull, git_clone_locally } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
-			vi.mocked(fs_exists).mockResolvedValue(true);
-
-			// Make git reset fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'reset') {
-					throw new Error('Git reset failed');
-				}
-				return { code: 0 } as any;
+			// the deploy dir exists until it's removed
+			let deploy_dir_exists = true;
+			vi.mocked(fs_exists).mockImplementation(async (path: any) =>
+				String(path) === resolve('.gro/deploy') ? deploy_dir_exists : true
+			);
+			vi.mocked(rm).mockImplementation(async (path: any) => {
+				if (String(path) === resolve('.gro/deploy')) deploy_dir_exists = false;
 			});
+			await mock_spawn_results((cmd, args) => cmd === 'git' && args[0] === 'reset');
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Git reset failed');
+			await deploy_task.run(ctx);
+
+			expect(rm).toHaveBeenCalledWith(resolve('.gro/deploy'), { recursive: true });
+			expect(git_pull).not.toHaveBeenCalledWith('origin', 'deploy', expect.anything());
+			expect(git_clone_locally).toHaveBeenCalledWith(
+				'origin',
+				'deploy',
+				expect.anything(),
+				resolve('.gro/deploy')
+			);
+			expect(git_clone_locally.mock.invocationCallOrder[0]!).toBeGreaterThan(
+				rm.mock.invocationCallOrder[0]!
+			);
+			expect(ctx.log.warn).toHaveBeenCalledWith(
+				expect.stringContaining('git reset --hard'),
+				expect.anything(),
+				expect.anything()
+			);
 		});
 
 		test('propagates spawn errors for orphan branch creation', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_remote_branch_exists, git_push_to_create } = vi.mocked(
+				await import('@fuzdev/fuz_util/git.ts')
+			);
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger new branch
 			vi.mocked(fs_exists).mockResolvedValue(false);
 
-			// Make checkout --orphan fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'checkout' && args[1] === '--orphan') {
-					throw new Error('Failed to create orphan branch');
-				}
-				return { code: 0 } as any;
-			});
+			await mock_spawn_results(
+				(cmd, args) => cmd === 'git' && args[0] === 'checkout' && args[1] === '--orphan'
+			);
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Failed to create orphan branch');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				"`git checkout --orphan deploy` failed creating the target branch 'deploy'"
+			);
+			expect(git_push_to_create).not.toHaveBeenCalled();
 		});
 
 		test('propagates spawn errors for git add in commit phase', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 
 			vi.mocked(fs_exists).mockImplementation((path: any) => {
@@ -333,18 +353,14 @@ describe('deploy_task error handling', () => {
 				return path_str.includes('build') || path_str.includes('.gro/deploy'); // both exist
 			});
 
-			// Make git add fail in commit phase (line 258, not orphan setup)
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'add' && args[1] === '.') {
-					// This is the commit phase add (line 258), not orphan setup add (line 211)
-					throw new Error('Add failed');
-				}
-				return { code: 0 } as any;
-			});
+			// the commit phase's add, not the orphan setup's
+			await mock_spawn_results(
+				(cmd, args) => cmd === 'git' && args[0] === 'add' && args[1] === '.'
+			);
 
 			const ctx = create_mock_deploy_task_context({ dry: false });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow();
+			await expect(deploy_task.run(ctx)).rejects.toThrow('`git add` failed');
 		});
 	});
 
@@ -407,17 +423,10 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('git operation errors in bad state include actionable message', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
 			vi.mocked(fs_exists).mockResolvedValue(true);
 
-			// Fail during push
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'push') {
-					throw new Error('Network timeout');
-				}
-				return { code: 0 } as any;
-			});
+			await mock_spawn_results((cmd, args) => cmd === 'git' && args[0] === 'push');
 
 			const ctx = create_mock_deploy_task_context({ dry: false });
 

@@ -18,8 +18,6 @@ import type { format_file as base_format_file } from './format_file.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { InvokeTask } from './task.ts';
 
-export const GEN_NO_PROD_MESSAGE = 'gen runs only during development';
-
 export const run_gen = async (
 	gen_modules: Array<GenfileModuleMeta>,
 	config: GroConfig,

@@ -83,6 +83,12 @@ export const log_error_reasons = (log: Logger, reasons: Array<string>): void => 
 
 const ARGS_PROPERTY_NAME = '[...args]';
 
+/**
+ * Logs a task's `--help`: its command, summary, and each arg of its `Args` schema
+ * with the arg's type, default, and description.
+ * @param log - the logger to print to
+ * @param meta - the loaded task module
+ */
 export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 	const {
 		name,

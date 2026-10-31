@@ -15,7 +15,7 @@ import {
 	GitBranch,
 	git_delete_local_branch,
 	git_push_to_create,
-	git_reset_branch_to_first_commit,
+	git_current_branch_first_commit_hash,
 	git_pull,
 	git_fetch,
 	git_check_setting_pull_rebase,
@@ -193,9 +193,19 @@ export const task: Task<Args> = {
 					// so delete the directory and continue as if it wasn't there.
 					await rm(resolved_deploy_dir, { recursive: true });
 				} else {
-					await spawn('git', ['reset', '--hard'], target_spawn_options); // in case it's dirty
-					// Skip pulling target branch when resetting (optimization - we reset after anyway)
-					if (!reset) {
+					// in case it's dirty
+					const reset_result = await spawn('git', ['reset', '--hard'], target_spawn_options);
+					if (!reset_result.ok) {
+						// We're in a bad state because the deploy dir can't be reset,
+						// so delete the directory and continue as if it wasn't there.
+						log.warn(
+							'`git reset --hard` failed in',
+							print_path(resolved_deploy_dir),
+							'- recreating it'
+						);
+						await rm(resolved_deploy_dir, { recursive: true });
+					} else if (!reset) {
+						// Skip pulling target branch when resetting (optimization - we reset after anyway)
 						await git_pull(origin, target, target_spawn_options);
 						if (await git_check_clean_workspace(target_spawn_options)) {
 							// We're in a bad state because the local branch lost continuity with the remote,
@@ -219,8 +229,21 @@ export const task: Task<Args> = {
 			}
 
 			// Local target branch is now synced with remote, but do we need to reset?
+			// The reset is local, so a dry deploy pushes nothing, and the final force push publishes it.
 			if (reset) {
-				await git_reset_branch_to_first_commit(origin, target, target_spawn_options);
+				const first_commit_hash = await git_current_branch_first_commit_hash(target_spawn_options);
+				const reset_result = await spawn(
+					'git',
+					['reset', '--hard', first_commit_hash],
+					target_spawn_options
+				);
+				if (!reset_result.ok) {
+					throw new TaskError(
+						`\`git reset --hard ${first_commit_hash}\` failed resetting the target branch '${target}'` +
+							` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
+							' resolve the failure, then deploy again'
+					);
+				}
 			}
 		} else {
 			// Remote target branch does not exist, so start from scratch
@@ -239,13 +262,24 @@ export const task: Task<Args> = {
 			// Create the target branch locally and remotely.
 			// This is more complex to avoid churning the cwd.
 			await git_clone_locally(origin, source, dir, resolved_deploy_dir);
-			await spawn('git', ['checkout', '--orphan', target], target_spawn_options);
+			const spawn_init = async (command: string, command_args: Array<string>): Promise<void> => {
+				const result = await spawn(command, command_args, target_spawn_options);
+				if (!result.ok) {
+					throw new TaskError(
+						`\`${command} ${command_args.join(' ')}\` failed creating the target branch '${target}'` +
+							` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
+							' resolve the failure, then deploy again'
+					);
+				}
+			};
+			await spawn_init('git', ['checkout', '--orphan', target]);
 			// TODO there's definitely a better way to do this
-			await spawn('git', ['rm', '-rf', '.'], target_spawn_options);
-			await spawn('touch', [INITIAL_FILE_PATH], target_spawn_options);
-			await spawn('git', ['add', INITIAL_FILE_PATH], target_spawn_options);
-			await spawn('git', ['commit', '-m', 'init'], target_spawn_options);
-			await git_push_to_create(origin, target, target_spawn_options);
+			await spawn_init('git', ['rm', '-rf', '.']);
+			await spawn_init('touch', [INITIAL_FILE_PATH]);
+			await spawn_init('git', ['add', INITIAL_FILE_PATH]);
+			await spawn_init('git', ['commit', '-m', 'init']);
+			// a dry deploy pushes nothing; a real one creates the remote branch here, with upstream tracking
+			if (!dry) await git_push_to_create(origin, target, target_spawn_options);
 			await git_delete_local_branch(source, target_spawn_options);
 		}
 
@@ -291,15 +325,37 @@ export const task: Task<Args> = {
 		}
 
 		// Commit and push
-		try {
-			await spawn('git', ['add', '.', '-f'], target_spawn_options);
-			await spawn('git', ['commit', '-m', 'deployment'], target_spawn_options);
-			await spawn('git', ['push', origin, target, '-f'], target_spawn_options); // force push because we may be resetting the branch, see the checks above to make this safer
-		} catch (error) {
-			log.error(st('red', 'updating git failed:'), print_error(error));
-			throw new TaskError(`Deploy failed in a bad state: built but not pushed, see error above.`);
+		const bad_state_message = (step: string): string =>
+			`Deploy failed in a bad state: built but not pushed: \`${step}\` failed` +
+			` in ${print_path(resolved_deploy_dir)} - see the output above,` +
+			` resolve the failure, then deploy again`;
+		const add_result = await spawn('git', ['add', '.', '-f'], target_spawn_options);
+		if (!add_result.ok) {
+			throw new TaskError(bad_state_message('git add'));
+		}
+		// `git diff --cached --quiet` exits 0 with nothing staged and 1 with changes,
+		// so a redeploy of an identical build commits nothing and still pushes
+		const diff_result = await spawn('git', ['diff', '--cached', '--quiet'], target_spawn_options);
+		const changed = !diff_result.ok;
+		if (changed && !(diff_result.kind === 'exited' && diff_result.code === 1)) {
+			throw new TaskError(bad_state_message('git diff --cached --quiet'));
+		}
+		if (changed) {
+			const commit_result = await spawn(
+				'git',
+				['commit', '-m', 'deployment'],
+				target_spawn_options
+			);
+			if (!commit_result.ok) {
+				throw new TaskError(bad_state_message('git commit'));
+			}
+		}
+		// force push because we may be resetting the branch, see the checks above to make this safer
+		const push_result = await spawn('git', ['push', origin, target, '-f'], target_spawn_options);
+		if (!push_result.ok) {
+			throw new TaskError(bad_state_message(`git push ${origin} ${target} -f`));
 		}
 
-		log.info(st('green', 'deployed')); // TODO log a different message if "Everything up-to-date"
+		log.info(st('green', changed ? 'deployed' : 'deployed with no changes'));
 	}
 };

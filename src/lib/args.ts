@@ -1,16 +1,12 @@
 import { styleText as st } from 'node:util';
 import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
+import { is_task_path, is_task_path_input, TASK_VERB, TaskError, to_task_path } from './task.ts';
 import {
 	is_removed_builtin_prefix,
-	is_task_path,
-	is_task_path_input,
-	TASK_VERB,
-	TaskError,
 	to_removed_builtin_prefix_message,
-	to_task_path,
 	to_task_path_without_verb_message
-} from './task.ts';
+} from './internal/task_hints.ts';
 
 /**
  * The task the CLI names and its args, parsed from `process.argv`.
@@ -88,8 +84,14 @@ const assert_no_task_flags_before_path = (argv: Array<string>): void => {
 	// as in `--max 3 x.task.ts`, so the hint takes the first task path instead,
 	// and repeats every other arg before any `--` after it, in order
 	const args = argv.slice(3, forwarded_index === -1 ? argv.length : forwarded_index);
-	// a flag's own `=` value, like `--out=a.task.ts`, is never the path
-	const hint_path_index = args.findIndex((arg) => !arg.startsWith('-') && is_task_path(arg));
+	// a flag's own `=` value, like `--out=a.task.ts`, is never the path;
+	// with no task path, the refusal's path is the hint's when only help flags,
+	// which take no value, come before it, as in `gro task --help src/lib`
+	const task_path_index = args.findIndex((arg) => !arg.startsWith('-') && is_task_path(arg));
+	const hint_path_index =
+		task_path_index === -1 && path_index !== -1 && flags.every((f) => HELP_FLAG_MATCHER.test(f))
+			? path_index - 3
+			: task_path_index;
 	throw new TaskError(
 		`\`gro ${TASK_VERB}\` takes no flags before the path, so flags for the task go after it: ` +
 			to_path_first_hint(
@@ -199,6 +201,7 @@ const to_positionals = (args: Args, argv: Array<string>): Array<Positional> => {
 /**
  * Gets the array of raw string args starting with the first `--`, if any.
  * `gro run <path> ...rest` has none, as everything after the path is the script's.
+ * @param argv - the process's args, defaults to `process.argv`
  */
 export const to_raw_rest_args = (argv = process.argv): Array<string> => {
 	if (to_run_path_index(argv) !== -1) return [];
@@ -417,6 +420,10 @@ export const to_forwarded_args_by_command = (
 	return forwarded_args_by_command;
 };
 
+/**
+ * Formats a command and its args for the log line that announces running it.
+ * @param serialized_args - the command followed by its args
+ */
 export const print_command_args = (serialized_args: Array<string>): string =>
 	st('gray', '[') +
 	st('magenta', 'running command') +

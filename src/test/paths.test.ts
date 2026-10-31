@@ -9,7 +9,8 @@ import {
 	to_root_path,
 	path_id_to_base_path,
 	base_path_to_path_id,
-	to_search_filters_relative
+	to_search_filters_relative,
+	to_gro_package_dir
 } from '#lib/paths.ts';
 import { SEARCH_EXCLUDER_DEFAULT } from '#lib/gro_config.ts';
 
@@ -96,5 +97,23 @@ describe('to_search_filters_relative', () => {
 		const filter = (p: string) => p === 'x';
 		expect(to_search_filters_relative(filter, '/a/')[0]!('/a/x', false)).toBe(true);
 		expect(to_search_filters_relative(null, '/a')).toEqual([]);
+	});
+});
+
+describe('to_gro_package_dir', () => {
+	test('finds the package dir from source or dist under any directory name', () => {
+		expect(to_gro_package_dir('/home/me/dev/gro/src/lib/paths.ts')).toBe('/home/me/dev/gro/');
+		expect(to_gro_package_dir('/a/.claude/worktrees/wt1/src/lib/paths.ts')).toBe(
+			'/a/.claude/worktrees/wt1/'
+		);
+		expect(to_gro_package_dir('/a/gro_checkout/src/lib/paths.ts')).toBe('/a/gro_checkout/');
+		expect(to_gro_package_dir('/a/node_modules/@fuzdev/gro/dist/paths.js')).toBe(
+			'/a/node_modules/@fuzdev/gro/'
+		);
+		expect(to_gro_package_dir('/a/my_fork/dist/paths.js')).toBe('/a/my_fork/');
+	});
+
+	test('the gro package dir is this repo when run from source', () => {
+		expect(gro_paths.root).toBe(paths.root);
 	});
 });

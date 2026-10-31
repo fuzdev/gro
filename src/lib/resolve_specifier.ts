@@ -6,21 +6,33 @@ import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
 import { replace_extension } from './paths.ts';
 
-// TODO ideally this module doesnt exist, but import.meta.resolve doesn't work in loaders last I tried
-
+/**
+ * A relative or absolute specifier resolved by `resolve_specifier`.
+ */
 export interface ResolvedSpecifier {
 	/**
 	 * The resolved filesystem path for the specifier.
 	 */
 	path_id: PathId;
-	/**
-	 * Same as `path_id` but includes `?raw` and other querystrings. (currently none)
-	 */
-	path_id_with_querystring: string;
 	specifier: string;
 	namespace: undefined | 'sveltekit_local_imports_ts' | 'sveltekit_local_imports_js';
+	/**
+	 * Whether the specifier ends in `?raw`, importing the file's text.
+	 */
 	raw: boolean;
 }
+
+/**
+ * The query that imports a file's text as its default export, the only query gro recognizes.
+ */
+export const RAW_QUERY = '?raw';
+
+/**
+ * Strips a trailing `?raw` from `specifier`.
+ * @param specifier - an import specifier or URL, optionally ending in `?raw`
+ */
+export const strip_raw_query = (specifier: string): string =>
+	specifier.endsWith(RAW_QUERY) ? specifier.slice(0, -RAW_QUERY.length) : specifier;
 
 const DIRECTORY_LIKE_MATCHER = /(^|\/)\.{0,2}$/;
 
@@ -44,7 +56,7 @@ export const is_path_specifier = (specifier: string): boolean =>
  * @param importer - the path of the importing module
  */
 export const to_specifier_path_id = (specifier: string, importer: PathId): PathId => {
-	const final_specifier = specifier.endsWith('?raw') ? specifier.slice(0, -4) : specifier;
+	const final_specifier = strip_raw_query(specifier);
 	const path_id = resolve(dirname(importer), final_specifier);
 	// a last segment of '', '.', or '..' names a directory, so keep the slash
 	// and a file is never reached through one, as in Node
@@ -67,8 +79,8 @@ export const resolve_specifier = async (
 	specifier: string,
 	importer: PathId
 ): Promise<ResolvedSpecifier> => {
-	const raw = specifier.endsWith('?raw'); // TODO more robust detection? other values?
-	const final_specifier = raw ? specifier.slice(0, -4) : specifier;
+	const final_specifier = strip_raw_query(specifier);
+	const raw = final_specifier !== specifier;
 	const path_id = to_specifier_path_id(specifier, importer);
 
 	let refusal: Refusal | null;
@@ -79,7 +91,7 @@ export const resolve_specifier = async (
 					reason: "a leading '//' names a URL host, not a path; write a single '/'",
 					code: 'ERR_MODULE_NOT_FOUND'
 				}
-			: await to_refusal(path_id, final_specifier, raw);
+			: await to_refusal(path_id, specifier);
 	} catch (error) {
 		throw new Error(`cannot resolve '${specifier}' from ${importer}: ${to_error_message(error)}`, {
 			cause: error
@@ -90,7 +102,7 @@ export const resolve_specifier = async (
 		// for a path that doesn't load, as it does without the loader
 		throw Object.assign(
 			new Error(`cannot resolve '${specifier}' from ${importer}: ${refusal.reason}`),
-			{ code: refusal.code, url: pathToFileURL(path_id).href + (raw ? '?raw' : '') }
+			{ code: refusal.code, url: pathToFileURL(path_id).href + (raw ? RAW_QUERY : '') }
 		);
 	}
 
@@ -104,7 +116,6 @@ export const resolve_specifier = async (
 
 	return {
 		path_id,
-		path_id_with_querystring: raw ? path_id + '?raw' : path_id,
 		raw,
 		specifier,
 		namespace
@@ -121,29 +132,19 @@ interface Refusal {
 
 /**
  * Why `path_id` doesn't load, or `null` when it names a file.
- * The sibling checks run only here, after the exact path fails,
+ * The sibling checks run only after the exact path fails,
  * to name the fix - resolution itself never probes.
- * @param raw - whether the specifier ends in `?raw`, which the named fix keeps
+ * @param specifier - the specifier as written, optionally ending in `?raw`, which the named fix keeps
  */
-const to_refusal = async (
-	path_id: string,
-	specifier: string,
-	raw: boolean
-): Promise<Refusal | null> => {
+const to_refusal = async (path_id: string, specifier: string): Promise<Refusal | null> => {
 	const stats = await stat_or_null(path_id);
 	if (stats?.isFile()) return null;
 	const code = stats?.isDirectory() ? 'ERR_UNSUPPORTED_DIR_IMPORT' : 'ERR_MODULE_NOT_FOUND';
 	const reason = stats
 		? 'it is not a regular file (a directory or a special file); name a module file'
 		: 'no such file';
-	const sibling = await find_sibling(path_id, specifier);
-	if (sibling !== null) {
-		const why = extname(path_id) === '.js' ? '.js never maps to .ts' : 'nothing is probed';
-		return {
-			reason: `${reason}, but '${raw ? sibling + '?raw' : sibling}' exists; write the real extension (${why})`,
-			code
-		};
-	}
+	const sibling = await to_sibling_hint(path_id, specifier);
+	if (sibling !== null) return { reason: `${reason}, but ${sibling.hint}`, code };
 	if (!stats && !extname(path_id)) {
 		return {
 			reason: `${reason}; the path has no extension and nothing is probed, so write the real one`,
@@ -154,16 +155,64 @@ const to_refusal = async (
 };
 
 /**
- * The specifier a missing `path_id` likely meant:
- * `.ts` in place of `.js`, or `.ts` or `.js` appended.
+ * The file a missing path likely meant, the specifier naming it, and the hint naming the fix.
+ * @internal
  */
-const find_sibling = async (path_id: string, specifier: string): Promise<string | null> => {
-	if (extname(path_id) === '.js') {
-		const ts_id = replace_extension(path_id, '.ts');
-		return (await stat_or_null(ts_id))?.isFile() ? replace_extension(specifier, '.ts') : null;
+export interface SiblingHint {
+	/**
+	 * The existing file.
+	 */
+	sibling_id: PathId;
+	/**
+	 * The specifier as written with the sibling's extension, keeping any `?raw`.
+	 */
+	sibling_specifier: string;
+	/**
+	 * The fix, like `'./x.ts' exists; write the real extension (.js never maps to .ts)`.
+	 */
+	hint: string;
+}
+
+/**
+ * Finds the file a missing `path_id` likely meant, when it exists:
+ * `.ts` in place of `.js` or `.js` in place of `.ts`,
+ * or for a path with no extension, `.ts` or `.js` appended.
+ * Shared by the resolver's refusal and the loader's subpath imports,
+ * so each names the fix the same way.
+ * @param path_id - the missing path `specifier` names
+ * @param specifier - the specifier as written, optionally ending in `?raw`, which the fix keeps
+ * @returns the sibling and the hint, or `null` when no sibling exists
+ * @internal
+ */
+export const to_sibling_hint = async (
+	path_id: PathId,
+	specifier: string
+): Promise<SiblingHint | null> => {
+	const bare_specifier = strip_raw_query(specifier);
+	const query = specifier.slice(bare_specifier.length);
+	const ext = extname(path_id);
+	const swapped_ext = ext === '.js' ? '.ts' : ext === '.ts' ? '.js' : null;
+	if (swapped_ext !== null) {
+		const sibling_id = replace_extension(path_id, swapped_ext);
+		if (!(await stat_or_null(sibling_id))?.isFile()) return null;
+		const sibling_specifier = replace_extension(bare_specifier, swapped_ext) + query;
+		return {
+			sibling_id,
+			sibling_specifier,
+			hint: `'${sibling_specifier}' exists; write the real extension (${ext} never maps to ${swapped_ext})`
+		};
 	}
-	for (const ext of ['.ts', '.js']) {
-		if ((await stat_or_null(path_id + ext))?.isFile()) return specifier + ext;
+	if (ext) return null; // only a path with no extension is a sibling's stem
+	for (const appended of ['.ts', '.js']) {
+		const sibling_id = path_id + appended;
+		if ((await stat_or_null(sibling_id))?.isFile()) {
+			const sibling_specifier = bare_specifier + appended + query;
+			return {
+				sibling_id,
+				sibling_specifier,
+				hint: `'${sibling_specifier}' exists; write the real extension (nothing is probed)`
+			};
+		}
 	}
 	return null;
 };

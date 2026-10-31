@@ -11,6 +11,9 @@ import { load_default_svelte_config } from './svelte_config.ts';
 import { TaskError, type InvokeTaskContextOptions, type TaskModuleMeta } from './task.ts';
 import { log_task_help } from './task_logging.ts';
 
+/**
+ * A task's run: its return value as `output`, or why it failed, with the error.
+ */
 export type RunTaskResult =
 	| {
 			ok: true;

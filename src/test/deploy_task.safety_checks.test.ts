@@ -26,7 +26,7 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn()
+		git_current_branch_first_commit_hash: vi.fn()
 	};
 });
 

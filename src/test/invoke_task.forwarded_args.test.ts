@@ -7,11 +7,11 @@ import { invoke_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
 import { log_error_reasons } from '#lib/task_logging.ts';
+import { SilentError } from '#lib/task.ts';
 import {
-	SilentError,
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
-} from '#lib/task.ts';
+} from '#lib/internal/task_hints.ts';
 import { create_mock_module_graph, create_mock_watcher } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({

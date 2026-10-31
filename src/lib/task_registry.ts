@@ -34,6 +34,9 @@ export interface ProjectTasks {}
  */
 export type TaskRegistry = GroBuiltinTasks & ProjectTasks;
 
+/**
+ * A builtin name or project task path in `TaskRegistry`, the literals `invoke_task` checks.
+ */
 export type TaskName = Extract<keyof TaskRegistry, string>;
 
 /**

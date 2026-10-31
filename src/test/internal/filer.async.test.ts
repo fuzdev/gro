@@ -1,6 +1,10 @@
 import { test, assert, vi } from 'vitest';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import type { WatchNodeFs, WatcherChangeCallback } from '#lib/internal/watch_dir.ts';
 import { Filer } from '#lib/internal/filer.ts';
 
 // Create a simple mock watch_dir that simulates file discovery
@@ -450,4 +454,142 @@ test('handles rapid updates to same file', async () => {
 	const file = filer.get_by_id('/test/file.ts');
 	assert.ok(file);
 	assert.equal(file.id, '/test/file.ts');
+});
+
+/**
+ * Writes `src/a.ts` importing a chain of external modules outside `src/`,
+ * each read only after the one importing it.
+ */
+const write_import_chain = async (root: string, count = 30): Promise<string> => {
+	const src = join(root, 'src');
+	await mkdir(src);
+	for (let i = 0; i < count; i++) {
+		await writeFile(
+			join(root, `e${i}.ts`),
+			i < count - 1 ? `import './e${i + 1}.ts';\n` : 'export {};\n'
+		);
+	}
+	await writeFile(join(src, 'a.ts'), `import '../e0.ts';\n`);
+	return src;
+};
+
+const create_mock_log = () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() });
+
+const count_log_calls = (log: ReturnType<typeof create_mock_log>): number =>
+	log.error.mock.calls.length +
+	log.warn.mock.calls.length +
+	log.info.mock.calls.length +
+	log.debug.mock.calls.length;
+
+test('an awaited close stops in-flight processing', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'gro_filer_close_'));
+	try {
+		const src = await write_import_chain(root);
+		let emit: WatcherChangeCallback | undefined;
+		const log = create_mock_log();
+		const filer = new Filer({
+			watch_dir: (options) => {
+				emit = options.on_change;
+				return { init: async () => {}, close: async () => {} };
+			},
+			watch_dir_options: { dir: src },
+			log: log as unknown as Logger
+		});
+		await filer.init();
+		const listener = vi.fn();
+		await filer.watch(listener);
+		emit!({ type: 'add', path: join(src, 'a.ts'), is_directory: false });
+		await new Promise((r) => setImmediate(r)); // let the first read start
+		// counts the nodes the graph touches once closing starts
+		let touched_after_close = 0;
+		let closing = false;
+		const get_or_create = filer.get_or_create;
+		filer.get_or_create = (id, read) => {
+			if (closing) touched_after_close++;
+			return get_or_create(id, read);
+		};
+		closing = true;
+		await filer.close();
+		// only the read in flight finishes, the rest of the chain is skipped
+		assert.ok(touched_after_close <= 2, `touched ${touched_after_close} nodes after close`);
+		const listener_calls = listener.mock.calls.length;
+		const log_calls = count_log_calls(log);
+		assert.equal(filer.files.size, 0);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(filer.files.size, 0, 'no nodes appear after close');
+		assert.equal(listener.mock.calls.length, listener_calls, 'nothing is notified after close');
+		assert.equal(count_log_calls(log), log_calls, 'nothing is logged after close');
+		// a change after close is ignored
+		emit!({ type: 'add', path: join(src, 'a.ts'), is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(filer.files.size, 0);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('a failed init stops its in-flight processing', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'gro_filer_init_fail_'));
+	try {
+		const src = await write_import_chain(root);
+		const log = create_mock_log();
+		// counts the nodes the graph touches once the watch fails
+		let touched_after_failure = 0;
+		let failed = false;
+		const filer = new Filer({
+			watch_dir: (options) => ({
+				init: async () => {
+					options.on_change({ type: 'add', path: join(src, 'a.ts'), is_directory: false });
+					await new Promise((r) => setImmediate(r)); // let the first read start
+					failed = true;
+					throw Error('watch failed');
+				},
+				close: async () => {}
+			}),
+			watch_dir_options: { dir: src },
+			log: log as unknown as Logger
+		});
+		const get_or_create = filer.get_or_create;
+		filer.get_or_create = (id, read) => {
+			if (failed) touched_after_failure++;
+			return get_or_create(id, read);
+		};
+		let error: unknown;
+		try {
+			await filer.init();
+		} catch (e) {
+			error = e;
+		}
+		assert.ok(error instanceof Error && error.message === 'watch failed');
+		// only the read in flight finishes, the rest of the chain is skipped
+		assert.ok(touched_after_failure <= 2, `touched ${touched_after_failure} nodes after failing`);
+		assert.equal(filer.files.size, 0);
+		await new Promise((r) => setTimeout(r, 100));
+		assert.equal(filer.files.size, 0, 'no nodes appear after a failed init');
+		assert.equal(count_log_calls(log), 0, 'nothing is logged after a failed init');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('init right after a close during init waits for the close, then inits fresh', async () => {
+	let inits = 0;
+	const filer = new Filer({
+		watch_dir: (options) => ({
+			init: async () => {
+				inits++;
+				await new Promise((r) => setTimeout(r, 20));
+				options.on_change({ type: 'add', path: '/test/file1.ts', is_directory: false });
+			},
+			close: async () => {}
+		})
+	});
+	const first = filer.init();
+	const closing = filer.close();
+	await filer.init();
+	await Promise.all([first, closing]);
+	assert.equal(inits, 2);
+	assert.ok(filer.inited, 'the second init is not undone by the first close');
+	assert.ok(filer.files.has('/test/file1.ts'));
+	await filer.close();
 });

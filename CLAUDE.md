@@ -494,8 +494,10 @@ A chokidar error (like `EACCES` reading a directory) is a warning through the
 graph's and watcher's `log` (`console` with none), not fatal; the Filer stats before reading, so a
 directory or special file (a FIFO) is a contentless node, and the graph
 forwards a change whose read finds no file as one `delete` (`#remove` notifies
-only a node that had contents); an unresolvable
-import inside `node_modules` (an optional peer) logs at debug.
+only a node that had contents); a file reached by a bare specifier (a package's,
+even when linked) is a contentless node, never read, so its imports aren't
+edges (its importer's edge is kept), while a file a path or `#` subpath import
+reaches is read.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.

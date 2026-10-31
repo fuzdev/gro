@@ -1,6 +1,5 @@
 import { watch, type ChokidarOptions, type FSWatcher, type Matcher } from 'chokidar';
 import { relative } from 'node:path';
-import { statSync } from 'node:fs';
 import { create_deferred, type Deferred } from '@fuzdev/fuz_util/async.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
@@ -77,12 +76,12 @@ export const watch_dir = ({
 				on_change({ type: 'add', path: final_path, is_directory: true });
 			});
 			watcher.on('change', (path, s) => {
-				const stats = s ?? statSync(path);
+				// never stats, which could throw in a listener for a path already gone;
+				// chokidar reports `change` for files, with stats when it has them
+				const is_directory = s?.isDirectory() ?? false;
 				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, stats.isDirectory())) {
-					return;
-				}
-				on_change({ type: 'update', path: final_path, is_directory: stats.isDirectory() });
+				if (filter && !filter(final_path, is_directory)) return;
+				on_change({ type: 'update', path: final_path, is_directory });
 			});
 			watcher.on('unlink', (path) => {
 				const final_path = absolute ? path : relative(dir, path);

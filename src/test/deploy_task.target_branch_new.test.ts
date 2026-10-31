@@ -6,7 +6,8 @@ import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	mock_spawn_results
 } from './deploy_task_test_helpers.ts';
 
 // Mock dependencies
@@ -25,7 +26,7 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
-		git_reset_branch_to_first_commit: vi.fn()
+		git_current_branch_first_commit_hash: vi.fn()
 	};
 });
 
@@ -278,7 +279,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		test('pushes to create remote target branch', async () => {
 			const { git_push_to_create } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 
@@ -295,7 +296,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 				origin: 'upstream',
 				target: 'gh-pages',
 				force: true,
-				dry: true
+				dry: false
 			});
 
 			await deploy_task.run(ctx);
@@ -351,19 +352,15 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('propagates error when orphan branch creation fails', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-
-			// Make checkout --orphan fail
-			vi.mocked(spawn).mockImplementation(async (cmd, args) => {
-				if (cmd === 'git' && args?.[0] === 'checkout' && args[1] === '--orphan') {
-					throw new Error('Failed to create orphan branch');
-				}
-				return { code: 0 } as any;
-			});
+			await mock_spawn_results(
+				(cmd, args) => cmd === 'git' && args[0] === 'checkout' && args[1] === '--orphan'
+			);
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Failed to create orphan branch');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				'`git checkout --orphan deploy` failed creating the target branch'
+			);
 		});
 
 		test('propagates error when push fails', async () => {
@@ -371,7 +368,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 			vi.mocked(git_push_to_create).mockRejectedValue(new Error('Push failed'));
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Push failed');
 		});

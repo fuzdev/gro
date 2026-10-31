@@ -11,8 +11,9 @@ but what it actually does is just [build](./build.md) and push to a branch.
 Importantly, Gro **destructively force pushes** to the `--target` branch, `deploy` by default.
 This is because Gro treats your deployment
 branch as disposable, able to be deleted or squashed or whatever whenever.
-Internally, `gro deploy` uses [git worktree](https://git-scm.com/docs/git-worktree)
-for tidiness.
+Internally, `gro deploy` builds the target branch in a local clone at `.gro/deploy/`
+(`--deploy_dir`), so the target branch is never checked out in your repo;
+the cwd checks out and pulls `--source`, and must be clean.
 
 ```bash
 gro deploy # prepare build/ and commit it to the `deploy` branch, then push to go live
@@ -25,8 +26,13 @@ gro deploy --target custom-deploy-branch
 gro deploy --target custom-deploy-branch --force
 # TODO maybe it should be `--dangerous-target-branch` instead of `--target` and `--force`?
 
-gro deploy --dry # prepare build/ but don't commit or push
-gro deploy --clean # if something goes wrong, use this to reset git and gro state
+# prepare the deploy dir and push nothing
+# (a first deploy still makes a local init commit for the new target branch)
+gro deploy --dry
+
+# reset the target branch to its first commit before deploying,
+# discarding its history when the final force push publishes it
+gro deploy --reset
 ```
 
 Run `gro deploy --help` or see [`src/lib/deploy.task.ts`](/src/lib/deploy.task.ts) for the details.

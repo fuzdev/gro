@@ -1,8 +1,8 @@
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import type { LoadHook, ResolveHook } from 'node:module';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { strip_typescript } from '@fuzdev/tsv';
 
@@ -17,12 +17,17 @@ import {
 	render_sveltekit_shim_app_paths,
 	SVELTEKIT_SHIM_APP_ENV_MATCHER,
 	SVELTEKIT_SHIM_APP_PATHS_MATCHER,
-	sveltekit_shim_app_specifiers
+	SVELTEKIT_SHIM_APP_SPECIFIERS
 } from './sveltekit_shim_app.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import { paths, replace_extension } from './paths.ts';
+import { paths } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
-import { is_path_specifier, resolve_specifier } from './resolve_specifier.ts';
+import {
+	is_path_specifier,
+	RAW_QUERY,
+	resolve_specifier,
+	to_sibling_hint
+} from './resolve_specifier.ts';
 
 /*
 
@@ -38,18 +43,15 @@ Usage via `run.task.ts`:
 gro run foo.ts
 ```
 
-Direct usage without register (see also `gro.ts`):
+Direct usage without register, the args `spawn_with_loader_args` in `gro_helpers.ts` builds:
 
 ```bash
-node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.ts", pathToFileURL("./"));' --experimental-import-meta-resolve --experimental-strip-types' foo.ts
+node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.js", pathToFileURL("./"));' --experimental-import-meta-resolve --experimental-strip-types foo.ts
 ```
-
-TODO how to improve that gnarly import line? was originally designed for the now-deprecated `--loader`
 
 */
 
 // TODO sourcemaps for the svelte preprocessors
-// TODO `import.meta.resolve` wasn't available in loaders when this was first implemented, but might be now
 
 // dev is always true in the loader
 const dev = true;
@@ -71,7 +73,7 @@ const env_module_url = to_sibling_url('env');
 const loading_env_declarations = new AsyncLocalStorage<string>();
 
 const shim_app_urls = new Map(
-	Array.from(sveltekit_shim_app_specifiers, ([specifier, shim]) => [
+	Array.from(SVELTEKIT_SHIM_APP_SPECIFIERS, ([specifier, shim]) => [
 		specifier,
 		to_sibling_url(shim.slice(shim.lastIndexOf('/') + 1, -'.js'.length))
 	])
@@ -95,11 +97,43 @@ Both read the project in the cwd, which is the only project either one resolves.
 
 */
 
-const RAW_MATCHER = /(%3Fraw|\.css|\.svg)$/; // TODO others? configurable?
+const RAW_MATCHER = /(\?raw|\.css|\.svg)$/; // TODO others? configurable?
 
 /** @nodocs */
 export const load: LoadHook = async (url, context, nextLoad) => {
-	// console.log(`url`, url);
+	// SvelteKit `$app/env/public` and `$app/env/private`, by the format the resolve hook gives them
+	if (context.format === 'sveltekit-env') {
+		const virtual = context.importAttributes.virtual;
+		const matches = typeof virtual === 'string' && SVELTEKIT_APP_ENV_VARS_MATCHER.exec(virtual);
+		if (!matches) throw Error(`Unknown $app/env import: ${virtual}`);
+		const declaring = loading_env_declarations.getStore();
+		if (declaring !== undefined) {
+			const message = `${declaring} can't import ${virtual} - it declares the env vars that module exports`;
+			return {
+				format: 'module',
+				shortCircuit: true,
+				source: `throw Error(${JSON.stringify(message)});`
+			};
+		}
+		const visibility = matches[1] as 'public' | 'private';
+		const { src_path, env_dir } = await load_default_svelte_config();
+		const entry_id = resolve_sveltekit_env_entry(src_path);
+		const variables = entry_id
+			? await loading_env_declarations.run(entry_id, () =>
+					load_sveltekit_env_declarations(entry_id)
+				)
+			: null;
+		const source = render_sveltekit_shim_app_env_vars({
+			visibility,
+			variables,
+			entry_specifier: entry_id && pathToFileURL(entry_id).href,
+			env_module_specifier: env_module_url,
+			dev,
+			env_dir
+		});
+		return { format: 'module', shortCircuit: true, source };
+	}
+
 	if (SVELTEKIT_SHIM_APP_PATHS_MATCHER.test(url)) {
 		// SvelteKit `$app/paths` shim
 		const { base_url, assets_url } = await load_default_svelte_config();
@@ -142,7 +176,8 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 	} else if (SVELTE_MATCHER.test(url)) {
 		// Svelte, `.svelte`
 		const loaded = await nextLoad(url, { ...context, format: 'module' });
-		const raw_source = loaded.source!.toString(); // eslint-disable-line @typescript-eslint/no-base-to-string
+		const raw_source = loaded.source?.toString(); // eslint-disable-line @typescript-eslint/no-base-to-string
+		if (raw_source == null) throw Error(`Failed to load ${url}`);
 		const filename = fileURLToPath(url);
 		const { svelte_compile_options, svelte_preprocessors } = await load_default_svelte_config();
 		const preprocessed = svelte_preprocessors // TODO @many use sourcemaps (and diagnostics?)
@@ -163,45 +198,11 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		return { format: 'module', shortCircuit: true, source };
 	} else if (RAW_MATCHER.test(url)) {
 		// raw text imports like `?raw`, `.css`, `.svg`
-		const filename = fileURLToPath(url.endsWith('%3Fraw') ? url.substring(0, url.length - 6) : url);
+		const filename = fileURLToPath(url); // without the `?raw` query
 		const raw_source = readFileSync(filename, 'utf8');
 		const source =
 			'export default `' + raw_source.replaceAll('\\', '\\\\').replaceAll('`', '\\`') + '`;';
 		return { format: 'module', shortCircuit: true, source };
-	} else {
-		// SvelteKit `$app/env/public` and `$app/env/private`
-		// TODO use `format` from the resolve hook to speed this up and make it simpler
-		if (context.format === 'sveltekit-env') {
-			const virtual = context.importAttributes.virtual;
-			const matches = typeof virtual === 'string' && SVELTEKIT_APP_ENV_VARS_MATCHER.exec(virtual);
-			if (!matches) throw Error(`Unknown $app/env import: ${virtual}`);
-			const declaring = loading_env_declarations.getStore();
-			if (declaring !== undefined) {
-				const message = `${declaring} can't import ${virtual} - it declares the env vars that module exports`;
-				return {
-					format: 'module',
-					shortCircuit: true,
-					source: `throw Error(${JSON.stringify(message)});`
-				};
-			}
-			const visibility = matches[1] as 'public' | 'private';
-			const { src_path, env_dir } = await load_default_svelte_config();
-			const entry_id = resolve_sveltekit_env_entry(src_path);
-			const variables = entry_id
-				? await loading_env_declarations.run(entry_id, () =>
-						load_sveltekit_env_declarations(entry_id)
-					)
-				: null;
-			const source = render_sveltekit_shim_app_env_vars({
-				visibility,
-				variables,
-				entry_specifier: entry_id && pathToFileURL(entry_id).href,
-				env_module_specifier: env_module_url,
-				dev,
-				env_dir
-			});
-			return { format: 'module', shortCircuit: true, source };
-		}
 	}
 
 	// fallback to default behavior
@@ -219,7 +220,8 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return {
 			url: pathToFileURL(join(dir, 'src/lib', s)).href,
 			format: 'sveltekit-env',
-			importAttributes: { virtual: s }, // TODO idk I'm just making this up
+			// carries the specifier to `load`, since the `url` is a placeholder
+			importAttributes: { virtual: s },
 			shortCircuit: true
 		};
 	}
@@ -231,22 +233,35 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 	}
 
 	// Subpath imports like `#lib/*` resolve only through package.json `imports`;
-	// a `.js` naming a missing file with a `.ts` sibling gets the fix appended, never a retry
+	// a missing file with a sibling, like `#lib/x.js` for `x.ts`, gets the fix appended, never a retry
 	if (s[0] === '#') {
 		try {
 			return await nextResolve(s, context);
 		} catch (error) {
 			const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
-			if (
-				code === 'ERR_MODULE_NOT_FOUND' &&
-				typeof url === 'string' &&
-				url.startsWith('file:') &&
-				url.endsWith('.js') &&
-				s.endsWith('.js') &&
-				existsSync(replace_extension(fileURLToPath(url), '.ts'))
-			) {
-				(error as Error).message +=
-					`; '${replace_extension(s, '.ts')}' names the file that exists (.js never maps to .ts)`;
+			if (code === 'ERR_MODULE_NOT_FOUND' && typeof url === 'string' && url.startsWith('file:')) {
+				const missing_id = fileURLToPath(url);
+				const sibling = await to_sibling_hint(missing_id, s);
+				if (sibling !== null) {
+					// the corrected specifier names the sibling only if `imports` maps it there,
+					// unlike `#cfg.ts` for a lone `"#cfg.js"` entry, so otherwise name the file
+					let corrected_url: string | null = null;
+					try {
+						corrected_url = (await nextResolve(sibling.sibling_specifier, context)).url;
+					} catch {
+						// unmapped
+					}
+					const missing_ext = extname(missing_id);
+					(error as Error).message +=
+						corrected_url?.startsWith('file:') &&
+						fileURLToPath(corrected_url) === sibling.sibling_id
+							? `; ${sibling.hint}`
+							: `; the file ${sibling.sibling_id} exists, but '${s}' maps to ${missing_id} (${
+									missing_ext
+										? `${missing_ext} never maps to ${extname(sibling.sibling_id)}`
+										: 'nothing is probed'
+								})`;
+				}
 			}
 			throw error;
 		}
@@ -275,7 +290,8 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 	}
 
 	const resolved = await resolve_specifier(s, fileURLToPath(parent_url));
-	const url = pathToFileURL(resolved.path_id_with_querystring).href;
+	// `?raw` is a real query, as Node gives it, not part of the path
+	const url = pathToFileURL(resolved.path_id).href + (resolved.raw ? RAW_QUERY : '');
 
 	// Safety net for project code doing `import './node_modules/...'`:
 	// same CJS interop reason as above.

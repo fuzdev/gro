@@ -1,9 +1,9 @@
 import { test, assert, vi } from 'vitest';
 import { join, resolve } from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import type { WatchNodeFs, WatcherChange } from '#lib/internal/watch_dir.ts';
 import { Filer, filter_dependents } from '#lib/internal/filer.ts';
 import type { Disknode } from '#lib/internal/disknode.ts';
 
@@ -228,6 +228,184 @@ test('an import of a missing file links once the file is added', async () => {
 		await filer.close();
 	} finally {
 		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a package file reached by a bare specifier keeps its edge but is never read, even when linked', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_packages_'));
+	try {
+		const src = join(dir, 'proj/src');
+		await mkdir(src, { recursive: true });
+		await writeFile(
+			join(dir, 'proj/package.json'),
+			JSON.stringify({ name: 'proj', type: 'module' })
+		);
+		// an installed package
+		const pkg = join(dir, 'proj/node_modules/pkg');
+		await mkdir(pkg, { recursive: true });
+		await writeFile(
+			join(pkg, 'package.json'),
+			JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
+		);
+		await writeFile(join(pkg, 'index.js'), "import './other.js';\nimport 'missing_peer';\n");
+		// a linked package, which realpaths outside `node_modules`
+		const sibling = join(dir, 'sibling');
+		await mkdir(sibling);
+		await writeFile(
+			join(sibling, 'package.json'),
+			JSON.stringify({ name: '@scope/x', type: 'module', exports: './index.js' })
+		);
+		await writeFile(join(sibling, 'index.js'), "import './util.js';\n");
+		await mkdir(join(dir, 'proj/node_modules/@scope'));
+		await symlink(sibling, join(dir, 'proj/node_modules/@scope/x'));
+		// a project file outside `src/` through a subpath import is read
+		await writeFile(
+			join(dir, 'proj/package.json'),
+			JSON.stringify({ name: 'proj', type: 'module', imports: { '#cfg': './cfg.ts' } })
+		);
+		await writeFile(join(dir, 'proj/cfg.ts'), "import './cfg_dep.ts';\n");
+		const importer_path = join(src, 'a.ts');
+		await writeFile(importer_path, "import 'pkg';\nimport '@scope/x';\nimport '#cfg';\n");
+
+		const log = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
+		const filer = new Filer({
+			watch_dir: (options) => ({
+				init: async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				},
+				close: async () => {}
+			}),
+			watch_dir_options: { dir: src },
+			log: log as any
+		});
+		await filer.init();
+		await new Promise((r) => setTimeout(r, 20));
+
+		const real_dir = await realpath(dir);
+		for (const pkg_path of [
+			join(real_dir, 'proj/node_modules/pkg/index.js'),
+			join(real_dir, 'sibling/index.js')
+		]) {
+			const pkg_node = filer.get_by_id(pkg_path);
+			assert.ok(pkg_node, `the edge to ${pkg_path} is recorded`);
+			assert.ok(pkg_node.external);
+			assert.ok(pkg_node.dependents.has(importer_path));
+			assert.equal(pkg_node.contents, null, `${pkg_path} is never read`);
+			assert.equal(pkg_node.dependencies.size, 0, `${pkg_path} is never parsed`);
+		}
+		assert.equal(filer.get_by_id(join(real_dir, 'proj/node_modules/pkg/other.js')), undefined);
+		assert.equal(filer.get_by_id(join(real_dir, 'sibling/util.js')), undefined);
+		const cfg = filer.get_by_id(join(real_dir, 'proj/cfg.ts'));
+		assert.ok(cfg?.contents, 'a subpath import is read');
+		assert.ok(cfg.dependencies.has(join(real_dir, 'proj/cfg_dep.ts')));
+		assert.equal(log.error.mock.calls.length + log.debug.mock.calls.length, 0);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a file reached by both a bare specifier and a path or subpath import is read in either order', async () => {
+	for (const order of [
+		['pkg', '#p'],
+		['#p', 'pkg'],
+		['pkg', '../node_modules/pkg/index.js'],
+		['../node_modules/pkg/index.js', 'pkg']
+	]) {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_read_order_'));
+		try {
+			const src = join(dir, 'src');
+			const pkg = join(dir, 'node_modules/pkg');
+			await mkdir(src);
+			await mkdir(pkg, { recursive: true });
+			await writeFile(
+				join(dir, 'package.json'),
+				JSON.stringify({ name: 'proj', type: 'module', imports: { '#p': 'pkg' } })
+			);
+			await writeFile(
+				join(pkg, 'package.json'),
+				JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
+			);
+			await writeFile(join(pkg, 'index.js'), "import './other.js';\n");
+			await writeFile(join(pkg, 'other.js'), 'export {};\n');
+			const importer_path = join(src, 'a.ts');
+			await writeFile(importer_path, order.map((sp) => `import '${sp}';`).join('\n'));
+			const filer = new Filer({
+				watch_dir: (options) => ({
+					init: async () => {
+						options.on_change({ type: 'add', path: importer_path, is_directory: false });
+					},
+					close: async () => {}
+				}),
+				watch_dir_options: { dir: src }
+			});
+			await filer.init();
+			await new Promise((r) => setTimeout(r, 20));
+
+			const real_pkg = join(await realpath(dir), 'node_modules/pkg');
+			const pkg_node = filer.get_by_id(join(real_pkg, 'index.js'));
+			assert.ok(pkg_node?.contents, `read for ${order.join(' then ')}`);
+			assert.ok(pkg_node.dependencies.has(join(real_pkg, 'other.js')));
+
+			await filer.close();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
+});
+
+test('an edit adding a path or subpath import of a file a bare import reached reads it', async () => {
+	for (const added of ['#p', '../node_modules/pkg/index.js']) {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_read_on_update_'));
+		try {
+			const src = join(dir, 'src');
+			const pkg = join(dir, 'node_modules/pkg');
+			await mkdir(src);
+			await mkdir(pkg, { recursive: true });
+			await writeFile(
+				join(dir, 'package.json'),
+				JSON.stringify({ name: 'proj', type: 'module', imports: { '#p': 'pkg' } })
+			);
+			await writeFile(
+				join(pkg, 'package.json'),
+				JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
+			);
+			await writeFile(join(pkg, 'index.js'), "import './other.js';\n");
+			await writeFile(join(pkg, 'other.js'), 'export {};\n');
+			const importer_path = join(src, 'a.ts');
+			await writeFile(importer_path, "import 'pkg';\n");
+			let on_change: ((change: WatcherChange) => void) | undefined;
+			const filer = new Filer({
+				watch_dir: (options) => {
+					on_change = options.on_change;
+					return {
+						init: async () => {
+							options.on_change({ type: 'add', path: importer_path, is_directory: false });
+						},
+						close: async () => {}
+					};
+				},
+				watch_dir_options: { dir: src }
+			});
+			await filer.init();
+			await new Promise((r) => setTimeout(r, 20));
+
+			const real_pkg = join(await realpath(dir), 'node_modules/pkg');
+			assert.ok(!filer.get_by_id(join(real_pkg, 'index.js'))?.contents, 'unread at first');
+
+			await writeFile(importer_path, `import 'pkg';\nimport '${added}';\n`);
+			on_change!({ type: 'update', path: importer_path, is_directory: false });
+			await new Promise((r) => setTimeout(r, 20));
+
+			const pkg_node = filer.get_by_id(join(real_pkg, 'index.js'));
+			assert.ok(pkg_node?.contents, `read after adding ${added}`);
+			assert.ok(pkg_node.dependencies.has(join(real_pkg, 'other.js')));
+
+			await filer.close();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	}
 });
 
