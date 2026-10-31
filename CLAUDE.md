@@ -63,11 +63,23 @@ Key features:
 - Composition - use the `invoke_task` helper (a builtin name or a task path) or
   direct imports
 - Args forwarding - CLI args like `gro dev -- vite --port 3000` forward to
-  external commands
-  - Multiple sections: `gro dev -- vite --port 3000 -- svelte-kit --debug`
+  external commands verbatim (`to_forwarded_argv`, never parsed and
+  reserialized)
+  - Multiple sections: `gro check -- eslint --cache -- tsc --pretty`
+  - A task's own flag (`lint`'s `--max-warnings 0`, `tsc`'s `--noEmit`,
+    configured `svelte-package` options) is dropped when the forwarded text
+    names it (`has_forwarded_flag`); the text follows Gro's args, except
+    `--noEmit` goes last (`tsc --build` must be first)
+  - Implicit forwarding (`gro test -- --watch`) reads only the first section,
+    unless it starts with `gro` or the tool's own name, and only for the task
+    the CLI invoked
+  - A literal `--` can't be forwarded, except to `gro run`'s script:
+    `gro run <path> ...rest` passes everything after the path verbatim, and a
+    flag before the path other than `--help` is an error
   - Special case for nested Gro tasks: `gro check -- gro test --coverage`
-    forwards to test, and `-- gro task src/lib/x.task.ts --a` to a project task
-    by its normalized path
+    forwards parsed args to test, and `-- gro task src/lib/x.task.ts --a` to a
+    project task by its normalized path; `-- gro <path>` and `-- gro gro/x`
+    error with the CLI's hints
   - Forwarded args override direct args: `gro test --a 1 -- gro test --a 2`
     results in `{a: 2}`
   - `invoke_task` automatically forwards CLI args to invoked tasks

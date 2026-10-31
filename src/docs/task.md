@@ -333,24 +333,40 @@ which makes a new one each time, as `_` does above.
 ### task args forwarding
 
 Some builtin Gro tasks call external commands like
-[`svelte-kit`](https://github.com/sveltejs/kit),
+[`eslint`](https://github.com/eslint/eslint),
 [`vite`](https://github.com/vitejs/vite),
 [`vitest`](https://github.com/vitest-dev/vitest),
 and [`tsc`](https://github.com/microsoft/typescript).
 Gro supports generic agnostic args forwarding to these tasks via the `--` pattern:
-for example, to forward args to `svelte-kit` and `vitest`, no matter which task invokes them,
-use `gro check --check-arg -- vitest --arg1 neat --arg2 22 -- svelte-kit --arg3`.
+for example, to forward args to `eslint` and `vitest`, no matter which task invokes them,
+use `gro check --check-arg -- vitest --arg1 neat --arg2 22 -- eslint --arg3`.
 
 Any number of sections separated by `--` may be defined, and the first arg
 that appears after each `--` is assumed to be the CLI command.
-If `gro check` or its invoked tasks don't call `vitest` or `svelte-kit`,
+If `gro check` or its invoked tasks don't call `vitest` or `eslint`,
 the `--` args will be ignored.
+An outside command gets its section's text verbatim, never parsed and reserialized,
+so `-- eslint --max-warnings -1 --no-cache` reaches `eslint` exactly as written.
+When a task passes a flag of its own, like `lint`'s `--max-warnings 0`
+or `typecheck`'s `--noEmit` to `tsc`, a forwarded flag of the same name
+(`--name`, `--name=value`, or `--no-name`) replaces it.
+The forwarded text follows Gro's own args, except that `--noEmit` follows it,
+as `tsc --build` must come first.
+A literal `--` can't be forwarded, because it separates the sections
+(except to [`gro run`](#gro-run)'s script).
+
+`gro test` also forwards to `vitest` the first section, unless it starts with `gro`
+or the tool's own name (`vitest`), only up to the next `--`,
+and only when the CLI invoked `gro test` directly:
+`gro test -- --watch` passes `--watch` to `vitest`,
+but `gro check -- --watch` passes nothing to the `test` that `check` invokes.
 
 There's one special case for task args forwarding: running Gro tasks.
-If `gro` is the command following a `--`, the args after the task are forwarded to it:
+If `gro` is the command following a `--`, the args after the task are parsed and forwarded to it:
 in `gro check -- gro test --a --b`, `--a` and `--b` go to the builtin `test`,
 and in `gro check -- gro task src/lib/foo.task.ts --a`, `--a` goes to that project task,
 its path normalized like `gro task` normalizes it (`./` optional).
+A path without `task`, like `-- gro src/lib/foo.task.ts`, is an error, as it is on the CLI.
 Forwarded args to Gro tasks override direct args, including args to `invoke_task`,
 so `gro test --a 1 -- gro test --a 2` invokes `test` with `{a: 2}`.
 
@@ -358,6 +374,16 @@ The `invoke_task` helper in the task context forwards the CLI args for the speci
 CLI args take precedence over args passed directly to `invoke_task`.
 This may not always be the desired behavior, but it gives the user more control,
 because you can't change args in code you don't control.
+
+### gro run
+
+`gro run <path> ...rest` runs a TypeScript or JS file with Gro's loader, like `node`.
+Everything after the path goes to the script verbatim, including any `--`,
+so `gro run foo.ts --help` passes `--help` to the script, not to Gro.
+Before the path, `gro run` takes only `--help`, and any other flag is an error
+saying to put the script's flags after the path.
+`invoke_task('run', {_: [path, ...positionals], ...named})` serializes the named args
+after the positionals, as code has no raw text to pass.
 
 ### throwing errors
 

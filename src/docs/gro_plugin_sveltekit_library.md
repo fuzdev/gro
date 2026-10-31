@@ -64,7 +64,10 @@ const config: CreateGroConfig = async (cfg) => {
 export default config;
 ```
 
-Options are forwarded to `svelte-package`.
+Options are passed to `svelte-package` as flags, a `false` boolean as `--no-x`.
+Args forwarded with `-- svelte-package` follow them verbatim
+and replace a configured option of the same spelling,
+so `gro build -- svelte-package --output x` overrides a configured `output`.
 See [`SveltePackageOptions`](/src/lib/sveltekit_helpers.ts)
 and the [SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging#options).
 

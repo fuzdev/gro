@@ -11,14 +11,17 @@ import { merge_forwarded_args, to_forwarded_args, type CliTaskArgs } from './arg
 import { run_task } from './run_task.ts';
 import {
 	is_builtin_task_name,
+	is_removed_builtin_prefix,
 	is_task_path,
 	is_task_path_input,
 	load_task,
 	SilentError,
 	TaskError,
 	to_builtin_task_id,
+	to_removed_builtin_prefix_message,
 	to_task_command,
 	to_task_path,
+	to_task_path_without_verb_message,
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB,
 	type TaskContext,
@@ -32,11 +35,6 @@ import { task_registry_find } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
-
-/**
- * The prefix that once forced a builtin, now an error naming the plain builtin.
- */
-const REMOVED_BUILTIN_PREFIX = 'gro/';
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -189,18 +187,8 @@ export const resolve_task = async (
 		return { ok: false, reasons: await to_no_builtin_reasons(task_name, root) };
 	}
 	if (!is_task_path(task_name)) {
-		if (task_name.startsWith(REMOVED_BUILTIN_PREFIX)) {
-			const builtin_name = task_name.slice(REMOVED_BUILTIN_PREFIX.length);
-			return {
-				ok: false,
-				reasons: [
-					is_builtin_task_name(builtin_name)
-						? `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, builtins are plain names: use \`${builtin_name}\`, as in \`gro ${builtin_name}\`.`
-						: builtin_name
-							? `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, and there's no builtin \`${builtin_name}\`.`
-							: `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, builtins are plain names: run \`gro\` to list them.`
-				]
-			};
+		if (is_removed_builtin_prefix(task_name)) {
+			return { ok: false, reasons: [to_removed_builtin_prefix_message(task_name)] };
 		}
 		return {
 			ok: false,
@@ -278,21 +266,12 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 
 	if (is_task_path_input(task_name) && !is_removed_builtin_prefix(task_name)) {
 		const log = new Logger('gro');
-		log_error_reasons(log, [
-			`\`${task_name}\` is a path: ${
-				is_task_path(task_name)
-					? `run a task file with \`gro task ${task_name}\``
-					: `list a directory's tasks with \`gro task ${task_name}\``
-			}.`
-		]);
+		log_error_reasons(log, [to_task_path_without_verb_message(task_name)]);
 		throw new SilentError();
 	}
 
 	await invoke_task(task_name, args, { config });
 };
-
-const is_removed_builtin_prefix = (task_name: string): boolean =>
-	task_name.startsWith(REMOVED_BUILTIN_PREFIX) && !is_task_path(task_name);
 
 /**
  * Lists the task files under `dir`, importing each to read its summary,

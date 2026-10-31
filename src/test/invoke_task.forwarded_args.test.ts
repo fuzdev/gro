@@ -6,10 +6,21 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { invoke_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
+import { log_error_reasons } from '#lib/task_logging.ts';
+import {
+	SilentError,
+	to_removed_builtin_prefix_message,
+	to_task_path_without_verb_message
+} from '#lib/task.ts';
 import { create_mock_module_graph, create_mock_watcher } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
+}));
+
+vi.mock('#lib/task_logging.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/task_logging.ts')>()),
+	log_error_reasons: vi.fn()
 }));
 
 vi.mock('#lib/task.ts', async (import_original) => ({
@@ -75,5 +86,40 @@ describe('invoke_task forwarded args', () => {
 			}
 		);
 		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ b: true });
+	});
+
+	test('a forwarded path without `gro task` or with the removed prefix fails with the CLI hint', async () => {
+		for (const input of ['src/lib/check.task.ts', 'gro/check']) {
+			process.argv = ['node', 'gro', 'check', '--', 'gro', input, '--a'];
+			await expect(
+				invoke_task(
+					'check',
+					{},
+					{
+						config: {} as unknown as GroConfig,
+						watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+					}
+				)
+			).rejects.toBeInstanceOf(SilentError);
+		}
+		expect(vi.mocked(run_task)).not.toHaveBeenCalled();
+		const reasons = vi.mocked(log_error_reasons).mock.calls.map((c) => c[1]);
+		expect(reasons).toEqual([
+			[to_task_path_without_verb_message('src/lib/check.task.ts')],
+			[to_removed_builtin_prefix_message('gro/check')]
+		]);
+	});
+
+	test("a tool section is never parsed, so a malformed one doesn't fail a task", async () => {
+		process.argv = ['node', 'gro', 'check', '--', 'eslint', '--no-_', '--', 'gro', 'check', '--a'];
+		await invoke_task(
+			'check',
+			{},
+			{
+				config: {} as unknown as GroConfig,
+				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+			}
+		);
+		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ a: true });
 	});
 });

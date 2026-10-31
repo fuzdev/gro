@@ -3,6 +3,7 @@ import { print_spawn_result, spawn, spawn_result_to_message } from '@fuzdev/fuz_
 import type { Plugin } from './plugin.ts';
 import { TaskError } from './task.ts';
 import { package_json_load } from './package_json.ts';
+import { to_forwarded_argv, to_forwarded_flag_value } from './args.ts';
 import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
@@ -39,8 +40,12 @@ export const gro_plugin_sveltekit_library = ({
 				// `svelte-package` ships `.svelte` source verbatim and leaves relative `.ts`
 				// specifiers in `.d.ts` declarations; rewrite them to `.js` so the published
 				// `dist` resolves for external consumers without `allowImportingTsExtensions`.
+				// a forwarded `-- svelte-package --output x` wins, like it does for `svelte-package`
 				const output_dir =
-					svelte_package_options?.output ?? svelte_package_options?.o ?? SVELTEKIT_DIST_DIRNAME;
+					to_forwarded_flag_value(to_forwarded_argv(svelte_package_cli), 'output', 'o') ??
+					svelte_package_options?.output ??
+					svelte_package_options?.o ??
+					SVELTEKIT_DIST_DIRNAME;
 				await rewrite_dist_imports(output_dir, log);
 			}
 		},

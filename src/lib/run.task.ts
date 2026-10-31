@@ -5,13 +5,17 @@ import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_implicit_forwarded_args } from './args.ts';
 import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
 import { TaskError, type Task } from './task.ts';
 
 /**
  * Runs a TypeScript file with Gro's loader, forwarding all args to the script.
  * Useful for scripts that need SvelteKit shims (`$app/env`, `$app/paths`, etc).
+ * From the CLI, `gro run <path> ...rest` passes everything after the path verbatim,
+ * unparsed and including any `--`, like `node`, so `gro run x.ts --help` is the script's `--help`;
+ * the CLI puts it all in the positionals.
+ * `invoke_task('run', {_: [path, ...positionals], ...named})` has no raw text,
+ * so it serializes the named args after the positionals.
  *
  * @module
  */
@@ -33,7 +37,7 @@ export const task: Task<Args> = {
 	summary: 'execute a file with the loader, like `node` but works for TypeScript',
 	Args,
 	run: async ({ args, log }) => {
-		const { _, ...forwarded_args } = args;
+		const { _, ...named_args } = args;
 		const [path, ...positional_argv] = _;
 
 		if (!path) {
@@ -45,13 +49,8 @@ export const task: Task<Args> = {
 			throw new TaskError('Cannot find file to run at path: ' + path);
 		}
 
-		// Get args after `--` without requiring a command name.
-		// This allows `gro run script.ts -- --help` to pass --help to the script.
-		const implicit_args = to_implicit_forwarded_args();
-
-		// Reconstruct argv: positional args + explicit named args + implicit args after --
-		const named_argv = args_serialize({ ...forwarded_args, ...implicit_args });
-		const full_argv = [...positional_argv, ...named_argv];
+		// the CLI's verbatim script args are all positionals, and a programmatic call's named args follow
+		const full_argv = [...positional_argv, ...args_serialize(named_args)];
 
 		const loader_path = resolve_gro_module_path('loader.js');
 

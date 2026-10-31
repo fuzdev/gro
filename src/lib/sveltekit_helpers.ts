@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
+import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 
-import { merge_forwarded_args, to_forwarded_args } from './args.ts';
+import { has_forwarded_flag, to_forwarded_argv } from './args.ts';
 import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
@@ -216,8 +216,52 @@ export const run_svelte_package = async (
 			} install\`?`
 		);
 	}
-	const serialized_args = args_serialize(
-		merge_forwarded_args({ ...options }, to_forwarded_args(cli_name))
-	);
-	await spawn_cli(found_svelte_package_cli, serialized_args, log);
+	const forwarded_argv = to_forwarded_argv(cli_name);
+	const serialized_args = [
+		...serialize_svelte_package_options(options, forwarded_argv),
+		...forwarded_argv
+	];
+	const spawned = await spawn_cli(found_svelte_package_cli, serialized_args, log);
+	if (!spawned?.ok) {
+		throw new TaskError(
+			`\`${cli_name}\` failed` + (spawned ? `: ${print_spawn_result(spawned)}` : '')
+		);
+	}
+};
+
+/**
+ * The long names of the boolean short aliases in `SveltePackageOptions`.
+ */
+const SVELTE_PACKAGE_BOOLEAN_ALIASES: Record<string, string | undefined> = {
+	w: 'watch',
+	t: 'types'
+};
+
+/**
+ * Serializes the configured `svelte-package` options by their spelling,
+ * a `false` boolean as `--no-x` with a short alias's long name,
+ * as `svelte-package` negates only long names (`--no-watch`, not `--no-w`),
+ * dropping each option that the verbatim `forwarded_argv` names, which overrides it.
+ * @param options - the configured options
+ * @param forwarded_argv - the verbatim args forwarded to `svelte-package`
+ * @returns the args for the configured options, to precede `forwarded_argv`
+ */
+
+const serialize_svelte_package_options = (
+	options: SveltePackageOptions | undefined,
+	forwarded_argv: Array<string>
+): Array<string> => {
+	const serialized: Array<string> = [];
+	if (!options) return serialized;
+	for (const [key, value] of Object.entries(options)) {
+		if (value === undefined || has_forwarded_flag(forwarded_argv, key)) continue;
+		if (value === false) {
+			serialized.push('--no-' + (SVELTE_PACKAGE_BOOLEAN_ALIASES[key] ?? key));
+			continue;
+		}
+		const name = (key.length === 1 ? '-' : '--') + key;
+		if (value === true) serialized.push(name);
+		else serialized.push(name, String(value));
+	}
+	return serialized;
 };

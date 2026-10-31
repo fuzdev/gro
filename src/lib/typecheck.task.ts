@@ -1,9 +1,8 @@
-import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_args } from './args.ts';
+import { has_forwarded_flag, to_forwarded_argv } from './args.ts';
 import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
 import { find_cli, spawn_cli, spawn_cli_process } from './cli.ts';
 import { SVELTE_CHECK_CLI } from './constants.ts';
@@ -41,7 +40,7 @@ export const task: Task<Args> = {
 		// Prefer svelte-check if available.
 		const found_svelte_check_cli = await find_cli(svelte_check_cli);
 		if (found_svelte_check_cli) {
-			const serialized = args_serialize(to_forwarded_args(svelte_check_cli));
+			const serialized = to_forwarded_argv(svelte_check_cli);
 			const spawned = await spawn_cli_process(found_svelte_check_cli, serialized, undefined, {
 				stdio: ['inherit', 'pipe', 'pipe'],
 				env: { ...process.env, FORCE_COLOR: '1' } // Needed for colors (maybe make an option)
@@ -65,9 +64,12 @@ export const task: Task<Args> = {
 		// Fall back to tsc.
 		const found_typescript_cli = await find_cli(typescript_cli);
 		if (found_typescript_cli) {
-			const forwarded = to_forwarded_args(typescript_cli);
-			if (!forwarded.noEmit) forwarded.noEmit = true;
-			const serialized = args_serialize(forwarded);
+			const forwarded_argv = to_forwarded_argv(typescript_cli);
+			// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
+			// and `--noEmit` goes last because `--build` must be tsc's first arg
+			const serialized = has_forwarded_flag(forwarded_argv, 'noEmit', true)
+				? forwarded_argv
+				: [...forwarded_argv, '--noEmit'];
 			const svelte_check_result = await spawn_cli(found_typescript_cli, serialized, log);
 			if (!svelte_check_result?.ok) {
 				throw new TaskError(`Failed to typecheck. ${print_spawn_result(svelte_check_result!)}`);

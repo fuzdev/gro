@@ -150,7 +150,7 @@ Gro can also run non-task TypeScript files directly
 with [the `gro run` task](/src/lib/run.task.ts) or [register hook](/src/lib/register.ts):
 
 ```bash
-gro run foo.ts
+gro run foo.ts --any args # everything after the path goes to the script verbatim
 node --import @fuzdev/gro/register.js foo.ts
 ```
 
@@ -183,7 +183,7 @@ including shims for [SvelteKit modules](https://kit.svelte.dev/docs/modules):
 gro test # run all tests for `*.test.ts` files with `vitest`
 gro test filepattern1 some.test another.test
 gro test optional_pattern -t "optional search string for test name"
-gro test -- vitest --forwarded_args 'to vitest'
+gro test -- --forwarded_args 'to vitest' # verbatim, also `-- vitest --forwarded_args`
 ```
 
 Check all the things:

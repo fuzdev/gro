@@ -5,7 +5,14 @@ Gro integrates [`Vitest`](https://vitest.dev/) for tests:
 ```bash
 gro test # run all tests with Gro's default `.test.` pattern
 gro test thing.test somedir test/a.b # run tests matching patterns
+gro test -- --watch --bail 1 # forward args to Vitest verbatim
+gro check -- vitest --bail 1 # forward to Vitest from a task that invokes `test`
 ```
+
+The first section after a `--` goes to Vitest, unless it starts with `gro` or `vitest`,
+only when the CLI invoked `gro test` itself, and only up to the next `--`;
+a `-- vitest` section reaches Vitest wherever `test` is invoked.
+See [task args forwarding](/src/docs/task.md#task-args-forwarding).
 
 > Running `gro test [...args]` calls Vitest
 > inside Gro's normal [task context](/src/docs/task.md).

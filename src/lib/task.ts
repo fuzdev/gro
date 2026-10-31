@@ -149,6 +149,45 @@ export const to_task_command = (name: string): string =>
 	is_task_path_input(name) ? `gro ${TASK_VERB} ${name}` : `gro ${name}`;
 
 /**
+ * The prefix that once forced a builtin, now an error naming the plain builtin.
+ */
+const REMOVED_BUILTIN_PREFIX = 'gro/';
+
+/**
+ * Whether a task input uses the removed `gro/` prefix, as opposed to a task path that starts with `gro/`.
+ * @internal
+ */
+export const is_removed_builtin_prefix = (input: string): boolean =>
+	input.startsWith(REMOVED_BUILTIN_PREFIX) && !is_task_path(input);
+
+/**
+ * The error for a task input with the removed `gro/` prefix, naming the plain builtin when there is one.
+ * @param input - a task input for which `is_removed_builtin_prefix` is true
+ * @internal
+ */
+export const to_removed_builtin_prefix_message = (input: string): string => {
+	const builtin_name = input.slice(REMOVED_BUILTIN_PREFIX.length);
+	return is_builtin_task_name(builtin_name)
+		? `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, builtins are plain names: use \`${builtin_name}\`, as in \`gro ${builtin_name}\`.`
+		: builtin_name
+			? `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, and there's no builtin \`${builtin_name}\`.`
+			: `The \`${REMOVED_BUILTIN_PREFIX}\` prefix is removed, builtins are plain names: run \`gro\` to list them.`;
+};
+
+/**
+ * The error for a path given where a task name goes, like `gro src/lib/x.task.ts`,
+ * hinting the `gro task` form that runs or lists it.
+ * @param input - a task input for which `is_task_path_input` is true
+ * @internal
+ */
+export const to_task_path_without_verb_message = (input: string): string =>
+	`\`${input}\` is a path: ${
+		is_task_path(input)
+			? `run a task file with \`gro ${TASK_VERB} ${input}\``
+			: `list a directory's tasks with \`gro ${TASK_VERB} ${input}\``
+	}.`;
+
+/**
  * Whether `name` is one of Gro's builtin tasks.
  */
 export const is_builtin_task_name = (name: string): name is keyof GroBuiltinTasks =>

@@ -1,9 +1,8 @@
-import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_args } from './args.ts';
+import { has_forwarded_flag, to_forwarded_argv } from './args.ts';
 import { find_cli, spawn_cli } from './cli.ts';
 import { TaskError, type Task } from './task.ts';
 
@@ -30,8 +29,13 @@ export const task: Task<Args> = {
 			return;
 		}
 
-		const forwarded_args = { _, 'max-warnings': 0, ...to_forwarded_args(eslint_cli) };
-		const serialized_args = args_serialize(forwarded_args);
+		// the forwarded text goes verbatim after Gro's own args, which drop what it overrides
+		const forwarded_argv = to_forwarded_argv(eslint_cli);
+		const serialized_args = [..._];
+		if (!has_forwarded_flag(forwarded_argv, 'max-warnings')) {
+			serialized_args.push('--max-warnings', '0');
+		}
+		serialized_args.push(...forwarded_argv);
 		const eslintResult = await spawn_cli(found_eslint_cli, serialized_args, log);
 		if (!eslintResult?.ok) {
 			throw new TaskError(`ESLint found some problems. ${print_spawn_result(eslintResult!)}`);

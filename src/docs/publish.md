@@ -127,7 +127,7 @@ Then publish:
 ```bash
 gro publish
 gro publish --help # view the options
-gro publish -- svelte-package -w # forward options
+gro publish -- svelte-package --types # forward options
 ```
 
 See [the SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging) for more.

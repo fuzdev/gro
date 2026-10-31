@@ -22,17 +22,21 @@ fix: the module graph no longer fails to load on an import naming a directory (`
 
 fix: the module graph no longer records the raw source text of a dynamic import of a template literal with a substitution or a string concatenation (`` `./locales/${lang}.ts` ``, `'./x' + 'y'`) as a dependency, and static import specifiers are read decoded, so escapes resolve exactly
 
-fix: a flag that replaces the positional args, like `gro run --no-_` or `gro run x.ts --_`, is a usage error instead of a crash on `args._.shift is not a function`, in the CLI's args and in forwarded and implicit forwarded args
+fix: a flag that replaces the positional args, like `gro run --no-_` or `gro test --_`, is a usage error instead of a crash on `args._.shift is not a function`, in the CLI's args and in forwarded `gro` sections
 
 fix: a project under a `.`-prefixed directory, like a checkout in `~/.cache/` or `.claude/worktrees/`, finds its genfiles, tasks, and files to format, where the default `search_filters` excluded every path and `gro gen --check` passed with nothing checked
 
-fix: a malformed forwarded `gro` command, like `gro run x.ts -- gro` or `-- gro task` with no path, is a usage error instead of an unhandled one
+fix: a malformed forwarded `gro` command, like `gro check -- gro` or `-- gro task` with no path, is a usage error instead of an unhandled one
 
 fix: `is_gen_path` tests the file name only, so a project under a directory like `my.gen.x/` no longer treats every file as a genfile
 
 **breaking** fix: a task that fails is reported once: `invoke_task` logs its error (with the stack for an unexpected one) and rejects with a `SilentError` with the original error as its `cause`, where it rejected with the original, so an invoking task says only that it failed and the CLI prints no duplicate error and stack; a task's invalid args fail the same way, with the failure line under the task, where `run_task` threw a `TaskError` (it now returns `{ok: false}` with the `TaskError` as `error`)
 
+**breaking** fix: args forwarded to outside tools pass verbatim, where parsing and reserializing them dropped `--no-cache`, reordered `--max-warnings -1`, split `--grep -foo` into `-f -o`, and rewrote `0123`, `1.10`, `1e3`, and `--x=`: `eslint`, `svelte-check`, `tsc`, `vite`, `svelte-package`, the package manager in `gro upgrade`, and `vitest` get their section's text as written, and only `-- gro <task>` sections are parsed; empty-string args are forwarded as-is; a task's own flag (`lint`'s `--max-warnings 0`, `tsc`'s `--noEmit`, matched case-insensitively, and configured `svelte-package` options by spelling) is dropped when the forwarded text names it as `--x`, `--x=…`, or `--no-x`, with the forwarded text after Gro's args (`--noEmit` after it, so `tsc --build` stays first), a configured `svelte-package` option of `false` passes as `--no-x` (`w` and `t` as `--no-watch` and `--no-types`) where it was dropped, and a forwarded `-- svelte-package --output x` also sets the directory the library plugin rewrites imports in; an `-- eslint` section's positionals add to `lint`'s paths where they replaced them; `gro run <path> ...rest` passes everything after the path to the script verbatim, including `--help` and any `--`, so `gro run x.ts -- --help` now passes the `--` too, and a flag before the path other than `--help` is a usage error saying to put it after the path (`invoke_task('run', args)` still serializes its named args); implicit forwarding (`gro test -- --watch`) reads only the first section and only for the task the CLI invoked, so `gro check -- --watch` and `gro check -- gro test --coverage` give `vitest` nothing implicit, while a `-- vitest` section reaches it at any depth; a forwarded `-- gro <path>` or `-- gro gro/x` errors with the CLI's hint instead of being ignored; a literal `--` still can't be forwarded except to `gro run`'s script; `to_implicit_forwarded_args` and `to_forwarded_args`' `cache` param are removed, `to_forwarded_args` and `to_forwarded_args_by_command` cover only `gro` sections, and `to_forwarded_argv`, `to_implicit_forwarded_argv`, `has_forwarded_flag`, and `to_forwarded_flag_value` are added
+
 fix: a task whose nested `invoke_task` fails, like one invoking a name that's no builtin, reports that it failed instead of an unexpected error suggesting `npm install` and `gro clean`
+
+fix: a failed `svelte-package` fails the library plugin with a `TaskError`, where its exit was ignored and the plugin went on to rewrite imports in a stale output directory
 
 fix: a server build compiles a Svelte runes module imported by a relative path, like `./state.svelte.ts`, where its own imports failed to resolve (`Could not resolve "svelte/internal/server"`)
 

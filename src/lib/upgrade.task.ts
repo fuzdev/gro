@@ -1,10 +1,9 @@
-import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { GitOrigin, git_pull } from '@fuzdev/fuz_util/git.ts';
 import { rm } from 'node:fs/promises';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_args } from './args.ts';
+import { to_forwarded_argv } from './args.ts';
 import { spawn_cli } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
@@ -127,7 +126,7 @@ export const task: Task<Args> = {
 		if (force) {
 			install_args.push('--force');
 		}
-		install_args.push(...args_serialize(to_forwarded_args(config.pm_cli)));
+		install_args.push(...to_forwarded_argv(config.pm_cli));
 		await install_with_cache_healing_or_throw(config.pm_cli, { install_args, log });
 
 		// TODO @many this relies on npm behavior that changed in v11
