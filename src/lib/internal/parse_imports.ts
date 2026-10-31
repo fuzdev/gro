@@ -3,7 +3,7 @@ import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import { JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER } from './constants.ts';
+import { JS_MATCHER, TS_MATCHER, SVELTE_MATCHER, SVELTE_SCRIPT_MATCHER } from '../constants.ts';
 
 export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 
@@ -11,23 +11,23 @@ export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 
 /**
  * Extracts the string value from a module request, handling different quote styles.
- * Returns null if the value is not a valid string literal.
+ * Returns null if the value is not a single string literal: a concatenation
+ * (`'./x' + 'y'`) starts and ends with quotes but contains its own quote
+ * character, and a template literal with a substitution (`./locales/${lang}.ts`)
+ * contains `${`.
  */
 const extract_string_literal = (content: string, start: number, end: number): string | null => {
 	const value = content.substring(start, end);
+	if (value.length < 2) return null;
 
-	// Check if it's a string literal (starts and ends with quotes)
-	if (
-		(value.startsWith("'") && value.endsWith("'")) ||
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith('`') && value.endsWith('`'))
-	) {
-		// Remove the quotes
-		return value.slice(1, -1);
-	}
+	const quote = value[0];
+	if ((quote !== "'" && quote !== '"' && quote !== '`') || !value.endsWith(quote)) return null;
 
-	// Not a valid string literal
-	return null;
+	const inner = value.slice(1, -1);
+	if (inner.includes(quote)) return null;
+	if (quote === '`' && inner.includes('${')) return null;
+
+	return inner;
 };
 
 export const parse_imports = (
@@ -50,8 +50,8 @@ export const parse_imports = (
 
 			if (!import_decl?.source) continue;
 
-			// Extract the module request string value
-			const value = extract_string_literal(s, import_decl.source.start, import_decl.source.end);
+			// the parser's decoded value, exact for every escape
+			const value = import_decl.source.value;
 
 			if (!value) continue;
 

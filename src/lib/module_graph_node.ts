@@ -2,8 +2,8 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import type { FileChangeCallback, ModuleGraph, Watcher, WatchOptions } from './module_graph.ts';
-import type { Filer, filter_dependents } from './filer.ts';
-import type { WatchNodeFs } from './watch_dir.ts';
+import type { Filer, filter_dependents } from './internal/filer.ts';
+import type { WatchNodeFs } from './internal/watch_dir.ts';
 
 interface LoadedFiler {
 	filer: Filer;
@@ -31,7 +31,7 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 	const load = async (): Promise<LoadedFiler> => {
 		if (closed) throw Error('ModuleGraph is closed');
 		loading ??= (async () => {
-			const { Filer, filter_dependents } = await import('./filer.ts');
+			const { Filer, filter_dependents } = await import('./internal/filer.ts');
 			const filer = new Filer({ watch_dir_options: { dir: watch.dir, filter: watch.filter }, log });
 			await filer.init();
 			return { filer, filter_dependents };
@@ -111,7 +111,7 @@ export const create_node_watcher = (options: NodeWatcherOptions): Watcher => {
 	return {
 		watch: async (on_change) => {
 			if (closed) throw Error('Watcher is closed');
-			const { watch_dir } = await import('./watch_dir.ts');
+			const { watch_dir } = await import('./internal/watch_dir.ts');
 			if (closed) throw Error('Watcher is closed');
 			const watcher = watch_dir({
 				dir: watch.dir,

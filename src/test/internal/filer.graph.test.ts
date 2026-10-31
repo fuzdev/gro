@@ -3,11 +3,11 @@ import { join, resolve } from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import type { WatchNodeFs } from '#lib/watch_dir.ts';
-import { Filer, filter_dependents } from '#lib/filer.ts';
-import type { Disknode } from '#lib/disknode.ts';
+import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import { Filer, filter_dependents } from '#lib/internal/filer.ts';
+import type { Disknode } from '#lib/internal/disknode.ts';
 
-const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
+const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
 
 const create_test_disknode = (id: string, contents: string | null = null): Disknode => ({
 	id,

@@ -1,11 +1,13 @@
 import { test, assert, vi } from 'vitest';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
-import type { WatchNodeFs } from '#lib/watch_dir.ts';
-import { Filer, filter_dependents } from '#lib/filer.ts';
-import type { Disknode } from '#lib/disknode.ts';
+import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import { Filer, filter_dependents } from '#lib/internal/filer.ts';
+import type { Disknode } from '#lib/internal/disknode.ts';
 
-const fixtures_dir = resolve(import.meta.dirname, 'fixtures');
+const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
 
 const create_test_disknode = (id: string, contents: string | null = null): Disknode => ({
 	id,
@@ -278,6 +280,83 @@ test('handles permission errors on file read', async () => {
 	assert.ok(file);
 	// Contents will be null since file read failed
 	assert.equal(file.contents, null);
+});
+
+test('an external dependency naming a directory is a contentless node, not an init failure', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_dir_dep_'));
+	try {
+		const root_dir = join(dir, 'src', 'lib');
+		await mkdir(root_dir, { recursive: true });
+		const importer_path = join(root_dir, 'a.ts');
+		await writeFile(importer_path, "import '../../';\nexport const a = 1;\n");
+		const dir_dep_path = dir + '/';
+
+		const mock_watch_dir = vi.fn((options) => {
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir: root_dir } });
+		await filer.init(); // drains the deferred external add, rejected with `EISDIR` when rethrown
+
+		const importer = filer.get_by_id(importer_path);
+		assert.ok(importer);
+		assert.ok(importer.dependencies.has(dir_dep_path), 'importer should depend on the directory');
+		const dir_dep = filer.get_by_id(dir_dep_path);
+		assert.ok(dir_dep);
+		assert.equal(dir_dep.external, true);
+		assert.equal(dir_dep.contents, null);
+		assert.equal(dir_dep.content_hash, null);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+test('an external dependency through a file is a contentless node, not an init failure', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_notdir_dep_'));
+	try {
+		const root_dir = join(dir, 'src', 'lib');
+		await mkdir(root_dir, { recursive: true });
+		await writeFile(join(dir, 'src', 'x.ts'), 'export const x = 1;\n');
+		const importer_path = join(root_dir, 'a.ts');
+		await writeFile(importer_path, "import '../x.ts/y';\nexport const a = 1;\n");
+		const notdir_dep_path = join(dir, 'src', 'x.ts', 'y');
+
+		const mock_watch_dir = vi.fn((options) => {
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir: root_dir } });
+		await filer.init(); // drains the deferred external add, rejected with `ENOTDIR` when rethrown
+
+		const importer = filer.get_by_id(importer_path);
+		assert.ok(importer);
+		assert.ok(
+			importer.dependencies.has(notdir_dep_path),
+			'importer should depend on the path through the file'
+		);
+		const notdir_dep = filer.get_by_id(notdir_dep_path);
+		assert.ok(notdir_dep);
+		assert.equal(notdir_dep.external, true);
+		assert.equal(notdir_dep.contents, null);
+		assert.equal(notdir_dep.content_hash, null);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test('handles same mtime but different contents', async () => {

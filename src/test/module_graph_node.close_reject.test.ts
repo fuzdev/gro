@@ -4,7 +4,7 @@ import { create_node_watcher } from '#lib/module_graph_node.ts';
 
 const state = vi.hoisted(() => ({ count: 0, slow_closed: false }));
 
-vi.mock('#lib/watch_dir.ts', () => ({
+vi.mock('#lib/internal/watch_dir.ts', () => ({
 	watch_dir: () => {
 		const n = state.count++;
 		return {

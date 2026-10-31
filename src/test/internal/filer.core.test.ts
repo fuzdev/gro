@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import type { WatchNodeFs } from '#lib/watch_dir.ts';
-import { Filer } from '#lib/filer.ts';
+import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import { Filer } from '#lib/internal/filer.ts';
 
 // Create a simple mock watch_dir that simulates file discovery
 const create_mock_watch_dir = () => {

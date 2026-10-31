@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 
-import { parse_imports } from '#lib/parse_imports.ts';
+import { parse_imports } from '#lib/internal/parse_imports.ts';
 
 test('parse js imports', () => {
 	const parsed = parse_imports(
@@ -247,4 +247,37 @@ test('parse dynamic imports with expressions', () => {
 	);
 	// Only the string literal should be captured
 	expect(parsed).toEqual(['simple_dynamic']);
+});
+
+// dynamic imports outside an `await` statement go through the source-text fallback
+test('parse dynamic imports outside await statements, string literals only', () => {
+	const parsed = parse_imports(
+		'a.ts',
+		`
+      const a = import('./single.ts');
+      const b = import("./double.ts");
+      const c = import(\`./template.ts\`);
+      const d = import("./it's.ts");
+      const e = import(\`./locales/\${lang}.ts\`);
+      const f = import('./x' + 'y');
+      const g = import("./x" + "y");
+      const h = import(\`./x\` + \`y\`);
+      const i = import('./x' + "y");
+      const j = () => import('./x' + y + 'z');
+      const k = import(dynamicVariable);
+    `
+	);
+	expect(parsed).toEqual(['./single.ts', './double.ts', './template.ts', "./it's.ts"]);
+});
+
+test('parse static import specifiers decoded, escapes included', () => {
+	const parsed = parse_imports(
+		'a.ts',
+		`
+      import a from './a\\'b.ts';
+      import {c} from "./c\\\\d.ts";
+      import './\\x65.ts';
+    `
+	);
+	expect(parsed).toEqual(["./a'b.ts", './c\\d.ts', './e.ts']);
 });

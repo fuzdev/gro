@@ -15,10 +15,10 @@ import {
 	type WatchDirOptions,
 	type WatcherChangeCallback
 } from './watch_dir.ts';
-import { paths } from './paths.ts';
+import { paths } from '../paths.ts';
 import { parse_imports } from './parse_imports.ts';
-import { to_specifier_path_id } from './resolve_specifier.ts';
-import { SVELTEKIT_GLOBAL_SPECIFIER } from './constants.ts';
+import { to_specifier_path_id } from '../resolve_specifier.ts';
+import { SVELTEKIT_GLOBAL_SPECIFIER } from '../constants.ts';
 import type { Disknode } from './disknode.ts';
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
@@ -229,9 +229,18 @@ export class Filer {
 			[stats, new_bytes] = await Promise.all([stat(id), readFile(id)]);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			// Treat file as deleted/inaccessible for common error codes
-			if (code === 'ENOENT' || code === 'EACCES' || code === 'EPERM') {
-				// File doesn't exist or is inaccessible, treat as deleted
+			// treat the file as deleted or inaccessible for common error codes;
+			// `EISDIR` and `ENOTDIR` are a dependency specifier naming a directory
+			// (`import '../../'`) or a path through a file (`import '../x.ts/y'`),
+			// which have no module contents, so they're contentless nodes like a missing file
+			if (
+				code === 'ENOENT' ||
+				code === 'EACCES' ||
+				code === 'EPERM' ||
+				code === 'EISDIR' ||
+				code === 'ENOTDIR'
+			) {
+				// the file doesn't exist, is inaccessible, or is a directory
 			} else {
 				throw error;
 			}

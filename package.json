@@ -132,6 +132,7 @@
   ],
   "exports": {
     "./package.json": "./package.json",
+    "./internal/*": null,
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"

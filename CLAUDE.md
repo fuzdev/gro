@@ -438,8 +438,8 @@ config files (optional `gro.config.ts`). Default config auto-detects project
 type by inspecting filesystem.
 
 User overrides - local `src/lib/foo.task.ts` takes precedence over
-`gro/dist/foo.task.js`. Call builtin explicitly with `gro gro/foo`. All of Gro's
-internals exported from `src/lib` for reuse.
+`gro/dist/foo.task.js`. Call builtin explicitly with `gro gro/foo`. Gro's
+modules in `src/lib` are exported for reuse, except those under `internal/`.
 
 Plugin lifecycle - setup initializes, adapt handles production finalization
 (SvelteKit adapters), teardown cleans up. Watch mode skips teardown to keep
@@ -451,7 +451,8 @@ plugin uses it to trigger regeneration) and `watcher` (`Watcher`: a plain file
 watch; the server plugin uses it to rebuild). The interfaces live in
 `module_graph.ts`, types only; the Node implementations in `module_graph_node.ts`
 import the Filer and chokidar on first use, so tasks that never use them never
-load them.
+load them. The Filer family (`internal/filer.ts`, `internal/disknode.ts`,
+`internal/watch_dir.ts`, `internal/parse_imports.ts`) is internal, not exported.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.
@@ -645,7 +646,7 @@ Core systems (src/lib/):
 
 Key utilities:
 
-- Filesystem: `module_graph.ts`, `module_graph_node.ts`, `filer.ts`, `paths.ts`
+- Filesystem: `module_graph.ts`, `module_graph_node.ts`, `internal/filer.ts`, `paths.ts`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`,
   `esbuild_plugin_sveltekit_*.ts`
