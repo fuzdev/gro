@@ -345,7 +345,7 @@ Some builtin Gro tasks call external commands like
 and [`tsc`](https://github.com/microsoft/typescript).
 Gro supports generic agnostic args forwarding to these tasks via the `--` pattern:
 for example, to forward args to `eslint` and `vitest`, no matter which task invokes them,
-use `gro check --check-arg -- vitest --arg1 neat --arg2 22 -- eslint --arg3`.
+use `gro check -- vitest --arg1 neat --arg2 22 -- eslint --arg3`.
 
 Any number of sections separated by `--` may be defined, and the first arg
 that appears after each `--` is assumed to be the CLI command.

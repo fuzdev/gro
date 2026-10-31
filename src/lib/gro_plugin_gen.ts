@@ -67,19 +67,8 @@ export const gro_plugin_gen = ({
 							: `[gen] generating ${files.length} file${files.length === 1 ? '' : 's'}`
 					);
 					queued_files.clear();
+					// a file queued while this runs opens the throttle's next window, which takes it
 					await gen(files);
-
-					// run again?
-					if (queued_files.size > 0) {
-						log.info(
-							`[gen] re-running for ${queued_files.size} more queued file${
-								queued_files.size === 1 ? '' : 's'
-							}`
-						);
-						setTimeout(flush_gen_queue); // setTimeout is needed bc of throttle behavior
-					} else {
-						log.info('[gen] queue empty, done');
-					}
 				},
 				{ delay: flush_debounce_delay, when: 'trailing' }
 			);
