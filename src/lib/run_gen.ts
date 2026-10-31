@@ -16,7 +16,6 @@ import {
 import { print_path } from './paths.ts';
 import type { format_file as base_format_file } from './format_file.ts';
 import type { GroConfig } from './gro_config.ts';
-import type { Filer } from './filer.ts';
 import type { InvokeTask } from './task.ts';
 
 export const GEN_NO_PROD_MESSAGE = 'gen runs only during development';
@@ -24,7 +23,6 @@ export const GEN_NO_PROD_MESSAGE = 'gen runs only during development';
 export const run_gen = async (
 	gen_modules: Array<GenfileModuleMeta>,
 	config: GroConfig,
-	filer: Filer,
 	log: Logger,
 	timings: Timings,
 	invoke_task: InvokeTask,
@@ -42,7 +40,7 @@ export const run_gen = async (
 			const timing_for_module = timings.start(id);
 
 			const gen_config = normalize_gen_config(module_meta.mod.gen);
-			const gen_ctx = create_gen_context({ config, filer, log, timings, invoke_task }, id);
+			const gen_ctx = create_gen_context({ config, log, timings, invoke_task }, id);
 			let raw_gen_result: RawGenResult;
 			try {
 				raw_gen_result = await gen_config.generate(gen_ctx);

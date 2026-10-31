@@ -4,7 +4,7 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
 import { format_issue } from '@fuzdev/fuz_schema/schema.ts';
 
-import type { Filer } from './filer.ts';
+import type { ModuleGraph, Watcher } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
@@ -27,7 +27,8 @@ export const run_task = async (
 	unparsed_args: Args,
 	invoke_task: typeof base_invoke_task,
 	config: GroConfig,
-	filer: Filer,
+	graph: ModuleGraph,
+	watcher: Watcher,
 	log: Logger,
 	timings: Timings
 ): Promise<RunTaskResult> => {
@@ -61,12 +62,20 @@ export const run_task = async (
 			get svelte_config() {
 				return load_default_svelte_config();
 			},
-			filer,
+			graph,
+			watcher,
 			log,
 			timings,
 			// the registry typing is for callers, the runtime takes any name and args
 			invoke_task: (invoked_task_name: string, invoked_args?: Args, invoked_config?: GroConfig) =>
-				invoke_task(invoked_task_name, invoked_args, invoked_config ?? config, filer, timings, log)
+				invoke_task(
+					invoked_task_name,
+					invoked_args,
+					invoked_config ?? config,
+					{ graph, watcher },
+					timings,
+					log
+				)
 		});
 	} catch (error) {
 		return {

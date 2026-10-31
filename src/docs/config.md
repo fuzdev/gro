@@ -54,6 +54,7 @@ export interface GroConfig extends RawGroConfig {
 	search_filters: Array<PathFilter>;
 	js_cli: string;
 	pm_cli: string;
+	watch: WatchOptions;
 }
 
 // The relaxed variant that users can provide. Superset of `GroConfig`.
@@ -64,6 +65,7 @@ export interface RawGroConfig {
 	search_filters?: PathFilter | Array<PathFilter> | null;
 	js_cli?: string;
 	pm_cli?: string;
+	watch?: Partial<WatchOptions>;
 }
 ```
 
@@ -229,6 +231,13 @@ Directories and files are included if they pass all of these filters.
 By default, it uses the `SEARCH_EXCLUDER_DEFAULT` to exclude
 dot-prefixed directories, node_modules,
 and the build and dist directories for SvelteKit and Gro.
+
+## `watch`
+
+What the task context's `graph` and `watcher` watch:
+`dir`, the directory holding the project modules (default `src/`),
+and `filter`, a `PathFilter` excluding the paths it rejects (default `null`).
+Files outside `dir` enter the graph only when a project module imports them.
 
 ## `js_cli`
 

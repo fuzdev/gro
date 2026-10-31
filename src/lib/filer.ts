@@ -5,7 +5,6 @@ import type { OmitStrict } from '@fuzdev/fuz_util/types.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { FileFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
@@ -27,7 +26,6 @@ export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 export interface FilerOptions {
 	watch_dir?: typeof watch_dir;
 	watch_dir_options?: Partial<OmitStrict<WatchDirOptions, 'on_change'>>;
-	package_json_cache?: Record<string, PackageJson>;
 	log?: Logger;
 }
 

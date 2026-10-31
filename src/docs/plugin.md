@@ -55,8 +55,8 @@ export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
 }
 ```
 
-`PluginContext` extends the task context, so plugins get the same args, config, filer, logger,
-and `invoke_task` as tasks; see [`TaskContext` in the task docs](task.md#type-taskcontext).
+`PluginContext` extends the task context, so plugins get the same args, config, `graph`, `watcher`,
+logger, and `invoke_task` as tasks; see [`TaskContext` in the task docs](task.md#type-taskcontext).
 
 ## error handling
 

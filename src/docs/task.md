@@ -169,12 +169,18 @@ export interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
 	svelte_config: Promise<ParsedSvelteConfig>;
-	filer: Filer;
+	graph: ModuleGraph;
+	watcher: Watcher;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
 }
 ```
+
+`graph` is the project's module graph (the modules under `src/`, which imports which,
+and their changes) and `watcher` a plain file watch over the same directory.
+Both load on first use, so a task that never touches them never starts a watch;
+`config.watch` sets what they watch.
 
 ### run a task inside another task with `invoke_task`
 

@@ -64,7 +64,8 @@ describe('to_plugin_context', () => {
 		expect(plugin_ctx.watch).toBe(false);
 		expect(plugin_ctx.args).toBe(ctx.args);
 		expect(plugin_ctx.config).toBe(ctx.config);
-		expect(plugin_ctx.filer).toBe(ctx.filer);
+		expect(plugin_ctx.graph).toBe(ctx.graph);
+		expect(plugin_ctx.watcher).toBe(ctx.watcher);
 		expect(plugin_ctx.log).toBe(ctx.log);
 		expect(plugin_ctx.timings).toBe(ctx.timings);
 		expect(plugin_ctx.invoke_task).toBe(ctx.invoke_task);

@@ -144,13 +144,13 @@ export const gro_plugin_server = ({
 	run // `dev` default is not available in this scope
 }: GroPluginServerOptions = {}): Plugin => {
 	let build_ctx: esbuild.BuildContext | undefined;
-	let cleanup_watch: (() => void) | undefined;
+	let cleanup_watch: (() => Promise<void>) | undefined;
 	let server_process: RestartableProcess | undefined;
 	let deps: Set<PathId> | undefined;
 
 	return {
 		name: 'gro_plugin_server',
-		setup: async ({ dev, watch, timings, log, config, filer }) => {
+		setup: async ({ dev, watch, timings, log, config, watcher }) => {
 			// `load_default_svelte_config` memoizes, so this shares the resolution
 			// with the rest of the process. Note that it reads the cwd's config,
 			// not `dir`'s - `dir` positions esbuild's output.
@@ -253,8 +253,8 @@ export const gro_plugin_server = ({
 			await rebuild();
 
 			if (watch) {
-				cleanup_watch = await filer.watch((change) => {
-					if (!deps?.has(change.path)) {
+				cleanup_watch = await watcher.watch((change) => {
+					if (!deps?.has(change.id)) {
 						return;
 					}
 					void rebuild();
@@ -276,8 +276,9 @@ export const gro_plugin_server = ({
 		},
 		teardown: async () => {
 			if (cleanup_watch) {
-				cleanup_watch();
+				const c = cleanup_watch;
 				cleanup_watch = undefined;
+				await c();
 			}
 
 			if (server_process) {

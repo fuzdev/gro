@@ -7,7 +7,7 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import type { GroConfig } from '#lib/gro_config.ts';
-import type { Filer } from '#lib/filer.ts';
+import type { ModuleGraph, Watcher } from '#lib/module_graph.ts';
 import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
 
@@ -227,13 +227,22 @@ export const create_mock_timings = (): Timings =>
 	}) as unknown as Timings;
 
 /**
- * Creates a mock Filer object for testing.
+ * Creates a mock `ModuleGraph` whose queries throw, for tests that never use it.
  */
-export const create_mock_filer = (): Filer =>
-	({
-		find: vi.fn(),
-		create_changeset: vi.fn()
-	}) as unknown as Filer;
+export const create_mock_module_graph = (): ModuleGraph => ({
+	modules: () => Promise.reject(Error('mock ModuleGraph: modules not implemented')),
+	dependents: () => Promise.reject(Error('mock ModuleGraph: dependents not implemented')),
+	watch: () => Promise.reject(Error('mock ModuleGraph: watch not implemented')),
+	close: vi.fn(() => Promise.resolve())
+});
+
+/**
+ * Creates a mock `Watcher` whose `watch` throws, for tests that never use it.
+ */
+export const create_mock_watcher = (): Watcher => ({
+	watch: () => Promise.reject(Error('mock Watcher: watch not implemented')),
+	close: vi.fn(() => Promise.resolve())
+});
 
 /**
  * Creates a mock ParsedSvelteConfig for testing.
@@ -270,7 +279,8 @@ export const create_mock_task_context = <TArgs extends object = any>(
 		...config_overrides
 	} as GroConfig,
 	svelte_config: Promise.resolve(create_mock_svelte_config()),
-	filer: create_mock_filer(),
+	graph: create_mock_module_graph(),
+	watcher: create_mock_watcher(),
 	log: create_mock_logger(),
 	timings: create_mock_timings(),
 	invoke_task: vi.fn()

@@ -19,7 +19,6 @@ import {
 	type ResolvedInputFile,
 	type ResolvedInputPath
 } from './input_path.ts';
-import type { Filer } from './filer.ts';
 import type { InvokeTask } from './task.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
@@ -68,7 +67,6 @@ export interface GenContext {
 	 * never pay to read the SvelteKit config.
 	 */
 	svelte_config: Promise<ParsedSvelteConfig>;
-	filer: Filer;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -92,10 +90,7 @@ export interface GenContext {
  * The `GenContext` values that are the same for every genfile in a run,
  * as opposed to the per-genfile ones `create_gen_context` derives.
  */
-export type GenContextBase = Pick<
-	GenContext,
-	'config' | 'filer' | 'log' | 'timings' | 'invoke_task'
->;
+export type GenContextBase = Pick<GenContext, 'config' | 'log' | 'timings' | 'invoke_task'>;
 
 /**
  * Builds a `GenContext` for one genfile, so generating and resolving dependencies

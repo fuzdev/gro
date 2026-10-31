@@ -87,7 +87,8 @@ interface TaskContext<TArgs = object> {
 	args: TArgs;
 	config: GroConfig;
 	svelte_config: Promise<ParsedSvelteConfig>;
-	filer: Filer;
+	graph: ModuleGraph; // the project's module graph, loaded on first use
+	watcher: Watcher; // a plain file watch, loaded on first use
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -221,7 +222,6 @@ Gen context:
 interface GenContext {
 	config: GroConfig;
 	svelte_config: Promise<ParsedSvelteConfig>;
-	filer: Filer;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -334,6 +334,7 @@ interface GroConfig {
 	search_filters: Array<PathFilter>; // Exclude patterns for discovery
 	js_cli: string; // Node-compatible CLI (default: 'node')
 	pm_cli: string; // npm-compatible CLI (default: 'npm')
+	watch: WatchOptions; // what `graph` and `watcher` watch (default: `src/`, no filter)
 }
 ```
 
@@ -443,9 +444,13 @@ Plugin lifecycle - setup initializes, adapt handles production finalization
 (SvelteKit adapters), teardown cleans up. Watch mode skips teardown to keep
 processes alive.
 
-Filer - central filesystem tracker in task/plugin context. Watches files in dev
-mode, tracks dependencies between modules, used by gen plugin to trigger
-regeneration.
+Module graph and watcher - the task/plugin context's `graph` (`ModuleGraph`:
+project modules, transitive dependents, content-based change events; the gen
+plugin uses it to trigger regeneration) and `watcher` (`Watcher`: a plain file
+watch; the server plugin uses it to rebuild). The interfaces live in
+`module_graph.ts`, types only; the Node implementations in `module_graph_node.ts`
+import the Filer and chokidar on first use, so tasks that never use them never
+load them.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.
@@ -639,7 +644,7 @@ Core systems (src/lib/):
 
 Key utilities:
 
-- Filesystem: `filer.ts`, `paths.ts`
+- Filesystem: `module_graph.ts`, `module_graph_node.ts`, `filer.ts`, `paths.ts`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`,
   `esbuild_plugin_sveltekit_*.ts`

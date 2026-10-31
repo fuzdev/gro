@@ -15,7 +15,7 @@ import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { GRO_DIST_DIR } from '#lib/paths.ts';
 import type { InvokeTask } from '#lib/task.ts';
 
-import { create_mock_filer, create_mock_logger, create_mock_timings } from './test_helpers.ts';
+import { create_mock_logger, create_mock_timings } from './test_helpers.ts';
 
 let dirs: Array<string> = [];
 
@@ -138,7 +138,6 @@ describe('gen_task_registry', () => {
 		const ctx = create_gen_context(
 			{
 				config,
-				filer: create_mock_filer(),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
 				invoke_task: vi.fn()

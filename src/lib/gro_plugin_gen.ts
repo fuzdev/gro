@@ -6,7 +6,6 @@ import { throttle } from '@fuzdev/fuz_util/throttle.ts';
 import type { Plugin } from './plugin.ts';
 import { paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
-import { filter_dependents } from './filer.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
 import { spawn_cli } from './cli.ts';
 
@@ -33,11 +32,11 @@ export const gro_plugin_gen = ({
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
 
-	let cleanup_watch: (() => void) | undefined;
+	let cleanup_watch: (() => Promise<void>) | undefined;
 
 	return {
 		name: 'gro_plugin_gen',
-		setup: async ({ watch, dev, log, config, filer, invoke_task, timings }) => {
+		setup: async ({ watch, dev, log, config, graph, invoke_task, timings }) => {
 			// For production builds, we assume `gen` is already fresh,
 			// which should be checked by CI via `gro check` which calls `gro gen --check`.
 			if (!dev) return;
@@ -88,44 +87,34 @@ export const gro_plugin_gen = ({
 
 			// When a file builds, check it and its tree of dependents
 			// for any `.gen.` files that need to run.
-			cleanup_watch = await filer.watch(async (change, source_file) => {
-				if (source_file.external) return;
+			cleanup_watch = await graph.watch(async (change) => {
 				switch (change.type) {
 					case 'add':
 					case 'update': {
 						// Queue the gen file itself if it changed
-						if (is_gen_path(source_file.id)) {
-							queue_gen(source_file.id);
+						if (is_gen_path(change.id)) {
+							queue_gen(change.id);
 						}
 
 						// Find all current gen files and check their dependencies
-						const gen_files = filer.filter((d) => !d.external && is_gen_path(d.id));
-						if (gen_files) {
-							for (const gen_file of gen_files) {
-								const should_trigger = await should_trigger_gen(
-									gen_file.id,
-									source_file.id,
-									config,
-									filer,
-									log,
-									timings,
-									invoke_task
-								);
-								if (should_trigger) {
-									queue_gen(gen_file.id);
-								}
+						const gen_file_ids = await graph.modules(is_gen_path);
+						for (const gen_file_id of gen_file_ids) {
+							const should_trigger = await should_trigger_gen(
+								gen_file_id,
+								change.id,
+								config,
+								graph,
+								log,
+								timings,
+								invoke_task
+							);
+							if (should_trigger) {
+								queue_gen(gen_file_id);
 							}
 						}
 
 						// Check import-based dependents
-						const dependent_gen_file_ids = filter_dependents(
-							source_file,
-							filer.get_by_id,
-							is_gen_path,
-							undefined,
-							undefined,
-							log
-						);
+						const dependent_gen_file_ids = await graph.dependents(change.id, is_gen_path);
 						for (const dependent_gen_file_id of dependent_gen_file_ids) {
 							queue_gen(dependent_gen_file_id);
 						}
@@ -140,10 +129,11 @@ export const gro_plugin_gen = ({
 				}
 			});
 		},
-		teardown: () => {
+		teardown: async () => {
 			if (cleanup_watch) {
-				cleanup_watch();
+				const c = cleanup_watch;
 				cleanup_watch = undefined;
+				await c();
 			}
 		}
 	};

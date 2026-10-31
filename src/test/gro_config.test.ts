@@ -1,11 +1,14 @@
 import { test, expect, vi } from 'vitest';
+import { resolve } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import {
 	SEARCH_EXCLUDER_DEFAULT,
 	EMPTY_BUILD_CACHE_CONFIG_HASH,
+	cook_gro_config,
 	load_gro_config
 } from '#lib/gro_config.ts';
+import { paths } from '#lib/paths.ts';
 
 // Makes `load_gro_config` see no `gro.config.ts` and fall back to the default config.
 // At the top level because that's where Vitest hoists it to anyway.
@@ -85,4 +88,16 @@ test('SEARCH_EXCLUDER_DEFAULT', () => {
 test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', () => {
 	const computed_hash = hash_blake3('');
 	expect(EMPTY_BUILD_CACHE_CONFIG_HASH).toBe(computed_hash);
+});
+
+test('cook_gro_config defaults each `watch` field and resolves a relative `dir`', async () => {
+	const defaults = await cook_gro_config({});
+	expect(defaults.watch).toEqual({ dir: resolve(paths.source), filter: null });
+
+	const filter = (path: string) => !path.endsWith('.md');
+	const with_filter = await cook_gro_config({ watch: { filter } });
+	expect(with_filter.watch).toEqual({ dir: resolve(paths.source), filter });
+
+	const with_dir = await cook_gro_config({ watch: { dir: 'lib/' } });
+	expect(with_dir.watch).toEqual({ dir: resolve('lib'), filter: null });
 });

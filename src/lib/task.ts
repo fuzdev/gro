@@ -19,7 +19,7 @@ import {
 } from './input_path.ts';
 import { GRO_DIST_DIR, print_path } from './paths.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
-import type { Filer } from './filer.ts';
+import type { ModuleGraph, Watcher } from './module_graph.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
 
 export interface Task<
@@ -40,7 +40,14 @@ export interface TaskContext<TArgs = object> {
 	 * never pay to read the SvelteKit config.
 	 */
 	svelte_config: Promise<ParsedSvelteConfig>;
-	filer: Filer;
+	/**
+	 * The project's module graph, loaded on first use.
+	 */
+	graph: ModuleGraph;
+	/**
+	 * Watches files with no module graph, loaded on first use.
+	 */
+	watcher: Watcher;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;

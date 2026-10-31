@@ -18,7 +18,7 @@ import {
 import create_default_config from './gro.config.default.ts';
 import type { PluginsCreateConfig } from './plugin.ts';
 import type { PackageJsonMapper } from './package_json.ts';
-import type { FilerOptions } from './filer.ts';
+import type { WatchOptions } from './module_graph.ts';
 
 /**
  * BLAKE3 hash of empty string, used for configs without `build_cache_config`.
@@ -69,10 +69,10 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	build_cache_config_hash: string;
 	/**
-	 * Options passed to the `Filer` for file watching and import resolution.
-	 * @see `FilerOptions`
+	 * What the task context's `graph` and `watcher` watch.
+	 * Defaults to `src/` with no filter.
 	 */
-	filer_options: Partial<FilerOptions> | null;
+	watch: WatchOptions;
 }
 
 /**
@@ -107,10 +107,9 @@ export interface RawGroConfig {
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	/**
-	 * Options passed to the `Filer` for file watching and import resolution.
-	 * @see `FilerOptions`
+	 * What the task context's `graph` and `watcher` watch, each field defaulting separately.
 	 */
-	filer_options?: Partial<FilerOptions> | null;
+	watch?: Partial<WatchOptions>;
 }
 
 export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
@@ -128,7 +127,7 @@ export const create_empty_gro_config = (): GroConfig => ({
 	js_cli: JS_CLI_DEFAULT,
 	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
-	filer_options: null
+	watch: { dir: paths.source, filter: null }
 });
 
 /**
@@ -167,7 +166,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		js_cli = empty_config.js_cli,
 		pm_cli = empty_config.pm_cli,
 		build_cache_config,
-		filer_options = empty_config.filer_options
+		watch
 	} = raw_config;
 
 	// hash build_cache_config and drop the raw value, so it isn't passed around with the config
@@ -198,7 +197,10 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		js_cli,
 		pm_cli,
 		build_cache_config_hash,
-		filer_options: filer_options ?? null
+		watch: {
+			dir: resolve(watch?.dir ?? empty_config.watch.dir),
+			filter: watch?.filter ?? empty_config.watch.filter
+		}
 	};
 };
 

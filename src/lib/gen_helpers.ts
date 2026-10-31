@@ -4,7 +4,7 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import type { GroConfig } from './gro_config.ts';
-import { filter_dependents, type Filer } from './filer.ts';
+import type { ModuleGraph } from './module_graph.ts';
 import type { InvokeTask } from './task.ts';
 import {
 	normalize_gen_config,
@@ -22,7 +22,7 @@ export const should_trigger_gen = async (
 	gen_file_id: PathId,
 	changed_file_id: PathId,
 	config: GroConfig,
-	filer: Filer,
+	graph: ModuleGraph,
 	log: Logger,
 	timings: Timings,
 	invoke_task: InvokeTask
@@ -32,16 +32,11 @@ export const should_trigger_gen = async (
 	if (is_self_change) return true;
 
 	// Check if gen file depends on the changed file (directly or transitively)
-	const changed_disknode = filer.get_by_id(changed_file_id);
-	let should_bust_cache = false;
-	if (changed_disknode) {
-		const dependents = filter_dependents(
-			changed_disknode,
-			filer.get_by_id,
-			(id) => id === gen_file_id // filter for just our gen file
-		);
-		should_bust_cache = dependents.has(gen_file_id);
-	}
+	const dependents = await graph.dependents(
+		changed_file_id,
+		(id) => id === gen_file_id // filter for just our gen file
+	);
+	const should_bust_cache = dependents.has(gen_file_id);
 
 	// Resolve dependencies (with cache busting if the changed file is a dependency of the gen file)
 	const dependencies = await resolve_gen_dependencies(
@@ -49,7 +44,6 @@ export const should_trigger_gen = async (
 		changed_file_id,
 		should_bust_cache,
 		config,
-		filer,
 		log,
 		timings,
 		invoke_task
@@ -75,7 +69,6 @@ const resolve_gen_dependencies = async (
 	changed_file_id: PathId | undefined,
 	bust_cache: boolean,
 	config: GroConfig,
-	filer: Filer,
 	log: Logger,
 	timings: Timings,
 	invoke_task: InvokeTask
@@ -97,7 +90,7 @@ const resolve_gen_dependencies = async (
 	let dependencies: GenDependencies | null = gen_config.dependencies;
 	if (typeof dependencies === 'function') {
 		dependencies = await dependencies(
-			create_gen_context({ config, filer, log, timings, invoke_task }, gen_file_id, changed_file_id)
+			create_gen_context({ config, log, timings, invoke_task }, gen_file_id, changed_file_id)
 		);
 	}
 

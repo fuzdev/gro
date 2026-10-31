@@ -6,7 +6,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { invoke_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
-import type { Filer } from '#lib/filer.ts';
+import { create_mock_module_graph, create_mock_watcher } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -43,7 +43,7 @@ describe('invoke_task forwarded args', () => {
 			'x',
 			{ color: true, C: true },
 			{ task_root_dirs: [] } as unknown as GroConfig,
-			{ inited: false } as Filer,
+			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
 			null
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);

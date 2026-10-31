@@ -7,11 +7,11 @@ import { styleText as st } from 'node:util';
 import { merge_forwarded_args, to_forwarded_args } from './args.ts';
 import { run_task } from './run_task.ts';
 import { to_input_path, RawInputPath } from './input_path.ts';
-import { find_tasks, load_tasks, SilentError } from './task.ts';
+import { find_tasks, load_tasks, SilentError, type TaskContext } from './task.ts';
 import { package_json_load_for_gro } from './package_json.ts';
 import { log_tasks, log_error_reasons } from './task_logging.ts';
 import type { GroConfig } from './gro_config.ts';
-import { Filer } from './filer.ts';
+import { create_node_module_graph, create_node_watcher } from './module_graph_node.ts';
 
 /**
  * Invokes Gro tasks by name using the filesystem as the source.
@@ -33,13 +33,14 @@ import { Filer } from './filer.ts';
  * @param task_name - the name of the task to invoke
  * @param args - the CLI args to pass to the task
  * @param config - the Gro configuration
+ * @param initial_watching - the `graph` and `watcher` from the invoking task, created from `config.watch` and closed on finish when absent
  * @param initial_timings - the timings to use for the top-level task, `null` for composed tasks
  */
 export const invoke_task = async (
 	task_name: RawInputPath,
 	args: Args | undefined,
 	config: GroConfig,
-	initial_filer?: Filer,
+	initial_watching?: Pick<TaskContext, 'graph' | 'watcher'>,
 	initial_timings?: Timings | null,
 	parent_log?: Logger
 ): Promise<void> => {
@@ -48,18 +49,21 @@ export const invoke_task = async (
 	const log = parent_log ? parent_log.child(log_label) : new Logger(log_label);
 	log.info('invoking', task_name ? st('cyan', task_name) : 'gro');
 
-	// track if we created the filer
-	const owns_filer = !initial_filer;
-	const filer = initial_filer ?? new Filer({ log: log.child('filer'), ...config.filer_options });
+	// the graph and watcher load lazily, so a task that never uses them never loads chokidar
+	const owns_watching = !initial_watching;
+	const { graph, watcher } = initial_watching ?? {
+		graph: create_node_module_graph({ watch: config.watch, log: log.child('graph') }),
+		watcher: create_node_watcher({ watch: config.watch })
+	};
 
 	const owns_timings = !initial_timings;
 	const timings = initial_timings ?? new Timings();
 
 	const total_timing = create_stopwatch();
 	const finish = async () => {
-		// cleanup filer only if we created it and it was initialized
-		if (owns_filer && filer.inited) {
-			await filer.close();
+		// close only what we created, a no-op when it never loaded
+		if (owns_watching) {
+			await Promise.all([graph.close(), watcher.close()]);
 		}
 
 		if (owns_timings) return; // kinda weird, print timings only for the top-level task
@@ -125,7 +129,8 @@ export const invoke_task = async (
 		merge_forwarded_args(args, to_forwarded_args(`gro ${task.name}`)),
 		invoke_task,
 		config,
-		filer,
+		graph,
+		watcher,
 		log,
 		timings
 	);
