@@ -10,13 +10,13 @@ import {
 	type ResolvedInputPath,
 	type ResolvedInputFile
 } from '#lib/input_path.ts';
-import { GRO_DIST_DIR, paths } from '#lib/paths.ts';
+import { paths } from '#lib/paths.ts';
 
 test('to_input_path', () => {
 	expect(to_input_path(resolve('foo.ts'))).toBe(resolve('foo.ts'));
 	expect(to_input_path('./foo.ts')).toBe(resolve('foo.ts'));
 	expect(to_input_path('foo.ts')).toBe('foo.ts');
-	expect(to_input_path('gro/foo')).toBe(GRO_DIST_DIR + 'foo');
+	expect(to_input_path('gro/foo')).toBe('gro/foo'); // no special prefix
 	// trailing slashes are preserved:
 	expect(to_input_path(resolve('foo/bar/'))).toBe(resolve('foo/bar/'));
 	expect(to_input_path('./foo/bar/')).toBe(resolve('foo/bar/'));

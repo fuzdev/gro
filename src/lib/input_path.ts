@@ -1,13 +1,9 @@
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
-import { strip_start } from '@fuzdev/fuz_util/string.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
-
-import { GRO_PACKAGE_DIR, GRO_DIST_DIR } from './paths.ts';
-import { TASK_FILE_SUFFIX_JS } from './task.ts';
 
 // TODO Flavored doesn't work when used in schemas, `flavor` from fuz_schema could carry it
 export const InputPath = s.string;
@@ -17,14 +13,13 @@ export const RawInputPath = s.string;
 export type RawInputPath = Flavored<s.Infer<typeof RawInputPath>, 'RawInputPath'>;
 
 /**
- * Raw input paths are paths that users provide to Gro to reference files for tasks and gen.
+ * Raw input paths are paths that users provide to Gro to reference files for gen.
  *
  * A raw input path can be to a file or directory in the following forms:
  *
  * - an absolute path, preserved
  * - an explicit relative path, e.g. `./src/foo`, resolved to `root_path` which defaults to the cwd
  * - an implicit relative path, e.g. `src/foo`, preserved
- * - an implicit relative path prefixed with `gro/`, transformed to absolute in the Gro directory
  *
  * Thus, input paths are either absolute or implicitly relative.
  */
@@ -32,9 +27,7 @@ export const to_input_path = (
 	raw_input_path: RawInputPath,
 	root_path = process.cwd() // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
 ): InputPath => {
-	if (raw_input_path.startsWith(GRO_PACKAGE_DIR)) {
-		return GRO_DIST_DIR + strip_start(raw_input_path, GRO_PACKAGE_DIR);
-	} else if (raw_input_path[0] === '.') {
+	if (raw_input_path[0] === '.') {
 		return resolve(root_path, raw_input_path);
 	}
 	return raw_input_path as InputPath;
@@ -63,22 +56,10 @@ export const get_possible_paths = async (
 	const possible_paths: Set<PossiblePath> = new Set();
 
 	const add_possible_paths = (path: string, root_dir: PathId) => {
-		// Specifically for paths to the Gro package dist, optimize by only looking for `.task.js`.
-		if (path.startsWith(GRO_DIST_DIR)) {
-			possible_paths.add({
-				id:
-					path.endsWith('/') || path.endsWith(TASK_FILE_SUFFIX_JS)
-						? path
-						: path + TASK_FILE_SUFFIX_JS,
-				input_path,
-				root_dir
-			});
-		} else {
-			possible_paths.add({ id: path, input_path, root_dir });
-			if (!path.endsWith('/') && !extensions.some((e) => path.endsWith(e))) {
-				for (const extension of extensions) {
-					possible_paths.add({ id: path + extension, input_path, root_dir });
-				}
+		possible_paths.add({ id: path, input_path, root_dir });
+		if (!path.endsWith('/') && !extensions.some((e) => path.endsWith(e))) {
+			for (const extension of extensions) {
+				possible_paths.add({ id: path + extension, input_path, root_dir });
 			}
 		}
 	};

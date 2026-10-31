@@ -6,7 +6,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { resolve_gro_module_path, spawn_with_loader } from '#lib/gro_helpers.ts';
 import { run_task } from '#lib/run_task.ts';
-import { TaskError, type Task, type TaskContext } from '#lib/task.ts';
+import { SilentError, TaskError, type Task, type TaskContext } from '#lib/task.ts';
 import { task as run_task_task } from '#lib/run.task.ts';
 
 import {
@@ -137,6 +137,34 @@ test('run_task prints the issue of each bad forwarded arg of `gro run`', async (
 			'x: expected string | number | boolean | array, received object\n' +
 			'y: expected string | number | boolean | array, received null'
 	);
+});
+
+test('run_task reports a failed nested `invoke_task` as a failure, not an unexpected error', async () => {
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: {
+				task: {
+					run: async (ctx) => {
+						const task_name: string = 'former_project_task'; // widened, not a registered task
+						await ctx.invoke_task(task_name);
+					}
+				}
+			}
+		},
+		{},
+		() => Promise.reject(new SilentError()), // `invoke_task` already logged why
+		await create_mock_config(),
+		create_mock_module_graph(),
+		create_mock_watcher(),
+		create_mock_logger(),
+		create_mock_timings()
+	);
+	assert(!result.ok);
+	assert(result.error instanceof SilentError);
+	assert.include(result.reason, 'failed.');
+	assert.notInclude(result.reason, 'Unexpected error');
 });
 
 test('run_task passes the graph and watcher to the task and to the tasks it invokes', async () => {

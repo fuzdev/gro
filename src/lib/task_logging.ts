@@ -12,43 +12,62 @@ import {
 } from '@fuzdev/fuz_schema/introspect.ts';
 import { styleText as st } from 'node:util';
 
-import type { LoadedTasks, TaskModuleMeta } from './task.ts';
-import { print_path } from './paths.ts';
+import { to_task_command, type TaskModuleMeta } from './task.ts';
+import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 
-export const log_tasks = (log: Logger, loaded_tasks: LoadedTasks, log_intro = true): void => {
-	const { modules, found_tasks } = loaded_tasks;
-	const { resolved_input_files_by_root_dir } = found_tasks;
-
-	const logged: Array<string> = [];
-	if (log_intro) {
-		logged.unshift(
-			`\n\n${st('gray', 'Run a task:')} gro [name]`,
-			`\n${st('gray', 'View help:')}  gro [name] --help`
-		);
+/**
+ * Logs the tasks found in a directory with their summaries, and how to run them.
+ * @param log - the logger
+ * @param modules - the loaded tasks, named by their paths relative to the project root
+ * @param dir_label - the directory searched, as displayed
+ */
+export const log_tasks = (log: Logger, modules: Array<TaskModuleMeta>, dir_label: string): void => {
+	if (!modules.length) {
+		log.info(`No tasks found in ${dir_label}.`);
+		return;
 	}
-
-	for (const [root_dir, resolved_input_files] of resolved_input_files_by_root_dir) {
-		const dir_label = print_path(root_dir);
-		if (!resolved_input_files.length) {
-			log.info(`No tasks found in ${dir_label}.`);
-			continue;
-		}
+	const logged: Array<string> = [
+		`\n\n${modules.length} task${plural(modules.length)} in ${dir_label}:\n`
+	];
+	const longest_task_name = to_max_length(modules, (m) => m.name);
+	for (const meta of modules) {
 		logged.push(
-			`${log_intro ? '\n\n' : ''}${resolved_input_files.length} task${plural(
-				resolved_input_files.length
-			)} in ${dir_label}:\n`
+			'\n' + st('cyan', meta.name.padEnd(longest_task_name)),
+			'  ',
+			meta.mod.task.summary ?? ''
 		);
-		const longest_task_name = to_max_length(modules, (m) => m.name);
-		for (const resolved_input_file of resolved_input_files) {
-			const meta = modules.find((m) => m.id === resolved_input_file.id)!;
-			logged.push(
-				'\n' + st('cyan', meta.name.padEnd(longest_task_name)),
-				'  ',
-				meta.mod.task.summary ?? ''
-			);
-		}
 	}
-	log[log_intro ? 'info' : 'raw'](logged.join('') + '\n');
+	logged.push(
+		`\n\n${st('gray', 'Run a task:')} gro task [path]`,
+		`\n${st('gray', 'View help:')}  gro task [path] --help`
+	);
+	log.info(logged.join('') + '\n');
+};
+
+/**
+ * Logs Gro's builtin tasks with their summaries and the CLI's usage,
+ * from the generated summaries, so it imports no task module.
+ */
+export const log_builtin_tasks = (log: Logger): void => {
+	const names = Object.keys(GRO_BUILTIN_TASK_SUMMARIES) as Array<
+		keyof typeof GRO_BUILTIN_TASK_SUMMARIES
+	>;
+	const logged: Array<string> = [`\n\n${names.length} builtin tasks:\n`];
+	const longest_task_name = to_max_length(names, (n) => n);
+	for (const name of names) {
+		logged.push(
+			'\n' + st('cyan', name.padEnd(longest_task_name)),
+			'  ',
+			GRO_BUILTIN_TASK_SUMMARIES[name]
+		);
+	}
+	logged.push(
+		`\n\n${st('gray', 'Run a builtin:')}        gro [name]`,
+		`\n${st('gray', 'View its help:')}        gro [name] --help`,
+		`\n${st('gray', 'Run a project task:')}   gro task [path/to/file.task.ts]`,
+		`\n${st('gray', 'List project tasks:')}   gro task [dir], defaults to src/`
+	);
+	log.info(logged.join('') + '\n');
 };
 
 export const log_error_reasons = (log: Logger, reasons: Array<string>): void => {
@@ -68,7 +87,7 @@ export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 	logged.push(
 		st('cyan', name),
 		'help',
-		st('cyan', `\n\ngro ${name}`) + `: ${task.summary ?? '(no summary available)'}\n`
+		st('cyan', `\n\n${to_task_command(name)}`) + `: ${task.summary ?? '(no summary available)'}\n`
 	);
 	if (task.Args) {
 		const properties = to_arg_properties(task.Args, meta, log);

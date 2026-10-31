@@ -20,7 +20,7 @@ test('load_gro_config', async () => {
 	const config = await load_gro_config();
 	expect(config).toBeTruthy();
 	expect(config.plugins).toBeDefined();
-	expect(config.task_root_dirs).toBeDefined();
+	expect('task_root_dirs' in config).toBe(false);
 });
 
 test('SEARCH_EXCLUDER_DEFAULT', () => {
@@ -65,18 +65,9 @@ test('SEARCH_EXCLUDER_DEFAULT', () => {
 	assert_includes('benchmark', true);
 	assert_includes('benchmarks', true);
 	assert_includes('nodemodules', true);
-
-	// Special exception for `gro/dist/`, but not `gro/build/` etc because they're not usecases.
-	assert_includes('gro/build', false);
-	assert_includes('gro/buildE', true);
-	assert_includes('groE/build', false);
-	assert_includes('gro/dist', true);
-	assert_includes('node_modules/gro/dist', true);
-	assert_includes('node_modules/@someuser/gro/dist', true);
-	assert_includes('node_modules/@someuser/foo/gro/dist', false);
-	assert_includes('gro/distE', true);
-	assert_includes('groE/dist', false);
-	assert_includes('Egro/dist', false);
+	assert_includes('dist_server', false);
+	assert_includes('gro/dist', false);
+	assert_includes('node_modules/@someuser/gro/dist', false);
 	assert_includes('Ebuild', true);
 	assert_includes('buildE', true);
 	assert_includes('grobuild', true);

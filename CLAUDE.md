@@ -35,31 +35,39 @@ Key responsibilities:
 [Full documentation: src/docs/task.md](src/docs/task.md)
 
 Tasks are TypeScript modules with `.task.ts` suffix that export a `task` object
-with a `run` function. The task runner discovers tasks by convention, resolves
-them through a search path, and provides a context with args, config, logger,
-timings, and utilities.
+with a `run` function. Builtins run by name and project tasks by path, with no
+search, and each gets a context with args, config, logger, timings, and
+utilities.
 
-Discovery and resolution:
+Resolution (`invoke_task.ts`, `resolve_task`; the CLI's forms in `invoke_cli`):
 
-- Searches `task_root_dirs` in order (default: `src/lib/` → `./` → `gro/dist/`)
-- `gro foo` looks for `foo.task.ts` in search path, user tasks override builtins
-- `gro gro/foo` directly calls builtin, bypassing local overrides
-- `gro some/dir` lists all tasks in that directory
-- Absolute paths (starting with `/`) and explicit relative paths (`./`, `../`)
-  skip search
-- Implicit relative paths (`foo/bar`) go through search path
+- `gro foo` runs only the builtin `foo`; a name never means a project task, so
+  nothing shadows a builtin, and an unknown name errors with the builtin list
+  and the hint `gro task src/lib/foo.task.ts` (one stat says whether it exists)
+- `gro task <path>` runs a task file: relative to the cwd (the project root) or
+  absolute, `./` optional, `.task.ts`/`.task.js` required; the task is
+  displayed and keyed by its normalized root-relative path
+- An input containing `/` or ending in a task suffix is a path, anything else a
+  builtin name; `invoke_task` takes either by the same rule
+- Listing is explicit: `gro` prints the builtins and usage from the generated
+  `GRO_BUILTIN_TASK_SUMMARIES` (importing no task module), `gro task` lists the
+  project's tasks under `src/`, `gro task some/dir/` lists that directory
+- A path without `gro task` errors with the hint, and the removed `gro/` prefix
+  errors naming the plain builtin
 
 Key features:
 
 - Lazy loading - only imports the invoked task and its dependencies
 - fuz_schema schemas - optional `Args` property for validation, types, and
   auto-generated `--help`
-- Composition - use `invoke_task` helper (respects overrides) or direct imports
+- Composition - use the `invoke_task` helper (a builtin name or a task path) or
+  direct imports
 - Args forwarding - CLI args like `gro dev -- vite --port 3000` forward to
   external commands
   - Multiple sections: `gro dev -- vite --port 3000 -- svelte-kit --debug`
   - Special case for nested Gro tasks: `gro check -- gro test --coverage`
-    forwards to test
+    forwards to test, and `-- gro task src/lib/x.task.ts --a` to a project task
+    by its normalized path
   - Forwarded args override direct args: `gro test --a 1 -- gro test --a 2`
     results in `{a: 2}`
   - `invoke_task` automatically forwards CLI args to invoked tasks
@@ -68,14 +76,15 @@ Key features:
 
 Task composition patterns:
 
-- `invoke_task('test', args)` - respects user overrides, better logging,
-  auto-forwards args (recommended)
-- Typed names and args - `InvokeTask` checks a literal name against
-  `TaskRegistry` (`task_registry.ts`) and args against the input type of the
-  task module's exported `Args` schema; builtins come from the generated
-  `GroBuiltinTasks` (`gro_builtin_tasks.gen.ts`), a project's own tasks from a
-  genfile exporting `gen_task_registry` (augments `ProjectTasks`, project names
-  shadowing builtins); a name widened to `string` opts out
+- `invoke_task('test', args)` or `invoke_task('src/lib/x.task.ts', args)` -
+  better logging, auto-forwards args (recommended)
+- Typed names and args - `InvokeTask` checks a literal against `TaskRegistry`
+  (`task_registry.ts`) and args against the input type of the task module's
+  exported `Args` schema; builtins come from the generated `GroBuiltinTasks`
+  (`gro_builtin_tasks.gen.ts`), a project's own tasks, keyed by root-relative
+  path, from a genfile exporting `gen_task_registry` (augments `ProjectTasks`);
+  a literal task path not in the registry, or a name widened to `string`, takes
+  loose `Args`
   ([docs](src/docs/task.md#types-for-invoke_task))
 - Direct import - `import {task} from './test.task.js'; await task.run(ctx)` -
   faster, tight coupling
@@ -116,15 +125,17 @@ export const task: Task<Args> = {
 };
 ```
 
-Run with: `gro mytask` or `gro mytask --name Alice`
+Run with: `gro task src/lib/mytask.task.ts` or
+`gro task src/lib/mytask.task.ts --name Alice`
 
-Overriding builtin tasks:
+Wrapping a builtin is composition, not an override: a project task calls the
+builtin by name, and the project's script points at the wrapper's path.
 
 ```typescript
 export const task: Task = {
 	run: async ({invoke_task, args}) => {
 		await setupCustomEnvironment();
-		await invoke_task('gro/test', args); // call builtin
+		await invoke_task('test', args); // always the builtin
 		await teardownCustomEnvironment();
 	},
 };
@@ -331,7 +342,6 @@ Config interface:
 interface GroConfig {
 	plugins: PluginsCreateConfig; // Function returning array of plugins
 	map_package_json: PackageJsonMapper | null; // Hook for package.json automations
-	task_root_dirs: Array<PathId>; // Where to search for tasks
 	search_filters: Array<PathFilter>; // Exclude patterns for discovery
 	js_cli: string; // Node-compatible CLI (default: 'node')
 	pm_cli: string; // npm-compatible CLI (default: 'npm')
@@ -378,18 +388,18 @@ export default config;
 
 ## File conventions
 
-- Task files: `*.task.ts` in `src/lib/` (or configured `task_root_dirs`)
-- Gen files: `*.gen.*` anywhere in `src/` (pattern: `.gen.` substring)
+- Task files: `*.task.ts`, run by path (`gro task` lists those under `src/`)
+- Gen files: `*.gen.*` anywhere in `src/` (pattern: `.gen.` substring of the file name)
 - Test files: `*.test.ts` anywhere (run by Vitest)
 - Config: `gro.config.ts` at project root
 - Vite config: `vite.config.*` at project root - the Svelte config is read through it
 
-Exclusions (configurable via `search_filters`):
+Exclusions (configurable via `search_filters`, which test paths relative to
+the project root, so a project under `~/.cache/` still searches):
 
 - Dot-prefixed directories (`.git`, `.svelte-kit`, `.gro`)
-- `node_modules/` (except `node_modules/@*/gro/dist/`)
-- Build directories: `.svelte-kit/`, `build/`, `dist/` (except in Gro's own
-  directory)
+- `node_modules/`
+- Build directories: `build/`, `dist/`, `dist_server/`
 
 ## Builtin tasks
 
@@ -398,7 +408,7 @@ Exclusions (configurable via `search_filters`):
 - Development: `dev`, `test`, `gen`, `format`, `lint`, `typecheck`
 - Production: `build`, `check`, `publish`, `deploy`, `release`
 - Utilities: `clean`, `sync`, `run`, `changeset`, `commit`, `reinstall`,
-  `resolve`, `upgrade`
+  `upgrade`
 
 Key tasks:
 
@@ -431,15 +441,17 @@ Filesystem as API - tasks, genfiles, and tests discovered by naming convention
 makes it available.
 
 Lazy loading - only invoked tasks and their dependencies get imported. Running
-`gro` lists all tasks but doesn't execute their code.
+`gro` lists the builtins from generated summaries without importing any task;
+`gro task` imports the project's tasks to read their summaries.
 
 Conventions over configuration - file naming patterns define behavior. Minimal
 config files (optional `gro.config.ts`). Default config auto-detects project
 type by inspecting filesystem.
 
-User overrides - local `src/lib/foo.task.ts` takes precedence over
-`gro/dist/foo.task.js`. Call builtin explicitly with `gro gro/foo`. Gro's
-modules in `src/lib` are exported for reuse, except those under `internal/`.
+No shadowing - a name always means a builtin and a path always means a file,
+so a local `src/lib/foo.task.ts` runs as `gro task src/lib/foo.task.ts` and
+never replaces `gro foo`. Gro's modules in `src/lib` are exported for reuse,
+except those under `internal/`.
 
 Plugin lifecycle - setup initializes, adapt handles production finalization
 (SvelteKit adapters), teardown cleans up. Watch mode skips teardown to keep
@@ -636,8 +648,9 @@ is forbidden.
 
 Core systems (src/lib/):
 
-- CLI and task invocation: `gro.ts`, `invoke.ts`, `task.ts`, `task_registry.ts`,
-  `invoke_task.ts`, `run_task.ts`, `input_path.ts`
+- CLI and task invocation: `gro.ts`, `invoke.ts`, `args.ts`, `task.ts`,
+  `task_registry.ts`, `invoke_task.ts`, `run_task.ts`
+- Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
 - Plugins: `plugin.ts`, `gro_plugin_*.ts` (gen, sveltekit_app,
   sveltekit_library, server)

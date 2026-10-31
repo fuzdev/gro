@@ -3,7 +3,8 @@ import { stripVTControlCharacters } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { log_task_help } from '#lib/task_logging.ts';
+import { log_builtin_tasks, log_task_help, log_tasks } from '#lib/task_logging.ts';
+import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import type { Task, TaskModuleMeta } from '#lib/task.ts';
 import * as test_task_module from '#lib/test.task.ts';
 import * as gen_task_module from '#lib/gen.task.ts';
@@ -112,6 +113,13 @@ describe('log_task_help', () => {
 		);
 	});
 
+	test('a project task path shows the `gro task` command', () => {
+		const task_meta = { ...to_task_meta('x', { summary: 'a path task', run: () => {} }) };
+		task_meta.name = 'src/lib/x.task.ts';
+		const { text } = render_help(task_meta);
+		assert.include(text, 'gro task src/lib/x.task.ts: a path task');
+	});
+
 	test('a task without `Args` renders no table', () => {
 		const { text } = render_help(to_task_meta('fake', { run: () => {} }));
 		assert.include(text, 'gro fake: (no summary available)');
@@ -143,5 +151,47 @@ describe('log_task_help for builtins', () => {
 			'root directories to resolve input paths against'
 		);
 		assert.strictEqual(vi.mocked(log.error).mock.calls.length, 0);
+	});
+});
+
+describe('log_tasks', () => {
+	const render = (modules: Array<TaskModuleMeta>): string => {
+		const log = create_mock_logger();
+		log_tasks(log, modules, './src');
+		const info = vi.mocked(log.info);
+		assert.strictEqual(info.mock.calls.length, 1);
+		return stripVTControlCharacters(info.mock.calls[0]!.join(' '));
+	};
+
+	test('lists each task by path with its summary and how to run one', () => {
+		const text = render([
+			{ ...to_task_meta('a', { summary: 'does a', run: () => {} }), name: 'src/a.task.ts' },
+			{ ...to_task_meta('b', { run: () => {} }), name: 'src/lib/b.task.ts' }
+		]);
+		assert.include(text, '2 tasks in ./src:');
+		assert.match(text, /^src\/a\.task\.ts\s+does a$/m);
+		assert.match(text, /^src\/lib\/b\.task\.ts\s*$/m);
+		assert.include(text, 'Run a task: gro task [path]');
+		assert.include(text, 'View help:  gro task [path] --help');
+	});
+
+	test('says when there are none', () => {
+		assert.include(render([]), 'No tasks found in ./src.');
+	});
+});
+
+describe('log_builtin_tasks', () => {
+	test('lists the builtins with their summaries and the usage, importing no task module', () => {
+		const log = create_mock_logger();
+		log_builtin_tasks(log);
+		const text = stripVTControlCharacters(vi.mocked(log.info).mock.calls[0]!.join(' '));
+		const names = Object.keys(GRO_BUILTIN_TASK_SUMMARIES);
+		assert.include(text, `${names.length} builtin tasks:`);
+		assert.match(text, /^check\s+check that everything is ready to commit$/m);
+		assert.match(text, /^test\s+run tests with vitest$/m);
+		assert.include(text, 'Run a builtin:        gro [name]');
+		assert.include(text, 'Run a project task:   gro task [path/to/file.task.ts]');
+		assert.include(text, 'List project tasks:   gro task [dir], defaults to src/');
+		assert.notInclude(text, 'resolve');
 	});
 });

@@ -8,8 +8,10 @@ import {
 	is_gro_id,
 	to_root_path,
 	path_id_to_base_path,
-	base_path_to_path_id
+	base_path_to_path_id,
+	to_search_filters_relative
 } from '#lib/paths.ts';
+import { SEARCH_EXCLUDER_DEFAULT } from '#lib/gro_config.ts';
 
 describe('create_paths', () => {
 	test('basic behavior', () => {
@@ -59,5 +61,40 @@ describe('base_path_to_path_id', () => {
 
 	test('does not change extension', () => {
 		expect(base_path_to_path_id('foo/bar/baz.js')).toBe(resolve('src/foo/bar/baz.js'));
+	});
+});
+
+describe('to_search_filters_relative', () => {
+	const filters = to_search_filters_relative([(p) => !SEARCH_EXCLUDER_DEFAULT.test(p)], '/a/.b/c');
+
+	test('tests the path relative to the root', () => {
+		expect(filters[0]!('/a/.b/c/src/x.ts', false)).toBe(true);
+		expect(filters[0]!('/a/.b/c/src/.hidden', true)).toBe(false);
+		expect(filters[0]!('/a/.b/c/node_modules', true)).toBe(false);
+	});
+
+	test('tests a path outside the root as its absolute id', () => {
+		expect(filters[0]!('/a/.b/d/x.ts', false)).toBe(false);
+		const anchored = to_search_filters_relative((p) => !p.startsWith('src/'), '/a/c');
+		expect(anchored[0]!('/a/c/src/x.ts', false)).toBe(false);
+		expect(anchored[0]!('/a/c/lib/x.ts', false)).toBe(true);
+		expect(anchored[0]!('/a/cc/src/x.ts', false)).toBe(true);
+	});
+
+	test('passes the exact relative or absolute path to the filter', () => {
+		const received: Array<string> = [];
+		const [filter] = to_search_filters_relative((p) => {
+			received.push(p);
+			return true;
+		}, '/a/c');
+		filter!('/a/c/src/x.ts', false);
+		filter!('/a/d/x.ts', false);
+		expect(received).toEqual(['src/x.ts', '/a/d/x.ts']);
+	});
+
+	test('accepts one filter or none', () => {
+		const filter = (p: string) => p === 'x';
+		expect(to_search_filters_relative(filter, '/a/')[0]!('/a/x', false)).toBe(true);
+		expect(to_search_filters_relative(null, '/a')).toEqual([]);
 	});
 });

@@ -1,11 +1,11 @@
 import { join, resolve } from 'node:path';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { identity } from '@fuzdev/fuz_util/function.ts';
-import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
+import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import { GRO_DIST_DIR, IS_THIS_GRO, paths } from './paths.ts';
+import { paths } from './paths.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	JS_CLI_DEFAULT,
@@ -44,13 +44,11 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	map_package_json: PackageJsonMapper | null;
 	/**
-	 * The root directories to search for tasks given implicit relative input paths.
-	 * Defaults to `./src/lib`, then the cwd, then the Gro package dist.
-	 */
-	task_root_dirs: Array<PathId>;
-	/**
-	 * When searching the filesystem for tasks and genfiles,
+	 * When searching the filesystem for tasks, genfiles, and files to format,
 	 * directories and files are included if they pass all of these filters.
+	 * Each filter gets the path relative to the project root, like `src/lib/foo.ts`,
+	 * whichever directory a search starts in, so the directories above the root
+	 * never exclude anything; a path outside the root gets its absolute id.
 	 */
 	search_filters: Array<PathFilter>;
 	/**
@@ -83,7 +81,6 @@ export interface GroConfig extends RawGroConfig {
 export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: PackageJsonMapper | null;
-	task_root_dirs?: Array<string>;
 	search_filters?: PathFilter | Array<PathFilter> | null;
 	js_cli?: string;
 	pm_cli?: string;
@@ -117,12 +114,6 @@ export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise
 export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],
 	map_package_json: identity,
-	task_root_dirs: [
-		// TODO maybe disable if no SvelteKit `lib` directory? or other detection to improve defaults
-		paths.lib,
-		IS_THIS_GRO ? null : paths.root,
-		IS_THIS_GRO ? null : GRO_DIST_DIR
-	].filter((v) => v !== null),
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
 	js_cli: JS_CLI_DEFAULT,
 	pm_cli: PM_CLI_DEFAULT,
@@ -132,17 +123,17 @@ export const create_empty_gro_config = (): GroConfig => ({
 
 /**
  * The regexp used by default to exclude directories and files
- * when searching the filesystem for tasks and genfiles.
+ * when searching the filesystem for tasks and genfiles,
+ * tested against paths relative to the project root.
  * Customize via `search_filters` in the `GroConfig`.
  * See the test cases for the exact behavior.
  */
 export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 	`(${
 		'(^|/)\\.[^/]+' + // exclude all `.`-prefixed directories
-		// TODO probably change to `pkg.name` instead of this catch-all (also `gro` below)
-		`|(^|/)${NODE_MODULES_DIRNAME}(?!/(@[^/]+/)?gro/${SVELTEKIT_DIST_DIRNAME})` + // exclude `node_modules` unless it's to the Gro directory
+		`|(^|/)${NODE_MODULES_DIRNAME}` +
 		`|(^|/)${SVELTEKIT_BUILD_DIRNAME}` + // exclude the SvelteKit build directory
-		`|(^|/)(?<!(^|/)gro/)${SVELTEKIT_DIST_DIRNAME}` + // exclude the SvelteKit dist directory unless it's in the Gro directory
+		`|(^|/)${SVELTEKIT_DIST_DIRNAME}` + // exclude the SvelteKit dist directory
 		`|(^|/)${SERVER_DIST_PATH}` // exclude the Gro server plugin dist directory
 	})($|/)`,
 	'u'
@@ -161,7 +152,6 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 	const {
 		plugins = empty_config.plugins,
 		map_package_json = empty_config.map_package_json,
-		task_root_dirs = empty_config.task_root_dirs,
 		search_filters = empty_config.search_filters,
 		js_cli = empty_config.js_cli,
 		pm_cli = empty_config.pm_cli,
@@ -188,7 +178,6 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 	return {
 		plugins,
 		map_package_json,
-		task_root_dirs: task_root_dirs.map((p) => resolve(p)),
 		search_filters: Array.isArray(search_filters)
 			? search_filters
 			: search_filters

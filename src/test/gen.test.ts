@@ -1,7 +1,9 @@
 import { test, expect } from 'vitest';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
-import { to_gen_result, find_genfiles, validate_gen_module } from '#lib/gen.ts';
+import { to_gen_result, find_genfiles, is_gen_path, validate_gen_module } from '#lib/gen.ts';
 import { paths } from '#lib/paths.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 
@@ -298,4 +300,83 @@ test('find_genfiles_result finds gen modules in a directory', async () => {
 		throw new Error('Expected find_genfiles to succeed');
 	}
 	expect(find_genfiles_result.value.resolved_input_paths.length).toBeTruthy();
+});
+
+test('find_genfiles finds gen modules in a project under a dot-directory', async () => {
+	const tmp = mkdtempSync(join(tmpdir(), 'gro_gen_'));
+	try {
+		const dir = join(tmp, '.cache/project');
+		for (const file of ['src/lib/a.gen.ts', 'src/.hidden/b.gen.ts', 'src/dist/c.gen.ts']) {
+			mkdirSync(dirname(join(dir, file)), { recursive: true });
+			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
+		}
+		const result = await find_genfiles(
+			[join(dir, 'src')],
+			[dir],
+			create_empty_gro_config(),
+			undefined,
+			dir
+		);
+		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
+		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
+			join(dir, 'src/lib/a.gen.ts')
+		]);
+	} finally {
+		rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
+test('find_genfiles filters relative to the root, whichever directory it searches', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'gro_gen_'));
+	try {
+		for (const file of ['src/lib/a.gen.ts', 'src/lib/fixtures/b.gen.ts', 'src/test/c.gen.ts']) {
+			mkdirSync(dirname(join(dir, file)), { recursive: true });
+			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
+		}
+		const config = create_empty_gro_config();
+		config.search_filters = [
+			(p) => !p.startsWith('src/lib/fixtures'),
+			(p) => !/^src\/(test|spec)\//.test(p) // a root-anchored regexp
+		];
+		for (const input of ['src', 'src/lib']) {
+			const result = await find_genfiles([join(dir, input)], [dir], config, undefined, dir);
+			if (!result.ok) throw new Error('Expected find_genfiles to succeed');
+			expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
+				join(dir, 'src/lib/a.gen.ts')
+			]);
+		}
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('is_gen_path tests the file name only', () => {
+	expect(is_gen_path('/a/src/lib/foo.gen.ts')).toBe(true);
+	expect(is_gen_path('/a/src/lib/foo.gen.css.ts')).toBe(true);
+	expect(is_gen_path('/a/my.gen.x/proj/src/lib/foo.ts')).toBe(false);
+	expect(is_gen_path('src/lib/foo.ts')).toBe(false);
+});
+
+test('find_genfiles in a project under a `.gen.` directory finds only genfiles', async () => {
+	const tmp = mkdtempSync(join(tmpdir(), 'gro_gen_'));
+	try {
+		const dir = join(tmp, 'my.gen.x/proj');
+		for (const file of ['src/lib/a.gen.ts', 'src/lib/b.ts']) {
+			mkdirSync(dirname(join(dir, file)), { recursive: true });
+			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
+		}
+		const result = await find_genfiles(
+			[join(dir, 'src')],
+			[dir],
+			create_empty_gro_config(),
+			undefined,
+			dir
+		);
+		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
+		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
+			join(dir, 'src/lib/a.gen.ts')
+		]);
+	} finally {
+		rmSync(tmp, { recursive: true, force: true });
+	}
 });

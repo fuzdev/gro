@@ -19,7 +19,6 @@ What is a `Task`? See [`task.md`](./task.md).
 - [publish](../lib/publish.task.ts) - bump version, publish to the configured registry, and git push
 - [reinstall](../lib/reinstall.task.ts) - refreshes package-lock.json with the latest and cleanest deps
 - [release](../lib/release.task.ts) - publish and deploy
-- [resolve](../lib/resolve.task.ts) - diagnostic that logs resolved filesystem info for the given input paths
 - [run](../lib/run.task.ts) - execute a file with the loader, like `node` but works for TypeScript
 - [sync](../lib/sync.task.ts) - run `gro gen`, update `package.json`, and optionally install packages to sync up
 - [test](../lib/test.task.ts) - run tests with vitest
@@ -29,7 +28,10 @@ What is a `Task`? See [`task.md`](./task.md).
 ## usage
 
 ```bash
-$ gro some/name
+$ gro # lists the builtins
+$ gro check # runs a builtin by name
+$ gro task # lists the project's tasks under src/
+$ gro task src/lib/some/file.task.ts # runs a project task by path
 ```
 
 > <sub>[gro](/../..) / [docs](./) / tasks.md</sub>

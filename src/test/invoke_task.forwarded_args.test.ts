@@ -14,13 +14,9 @@ vi.mock('#lib/run_task.ts', () => ({
 
 vi.mock('#lib/task.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/task.ts')>()),
-	find_tasks: vi.fn(async () => ({
+	load_task: vi.fn(async (id: string, name: string) => ({
 		ok: true,
-		value: { resolved_input_files: [{ resolved_input_path: { is_directory: false } }] }
-	})),
-	load_tasks: vi.fn(async () => ({
-		ok: true,
-		value: { modules: [{ name: 'x', mod: { task: {} } }] }
+		value: { id, name, mod: { task: {} } }
 	}))
 }));
 
@@ -38,16 +34,43 @@ describe('invoke_task forwarded args', () => {
 	});
 
 	test('a forwarded flag wins a no-x pair against a later direct alias', async () => {
-		process.argv = ['node', 'gro', 'x', '--color', '-C', '--', 'gro', 'x', '--color'];
+		process.argv = ['node', 'gro', 'check', '--color', '-C', '--', 'gro', 'check', '--color'];
 		await invoke_task(
-			'x',
+			'check',
 			{ color: true, C: true },
-			{ task_root_dirs: [] } as unknown as GroConfig,
+			{} as unknown as GroConfig,
 			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
 			null
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
 		const parsed = args_parse(vi.mocked(run_task).mock.calls[0]![1], ColorArgs);
 		expect(parsed.ok && parsed.value).toEqual({ color: true, 'no-color': false });
+	});
+
+	test('a task path is forwarded args by `gro task` and its normalized path', async () => {
+		process.argv = ['node', 'gro', 'check', '--', 'gro', 'task', './src/lib/check.task.ts', '--a'];
+		await invoke_task(
+			'src/lib/check.task.ts',
+			{ b: true },
+			{} as unknown as GroConfig,
+			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
+			null
+		);
+		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
+		const [task_meta, args] = vi.mocked(run_task).mock.calls[0]!;
+		expect(task_meta.name).toBe('src/lib/check.task.ts');
+		expect(args).toEqual({ b: true, a: true });
+	});
+
+	test('a builtin is not forwarded the args of a project task path', async () => {
+		process.argv = ['node', 'gro', 'x', '--', 'gro', 'task', 'src/lib/check.task.ts', '--a'];
+		await invoke_task(
+			'check',
+			{ b: true },
+			{} as unknown as GroConfig,
+			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
+			null
+		);
+		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ b: true });
 	});
 });

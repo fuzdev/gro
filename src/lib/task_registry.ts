@@ -1,32 +1,37 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
-import { ensure_end, strip_start } from '@fuzdev/fuz_util/string.ts';
-import { dirname, relative } from 'node:path';
+import { strip_end } from '@fuzdev/fuz_util/string.ts';
+import { readdir } from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
-import { GRO_DIST_DIR } from './paths.ts';
-import { is_task_path, to_task_name } from './task.ts';
+import { paths, to_search_filters_relative } from './paths.ts';
+import {
+	is_task_path,
+	load_task,
+	TASK_FILE_SUFFIX_TS,
+	TASK_FILE_SUFFIXES,
+	TaskError,
+	to_task_path
+} from './task.ts';
 
 /**
- * The project's own tasks by name, empty until augmented by a generated file.
+ * The project's own tasks by normalized path, empty until augmented by a generated file.
  * Create a genfile like `src/gro_tasks.gen.ts` exporting `gen_task_registry` as `gen`
- * to type the project's task names and args for `invoke_task`.
+ * to type the project's task paths and args for `invoke_task`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ProjectTasks {}
 
 /**
- * Every task name `invoke_task` accepts as a literal, mapped to its module's type.
- * Mirrors runtime resolution: a project task shadows the builtin with the same name,
- * and `gro/`-prefixed names always reach the builtin.
+ * Every task `invoke_task` types, mapped to its module's type:
+ * Gro's builtins by name and the project's tasks by path relative to the project root.
+ * Names never contain a `/` or end in a task suffix and paths always do, so nothing shadows.
  */
-export type TaskRegistry = Omit<GroBuiltinTasks, keyof ProjectTasks> &
-	ProjectTasks & {
-		[K in keyof GroBuiltinTasks as `gro/${K & string}`]: GroBuiltinTasks[K];
-	};
+export type TaskRegistry = GroBuiltinTasks & ProjectTasks;
 
 export type TaskName = Extract<keyof TaskRegistry, string>;
 
@@ -50,40 +55,32 @@ export type TaskArgsInput<TName extends TaskName> = TaskRegistry[TName] extends 
 	: Args;
 
 export interface TaskRegistryEntry {
+	/**
+	 * The builtin name, or the project task's path relative to the project root.
+	 */
 	name: string;
 	id: PathId;
 }
 
 /**
- * Finds the tasks in `task_root_dirs` with the names runtime resolution gives them,
- * skipping Gro's builtins, which `GroBuiltinTasks` types.
- * A file or name found under an earlier root dir shadows later ones, like resolution.
+ * Finds the task files under `dir`, named by their paths relative to `root`,
+ * the names `invoke_task` and `gro task` give them, sorted by name.
+ * @param dir - the directory to search
+ * @param search_filters - the filters each file and directory must pass, given paths relative to `root`
+ * @param root - the project root the names and filtered paths are relative to, defaults to the cwd
  */
 export const task_registry_find = async (
-	task_root_dirs: Array<PathId>,
-	search_filters: Array<PathFilter>
+	dir: PathId,
+	search_filters: Array<PathFilter>,
+	root: PathId = process.cwd()
 ): Promise<Array<TaskRegistryEntry>> => {
-	const entries: Map<string, TaskRegistryEntry> = new Map();
-	const ids: Set<PathId> = new Set();
-	for (const task_root_dir of task_root_dirs) {
-		const dir = ensure_end(task_root_dir, '/');
-		if (dir.startsWith(GRO_DIST_DIR)) continue;
-		const found = await fs_search(dir, { filter: search_filters, file_filter: is_task_path });
-		for (const { id } of found) {
-			// a root dir like `./` also reaches Gro's dist, which the default search filters allow
-			if (
-				ids.has(id) ||
-				id.startsWith(GRO_DIST_DIR) ||
-				strip_start(id, dir).includes('node_modules/')
-			)
-				continue;
-			ids.add(id);
-			// a non-absolute input path names it relative to its root dir, like `gro` lists it
-			const name = to_task_name(id, dir, '', '');
-			if (!entries.has(name)) entries.set(name, { name, id });
-		}
-	}
-	return Array.from(entries.values()).sort((a, b) => a.name.localeCompare(b.name));
+	const found = await fs_search(dir, {
+		filter: to_search_filters_relative(search_filters, root),
+		file_filter: is_task_path
+	});
+	return found
+		.map(({ id }) => ({ name: to_task_path(id, root), id }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 };
 
 const IDENTIFIER_MATCHER = /^[A-Za-z_$][\w$]*$/;
@@ -104,7 +101,9 @@ const render_entries = (
 	let imports = '';
 	let properties = '';
 	for (const { name, id } of entries) {
-		const base = name.replace(/[^\w$]/g, '_').replace(/^\d/, '_$&') + '_task'; // a valid identifier
+		let stem = name;
+		for (const suffix of TASK_FILE_SUFFIXES) stem = strip_end(stem, suffix);
+		const base = stem.replace(/[^\w$]/g, '_').replace(/^\d/, '_$&') + '_task'; // a valid identifier
 		let identifier = base;
 		for (let i = 2; used.has(identifier); i++) identifier = base + i;
 		used.add(identifier);
@@ -126,7 +125,7 @@ export const task_registry_render_project = (
 ): string => {
 	const { imports, properties } = render_entries(entries, output_dir, '\t\t');
 	return `// generated by ${origin_path} - DO NOT EDIT DIRECTLY!
-// types the project's tasks for \`invoke_task\`, see \`@fuzdev/gro/task_registry.ts\`
+// types the project's tasks for \`invoke_task\` by path, see \`@fuzdev/gro/task_registry.ts\`
 
 ${imports}
 declare module '@fuzdev/gro/task_registry.ts' {
@@ -139,14 +138,46 @@ export {}; // always a module, so the declaration augments rather than declares
 };
 
 /**
- * Renders the `GroBuiltinTasks` interface for Gro's own tasks.
+ * A builtin task with the summary `gro` lists it by.
+ */
+export interface BuiltinTaskEntry extends TaskRegistryEntry {
+	summary: string;
+}
+
+/**
+ * Finds Gro's builtin tasks, the `*.task.ts` files directly in `dir`,
+ * importing each to read its summary.
+ * @param dir - Gro's `src/lib/`
+ */
+export const task_registry_find_builtins = async (
+	dir: PathId
+): Promise<Array<BuiltinTaskEntry>> => {
+	const filenames = (await readdir(dir)).filter((f) => f.endsWith(TASK_FILE_SUFFIX_TS)).sort();
+	const entries: Array<BuiltinTaskEntry> = [];
+	for (const filename of filenames) {
+		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
+		const id = join(dir, filename);
+		const loaded = await load_task(id, name);
+		if (!loaded.ok) throw new TaskError(loaded.reason);
+		entries.push({ name, id, summary: loaded.value.mod.task.summary ?? '' });
+	}
+	return entries;
+};
+
+/**
+ * Renders the `GroBuiltinTasks` interface for Gro's own tasks
+ * and their summaries, so listing them imports no task module.
  */
 export const task_registry_render_builtins = (
-	entries: Array<TaskRegistryEntry>,
+	entries: Array<BuiltinTaskEntry>,
 	output_dir: PathId,
 	origin_path: string
 ): string => {
 	const { imports, properties } = render_entries(entries, output_dir, '\t');
+	let summaries = '';
+	for (const { name, summary } of entries) {
+		summaries += `\t${render_key(name)}: ${JSON.stringify(summary)},\n`;
+	}
 	return `// generated by ${origin_path} - DO NOT EDIT DIRECTLY!
 
 ${imports}
@@ -155,19 +186,26 @@ ${imports}
  */
 export interface GroBuiltinTasks {
 ${properties}}
+
+/**
+ * The summary of each of Gro's builtin tasks by name, so listing them imports no task module.
+ */
+export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> = {
+${summaries}};
 `;
 };
 
 /**
  * The genfile config that types a project's tasks for `invoke_task`.
  * Export it as `gen` from a genfile like `src/gro_tasks.gen.ts`,
- * which writes `src/gro_tasks.ts` augmenting `ProjectTasks`.
+ * which writes `src/gro_tasks.ts` augmenting `ProjectTasks`
+ * with every task file under `src/`, keyed by its path relative to the project root.
  * In `gro dev` it regenerates when a task file is added or changed;
  * `gro dev` ignores deletes, so run `gro gen` after removing a task.
  */
 export const gen_task_registry: GenConfig = {
 	generate: async ({ config, origin_id, origin_path }) => {
-		const entries = await task_registry_find(config.task_root_dirs, config.search_filters);
+		const entries = await task_registry_find(paths.source, config.search_filters, paths.root);
 		return task_registry_render_project(entries, dirname(origin_id), origin_path);
 	},
 	inputs: { patterns: ['*.task.ts', '*.task.js'] }

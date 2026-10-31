@@ -78,16 +78,19 @@ export const run_task = async (
 				)
 		});
 	} catch (error) {
+		const error_name = error?.constructor?.name;
 		return {
 			ok: false,
 			reason: st(
 				'red',
-				error?.constructor?.name === 'TaskError'
+				error_name === 'TaskError'
 					? (error.message as string)
-					: `Unexpected error running task ${st(
-							'cyan',
-							task_meta.name
-						)}. If this is unexpected try running \`${config.pm_cli} install\` and \`gro clean\`.`
+					: error_name === 'SilentError' // already reported, like a failed nested `invoke_task`
+						? `Task ${st('cyan', task_meta.name)} failed.`
+						: `Unexpected error running task ${st(
+								'cyan',
+								task_meta.name
+							)}. If this is unexpected try running \`${config.pm_cli} install\` and \`gro clean\`.`
 			),
 			error
 		};

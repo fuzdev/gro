@@ -2,8 +2,7 @@ import { relative } from 'node:path';
 
 import type { Gen } from '../lib/gen.ts';
 import { paths } from '../lib/paths.ts';
-import { log_error_reasons } from '../lib/task_logging.ts';
-import { find_tasks, load_tasks, TaskError } from '../lib/task.ts';
+import { task_registry_find_builtins } from '../lib/task_registry.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -22,21 +21,9 @@ import {
 // TODO needs some cleanup and better APIs - paths are confusing and verbose!
 // TODO add backlinks to every document that links to this one
 
-export const gen: Gen = async ({ origin_id, log, config }) => {
-	const found = await find_tasks(['.'], [paths.lib], config);
-	if (!found.ok) {
-		log_error_reasons(log, found.reasons);
-		throw new TaskError(`Failed to generate task docs: ${found.type}`);
-	}
-	const found_tasks = found.value;
-
-	const loaded = await load_tasks(found_tasks);
-	if (!loaded.ok) {
-		log_error_reasons(log, loaded.reasons);
-		throw new TaskError(`Failed to generate task docs: ${loaded.type}`);
-	}
-	const loaded_tasks = loaded.value;
-	const tasks = loaded_tasks.modules;
+export const gen: Gen = async ({ origin_id }) => {
+	// read from the task modules, not the generated summaries, so one `gro gen` pass is enough
+	const tasks = await task_registry_find_builtins(paths.lib);
 
 	const ctx = create_gen_doc_context(origin_id);
 	const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
@@ -61,14 +48,17 @@ ${tasks.reduce(
 	(result, task) =>
 		result +
 		`- [${task.name}](${relative(origin_dir, task.id)})${
-			task.mod.task.summary ? ` - ${task.mod.task.summary}` : ''
+			task.summary ? ` - ${task.summary}` : ''
 		}\n`,
 	''
 )}
 ## usage
 
 \`\`\`bash
-$ gro some/name
+$ gro # lists the builtins
+$ gro check # runs a builtin by name
+$ gro task # lists the project's tasks under src/
+$ gro task src/lib/some/file.task.ts # runs a project task by path
 \`\`\`
 
 ${breadcrumbs}

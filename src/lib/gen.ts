@@ -8,7 +8,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 
-import { print_path, to_root_path } from './paths.ts';
+import { paths, print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
@@ -24,7 +24,11 @@ import type { InvokeTask } from './task.ts';
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
 
-export const is_gen_path = (path: string): boolean => path.includes(GEN_FILE_PATTERN);
+/**
+ * Tests whether a path names a genfile by its file name,
+ * so a directory like `my.gen.x/` doesn't make every file under it a genfile.
+ */
+export const is_gen_path = (path: string): boolean => basename(path).includes(GEN_FILE_PATTERN);
 
 export interface GenResult {
 	origin_id: PathId;
@@ -324,12 +328,14 @@ export type FindGenfilesFailure =
 
 /**
  * Finds modules from input paths. (see `input_path.ts` for more)
+ * @param root - the project root `config.search_filters` test paths relative to
  */
 export const find_genfiles = async (
 	input_paths: Array<InputPath>,
 	root_dirs: Array<PathId>,
 	config: GroConfig,
-	timings?: Timings
+	timings?: Timings,
+	root: PathId = paths.root
 ): Promise<FindGenfilesResult> => {
 	const extensions: Array<string> = [GEN_FILE_PATTERN];
 
@@ -365,8 +371,8 @@ export const find_genfiles = async (
 		resolved_input_paths,
 		async (id) =>
 			await fs_search(id, {
-				filter: config.search_filters,
-				file_filter: (p) => extensions.some((e) => p.includes(e))
+				filter: to_search_filters_relative(config.search_filters, root),
+				file_filter: is_gen_path
 			})
 	);
 	timing_to_fs_search?.();

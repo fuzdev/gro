@@ -1,8 +1,8 @@
-import { join, extname, relative } from 'node:path';
+import { join, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
-import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 
 import {
 	GRO_CONFIG_FILENAME,
@@ -91,8 +91,6 @@ export const replace_extension = (path: string, new_extension: string): string =
  */
 export const paths = create_paths(process.cwd());
 
-/** @trailing_slash */
-export const GRO_PACKAGE_DIR = 'gro/';
 // TODO document these conditions with comments
 // TODO there's probably a more robust way to do this
 const filename = fileURLToPath(import.meta.url);
@@ -111,3 +109,26 @@ export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path);
 /** @trailing_slash */
 export const GRO_DIST_DIR = gro_paths.root + SVELTEKIT_DIST_DIRNAME + '/';
+
+/**
+ * Binds `search_filters` to the project root,
+ * so each filter tests the path relative to `root` rather than the absolute id,
+ * the same path whichever directory a search starts in,
+ * and a project under a `.`-prefixed directory like `~/.cache/` still finds its files.
+ * A path outside `root` is tested as its absolute id.
+ * @param search_filters - the filters each file and directory must pass, usually `config.search_filters`
+ * @param root - the project root the paths are relative to, usually `paths.root`
+ * @returns filters for `fs_search`, which passes them absolute ids
+ */
+export const to_search_filters_relative = (
+	search_filters: PathFilter | Array<PathFilter> | null | undefined,
+	root: string
+): Array<PathFilter> => {
+	if (!search_filters) return [];
+	const filters = Array.isArray(search_filters) ? search_filters : [search_filters];
+	const prefix = ensure_end(resolve(root), '/');
+	return filters.map(
+		(filter) => (id, is_directory) =>
+			filter(id.startsWith(prefix) ? id.slice(prefix.length) : id, is_directory)
+	);
+};

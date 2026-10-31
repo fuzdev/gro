@@ -50,7 +50,6 @@ export interface CreateGroConfig {
 export interface GroConfig extends RawGroConfig {
 	plugins: PluginsCreateConfig;
 	map_package_json: MapPackageJson | null;
-	task_root_dirs: Array<PathId>;
 	search_filters: Array<PathFilter>;
 	js_cli: string;
 	pm_cli: string;
@@ -61,7 +60,6 @@ export interface GroConfig extends RawGroConfig {
 export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: MapPackageJson | null;
-	task_root_dirs?: Array<string>;
 	search_filters?: PathFilter | Array<PathFilter> | null;
 	js_cli?: string;
 	pm_cli?: string;
@@ -114,7 +112,6 @@ const config = create_empty_gro_config();
 
 // config.plugins = ...;
 // config.map_package_json = ...;
-// config.task_root_dirs = ...;
 // config.search_filters = ...;
 // config.js_cli = ...;
 // config.pm_cli = ...;
@@ -208,25 +205,13 @@ export type PackageJsonMapper = (
 ) => PackageJson | null | Promise<PackageJson | null>;
 ```
 
-## `task_root_dirs`
-
-The Gro config option `task_root_dirs` allows customizing Gro's task resolution.
-When calling `gro [input_path]`, absolute and explicitly relative paths starting with `.`
-are resolved according to normal filesystem rules,
-but non-explicit input paths, like `foo`, are resolved by searching
-through `task_root_dirs` in order until a matching file or directory is found on the filesystem.
-
-The default task paths are `./src/lib`, then `.`, and then Gro's dist directory.
-
-The same resolution names the tasks that
-[`gen_task_registry`](./task.md#types-for-invoke_task) types for `invoke_task`,
-so a task in an earlier directory shadows one with the same name in a later directory.
-
 ## `search_filters`
 
 The Gro config option `search_filters` allows customizing
-how Gro searches for tasks and genfiles on the filesystem.
-Directories and files are included if they pass all of these filters.
+how Gro searches for tasks, genfiles, and files to format on the filesystem.
+Directories and files are included if they pass all of these filters,
+each given the path relative to the project root, like `src/lib/foo.ts`,
+whichever directory a search starts in, or its absolute id outside the root.
 
 By default, it uses the `SEARCH_EXCLUDER_DEFAULT` to exclude
 dot-prefixed directories, node_modules,

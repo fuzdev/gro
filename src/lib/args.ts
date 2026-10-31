@@ -1,16 +1,60 @@
 import { styleText as st } from 'node:util';
 import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
+import { TaskError, to_task_path } from './task.ts';
+
 /**
- * Parses `task_name` and `args` from `process.argv`,
- * ignoring anything after any `--`.
+ * The CLI verb that runs or lists project tasks by path, `gro task [path]`.
  */
-export const to_task_args = (argv = process.argv): { task_name: string; args: Args } => {
+export const TASK_VERB = 'task';
+
+/**
+ * The task the CLI names and its args, parsed from `process.argv`.
+ */
+export interface CliTaskArgs {
+	/**
+	 * The first positional arg: a builtin name, `TASK_VERB`, or `''` for none.
+	 */
+	task_name: string;
+	/**
+	 * The path after `TASK_VERB`, `null` when absent or for any other `task_name`.
+	 */
+	task_path: string | null;
+	args: Args;
+}
+
+/**
+ * Parses the task and its `args` from `process.argv`,
+ * ignoring anything after any `--`.
+ * `gro task <path>` consumes one more positional, the path.
+ * @throws TaskError when a flag replaces the positional args, like `--_` or `--no-_`
+ */
+export const to_task_args = (argv = process.argv): CliTaskArgs => {
 	const forwarded_index = argv.indexOf('--');
-	const args = argv_parse(forwarded_index === -1 ? argv.slice(2) : argv.slice(2, forwarded_index));
-	const task_name = args._.shift() ?? '';
-	if (!args._.length) delete (args as Args)._; // enable schema defaults
-	return { task_name, args };
+	const raw_argv = forwarded_index === -1 ? argv.slice(2) : argv.slice(2, forwarded_index);
+	const args = argv_parse(raw_argv);
+	const positionals = to_positionals(args, raw_argv);
+	const task_name = to_optional_string(positionals.shift()) ?? '';
+	const task_path = task_name === TASK_VERB ? to_optional_string(positionals.shift()) : null;
+	if (!positionals.length) delete (args as Args)._; // enable schema defaults
+	return { task_name, task_path, args };
+};
+
+type Positional = string | number | boolean;
+
+const to_optional_string = (v: Positional | undefined): string | null =>
+	v === undefined ? null : String(v);
+
+/**
+ * Gets the positional args parsed from `argv`,
+ * throwing a usage error when a flag like `--_` or `--no-_` replaced them.
+ */
+const to_positionals = (args: Args, argv: Array<string>): Array<Positional> => {
+	const positionals: unknown = args._;
+	if (Array.isArray(positionals)) return positionals;
+	throw new TaskError(
+		`\`_\` holds the positional args and can't be set by a flag like \`--_\` or \`--no-_\`: \`${argv.join(' ')}\``
+	);
 };
 
 /**
@@ -74,23 +118,35 @@ export const to_forwarded_args_by_command = (
 	const forwarded_args_by_command: Record<string, Args> = {};
 	for (const argv of argvs) {
 		const args = argv_parse(argv);
-		let command = args._.shift();
+		const positionals = to_positionals(args, argv);
+		let command = positionals.shift();
 		if (!command) {
 			// Skip sections without a command name - these are handled by `to_implicit_forwarded_args`.
 			// This allows `gro run script.ts -- --help` to pass `--help` to the script.
 			continue;
 		}
-		// Gro commands get combined with their task name.
+		// Gro commands get combined with their task name,
+		// and `gro task` with its path normalized like `invoke_task` keys it.
 		if (command === 'gro') {
-			if (!args._.length) {
-				throw Error(
+			const task_name = positionals.shift();
+			if (!task_name) {
+				throw new TaskError(
 					`Malformed args following a \`--\`. Expected gro taskname: \`${argv.join(' ')}\``
 				);
 			}
-			command += ' ' + args._.shift();
+			command += ' ' + task_name;
+			if (task_name === TASK_VERB) {
+				const task_path = positionals.shift();
+				if (!task_path) {
+					throw new TaskError(
+						`Malformed args following a \`--\`. Expected a path after \`gro task\`: \`${argv.join(' ')}\``
+					);
+				}
+				command += ' ' + to_task_path(String(task_path));
+			}
 		}
-		if (!args._.length) delete (args as Args)._;
-		forwarded_args_by_command[command] = args;
+		if (!positionals.length) delete (args as Args)._;
+		forwarded_args_by_command[String(command)] = args;
 	}
 	return forwarded_args_by_command;
 };
@@ -122,7 +178,7 @@ export const to_implicit_forwarded_args = (
 	}
 
 	const args = argv_parse(argv);
-	if (!args._.length) delete (args as Args)._;
+	if (!to_positionals(args, argv).length) delete (args as Args)._;
 	return args;
 };
 

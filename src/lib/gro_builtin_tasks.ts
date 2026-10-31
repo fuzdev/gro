@@ -13,7 +13,6 @@ import type * as lint_task from './lint.task.ts';
 import type * as publish_task from './publish.task.ts';
 import type * as reinstall_task from './reinstall.task.ts';
 import type * as release_task from './release.task.ts';
-import type * as resolve_task from './resolve.task.ts';
 import type * as run_task from './run.task.ts';
 import type * as sync_task from './sync.task.ts';
 import type * as test_task from './test.task.ts';
@@ -37,10 +36,33 @@ export interface GroBuiltinTasks {
 	publish: typeof publish_task;
 	reinstall: typeof reinstall_task;
 	release: typeof release_task;
-	resolve: typeof resolve_task;
 	run: typeof run_task;
 	sync: typeof sync_task;
 	test: typeof test_task;
 	typecheck: typeof typecheck_task;
 	upgrade: typeof upgrade_task;
 }
+
+/**
+ * The summary of each of Gro's builtin tasks by name, so listing them imports no task module.
+ */
+export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> = {
+	build: 'build the project',
+	changeset: 'call changeset with gro patterns',
+	check: 'check that everything is ready to commit',
+	clean: 'remove temporary dev and build files, and optionally prune git branches',
+	commit: 'commit and push to a new branch',
+	deploy: 'deploy to a branch',
+	dev: 'start SvelteKit and other dev plugins',
+	format: 'format source files',
+	gen: 'run code generation scripts',
+	lint: 'run eslint',
+	publish: 'bump version, publish to the configured registry, and git push',
+	reinstall: 'refreshes package-lock.json with the latest and cleanest deps',
+	release: 'publish and deploy',
+	run: 'execute a file with the loader, like `node` but works for TypeScript',
+	sync: 'run `gro gen`, update `package.json`, and optionally install packages to sync up',
+	test: 'run tests with vitest',
+	typecheck: 'run svelte-check or tsc on the project without emitting any files',
+	upgrade: 'upgrade deps'
+};

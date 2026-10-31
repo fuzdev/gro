@@ -1,25 +1,18 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
-import { ensure_end, strip_end, strip_start } from '@fuzdev/fuz_util/string.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
-import { isAbsolute, join, relative } from 'node:path';
-import { styleText as st } from 'node:util';
+import { relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
-import {
-	resolve_input_files,
-	resolve_input_paths,
-	type InputPath,
-	type ResolvedInputFile,
-	type ResolvedInputPath
-} from './input_path.ts';
-import { GRO_DIST_DIR, print_path } from './paths.ts';
-import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
+import { print_path } from './paths.ts';
+import { load_module, type ModuleMeta } from './modules.ts';
 import type { ModuleGraph, Watcher } from './module_graph.ts';
+import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
 
 export interface Task<
@@ -54,10 +47,12 @@ export interface TaskContext<TArgs = object> {
 }
 
 /**
- * Invokes a task by name with Gro's task resolution, so local overrides of builtins apply.
+ * Invokes a task: a name always means a builtin, and a path always means a task file,
+ * relative to the cwd and ending in `.task.ts` or `.task.js`.
  *
- * Names are checked against `TaskRegistry` and args against the named task's `Args` schema input.
- * A name widened to `string` (dynamic, a path, or a directory) opts out with loose `Args`.
+ * Literal names and paths are checked against `TaskRegistry`
+ * and args against the task's `Args` schema input.
+ * A literal task path not in the registry, or a name widened to `string`, takes loose `Args`.
  */
 export type InvokeTask = <TName extends string>(
 	task_name: InvokeTaskName<TName>,
@@ -65,17 +60,29 @@ export type InvokeTask = <TName extends string>(
 ) => Promise<void>;
 
 /**
- * A literal name must be in `TaskRegistry`, a widened `string` passes through.
+ * A literal task file path, ending in `.task.ts` or `.task.js`.
+ */
+export type TaskPathLiteral = `${string}.task.ts` | `${string}.task.js`;
+
+/**
+ * A literal must be in `TaskRegistry` or be a task file path, a widened `string` passes through.
  */
 export type InvokeTaskName<TName extends string> = string extends TName
 	? TName
-	: TName extends TaskName
+	: TName extends TaskName | TaskPathLiteral
 		? TName
 		: TaskName;
 
-export type InvokeTaskArgs<TName extends string> = TName extends TaskName
-	? TaskArgsInput<TName>
-	: Args;
+/**
+ * Strips any leading `./` from a literal task path,
+ * so `./src/lib/x.task.ts` keys the registry like `src/lib/x.task.ts`.
+ */
+export type TaskPathNormalized<TName extends string> = TName extends `./${infer TRest}`
+	? TaskPathNormalized<TRest>
+	: TName;
+
+export type InvokeTaskArgs<TName extends string> =
+	TaskPathNormalized<TName> extends infer TKey extends TaskName ? TaskArgsInput<TKey> : Args;
 
 /**
  * Makes `args` required when the task's `Args` has required fields.
@@ -90,32 +97,53 @@ export const TASK_FILE_SUFFIX_TS = '.task.ts';
 export const TASK_FILE_SUFFIX_JS = '.task.js';
 export const TASK_FILE_SUFFIXES = [TASK_FILE_SUFFIX_TS, TASK_FILE_SUFFIX_JS]; // TODO from `GroConfig`, but needs to be used everywhere the constants are
 
+/**
+ * Whether `path` ends in a task file suffix, `.task.ts` or `.task.js`.
+ */
 export const is_task_path = (path: string): boolean =>
 	path.endsWith(TASK_FILE_SUFFIX_TS) || path.endsWith(TASK_FILE_SUFFIX_JS);
 
-export const to_task_name = (
-	id: PathId,
-	task_root_dir: PathId,
-	input_path: InputPath,
-	root_path: PathId
-): string => {
-	let task_name = id.startsWith(task_root_dir)
-		? strip_start(strip_start(id, task_root_dir), '/')
-		: id;
-	for (const suffix of TASK_FILE_SUFFIXES) {
-		task_name = strip_end(task_name, suffix);
-	}
-	if (ensure_end(task_root_dir, '/') === GRO_DIST_DIR) {
-		// TODO ideally it would display this in some contexts like the task progress logs,
-		// but not all, like printing the task list, UNLESS there's a local override
-		// return 'gro/' + task_name;
-		return task_name;
-	}
-	if (isAbsolute(input_path)) {
-		return relative(root_path, join(task_root_dir, task_name));
-	}
-	return task_name;
-};
+/**
+ * Whether a task input names a path rather than a builtin:
+ * it contains a `/` or ends in a task file suffix.
+ * Anything else is a builtin name, never looked up on the filesystem.
+ */
+export const is_task_path_input = (input: string): boolean =>
+	input.includes('/') || is_task_path(input);
+
+/**
+ * Normalizes a task path to be relative to `root`,
+ * the form tasks are displayed, keyed, and forwarded args by.
+ * A relative `path` is relative to `root`, with or without a leading `./`.
+ * @param path - a relative or absolute task path
+ * @param root - the project root, defaults to the cwd
+ */
+export const to_task_path = (path: string, root: string = process.cwd()): string =>
+	relative(root, resolve(root, path));
+
+/**
+ * The command that runs the task `name`, a builtin name or a normalized task path,
+ * which is also the key its forwarded args are given by, like `gro check -- gro task src/x.task.ts --a`.
+ */
+export const to_task_command = (name: string): string =>
+	(is_task_path_input(name) ? 'gro task ' : 'gro ') + name;
+
+/**
+ * Whether `name` is one of Gro's builtin tasks.
+ */
+export const is_builtin_task_name = (name: string): name is keyof GroBuiltinTasks =>
+	Object.hasOwn(GRO_BUILTIN_TASK_SUMMARIES, name);
+
+// builtins sit beside this module, `.ts` in Gro's source and `.js` in its dist
+const BUILTIN_TASK_FILE_SUFFIX = import.meta.url.endsWith('.ts')
+	? TASK_FILE_SUFFIX_TS
+	: TASK_FILE_SUFFIX_JS;
+
+/**
+ * The module id of the builtin task `name`.
+ */
+export const to_builtin_task_id = (name: keyof GroBuiltinTasks): PathId =>
+	fileURLToPath(new URL('./' + name + BUILTIN_TASK_FILE_SUFFIX, import.meta.url));
 
 /**
  * This is used by tasks to signal a known failure.
@@ -130,124 +158,6 @@ export class TaskError extends Error {}
  */
 export class SilentError extends Error {}
 
-export interface FoundTask {
-	input_path: InputPath;
-	id: PathId;
-	task_root_dir: PathId;
-}
-
-export interface FoundTasks {
-	resolved_input_files: Array<ResolvedInputFile>;
-	resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
-	resolved_input_paths: Array<ResolvedInputPath>;
-	input_paths: Array<InputPath>;
-	task_root_dirs: Array<PathId>;
-}
-
-export type FindTasksResult = Result<{ value: FoundTasks }, FindModulesFailure>;
-export type FindModulesFailure =
-	| {
-			type: 'unmapped_input_paths';
-			unmapped_input_paths: Array<InputPath>;
-			resolved_input_paths: Array<ResolvedInputPath>;
-			input_paths: Array<InputPath>;
-			task_root_dirs: Array<PathId>;
-			reasons: Array<string>;
-	  }
-	| {
-			type: 'input_directories_with_no_files';
-			input_directories_with_no_files: Array<InputPath>;
-			resolved_input_files: Array<ResolvedInputFile>;
-			resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
-			resolved_input_paths: Array<ResolvedInputPath>;
-			input_paths: Array<InputPath>;
-			task_root_dirs: Array<PathId>;
-			reasons: Array<string>;
-	  };
-
-/**
- * Finds modules from input paths. (see `input_path.ts` for more)
- */
-export const find_tasks = async (
-	input_paths: Array<InputPath>,
-	task_root_dirs: Array<PathId>,
-	config: GroConfig,
-	timings?: Timings
-): Promise<FindTasksResult> => {
-	// Check which extension variation works - if it's a directory, prefer others first!
-	const timing_to_resolve_input_paths = timings?.start('resolve input paths');
-	const { resolved_input_paths, unmapped_input_paths } = await resolve_input_paths(
-		input_paths,
-		task_root_dirs,
-		TASK_FILE_SUFFIXES
-	);
-	timing_to_resolve_input_paths?.();
-
-	// Error if any input path could not be mapped.
-	if (unmapped_input_paths.length) {
-		return {
-			ok: false,
-			type: 'unmapped_input_paths',
-			unmapped_input_paths,
-			resolved_input_paths,
-			input_paths,
-			task_root_dirs,
-			reasons: unmapped_input_paths.map((input_path) =>
-				st('red', `Input path ${print_path(input_path)} cannot be mapped to a file or directory.`)
-			)
-		};
-	}
-
-	// Find all of the files for any directories.
-	const timing_to_resolve_input_files = timings?.start('resolve input files');
-	const {
-		resolved_input_files,
-		resolved_input_files_by_root_dir,
-		input_directories_with_no_files
-	} = await resolve_input_files(
-		resolved_input_paths,
-		async (id) =>
-			await fs_search(id, {
-				filter: config.search_filters,
-				file_filter: (p) => TASK_FILE_SUFFIXES.some((s) => p.endsWith(s))
-			})
-	);
-	timing_to_resolve_input_files?.();
-
-	// Error if any input path has no files. (means we have an empty directory)
-	if (input_directories_with_no_files.length) {
-		return {
-			ok: false,
-			type: 'input_directories_with_no_files',
-			input_directories_with_no_files,
-			resolved_input_files,
-			resolved_input_files_by_root_dir,
-			resolved_input_paths,
-			input_paths,
-			task_root_dirs,
-			reasons: input_directories_with_no_files.map((input_path) =>
-				st('red', `Input directory contains no matching files: ${print_path(input_path)}`)
-			)
-		};
-	}
-
-	return {
-		ok: true,
-		value: {
-			resolved_input_files,
-			resolved_input_files_by_root_dir,
-			resolved_input_paths,
-			input_paths,
-			task_root_dirs
-		}
-	};
-};
-
-export interface LoadedTasks {
-	modules: Array<TaskModuleMeta>;
-	found_tasks: FoundTasks;
-}
-
 export interface TaskModule {
 	task: Task;
 }
@@ -256,34 +166,23 @@ export interface TaskModuleMeta extends ModuleMeta<TaskModule> {
 	name: string;
 }
 
-export type LoadTasksResult = Result<{ value: LoadedTasks }, LoadTasksFailure>;
-export type LoadTasksFailure = LoadModulesFailure<TaskModuleMeta>;
+/**
+ * A loaded task module, or why it didn't load.
+ */
+export type LoadTaskResult = Result<{ value: TaskModuleMeta }, { reason: string }>;
 
-export const load_tasks = async (
-	found_tasks: FoundTasks,
-	root_path: PathId = process.cwd() // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
-): Promise<LoadTasksResult> => {
-	const loaded_modules = await load_modules(
-		found_tasks.resolved_input_files,
-		validate_task_module,
-		(resolved_input_file, mod): TaskModuleMeta => ({
-			id: resolved_input_file.id,
-			mod,
-			name: to_task_name(
-				resolved_input_file.id,
-				resolved_input_file.resolved_input_path.root_dir,
-				resolved_input_file.resolved_input_path.input_path,
-				root_path
-			)
-		})
-	);
-	if (!loaded_modules.ok) {
-		return loaded_modules;
-	}
-
+/**
+ * Imports the task module at `id`, displayed as `name`.
+ */
+export const load_task = async (id: PathId, name: string): Promise<LoadTaskResult> => {
+	const loaded = await load_module(id, validate_task_module);
+	if (loaded.ok) return { ok: true, value: { id, name, mod: loaded.mod } };
 	return {
-		ok: true,
-		value: { modules: loaded_modules.modules, found_tasks }
+		ok: false,
+		reason:
+			loaded.type === 'failed_import'
+				? `Task module ${print_path(id)} failed to import: ${print_error(loaded.error)}`
+				: `Task module ${print_path(id)} has no \`task\` export with a \`run\` function.`
 	};
 };
 

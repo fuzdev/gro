@@ -51,7 +51,6 @@ export const create_mock_config = async (
 	return {
 		plugins: () => [],
 		map_package_json: null,
-		task_root_dirs: [],
 		search_filters: [],
 		js_cli: 'node',
 		pm_cli: 'npm',
@@ -271,7 +270,6 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	config: {
 		plugins: () => [],
 		map_package_json: null,
-		task_root_dirs: [],
 		search_filters: [],
 		js_cli: 'node',
 		pm_cli: 'npm',
