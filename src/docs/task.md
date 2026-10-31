@@ -199,7 +199,7 @@ export const task: Task = {
 		await invoke_task(
 			'src/lib/other/file.task.ts',
 			{...args, optionally: 'extended'},
-			optional_config,
+			{config: optional_config},
 		);
 
 		// similar, but lacks the logging, diagnostics, and forwarded args:

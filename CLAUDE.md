@@ -217,7 +217,7 @@ Inputs: in `gro dev`, genfiles regenerate when they or their imports change.
 The static `inputs` property declares the other files they read:
 
 - `'all'` - regenerate on any change the dev watch reports
-- `{patterns: ['*.json'], files: ['package.json']}` - gitignore patterns
+- `{patterns: ['*.json'], files: ['src/lib/template.html']}` - gitignore patterns
   anchored at the project root (matched by tsv's `IgnoreStack`, files inside the
   root only) and exact paths (anywhere); only changes under `watch.dir` (default
   `src/`) trigger
@@ -265,7 +265,7 @@ export const gen: GenConfig = {
 	generate: () => 'generated content',
 	inputs: {
 		patterns: ['*.json'],
-		files: ['package.json'],
+		files: ['src/lib/template.html'],
 	},
 };
 ```

@@ -38,9 +38,10 @@ describe('invoke_task forwarded args', () => {
 		await invoke_task(
 			'check',
 			{ color: true, C: true },
-			{} as unknown as GroConfig,
-			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
-			null
+			{
+				config: {} as unknown as GroConfig,
+				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+			}
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
 		const parsed = args_parse(vi.mocked(run_task).mock.calls[0]![1], ColorArgs);
@@ -52,9 +53,10 @@ describe('invoke_task forwarded args', () => {
 		await invoke_task(
 			'src/lib/check.task.ts',
 			{ b: true },
-			{} as unknown as GroConfig,
-			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
-			null
+			{
+				config: {} as unknown as GroConfig,
+				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+			}
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
 		const [task_meta, args] = vi.mocked(run_task).mock.calls[0]!;
@@ -67,9 +69,10 @@ describe('invoke_task forwarded args', () => {
 		await invoke_task(
 			'check',
 			{ b: true },
-			{} as unknown as GroConfig,
-			{ graph: create_mock_module_graph(), watcher: create_mock_watcher() },
-			null
+			{
+				config: {} as unknown as GroConfig,
+				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+			}
 		);
 		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ b: true });
 	});

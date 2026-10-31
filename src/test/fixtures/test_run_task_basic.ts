@@ -29,12 +29,14 @@ async function runTest() {
 			}
 		},
 		args,
-		() => Promise.resolve(),
-		config,
-		graph,
-		watcher,
-		log,
-		new Timings()
+		{
+			invoke_task: () => Promise.resolve(),
+			config,
+			graph,
+			watcher,
+			log,
+			timings: new Timings()
+		}
 	);
 	await graph.close();
 	await watcher.close();

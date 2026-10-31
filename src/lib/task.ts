@@ -81,6 +81,11 @@ export type TaskPathNormalized<TName extends string> = TName extends `./${infer 
 	? TaskPathNormalized<TRest>
 	: TName;
 
+/**
+ * The args `InvokeTask` accepts for `TName`:
+ * the input type of the registered task's `Args` schema,
+ * keyed by its name or normalized path, or loose `Args` for a task not in the registry.
+ */
 export type InvokeTaskArgs<TName extends string> =
 	TaskPathNormalized<TName> extends infer TKey extends TaskName ? TaskArgsInput<TKey> : Args;
 
@@ -90,12 +95,27 @@ export type InvokeTaskArgs<TName extends string> =
 export type InvokeTaskRest<TName extends string> =
 	// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- `{}` assignable means no required fields
 	{} extends InvokeTaskArgs<TName>
-		? [args?: InvokeTaskArgs<TName>, config?: GroConfig]
-		: [args: InvokeTaskArgs<TName>, config?: GroConfig];
+		? [args?: InvokeTaskArgs<TName>, options?: InvokeTaskContextOptions]
+		: [args: InvokeTaskArgs<TName>, options?: InvokeTaskContextOptions];
+
+/**
+ * The options a task's `invoke_task` takes, after the task name and args.
+ */
+export interface InvokeTaskContextOptions {
+	/**
+	 * The config the invoked task runs with, defaults to the invoking task's.
+	 */
+	config?: GroConfig;
+}
 
 export const TASK_FILE_SUFFIX_TS = '.task.ts';
 export const TASK_FILE_SUFFIX_JS = '.task.js';
-export const TASK_FILE_SUFFIXES = [TASK_FILE_SUFFIX_TS, TASK_FILE_SUFFIX_JS]; // TODO from `GroConfig`, but needs to be used everywhere the constants are
+export const TASK_FILE_SUFFIXES = [TASK_FILE_SUFFIX_TS, TASK_FILE_SUFFIX_JS];
+
+/**
+ * The CLI verb that runs or lists project tasks by path, `gro task [path]`.
+ */
+export const TASK_VERB = 'task';
 
 /**
  * Whether `path` ends in a task file suffix, `.task.ts` or `.task.js`.
@@ -126,7 +146,7 @@ export const to_task_path = (path: string, root: string = process.cwd()): string
  * which is also the key its forwarded args are given by, like `gro check -- gro task src/x.task.ts --a`.
  */
 export const to_task_command = (name: string): string =>
-	(is_task_path_input(name) ? 'gro task ' : 'gro ') + name;
+	is_task_path_input(name) ? `gro ${TASK_VERB} ${name}` : `gro ${name}`;
 
 /**
  * Whether `name` is one of Gro's builtin tasks.

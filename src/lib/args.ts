@@ -1,12 +1,7 @@
 import { styleText as st } from 'node:util';
 import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
-import { TaskError, to_task_path } from './task.ts';
-
-/**
- * The CLI verb that runs or lists project tasks by path, `gro task [path]`.
- */
-export const TASK_VERB = 'task';
+import { TASK_VERB, TaskError, to_task_path } from './task.ts';
 
 /**
  * The task the CLI names and its args, parsed from `process.argv`.
@@ -96,6 +91,17 @@ export const merge_forwarded_args = (args: Args | undefined, forwarded: Args): A
 	return { ...unforwarded, ...forwarded };
 };
 
+/**
+ * Parses each section of `raw_rest_args` after a `--` into args keyed by its command,
+ * the section's first positional: `-- eslint --fix` is keyed `eslint`,
+ * `-- gro test --a` is keyed `gro test`,
+ * and `-- gro task src/lib/x.task.ts --a` is keyed by `gro task` and the normalized path.
+ * A section with no command is skipped, left to `to_implicit_forwarded_args`.
+ * @param raw_rest_args - the CLI args from the first `--` on, defaults to those of `process.argv`
+ * @returns the forwarded args of each command
+ * @throws TaskError when a `gro` section names no task, a `gro task` section no path,
+ *   or a flag replaces a section's positional args
+ */
 export const to_forwarded_args_by_command = (
 	raw_rest_args = to_raw_rest_args()
 ): Record<string, Args | undefined> => {

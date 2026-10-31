@@ -25,7 +25,7 @@ export type RawInputPath = Flavored<s.Infer<typeof RawInputPath>, 'RawInputPath'
  */
 export const to_input_path = (
 	raw_input_path: RawInputPath,
-	root_path = process.cwd() // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
+	root_path = process.cwd()
 ): InputPath => {
 	if (raw_input_path[0] === '.') {
 		return resolve(root_path, raw_input_path);
@@ -35,7 +35,7 @@ export const to_input_path = (
 
 export const to_input_paths = (
 	raw_input_paths: Array<RawInputPath>,
-	root_path?: string // TODO @many isn't passed in anywhere, maybe hoist to `invoke_task` and others
+	root_path?: string
 ): Array<InputPath> => raw_input_paths.map((p) => to_input_path(p, root_path));
 
 export interface PossiblePath {

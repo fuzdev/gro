@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import { dirname, extname, relative, resolve } from 'node:path';
+import { dirname, extname, resolve } from 'node:path';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
@@ -17,10 +17,6 @@ export interface ResolvedSpecifier {
 	 */
 	path_id_with_querystring: string;
 	specifier: string;
-	/**
-	 * The specifier relative to the importer's directory, with `.ts` mapped to the built `.js`.
-	 */
-	mapped_specifier: string;
 	namespace: undefined | 'sveltekit_local_imports_ts' | 'sveltekit_local_imports_js';
 	raw: boolean;
 }
@@ -58,7 +54,6 @@ export const resolve_specifier = async (
 	const raw = specifier.endsWith('?raw'); // TODO more robust detection? other values?
 	const final_specifier = raw ? specifier.slice(0, -4) : specifier;
 	const path_id = to_specifier_path_id(specifier, importer);
-	const dir = dirname(importer);
 
 	let refusal;
 	try {
@@ -85,15 +80,11 @@ export const resolve_specifier = async (
 				? 'sveltekit_local_imports_js'
 				: undefined;
 
-	let mapped_specifier = relative(dir, ext === '.ts' ? replace_extension(path_id, '.js') : path_id);
-	if (mapped_specifier[0] !== '.') mapped_specifier = './' + mapped_specifier;
-
 	return {
 		path_id,
 		path_id_with_querystring: raw ? path_id + '?raw' : path_id,
 		raw,
 		specifier,
-		mapped_specifier,
 		namespace
 	};
 };

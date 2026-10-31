@@ -10,8 +10,17 @@ interface LoadedFiler {
 	filter_dependents: typeof filter_dependents;
 }
 
+/**
+ * Options for `create_node_module_graph`.
+ */
 export interface NodeModuleGraphOptions {
+	/**
+	 * What the graph watches, usually `GroConfig.watch`.
+	 */
 	watch: WatchOptions;
+	/**
+	 * The logger the underlying `Filer` reports through.
+	 */
 	log?: Logger;
 }
 
@@ -92,7 +101,13 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 	};
 };
 
+/**
+ * Options for `create_node_watcher`.
+ */
 export interface NodeWatcherOptions {
+	/**
+	 * What each `watch` call watches, usually `GroConfig.watch`.
+	 */
 	watch: WatchOptions;
 }
 

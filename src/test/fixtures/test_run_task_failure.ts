@@ -32,12 +32,14 @@ async function runTest() {
 			}
 		},
 		{ _: [] },
-		async () => {},
-		config,
-		graph,
-		watcher,
-		log,
-		new Timings()
+		{
+			invoke_task: async () => {},
+			config,
+			graph,
+			watcher,
+			log,
+			timings: new Timings()
+		}
 	);
 	await graph.close();
 	await watcher.close();

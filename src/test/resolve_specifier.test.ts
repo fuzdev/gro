@@ -26,7 +26,6 @@ describe('resolve_specifier', () => {
 			path_id,
 			path_id_with_querystring: path_id,
 			specifier,
-			mapped_specifier: './test_file.other.ext',
 			namespace: undefined,
 			raw: false
 		});
@@ -39,7 +38,6 @@ describe('resolve_specifier', () => {
 			path_id,
 			path_id_with_querystring: path_id,
 			specifier,
-			mapped_specifier: specifier,
 			namespace: undefined,
 			raw: false
 		});
@@ -52,7 +50,6 @@ describe('resolve_specifier', () => {
 			path_id,
 			path_id_with_querystring: path_id,
 			specifier,
-			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
@@ -66,7 +63,6 @@ describe('resolve_specifier', () => {
 			path_id,
 			path_id_with_querystring: path_id + '?raw',
 			specifier,
-			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: true
 		});
@@ -78,7 +74,6 @@ describe('resolve_specifier', () => {
 			path_id: path_id1,
 			path_id_with_querystring: path_id1,
 			specifier: './test_ts.ts',
-			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
@@ -87,7 +82,6 @@ describe('resolve_specifier', () => {
 			path_id: path_id2,
 			path_id_with_querystring: path_id2,
 			specifier: './modules/some_test_ts.ts',
-			mapped_specifier: './modules/some_test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
@@ -96,7 +90,6 @@ describe('resolve_specifier', () => {
 			path_id: path_id3,
 			path_id_with_querystring: path_id3,
 			specifier: '../fixtures/test_ts.ts',
-			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
@@ -104,7 +97,6 @@ describe('resolve_specifier', () => {
 			path_id: path_id3,
 			path_id_with_querystring: path_id3 + '?raw',
 			specifier: '../fixtures/test_ts.ts?raw',
-			mapped_specifier: './test_ts.js',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: true
 		});
@@ -117,7 +109,6 @@ describe('resolve_specifier', () => {
 			path_id,
 			path_id_with_querystring: path_id,
 			specifier,
-			mapped_specifier: './test_js.js',
 			namespace: 'sveltekit_local_imports_js',
 			raw: false
 		});

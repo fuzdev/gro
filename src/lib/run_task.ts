@@ -8,7 +8,7 @@ import type { ModuleGraph, Watcher } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import { TaskError, type TaskModuleMeta } from './task.ts';
+import { TaskError, type InvokeTaskContextOptions, type TaskModuleMeta } from './task.ts';
 import { log_task_help } from './task_logging.ts';
 
 export type RunTaskResult =
@@ -22,16 +22,41 @@ export type RunTaskResult =
 			error: Error;
 	  };
 
+/**
+ * What `run_task` runs a task with, the parts of its `TaskContext` it doesn't build itself.
+ */
+/**
+ * What `run_task` builds the task's context from:
+ * `config`, `graph`, `watcher`, `log`, and `timings` become its fields of the same name.
+ */
+export interface RunTaskOptions {
+	/**
+	 * The `invoke_task` the task's own `invoke_task` calls,
+	 * passing it this task's `config`, `graph`, `watcher`, `timings`, and `log`.
+	 */
+	invoke_task: typeof base_invoke_task;
+	config: GroConfig;
+	graph: ModuleGraph;
+	watcher: Watcher;
+	log: Logger;
+	timings: Timings;
+}
+
+/**
+ * Validates `unparsed_args` against the task's `Args` and runs the task,
+ * or logs its help for `--help`.
+ * A failure, invalid args or a thrown error, is returned, not thrown,
+ * so the invoking `invoke_task` reports it once.
+ * @param task_meta - the loaded task module
+ * @param unparsed_args - the args before validation, forwarded args already merged
+ * @param options - what the task's context is built from
+ */
 export const run_task = async (
 	task_meta: TaskModuleMeta,
 	unparsed_args: Args,
-	invoke_task: typeof base_invoke_task,
-	config: GroConfig,
-	graph: ModuleGraph,
-	watcher: Watcher,
-	log: Logger,
-	timings: Timings
+	options: RunTaskOptions
 ): Promise<RunTaskResult> => {
+	const { invoke_task, config, graph, watcher, log, timings } = options;
 	const { task } = task_meta.mod;
 
 	if (unparsed_args.help) {
@@ -44,11 +69,12 @@ export const run_task = async (
 	if (task.Args) {
 		const parsed = args_parse(unparsed_args, task.Args);
 		if (!parsed.ok) {
-			throw new TaskError(
+			const error = new TaskError(
 				`Failed task args validation for task '${task_meta.name}':\n${parsed.issues
 					.map(format_issue)
 					.join('\n')}`
 			);
+			return { ok: false, reason: st('red', error.message), error };
 		}
 		args = parsed.value;
 	}
@@ -67,15 +93,17 @@ export const run_task = async (
 			log,
 			timings,
 			// the registry typing is for callers, the runtime takes any name and args
-			invoke_task: (invoked_task_name: string, invoked_args?: Args, invoked_config?: GroConfig) =>
-				invoke_task(
-					invoked_task_name,
-					invoked_args,
-					invoked_config ?? config,
-					{ graph, watcher },
+			invoke_task: (
+				invoked_task_name: string,
+				invoked_args?: Args,
+				invoked_options?: InvokeTaskContextOptions
+			) =>
+				invoke_task(invoked_task_name, invoked_args, {
+					config: invoked_options?.config ?? config,
+					watching: { graph, watcher },
 					timings,
-					log
-				)
+					parent_log: log
+				})
 		});
 	} catch (error) {
 		const error_name = error?.constructor?.name;

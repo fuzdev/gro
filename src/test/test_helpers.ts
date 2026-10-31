@@ -7,6 +7,7 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import type { GroConfig } from '#lib/gro_config.ts';
+import { paths } from '#lib/paths.ts';
 import type { ModuleGraph, Watcher } from '#lib/module_graph.ts';
 import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
@@ -54,9 +55,10 @@ export const create_mock_config = async (
 		search_filters: [],
 		js_cli: 'node',
 		pm_cli: 'npm',
+		watch: { dir: paths.source, filter: null },
 		build_cache_config_hash,
 		...(rest as Partial<GroConfig>)
-	} as GroConfig;
+	};
 };
 
 /**

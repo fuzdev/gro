@@ -8,7 +8,7 @@ import {
 	type PreprocessorGroup
 } from 'svelte/compiler';
 import { readFile } from 'node:fs/promises';
-import { relative } from 'node:path';
+import { dirname, relative } from 'node:path';
 
 import { to_define_import_meta_env, default_ts_transform_options } from './esbuild_helpers.ts';
 import {
@@ -75,6 +75,8 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 					const contents = js.code + '//# sourceMappingURL=' + js.map.toUrl();
 					return {
 						contents,
+						// the local-imports plugin's namespaces have no default, so imports need it set
+						resolveDir: dirname(path),
 						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w))
 					};
 				} catch (error) {
@@ -94,6 +96,8 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 					const contents = js.code + '//# sourceMappingURL=' + js.map.toUrl();
 					return {
 						contents,
+						// same as the runes branch, harmless in the file namespace
+						resolveDir: dirname(path),
 						warnings: warnings.map((w) => convert_svelte_message_to_esbuild(filename, source, w))
 					};
 				} catch (error) {

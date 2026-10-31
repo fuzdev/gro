@@ -7,7 +7,7 @@ import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { styleText as st } from 'node:util';
 
-import { merge_forwarded_args, TASK_VERB, to_forwarded_args, type CliTaskArgs } from './args.ts';
+import { merge_forwarded_args, to_forwarded_args, type CliTaskArgs } from './args.ts';
 import { run_task } from './run_task.ts';
 import {
 	is_builtin_task_name,
@@ -20,6 +20,7 @@ import {
 	to_task_command,
 	to_task_path,
 	TASK_FILE_SUFFIX_TS,
+	TASK_VERB,
 	type TaskContext,
 	type TaskModuleMeta
 } from './task.ts';
@@ -38,6 +39,30 @@ import { print_path } from './paths.ts';
 const REMOVED_BUILTIN_PREFIX = 'gro/';
 
 /**
+ * What `invoke_task` runs a task with, after the task name and args.
+ */
+export interface InvokeTaskOptions {
+	/**
+	 * The Gro configuration.
+	 */
+	config: GroConfig;
+	/**
+	 * The `graph` and `watcher` from the invoking task,
+	 * created from `config.watch` and closed on finish when absent.
+	 */
+	watching?: Pick<TaskContext, 'graph' | 'watcher'>;
+	/**
+	 * The invoking task's timings, shared by nested tasks;
+	 * absent for the top-level task, which creates them and prints them on success.
+	 */
+	timings?: Timings;
+	/**
+	 * The invoking task's logger, which labels this task's logger as its child.
+	 */
+	parent_log?: Logger;
+}
+
+/**
  * Invokes a task by builtin name or by path.
  *
  * A name always means one of Gro's builtins, so a project task never shadows one.
@@ -50,19 +75,14 @@ const REMOVED_BUILTIN_PREFIX = 'gro/';
  *
  * @param task_name - a builtin name or a task path
  * @param args - the CLI args to pass to the task
- * @param config - the Gro configuration
- * @param initial_watching - the `graph` and `watcher` from the invoking task, created from `config.watch` and closed on finish when absent
- * @param initial_timings - the invoking task's timings, shared by nested tasks; absent for the top-level task, which creates them and prints them on success
- * @param parent_log - the invoking task's logger, which labels this task's logger as its child
+ * @param options - the config and what the invoking task shares
  */
 export const invoke_task = async (
 	task_name: string,
 	args: Args | undefined,
-	config: GroConfig,
-	initial_watching?: Pick<TaskContext, 'graph' | 'watcher'>,
-	initial_timings?: Timings | null,
-	parent_log?: Logger
+	options: InvokeTaskOptions
 ): Promise<void> => {
+	const { config, watching: initial_watching, timings: initial_timings, parent_log } = options;
 	// Create child logger if parent exists, otherwise root logger,
 	// labeled by the name the task is displayed by when it's a normalized path
 	const log_label = is_task_path(task_name) ? to_task_path(task_name) : task_name || 'gro';
@@ -111,16 +131,14 @@ export const invoke_task = async (
 	const timing_to_run_task = timings.start('run task ' + task.name);
 	let result;
 	try {
-		result = await run_task(
-			task,
-			merge_forwarded_args(args, forwarded),
+		result = await run_task(task, merge_forwarded_args(args, forwarded), {
 			invoke_task,
 			config,
 			graph,
 			watcher,
 			log,
 			timings
-		);
+		});
 	} finally {
 		// close only what we created, failed or not, a no-op when it never loaded
 		if (owns_watching) {
@@ -251,10 +269,10 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) {
-			await invoke_task(task_path, args, config);
+			await invoke_task(task_path, args, { config });
 			return;
 		}
-		await list_tasks(task_path ?? SOURCE_DIR, config, new Logger('gro task'));
+		await list_tasks(task_path, config, new Logger('gro task'));
 		return;
 	}
 
@@ -270,7 +288,7 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 		throw new SilentError();
 	}
 
-	await invoke_task(task_name, args, config);
+	await invoke_task(task_name, args, { config });
 };
 
 const is_removed_builtin_prefix = (task_name: string): boolean =>
@@ -279,11 +297,20 @@ const is_removed_builtin_prefix = (task_name: string): boolean =>
 /**
  * Lists the task files under `dir`, importing each to read its summary,
  * then reports each task that fails to load and fails.
+ * @param dir - the directory the user named, `null` for the default `src/`
  */
-const list_tasks = async (dir: string, config: GroConfig, log: Logger): Promise<void> => {
-	const dir_id = resolve(dir);
+const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): Promise<void> => {
+	const dir_id = resolve(dir ?? SOURCE_DIR);
 	const stats = await stat(dir_id).catch(() => null);
 	if (!stats?.isDirectory()) {
+		// the user named no path, so don't blame one
+		if (dir === null) {
+			log_error_reasons(log, [
+				`\`gro ${TASK_VERB}\` lists the tasks under \`${SOURCE_DIR}\`, and there's no \`${SOURCE_DIR}\` directory here: ` +
+					`run a task file with \`gro ${TASK_VERB} <path>\` or list a directory's with \`gro ${TASK_VERB} <dir>\`.`
+			]);
+			throw new SilentError();
+		}
 		const reasons = [
 			`\`${dir}\` is not a directory or a task file: task paths end in \`.task.ts\` or \`.task.js\`.`
 		];

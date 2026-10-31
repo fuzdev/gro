@@ -10,7 +10,7 @@ import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import { SilentError, to_builtin_task_id } from '#lib/task.ts';
 import { paths } from '#lib/paths.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
-import type { CliTaskArgs } from '#lib/args.ts';
+import { to_task_args as parse_cli_task_args, type CliTaskArgs } from '#lib/args.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -292,8 +292,49 @@ describe('invoke_cli', () => {
 
 	test('`gro task` is the verb, never a builtin name', async () => {
 		assert.ok(!(await resolve_task('task', paths.root)).ok);
+		write_tasks(['src/lib/a.task.ts']);
+		await in_dir(dir, async () => {
+			await invoke_cli(parse_cli_task_args(['node', 'gro', 'task']), config);
+			await invoke_cli(
+				parse_cli_task_args(['node', 'gro', 'task', 'src/lib/a.task.ts', '--x']),
+				config
+			);
+		});
+		const listed = vi.mocked(log_tasks).mock.calls;
+		assert.strictEqual(listed.length, 1);
+		assert.deepEqual(
+			listed[0]![1].map((m) => m.name),
+			['src/lib/a.task.ts']
+		);
+		const ran = vi.mocked(run_task).mock.calls;
+		assert.strictEqual(ran.length, 1);
+		assert.strictEqual(ran[0]![0].name, 'src/lib/a.task.ts');
+		assert.deepEqual(ran[0]![1], { x: true });
+	});
+
+	test('`gro task` in a project with no `src/` says so, blaming no path', async () => {
+		await in_dir(dir, () => assert_silent(invoke_cli(to_task_args('task'), config)));
+		assert.strictEqual(
+			error_text(),
+			"`gro task` lists the tasks under `src/`, and there's no `src/` directory here: " +
+				"run a task file with `gro task <path>` or list a directory's with `gro task <dir>`."
+		);
+		assert.strictEqual(vi.mocked(log_tasks).mock.calls.length, 0);
 	});
 });
+
+/**
+ * Runs `fn` with `cwd` as the process cwd, the CLI's project root.
+ */
+const in_dir = async (cwd: string, fn: () => Promise<unknown>): Promise<void> => {
+	const original = process.cwd();
+	try {
+		process.chdir(cwd);
+		await fn();
+	} finally {
+		process.chdir(original);
+	}
+};
 
 const assert_silent = async (promise: Promise<unknown>): Promise<void> => {
 	try {

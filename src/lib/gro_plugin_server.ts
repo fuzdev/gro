@@ -16,7 +16,6 @@ import { parse_svelte_config, load_default_svelte_config } from './svelte_config
 import { esbuild_plugin_sveltekit_shim_app } from './esbuild_plugin_sveltekit_shim_app.ts';
 import { esbuild_plugin_sveltekit_shim_app_env_vars } from './esbuild_plugin_sveltekit_shim_app_env_vars.ts';
 import { print_build_result, to_define_import_meta_env } from './esbuild_helpers.ts';
-import { esbuild_plugin_external_worker } from './esbuild_plugin_external_worker.ts';
 import { esbuild_plugin_sveltekit_local_imports } from './esbuild_plugin_sveltekit_local_imports.ts';
 import { esbuild_plugin_svelte } from './esbuild_plugin_svelte.ts';
 
@@ -199,22 +198,6 @@ export const gro_plugin_server = ({
 						env_dir,
 						env_files,
 						ambient_env
-					}),
-					esbuild_plugin_external_worker({
-						dev,
-						build_options,
-						dir,
-						svelte_compile_options,
-						svelte_compile_module_options,
-						svelte_preprocessors,
-						base_url,
-						assets_url,
-						version_name,
-						src_path,
-						env_dir,
-						env_files,
-						ambient_env,
-						log
 					}),
 					esbuild_plugin_svelte({
 						dev,

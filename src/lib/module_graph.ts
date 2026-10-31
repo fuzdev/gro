@@ -83,7 +83,11 @@ export interface WatchOptions {
 	 */
 	dir: PathId;
 	/**
-	 * Excludes the paths it rejects from watching and from the project modules.
+	 * Excludes the paths it rejects from the change events and from the project modules.
+	 * It's called with absolute paths, unlike `GroConfig.search_filters`,
+	 * which get paths relative to the project root.
+	 * It filters events, not the directory walk: a rejected directory is still watched,
+	 * so each path below it is filtered on its own.
 	 */
 	filter: PathFilter | null;
 }

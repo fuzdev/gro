@@ -35,16 +35,18 @@ async function runTest() {
 			}
 		},
 		args,
-		(invoking_task_name: string, invoking_args: any) => {
-			invoked_task_name = invoking_task_name;
-			invoked_args = invoking_args;
-			return Promise.resolve();
-		},
-		config,
-		graph,
-		watcher,
-		log,
-		new Timings()
+		{
+			invoke_task: (invoking_task_name: string, invoking_args: any) => {
+				invoked_task_name = invoking_task_name;
+				invoked_args = invoking_args;
+				return Promise.resolve();
+			},
+			config,
+			graph,
+			watcher,
+			log,
+			timings: new Timings()
+		}
 	);
 	await graph.close();
 	await watcher.close();

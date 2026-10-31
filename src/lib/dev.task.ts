@@ -44,7 +44,7 @@ export const task: Task<Args> = {
 		} else {
 			// TODO maybe redesign for this API to be explicitly cancelable?
 			// Keep the task running indefinitely in watch mode.
-			// This prevents invoke_task from calling finish() and closing the graph and watcher.
+			// This keeps invoke_task from closing the graph and watcher it created.
 			await new Promise(() => {
 				// Never resolves - keeps the graph, watcher, and listeners alive.
 			});

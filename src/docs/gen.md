@@ -261,7 +261,7 @@ export const gen: GenConfig = {
 	generate: () => 'returns generated contents',
 	inputs: {
 		patterns: ['*.json', '/src/data/'], // gitignore syntax, anchored at the project root
-		files: ['package.json'], // exact paths, relative to the project root or absolute
+		files: ['src/lib/template.html'], // exact paths, relative to the project root or absolute
 	},
 };
 ```

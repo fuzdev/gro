@@ -11,8 +11,6 @@ import { spawn_cli } from './cli.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
-// TODO is cache busting a good idea here to speed up and run in-process?
-// 	await invoke_task('gen', {_: files, bust_cache: true});
 const gen = (files: Array<string> = []) => spawn_cli('gro', ['gen', ...files]);
 
 export interface TaskArgs extends Args {

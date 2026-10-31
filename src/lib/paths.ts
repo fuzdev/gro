@@ -1,17 +1,10 @@
 import { join, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
+import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 
-import {
-	GRO_CONFIG_FILENAME,
-	GRO_DEV_DIR,
-	GRO_DIR,
-	LIB_DIR,
-	SOURCE_DIR,
-	SVELTEKIT_DIST_DIRNAME
-} from './constants.ts';
+import { GRO_CONFIG_FILENAME, GRO_DEV_DIR, GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
 
 /*
 
@@ -74,11 +67,8 @@ export const base_path_to_path_id = (base_path: string, p = infer_paths(base_pat
 	join(p.source, base_path);
 
 export const print_path = (path: string, p = infer_paths(path)): string => {
-	let final_path =
-		strip_end(path, '/') === strip_end(GRO_DIST_DIR, '/') ? 'gro' : to_root_path(path, p);
-	final_path =
-		final_path === 'gro' ? final_path : final_path[0] === '.' ? final_path : './' + final_path;
-	return st('gray', final_path);
+	const root_path = to_root_path(path, p);
+	return st('gray', root_path[0] === '.' ? root_path : './' + root_path);
 };
 
 export const replace_extension = (path: string, new_extension: string): string => {
@@ -107,8 +97,6 @@ export const IS_THIS_GRO = gro_package_dir_path === paths.root;
  * `Paths` for the Gro package being used by the user repo.
  */
 export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path);
-/** @trailing_slash */
-export const GRO_DIST_DIR = gro_paths.root + SVELTEKIT_DIST_DIRNAME + '/';
 
 /**
  * Binds `search_filters` to the project root,

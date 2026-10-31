@@ -1,8 +1,11 @@
 import { test, expect } from 'vitest';
 import * as esbuild from 'esbuild';
-import { readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { esbuild_plugin_svelte } from '#lib/esbuild_plugin_svelte.ts';
+import { esbuild_plugin_sveltekit_local_imports } from '#lib/esbuild_plugin_sveltekit_local_imports.ts';
 
 // Passed literally rather than read off the project's config,
 // which would cost a full Vite config resolution for a value these tests already know.
@@ -129,4 +132,37 @@ export {
 };
 `
 	);
+});
+
+test('a relative runes module import builds through the local-imports plugin, like a server build', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_esbuild_plugin_svelte_'));
+	try {
+		await writeFile(
+			join(dir, 'entry.ts'),
+			`import {State} from './state.svelte.ts';\nexport const state = new State();\n`
+		);
+		await writeFile(join(dir, 'state.svelte.ts'), `export class State {\n\ta = $state('ok');\n}\n`);
+		const built = await esbuild.build({
+			entryPoints: [join(dir, 'entry.ts')],
+			// the server plugin's order: the svelte plugin loads runes modules
+			// in the namespaces the local-imports plugin resolves them to
+			plugins: [
+				esbuild_plugin_svelte({ dev: true, base_url, dir }),
+				esbuild_plugin_sveltekit_local_imports()
+			],
+			write: false,
+			format: 'esm',
+			platform: 'node',
+			packages: 'external',
+			bundle: true,
+			target: 'esnext',
+			logLevel: 'silent'
+		});
+		expect(built.errors.length).toBe(0);
+		const output = built.outputFiles[0]!.text;
+		expect(output).toContain('from "svelte/internal/server"');
+		expect(output).not.toContain('$state(');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });

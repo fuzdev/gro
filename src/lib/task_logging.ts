@@ -70,6 +70,11 @@ export const log_builtin_tasks = (log: Logger): void => {
 	log.info(logged.join('') + '\n');
 };
 
+/**
+ * Logs each of `reasons` as an error, in red, the way failures are reported to the user.
+ * @param log - the logger to report through
+ * @param reasons - the messages, one logged per call
+ */
 export const log_error_reasons = (log: Logger, reasons: Array<string>): void => {
 	for (const reason of reasons) {
 		log.error(st('red', reason));
