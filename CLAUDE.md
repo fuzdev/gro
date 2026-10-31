@@ -541,7 +541,14 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `node_modules` segment below it), which the loader owns and passes into
   `resolve`; the loader refuses a root admitted around a module already
   recorded in an outer one (`RootConflict`), and `import.meta.resolve`
-  admits nothing. The file loaded is the file resolved: the lookup takes its
+  admits nothing. The loader keeps the run's `Graph` (`loader/graph.rs`):
+  with `Recording::Off`, what `fgro run` uses, only the roots and each URL's
+  root and file, the minimum loading needs; with `Recording::Full`, also each
+  import edge and how it was reached, each loaded module's format and the
+  blake3 of the bytes read, the union of the `package.json` files consulted
+  (the entry's included), and each failure as data (resolve or load, with
+  its reason as an enum, never parsed from a message), kept per site in the
+  order each first happened. The file loaded is the file resolved: the lookup takes its
   `FileId` (device, inode, and birth time, by `symlink_metadata` on the real
   path, so a last component swapped for a symlink is refused), the loader
   records it per URL (the first record stands; a re-resolve changes nothing),
