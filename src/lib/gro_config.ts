@@ -1,4 +1,5 @@
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
@@ -209,7 +210,7 @@ export const load_gro_config = async (dir = paths.root): Promise<GroConfig> => {
 	}
 
 	// Import the user's `gro.config.ts`.
-	const config_module = await import(config_path);
+	const config_module = await import(pathToFileURL(config_path).href);
 
 	validate_gro_config_module(config_module, config_path);
 

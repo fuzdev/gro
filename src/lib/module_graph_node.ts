@@ -19,7 +19,10 @@ export interface NodeModuleGraphOptions {
 	 */
 	watch: WatchOptions;
 	/**
-	 * The logger the underlying `Filer` reports through.
+	 * The logger the underlying `Filer` reports through,
+	 * which also warns of a watch error, like `EACCES` reading a directory;
+	 * absent, a watch error warns through `console`,
+	 * and so does a failure processing a change, like an unexpected read error.
 	 */
 	log?: Logger;
 }
@@ -41,7 +44,14 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 		if (closed) throw Error('ModuleGraph is closed');
 		loading ??= (async () => {
 			const { Filer, filter_dependents } = await import('./internal/filer.ts');
-			const filer = new Filer({ watch_dir_options: { dir: watch.dir, filter: watch.filter }, log });
+			const filer = new Filer({
+				watch_dir_options: {
+					dir: watch.dir,
+					filter: watch.filter,
+					on_error: (error) => (log ?? console).warn('watch error, changes may be missed:', error)
+				},
+				log
+			});
 			await filer.init();
 			return { filer, filter_dependents };
 		})();
@@ -71,8 +81,13 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 			const { filer } = await load();
 			const unwatch = await filer.watch((change, disknode) => {
 				if (disknode.external) return;
-				// the Filer holds imported paths that don't exist, so a file created later links
-				if (change.type === 'add' && disknode.contents === null) return;
+				if (change.type !== 'delete' && disknode.contents === null) {
+					// the Filer holds imported paths that don't exist, so a file created later links
+					if (change.type === 'add') return;
+					// a change whose read found no file, like a save racing a delete, is a deletion
+					on_change({ type: 'delete', id: disknode.id });
+					return;
+				}
 				on_change({ type: change.type, id: disknode.id });
 			});
 			if (closed) {
@@ -109,6 +124,12 @@ export interface NodeWatcherOptions {
 	 * What each `watch` call watches, usually `GroConfig.watch`.
 	 */
 	watch: WatchOptions;
+	/**
+	 * Warns of a watch error, like `EACCES` reading a directory; absent, `console` does.
+	 * The module graph runs its own watch and warns separately,
+	 * so in `gro dev` one bad directory can warn twice.
+	 */
+	log?: Logger;
 }
 
 /**
@@ -116,7 +137,7 @@ export interface NodeWatcherOptions {
  * chokidar is imported on first use.
  */
 export const create_node_watcher = (options: NodeWatcherOptions): Watcher => {
-	const { watch } = options;
+	const { watch, log } = options;
 	const watching: Set<WatchNodeFs> = new Set();
 	// watches not yet started, which `close` waits for
 	const starting: Set<Promise<boolean>> = new Set();
@@ -132,6 +153,7 @@ export const create_node_watcher = (options: NodeWatcherOptions): Watcher => {
 				dir: watch.dir,
 				filter: watch.filter,
 				chokidar: { ignoreInitial: true },
+				on_error: (error) => (log ?? console).warn('watch error, changes may be missed:', error),
 				on_change: (change) => {
 					if (change.is_directory) return;
 					on_change({ type: change.type, id: change.path });

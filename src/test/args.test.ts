@@ -111,18 +111,29 @@ describe('to_forwarded_args_by_command', () => {
 		);
 	});
 
-	test('a path without `gro task` throws the CLI hint', () => {
+	test('a path without `gro task` throws the CLI hint, naming only a task file to run', () => {
 		for (const [input, message] of [
-			['src/lib/x.task.ts', 'run a task file with `gro task src/lib/x.task.ts`'],
-			['src/lib', "list a directory's tasks with `gro task src/lib`"]
+			[
+				'src/lib/x.task.ts',
+				'`src/lib/x.task.ts` is a path: run a task file with `gro task src/lib/x.task.ts`.'
+			],
+			// a forwarded section can't list, so a directory gets no listing hint
+			[
+				'src/lib',
+				'`src/lib` is a path, not a builtin name. Task paths end in `.task.ts` or `.task.js`.'
+			],
+			[
+				'src/lib/check',
+				'`src/lib/check` is a path, not a builtin name. Run the task file with `gro task src/lib/check.task.ts`.'
+			]
 		] as const) {
 			const raw_rest_args = to_raw_rest_args(['gro', 'check', '--', 'gro', input, '--a']);
 			expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
-			expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(
-				to_task_path_without_verb_message(input)
-			);
-			expect(to_task_path_without_verb_message(input)).toContain(message);
+			expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(message);
 		}
+		expect(to_task_path_without_verb_message('src/lib')).toContain(
+			"List the directory's tasks with `gro task src/lib`."
+		);
 	});
 
 	test('the removed `gro/` prefix throws the CLI hint', () => {
@@ -375,9 +386,43 @@ describe('to_task_args', () => {
 	});
 
 	test('`gro task` with no path', () => {
-		const result = to_task_args(['node', 'gro', 'task', '--c']);
-		expect(result).toEqual({ task_name: 'task', task_path: null, args: { c: true } });
+		const result = to_task_args(['node', 'gro', 'task', '--help']);
+		expect(result).toEqual({ task_name: 'task', task_path: null, args: { help: true } });
 		expect(result.args._).toBeUndefined();
+		expect(to_task_args(['node', 'gro', 'task', '--', 'x'])).toEqual({
+			task_name: 'task',
+			task_path: null,
+			args: {}
+		});
+	});
+
+	test('`gro task` refuses a flag before the path, which would take the path as its value', () => {
+		for (const [argv, form] of [
+			[['--c', 'src/x.task.ts'], '`gro task src/x.task.ts --c`'],
+			[['--help', 'src/x.task.ts'], '`gro task src/x.task.ts --help`'],
+			// a flag's value is no path: the hint's path is the first task path
+			[['--c', 'v', 'src/x.task.ts', '--d'], '`gro task src/x.task.ts --c v --d`'],
+			[['--max', '3', 'src/lib/foo.task.ts'], '`gro task src/lib/foo.task.ts --max 3`'],
+			[['--max', '3', 'foo'], '`gro task <path> --max 3 foo`'],
+			[['--c'], '`gro task <path> --c`'],
+			[['--help', '--c', '--', 'x'], '`gro task <path> --help --c -- x`'],
+			[['--out=a.task.ts', 'src/b.task.ts'], '`gro task src/b.task.ts --out=a.task.ts`'],
+			[['--a', 'x.task.ts', '--', 'gro', 'test'], '`gro task x.task.ts --a -- gro test`']
+		] as const) {
+			const run = () => to_task_args(['node', 'gro', 'task', ...argv]);
+			expect(run).toThrow(TaskError);
+			expect(run).toThrow(
+				'`gro task` takes no flags before the path, so flags for the task go after it: ' + form
+			);
+		}
+	});
+
+	test('`gro task <path>` takes flags after the path', () => {
+		expect(to_task_args(['node', 'gro', 'task', 'src/x.task.ts', '--c', '--help'])).toEqual({
+			task_name: 'task',
+			task_path: 'src/x.task.ts',
+			args: { c: true, help: true }
+		});
 	});
 
 	test('`task` after a builtin name is a positional, not the verb', () => {
@@ -434,15 +479,20 @@ describe('to_task_args for `gro run`', () => {
 	});
 
 	test('any other flag before the path is a usage error naming the fix', () => {
-		for (const [argv, flags] of [
-			[['--foo', 'x.ts', 'a'], '--foo'],
-			[['--foo', 'bar', 'x.ts'], '--foo'],
-			[['-f', '--port=1', 'x.ts'], '-f --port=1'],
-			[['--no-x', '--help', 'x.ts'], '--no-x']
+		// the refusal reads the first arg not starting with `-` as the path, like `3` in `--max 3 x.ts`,
+		// so the hint takes the first JS or TS module as the path and repeats every other arg
+		for (const [argv, form] of [
+			[['--foo', 'x.ts', 'a'], 'x.ts --foo a'],
+			[['--foo', 'bar', 'x.ts'], 'x.ts --foo bar'],
+			[['--max', '3', 'x.ts'], 'x.ts --max 3'],
+			[['-f', '--port=1', 'x.ts', '--help'], 'x.ts -f --port=1 --help'],
+			[['--no-x', '--help', 'x.ts'], 'x.ts --no-x'],
+			[['--max', '3', 'script'], '<path> --max 3 script'],
+			[['--out=dist/x.js', 'script.ts'], 'script.ts --out=dist/x.js']
 		] as const) {
 			expect(() => to_task_args(['node', 'gro', 'run', ...argv])).toThrow(TaskError);
 			expect(() => to_task_args(['node', 'gro', 'run', ...argv])).toThrow(
-				`flags for the script go after it: \`gro run <path> ${flags}\``
+				`flags for the script go after it: \`gro run ${form}\``
 			);
 		}
 	});

@@ -158,7 +158,7 @@ export const task: Task<Args> = {
 
 			const changeset_version_result = await spawn_cli(found_changeset_cli, ['version'], log);
 			if (!changeset_version_result?.ok) {
-				throw Error('changeset version failed: no commits were made: see the error above');
+				throw new TaskError('changeset version failed: no commits were made: see the error above');
 			}
 
 			if (!preserve_changelog) {

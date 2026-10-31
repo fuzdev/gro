@@ -17,7 +17,7 @@ import {
 } from './watch_dir.ts';
 import { paths } from '../paths.ts';
 import { parse_imports } from './parse_imports.ts';
-import { to_specifier_path_id } from '../resolve_specifier.ts';
+import { is_path_specifier, to_specifier_path_id } from '../resolve_specifier.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from '../constants.ts';
 import type { Disknode } from './disknode.ts';
 
@@ -226,13 +226,15 @@ export class Filer {
 		let new_bytes: Buffer | null = null; // TODO need to lazily load contents, probably turn `Disknode` into a class
 
 		try {
-			[stats, new_bytes] = await Promise.all([stat(id), readFile(id)]);
+			stats = await stat(id);
+			// only a regular file is read: a directory (`import '../../'`) or a special file
+			// like a FIFO, which a read would block on, is a contentless node like a missing file
+			if (stats.isFile()) new_bytes = await readFile(id);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			// treat the file as deleted or inaccessible for common error codes;
-			// `EISDIR` and `ENOTDIR` are a dependency specifier naming a directory
-			// (`import '../../'`) or a path through a file (`import '../x.ts/y'`),
-			// which have no module contents, so they're contentless nodes like a missing file
+			// `ENOTDIR` is a dependency specifier naming a path through a file (`import '../x.ts/y'`),
+			// and `EISDIR` a file replaced by a directory between the stat and the read
 			if (
 				code === 'ENOENT' ||
 				code === 'EACCES' ||
@@ -240,7 +242,9 @@ export class Filer {
 				code === 'EISDIR' ||
 				code === 'ENOTDIR'
 			) {
-				// the file doesn't exist, is inaccessible, or is a directory
+				// the file doesn't exist, is inaccessible, or is not a file,
+				// so a read failing after the stat leaves no times either
+				stats = null;
 			} else {
 				throw error;
 			}
@@ -274,7 +278,7 @@ export class Filer {
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
 			let path_id;
-			if (specifier[0] === '.' || specifier[0] === '/') {
+			if (is_path_specifier(specifier)) {
 				// the exact named path, existing or not, so a file created later links to its importers
 				path_id = to_specifier_path_id(specifier, file.id);
 			} else {
@@ -283,7 +287,12 @@ export class Filer {
 				try {
 					resolved_url = import.meta.resolve(specifier, file_url.href);
 				} catch (error) {
-					this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
+					// a package's unresolvable import, like an optional peer, is routine
+					if (file.id.includes('/node_modules/')) {
+						this.#log?.debug('[filer] failed to resolve path', specifier, file_url.href, error);
+					} else {
+						this.#log?.error('[filer] failed to resolve path', specifier, file_url.href, error);
+					}
 					continue;
 				}
 				if (!resolved_url.startsWith('file:')) continue; // skip node:, npm:, https:, jsr:, etc.
@@ -311,9 +320,17 @@ export class Filer {
 		const file = this.get_by_id(id);
 		if (!file) return null; // this is safe because the object would exist if any other file referenced it as a dependency or dependent
 
+		// a node with no contents, like one already deleted by a read that found no file,
+		// a missing import, or a FIFO, changes nothing, so it's no deletion to notify
+		const had_contents = file.content_hash !== null;
+
 		file.contents = null; // clear contents in case it gets re-added later, we want the change to be detected
 		file.content_hash = null; // clear hash so re-add detects the change
 
+		// a deleted file imports nothing, so it's no longer a dependent of what it imported
+		for (const dependency_id of file.dependencies.keys()) {
+			this.get_by_id(dependency_id)?.dependents.delete(id);
+		}
 		file.dependencies.clear();
 
 		// keep the file in memory if other files still depend on it
@@ -321,7 +338,7 @@ export class Filer {
 			this.files.delete(id);
 		}
 
-		return file;
+		return had_contents ? file : null;
 	}
 
 	#sync_listener_with_files(listener: OnFilerChange): void {
@@ -370,14 +387,27 @@ export class Filer {
 		// If already processing, return the existing promise
 		if (this.#processing_promise) return this.#processing_promise;
 
-		// Create and track the processing promise
-		this.#processing_promise = this.#do_process_queue();
+		// Create and track the processing promise, which never rejects:
+		// a failure, like an unexpected read error, is logged once, here,
+		// so it never fails `init` or reaches a caller sharing the promise
+		const processing = this.#do_process_queue().catch((error: unknown) => {
+			(this.#log ?? console).error('[filer] failed to process changes', error);
+		});
+		this.#processing_promise = processing;
 
 		try {
-			await this.#processing_promise;
+			await processing;
 		} finally {
-			this.#processing_promise = null;
+			// a run outliving `close` must not clear a newer run's promise
+			if (this.#processing_promise === processing) this.#processing_promise = null;
 		}
+
+		if (this.#closing) return;
+
+		// a change queued after the loop drained but before the reset above,
+		// like the rest of a burst of synchronous deletes, or the changes behind a failure;
+		// each change leaves the queue before it's processed, so this can't loop on one
+		if (this.#change_queue.length > 0) await this.#process_queue();
 	}
 
 	async #do_process_queue(): Promise<void> {
@@ -412,7 +442,8 @@ export class Filer {
 		// Enqueue the change (sync callback from chokidar)
 		this.#change_queue.push(change);
 
-		// Start processing if not already running
+		// Start processing if not already running; a running `#process_queue`
+		// takes the change, as it rechecks the queue after its loop
 		void this.#process_queue();
 	};
 

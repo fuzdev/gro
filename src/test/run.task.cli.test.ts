@@ -1,8 +1,9 @@
-import { describe, test, expect, vi, afterEach } from 'vitest';
+import { describe, test, expect, vi, afterEach, assert } from 'vitest';
 
 import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
 import { to_task_args } from '#lib/args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
+import { SilentError, TaskError } from '#lib/task.ts';
 import {
 	create_mock_config,
 	create_mock_module_graph,
@@ -85,5 +86,26 @@ describe('gro run script args', () => {
 			'3000',
 			'--watch'
 		]);
+	});
+});
+
+describe('gro run failure', () => {
+	test("a script's exit code is the failure's `exit_code`, which the CLI exits with", async () => {
+		vi.mocked(spawn_with_loader).mockResolvedValueOnce({
+			ok: false,
+			kind: 'exited',
+			code: 3,
+			child: null as any
+		});
+		process.argv = ['node', 'gro', 'run', SCRIPT];
+		let error;
+		try {
+			await invoke_cli(to_task_args(), await create_mock_config());
+		} catch (e) {
+			error = e;
+		}
+		assert(error instanceof SilentError);
+		assert(error.cause instanceof TaskError);
+		expect(error.cause.exit_code).toBe(3);
 	});
 });

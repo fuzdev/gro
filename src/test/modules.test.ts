@@ -1,5 +1,9 @@
 import { test, expect } from 'vitest';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 import { load_module } from '#lib/modules.ts';
 
@@ -60,5 +64,31 @@ test('load_module fails to import', async () => {
 		expect(result.error instanceof Error).toBe(true);
 	} else {
 		throw Error('Should fail to import');
+	}
+});
+
+test('load_module imports a path with URL syntax as written, without the loader', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_load_module_#?%25_'));
+	try {
+		const id = join(dir, 'a #b?c%20.js');
+		await writeFile(id, 'export const a = 1;\n');
+		// spawned without the loader, which reads a path specifier literally, and outside vitest,
+		// whose module runner never decodes a file URL
+		const result = spawnSync(
+			process.execPath,
+			[
+				'--experimental-strip-types',
+				'--disable-warning=ExperimentalWarning',
+				'--input-type=module',
+				'-e',
+				`const {load_module} = await import(${JSON.stringify(pathToFileURL(resolve('src/lib/modules.ts')).href)});
+				const loaded = await load_module(${JSON.stringify(id)});
+				console.log(loaded.ok ? loaded.mod.a : loaded.error.message);`
+			],
+			{ encoding: 'utf8' }
+		);
+		expect(result.stdout.trim()).toBe('1');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
 	}
 });

@@ -85,7 +85,13 @@ $ NO_COLOR=1 gro check
 A name that's no builtin is an error listing the builtins,
 with the hint `gro task src/lib/foo.task.ts`, saying whether that file exists.
 A path without `gro task`, like `gro src/lib/foo.task.ts`,
-is an error naming the `gro task` form.
+is an error naming the `gro task` form;
+for a path without a task suffix, like `gro src/lib/foo`,
+the error names what's there: `src/lib/foo.task.ts` or `.task.js` to run,
+the directory to list, or nothing.
+`gro task src/lib/foo` listing no tasks beside `src/lib/foo.task.ts` hints running it.
+Flags go after the path: `gro task --a src/lib/foo.task.ts` is an error,
+since `--a` would take the path as its value.
 
 ### define a task
 
@@ -382,6 +388,8 @@ Everything after the path goes to the script verbatim, including any `--`,
 so `gro run foo.ts --help` passes `--help` to the script, not to Gro.
 Before the path, `gro run` takes only `--help`, and any other flag is an error
 saying to put the script's flags after the path.
+Also like `node`, it prints no timings, and Gro exits with the script's exit code,
+or for a script killed by a signal, `128` plus the signal's number, like a shell (`143` for `SIGTERM`).
 `invoke_task('run', {_: [path, ...positionals], ...named})` serializes the named args
 after the positionals, as code has no raw text to pass.
 
@@ -410,6 +418,8 @@ export const task: Task = {
 A failed task is reported once, where it fails:
 `invoke_task` logs the error and throws a `SilentError` with the original error as its `cause`,
 so an invoking task reports only that it failed.
+The CLI exits with `1`, or with the `exit_code` of a `TaskError` thrown by the task it invoked,
+an integer 1–255, like `throw new TaskError('failed', {exit_code: 3})`.
 
 ## why?
 

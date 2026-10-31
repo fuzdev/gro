@@ -26,7 +26,9 @@ More flexibility is available when needed including multiple custom output files
 
 `gen` is implemented in Gro as [a task](/src/lib/gen.task.ts)
 and [a plugin](/src/lib/gro_plugin_gen.ts).
-By default it runs during development with `gro dev` and for production in `gro build`.
+By default it runs during development with `gro dev`.
+`gro build` doesn't run it, assuming generated files are fresh,
+which `gro check` verifies with `gro gen --check`.
 
 Normally you'll want to commit generated files to git,
 but you can always gitignore a specific pattern like `*.ignore.*`
@@ -276,7 +278,9 @@ They match only files inside the project root; `files` can name any path.
 `inputs: 'all'` reruns the gen file on every change `gro dev` sees.
 
 `gro dev` sees changes only under `watch.dir` in the [config](config.md) (default `src/`),
-so an input outside it doesn't trigger a rerun.
+so an input or an imported module outside it doesn't trigger a rerun.
+Deleting a file never triggers one,
+and `gro dev` reads each gen file's `inputs` once, so an edit to them applies on restart.
 `gro gen` and `gro gen --check` always run every gen file.
 
 ### checking generated files

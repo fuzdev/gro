@@ -7,9 +7,15 @@ import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { styleText as st } from 'node:util';
 
-import { merge_forwarded_args, to_forwarded_args, type CliTaskArgs } from './args.ts';
+import {
+	merge_forwarded_args,
+	RUN_TASK_NAME,
+	to_forwarded_args,
+	type CliTaskArgs
+} from './args.ts';
 import { run_task } from './run_task.ts';
 import {
+	find_task_file_for_input,
 	is_builtin_task_name,
 	is_removed_builtin_prefix,
 	is_task_path,
@@ -21,6 +27,8 @@ import {
 	to_removed_builtin_prefix_message,
 	to_task_command,
 	to_task_path,
+	to_run_task_file_hint,
+	to_task_path_hint,
 	to_task_path_without_verb_message,
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB,
@@ -47,11 +55,14 @@ export interface InvokeTaskOptions {
 	/**
 	 * The `graph` and `watcher` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
+	 * A nested task gets its invoking task's even when invoked with its own `config`,
+	 * so its `config.watch` is ignored.
 	 */
 	watching?: Pick<TaskContext, 'graph' | 'watcher'>;
 	/**
 	 * The invoking task's timings, shared by nested tasks;
 	 * absent for the top-level task, which creates them and prints them on success.
+	 * The CLI passes its own for `gro run`, which prints none, like `node`.
 	 */
 	timings?: Timings;
 	/**
@@ -112,7 +123,7 @@ export const invoke_task = async (
 	const owns_watching = !initial_watching;
 	const { graph, watcher } = initial_watching ?? {
 		graph: create_node_module_graph({ watch: config.watch, log: log.child('graph') }),
-		watcher: create_node_watcher({ watch: config.watch })
+		watcher: create_node_watcher({ watch: config.watch, log: log.child('watcher') })
 	};
 
 	const owns_timings = !initial_timings;
@@ -190,17 +201,25 @@ export const resolve_task = async (
 		if (is_removed_builtin_prefix(task_name)) {
 			return { ok: false, reasons: [to_removed_builtin_prefix_message(task_name)] };
 		}
-		return {
-			ok: false,
-			reasons: [
-				`\`${task_name}\` is not a task path: task paths end in \`.task.ts\` or \`.task.js\`.`
-			]
-		};
+		const reasons = [
+			`\`${task_name}\` is not a task path: task paths end in \`.task.ts\` or \`.task.js\`.`
+		];
+		const hint = to_task_path_hint(task_name, root);
+		if (hint !== null) reasons.push(hint);
+		return { ok: false, reasons };
 	}
 	const name = to_task_path(task_name, root);
 	const id = resolve(root, name);
-	if (!(await fs_exists(id))) {
-		return { ok: false, reasons: [`No task file at \`${name}\`.`] };
+	const stats = await stat(id).catch(() => null);
+	if (!stats?.isFile()) {
+		return {
+			ok: false,
+			reasons: [
+				stats
+					? `\`${name}\` is not a task file: it's a directory or a special file.`
+					: `No task file at \`${name}\`.`
+			]
+		};
 	}
 	return { ok: true, id, name };
 };
@@ -270,7 +289,11 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 		throw new SilentError();
 	}
 
-	await invoke_task(task_name, args, { config });
+	// `gro run` is like `node`, so the CLI gives it timings no one prints
+	await invoke_task(task_name, args, {
+		config,
+		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
+	});
 };
 
 /**
@@ -295,6 +318,9 @@ const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): P
 		];
 		if (is_builtin_task_name(dir)) {
 			reasons.push(`\`${dir}\` is a builtin: run it with \`gro ${dir}\`.`);
+		} else {
+			const hint = to_task_path_hint(dir);
+			if (hint !== null) reasons.push(hint);
 		}
 		log_error_reasons(log, reasons);
 		throw new SilentError();
@@ -309,6 +335,11 @@ const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): P
 	}
 	// list what loads, so one broken task hides none of the others
 	if (modules.length || !reasons.length) log_tasks(log, modules, print_path(dir_id));
+	// a directory with no tasks beside a task file of its name, like `update/` and `update.task.ts`
+	if (!modules.length && !reasons.length && dir !== null) {
+		const task_file = find_task_file_for_input(dir);
+		if (task_file !== null) log.info(to_run_task_file_hint(task_file));
+	}
 	if (reasons.length) {
 		log_error_reasons(log, reasons);
 		throw new SilentError();

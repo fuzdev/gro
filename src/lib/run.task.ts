@@ -1,6 +1,7 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
 import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
+import { constants } from 'node:os';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
@@ -14,6 +15,8 @@ import { TaskError, type Task } from './task.ts';
  * From the CLI, `gro run <path> ...rest` passes everything after the path verbatim,
  * unparsed and including any `--`, like `node`, so `gro run x.ts --help` is the script's `--help`;
  * the CLI puts it all in the positionals.
+ * Also like `node`, `gro run` prints no timings and exits with the script's exit code,
+ * or for a script killed by a signal, `128` plus the signal's number, like a shell.
  * `invoke_task('run', {_: [path, ...positionals], ...named})` has no raw text,
  * so it serializes the named args after the positionals.
  *
@@ -56,7 +59,16 @@ export const task: Task<Args> = {
 
 		const spawned = await spawn_with_loader(loader_path, path, full_argv);
 		if (!spawned.ok) {
-			throw new TaskError(`\`gro run ${path}\` failed: ${spawn_result_to_message(spawned)}`);
+			// the CLI exits with the script's own code, like `node`,
+			// or for a signal `128` plus its number, like a shell (`143` for `SIGTERM`)
+			throw new TaskError(`\`gro run ${path}\` failed: ${spawn_result_to_message(spawned)}`, {
+				exit_code:
+					spawned.kind === 'exited'
+						? spawned.code
+						: spawned.kind === 'signaled'
+							? 128 + constants.signals[spawned.signal]
+							: undefined
+			});
 		}
 	}
 };

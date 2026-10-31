@@ -22,7 +22,7 @@ import {
 import { load_default_svelte_config } from './svelte_config.ts';
 import { paths, replace_extension } from './paths.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
-import { resolve_specifier } from './resolve_specifier.ts';
+import { is_path_specifier, resolve_specifier } from './resolve_specifier.ts';
 
 /*
 
@@ -252,14 +252,16 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		}
 	}
 
-	// Bare specifiers (not starting with . or /) use Node's default resolution
-	if (s[0] !== '.' && s[0] !== '/') {
+	// Bare specifiers (not `./`, `../`, `/`, `.`, or `..`, so `'.hidden.ts'` is bare)
+	// use Node's default resolution
+	if (!is_path_specifier(s)) {
 		return nextResolve(s, context);
 	}
 
-	// Relative and absolute paths resolve to exactly the file they name
+	// Relative and absolute paths from a file resolve to exactly the file they name;
+	// a parent like a `data:` URL has no directory to resolve from
 	const parent_url = context.parentURL;
-	if (!parent_url) {
+	if (!parent_url?.startsWith('file:')) {
 		return nextResolve(s, context);
 	}
 

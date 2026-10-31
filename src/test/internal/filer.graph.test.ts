@@ -310,3 +310,80 @@ test('deleted file with dependents stays in memory', async () => {
 	// B should still have A as a dependency (dependency tracking preserved)
 	assert.ok(file_a_after.dependents.has('/test/b.ts'));
 });
+
+test('a deleted file is no longer a dependent of what it imported', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_remove_'));
+	try {
+		const dep_path = join(dir, 'b.ts');
+		const importer_path = join(dir, 'a.gen.ts');
+		await writeFile(dep_path, 'export const b = 1;\n');
+		await writeFile(importer_path, "import {b} from './b.ts';\nexport const gen = () => b;\n");
+
+		let on_change_callback: ((change: any) => void) | null = null as any;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change_callback = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: dep_path, is_directory: false });
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		await filer.init();
+		const dep = filer.get_by_id(dep_path);
+		assert.ok(dep);
+		assert.ok(filter_dependents(dep, filer.get_by_id).has(importer_path));
+
+		await rm(importer_path);
+		assert.ok(on_change_callback);
+		on_change_callback({ type: 'delete', path: importer_path, is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+
+		assert.ok(!dep.dependents.has(importer_path), 'the deleted importer is no longer a dependent');
+		assert.equal(filter_dependents(dep, filer.get_by_id).size, 0);
+		assert.ok(!filer.files.has(importer_path), 'the deleted file with no dependents is dropped');
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a burst of synchronous deletes notifies every one', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_delete_burst_'));
+	try {
+		const ids = ['a.ts', 'b.ts', 'c.ts'].map((f) => join(dir, f));
+		for (const id of ids) await writeFile(id, `export const x = '${id}';\n`);
+		let on_change_callback: ((change: any) => void) | null = null as any;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change_callback = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					for (const id of ids) options.on_change({ type: 'add', path: id, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		const deleted: Array<string> = [];
+		await filer.watch((change) => {
+			if (change.type === 'delete') deleted.push(change.path);
+		});
+
+		for (const id of ids) await rm(id);
+		assert.ok(on_change_callback);
+		// as chokidar emits pending unlinks, in one synchronous loop
+		for (const id of ids) on_change_callback({ type: 'delete', path: id, is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+
+		assert.deepEqual(deleted, ids);
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});

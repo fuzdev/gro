@@ -1,7 +1,12 @@
 import { describe, test, expect, assert } from 'vitest';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { resolve_specifier, to_specifier_path_id } from '#lib/resolve_specifier.ts';
+import {
+	is_path_specifier,
+	resolve_specifier,
+	to_specifier_path_id
+} from '#lib/resolve_specifier.ts';
 import { paths } from '#lib/paths.ts';
 
 const dir = paths.source + 'test/fixtures/';
@@ -16,6 +21,18 @@ const assert_refused = async (specifier: string, expected: string): Promise<void
 	}
 	assert(error instanceof Error, `expected '${specifier}' to be refused`);
 	expect(error.message).toBe(`cannot resolve '${specifier}' from ${importer}: ${expected}`);
+};
+
+const to_refusal_error = async (
+	specifier: string
+): Promise<Error & { code?: unknown; url?: unknown }> => {
+	try {
+		await resolve_specifier(specifier, importer);
+	} catch (error) {
+		assert(error instanceof Error);
+		return error;
+	}
+	throw Error(`expected '${specifier}' to be refused`);
 };
 
 describe('resolve_specifier', () => {
@@ -118,15 +135,20 @@ describe('resolve_specifier', () => {
 		await assert_refused('./this_test_ts_does_not_exist.ts', 'no such file');
 	});
 
-	test('a refusal carries the code Node uses for a missing module', async () => {
-		let error;
-		try {
-			await resolve_specifier('./this_test_ts_does_not_exist.ts', importer);
-		} catch (e) {
-			error = e;
-		}
-		assert(error instanceof Error);
-		expect((error as NodeJS.ErrnoException).code).toBe('ERR_MODULE_NOT_FOUND');
+	test('a refusal carries the code and url Node uses for a missing module', async () => {
+		const error = await to_refusal_error('./this_test_ts_does_not_exist.ts');
+		expect(error.code).toBe('ERR_MODULE_NOT_FOUND');
+		expect(error.url).toBe(pathToFileURL(join(dir, 'this_test_ts_does_not_exist.ts')).href);
+		expect((await to_refusal_error('./this_test_ts_does_not_exist.ts?raw')).url).toBe(
+			pathToFileURL(join(dir, 'this_test_ts_does_not_exist.ts')).href + '?raw'
+		);
+	});
+
+	test('a refusal of a directory carries the code and url Node uses for a directory', async () => {
+		const error = await to_refusal_error('./modules/');
+		expect(error.code).toBe('ERR_UNSUPPORTED_DIR_IMPORT');
+		expect(error.url).toBe(pathToFileURL(join(dir, 'modules/')).href);
+		expect((await to_refusal_error('./modules')).code).toBe('ERR_UNSUPPORTED_DIR_IMPORT');
 	});
 
 	test('refuses a js specifier for a missing file without mapping it to its ts sibling', async () => {
@@ -136,7 +158,7 @@ describe('resolve_specifier', () => {
 		);
 		await assert_refused(
 			'./test_ts.js?raw',
-			"no such file, but './test_ts.ts' exists; write the real extension (.js never maps to .ts)"
+			"no such file, but './test_ts.ts?raw' exists; write the real extension (.js never maps to .ts)"
 		);
 	});
 
@@ -152,6 +174,10 @@ describe('resolve_specifier', () => {
 		await assert_refused(
 			'./test_js',
 			"no such file, but './test_js.js' exists; write the real extension (nothing is probed)"
+		);
+		await assert_refused(
+			'./test_ts?raw',
+			"no such file, but './test_ts.ts?raw' exists; write the real extension (nothing is probed)"
 		);
 	});
 
@@ -187,6 +213,20 @@ describe('resolve_specifier', () => {
 			'./modules',
 			'it is not a regular file (a directory or a special file); name a module file'
 		);
+	});
+});
+
+describe('is_path_specifier', () => {
+	test('matches `./`, `../`, and `/` starting a specifier, and exactly `.` and `..`', () => {
+		for (const specifier of ['./a.ts', '../a.ts', '/a.ts', '.', '..', './', '../', '/']) {
+			expect(is_path_specifier(specifier), specifier).toBe(true);
+		}
+	});
+
+	test('a specifier starting with a dot but not a path is bare, as in Node', () => {
+		for (const specifier of ['.hidden.ts', '..a.ts', '...', '.a/b.ts', 'a.ts', '#lib/a.ts', '']) {
+			expect(is_path_specifier(specifier), specifier).toBe(false);
+		}
 	});
 });
 

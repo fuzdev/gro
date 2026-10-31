@@ -165,6 +165,19 @@ describe('task_registry_render', () => {
 		assert.include(rendered, '\t\t"some-task": typeof some_task_task;');
 	});
 
+	test('imports a task under a dot-directory by a path specifier, not a bare one', () => {
+		const rendered = task_registry_render_project(
+			[
+				{ name: 'src/.hidden/a.task.ts', id: '/p/src/.hidden/a.task.ts' },
+				{ name: 'b.task.ts', id: '/p/b.task.ts' }
+			],
+			'/p/src',
+			'src/gro_tasks.gen.ts'
+		);
+		assert.include(rendered, "from './.hidden/a.task.ts';");
+		assert.include(rendered, "from '../b.task.ts';");
+	});
+
 	test('renders the GroBuiltinTasks interface and the summaries', () => {
 		const rendered = task_registry_render_builtins(
 			[

@@ -1,11 +1,15 @@
 import { test, assert, vi } from 'vitest';
 import { join, resolve } from 'node:path';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
+import type { WatchNodeFs, WatcherChange } from '#lib/internal/watch_dir.ts';
 import { Filer, filter_dependents } from '#lib/internal/filer.ts';
 import type { Disknode } from '#lib/internal/disknode.ts';
+
+import { create_mock_logger } from '../test_helpers.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
 
@@ -280,6 +284,242 @@ test('handles permission errors on file read', async () => {
 	assert.ok(file);
 	// Contents will be null since file read failed
 	assert.equal(file.contents, null);
+});
+
+test('a special file like a FIFO is a contentless node, never read', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_fifo_'));
+	try {
+		const fifo_path = join(dir, 'pipe.ts');
+		execFileSync('mkfifo', [fifo_path]); // a read would block until a writer opens it
+		const mock_watch_dir = vi.fn((options) => {
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: fifo_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		await filer.init();
+
+		const fifo = filer.get_by_id(fifo_path);
+		assert.ok(fifo);
+		assert.equal(fifo.contents, null);
+		assert.equal(fifo.content_hash, null);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('an unexpected error processing a change is logged, and later changes process', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_queue_error_'));
+	try {
+		const file_path = join(dir, 'a.ts');
+		await writeFile(file_path, 'export const a = 1;\n');
+		let on_change_callback: ((change: any) => void) | null = null as any;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change_callback = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const log = create_mock_logger();
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		await filer.init();
+
+		assert.ok(on_change_callback);
+		// `ENAMETOOLONG` is no missing file, so the read rethrows it
+		on_change_callback({ type: 'add', path: join(dir, 'x'.repeat(300)), is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+		const errors = vi.mocked(log.error).mock.calls;
+		assert.equal(errors.length, 1);
+		assert.equal(errors[0]![0], '[filer] failed to process changes');
+		assert.equal((errors[0]![1] as NodeJS.ErrnoException).code, 'ENAMETOOLONG');
+
+		on_change_callback({ type: 'add', path: file_path, is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(filer.get_by_id(file_path)?.contents, 'export const a = 1;\n');
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a failing read in a burst is logged once, and the changes behind it process', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_queue_error_burst_'));
+	try {
+		const a_path = join(dir, 'a.ts');
+		const b_path = join(dir, 'b.ts');
+		await writeFile(a_path, 'export const a = 1;\n');
+		await writeFile(b_path, 'export const b = 1;\n');
+		const mock_watch_dir = vi.fn((options) => {
+			const mock_watcher: WatchNodeFs = {
+				// the burst arrives during init, which still succeeds
+				init: vi.fn(async () => {
+					for (const path of [a_path, join(dir, 'x'.repeat(300)), b_path]) {
+						options.on_change({ type: 'add', path, is_directory: false });
+					}
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const log = create_mock_logger();
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		await filer.init();
+
+		assert.equal(filer.get_by_id(a_path)?.contents, 'export const a = 1;\n');
+		assert.equal(filer.get_by_id(b_path)?.contents, 'export const b = 1;\n');
+		const errors = vi.mocked(log.error).mock.calls;
+		assert.equal(errors.length, 1);
+		assert.equal((errors[0]![1] as NodeJS.ErrnoException).code, 'ENAMETOOLONG');
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('after init, a change queued behind a failing one processes with no further change', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_queue_error_recheck_'));
+	try {
+		const a_path = join(dir, 'a.ts');
+		await writeFile(a_path, 'export const a = 1;\n');
+		let on_change: ((change: WatcherChange) => void) | undefined;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const log = create_mock_logger();
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		await filer.init();
+
+		// no drain runs after init, so only the recheck after the failed run takes `a.ts`
+		on_change!({ type: 'add', path: join(dir, 'x'.repeat(300)), is_directory: false });
+		on_change!({ type: 'add', path: a_path, is_directory: false });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		assert.equal(filer.get_by_id(a_path)?.contents, 'export const a = 1;\n');
+		assert.equal(vi.mocked(log.error).mock.calls.length, 1);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+// root reads a file with no permissions
+test.skipIf(process.getuid?.() === 0)(
+	'a file that fails to read after its stat has no contents and no times',
+	async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_unreadable_'));
+		const file_path = join(dir, 'a.ts');
+		try {
+			await writeFile(file_path, 'export const a = 1;\n');
+			await chmod(file_path, 0o000); // the stat succeeds and the read fails with `EACCES`
+			const mock_watch_dir = vi.fn((options) => {
+				const mock_watcher: WatchNodeFs = {
+					init: vi.fn(async () => {
+						options.on_change({ type: 'add', path: file_path, is_directory: false });
+					}),
+					close: vi.fn(async () => {})
+				};
+				return mock_watcher;
+			});
+			const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+			await filer.init();
+
+			const file = filer.get_by_id(file_path);
+			assert.ok(file);
+			assert.equal(file.contents, null);
+			assert.equal(file.ctime, null);
+			assert.equal(file.mtime, null);
+
+			await filer.close();
+		} finally {
+			await chmod(file_path, 0o644).catch(() => {}); // absent when the write failed
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
+);
+
+test('an unexpected error processing a change goes to `console` with no log', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_queue_error_console_'));
+	const console_error = vi.spyOn(console, 'error').mockImplementation(() => {});
+	try {
+		let on_change_callback: ((change: any) => void) | null = null as any;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change_callback = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		await filer.init();
+		assert.ok(on_change_callback);
+		on_change_callback({ type: 'add', path: join(dir, 'x'.repeat(300)), is_directory: false });
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(console_error.mock.calls.length, 1);
+		assert.equal(console_error.mock.calls[0]![0], '[filer] failed to process changes');
+		await filer.close();
+	} finally {
+		console_error.mockRestore();
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('an unresolvable bare import logs at debug inside `node_modules` and as an error outside', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_unresolvable_'));
+	try {
+		const src_dir = join(dir, 'src');
+		const package_dir = join(dir, 'node_modules', 'some_package');
+		await mkdir(src_dir, { recursive: true });
+		await mkdir(package_dir, { recursive: true });
+		const source = "import 'gro_test_missing_package';\n";
+		const package_path = join(package_dir, 'index.js');
+		const project_path = join(src_dir, 'a.ts');
+		await writeFile(package_path, source);
+		await writeFile(project_path, source);
+		const mock_watch_dir = vi.fn((options) => {
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: package_path, is_directory: false });
+					options.on_change({ type: 'add', path: project_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const log = create_mock_logger();
+		const filer = new Filer({
+			watch_dir: mock_watch_dir,
+			watch_dir_options: { dir: src_dir },
+			log
+		});
+		await filer.init();
+
+		const failures = (calls: Array<Array<unknown>>) =>
+			calls.filter((c) => c[0] === '[filer] failed to resolve path').map((c) => c[2]);
+		assert.deepEqual(failures(vi.mocked(log.debug).mock.calls), [pathToFileURL(package_path).href]);
+		assert.deepEqual(failures(vi.mocked(log.error).mock.calls), [pathToFileURL(project_path).href]);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test('an external dependency naming a directory is a contentless node, not an init failure', async () => {

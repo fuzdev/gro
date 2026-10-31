@@ -10,12 +10,12 @@ const JSON_WITHOUT_EXTENSION_FIXTURE = 'src/test/fixtures/modules/some_test_json
 // let passed = 0;
 let failed = 0;
 
-const assert = (condition: boolean, _message: string) => {
+const assert = (condition: boolean, message: string) => {
 	if (condition) {
-		// console.log(`✓ ${_message}`);
+		// console.log(`✓ ${message}`);
 		// passed++;
 	} else {
-		// console.error(`✗ ${_message}`);
+		console.error(`✗ ${message}`);
 		failed++;
 	}
 };
@@ -28,6 +28,9 @@ const assert_equal = (actual: any, expected: any, message: string) => {
 			(condition ? '' : ` (got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)})`)
 	);
 };
+
+// a specifier typecheck can't see, for imports that must fail
+const unchecked = (specifier: string): string => specifier;
 
 const run_tests = async () => {
 	// console.log('Testing custom loader...\n');
@@ -217,6 +220,55 @@ const run_tests = async () => {
 		assert(imported.default?.value === 'ok', 'node_modules ESM imports CJS sibling default works');
 	} catch (error) {
 		assert(false, `node_modules esm-imports-cjs default failed: ${error.message}`);
+	}
+
+	// Test 13: `import.meta.resolve` returns the URL of a path that doesn't load, as Node does,
+	// from the refusal's `code` and `url`, while importing it still fails with the fix
+	try {
+		const missing_url = new URL('./missing_loader_fixture.ts', import.meta.url).href;
+		assert_equal(
+			import.meta.resolve('./missing_loader_fixture.ts'),
+			missing_url,
+			'import.meta.resolve of a missing file returns its URL'
+		);
+		assert_equal(
+			import.meta.resolve('./modules/'),
+			new URL('./modules/', import.meta.url).href,
+			'import.meta.resolve of a directory returns its URL'
+		);
+	} catch (error) {
+		assert(false, `import.meta.resolve of a path that doesn't load failed: ${error.message}`);
+	}
+	try {
+		await import(unchecked('./missing_loader_fixture.ts'));
+		assert(false, 'importing a missing file should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.code === 'ERR_MODULE_NOT_FOUND' &&
+				error.message.startsWith("cannot resolve './missing_loader_fixture.ts'"),
+			`importing a missing file fails with gro's message (got ${error.message})`
+		);
+	}
+	try {
+		await import(unchecked('./modules/'));
+		assert(false, 'importing a directory should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.code === 'ERR_UNSUPPORTED_DIR_IMPORT' &&
+				error.message.startsWith("cannot resolve './modules/'"),
+			`importing a directory fails with gro's message (got ${error.message})`
+		);
+	}
+
+	// Test 14: a specifier starting with `.` but not `./` or `../` is bare, as in Node
+	try {
+		await import(unchecked('.hidden_loader_fixture.ts'));
+		assert(false, 'importing a bare dot specifier should fail but succeeded');
+	} catch (error) {
+		assert(
+			error.code === 'ERR_INVALID_MODULE_SPECIFIER',
+			`a bare dot specifier fails as an invalid package name, not a missing path (got ${error.message})`
+		);
 	}
 
 	// console.log(`\nResults: ${passed} passed, ${failed} failed`);

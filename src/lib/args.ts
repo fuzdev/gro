@@ -3,6 +3,7 @@ import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
 import {
 	is_removed_builtin_prefix,
+	is_task_path,
 	is_task_path_input,
 	TASK_VERB,
 	TaskError,
@@ -27,9 +28,11 @@ export interface CliTaskArgs {
 }
 
 /**
- * The builtin whose script args the CLI leaves unparsed, `gro run <path> ...rest`.
+ * The builtin whose script args the CLI leaves unparsed, `gro run <path> ...rest`,
+ * and which it runs like `node`, printing no timings.
+ * @internal
  */
-const RUN_TASK_NAME = 'run';
+export const RUN_TASK_NAME = 'run';
 
 /**
  * The flags `gro run` takes before the script path, Gro's own; any other is refused.
@@ -37,14 +40,19 @@ const RUN_TASK_NAME = 'run';
 const RUN_FLAGS: ReadonlySet<string> = new Set(['help']);
 
 /**
- * The index in `argv` of the script path of `gro run [gro flags] <path> ...rest`,
- * the first arg after `run` that doesn't start with `-`, before any `--`,
- * so a flag before the path never takes a value,
- * or `-1` when `argv` doesn't run a script.
- * Only `run` as the first arg counts, the documented form.
+ * Matches the help flag, the one flag `gro run` takes before its path
+ * and `gro task` takes with no path.
  */
-const to_run_path_index = (argv: Array<string>): number => {
-	if (argv[2] !== RUN_TASK_NAME) return -1;
+const HELP_FLAG_MATCHER = /^--(no-)?help(=|$)/;
+
+/**
+ * The index in `argv` of the path of `gro <command> [flags] <path>`,
+ * the first arg after `command` that doesn't start with `-`, before any `--`,
+ * or `-1` when there's none.
+ * Only `command` as the first arg counts, the documented form.
+ */
+const to_path_index = (argv: Array<string>, command: string): number => {
+	if (argv[2] !== command) return -1;
 	for (let i = 3; i < argv.length; i++) {
 		const arg = argv[i]!;
 		if (arg === '--') return -1;
@@ -54,16 +62,91 @@ const to_run_path_index = (argv: Array<string>): number => {
 };
 
 /**
+ * The index in `argv` of the script path of `gro run [gro flags] <path> ...rest`,
+ * so a flag before the path never takes a value,
+ * or `-1` when `argv` doesn't run a script.
+ */
+const to_run_path_index = (argv: Array<string>): number => to_path_index(argv, RUN_TASK_NAME);
+
+/**
+ * Refuses a flag before the path of `gro task [flags] <path>`,
+ * which would otherwise take the path as its value and list `src/` instead.
+ * `gro task` with no path takes `--help`, which the listing ignores.
+ * @throws TaskError naming the form with the flags after the path
+ */
+const assert_no_task_flags_before_path = (argv: Array<string>): void => {
+	if (argv[2] !== TASK_VERB) return;
+	const path_index = to_path_index(argv, TASK_VERB);
+	const forwarded_index = argv.indexOf('--');
+	const flags = argv.slice(
+		3,
+		path_index !== -1 ? path_index : forwarded_index === -1 ? argv.length : forwarded_index
+	);
+	if (!flags.length) return;
+	if (path_index === -1 && flags.every((flag) => HELP_FLAG_MATCHER.test(flag))) return;
+	// the refusal reads the first arg not starting with `-` as the path, which may be a flag's value,
+	// as in `--max 3 x.task.ts`, so the hint takes the first task path instead,
+	// and repeats every other arg before any `--` after it, in order
+	const args = argv.slice(3, forwarded_index === -1 ? argv.length : forwarded_index);
+	// a flag's own `=` value, like `--out=a.task.ts`, is never the path
+	const hint_path_index = args.findIndex((arg) => !arg.startsWith('-') && is_task_path(arg));
+	throw new TaskError(
+		`\`gro ${TASK_VERB}\` takes no flags before the path, so flags for the task go after it: ` +
+			to_path_first_hint(
+				TASK_VERB,
+				args,
+				hint_path_index,
+				true,
+				forwarded_index === -1 ? [] : argv.slice(forwarded_index)
+			)
+	);
+};
+
+/**
+ * Matches a script `gro run` likely runs, a JS or TS module, for its refusal's hint.
+ */
+const SCRIPT_PATH_MATCHER = /\.[cm]?[jt]sx?$/;
+
+/**
+ * The hint for a refused `gro <command> [flags] <path>`: the command with the path
+ * at `path_index` in `args` first, or `<path>` when it's `-1`,
+ * then every other arg in order, raw, so a `--no-x` or a flag's value stays as written.
+ * @param keep_pre_path_help - whether a `--help` before the path is the task's, kept,
+ *   or Gro's own, like `gro run`'s, dropped
+ * @param rest - args appended verbatim, like the forwarded sections from the first `--`
+ */
+const to_path_first_hint = (
+	command: string,
+	args: Array<string>,
+	path_index: number,
+	keep_pre_path_help: boolean,
+	rest: Array<string> = []
+): string =>
+	`\`gro ${command} ${[
+		path_index === -1 ? '<path>' : args[path_index]!,
+		...args.filter(
+			(arg, i) =>
+				i !== path_index &&
+				(keep_pre_path_help ||
+					(path_index !== -1 && i > path_index) ||
+					!HELP_FLAG_MATCHER.test(arg))
+		),
+		...rest
+	].join(' ')}\``;
+
+/**
  * Parses the task and its `args` from `process.argv`,
  * ignoring anything after any `--`.
- * `gro task <path>` consumes one more positional, the path.
+ * `gro task <path>` consumes one more positional, the path, and refuses a flag before it.
  * `gro run [--help] <path> ...rest` refuses any other flag before the path
  * and appends the path and `rest` verbatim to the positionals,
  * unparsed and including any `--`, so the script gets exactly what follows its path.
  * @throws TaskError when a flag replaces the positional args, like `--_` or `--no-_`,
- *   or `gro run` has a flag other than `--help` before its path
+ *   `gro run` has a flag other than `--help` before its path,
+ *   or `gro task` has a flag before its path or one other than `--help` with none
  */
 export const to_task_args = (argv = process.argv): CliTaskArgs => {
+	assert_no_task_flags_before_path(argv);
 	const run_path_index = to_run_path_index(argv);
 	const forwarded_index = argv.indexOf('--');
 	const end =
@@ -75,11 +158,19 @@ export const to_task_args = (argv = process.argv): CliTaskArgs => {
 	const task_path = task_name === TASK_VERB ? to_optional_string(positionals.shift()) : null;
 	if (run_path_index !== -1) {
 		if (Object.keys(args).some((key) => key !== '_' && !RUN_FLAGS.has(key))) {
-			// the hint repeats the raw text, so a `--no-x` or a flag's value stays as written
-			const flags = raw_argv.slice(1).filter((arg) => !/^--(no-)?help(=|$)/.test(arg));
+			// the refusal reads the first arg not starting with `-` as the path,
+			// which may be a flag's value, as in `--max 3 x.ts`,
+			// so the hint takes the first arg naming a JS or TS module instead, `<path>` with none,
+			// and repeats every other arg after `run`, the script's included, in order
+			const run_args = argv.slice(3);
 			throw new TaskError(
 				`\`gro ${RUN_TASK_NAME}\` takes no flags before the path, so flags for the script go after it: ` +
-					`\`gro ${RUN_TASK_NAME} <path> ${flags.join(' ')}\``
+					to_path_first_hint(
+						RUN_TASK_NAME,
+						run_args,
+						run_args.findIndex((arg) => !arg.startsWith('-') && SCRIPT_PATH_MATCHER.test(arg)),
+						false
+					)
 			);
 		}
 		positionals.push(...argv.slice(run_path_index));
@@ -317,7 +408,8 @@ export const to_forwarded_args_by_command = (
 		} else if (is_removed_builtin_prefix(task_name)) {
 			throw new TaskError(to_removed_builtin_prefix_message(task_name));
 		} else if (is_task_path_input(task_name)) {
-			throw new TaskError(to_task_path_without_verb_message(task_name));
+			// a forwarded section can run a task but not list one
+			throw new TaskError(to_task_path_without_verb_message(task_name, undefined, false));
 		}
 		if (!positionals.length) delete (args as Args)._;
 		forwarded_args_by_command[command] = args;

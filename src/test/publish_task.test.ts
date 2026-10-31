@@ -196,4 +196,26 @@ describe('publish_task version bump', () => {
 		assert.include(error.message, `v${VERSION_AFTER} is already published to the registry`);
 		assert.ok(!spawn.mock.calls.some(([, args]) => args?.[0] === 'push'), 'expected no push');
 	});
+
+	test('a failed `changeset version` is a TaskError, before anything is committed', async () => {
+		const { spawn_cli } = vi.mocked(await import('#lib/cli.ts'));
+		spawn_cli.mockImplementation(async (_cli, args) =>
+			args?.[0] === 'version'
+				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
+				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
+		);
+		const ctx = create_mock_publish_task_context();
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert(error instanceof TaskError, 'expected a failed version bump to throw a TaskError');
+		assert.include(error.message, 'changeset version failed: no commits were made');
+		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		assert.ok(!spawn.mock.calls.some(([, args]) => args?.[0] === 'commit'), 'expected no commit');
+	});
 });

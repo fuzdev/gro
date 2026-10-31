@@ -9,6 +9,7 @@ import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import { paths, to_search_filters_relative } from './paths.ts';
+import { is_path_specifier } from './resolve_specifier.ts';
 import {
 	is_task_path,
 	load_task,
@@ -108,7 +109,8 @@ const render_entries = (
 		for (let i = 2; used.has(identifier); i++) identifier = base + i;
 		used.add(identifier);
 		let specifier = relative(dir, id);
-		if (!specifier.startsWith('.')) specifier = './' + specifier;
+		// a relative path like `.hidden/x.task.ts` needs `./` to be a path, not bare
+		if (!is_path_specifier(specifier)) specifier = './' + specifier;
 		imports += `import type * as ${identifier} from '${specifier}';\n`;
 		properties += `${indent}${render_key(name)}: typeof ${identifier};\n`;
 	}

@@ -4,6 +4,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
+import { statSync, type Stats } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
@@ -104,6 +105,8 @@ export type InvokeTaskRest<TName extends string> =
 export interface InvokeTaskContextOptions {
 	/**
 	 * The config the invoked task runs with, defaults to the invoking task's.
+	 * The invoked task still shares the invoking task's `graph` and `watcher`,
+	 * so this config's `watch` doesn't apply.
 	 */
 	config?: GroConfig;
 }
@@ -177,15 +180,102 @@ export const to_removed_builtin_prefix_message = (input: string): string => {
 /**
  * The error for a path given where a task name goes, like `gro src/lib/x.task.ts`,
  * hinting the `gro task` form that runs or lists it.
+ * A path without a task suffix gets `to_task_path_hint`, which says what's there.
  * @param input - a task input for which `is_task_path_input` is true
+ * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @param listable - whether the hint may name listing a directory, `false` for a forwarded section
  * @internal
  */
-export const to_task_path_without_verb_message = (input: string): string =>
-	`\`${input}\` is a path: ${
-		is_task_path(input)
-			? `run a task file with \`gro ${TASK_VERB} ${input}\``
-			: `list a directory's tasks with \`gro ${TASK_VERB} ${input}\``
-	}.`;
+export const to_task_path_without_verb_message = (
+	input: string,
+	root: string = process.cwd(),
+	listable = true
+): string =>
+	is_task_path(input)
+		? `\`${input}\` is a path: run a task file with \`gro ${TASK_VERB} ${input}\`.`
+		: `\`${input}\` is a path, not a builtin name. ${
+				to_task_path_hint(input, root, listable) ??
+				`Task paths end in \`${TASK_FILE_SUFFIX_TS}\` or \`${TASK_FILE_SUFFIX_JS}\`.`
+			}`;
+
+/**
+ * The task file paths an input without a task suffix likely meant:
+ * `x.task` with `.ts` or `.js` added, and anything else with `.task.ts` or `.task.js`.
+ */
+const to_task_file_candidates = (input: string): Array<string> =>
+	input.endsWith('.task')
+		? [input + '.ts', input + '.js']
+		: [input + TASK_FILE_SUFFIX_TS, input + TASK_FILE_SUFFIX_JS];
+
+/**
+ * Finds the task file an input without a task suffix likely meant, like `src/x/update.task.ts`
+ * for `src/x/update`, preferring `.ts`.
+ * Only error messages and hints call it, so its synchronous stats never slow a run.
+ * @param input - a task input for which `is_task_path` is false
+ * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @returns the task file's path as `input` names it, or `null`
+ * @internal
+ */
+export const find_task_file_for_input = (
+	input: string,
+	root: string = process.cwd()
+): string | null => {
+	if (input.endsWith('/')) return null;
+	for (const candidate of to_task_file_candidates(input)) {
+		if (stat_sync_or_null(resolve(root, candidate))?.isFile()) return candidate;
+	}
+	return null;
+};
+
+/**
+ * The hint that runs the task file at `path`.
+ * @internal
+ */
+export const to_run_task_file_hint = (path: string): string =>
+	`Run the task file with \`gro ${TASK_VERB} ${path}\`.`;
+
+/**
+ * Says what's at a task input that isn't a task path, like `src/test/fixtures/update`:
+ * the task file it likely meant (`find_task_file_for_input`), which `gro task` runs,
+ * and the directory, which it lists, or that nothing is at any of them.
+ * Only error messages call it, so its synchronous stats never slow a run.
+ * @param input - a task input for which `is_task_path` is false
+ * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @param listable - whether to name listing a directory, `false` for a forwarded section,
+ *   which can only run a task
+ * @returns the hint, or `null` when `input` names something else,
+ *   like a file without a task suffix, or a directory when not `listable`
+ * @internal
+ */
+export const to_task_path_hint = (
+	input: string,
+	root: string = process.cwd(),
+	listable = true
+): string | null => {
+	const hints: Array<string> = [];
+	const task_file = find_task_file_for_input(input, root);
+	if (task_file !== null) hints.push(to_run_task_file_hint(task_file));
+	const stats = stat_sync_or_null(resolve(root, input));
+	if (listable && stats?.isDirectory()) {
+		hints.push(`List the directory's tasks with \`gro ${TASK_VERB} ${input}\`.`);
+	}
+	if (hints.length) return hints.join(' ');
+	if (stats) return null;
+	return input.endsWith('/')
+		? `Nothing is at \`${input}\`.`
+		: `Nothing is at \`${input}\`, ${to_task_file_candidates(input)
+				.map((c) => `\`${c}\``)
+				.join(', or ')}.`;
+};
+
+// any error, like `ENOTDIR` for a path through a file, means there's nothing to hint
+const stat_sync_or_null = (path: string): Stats | null => {
+	try {
+		return statSync(path, { throwIfNoEntry: false }) ?? null;
+	} catch {
+		return null;
+	}
+};
 
 /**
  * Whether `name` is one of Gro's builtin tasks.
@@ -205,11 +295,33 @@ export const to_builtin_task_id = (name: keyof GroBuiltinTasks): PathId =>
 	fileURLToPath(new URL('./' + name + BUILTIN_TASK_FILE_SUFFIX, import.meta.url));
 
 /**
+ * Options for a `TaskError`.
+ */
+export interface TaskErrorOptions extends ErrorOptions {
+	/**
+	 * The code the CLI exits with when this error fails the task it invoked,
+	 * like `gro run`'s script's own, an integer 1–255; absent or any other value means `1`.
+	 */
+	exit_code?: number;
+}
+
+/**
  * This is used by tasks to signal a known failure.
  * It's useful for cleaning up logging because
  * we usually don't need their stack trace.
  */
-export class TaskError extends Error {}
+export class TaskError extends Error {
+	/**
+	 * The code the CLI exits with when this error fails the task it invoked,
+	 * an integer 1–255; absent or any other value means `1`.
+	 */
+	readonly exit_code: number | undefined;
+
+	constructor(message?: string, options?: TaskErrorOptions) {
+		super(message, options);
+		this.exit_code = options?.exit_code;
+	}
+}
 
 /**
  * This is used to tell Gro to exit silently, usually still with with a non-zero exit code.

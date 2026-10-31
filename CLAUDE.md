@@ -45,15 +45,19 @@ Resolution (`invoke_task.ts`, `resolve_task`; the CLI's forms in `invoke_cli`):
   nothing shadows a builtin, and an unknown name errors with the builtin list
   and the hint `gro task src/lib/foo.task.ts` (one stat says whether it exists)
 - `gro task <path>` runs a task file: relative to the cwd (the project root) or
-  absolute, `./` optional, `.task.ts`/`.task.js` required; the task is
-  displayed and keyed by its normalized root-relative path
+  absolute, `./` optional, `.task.ts`/`.task.js` required, a regular file; the
+  task is displayed and keyed by its normalized root-relative path; a flag
+  before the path is an error (it would take the path as its value)
 - An input containing `/` or ending in a task suffix is a path, anything else a
   builtin name; `invoke_task` takes either by the same rule
 - Listing is explicit: `gro` prints the builtins and usage from the generated
   `GRO_BUILTIN_TASK_SUMMARIES` (importing no task module), `gro task` lists the
   project's tasks under `src/`, `gro task some/dir/` lists that directory
 - A path without `gro task` errors with the hint, and the removed `gro/` prefix
-  errors naming the plain builtin
+  errors naming the plain builtin; a path without a task suffix
+  (`gro src/x/update`, `gro task src/x/update`) is hinted by what exists
+  (`to_task_path_hint`: `update.task.ts`/`.task.js` to run, the directory to
+  list, or nothing; a forwarded `-- gro <path>` names only the task file)
 
 Key features:
 
@@ -75,7 +79,10 @@ Key features:
     the CLI invoked
   - A literal `--` can't be forwarded, except to `gro run`'s script:
     `gro run <path> ...rest` passes everything after the path verbatim, and a
-    flag before the path other than `--help` is an error
+    flag before the path other than `--help` is an error; like `node`, it
+    prints no timings and the CLI exits with the script's code, or `128` plus a
+    signal's number (a `TaskError`'s `exit_code`, 1–255, read from the
+    CLI-invoked task's failure in `invoke.ts`)
   - Special case for nested Gro tasks: `gro check -- gro test --coverage`
     forwards parsed args to test, and `-- gro task src/lib/x.task.ts --a` to a
     project task by its normalized path; `-- gro <path>` and `-- gro gro/x`
@@ -182,7 +189,12 @@ Strict specifiers: a relative or absolute import resolves to exactly the file it
 names (`resolve_specifier.ts`), matching the extension rules of the runtime's
 [resolver](src/docs/resolver.md). Extensions are mandatory, nothing is probed,
 and `.js` never maps to `.ts`; a specifier naming no file is refused with the
-specifier, the importer, and the fix. The esbuild plugins for server builds
+specifier, the importer, and the fix, carrying Node's `code`
+(`ERR_UNSUPPORTED_DIR_IMPORT` for a directory, else `ERR_MODULE_NOT_FOUND`) and
+the path's `url`, so `import.meta.resolve` returns the URL as in Node while the
+import still fails. A path specifier is `./`, `../`, `/`, `.`, or `..`
+(`is_path_specifier`), shared by the loader, the esbuild filter, and the Filer,
+so `'.hidden.ts'` is bare, as in Node. The esbuild plugins for server builds
 follow the same rule, and the Filer's import graph records the exact path a
 specifier names (`to_specifier_path_id`), existing or not, so a file created
 later links to its importers; imports from inside `node_modules` keep Node's and
@@ -478,6 +490,12 @@ watch; the server plugin uses it to rebuild). The interfaces live in
 import the Filer and chokidar on first use, so tasks that never use them never
 load them. The Filer family (`internal/filer.ts`, `internal/disknode.ts`,
 `internal/watch_dir.ts`, `internal/parse_imports.ts`) is internal, not exported.
+A chokidar error (like `EACCES` reading a directory) is a warning through the
+graph's and watcher's `log` (`console` with none), not fatal; the Filer stats before reading, so a
+directory or special file (a FIFO) is a contentless node, and the graph
+forwards a change whose read finds no file as one `delete` (`#remove` notifies
+only a node that had contents); an unresolvable
+import inside `node_modules` (an optional peer) logs at debug.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.

@@ -23,9 +23,6 @@ export type RunTaskResult =
 	  };
 
 /**
- * What `run_task` runs a task with, the parts of its `TaskContext` it doesn't build itself.
- */
-/**
  * What `run_task` builds the task's context from:
  * `config`, `graph`, `watcher`, `log`, and `timings` become its fields of the same name.
  */

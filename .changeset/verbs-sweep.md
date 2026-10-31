@@ -46,6 +46,28 @@ fix: an import specifier starting with `//` (`//home/x/a.ts`) is refused naming 
 
 fix: `gro publish` fails with a `TaskError` when its release `git commit` or final `git push --follow-tags` fails, saying the version is already published to the registry and naming the manual recovery, where it reported success
 
-fix: the top-level task prints its timings and total time on success, which no task printed while every nested `invoke_task` printed the shared ones, and a task that fails still closes the module graph and watcher its `invoke_task` created
+fix: the top-level task prints its timings and total time on success, which no task printed while every nested `invoke_task` printed the shared ones, except `gro run`, which prints none, like `node`; a task that fails still closes the module graph and watcher its `invoke_task` created
 
 fix: the module graph records `export * from` and `export * as ns from` re-exports, and dynamic imports anywhere in a module are read decoded from the parser, so an escaped quote no longer drops one
+
+**breaking** fix: an import specifier is a path only when it starts with `./`, `../`, or `/`, or is exactly `.` or `..`, as in Node, in the loader, server builds, and the module graph, through the new `is_path_specifier` and `PATH_SPECIFIER_MATCHER` in `resolve_specifier.ts`; a specifier like `'.hidden.ts'` is bare, so it's refused as Node refuses it, where it resolved as a relative path
+
+**breaking** fix: `gro task` refuses a flag before the path, like `gro task --a src/lib/foo.task.ts`, a usage error naming `gro task src/lib/foo.task.ts --a`, where the flag took the path as its value and `gro task` listed `src/`; with no path it takes only `--help`; `gro gen`'s generated task registry imports a task under a `.`-prefixed directory with `./`
+
+**breaking** fix: `gro run` exits with the script's own exit code, or for a script killed by a signal `128` plus the signal's number like a shell (`143` for `SIGTERM`), where it exited with `1`, and prints no timings, like `node`
+
+feat: `TaskError` takes an optional `exit_code` (`new TaskError(message, {exit_code})`, `TaskErrorOptions`), which the CLI exits with when the error fails the task it invoked and the code is an integer 1–255
+
+fix: a path without a task suffix where a task goes, like `gro src/test/fixtures/update`, `gro task src/test/fixtures/update`, or `invoke_task('src/test/fixtures/update')`, errors naming what's there: the task file with `.task.ts` or `.task.js` added (`.ts` or `.js` for a path ending in `.task`), which `gro task` runs, the directory, which it lists, or that nothing is at any of them, where `gro` hinted listing a directory that may not exist; a forwarded `-- gro <path>` names only the task file, as a forwarded section can't list; `gro task <dir>` listing no tasks beside a task file of its name hints running it
+
+fix: `gro task` refuses a directory named like a task file (`x.task.ts/`) as not a task file, where it tried to import it
+
+fix: the loader's refusal of a path that doesn't load carries Node's `code` and the path's `url`, with `ERR_UNSUPPORTED_DIR_IMPORT` for a directory, so `import.meta.resolve` returns the URL as it does without the loader, while importing it still fails with the fix; the refusal's sibling hint and `url` keep `?raw`; a relative import from a non-`file:` parent, like a `data:` URL, goes to Node's resolution
+
+fix: the module graph notifies every delete in a burst, like chokidar's synchronous unlinks for several files, where it notified only the first and left the rest queued until the next change; it drops a deleted file from its dependencies' dependents, where the gen plugin kept rerunning on changes to what a deleted genfile imported; a chokidar error, like `EACCES` reading a directory, warns through the graph's and the watcher's log (`console` with none) instead of crashing, with `NodeWatcherOptions` taking `log`; a directory or special file like a FIFO is a contentless node, never read, where a FIFO hung the graph's load; an unexpected read error is logged instead of an unhandled rejection or a failed load, and the changes queued behind it still process; a change whose read finds no file reaches `graph.watch` as one `delete`, and deleting a file that had no contents notifies nothing; an unresolvable import inside `node_modules`, like a package's optional peer, logs at debug instead of as an error
+
+fix: the gen plugin's change checks in flight when the module graph closes end quietly, where each rejected unhandled, and a check that fails otherwise logs its error
+
+fix: `load_module` and `load_gro_config` import a path as a file URL, so a `#`, `?`, or `%` in it no longer breaks the import
+
+fix: `gro publish` fails with a `TaskError` when `changeset version` fails, where it threw a plain error with a stack trace

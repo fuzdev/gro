@@ -3,6 +3,7 @@ import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { pathToFileURL } from 'node:url';
 
 import type { ResolvedInputFile } from './input_path.ts';
 import { print_path } from './paths.ts';
@@ -29,7 +30,8 @@ export const load_module = async <TModule extends Record<string, any>>(
 ): Promise<LoadModuleResult<TModule>> => {
 	let mod;
 	try {
-		mod = await import(id);
+		// as a URL, so a `#`, `?`, or `%` in the path is escaped, not read as URL syntax
+		mod = await import(pathToFileURL(id).href);
 	} catch (error) {
 		return { ok: false, type: 'failed_import', id, error };
 	}

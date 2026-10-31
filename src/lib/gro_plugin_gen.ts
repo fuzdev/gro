@@ -4,6 +4,7 @@ import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 import { throttle } from '@fuzdev/fuz_util/throttle.ts';
 
 import type { Plugin } from './plugin.ts';
+import type { ModuleGraph } from './module_graph.ts';
 import { paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
@@ -88,12 +89,19 @@ export const gro_plugin_gen = ({
 				switch (change.type) {
 					case 'add':
 					case 'update': {
-						// queue each gen file that changed, imports the changed file, or declares it an input
-						const gen_file_ids = await graph.modules(is_gen_path);
-						for (const gen_file_id of gen_file_ids) {
-							if (await should_trigger_gen(gen_file_id, change.id, graph, log)) {
-								queue_gen(gen_file_id);
+						try {
+							// queue each gen file that changed, imports the changed file, or declares it an input
+							const gen_file_ids = await graph.modules(is_gen_path);
+							for (const gen_file_id of gen_file_ids) {
+								if (await should_trigger_gen(gen_file_id, change.id, graph, log)) {
+									queue_gen(gen_file_id);
+								}
 							}
+						} catch (error) {
+							// a query on a closed graph rejects, so a check in flight when it closed,
+							// like when a later plugin's setup fails, ends quietly
+							if (await graph_is_closed(graph)) return;
+							log.error('[gen] failed to check for genfiles to run for', change.id, error);
 						}
 						break;
 					}
@@ -115,3 +123,16 @@ export const gro_plugin_gen = ({
 		}
 	};
 };
+
+/**
+ * Whether `graph` is closed, which every query on a closed graph rejects to say.
+ * Only called after a query failed, once the graph had loaded,
+ * since a graph that loaded stays loaded until it closes.
+ */
+const graph_is_closed = (graph: ModuleGraph): Promise<boolean> =>
+	graph
+		.modules(() => false)
+		.then(
+			() => false,
+			() => true
+		);

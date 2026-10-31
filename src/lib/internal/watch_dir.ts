@@ -39,6 +39,11 @@ export interface WatchDirOptions {
 	 * - or some custom pattern
 	 */
 	ignored?: Matcher | null;
+	/**
+	 * Called with each error chokidar emits, like `EACCES` reading a directory,
+	 * which is otherwise thrown, crashing the process.
+	 */
+	on_error?: (error: unknown) => void;
 }
 
 /**
@@ -50,7 +55,8 @@ export const watch_dir = ({
 	filter,
 	absolute = true,
 	chokidar,
-	ignored = TMP_FILE_PATTERN
+	ignored = TMP_FILE_PATTERN,
+	on_error
 }: WatchDirOptions): WatchNodeFs => {
 	let watcher: FSWatcher | undefined;
 	let initing: Deferred<void> | undefined;
@@ -88,6 +94,7 @@ export const watch_dir = ({
 				if (filter && !filter(final_path, true)) return;
 				on_change({ type: 'delete', path: final_path, is_directory: true });
 			});
+			if (on_error) watcher.on('error', on_error);
 			// wait until ready
 			watcher.once('ready', () => initing?.resolve());
 			await initing.promise;

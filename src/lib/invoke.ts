@@ -21,10 +21,29 @@ to the task's `run` function.
 
 */
 
+/**
+ * The code the CLI exits with for an uncaught error:
+ * a `TaskError`'s `exit_code`, like `gro run`'s script's own, when it's an integer 1–255
+ * (a process exit code is a byte, so `256` would exit `0`)
+ * and it failed the task the CLI invoked (the `cause` of `invoke_task`'s `SilentError`),
+ * and `1` otherwise, including for a nested task's failure.
+ */
+const to_exit_code = (err: unknown): number => {
+	const error = err as { exit_code?: unknown; cause?: { exit_code?: unknown } } | null | undefined;
+	const exit_code = error?.exit_code ?? error?.cause?.exit_code;
+	return typeof exit_code === 'number' &&
+		Number.isInteger(exit_code) &&
+		exit_code > 0 &&
+		exit_code < 256
+		? exit_code
+		: 1;
+};
+
 // handle uncaught errors
 attach_process_error_handler({
 	to_error_label: (err) => (err.constructor.name === 'TaskError' ? 'TaskError' : null),
-	map_error_text: (err) => (err.constructor.name === 'SilentError' ? '' : null)
+	map_error_text: (err) => (err.constructor.name === 'SilentError' ? '' : null),
+	handle_error: (err) => process.exit(to_exit_code(err))
 });
 
 if (!process.env.NO_COLOR) {
