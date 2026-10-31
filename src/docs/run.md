@@ -98,9 +98,10 @@ then each `cause` as `Caused by:` with its frames.
 TypeScript positions are the source's, with no source map.
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
-A dynamic `import()` that fails rejects with a `TypeError` the code can catch.
+A dynamic `import()` that fails rejects with an error the code can catch:
+a `TypeError`, or an `Error` for an I/O failure reading the resolved file.
 A module whose file was replaced between resolving and loading isn't loaded
-(`cannot load <url>: the file at its path is not the one resolved`;
+(`cannot load <url>: the file at its path is not the one resolved, so it isn't loaded`;
 [resolver](resolver.md#departures-from-node) has what it catches and what it can't),
 the entry's included, which exits 1.
 
@@ -117,9 +118,10 @@ Whether a stream is colored is decided once per process, in order:
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | the module ran to completion, or `--help` or `--version`                                                                                                               |
 | 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start |
-| 2    | a usage error (no arguments, an unknown subcommand or flag, an extra argument, a non-UTF-8 argument), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2    | a usage error (no arguments, an unknown subcommand or flag, an extra argument, a non-UTF-8 argument, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
+A panic exits 101 in a debug build; a release build aborts.
 A TypeScript module nested or chained past tsv's depth limits fails to load, exit 1, with a
 message naming the limit (`cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256
 levels`), where the same JS, under V8's far deeper limit, may run.

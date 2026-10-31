@@ -6,8 +6,9 @@
 > **status**: experimental, with the direction settled and the design in progress.
 > Today `fgro run <file>` (renamed `gro` when ready) runs a JS or TypeScript module
 > from disk on V8 (x86_64 Linux only) using Deno's libraries,
-> and everything else below is designed, the confinement included, so nothing is enforced yet;
-> the [roadmap](#roadmap) marks what's built.
+> with strict resolution and origin containment ([run](run.md));
+> the grants, the policy file, and the kernel backstop below are designed, not built,
+> so no grant is enforced yet; the [roadmap](#roadmap) marks what's built.
 > The design doesn't have every answer yet ([open questions](#open-questions)),
 > and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -296,7 +297,7 @@ so each piece can be rewritten on its own as measurements justify it.
   The kernel layer is coarser than the runtime's own checks (paths and ports, not
   files carved out of a tree or hostnames), so it backstops them rather than replacing them.
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
-  tsv and blake3 are crates in the binary, exposed as built-in modules with no boundary to cross.
+  tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
   FFI (calling a native library from JS) is planned as a grant, denied by default,
   with the library loaded in its own confined process.

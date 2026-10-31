@@ -4,8 +4,8 @@
 //! A pure module: no V8 or `deno_core` types. It reads the filesystem only
 //! through [`SourceTree`] ([`DiskTree`] is the disk) and returns a
 //! [`Resolution`] record rather than a bare URL: the URL, the [`Root`] the
-//! module is inside and its [`Origin`], and the `package.json` files read to
-//! get there. The module loader is a thin adapter over it, so static
+//! module is inside and its [`Origin`], the [`FileId`] it found, and the
+//! `package.json` files read to get there. The module loader is a thin adapter over it, so static
 //! imports, `import()`, `import.meta.resolve`, and the entry module all
 //! resolve the same way.
 //!

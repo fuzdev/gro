@@ -99,6 +99,13 @@ its [root](#root)'s, a function of the module's real path, never of who imported
 It decides which package a reach is attributed to and which grants need acceptance.
 [resolver](resolver.md) has the rules.
 
+## origin containment
+
+Every module stays inside its [root](#root), checked on its real path:
+a relative or absolute import never leaves the importer's root, enters `node_modules` below it,
+or enters another root nested in it, and `"exports"` targets and self-references stay inside their package.
+[resolver](resolver.md#departures-from-node) has the rules.
+
 ## policy file
 
 The committed record of the grants accepted in review, currently `gro.policy.json`.

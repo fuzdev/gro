@@ -38,6 +38,9 @@ so V8 fails it at link time with a `SyntaxError`; mark it `type`.
 
 Every file parses as a module, with no retry as a script,
 and a parse error reads `cannot parse the TypeScript: …` with its position.
+A module nested or chained past tsv's depth limits fails with
+`cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 levels` and its position;
+the same JS may run under V8's deeper limit.
 
 ## File types
 

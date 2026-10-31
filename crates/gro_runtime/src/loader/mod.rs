@@ -42,8 +42,8 @@
 //! sourcemap. TypeScript with runtime semantics (an `enum`, a parameter
 //! property) is refused, not transformed: the load fails naming the construct,
 //! a fix, and its position, in the `at <url>:<line>:<column>` form V8's frames
-//! print. Like every load failure, it reaches JS as a `TypeError`, which
-//! `import()` can catch.
+//! print. Like every load failure but an I/O error reading the file, it
+//! reaches JS as a `TypeError`, which `import()` can catch.
 
 mod graph;
 mod strip;

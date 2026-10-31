@@ -1,4 +1,4 @@
-//! gro's JS host: a minimal web-standards JavaScript runtime on V8.
+//! gro's JS host: a minimal web-standards runtime on V8.
 //!
 //! [`run_main`] runs an ES module from disk to completion: it resolves the
 //! entry, evaluates it on a `deno_core` `JsRuntime` driven by a current-thread
@@ -324,7 +324,8 @@ mod tests {
 
     /// A static import of any `ext:` module fails the run with the resolver's
     /// refusal. `deno_core` falls back to a lazy ES module of the refused name,
-    /// so this held only once the runtime stopped declaring them.
+    /// so this holds only because the runtime declares none
+    /// (`bootstrap::extensions`).
     #[test]
     fn a_static_import_of_every_ext_specifier_is_refused() {
         let specifiers = ext_specifiers();

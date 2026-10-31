@@ -11,7 +11,7 @@ The runtime resolves modules with its own strict algorithm, not Node's.
 Bridging on the legacy algorithm would let code work on gro by accident of legacy resolution
 and break when the bridge is removed, and the strict subset is small enough that a bridge saves little.
 It's written once in `gro_runtime` as a pure module with no engine types:
-it reads only through a source-tree trait and returns the resolved URL,
+it reads only through a source-tree trait and returns the resolved URL, the file's identity,
 the root the module is inside and its origin (project or package), and the `package.json` files it consulted,
 so a test can drive it without V8, and other tools could reuse it once its roots can be built outside the crate.
 The module loader owns the roots a graph has admitted and passes them in;
