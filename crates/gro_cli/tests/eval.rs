@@ -115,6 +115,12 @@ fn spawn_command(
     driver: Option<&str>,
     env: &[(&str, &str)],
 ) -> Output {
+    spawn(command(subcommand, args, env), driver)
+}
+
+/// The command [`spawn_command`] runs, for a test to change before
+/// [`spawn`] runs it.
+fn command(subcommand: &str, args: &[&str], env: &[(&str, &str)]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
     for name in COLOR_VARS {
         command.env_remove(name);
@@ -129,6 +135,11 @@ fn spawn_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    command
+}
+
+/// Runs `command`, `driver`'s file piped to stdin when given.
+fn spawn(mut command: Command, driver: Option<&str>) -> Output {
     let mut child = command.spawn().unwrap();
     {
         // a driver is far smaller than a pipe's buffer, so this can't block
@@ -191,11 +202,16 @@ fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<String> {
 
 /// [`spawn_eval`], its envelope parsed.
 fn eval_with(args: &[&str], driver: Option<&str>, env: &[(&str, &str)]) -> Eval {
+    parse(spawn_eval(args, driver, env))
+}
+
+/// An eval's output, its envelope parsed.
+fn parse(output: Output) -> Eval {
     let Output {
         code,
         stdout,
         stderr,
-    } = spawn_eval(args, driver, env);
+    } = output;
     // exactly one line of JSON, or nothing for a usage error
     let envelope = if stdout.is_empty() {
         Value::Null
@@ -1235,10 +1251,62 @@ fn a_utc_alias_with_another_display_name_is_refused() {
         "Zulu",
         "UCT",
         "Etc/UCT",
+        "Etc/Universal",
+        "Etc/Zulu",
         ":UTC",
+        ":Etc/UTC",
     ] {
         eval_with(&["typed.ts"], None, &[("TZ", zone)]).assert_value(&json!({"x": 1, "y": 2}));
     }
+}
+
+/// A zone that isn't UTC is refused even where its offset is zero, and so
+/// is an unset `TZ`, which leaves ICU the host's zone: dates name it
+/// otherwise.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
+    let refused = |found: &str| {
+        format!(
+            "eval runs only in the time zone UTC, so dates read and format the same everywhere, \
+             and this process's is {found}: run fgro with TZ=UTC in its environment"
+        )
+    };
+    for (zone, found) in [
+        ("Africa/Abidjan", "Africa/Abidjan"),
+        ("Iceland", "Atlantic/Reykjavik"),
+        ("Factory", "Factory"),
+        // ICU's id for `GMT` names its offset
+        ("GMT", "+00:00"),
+    ] {
+        let run = eval_with(&["value.js"], None, &[("TZ", zone)]);
+        run.assert_failed("environment", 1);
+        assert_eq!(run.message(), refused(found), "{zone}");
+    }
+    // with `TZ` unset, ICU reads the host's `/etc/localtime`, which only a
+    // host whose zone isn't UTC refuses
+    let host = std::fs::read_link("/etc/localtime").ok();
+    let host_utc = host.as_deref().is_none_or(|zone| {
+        zone.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| ["UTC", "UCT", "Universal", "Zulu"].contains(&name))
+    });
+    if host_utc {
+        return;
+    }
+    let mut command = command("eval", &["value.js"], &[]);
+    command.env_remove("TZ");
+    let run = parse(spawn(command, None));
+    run.assert_failed("environment", 1);
+    assert!(
+        run.message()
+            .starts_with("eval runs only in the time zone UTC"),
+        "{}",
+        run.message()
+    );
 }
 
 /// The message of a heap stop, and of the out-of-memory backstop's

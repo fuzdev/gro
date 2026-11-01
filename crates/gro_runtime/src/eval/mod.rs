@@ -118,7 +118,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use deno_core::error::{CoreError, CoreErrorKind, JsError};
-use deno_core::{JsRuntime, PollEventLoopOptions, ascii_str, v8};
+use deno_core::{FastStaticString, JsRuntime, PollEventLoopOptions, ascii_str, v8};
 use url::Url;
 
 pub use self::dump::{
@@ -156,14 +156,18 @@ pub const AFTER_DRAIN: &str = "after_drain";
 /// output V8 gives byte for byte as ICU's `en_US_POSIX`.
 pub const LOCALE: &str = "en-US";
 
-/// The only time zone eval runs in, as `Intl` resolves it.
+/// The only time zone eval runs in, by its IANA id; [`UTC_EPOCH`] decides
+/// it.
 pub const TIME_ZONE: &str = "UTC";
 
 /// The epoch as `Date#toString` writes it in [`TIME_ZONE`] under [`LOCALE`].
 ///
-/// It names the zone as `Date` and `Intl` display it. A zone ICU resolves
-/// to `UTC` can still display another name (`Etc/GMT`, `GMT0`, and
-/// `Greenwich` print `Greenwich Mean Time`), so eval requires this too.
+/// It names the zone as `Date` displays it, and eval accepts a zone exactly
+/// when its epoch reads this: `UTC` and the aliases that display as it
+/// (`Etc/UTC`, `Universal`, `Zulu`, `UCT`). An alias that displays another
+/// name (`Etc/GMT`, `GMT0`, and `Greenwich` print `Greenwich Mean Time`), a
+/// zone ICU doesn't know (printed `GMT`), and every other zone write
+/// something else.
 pub const UTC_EPOCH: &str = "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)";
 
 /// The engine eval runs on: jitless unless `jit`, code generation from
@@ -912,35 +916,35 @@ fn evaluate(
 }
 
 /// Refuses a time zone other than [`TIME_ZONE`] on the started runtime,
-/// before any user code runs: one `Intl` resolves to another id, one ICU
-/// doesn't know, or an alias of `UTC` that `Date` and `Intl` display by
-/// another name (anything whose epoch isn't [`UTC_EPOCH`]). ICU takes the
-/// zone from the host's `TZ`, which eval doesn't read.
+/// before any user code runs: anything whose epoch isn't [`UTC_EPOCH`]
+/// under [`LOCALE`], which only `UTC` and its aliases that display as it
+/// write. ICU takes the zone from the host's `TZ`, which eval doesn't read.
+///
+/// Acceptance reads the `Date` string alone, since the first
+/// `Intl.DateTimeFormat` builds V8's set of every ICU date-format locale,
+/// which costs more than the rest of eval's setup; `Intl` is consulted only
+/// to name a refused zone.
 fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
-    // the id, empty when ICU knows no zone by that name, then the epoch;
     // `new Date(value)` is kept under `determinism: deny`
-    let read = runtime
-        .execute_script(
-            "ext:gro/time_zone.js",
-            ascii_str!(
-                "((zone) => `${typeof zone === 'string' && zone !== 'Etc/Unknown' ? zone : ''}\n${new \
-                 Date(0)}`)(new Intl.DateTimeFormat().resolvedOptions().timeZone)"
-            ),
-        )
-        .map_err(|error| Failed::new(Phase::Internal, report_js(&error)))?;
-    deno_core::scope!(scope, runtime);
-    let read = v8::Local::new(scope, read).to_rust_string_lossy(scope);
-    let (zone, epoch) = read.split_once('\n').unwrap_or((&read, ""));
-    if zone == TIME_ZONE && epoch == UTC_EPOCH {
+    let epoch = read_script(runtime, ascii_str!("`${new Date(0)}`"))?;
+    if epoch == UTC_EPOCH {
         return Ok(());
     }
+    // the id, empty when ICU knows no zone by that name
+    let zone = read_script(
+        runtime,
+        ascii_str!(
+            "((zone) => typeof zone === 'string' && zone !== 'Etc/Unknown' ? zone : \
+             '')(new Intl.DateTimeFormat().resolvedOptions().timeZone)"
+        ),
+    )?;
     let found = if zone.is_empty() {
         "this process's time zone isn't one ICU knows".to_owned()
     } else if zone == TIME_ZONE {
         // the name `Date#toString` gives in parentheses
         let name = epoch
             .rsplit_once(" (")
-            .map_or(epoch, |(_, name)| name.trim_end_matches(')'));
+            .map_or(epoch.as_str(), |(_, name)| name.trim_end_matches(')'));
         format!("this process's is an alias of {TIME_ZONE} that dates name {name}")
     } else {
         format!("this process's is {zone}")
@@ -952,6 +956,16 @@ fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
              everywhere, and {found}: run fgro with TZ=UTC in its environment"
         ),
     ))
+}
+
+/// Runs `source`, the host's own script, on the started runtime, and reads
+/// its value as a string.
+fn read_script(runtime: &mut JsRuntime, source: FastStaticString) -> Result<String, Failed> {
+    let read = runtime
+        .execute_script("ext:gro/time_zone.js", source)
+        .map_err(|error| Failed::new(Phase::Internal, report_js(&error)))?;
+    deno_core::scope!(scope, runtime);
+    Ok(v8::Local::new(scope, read).to_rust_string_lossy(scope))
 }
 
 /// Loads and evaluates the driver from `source` at `url`, and reads the

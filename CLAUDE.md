@@ -731,9 +731,11 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   handler, the one process static besides the engine's, writes a prepared
   `heap` envelope through a handle opened before the run and exits 1); a
   watchdog thread stops the run at `--timeout`, and the serializer checks
-  for a stop once per batch; a time zone other than UTC (by `Intl`'s id and
-  `new Date(0).toString()`, so an alias named otherwise fails too) fails as
-  `environment` before the driver; `heap` and `timeout` come from the stop
+  for a stop once per batch; a time zone other than UTC (by
+  `new Date(0).toString()` alone, which only UTC and the aliases that display
+  as it write as `UTC_EPOCH`; no `Intl` object is built unless to name a
+  refused zone, since V8's first `DateTimeFormat` builds its locale set)
+  fails as `environment` before the driver; `heap` and `timeout` come from the stop
   recorded, never a message, and an `error.hint` names `--jit` or that
   code generation is off. The loader's `Rules` carry eval's refusals: every `import()`
   before anything resolves (the entry graph's listed in the envelope's
