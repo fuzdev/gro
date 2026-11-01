@@ -123,18 +123,29 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         ))
         .is_number()
     );
-    // the locale: en-US whatever the host's, unless the pin is off; then
-    // the time zone check, which reads the epoch's date string, sees the
-    // zone named in German, so it's off too
+    // the locale: en-US whatever the host's, unless the pin is off and the
+    // environment kept, so ICU reads the host's; then the time zone check,
+    // which reads the epoch's date string, sees the zone named in German,
+    // so it's off too
     let german = [("LC_ALL", "de_DE.UTF-8")];
     assert_eq!(
         value(&fgro_in(&["eval", "intl.js"], None, &german))["number_locale"],
         "en-US"
     );
+    // the pin off alone, the cleared environment still keeps the host's
+    // locale from ICU
     assert_eq!(
         value(&fgro_in(
             &["eval", "intl.js"],
             Some("locale,utc_check"),
+            &german
+        ))["number_locale"],
+        "en-US"
+    );
+    assert_eq!(
+        value(&fgro_in(
+            &["eval", "intl.js"],
+            Some("locale,utc_check,clear_env"),
             &german
         ))["number_locale"],
         "de-DE"
@@ -196,4 +207,22 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         value(&fgro(&["eval", "clock.js"], Some("deny,landlock,seccomp"))),
         "number"
     );
+}
+
+/// Every thread eval starts sets its own stack, so a `RUST_MIN_STACK` too
+/// large to reserve changes nothing even with the environment kept, the
+/// clear off: the threads all start, the watchdog among them, and the value
+/// is written.
+#[cfg(feature = "prices")]
+#[test]
+fn every_thread_sets_its_own_stack() {
+    if !cfg!(feature = "snapshot") {
+        return;
+    }
+    let output = fgro_in(
+        &["eval", "value.js"],
+        Some("clear_env"),
+        &[("RUST_MIN_STACK", "1099511627776")],
+    );
+    assert_eq!(value(&output)["b"], 1);
 }

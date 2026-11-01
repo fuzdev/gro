@@ -44,7 +44,10 @@
 //! [`phases::PHASES_FILE_ENV`], and the `prices` feature's switches,
 //! [`prices::PRICES_OFF_ENV`]): what a runtime decides per run, such as the
 //! console's color and streams ([`ConsoleOptions`]), comes in through
-//! [`RuntimeOptions`] from the embedder.
+//! [`RuntimeOptions`] from the embedder. Its dependencies do read some
+//! (`deno_core`'s diagnostics and import graph file, ICU's locale), so an
+//! embedder that wants none read clears its environment before it starts a
+//! thread, as `fgro eval` does.
 //!
 //! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
 //! `deno_web`'s JS is read from its crate's path on the build machine, so such

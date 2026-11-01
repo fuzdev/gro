@@ -36,9 +36,9 @@
 //!
 //! `--verify` then checks the result: the baseline suite's `fgro` size
 //! budgets (the executable's in a release build only, the snapshot's in
-//! both), clippy over the `snapshot` feature's
-//! code, `fgro`'s integration tests against the snapshot build, its phases
-//! and prices tests against builds with each feature too, and a fixture
+//! both), clippy over the `snapshot` feature's code, alone and with
+//! `prices`, `fgro`'s integration tests against the snapshot build, its
+//! phases and prices tests against builds with each feature too, and a fixture
 //! run with the cargo registry's sources (`$CARGO_HOME/registry/src`) and
 //! gro's own extension sources hidden (tmpfs mounts in a private user and
 //! mount namespace, `unshare -rm`), its output compared with a run that can
@@ -240,24 +240,29 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         ("GRO_SNAPSHOT_DIR", dir.as_str()),
         (COMMIT_ENV, build.commit.as_str()),
     ];
-    // the workspace clippy builds without the feature, so its code goes unlinted there
-    run(
-        root,
-        &env,
-        "cargo",
-        &[
-            "clippy",
-            "--locked",
-            "-p",
-            "gro_cli",
-            "--features",
-            "snapshot",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ],
-    )?;
+    // the workspace clippy builds without the feature, so its code goes
+    // unlinted there; again with `prices`, whose code in the snapshot-only
+    // tests (`tests/confine.rs`) neither build reaches, the first keeping
+    // their `not(prices)` branches linted
+    for features in ["snapshot", "snapshot,prices"] {
+        run(
+            root,
+            &env,
+            "cargo",
+            &[
+                "clippy",
+                "--locked",
+                "-p",
+                "gro_cli",
+                "--features",
+                features,
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )?;
+    }
     let mut test = vec![
         "test",
         "--locked",

@@ -37,6 +37,23 @@
 			"stdout": "envelope"
 		},
 		{
+			"name": "clear_env",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "clear_env"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
 			"name": "landlock",
 			"program": "../../../../target/gro_snapshot/release/fgro",
 			"args": [
@@ -317,6 +334,7 @@
 	"parity": [
 		"fgro",
 		"close_fds",
+		"clear_env",
 		"landlock",
 		"seccomp",
 		"box",

@@ -670,7 +670,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   each level writes to and whether each is colored, read when the run
   starts, never in the snapshot). The crate reads no environment variable (but
   the `phases` feature's file and the `prices` feature's switches, below);
-  `fgro` decides color.
+  `fgro` decides color. Its dependencies do (deno_core's diagnostics and
+  import graph file, ICU's locale), which `fgro eval` clears.
   It starts from a startup snapshot when the embedder passes one
   (`snapshot.rs`; built in its own process from the same extension list, with
   the lazy scripts it didn't load embedded beside it as `residual.rs`), else
@@ -788,7 +789,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   variable ([src/docs/eval.md](src/docs/eval.md)), and first closes every
   file descriptor above stderr the process inherited
   (`gro_sys::close_inherited_fds`), which the box, gating only new opens,
-  wouldn't reach, failing as `environment` when it can't. Every
+  wouldn't reach, then, after a phases build opens its file, clears its
+  environment but `TZ` (`gro_sys::clear_env_except`), so no library it runs
+  reads a variable, failing as `environment` when either can't. Every
   command but `eval` runs on one thread with a 32 MiB stack of its own
   (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
   the 16 MiB its strip is sized for (a release build needs 2 MiB); a module
@@ -815,7 +818,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   variable. The `prices` feature (`gro_cli`'s, enabling `gro_runtime`'s),
   which release and snapshot builds never enable either, reads
   `GRO_PRICES_OFF`, a comma-separated list of eval's defaults to turn off
-  (`gro_runtime::prices::EvalDefault`: `close_fds`, `landlock`, `seccomp`,
+  (`gro_runtime::prices::EvalDefault`: `close_fds`, `clear_env`, `landlock`, `seccomp`,
   `box_rule`, `deny`, `refuse_ops`, `codegen`, `locale`, `heap_cap`,
   `heap_watch`, `watchdog`, `utc_check`, `recording`, `envelope_cap`; the
   JIT's switch is `--jit`), refusing an unknown name as a usage error; a
@@ -835,8 +838,12 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   5.9, or a parent's seccomp filter refuses it with `EPERM`), safe
   with a documented precondition, that nothing in the process owns one, so
   it runs first on the main thread, and it refuses with more than one
-  thread alive. Its tests close descriptors only in a child process
-  (`tests/close.rs`, no libtest harness). Its `testing` feature, which only
+  thread alive. `clear_env_except` clears the environment by `clearenv`,
+  then sets the named variables again, safe with a documented
+  precondition, that nothing holds a pointer into the environment, and
+  refusing with more than one thread alive. Its tests close descriptors
+  and clear the environment only in a child process (`tests/close.rs`,
+  `tests/env.rs`, no libtest harness). Its `testing` feature, which only
   `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
   it touches no memory), so the box's tests reach Landlock's signal scope
   past seccomp's refusal of `kill`, and `map_anonymous` and

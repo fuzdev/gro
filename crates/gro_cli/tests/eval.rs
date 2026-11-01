@@ -1571,20 +1571,6 @@ fn array_buffer_memory_sits_outside_the_heap_cap() {
     eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
 }
 
-/// Every thread eval starts sets its own stack, so a `RUST_MIN_STACK` too
-/// large to reserve changes nothing: the watchdog still starts, and the value
-/// is written.
-#[test]
-#[cfg_attr(
-    not(feature = "snapshot"),
-    ignore = "a confined eval needs a snapshot build"
-)]
-fn a_huge_rust_min_stack_changes_nothing() {
-    let run = eval_with(&["value.js"], None, &[("RUST_MIN_STACK", "1099511627776")]);
-    assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
-    assert_eq!(run.envelope["ok"], true, "{}", run.stdout);
-}
-
 /// The timeout stops a loop that never ends, jitless or with the JIT, as
 /// `timeout`, with a hint naming `--jit` only jitless.
 #[test]
@@ -2194,18 +2180,18 @@ fn an_eval_leaves_the_project_tree_unchanged() {
     assert_eq!(tree_state(&scratch.0), before);
 }
 
-/// Eval reads no environment variable for its own configuration: a run
-/// under a broad hostile environment, the variables its dependencies and
-/// neighbors read (`deno_core`'s diagnostics, Deno's and Node's own, Rust's,
-/// tokio's, glibc's and the dynamic loader's, ICU's, the locale and color,
-/// the home and temporary directories, and gro's own build-time and
-/// feature-gated names), writes the same envelope, byte for byte, as a run
-/// with `TZ=UTC` alone, and the same stderr but for the loader's warning and
-/// `deno_core`'s timings, and creates no file a variable names. `TZ` itself is
-/// read, and refused when not UTC, which the time zone tests cover.
+/// Eval clears its environment but `TZ`, so no variable configures it: a
+/// run under a broad hostile environment, the variables its dependencies
+/// and neighbors read (`deno_core`'s diagnostics and import graph file,
+/// Deno's and Node's own, Rust's, tokio's, glibc's and the dynamic loader's,
+/// ICU's, the locale and color, the home and temporary directories, and
+/// gro's own build-time and feature-gated names), writes the same envelope,
+/// byte for byte, as a run with `TZ=UTC` alone, and the same stderr but for
+/// the loader's warning, which comes at exec, before eval runs, and creates
+/// no file a variable names. `TZ` itself is read, and refused when not UTC,
+/// which the time zone tests cover.
 ///
-/// Left out: `RUST_MIN_STACK` (its own test) and variables only a debugger
-/// or a sanitizer build reads.
+/// Left out: variables only a debugger or a sanitizer build reads.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -2218,12 +2204,17 @@ fn the_environment_configures_nothing() {
         std::fs::create_dir_all(elsewhere.join(dir)).unwrap();
     }
     let at = |file: &str| elsewhere.join(file).display().to_string();
-    let named_files = [at("phases.txt"), at("node_repl_history")];
+    let named_files = [
+        at("phases.txt"),
+        at("node_repl_history"),
+        at("import_graph.jsonl"),
+    ];
     let hostile: Vec<(&str, String)> = vec![
-        // deno_core's logs on stderr (its import graph file has its own
-        // test)
+        // deno_core's logs on stderr, and the file it appends each import
+        // to, whose open inside the box would panic
         ("DENO_LOG_LAZY_LOAD", "1".to_owned()),
         ("DENO_STARTUP_PHASES", "1".to_owned()),
+        ("DENO_SNAPSHOT_IMPORT_GRAPH", named_files[2].clone()),
         // Deno's and Node's own
         (
             "DENO_V8_FLAGS",
@@ -2254,6 +2245,7 @@ fn the_environment_configures_nothing() {
         // Rust's and tokio's
         ("RUST_LOG", "trace".to_owned()),
         ("RUST_BACKTRACE", "full".to_owned()),
+        ("RUST_MIN_STACK", "1099511627776".to_owned()),
         ("RUST_LIB_BACKTRACE", "1".to_owned()),
         ("TOKIO_WORKER_THREADS", "0".to_owned()),
         // glibc's allocator and the dynamic loader: a library to preload
@@ -2313,10 +2305,9 @@ fn the_environment_configures_nothing() {
         "{}",
         minimal.stdout
     );
-    // stderr too, but for the variables whose readers write there whatever
-    // eval does: the dynamic loader's warning for the missing preload and
-    // `deno_core`'s startup timings
-    let stderr_noise = ["LD_PRELOAD", "DENO_STARTUP_PHASES"];
+    // stderr too, but for the dynamic loader's warning for the missing
+    // preload, written at exec, before eval can clear anything
+    let stderr_noise = ["LD_PRELOAD"];
     let quiet: Vec<(&str, String)> = hostile
         .iter()
         .filter(|(name, _)| !stderr_noise.contains(name))
@@ -2353,17 +2344,13 @@ fn the_environment_configures_nothing() {
 /// `deno_core` appends each module import it records to the file
 /// `DENO_SNAPSHOT_IMPORT_GRAPH` names, opening it at the first import, and
 /// panics when it can't: inside the box it never can, so an eval whose
-/// module imports another must ignore the variable, writing the envelope a
-/// run without it writes and no file.
+/// module imports another must ignore the variable, cleared with the rest
+/// of its environment, writing the envelope a run without it writes and no
+/// file.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
     ignore = "a confined eval needs a snapshot build"
-)]
-#[cfg_attr(
-    feature = "snapshot",
-    ignore = "fails: deno_core reads DENO_SNAPSHOT_IMPORT_GRAPH, and its open of the file \
-              inside the box panics, exiting 101 with no envelope"
 )]
 fn deno_cores_import_graph_variable_is_ignored() {
     let scratch = host_project("import_graph");

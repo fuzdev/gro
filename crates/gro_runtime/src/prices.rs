@@ -40,6 +40,8 @@ pub enum EvalDefault {
     /// The descriptors the process inherited, closed before anything opens
     /// one.
     CloseFds,
+    /// The environment cleared but `TZ`, so no library reads a variable.
+    ClearEnv,
     /// The box's Landlock rules (and the `no_new_privs` they set).
     Landlock,
     /// The box's seccomp filters: the killing filter and the allowlist,
@@ -76,8 +78,9 @@ pub enum EvalDefault {
 
 impl EvalDefault {
     /// Every default, in the order eval applies them.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::CloseFds,
+        Self::ClearEnv,
         Self::Landlock,
         Self::Seccomp,
         Self::BoxRule,
@@ -97,6 +100,7 @@ impl EvalDefault {
     pub const fn name(self) -> &'static str {
         match self {
             Self::CloseFds => "close_fds",
+            Self::ClearEnv => "clear_env",
             Self::Landlock => "landlock",
             Self::Seccomp => "seccomp",
             Self::BoxRule => "box_rule",

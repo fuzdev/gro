@@ -85,9 +85,9 @@
 //!   memory ops, the blob ops, and the ops that compile code or import past
 //!   the loader (`bootstrap::REFUSED_OPS`); `Atomics.wait` is refused on
 //!   the isolate. Late work is promise jobs.
-//! - **The time zone is checked**: ICU takes it from the host's `TZ`, which
-//!   eval doesn't read, so a zone other than UTC fails the eval as
-//!   `environment` before the driver or module runs.
+//! - **The time zone is checked**: ICU takes it from the host's `TZ`, the
+//!   one variable `fgro eval` keeps, so a zone other than UTC fails the eval
+//!   as `environment` before the driver or module runs.
 //! - **The limits** (`limits.rs`): the heap capped at [`HEAP_LIMIT`], with
 //!   an out-of-memory backstop, and a timeout ([`DEFAULT_TIMEOUT`] unless the
 //!   caller sets one), each failing the eval as `heap` or `timeout`; the
@@ -1061,7 +1061,8 @@ fn evaluate(
 /// Refuses a time zone other than [`TIME_ZONE`] on the started runtime,
 /// before any user code runs: anything whose epoch isn't [`UTC_EPOCH`]
 /// under [`LOCALE`], which only `UTC` and its aliases that display as it
-/// write. ICU takes the zone from the host's `TZ`, which eval doesn't read.
+/// write. ICU takes the zone from the host's `TZ`, which eval itself doesn't
+/// read.
 ///
 /// Acceptance reads the `Date` string alone, since the first
 /// `Intl.DateTimeFormat` builds V8's set of every ICU date-format locale,

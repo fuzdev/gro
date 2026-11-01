@@ -22,7 +22,8 @@ fgro eval <module> --graph              # add the module graph the run loaded to
 The module is a `.js`, `.mjs`, `.ts`, or `.mts` file, relative to the working directory or absolute.
 `--export` and `--driver` don't combine: a driver is handed the whole namespace.
 `--driver` takes only `-`.
-Eval reads no environment variable for its own configuration: every setting is a flag.
+Every setting is a flag, and past the dynamic loader no environment variable configures eval or a library it runs:
+before it starts any thread, eval clears its environment but `TZ` ([the box](#the-box)).
 It runs only with the time zone UTC (below), which ICU takes from the host's `TZ`, so run it with `TZ=UTC`.
 It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build with its startup snapshot embedded ([the box](#the-box)).
 
@@ -149,6 +150,9 @@ so one swapped in at a root's path afterward isn't what the box admits.
 Before anything else, the process closes every file descriptor above stderr it inherited:
 a file, a socket, or a device its parent left open, which the box, gating only new opens, wouldn't reach.
 If they can't be closed, the eval fails as `environment`.
+Then it clears its environment but `TZ`, from its one thread, so nothing it runs after,
+deno_core, V8, ICU, or glibc, reads another variable, and `RUST_BACKTRACE` has no effect on a panic; if it can't, the eval fails as `environment`.
+The dynamic loader reads its own variables (`LD_PRELOAD`, `LD_LIBRARY_PATH`, glibc's tunables) before that, at exec.
 The process resolves the module and finds the roots on a thread it then ends,
 installs the box from its one remaining thread, and only then starts V8 on another,
 so every thread V8 and its event loop start is inside the box.
@@ -342,7 +346,7 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
-| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
+| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed or its environment cleared, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
 | `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
 
 ## The graph

@@ -17,14 +17,17 @@
 //! It runs jitless unless `--jit`, with code generation from strings off,
 //! the locale `en-US`, the clock and randomness denied, the heap capped, and
 //! a timeout (`--timeout`, else `gro_runtime::eval::DEFAULT_TIMEOUT`), and
-//! its console writes every level to stderr, uncolored. It reads no
-//! environment variable for its own configuration, and refuses a time zone
-//! other than UTC, which ICU reads from `TZ`. Out of memory, the runtime
-//! writes a prepared envelope through its own handle to stdout, duplicated
-//! here before the run. With `--graph`, the envelope also carries the module
+//! its console writes every level to stderr, uncolored. It clears its
+//! environment but `TZ` before it starts a thread, so past exec no variable
+//! configures it or a library it runs, and refuses a time zone other than
+//! UTC, which ICU reads from `TZ`. Out of memory, the runtime writes a
+//! prepared envelope through its own handle to stdout, duplicated here
+//! before the run. With `--graph`, the envelope also carries the module
 //! graph the run loaded, as `graph` (`gro_runtime::eval::GraphDump`).
 //! Once eval starts, the envelope is always written, `ok: false` with an
-//! error kind on failure; a usage error prints to stderr with no envelope.
+//! error kind on failure, unless the process dies first (a panic, or memory
+//! outside V8's heap running out); a usage error prints to stderr with no
+//! envelope.
 //!
 //! Every command but `eval` runs on one thread with [`STACK_SIZE`] reserved,
 //! not on the main thread, so a debug build stays inside the 16 MiB of stack
@@ -36,10 +39,11 @@
 //! `eval` keeps its process confinable: the main thread parses the
 //! arguments, closes every file descriptor above stderr the process
 //! inherited (which the box, gating only new opens, wouldn't reach; failing
-//! that, eval fails as `environment`), and reads the driver from stdin, the
-//! working directory, and the out-of-memory handle; a thread with
-//! [`STACK_SIZE`] reserved resolves the entry and computes the box
-//! (`gro_runtime::eval::prepass`) and is joined;
+//! that, eval fails as `environment`), opens the phases file in a phases
+//! build, clears the environment but `TZ` (failing that, as `environment`),
+//! and reads the driver from stdin, the working directory, and the
+//! out-of-memory handle; a thread with [`STACK_SIZE`] reserved resolves the
+//! entry and computes the box (`gro_runtime::eval::prepass`) and is joined;
 //! the main thread, then the process's only one, confines it
 //! (`gro_runtime::confine`); and only then does a second thread with
 //! [`STACK_SIZE`] reserved start the engine and evaluate, so every thread
@@ -497,10 +501,11 @@ fn eval(args: EvalArgs) -> u8 {
 }
 
 /// `eval`'s path up to and including the box, on the main thread: checks the
-/// flags, closes the descriptors the process inherited, reads the working
-/// directory and, when asked, the driver from stdin, resolves the entry and
-/// computes the box on a thread of its own, refuses a build with no snapshot,
-/// and confines the process, returning the pre-pass and the confinement.
+/// flags, closes the descriptors the process inherited, clears its environment
+/// but `TZ`, reads the working directory and, when asked, the driver from
+/// stdin, resolves the entry and computes the box on a thread of its own,
+/// refuses a build with no snapshot, and confines the process, returning the
+/// pre-pass and the confinement.
 ///
 /// # Errors
 ///
@@ -549,6 +554,13 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     };
     // the phases file, under the `phases` feature, opens before the box
     phases::open();
+    // then the environment goes but `TZ`, so no library eval starts reads a
+    // variable; a phases or priced build has read its own by now
+    let cleared = if prices::off(EvalDefault::ClearEnv) {
+        Ok(())
+    } else {
+        clear_env()
+    };
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -572,6 +584,13 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
         let error = EvalError::new(
             ErrorKind::Environment,
             format!("cannot close the descriptors the eval inherited: {error}"),
+        );
+        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+    }
+    if let Err(error) = cleared {
+        let error = EvalError::new(
+            ErrorKind::Environment,
+            format!("cannot clear the environment the eval inherited: {error}"),
         );
         return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
     }
@@ -645,6 +664,32 @@ fn close_inherited() -> std::io::Result<()> {
     reason = "the same signature as Linux's, which can fail"
 )]
 const fn close_inherited() -> std::io::Result<()> {
+    Ok(())
+}
+
+/// The variables eval keeps from its environment: `TZ` alone, which ICU
+/// reads for the time zone eval then checks is UTC.
+#[cfg(target_os = "linux")]
+const KEPT_ENV: &[&str] = &["TZ"];
+
+/// Clears the process's environment but [`KEPT_ENV`], so no library eval
+/// starts (`deno_core`'s diagnostics and import graph file, ICU's locale,
+/// std's backtrace and stack size, any other) reads a variable:
+/// `gro_sys::clear_env_except`, sound because it runs on the main thread,
+/// the only one, before anything that keeps a pointer into the environment
+/// has run.
+#[cfg(target_os = "linux")]
+fn clear_env() -> std::io::Result<()> {
+    gro_sys::clear_env_except(KEPT_ENV)
+}
+
+/// No box elsewhere: eval refuses before it would start.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as Linux's, which can fail"
+)]
+const fn clear_env() -> std::io::Result<()> {
     Ok(())
 }
 

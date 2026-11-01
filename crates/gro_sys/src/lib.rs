@@ -8,6 +8,8 @@
 //! - [`close_inherited_fds`] closes every file descriptor above stderr, the
 //!   ones a process inherits from its parent, which a kernel box that gates
 //!   only new opens doesn't reach.
+//! - [`clear_env_except`] clears the process's environment but the
+//!   variables it names, so no library the process runs later reads one.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size, which std's `wait` drops.
 //!
@@ -89,6 +91,82 @@ pub fn close_inherited_fds() -> io::Result<()> {
         }
         result => result.map_err(|error| context("close_range failed", &error)),
     }
+}
+
+/// Clears the process's environment but the variables named in `kept`.
+///
+/// Each kept variable is set again to the value it had, so nothing the
+/// process runs after reads any other: not its own code, and not a
+/// library's (`getenv` from C, or `std::env` from Rust). It clears by
+/// `clearenv`, so every entry goes, malformed ones included (a name with no
+/// `=`, or one std can't remove), then sets each kept variable that was
+/// set, its value read first.
+///
+/// # Precondition
+///
+/// Nothing in the process holds a pointer into the environment, such as a
+/// string `getenv` returned: on `clearenv`, musl frees the strings `setenv`
+/// made, and a C library that kept one would then read freed memory (glibc
+/// never frees them). That holds on the main thread at the start of `main`,
+/// before the process has started any library that keeps one: std copies
+/// what it reads.
+///
+/// The function is safe, not `unsafe`, with the precondition documented
+/// rather than typed, as [`close_inherited_fds`]'s: its one caller, in
+/// `fgro eval`, is in a crate that forbids `unsafe`. Changing the
+/// environment races with any other thread that reads or writes it, so
+/// before changing anything it reads the process's thread count from
+/// `/proc/self/status` and refuses unless it's 1; a thread can only start
+/// from this one, which is in this call. The check can't see a pointer the
+/// calling thread kept from an earlier read.
+///
+/// # Errors
+///
+/// Returns an error, with nothing changed, when the thread count can't be
+/// read or isn't 1, or when a name in `kept` is empty or holds a `=` or a
+/// NUL; when `clearenv` fails, or a kept variable can't be set again, the
+/// environment may be left cleared.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "changing the environment is `unsafe`: another thread may read it"
+)]
+pub fn clear_env_except(kept: &[&str]) -> io::Result<()> {
+    let threads = thread_count()?;
+    if threads != 1 {
+        return Err(io::Error::other(format!(
+            "the process has {threads} threads, not 1, so another may read the environment"
+        )));
+    }
+    if let Some(name) = kept
+        .iter()
+        .find(|name| name.is_empty() || name.contains(['=', '\0']))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{name:?} can't name an environment variable"),
+        ));
+    }
+    // read before the clear, each value a copy; a value from the environment
+    // holds no NUL, so setting it again can't panic
+    let values: Vec<(&str, OsString)> = kept
+        .iter()
+        .filter_map(|&name| std::env::var_os(name).map(|value| (name, value)))
+        .collect();
+    // SAFETY: `clearenv` reads and writes only the environment, which no
+    // other thread exists to touch (the count above is 1, and only this
+    // thread could start one); that nothing holds a pointer into it is this
+    // function's precondition
+    if unsafe { libc::clearenv() } != 0 {
+        return Err(io::Error::other("clearenv failed"));
+    }
+    for (name, value) in values {
+        // SAFETY: as above, the process's one thread is this call's; the name
+        // was checked to hold no `=` or NUL and isn't empty, and the value,
+        // from the environment, holds no NUL, so std's checks pass
+        unsafe { std::env::set_var(name, value) };
+    }
+    Ok(())
 }
 
 /// The process's thread count, from `/proc/self/status`.
