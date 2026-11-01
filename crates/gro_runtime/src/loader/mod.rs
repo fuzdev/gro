@@ -107,7 +107,8 @@ use url::Url;
 
 use crate::confine::BoxRoots;
 use crate::resolver::{
-    self, DiskTree, Entry, FileId, ModuleFormat, Resolution, ResolveError, Roots, SourceTree,
+    self, DiskTree, Entry, FileId, MAX_MODULE_SIZE, ModuleFormat, Resolution, ResolveError, Roots,
+    SourceTree,
 };
 use graph::{
     Failure, FailureError, Graph, LoadFailure, Loaded, Position, Reach, Reached, Recording,
@@ -587,8 +588,22 @@ fn load(
         )
     };
     check(&path).map_err(io_error)?;
-    // read from the file checked, never the path again, which can change in between
-    let Some(code) = resolver::read_checked(&path, file_id, None).map_err(io_error)? else {
+    // read from the file checked, never the path again, which can change in
+    // between, and never past the cap, so a huge file or a FIFO isn't read whole
+    let read = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
+        if error.kind() != io::ErrorKind::FileTooLarge {
+            return io_error(error);
+        }
+        refused(
+            LoadFailure::TooLarge,
+            ModuleLoaderError::type_error(format!(
+                "cannot load {specifier}: the module is larger than {} MiB, the cap on a \
+                 module's source",
+                MAX_MODULE_SIZE >> 20
+            )),
+        )
+    })?;
+    let Some(code) = read else {
         return Err(refused(
             LoadFailure::IdentityMismatch,
             ModuleLoaderError::type_error(format!(

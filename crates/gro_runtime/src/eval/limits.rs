@@ -41,17 +41,33 @@ use deno_core::{JsRuntime, v8};
 /// machine's memory, so a runaway eval on the heap fails as `heap` long
 /// before the kernel's out-of-memory killer would take it, and its process.
 ///
-/// The cap is V8's heap only. Outside it, uncapped, are the backing memory
-/// of an `ArrayBuffer`, a `SharedArrayBuffer`, or a typed array; a module's
-/// source, as read and stripped, and its parse; and the envelope's own
-/// bytes, which the serializer writes outside the heap (serializing a large
-/// string makes several copies of it). A runaway allocation there grows the
-/// process until the kernel ends it, with no envelope written, so a caller
-/// treats a missing envelope as a failure, and a caller that wants a hard
-/// bound on memory sets one on the process. Capping them would take a
-/// bounded array-buffer allocator and byte caps, none of which the runtime
-/// sets.
+/// The cap is V8's heap only. Outside it, uncapped, is the backing memory
+/// of an `ArrayBuffer`, a `SharedArrayBuffer`, or a typed array, which a
+/// bounded array-buffer allocator would cap. A runaway allocation there
+/// grows the process until the kernel ends it, with no envelope written, so
+/// a caller treats a missing envelope as a failure, and a caller that wants
+/// a hard bound on memory sets one on the process. Also outside it, and
+/// bounded by byte caps rather than this one: a module's source, as read
+/// and stripped, and its parse
+/// ([`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE) per module), and
+/// the envelope's own bytes, which the serializer writes outside the heap
+/// ([`MAX_ENVELOPE_SIZE`]; a large string is held a few times over while
+/// it's written). Not bounded but by this cap on each copy: an uncaught
+/// error's report (its message and stack, and each cause's and aggregated
+/// error's, up to 256 errors) and the specifiers the loader records, copied
+/// out of the heap, so a run that throws a long message, many times over,
+/// can take many times this cap before it ends.
 pub const HEAP_LIMIT: usize = 512 << 20;
+
+/// The envelope's cap, in bytes: 64 MiB.
+///
+/// The serializer stops as soon as the value's JSON would pass it, and an
+/// envelope that would pass it whole is counted, never written: a value's
+/// is replaced by a small `serialize` failure with no `access` or graph,
+/// and a failure's keeps its kind, dropping its `access` and graph, then,
+/// if it's still past, cutting its long text fields to 64 KiB each. A
+/// config's value is a few KiB.
+pub const MAX_ENVELOPE_SIZE: usize = 64 << 20;
 
 /// The room the cap is raised by, once, when the heap first nears it: 32
 /// MiB, enough for the run to unwind and its envelope to be written.

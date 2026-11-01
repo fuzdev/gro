@@ -1309,6 +1309,156 @@ fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
     );
 }
 
+/// `size` bytes of a module whose first line is `first`, padded with a
+/// comment.
+fn padded_module(first: &str, size: usize) -> String {
+    let mut source = format!("{first}\n//");
+    source.push_str(&"x".repeat(size - source.len()));
+    source
+}
+
+/// A module's source is capped at 16 MiB: one at the cap evaluates, and one
+/// a byte over fails to load as `link`, naming the cap and the file, before
+/// any of it is parsed or stripped (its syntax error, or its `enum`, isn't
+/// reached), whether it's the entry or an import.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_module_past_its_byte_cap_fails_to_load() {
+    let cap = usize::try_from(gro_runtime::resolver::MAX_MODULE_SIZE).unwrap();
+    assert_eq!(cap, 16 << 20);
+    let scratch = Scratch::new(
+        "module_cap",
+        &[
+            ("package.json", r#"{"name": "p", "type": "module"}"#),
+            ("importer.js", "export {default} from './over.js';\n"),
+        ],
+    );
+    let write = |file: &str, first: &str, size: usize| {
+        std::fs::write(scratch.0.join(file), padded_module(first, size)).unwrap();
+    };
+    write("at.js", "export default 'at the cap';", cap);
+    write("over.js", "export default ) 'over';", cap + 1);
+    write("over.ts", "enum E { A }", cap + 1);
+    eval(&[&scratch.path("at.js")]).assert_value(&json!("at the cap"));
+    for file in ["over.js", "over.ts"] {
+        let run = eval(&[&scratch.path(file)]);
+        run.assert_failed("link", 1);
+        let url = format!("file://{}", scratch.path(file));
+        assert!(
+            run.message().contains(&format!(
+                "cannot load {url}: the module is larger than 16 MiB, the cap on a module's \
+                 source"
+            )),
+            "{}",
+            run.message()
+        );
+        assert_eq!(run.envelope["error"]["specifier"], url.as_str());
+    }
+    let run = eval(&[&scratch.path("importer.js")]);
+    run.assert_failed("link", 1);
+    assert_eq!(
+        run.envelope["error"]["specifier"],
+        format!("file://{}", scratch.path("over.js")).as_str()
+    );
+    assert_eq!(
+        run.envelope["error"]["importer"],
+        format!("file://{}", scratch.path("importer.js")).as_str()
+    );
+}
+
+/// The envelope is capped at 64 MiB: an envelope of exactly the cap is
+/// written, one a byte over fails as `serialize`, naming the cap, and so
+/// does a value whose JSON alone passes it, where the serializer stops
+/// before reading the string.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn an_envelope_past_its_byte_cap_fails_as_serialize() {
+    let cap = gro_runtime::eval::MAX_ENVELOPE_SIZE;
+    assert_eq!(cap, 64 << 20);
+    let scratch = Scratch::new(
+        "envelope_cap",
+        &[("package.json", r#"{"name": "p", "type": "module"}"#)],
+    );
+    let module = scratch.path("value.js");
+    // the walk over a 64 MiB string is slow in a debug build
+    let eval_repeat = |count: usize| {
+        std::fs::write(&module, format!("export default 'x'.repeat({count});\n")).unwrap();
+        eval(&[&module, "--timeout", "60000"])
+    };
+    // the envelope around an empty string, so `count` x's make it that plus `count`
+    let empty = eval_repeat(0);
+    empty.assert_value(&json!(""));
+    let around = empty.stdout.len() - 1;
+    let at_cap = eval_repeat(cap - around);
+    assert_eq!(at_cap.code, 0, "{}", at_cap.stderr);
+    assert_eq!(at_cap.stdout.len() - 1, cap);
+    assert_eq!(
+        at_cap.envelope["value"].as_str().map(str::len),
+        Some(cap - around)
+    );
+    let over = eval_repeat(cap - around + 1);
+    over.assert_failed("serialize", 1);
+    assert_eq!(
+        over.message(),
+        format!(
+            "the envelope would be {} bytes, past 64 MiB, the envelope's cap, so the value isn't \
+             written; write less data, and keep error messages and import specifiers short",
+            cap + 1
+        )
+    );
+    // the value's JSON alone past the cap: its quotes take it over
+    let value_over = eval_repeat(cap - 1);
+    value_over.assert_failed("serialize", 1);
+    assert_eq!(
+        value_over.message(),
+        "$ takes the value's JSON past 64 MiB, the envelope's cap; write less data"
+    );
+    assert_eq!(value_over.envelope["error"]["at"], "$");
+}
+
+/// A failure's envelope is capped as a value's is, but keeps its kind: a
+/// thrown error whose message alone passes 64 MiB fails as `module_threw`,
+/// with no `access`, its message cut to 64 KiB and named by its length.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_failure_past_the_envelope_cap_keeps_its_kind() {
+    let scratch = Scratch::new(
+        "failure_cap",
+        &[
+            ("package.json", r#"{"name": "p", "type": "module"}"#),
+            ("throw.js", "throw new Error('b'.repeat(64 << 20));\n"),
+        ],
+    );
+    let run = eval(&[&scratch.path("throw.js"), "--timeout", "60000"]);
+    run.assert_failed("module_threw", 1);
+    assert!(run.stdout.len() < 128 << 10, "{}", run.stdout.len());
+    let message = run.message();
+    let (kept, note) = message.split_once('…').unwrap();
+    assert_eq!(kept.len(), 64 << 10);
+    assert!(
+        kept.starts_with("Uncaught (in promise) Error: bbb"),
+        "{}",
+        &kept[..64]
+    );
+    let length: usize = note
+        .strip_prefix(" (")
+        .and_then(|note| note.strip_suffix(" bytes)"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(length > 64 << 20, "{length}");
+    assert_eq!(run.envelope["access"], Value::Null);
+}
+
 /// The message of a heap stop, and of the out-of-memory backstop's
 /// envelope.
 const HEAP_STOPPED: &str = "the eval's heap reached its cap of 512 MiB, and the run was stopped";

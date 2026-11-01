@@ -168,7 +168,7 @@ pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault}
 pub use format::{ModuleFormat, module_format};
 pub use roots::{ConsultedFile, FileRole, Origin, Root, Roots};
 pub(crate) use tree::read_checked;
-pub use tree::{DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, SourceTree};
+pub use tree::{DiskTree, Entry, FileId, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, SourceTree};
 
 use std::path::{Component, Path, PathBuf};
 use url::Url;

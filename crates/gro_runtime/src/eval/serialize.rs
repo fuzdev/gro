@@ -27,7 +27,9 @@
 //!   enumerable data properties, never its internal state
 //!
 //! What it refuses, with the JS path (`$` the root, then `.name`, `["a b"]`,
-//! and `[2]`):
+//! and `[2]`; a key longer than [`MAX_KEY_SHOWN`] UTF-16 units is cut to
+//! them and named by its length, `["aaa…" (70000 units)]`, so a path stays
+//! small whatever the keys):
 //!
 //! - a getter or setter, never run: on an enumerable member, or at an array
 //!   index; non-enumerable members are skipped as `JSON.stringify` skips
@@ -45,6 +47,7 @@
 //!   decode (`JSON.stringify` writes it as a `\udXXX` escape that Rust's and
 //!   most readers' parsers refuse)
 //! - nesting deeper than [`MAX_DEPTH`] arrays and objects
+//! - a value whose JSON would pass the `max` bytes the caller gives
 //!
 //! The walk keeps its own stack of the arrays and objects it's inside of,
 //! so the host's native stack stays the same depth however deep the value
@@ -52,6 +55,10 @@
 //! what it holds is its output and its stack, whatever the value's size.
 //! Before each batch it asks whether the host has stopped the run (a
 //! timeout, the heap's cap), since no terminate interrupts a Rust loop.
+//! It stops as soon as its output passes `max`: a string's length is
+//! checked before it's read (each UTF-16 unit writes at least one byte),
+//! and the output as each character and each step is written, so the
+//! output never holds much more than `max` bytes.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -64,10 +71,16 @@ use deno_core::v8;
 /// one.
 pub const MAX_DEPTH: usize = 1000;
 
+/// The most UTF-16 units of a key that a path shows: a longer key is cut
+/// to them, then named by its length, so a path is at most [`MAX_DEPTH`]
+/// segments of a few hundred bytes each.
+pub const MAX_KEY_SHOWN: usize = 64;
+
 /// A value that didn't serialize: where, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializeError {
-    /// The JS path to the value refused, `$` for the root.
+    /// The JS path to the value refused, `$` for the root, each key longer
+    /// than [`MAX_KEY_SHOWN`] cut.
     pub at: String,
     /// Why it was refused.
     pub reason: Reason,
@@ -96,6 +109,11 @@ pub enum Reason {
     Cycle,
     /// Arrays and objects nested deeper than [`MAX_DEPTH`].
     TooDeep,
+    /// The JSON written would pass the caller's cap of `max` bytes.
+    TooLarge {
+        /// The cap, in bytes.
+        max: usize,
+    },
     /// A lone surrogate code unit, in a string or, when `in_key`, a key.
     LoneSurrogate {
         /// The code unit.
@@ -159,6 +177,11 @@ impl fmt::Display for SerializeError {
                 f,
                 "{at} is nested deeper than {MAX_DEPTH} arrays and objects"
             ),
+            Reason::TooLarge { max } => write!(
+                f,
+                "{at} takes the value's JSON past {}, the envelope's cap; write less data",
+                format_size(*max)
+            ),
             Reason::LoneSurrogate { unit, in_key } => write!(
                 f,
                 "{at} holds a lone surrogate, U+{unit:04X}, in {}, which isn't Unicode text and \
@@ -185,16 +208,18 @@ const BATCH: usize = 1024;
 ///
 /// `scope` must have a context entered; the walk runs no JS in it.
 /// `stopped` is asked before each batch whether the host has stopped the
-/// run, which ends the walk.
+/// run, which ends the walk. The JSON is at most `max` bytes, and the walk
+/// ends as soon as it would pass them.
 ///
 /// # Errors
 ///
-/// Returns where and why `value` isn't JSON data, or where the walk was
-/// when `stopped` said so.
+/// Returns where and why `value` isn't JSON data, where the walk was when
+/// `stopped` said so, or where the JSON passed `max` bytes.
 pub fn to_json(
     scope: &mut v8::PinScope<'_, '_>,
     value: v8::Local<'_, v8::Value>,
     stopped: &dyn Fn() -> bool,
+    max: usize,
 ) -> Result<String, SerializeError> {
     v8::tc_scope!(let tc, scope);
     v8::disallow_javascript_execution_scope!(let scope, tc, v8::OnFailure::ThrowOnFailure);
@@ -214,6 +239,7 @@ pub fn to_json(
     };
     let mut walker = Walker {
         out: String::new(),
+        max,
         path: Vec::new(),
         frames: Vec::new(),
         within: HashMap::new(),
@@ -238,8 +264,29 @@ pub fn to_json(
 enum Segment {
     /// An array's index.
     Index(u32),
-    /// An object's key, as UTF-16 code units.
-    Key(Vec<u16>),
+    /// An object's key, as much as a path shows.
+    Key {
+        /// Its first [`MAX_KEY_SHOWN`] UTF-16 code units at most, one fewer
+        /// when the cut would split a surrogate pair.
+        head: Vec<u16>,
+        /// Its length in UTF-16 code units.
+        length: usize,
+    },
+}
+
+impl Segment {
+    /// The segment of the key `units`, cut to what a path shows.
+    fn key(units: &[u16]) -> Self {
+        let mut end = units.len().min(MAX_KEY_SHOWN);
+        // a high surrogate at the cut is half of a pair the cut splits
+        if end < units.len() && (0xd800..0xdc00).contains(&units[end - 1]) {
+            end -= 1;
+        }
+        Self::Key {
+            head: units[..end].to_vec(),
+            length: units.len(),
+        }
+    }
 }
 
 /// An array or object the walk is inside of, written up to `next`.
@@ -272,6 +319,8 @@ enum Members {
 struct Walker {
     /// The JSON written so far.
     out: String,
+    /// The most bytes `out` may hold.
+    max: usize,
     /// The path to the value being walked: one segment per frame below the
     /// root's, plus the member being read.
     path: Vec<Segment>,
@@ -299,8 +348,15 @@ impl Walker {
                     at.push_str(&index.to_string());
                     at.push(']');
                 }
-                Segment::Key(units) => {
-                    let key = String::from_utf16_lossy(units);
+                Segment::Key { head, length } if head.len() < *length => {
+                    let mut cut = String::from_utf16_lossy(head);
+                    cut.push('…');
+                    at.push('[');
+                    push_json_string(&mut at, &cut);
+                    let _ = write!(at, " ({length} units)]");
+                }
+                Segment::Key { head, .. } => {
+                    let key = String::from_utf16_lossy(head);
                     if is_identifier(&key) {
                         at.push('.');
                         at.push_str(&key);
@@ -323,6 +379,44 @@ impl Walker {
         }
     }
 
+    /// Refuses the value once the output has passed its cap.
+    fn check_size(&self) -> Result<(), SerializeError> {
+        if self.out.len() > self.max {
+            return Err(self.too_large());
+        }
+        Ok(())
+    }
+
+    /// Refuses `string` before it's read when writing it would pass the
+    /// cap: each of its UTF-16 units writes at least one byte, and its
+    /// quotes two.
+    fn check_string(&self, string: v8::Local<'_, v8::String>) -> Result<(), SerializeError> {
+        if self
+            .out
+            .len()
+            .saturating_add(string.length())
+            .saturating_add(2)
+            > self.max
+        {
+            return Err(self.too_large());
+        }
+        Ok(())
+    }
+
+    /// The error for output past the cap, at the value being walked.
+    fn too_large(&self) -> SerializeError {
+        self.error(Reason::TooLarge { max: self.max })
+    }
+
+    /// The error for a string that stopped being written, in a key when
+    /// `in_key`.
+    fn string_error(&self, stop: StringStop, in_key: bool) -> SerializeError {
+        match stop {
+            StringStop::LoneSurrogate(unit) => self.error(Reason::LoneSurrogate { unit, in_key }),
+            StringStop::TooLarge => self.too_large(),
+        }
+    }
+
     /// Runs up to [`BATCH`] steps in a handle scope of their own.
     fn batch(&mut self, scope: &mut v8::PinScope<'_, '_>) -> Result<(), SerializeError> {
         v8::scope!(let scope, scope);
@@ -331,6 +425,8 @@ impl Walker {
                 break;
             }
             self.step(scope)?;
+            // a comma or a closing bracket; the rest is checked as it's written
+            self.check_size()?;
         }
         Ok(())
     }
@@ -380,7 +476,9 @@ impl Walker {
             .filter(|key| key.is_string())
             .ok_or_else(|| self.error(Reason::Refused))?;
         let key: v8::Local<'_, v8::String> = key.cast();
-        self.path.push(Segment::Key(read_string(scope, key)));
+        self.check_string(key)?;
+        let units = read_string(scope, key);
+        self.path.push(Segment::key(&units));
         let Some(item) = self.own_data(scope, object, key)? else {
             // deleted since the keys were read, which no JS here can do
             return Err(self.error(Reason::Refused));
@@ -395,11 +493,8 @@ impl Walker {
             }
             frame.wrote = true;
         }
-        let written = match self.path.last() {
-            Some(Segment::Key(units)) => push_utf16_json_string(&mut self.out, units),
-            _ => Ok(()),
-        };
-        written.map_err(|unit| self.error(Reason::LoneSurrogate { unit, in_key: true }))?;
+        push_utf16_json_string(&mut self.out, &units, self.max)
+            .map_err(|stop| self.string_error(stop, true))?;
         self.out.push(':');
         if !self.visit(scope, item)? {
             self.path.pop();
@@ -449,13 +544,11 @@ impl Walker {
                 return Err(self.error(Reason::NonFinite(text)));
             }
         } else if value.is_string() {
-            let text = read_string(scope, value.cast());
-            push_utf16_json_string(&mut self.out, &text).map_err(|unit| {
-                self.error(Reason::LoneSurrogate {
-                    unit,
-                    in_key: false,
-                })
-            })?;
+            let string = value.cast();
+            self.check_string(string)?;
+            let text = read_string(scope, string);
+            push_utf16_json_string(&mut self.out, &text, self.max)
+                .map_err(|stop| self.string_error(stop, false))?;
         } else if value.is_undefined() {
             return Err(self.error(Reason::Undefined));
         } else if value.is_big_int() {
@@ -466,11 +559,14 @@ impl Walker {
             return Err(self.error(Reason::Function));
         } else if value.is_object() {
             self.enter(scope, value)?;
+            self.check_size()?;
             return Ok(true);
         } else {
             // every JS value is one of the above
             return Err(self.error(Reason::Refused));
         }
+        // at the value, before the step leaves it
+        self.check_size()?;
         Ok(false)
     }
 
@@ -657,15 +753,41 @@ fn push_json_string(out: &mut String, text: &str) {
     out.push('"');
 }
 
+/// Why [`push_utf16_json_string`] stopped.
+#[derive(Clone, Copy)]
+enum StringStop {
+    /// A lone surrogate, this code unit.
+    LoneSurrogate(u16),
+    /// `out` passed its cap.
+    TooLarge,
+}
+
 /// [`push_json_string`] for UTF-16 code units, failing on the first lone
-/// surrogate with its code unit, which leaves `out` partly written.
-fn push_utf16_json_string(out: &mut String, units: &[u16]) -> Result<(), u16> {
+/// surrogate with its code unit, or once `out` holds more than `max` bytes,
+/// either leaving `out` partly written.
+fn push_utf16_json_string(out: &mut String, units: &[u16], max: usize) -> Result<(), StringStop> {
     out.push('"');
     for c in char::decode_utf16(units.iter().copied()) {
-        push_json_char(out, c.map_err(|error| error.unpaired_surrogate())?);
+        push_json_char(
+            out,
+            c.map_err(|error| StringStop::LoneSurrogate(error.unpaired_surrogate()))?,
+        );
+        if out.len() > max {
+            return Err(StringStop::TooLarge);
+        }
     }
     out.push('"');
     Ok(())
+}
+
+/// `bytes` as a person reads a cap: whole MiB when it is some, else bytes.
+pub(super) fn format_size(bytes: usize) -> String {
+    const MIB: usize = 1024 * 1024;
+    if bytes >= MIB && bytes.is_multiple_of(MIB) {
+        format!("{} MiB", bytes / MIB)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 /// Appends `c` as it's written inside a JSON string.

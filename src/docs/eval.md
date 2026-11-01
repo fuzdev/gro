@@ -6,7 +6,7 @@
 > **status**: built in part; the reference for the current binary, which has no release yet.
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 > Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
-> the heap and time limits, the box its process runs in (Linux only), and the graph dump.
+> the heap and time limits, the byte caps, the box its process runs in (Linux only), and the graph dump.
 
 ## Usage
 
@@ -47,9 +47,25 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
   runs out of memory instead: the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
   V8 prints its last garbage collections to stderr first.
   The cap counts V8's heap only. Outside it, uncapped, are the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array,
-  a module's source and its parse, and the envelope's own bytes (serializing a large string makes several copies of it),
   so a runaway allocation there can end the process with no envelope.
+  A module's source and the envelope's own bytes are outside it too, held by the byte caps below;
+  a module's parse, and the copies made while a large string is serialized, are a small multiple of them.
+  An uncaught error's report (its message and stack, each cause's, and each error an `AggregateError` holds, up to 256 errors)
+  and each specifier the loader records are copied out of the heap, each copy bounded only by the heap's cap,
+  so a run that throws a long message, many times over, can take many times the heap's cap before it ends.
   A caller treats a missing envelope as a failure, and a caller that wants a hard bound on memory sets one on the process.
+- **A module's source is capped at 16 MiB**, as [run](run.md)'s is:
+  a larger module is refused as it's read, before any of it is parsed or stripped, and fails as `link`,
+  with a message naming the cap and the file.
+  The driver, which the caller writes, isn't capped.
+- **The envelope is capped at 64 MiB**: the serializer stops as soon as the value's JSON would pass it,
+  and an envelope with a value that would pass it whole (long specifiers in `access.dynamic`, say)
+  is replaced by a small `serialize` failure naming the cap and the size it would have been,
+  whose `access` is `null`, as is its `graph` with `--graph`.
+  A failure past the cap keeps its kind: its `access` and `graph` are dropped (`null`),
+  and if it's still past, each of its text fields (`message`, `at`, `specifier`, `importer`, `hint`)
+  longer than 64 KiB is cut to it, at a character boundary, and named by its length, `aaa… (134217728 bytes)`.
+  Neither cap has a flag.
 - **The timeout** stops the run after `--timeout` milliseconds, 10000 by default, and fails it as `timeout`.
   It counts from the runtime's start to the drain's end, and stops JS and the serializer's walk;
   a module load in progress finishes first, and so does a builtin call in progress
@@ -244,7 +260,8 @@ Written:
   whose prototype was set to `Object.prototype` or null is written as a plain object:
   its own enumerable data properties, never its internal state
 
-Refused, with the JS path to it (`$` the value, then `.name`, `["a key"]`, `[2]`):
+Refused, with the JS path to it (`$` the value, then `.name`, `["a key"]`, `[2]`;
+a key longer than 64 UTF-16 units, an identifier too, is cut to them and named by its length, `["aaa…" (70000 units)]`):
 
 - a getter or setter, never run: on an enumerable member, or at an array index
 - `undefined` as the value or in an array, and a hole in an array
@@ -256,6 +273,7 @@ Refused, with the JS path to it (`$` the value, then `.name`, `["a key"]`, `[2]`
 - a lone surrogate in a string or key, which a UTF-8 reader can't decode
   (`JSON.stringify` writes one as a `\udXXX` escape most JSON parsers refuse)
 - nesting deeper than 1000 arrays and objects
+- a value whose JSON would take the envelope past its cap of 64 MiB ([the engine](#the-engine))
 
 ## The envelope
 
@@ -296,20 +314,22 @@ A usage error prints to stderr with no envelope.
   how to link a package for a read outside the box, and the build command for a build with no snapshot.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
-  `access` is `null` only in the out-of-memory envelope, prepared before the run.
+  `access` is `null` only in the out-of-memory envelope, prepared before the run,
+  and in an envelope past its cap ([the engine](#the-engine)).
 - `graph`, last, is present only with `--graph` ([the graph](#the-graph)).
   Without the flag, the envelope is exactly as above.
 
 The kinds, the contract a caller branches on, derived from the phase that failed and the loader's record,
-never from a message:
+never from a message;
+a failure past the cap keeps its kind, its `access` and `graph` dropped and its long text fields cut:
 
 | kind             | when                                                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `resolve`        | the module didn't resolve, or isn't a project's own module (inside `node_modules`, or with no project root), or a static import didn't resolve (an import in the driver among them) |
-| `link`           | the graph didn't form: a syntax error, a missing export binding, TypeScript the strip refuses, or import attributes |
+| `link`           | the graph didn't form: a syntax error, a missing export binding, TypeScript the strip refuses, import attributes, or a module over 16 MiB |
 | `module_threw`   | a module's evaluation, or the driver's call, threw, rejected, or left a top-level `await` unsettled                   |
 | `export_missing` | the export to serialize is absent, or the driver has no `default` function (or an `after_drain` that isn't one)       |
-| `serialize`      | the value isn't data by the rules above                                                                                |
+| `serialize`      | the value isn't data by the rules above, or the envelope holding it would pass 64 MiB                                  |
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
@@ -390,7 +410,8 @@ and the box's roots: a link added to `node_modules` that changes the closure can
 
 `graph` is `null` when the run never reached its module graph
 (the module didn't resolve, the box didn't go up, or the process ran out of memory and wrote its prepared envelope),
-or when a path in it isn't UTF-8, which no id can name, or a module's URL names no file;
+or when a path in it isn't UTF-8, which no id can name, or a module's URL names no file,
+or when the envelope would pass its cap, which drops it (and fails an `ok: true` one as `serialize`);
 those are the only cases, and under `ok: true` the value stands but there's no graph to cache it on.
 A graph the host failed to record (a `package.json` consulted with no read of it kept) fails the eval as `internal`.
 A failed run still dumps the graph as far as it got, for diagnosis, under `ok: false`:

@@ -4,7 +4,7 @@
 
 use deno_core::{JsRuntime, v8};
 
-use super::{MAX_DEPTH, Reason, SerializeError, to_json};
+use super::{MAX_DEPTH, MAX_KEY_SHOWN, Reason, SerializeError, to_json};
 use crate::STACK_SIZE;
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
@@ -52,11 +52,16 @@ impl Realm {
 
     /// The completion value of `source`, serialized.
     fn serialize(&mut self, source: &str) -> Result<String, SerializeError> {
+        self.serialize_capped(source, usize::MAX)
+    }
+
+    /// The completion value of `source`, serialized to at most `max` bytes.
+    fn serialize_capped(&mut self, source: &str, max: usize) -> Result<String, SerializeError> {
         let value = self.run(source);
         let runtime = &mut self.runtime;
         deno_core::scope!(scope, runtime);
         let value = v8::Local::new(scope, value);
-        to_json(scope, value, &|| false)
+        to_json(scope, value, &|| false, max)
     }
 
     /// The completion value of `source`, a string, as Rust's.
@@ -407,6 +412,73 @@ fn the_messages_name_the_path() {
     });
 }
 
+/// A key a path shows is cut past [`MAX_KEY_SHOWN`] UTF-16 units and
+/// named by its length, so a path stays small whatever the keys: a key at
+/// the limit is shown whole, as before, an identifier past it is cut like
+/// any other key, and a cut that would split a surrogate pair takes one
+/// unit fewer.
+#[test]
+fn a_long_key_is_cut_in_the_path() {
+    assert_eq!(MAX_KEY_SHOWN, 64);
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        let at = |realm: &mut Realm, key: &str| {
+            let error = realm
+                .serialize(&format!("({{a: {{[{key}]: 1n}}}})"))
+                .unwrap_err();
+            assert_eq!(error.reason, Reason::BigInt, "{key}");
+            error.at
+        };
+        let a64 = "a".repeat(64);
+        assert_eq!(at(&mut realm, "'a'.repeat(64)"), format!("$.a.{a64}"));
+        assert_eq!(
+            at(&mut realm, "' '.repeat(64)"),
+            format!("$.a[\"{}\"]", " ".repeat(64))
+        );
+        assert_eq!(
+            at(&mut realm, "'a'.repeat(65)"),
+            format!("$.a[\"{a64}…\" (65 units)]")
+        );
+        assert_eq!(
+            at(&mut realm, "'\"'.repeat(1000)"),
+            format!("$.a[\"{}…\" (1000 units)]", "\\\"".repeat(64))
+        );
+        // U+1F600 is two units, the 64th and 65th
+        assert_eq!(
+            at(&mut realm, "'a'.repeat(63) + '\u{1F600}b'"),
+            format!("$.a[\"{}…\" (66 units)]", "a".repeat(63))
+        );
+        // a cut key leads into the members below it too
+        let error = realm
+            .serialize("({['k'.repeat(100)]: {b: [1, () => 1]}})")
+            .unwrap_err();
+        assert_eq!(
+            error.at,
+            format!("$[\"{}…\" (100 units)].b[1]", "k".repeat(64))
+        );
+    });
+}
+
+/// A key whose JSON passes the cap partway, each unit written as a
+/// six-byte escape, is refused with a short path and message, not the key
+/// escaped again in each.
+#[test]
+fn a_key_past_the_cap_is_named_short() {
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        let max = 1 << 16;
+        let error = realm
+            .serialize_capped("({['\\u0001'.repeat((1 << 16) - 16)]: 1})", max)
+            .unwrap_err();
+        assert_eq!(error.reason, Reason::TooLarge { max });
+        assert_eq!(
+            error.at,
+            format!("$[\"{}…\" (65520 units)]", "\\u0001".repeat(64))
+        );
+        assert!(error.to_string().len() < 512, "{error}");
+    });
+}
+
 /// An object with internal fields is refused whatever its prototype: the
 /// global object, made to look plain.
 #[test]
@@ -476,13 +548,69 @@ fn a_stop_ends_the_walk_at_a_batch() {
             asked.set(asked.get() + 1);
             asked.get() > 1
         };
-        let error = to_json(scope, value, &stopped).unwrap_err();
+        let error = to_json(scope, value, &stopped, usize::MAX).unwrap_err();
         assert_eq!(error.reason, Reason::Stopped);
         assert_eq!(asked.get(), 2);
         assert!(!error.is_internal());
         // the first batch's steps read into the array's members
         assert!(error.at.starts_with("$["), "{}", error.at);
         // never asked, a walk of the same value runs to its end
-        assert!(to_json(scope, value, &|| false).is_ok());
+        assert!(to_json(scope, value, &|| false, usize::MAX).is_ok());
+    });
+}
+
+/// The JSON is capped: a value whose JSON is exactly the cap is written,
+/// and one byte more is refused, whether the last byte is a string's read
+/// whole (its length checked before it's read), a string's escape, a key's,
+/// or a closing bracket; and a walk that passes the cap partway is refused
+/// where it was.
+#[test]
+fn the_json_is_capped_at_its_last_byte() {
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        for expression in [
+            // the length check before the read
+            "'x'.repeat(100)",
+            // escapes, past the length check: each `\n` writes two bytes
+            "'\\n'.repeat(50)",
+            "({a: 1, ['k'.repeat(40)]: 2})",
+            "Array.from({length: 2000}, (_, i) => i)",
+            "[[[1, 2], [3]], {b: [true, null]}]",
+        ] {
+            let source = format!("({expression})");
+            let json = realm.serialize(&source).unwrap();
+            assert_eq!(
+                realm.serialize_capped(&source, json.len()).as_deref(),
+                Ok(json.as_str()),
+                "{expression}"
+            );
+            let max = json.len() - 1;
+            let error = realm.serialize_capped(&source, max).unwrap_err();
+            assert_eq!(
+                (error.at.as_str(), &error.reason),
+                ("$", &Reason::TooLarge { max }),
+                "{expression}"
+            );
+            assert!(!error.is_internal());
+        }
+        for (expression, max, at) in [
+            ("({a: ['x'.repeat(1 << 20)]})", 1 << 20, "$.a[0]"),
+            ("({a: 1, ['k'.repeat(1 << 20)]: 2})", 1 << 20, "$"),
+            ("({a: '\\n'.repeat(1 << 19)})", 1 << 20, "$.a"),
+            ("Array.from({length: 1 << 20}, (_, i) => i)", 1 << 20, "$["),
+        ] {
+            let error = realm
+                .serialize_capped(&format!("({expression})"), max)
+                .unwrap_err();
+            assert_eq!(error.reason, Reason::TooLarge { max }, "{expression}");
+            assert!(error.at.starts_with(at), "{expression}: {}", error.at);
+        }
+        let error = realm
+            .serialize_capped("({a: ['x'.repeat(1 << 20)]})", 1 << 20)
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "$.a[0] takes the value's JSON past 1 MiB, the envelope's cap; write less data"
+        );
     });
 }

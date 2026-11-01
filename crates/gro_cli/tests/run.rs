@@ -739,6 +739,41 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
     }
 }
 
+/// A module's source is capped as eval's is, since the loader is shared: one
+/// at 16 MiB runs, and one a byte over fails to load naming the cap and the
+/// file, before its syntax error is parsed.
+#[test]
+fn a_module_past_its_byte_cap_fails_to_load() {
+    let cap = usize::try_from(gro_runtime::resolver::MAX_MODULE_SIZE).unwrap();
+    let padded = |first: &str, size: usize| {
+        let mut source = format!("{first}\n//");
+        source.push_str(&"x".repeat(size - source.len()));
+        source
+    };
+    let at = padded("console.log('at the cap');", cap);
+    let over = padded("console.log() 'over';", cap + 1);
+    let fixtures = TempFixtures::new("module_cap", &[("at.js", &at), ("over.js", &over)]);
+    let run = fixtures.run("at.js");
+    assert_eq!(
+        (run.code, run.stdout.as_str()),
+        (0, "at the cap\n"),
+        "{}",
+        run.stderr
+    );
+    let run = fixtures.run("over.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert!(run.stdout.is_empty());
+    let url = format!("file://{}/over.js", fixtures.0.display());
+    assert!(
+        run.stderr.starts_with(&format!(
+            "error: cannot load {url}: the module is larger than 16 MiB, the cap on a module's \
+             source"
+        )),
+        "{}",
+        run.stderr
+    );
+}
+
 /// Within tsv's depth limits, deep TypeScript strips and runs as the same JS
 /// does, on `fgro`'s sized thread whatever the build profile.
 #[test]

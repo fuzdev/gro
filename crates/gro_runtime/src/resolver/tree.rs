@@ -8,6 +8,14 @@ use std::path::{Path, PathBuf};
 /// and no real one comes near it.
 pub const MAX_PACKAGE_JSON_SIZE: u64 = 16 * 1024 * 1024;
 
+/// The most bytes a module's source may have, the same as
+/// [`MAX_PACKAGE_JSON_SIZE`].
+///
+/// The loader refuses a larger module as it reads it, before any of it is
+/// parsed or stripped, so a module that would take the process's memory
+/// past any config's fails to load instead.
+pub const MAX_MODULE_SIZE: u64 = 16 * 1024 * 1024;
+
 /// `ELOOP`, the OS error a path through a symlink loop fails with: 40 on
 /// Linux and Android outside the MIPS and SPARC architectures, which number
 /// it differently, and 62 on macOS, iOS, and the BSDs. Elsewhere it isn't

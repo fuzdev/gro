@@ -32,6 +32,7 @@ while a plain `cargo build` runs only from its build tree.
 
 - `.mjs`, `.ts`, and `.mts` modules, and `.js` modules under a `package.json` with `"type": "module"`.
   A `.js` file without one is refused, never sniffed.
+  A module larger than 16 MiB is refused as it's read, before any of it is parsed or stripped.
   A world-writable directory (other-write, like `/tmp`) ends the search for it, and for every `package.json`:
   no `package.json` or `node_modules` in it is read,
   and a package installed through one (its `node_modules`, `@scope`, root, a linked root's real holders, or a linked `node_modules`'s or `@scope`'s real parent) is refused.

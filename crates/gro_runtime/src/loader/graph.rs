@@ -227,6 +227,9 @@ pub enum LoadFailure {
     IdentityMismatch,
     /// Opening, inspecting, or reading the file failed.
     Read(io::ErrorKind),
+    /// The file holds more than [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE)
+    /// bytes, so it wasn't read whole.
+    TooLarge,
     /// Its TypeScript was refused by the strip, at a position in its own
     /// source when tsv reports one.
     Strip {

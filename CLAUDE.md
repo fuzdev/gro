@@ -709,7 +709,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   the box's roots, each id's path) only in `local`; `null` when the run
   reached no graph or it names a path no id can (not UTF-8, or a module
   URL with no path), and in the out-of-memory backstop's prepared
-  envelope, which never carries one; a consulted file with no read kept,
+  envelope, which never carries one, and in an envelope past its cap; a consulted file with no read kept,
   a host bug, fails the eval as `internal`; without the flag the envelope doesn't move; the error kind comes from the phase that
   failed plus the first static failure the graph recorded, never from a
   message. Eval's runtime starts from the same snapshot as `run`'s and is
@@ -731,7 +731,18 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   handler, the one process static besides the engine's, writes a prepared
   `heap` envelope through a handle opened before the run and exits 1); a
   watchdog thread stops the run at `--timeout`, and the serializer checks
-  for a stop once per batch; a time zone other than UTC (by
+  for a stop once per batch; byte caps bound what sits outside the heap: a
+  module's source at `resolver::MAX_MODULE_SIZE` (16 MiB, the loader's
+  bounded `read_checked`, so `fgro run`'s too; eval's `link`) and the
+  envelope at `eval::MAX_ENVELOPE_SIZE` (64 MiB: the serializer stops once
+  its output would pass it, cutting a key past 64 UTF-16 units in a
+  path, and `eval::eval` counts the envelope of every run it starts, a failure's included,
+  without writing it: a value's past the cap is replaced with a small
+  `serialize` failure whose `access` and `graph` are `null`, and a
+  failure's keeps its kind, its `access` and `graph` dropped, then its
+  text fields cut to 64 KiB each if it's still past; an uncaught error's
+  report, each cause's and aggregated error's included, and the loader's
+  specifiers are copied out of the heap uncapped); a time zone other than UTC (by
   `new Date(0).toString()` alone, which only UTC and the aliases that display
   as it write as `UTC_EPOCH`; no `Intl` object is built unless to name a
   refused zone, since V8's first `DateTimeFormat` builds its locale set)

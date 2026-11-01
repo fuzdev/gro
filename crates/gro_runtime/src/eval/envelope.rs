@@ -1,5 +1,7 @@
 //! The envelope: the one JSON object `fgro eval` writes, success or failure.
 
+use std::io::{self, Write};
+
 use serde::Serialize;
 
 use super::dump::GraphDump;
@@ -28,7 +30,9 @@ pub struct Envelope {
     pub result: Result<String, EvalError>,
     /// What the run tried to reach and was refused; unset only in the
     /// envelope the out-of-memory backstop writes, prepared before the run
-    /// and written without it.
+    /// and written without it, and in one whose text would pass
+    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE): a value's,
+    /// replaced by a small failure, or a failure's, which drops it.
     pub access: Option<Access>,
     /// The module graph, when the caller asked for it.
     pub graph: GraphField,
@@ -44,7 +48,9 @@ pub enum GraphField {
     /// or the process ran out of memory and wrote its prepared envelope),
     /// or the graph names a path no id can: one that isn't UTF-8, or a
     /// module URL with no path ([`super::DumpError`]). A graph the host
-    /// failed to record fails the eval as `internal`, and is `null` too.
+    /// failed to record fails the eval as `internal`, and is `null` too, as
+    /// is one in an envelope that would pass
+    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE), which drops it.
     Unavailable,
     /// The graph, from the run as far as it got.
     Dumped(Box<GraphDump>),
@@ -104,9 +110,11 @@ pub struct Entry {
     pub driver_blake3: Option<String>,
 }
 
-/// The kind of failure, the contract a reader branches on. A kind is derived
-/// from the phase that failed and the failures the loader recorded, never
-/// from a message.
+/// The kind of failure, the contract a reader branches on.
+///
+/// A kind is derived from the phase that failed and the failures the
+/// loader recorded, never from a message, and a failure past the
+/// envelope's cap keeps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
@@ -125,7 +133,10 @@ pub enum ErrorKind {
     /// (`default` unless `--export` names another); with one, the driver's
     /// `default`, or an `after_drain` that isn't a function.
     ExportMissing,
-    /// The value isn't JSON data by the host serializer's rules.
+    /// The value isn't JSON data by the host serializer's rules, or the
+    /// envelope holding it would pass
+    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE). A failure past the
+    /// cap keeps its kind.
     Serialize,
     /// After the value was serialized, the event loop's remaining work
     /// threw or rejected, or the driver's `after_drain` threw.
@@ -228,34 +239,80 @@ impl Envelope {
     /// Returns serde's error when a part fails to serialize, which none of
     /// these types can.
     pub fn to_json(&self) -> serde_json::Result<String> {
-        let mut out = format!(
-            "{{\"eval_protocol\":{EVAL_PROTOCOL},\"ok\":{},\"runtime\":{},\"entry\":{},",
-            self.is_ok(),
-            serde_json::to_string(&self.runtime)?,
-            serde_json::to_string(&self.entry)?,
-        );
+        let value = self.result.as_deref().map_or(0, str::len);
+        let mut out = Vec::with_capacity(value + 1024);
+        self.write_json(&mut out)?;
+        // serde writes UTF-8, and the value is a `String`
+        String::from_utf8(out).map_err(|error| {
+            serde_json::Error::io(io::Error::new(io::ErrorKind::InvalidData, error))
+        })
+    }
+
+    /// The length of [`Envelope::to_json`]'s text in bytes, counted as
+    /// it's written, so no part of it is held: an envelope too large to
+    /// write costs no memory to measure.
+    ///
+    /// # Errors
+    ///
+    /// As [`Envelope::to_json`].
+    pub fn json_len(&self) -> serde_json::Result<usize> {
+        let mut counter = Counter(0);
+        self.write_json(&mut counter)?;
+        Ok(counter.0)
+    }
+
+    /// Writes [`Envelope::to_json`]'s text to `out`.
+    fn write_json(&self, out: &mut impl Write) -> serde_json::Result<()> {
+        write!(
+            out,
+            "{{\"eval_protocol\":{EVAL_PROTOCOL},\"ok\":{},\"runtime\":",
+            self.is_ok()
+        )
+        .map_err(serde_json::Error::io)?;
+        serde_json::to_writer(&mut *out, &self.runtime)?;
+        raw(out, ",\"entry\":")?;
+        serde_json::to_writer(&mut *out, &self.entry)?;
         match &self.result {
             Ok(value) => {
-                out.push_str("\"value\":");
-                out.push_str(value);
+                raw(out, ",\"value\":")?;
+                raw(out, value)?;
             }
             Err(error) => {
-                out.push_str("\"error\":");
-                out.push_str(&serde_json::to_string(error)?);
+                raw(out, ",\"error\":")?;
+                serde_json::to_writer(&mut *out, error)?;
             }
         }
-        out.push_str(",\"access\":");
-        out.push_str(&serde_json::to_string(&self.access)?);
+        raw(out, ",\"access\":")?;
+        serde_json::to_writer(&mut *out, &self.access)?;
         match &self.graph {
             GraphField::Omitted => {}
-            GraphField::Unavailable => out.push_str(",\"graph\":null"),
+            GraphField::Unavailable => raw(out, ",\"graph\":null")?,
             GraphField::Dumped(graph) => {
-                out.push_str(",\"graph\":");
-                out.push_str(&serde_json::to_string(graph)?);
+                raw(out, ",\"graph\":")?;
+                serde_json::to_writer(&mut *out, graph)?;
             }
         }
-        out.push('}');
-        Ok(out)
+        raw(out, "}")
+    }
+}
+
+/// Writes `text` to `out` as it is.
+fn raw(out: &mut impl Write, text: &str) -> serde_json::Result<()> {
+    out.write_all(text.as_bytes())
+        .map_err(serde_json::Error::io)
+}
+
+/// A writer that keeps only how many bytes it was given.
+struct Counter(usize);
+
+impl Write for Counter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -336,6 +393,41 @@ mod tests {
                 .unwrap()
                 .ends_with(r#""access":{"dynamic":[{"specifier":"./x.js","importer":"file:///p/main.ts"}]},"graph":null}"#)
         );
+    }
+
+    /// The envelope's length is its text's, counted without writing the
+    /// value into it.
+    #[test]
+    fn the_length_is_the_texts() {
+        let mut error = EvalError::new(ErrorKind::Serialize, "é");
+        error.at = Some("$".to_owned());
+        let mut graphless = envelope(Ok("1".to_owned()));
+        graphless.graph = GraphField::Unavailable;
+        let mut dumped = envelope(Ok("1".to_owned()));
+        dumped.graph = GraphField::Dumped(Box::new(GraphDump {
+            graph_version: super::super::GRAPH_VERSION,
+            roots: vec!["project:main.ts".to_owned()],
+            modules: Vec::new(),
+            consulted: Vec::new(),
+            absent: vec!["project:é/package.json".to_owned()],
+            local: super::super::DumpLocal {
+                project: "/p".to_owned(),
+                box_roots: vec!["/p".to_owned()],
+                paths: [("project:main.ts".to_owned(), "/p/main.ts".to_owned())].into(),
+            },
+        }));
+        for envelope in [
+            envelope(Ok(r#"{"a":"\u00e9 é"}"#.to_owned())),
+            envelope(Ok(String::new())),
+            envelope(Err(error)),
+            graphless,
+            dumped,
+        ] {
+            assert_eq!(
+                envelope.json_len().unwrap(),
+                envelope.to_json().unwrap().len()
+            );
+        }
     }
 
     #[test]
