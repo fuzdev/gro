@@ -7,8 +7,9 @@ use serde::Serialize;
 use super::dump::GraphDump;
 
 /// The envelope's protocol version, its first field. It moves with any change
-/// to the envelope's shape that a reader must know about.
-pub const EVAL_PROTOCOL: u32 = 1;
+/// to the envelope that a reader must know about: its shape, or a value a
+/// closed set takes, such as a new error kind.
+pub const EVAL_PROTOCOL: u32 = 2;
 
 /// The `deno_core` version the runtime is built on, as `Cargo.lock` pins it,
 /// which a test checks.
@@ -144,6 +145,12 @@ pub enum ErrorKind {
     /// The heap reached its cap: the run was stopped, or, out of memory,
     /// the process wrote a prepared envelope and exited.
     Heap,
+    /// The process ran out of memory outside the heap's cap, at its cap on
+    /// memory ([`MEMORY_LIMIT`](super::MEMORY_LIMIT)) or a lower one its
+    /// caller set: an allocation outside the heap failed and the run was
+    /// stopped, or, out of memory with the heap not at fault, the process
+    /// wrote a prepared envelope and exited.
+    Memory,
     /// The run passed its timeout and was stopped.
     Timeout,
     /// The process's environment can't give the same result everywhere, or
@@ -354,7 +361,7 @@ mod tests {
         assert_eq!(
             ok,
             concat!(
-                r#"{"eval_protocol":1,"ok":true,"runtime":{"fgro_version":"1.2.3","commit":null,"#,
+                r#"{"eval_protocol":2,"ok":true,"runtime":{"fgro_version":"1.2.3","commit":null,"#,
                 r#""dirty":null,"v8":"9.9","deno_core":"0.1.0","tsv_rev":"abc"},"entry":"#,
                 r#"{"id":"/p/main.ts","export":"default","driver_blake3":null},"value":"#,
                 r#"{"a":[1,"x"]},"access":{"dynamic":[{"specifier":"./x.js","#,

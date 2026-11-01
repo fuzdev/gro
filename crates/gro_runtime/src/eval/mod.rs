@@ -91,6 +91,9 @@
 //! - **The limits** (`limits.rs`): the heap capped at [`HEAP_LIMIT`], with
 //!   an out-of-memory backstop, and a timeout ([`DEFAULT_TIMEOUT`] unless the
 //!   caller sets one), each failing the eval as `heap` or `timeout`; the
+//!   process's data segment, which `fgro eval` caps at [`MEMORY_LIMIT`]
+//!   before it starts a thread, the backstop failing V8 running out of
+//!   memory below the heap's cap as `memory`; the
 //!   envelope capped at [`MAX_ENVELOPE_SIZE`], whatever takes it past (a
 //!   value's replaced by a small `serialize` failure, a failure keeping its
 //!   kind with its `access` and graph dropped and its long text cut); and
@@ -136,7 +139,9 @@ pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
     GraphField, RuntimeInfo, TSV_REV,
 };
-pub use self::limits::{DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE};
+pub use self::limits::{
+    DEFAULT_THREAD_STACK, DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE, MEMORY_LIMIT,
+};
 use self::limits::{Stop, Stopped, Watchdog};
 use crate::confine;
 use crate::engine::{ConfinedEngine, EngineOptions};
@@ -437,10 +442,11 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
         ));
         return envelope;
     };
+    let stopped = Stopped::default();
     if let Some(out) = &options.backstop
         && !prices::off(EvalDefault::HeapWatch)
-        && let Some(json) = backstop_envelope(&envelope)
-        && !limits::set_backstop(Arc::clone(out), json)
+        && let Some(envelopes) = backstop_envelopes(&envelope)
+        && !limits::set_backstop(Arc::clone(out), envelopes, stopped.clone())
     {
         envelope.result = Err(EvalError::new(
             ErrorKind::Internal,
@@ -463,7 +469,6 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
             .with_reads(reads)
             .with_rules(rules),
     );
-    let stopped = Stopped::default();
     let result = evaluate(
         options,
         &entry.url,
@@ -649,6 +654,15 @@ fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
                 HEAP_LIMIT >> 20
             ),
         ),
+        Stop::Memory => EvalError::new(
+            ErrorKind::Memory,
+            format!(
+                "the eval ran out of memory outside the heap's cap: an allocation failed with \
+                 the process at its memory cap of {} MiB, or a lower one its caller set, and \
+                 the run was stopped",
+                MEMORY_LIMIT >> 20
+            ),
+        ),
         Stop::Timeout => {
             let mut error = EvalError::new(
                 ErrorKind::Timeout,
@@ -665,31 +679,45 @@ fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
     }
 }
 
-/// The `heap` envelope the out-of-memory backstop writes for an eval whose
-/// envelope so far is `envelope`, one line: written without the run, it
-/// carries no `access`, and no graph, `null` when one was asked for.
-fn backstop_envelope(envelope: &Envelope) -> Option<String> {
-    let backstop = Envelope {
-        runtime: envelope.runtime.clone(),
-        entry: envelope.entry.clone(),
-        result: Err(EvalError::new(
+/// The `heap` and `memory` envelopes the out-of-memory backstop chooses
+/// between for an eval whose envelope so far is `envelope`, each one line:
+/// written without the run, they carry no `access`, and no graph, `null`
+/// when one was asked for.
+fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> {
+    let prepared = |error: EvalError| {
+        let backstop = Envelope {
+            runtime: envelope.runtime.clone(),
+            entry: envelope.entry.clone(),
+            result: Err(error),
+            access: None,
+            // prepared before the run, so never a graph, only its absence
+            graph: match envelope.graph {
+                GraphField::Omitted => GraphField::Omitted,
+                GraphField::Unavailable | GraphField::Dumped(_) => GraphField::Unavailable,
+            },
+        };
+        let mut json = backstop.to_json().ok()?;
+        json.push('\n');
+        Some(json)
+    };
+    Some(limits::BackstopEnvelopes {
+        heap: prepared(EvalError::new(
             ErrorKind::Heap,
             format!(
                 "the eval's heap reached its cap of {} MiB with nothing left to give: one \
                  operation V8 can't stop ran out of memory, so the process exited",
                 HEAP_LIMIT >> 20
             ),
-        )),
-        access: None,
-        // prepared before the run, so never a graph, only its absence
-        graph: match envelope.graph {
-            GraphField::Omitted => GraphField::Omitted,
-            GraphField::Unavailable | GraphField::Dumped(_) => GraphField::Unavailable,
-        },
-    };
-    let mut json = backstop.to_json().ok()?;
-    json.push('\n');
-    Some(json)
+        ))?,
+        memory: prepared(EvalError::new(
+            ErrorKind::Memory,
+            format!(
+                "the eval ran out of memory outside the heap's cap: the process reached its \
+                 memory cap of {} MiB, or a lower one its caller set, so it exited",
+                MEMORY_LIMIT >> 20
+            ),
+        ))?,
+    })
 }
 
 /// The error of a confined eval with no startup snapshot, an `internal`.
@@ -980,82 +1008,105 @@ fn evaluate(
     tokio_runtime.block_on(async {
         let mut runtime = start_runtime(options.snapshot, CONSOLE, loader, Mode::Eval)
             .map_err(|message| Failed::new(Phase::Start, message))?;
-        if !prices::off(EvalDefault::HeapWatch) {
-            limits::watch_heap(&mut runtime, stopped.clone());
+        let result = run_phases(&mut runtime, options, entry, driver_url, stopped).await;
+        // the near-heap-limit callback decides from the heap it reads; a
+        // `memory` stop is read again for one large object the raised cap
+        // let in after it
+        if stopped.get() == Some(Stop::Memory) {
+            let used = runtime.v8_isolate().get_heap_statistics().used_heap_size();
+            stopped.check_heap(used);
         }
-        // stopped, and joined, when the eval returns
-        let _watchdog = if prices::off(EvalDefault::Watchdog) {
-            None
-        } else {
-            Some(
-                Watchdog::start(&mut runtime, options.timeout, stopped.clone()).map_err(
-                    |error| {
-                        Failed::new(
-                            Phase::Start,
-                            format!("failed to start the timeout's watchdog: {error}"),
-                        )
-                    },
-                )?,
-            )
-        };
-        if !prices::off(EvalDefault::UtcCheck) {
-            check_time_zone(&mut runtime)?;
-        }
-        phases::mark(phases::Phase::Guards);
-        let driver = match &options.driver {
-            Some(source) => {
-                let driver = load_driver(&mut runtime, driver_url, source).await?;
-                phases::mark(phases::Phase::Driver);
-                Some(driver)
-            }
-            None => None,
-        };
-        let id = runtime
-            .load_main_es_module(entry)
-            .await
-            .map_err(|error| Failed::core(Phase::Load, &error))?;
-        phases::mark(phases::Phase::Load);
-        let evaluation = runtime.mod_evaluate(id);
-        settle(&mut runtime, evaluation)
-            .await
-            .map_err(|unsettled| unsettled.failed(Phase::Evaluate, "the module's evaluation"))?;
-        let namespace = runtime
-            .get_module_namespace(id)
-            .map_err(|error| Failed::core(Phase::Internal, &error))?;
-        let value = if let Some(driver) = &driver {
-            let namespace = to_value(&mut runtime, &namespace);
-            let call = runtime.call_with_args(&driver.default, &[namespace]);
-            settle(&mut runtime, call)
-                .await
-                .map_err(|unsettled| unsettled.failed(Phase::Call, "the driver's call"))?
-        } else {
-            let name = options.export.as_deref().unwrap_or(DEFAULT_EXPORT);
-            read_export(&mut runtime, &namespace, name, Phase::Evaluate)?.ok_or_else(|| {
-                Failed::new(
-                    Phase::Export,
-                    format!("the module has no export named `{name}` to evaluate"),
-                )
-            })?
-        };
-        phases::mark(phases::Phase::Evaluate);
-        let json = serialize_value(&mut runtime, &value, stopped)?;
-        phases::mark(phases::Phase::Serialize);
-        runtime
-            .run_event_loop(PollEventLoopOptions::default())
-            .await
-            .map_err(|error| Failed::core(Phase::Drain, &error))?;
-        if let Some(after_drain) = driver
-            .as_ref()
-            .and_then(|driver| driver.after_drain.as_ref())
-        {
-            let call = runtime.call(after_drain);
-            settle(&mut runtime, call)
-                .await
-                .map_err(|unsettled| unsettled.failed(Phase::Drain, "the driver's after_drain"))?;
-        }
-        phases::mark(phases::Phase::Drain);
-        Ok(json)
+        result
     })
+}
+
+/// Runs the eval's phases on `runtime`, from the heap's watch and the
+/// timeout's watchdog to the drain, returning the value as JSON text, or the
+/// phase that failed.
+#[expect(
+    clippy::future_not_send,
+    reason = "a runtime stays on its thread, driven by a current-thread tokio runtime"
+)]
+async fn run_phases(
+    runtime: &mut JsRuntime,
+    options: &EvalOptions,
+    entry: &Url,
+    driver_url: &Url,
+    stopped: &Stopped,
+) -> Result<String, Failed> {
+    if !prices::off(EvalDefault::HeapWatch) {
+        limits::watch_heap(runtime, stopped.clone());
+    }
+    // stopped, and joined, when the eval returns
+    let _watchdog = if prices::off(EvalDefault::Watchdog) {
+        None
+    } else {
+        Some(
+            Watchdog::start(runtime, options.timeout, stopped.clone()).map_err(|error| {
+                Failed::new(
+                    Phase::Start,
+                    format!("failed to start the timeout's watchdog: {error}"),
+                )
+            })?,
+        )
+    };
+    if !prices::off(EvalDefault::UtcCheck) {
+        check_time_zone(runtime)?;
+    }
+    phases::mark(phases::Phase::Guards);
+    let driver = match &options.driver {
+        Some(source) => {
+            let driver = load_driver(runtime, driver_url, source).await?;
+            phases::mark(phases::Phase::Driver);
+            Some(driver)
+        }
+        None => None,
+    };
+    let id = runtime
+        .load_main_es_module(entry)
+        .await
+        .map_err(|error| Failed::core(Phase::Load, &error))?;
+    phases::mark(phases::Phase::Load);
+    let evaluation = runtime.mod_evaluate(id);
+    settle(runtime, evaluation)
+        .await
+        .map_err(|unsettled| unsettled.failed(Phase::Evaluate, "the module's evaluation"))?;
+    let namespace = runtime
+        .get_module_namespace(id)
+        .map_err(|error| Failed::core(Phase::Internal, &error))?;
+    let value = if let Some(driver) = &driver {
+        let namespace = to_value(runtime, &namespace);
+        let call = runtime.call_with_args(&driver.default, &[namespace]);
+        settle(runtime, call)
+            .await
+            .map_err(|unsettled| unsettled.failed(Phase::Call, "the driver's call"))?
+    } else {
+        let name = options.export.as_deref().unwrap_or(DEFAULT_EXPORT);
+        read_export(runtime, &namespace, name, Phase::Evaluate)?.ok_or_else(|| {
+            Failed::new(
+                Phase::Export,
+                format!("the module has no export named `{name}` to evaluate"),
+            )
+        })?
+    };
+    phases::mark(phases::Phase::Evaluate);
+    let json = serialize_value(runtime, &value, stopped)?;
+    phases::mark(phases::Phase::Serialize);
+    runtime
+        .run_event_loop(PollEventLoopOptions::default())
+        .await
+        .map_err(|error| Failed::core(Phase::Drain, &error))?;
+    if let Some(after_drain) = driver
+        .as_ref()
+        .and_then(|driver| driver.after_drain.as_ref())
+    {
+        let call = runtime.call(after_drain);
+        settle(runtime, call)
+            .await
+            .map_err(|unsettled| unsettled.failed(Phase::Drain, "the driver's after_drain"))?;
+    }
+    phases::mark(phases::Phase::Drain);
+    Ok(json)
 }
 
 /// Refuses a time zone other than [`TIME_ZONE`] on the started runtime,

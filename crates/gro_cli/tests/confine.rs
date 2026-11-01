@@ -250,7 +250,13 @@ mod confined {
                 "tgkill outside: denied",
                 "tgkill self: ok",
             ],
-            "process" => &["confined", "thread: ok", "spawn: enosys"],
+            "process" => &[
+                "confined",
+                "thread: ok",
+                "spawn: enosys",
+                "read data limit: enosys",
+                "set data limit: enosys",
+            ],
             "memory" => &[
                 "confined",
                 "mmap read write: ok",
@@ -596,6 +602,19 @@ mod confined {
                 // a process forked or spawned is refused before anything is
                 // executed, so the killing filter's `execve` is never reached
                 println!("spawn: {}", outcome(Command::new("/bin/true").status()));
+                // the process's limits can't be read or changed: the
+                // allowlist refuses `getrlimit`, `setrlimit`, and
+                // `prlimit64`, so the memory cap `fgro eval` sets before the
+                // box is never raised (`limit_data` reads before it sets)
+                println!("read data limit: {}", outcome(gro_sys::data_limit()));
+                let set = gro_sys::limit_data(u64::MAX);
+                println!(
+                    "set data limit: {}",
+                    match set {
+                        Err(error) if error.kind() == ErrorKind::Unsupported => "enosys".to_owned(),
+                        other => outcome(other),
+                    }
+                );
             }
             // the jitless box refuses an executable mapping, made or changed
             // to, and allows the rest; the JIT's box allows both

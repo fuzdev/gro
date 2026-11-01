@@ -1437,8 +1437,9 @@ mod tests {
 
     /// A sample of the calls the allowlist doesn't allow: every call the
     /// box once refused by name (the socket calls, the metadata calls, the
-    /// watches, the System V and POSIX queue calls, and the calls that set
-    /// a process's limits, priority, or scheduling), then the namespace,
+    /// watches, the System V and POSIX queue calls, the calls that read or
+    /// set a process's limits, and the ones that set its priority or
+    /// scheduling), then the namespace,
     /// key, filter, process, and filesystem calls nothing in the runtime
     /// makes.
     #[cfg(target_os = "linux")]
@@ -1485,6 +1486,8 @@ mod tests {
             libc::SYS_semtimedop,
             libc::SYS_semctl,
             libc::SYS_prlimit64,
+            libc::SYS_getrlimit,
+            libc::SYS_setrlimit,
             libc::SYS_setpriority,
             libc::SYS_ioprio_set,
             libc::SYS_sched_setaffinity,

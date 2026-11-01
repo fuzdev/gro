@@ -743,10 +743,20 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `op_compile_function`, `op_import_sync*`) the slow-only
   `op_gro_refused`'s implementation, and a test pins every registered op
   name (`crates/gro_runtime/tests/op_names.txt`); the isolate refuses
-  `Atomics.wait` and caps V8's heap, not array-buffer memory
+  `Atomics.wait` and caps V8's heap, array-buffer memory bounded by the
+  process's cap below instead
   (`eval/limits.rs`: the near-heap-limit callback stops the run and raises the cap once, and an out-of-memory
-  handler, the one process static besides the engine's, writes a prepared
-  `heap` envelope through a handle opened before the run and exits 1); a
+  handler, the one process static besides the engine's, writes one of two
+  prepared envelopes through a handle opened before the run and exits 1:
+  `heap` when V8 reports its heap out of memory and the callback found the
+  heap full, else `memory`); the process's memory is capped apart
+  (`eval::MEMORY_LIMIT`, `RLIMIT_DATA`, which `fgro eval` sets): a failed
+  array-buffer allocation also runs the callback, which reads the heap's
+  use as V8 calls it (`gro_v8::HeapReader`, since V8 gives the callback no
+  isolate) and records `memory` under three quarters
+  of the cap, `heap` above it; a `memory` stop whose heap reads full at the
+  run's end, one large object let in by the raised cap, becomes `heap`
+  (`Stopped::check_heap`); a
   watchdog thread stops the run at `--timeout`, and the serializer checks
   for a stop once per batch; byte caps bound what sits outside the heap: a
   module's source at `resolver::MAX_MODULE_SIZE` (16 MiB, the loader's
@@ -759,11 +769,12 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   failure's keeps its kind, its `access` and `graph` dropped, then its
   text fields cut to 64 KiB each if it's still past; an uncaught error's
   report, each cause's and aggregated error's included, and the loader's
-  specifiers are copied out of the heap uncapped); a time zone other than UTC (by
+  specifiers are copied out of the heap under no cap of their own, bounded
+  by the process's); a time zone other than UTC (by
   `new Date(0).toString()` alone, which only UTC and the aliases that display
   as it write as `UTC_EPOCH`; no `Intl` object is built unless to name a
   refused zone, since V8's first `DateTimeFormat` builds its locale set)
-  fails as `environment` before the driver; `heap` and `timeout` come from the stop
+  fails as `environment` before the driver; `heap`, `memory`, and `timeout` come from the stop
   recorded, never a message, and an `error.hint` names `--jit` or that
   code generation is off. The loader's `Rules` carry eval's refusals: every `import()`
   before anything resolves (the entry graph's listed in the envelope's
@@ -791,7 +802,15 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   (`gro_sys::close_inherited_fds`), which the box, gating only new opens,
   wouldn't reach, then, after a phases build opens its file, clears its
   environment but `TZ` (`gro_sys::clear_env_except`), so no library it runs
-  reads a variable, failing as `environment` when either can't. Every
+  reads a variable, then caps its data segment at
+  `gro_runtime::eval::MEMORY_LIMIT`, soft and hard, before the pre-pass
+  thread (`gro_sys::limit_data`, keeping a parent's lower limit, soft or
+  hard; the box refuses `setrlimit` and `prlimit64` after), its default
+  thread stack lowered first to `gro_runtime::eval::DEFAULT_THREAD_STACK`
+  (`gro_sys::set_default_thread_stack`, which never raises it), since glibc
+  sizes V8's platform workers by the inherited `RLIMIT_STACK` and the cap
+  counts their stacks,
+  failing as `environment` when any can't. Every
   command but `eval` runs on one thread with a 32 MiB stack of its own
   (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
   the 16 MiB its strip is sized for (a release build needs 2 MiB); a module
@@ -818,7 +837,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   variable. The `prices` feature (`gro_cli`'s, enabling `gro_runtime`'s),
   which release and snapshot builds never enable either, reads
   `GRO_PRICES_OFF`, a comma-separated list of eval's defaults to turn off
-  (`gro_runtime::prices::EvalDefault`: `close_fds`, `clear_env`, `landlock`, `seccomp`,
+  (`gro_runtime::prices::EvalDefault`: `close_fds`, `clear_env`, `data_limit`, `landlock`, `seccomp`,
   `box_rule`, `deny`, `refuse_ops`, `codegen`, `locale`, `heap_cap`,
   `heap_watch`, `watchdog`, `utc_check`, `recording`, `envelope_cap`; the
   JIT's switch is `--jit`), refusing an unknown name as a usage error; a
@@ -832,8 +851,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   a plain `cargo build` builds it without one, so it runs only from its build
   tree
 - `gro_sys` - raw system calls the safe std API lacks, kept in one crate so
-  every other crate stays free of `unsafe` (Linux only, `libc` its one
-  dependency): `close_inherited_fds` closes every descriptor above stderr
+  every crate but it and `gro_v8` stays free of `unsafe` (Linux only, `libc`
+  its one dependency): `close_inherited_fds` closes every descriptor above stderr
   (`close_range`, or listing `/proc/self/fd` when the kernel has none, before
   5.9, or a parent's seccomp filter refuses it with `EPERM`), safe
   with a documented precondition, that nothing in the process owns one, so
@@ -841,9 +860,17 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   thread alive. `clear_env_except` clears the environment by `clearenv`,
   then sets the named variables again, safe with a documented
   precondition, that nothing holds a pointer into the environment, and
-  refusing with more than one thread alive. Its tests close descriptors
-  and clear the environment only in a child process (`tests/close.rs`,
-  `tests/env.rs`, no libtest harness). Its `testing` feature, which only
+  refusing with more than one thread alive. `limit_data` sets
+  `RLIMIT_DATA` soft and hard to a cap, or to a lower limit already set,
+  soft or hard, and `data_limit` reads it. `set_default_thread_stack`
+  lowers the stack of a thread started without a size of its own, never
+  raising it (`pthread_setattr_default_np` and
+  `pthread_getattr_default_np`, declared in gro_sys since the `libc` crate
+  lacks them; glibc only, a no-op elsewhere), and `default_thread_stack`
+  reads it. Its tests close descriptors, clear the
+  environment, and cap memory only in a child process (`tests/close.rs`,
+  `tests/env.rs`, `tests/data.rs`, no libtest harness; `tests/data.rs`
+  also lowers the default thread stack, its cases glibc's only). Its `testing` feature, which only
   `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
   it touches no memory), so the box's tests reach Landlock's signal scope
   past seccomp's refusal of `kill`, and `map_anonymous` and
@@ -852,6 +879,15 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   which reach the jitless box's refusal of `PROT_EXEC`. `wait_child` reaps a
   child by `wait4`, returning its exit status and `ru_maxrss`, for the
   bench's peak memory
+- `gro_v8` - the V8 boundary: the calls into V8 that rusty_v8 exposes only
+  as `unsafe`, each behind a safe API, so `gro_runtime` stays free of
+  `unsafe`; its one dependency is `v8`, pinned to the exact version and
+  features `deno_core` re-exports as `deno_core::v8`, so both name one crate
+  and V8 builds once (a `deno_core` upgrade moves the pin with it).
+  `HeapReader` reads an isolate's heap use from a near-heap-limit callback,
+  which V8 calls with no isolate, through the isolate's raw pointer, and
+  only while a token in the isolate's slots, dropped before V8 frees it,
+  is alive
 - `gro_bench` - the measurement harness, independent of the runtime crates
   (it uses `gro_sys` for `wait4`):
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
@@ -1007,7 +1043,8 @@ warnings denied, then `build --verify`), `check-js` (the JS/TS under
 `gro check`. CI runs the first two as its own jobs, so the gate list lives in
 the xtask only. The toolchain is pinned
 in `rust-toolchain.toml`, and every crate takes the workspace lints, `unsafe`
-forbidden, but `gro_sys`, whose system calls need it: it re-declares the
+forbidden, but `gro_sys`, whose system calls need it, and `gro_v8`, the V8
+boundary, whose calls rusty_v8 exposes only as `unsafe`: each re-declares the
 whole table with `unsafe_code` at `deny` (Cargo replaces a crate's table
 whole, so diff it against the workspace's when either changes), each
 `unsafe` block allowed by its function's `#[expect]` and explained by a

@@ -14,6 +14,7 @@
 use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,17 @@ const DEADLINE: Duration = Duration::from_secs(60);
 /// so a cap that stops holding fails its test rather than taking the
 /// machine's memory.
 const MAX_RSS_KIB: u64 = 3 << 19;
+
+/// Held by every test while its child fills a heap to the cap, so no two
+/// such children, each holding a full heap and keeping V8's collector busy,
+/// run at once, across tests as within one: the binary's tests run in
+/// parallel, beside whatever else loads the machine.
+static HEAP_CAP: Mutex<()> = Mutex::new(());
+
+/// Takes [`HEAP_CAP`], whatever test last panicked holding it.
+fn heap_cap_turn() -> MutexGuard<'static, ()> {
+    HEAP_CAP.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The variables `fgro run` decides color from, all cleared, so a test sets
 /// what it needs; eval reads none of them.
@@ -262,7 +274,7 @@ fn the_default_export_is_the_value_with_no_driver() {
         run.stdout
     );
     let envelope = &run.envelope;
-    assert_eq!(envelope["eval_protocol"], 1);
+    assert_eq!(envelope["eval_protocol"], 2);
     let id = fixtures().canonicalize().unwrap().join("value.js");
     assert_eq!(
         envelope["entry"],
@@ -998,7 +1010,7 @@ fn a_deep_value_serializes_through_a_garbage_collection() {
     // nested past what `serde_json` parses, so checked as text
     let run = spawn_eval(&["deep_gc.js"], None, &[]);
     assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
-    assert!(run.stdout.starts_with(r#"{"eval_protocol":1,"ok":true,"#));
+    assert!(run.stdout.starts_with(r#"{"eval_protocol":2,"ok":true,"#));
     let value = format!(
         "{}[{}]{}",
         "[".repeat(995),
@@ -1525,14 +1537,15 @@ const HEAP_BACKSTOP: &str = "the eval's heap reached its cap of 512 MiB with not
 /// with the run's envelope; under the JIT, which doesn't act on the stop,
 /// and in one builtin call, which nothing stops, the out-of-memory backstop
 /// writes its prepared `heap` envelope, with no `access`, and exits 1.
-/// Run one after another, so no two of these children hold their heaps at
-/// once.
+/// Run one after another, holding [`HEAP_CAP`], so no two children hold
+/// their heaps at once.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
     ignore = "a confined eval needs a snapshot build"
 )]
 fn the_heap_cap_fails_the_eval_as_heap() {
+    let _turn = heap_cap_turn();
     let run = eval(&["heap_grow.js"]);
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_STOPPED);
@@ -1552,16 +1565,46 @@ fn the_heap_cap_fails_the_eval_as_heap() {
             id.to_str().unwrap(),
             "{args:?}"
         );
-        assert_eq!(run.envelope["eval_protocol"], 1);
+        assert_eq!(run.envelope["eval_protocol"], 2);
+    }
+}
+
+/// How many times the string fixture runs. Its heap, read once the run has
+/// stopped, reads all but empty in about a third of runs (jitless, a debug
+/// build), so a stop read there, not in the callback, fails one of eight
+/// runs about nineteen times in twenty.
+const HEAP_STRINGS_RUNS: usize = 8;
+
+/// A heap stop is `heap` by the heap the near-heap-limit callback reads,
+/// at the moment V8 calls it: short strings grown to the cap, jitless, leave
+/// a heap that, read once the run has stopped, is at times all but empty,
+/// so each of [`HEAP_STRINGS_RUNS`] runs must still fail as `heap`; and a
+/// map grown with the JIT runs short on one large table it grows into, the
+/// callback reading the heap before the table is made, which the run's end
+/// then reads in it. Either may end in the run's envelope or the
+/// out-of-memory backstop's, both `heap`.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_heap_stop_is_heap_however_the_heap_reads_after() {
+    let _turn = heap_cap_turn();
+    let strings = std::iter::repeat_n(&["heap_strings.js"][..], HEAP_STRINGS_RUNS);
+    for args in strings.chain([&["heap_map.js", "--jit"][..]]) {
+        let run = eval(args);
+        run.assert_failed("heap", 1);
+        assert!(
+            [HEAP_STOPPED, HEAP_BACKSTOP].contains(&run.message()),
+            "{args:?}: {}",
+            run.message()
+        );
     }
 }
 
 /// The heap's cap is V8's heap only: an `ArrayBuffer` twice the cap is
-/// made, since its bytes live outside the heap. This pins a known gap, not
-/// a goal: a runaway allocation of buffers whose bytes are written grows the
-/// process until the kernel ends it, with no envelope, which a caller
-/// treats as a failure (see `HEAP_LIMIT`). When eval caps that memory too,
-/// this becomes a `heap` failure.
+/// made, since its bytes live outside the heap, within the process's memory
+/// cap.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -1569,6 +1612,102 @@ fn the_heap_cap_fails_the_eval_as_heap() {
 )]
 fn array_buffer_memory_sits_outside_the_heap_cap() {
     eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
+}
+
+/// The message of a run stopped by an allocation outside the heap, and of
+/// the out-of-memory backstop's `memory` envelope.
+const MEMORY_STOPPED: &str = "the eval ran out of memory outside the heap's cap: an allocation \
+                              failed with the process at its memory cap of 2048 MiB, or a \
+                              lower one its caller set, and the run was stopped";
+const MEMORY_BACKSTOP: &str = "the eval ran out of memory outside the heap's cap: the process \
+                               reached its memory cap of 2048 MiB, or a lower one its caller \
+                               set, so it exited";
+
+/// The process's memory cap, which `fgro eval` sets on itself: an
+/// `ArrayBuffer` its size can't be made, and the failed allocation, after
+/// which V8 runs the near-heap-limit callback as though the heap were full,
+/// stops the run as `memory`, not `heap`, jitless or with the JIT. A lower
+/// limit the caller set stands, and a heap that can't grow under it,
+/// far below its own cap, runs V8 out of memory: the out-of-memory backstop
+/// writes its prepared `memory` envelope, with no `access`, and exits 1.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn the_memory_cap_fails_the_eval_as_memory() {
+    for args in [
+        &["memory_external.js"][..],
+        &["memory_external.js", "--jit"],
+    ] {
+        let run = eval(args);
+        run.assert_failed("memory", 1);
+        assert_eq!(run.message(), MEMORY_STOPPED, "{args:?}");
+        assert_eq!(run.envelope["access"], json!({"dynamic": []}), "{args:?}");
+    }
+    // the caller's lower limit, set by util-linux's `prlimit` before it
+    // runs `fgro`: 256 MiB, under the heap's cap and above what the runtime
+    // takes to start
+    let limit = (256_u64 << 20).to_string();
+    let mut command = Command::new("prlimit");
+    for name in COLOR_VARS {
+        command.env_remove(name);
+    }
+    command
+        .arg(format!("--data={limit}:{limit}"))
+        .arg(env!("CARGO_BIN_EXE_fgro"))
+        .args(["eval", "heap_grow.js"])
+        .env("TZ", "UTC")
+        .current_dir(fixtures())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let run = parse(spawn(command, None));
+    run.assert_failed("memory", 1);
+    assert_eq!(run.message(), MEMORY_BACKSTOP);
+    assert_eq!(run.envelope["access"], Value::Null);
+}
+
+/// A caller's large stack limit doesn't size the engine's threads: glibc
+/// sizes a thread started without a size of its own (V8's platform
+/// workers) by the `RLIMIT_STACK` the process inherited, each of those
+/// stacks counted against the memory cap, so eval lowers the default first.
+/// A 4 GiB stack limit, past the cap for one thread alone, set by
+/// util-linux's `prlimit`, still gives the value, jitless or with the JIT.
+/// An unlimited one, under which glibc takes a small default of its own
+/// that eval keeps, is a smoke check that eval still starts.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_large_inherited_stack_limit_still_evaluates() {
+    for stack in [(4_u64 << 30).to_string(), "unlimited".to_owned()] {
+        for jit in [false, true] {
+            let mut command = Command::new("prlimit");
+            for name in COLOR_VARS {
+                command.env_remove(name);
+            }
+            command
+                .arg(format!("--stack={stack}:{stack}"))
+                .arg(env!("CARGO_BIN_EXE_fgro"))
+                .args(["eval", "value.js"])
+                .args(jit.then_some("--jit"))
+                .env("TZ", "UTC")
+                .current_dir(fixtures())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let run = parse(spawn(command, None));
+            assert!(
+                run.code == 0 && run.envelope["ok"] == true,
+                "stack {stack}, jit {jit}: exit {}\n{}\n{}",
+                run.code,
+                run.stdout,
+                run.stderr
+            );
+        }
+    }
 }
 
 /// The timeout stops a loop that never ends, jitless or with the JIT, as
@@ -2062,7 +2201,10 @@ fn the_graph_dump_of_refused_and_failed_runs() {
         run.stdout
     );
 
-    let run = eval(&["heap_builtin.js", "--graph"]);
+    let run = {
+        let _turn = heap_cap_turn();
+        eval(&["heap_builtin.js", "--graph"])
+    };
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_BACKSTOP);
     assert_eq!(run.envelope["graph"], Value::Null);

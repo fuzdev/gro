@@ -6,7 +6,7 @@
 > **status**: built in part; the reference for the current binary, which has no release yet.
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 > Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
-> the heap and time limits, the byte caps, the box its process runs in (Linux only), and the graph dump.
+> the heap, memory, and time limits, the byte caps, the box its process runs in (Linux only), and the graph dump.
 
 ## Usage
 
@@ -48,14 +48,39 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
   What a stop can't interrupt (one long builtin call, or allocation under the JIT)
   runs out of memory instead: the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
   V8 prints its last garbage collections to stderr first.
-  The cap counts V8's heap only. Outside it, uncapped, are the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array,
-  so a runaway allocation there can end the process with no envelope.
-  A module's source and the envelope's own bytes are outside it too, held by the byte caps below;
-  a module's parse, and the copies made while a large string is serialized, are a small multiple of them.
-  An uncaught error's report (its message and stack, each cause's, and each error an `AggregateError` holds, up to 256 errors)
-  and each specifier the loader records are copied out of the heap, each copy bounded only by the heap's cap,
-  so a run that throws a long message, many times over, can take many times the heap's cap before it ends.
-  A caller treats a missing envelope as a failure, and a caller that wants a hard bound on memory sets one on the process.
+  The cap counts V8's heap only. Outside it are the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array,
+  a module's source and the envelope's own bytes, held by the byte caps below
+  (a module's parse, and the copies made while a large string is serialized, are a small multiple of them),
+  and an uncaught error's report (its message and stack, each cause's, and each error an `AggregateError` holds, up to 256 errors)
+  and each specifier the loader records, copied out of the heap, each copy bounded only by the heap's cap.
+- **The process's memory is capped at 2 GiB**: before it starts any thread, eval sets its data segment's limit
+  (`RLIMIT_DATA`: what `malloc` and anonymous mappings take, the heap's pages and every thread's stack included,
+  and with `--jit` the code range V8 reserves for compiled code),
+  soft and hard alike, so nothing it runs can raise it, and the box then refuses the calls that would.
+  First it lowers the stack of a thread started without a size of its own (V8's workers) to 8 MiB,
+  which glibc would otherwise take from the stack limit (`RLIMIT_STACK`) eval inherited,
+  so a caller's large stack limit doesn't spend the cap on stacks; a smaller default
+  (under a smaller stack limit, or glibc's own under an unlimited one) stands.
+  The cap is about twice the most the largest legal runs take (a module at the source cap, a run stopped at the heap's cap,
+  a value just under the envelope's cap, each with `--jit`, which takes the most), so a config never meets it.
+  A lower limit the caller set, soft or hard, stands; a caller wanting a lower bound sets one on the process.
+  Past the cap, an allocation fails:
+  - an array buffer's stops the run, which fails as `memory`
+    (V8 collects all it can before giving up on one, calling the same callback it calls near the heap's cap,
+    and the heap the callback reads tells them apart: well below its cap here, nearly all of it at a heap stop;
+    a run holding more than three quarters of the heap's cap when it happens fails as `heap`);
+  - V8's own, on the run's thread, runs out of memory, and the process writes a prepared `memory` envelope,
+    whose `access` is `null`, and exits 1 (a prepared `heap` envelope when V8 reports its heap at fault
+    and the callback found the heap near its cap, which a heap stopped past three quarters of its cap
+    by a caller's lower limit is too, so that can read as `heap`);
+  - V8's on one of its own threads (a garbage collection's or a compile's), or a Rust allocation (the serializer's output, an error's report),
+    aborts the process with no envelope, a message on stderr, and a signal's exit:
+    V8 calls no embedder handler without a thread's isolate, and Rust's allocation failure handler isn't settable on stable Rust;
+  - growing a resizable `ArrayBuffer` (`resize`) throws a `RangeError` the run can catch, and the run goes on.
+
+  A caller's limit too low for the engine to start (with `--jit`, one under the code range V8 reserves)
+  aborts the process the same way, with no envelope, before the out-of-memory handler is installed.
+  A caller treats a missing envelope as a failure.
 - **A module's source is capped at 16 MiB**, as [run](run.md)'s is:
   a larger module is refused as it's read, before any of it is parsed or stripped, and fails as `link`,
   with a message naming the cap and the file.
@@ -152,6 +177,7 @@ a file, a socket, or a device its parent left open, which the box, gating only n
 If they can't be closed, the eval fails as `environment`.
 Then it clears its environment but `TZ`, from its one thread, so nothing it runs after,
 deno_core, V8, ICU, or glibc, reads another variable, and `RUST_BACKTRACE` has no effect on a panic; if it can't, the eval fails as `environment`.
+Then it caps its memory ([the engine](#the-engine)), before any thread starts, so the cap holds for every thread; if it can't, the eval fails as `environment`.
 The dynamic loader reads its own variables (`LD_PRELOAD`, `LD_LIBRARY_PATH`, glibc's tunables) before that, at exec.
 The process resolves the module and finds the roots on a thread it then ends,
 installs the box from its one remaining thread, and only then starts V8 on another,
@@ -196,7 +222,8 @@ The walls, in order:
   glibc falls back to `clone` when it fails.
   So every `socket`, `connect`, `bind`, and `listen`, every call that changes a file's metadata
   (which Landlock at ABI 6 doesn't gate), `kill`, file watches, System V IPC and POSIX message queues,
-  resource limits and priorities, namespaces, keys, and further seccomp filters fail with `ENOSYS`.
+  resource limits (`getrlimit`, `setrlimit`, and `prlimit64`, so the memory cap set before the box stays) and priorities,
+  namespaces, keys, and further seccomp filters fail with `ENOSYS`.
   `ENOSYS` is what a call the kernel lacks returns, so a library falls back where it can,
   and a host whose libc makes a call the list doesn't name degrades where the libc has a fallback,
   and otherwise fails with `ENOSYS`.
@@ -295,7 +322,7 @@ A usage error prints to stderr with no envelope.
 
 ```json
 {
-	"eval_protocol": 1,
+	"eval_protocol": 2,
 	"ok": true,
 	"runtime": {
 		"fgro_version": "0.0.0",
@@ -311,6 +338,8 @@ A usage error prints to stderr with no envelope.
 }
 ```
 
+- `eval_protocol` is `2`; it changes with any change to the envelope a reader must know about, such as a new field or a new error kind,
+  and a reader refuses a protocol it doesn't know.
 - `runtime` is for display: two binaries can report the same fields,
   so a caller that pins the binary hashes the file itself.
   `commit` and `dirty` are null for a build that embedded no commit.
@@ -327,7 +356,7 @@ A usage error prints to stderr with no envelope.
   how to link a package for a read outside the box, and the build command for a build with no snapshot.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
-  `access` is `null` only in the out-of-memory envelope, prepared before the run,
+  `access` is `null` only in the out-of-memory envelopes, prepared before the run,
   and in an envelope past its cap ([the engine](#the-engine)).
 - `graph`, last, is present only with `--graph` ([the graph](#the-graph)).
   Without the flag, the envelope is exactly as above.
@@ -345,8 +374,9 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `serialize`      | the value isn't data by the rules above, or the envelope holding it would pass 64 MiB                                  |
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
+| `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, or V8 ran out of memory with the heap not at fault |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
-| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed or its environment cleared, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
+| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
 | `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
 
 ## The graph

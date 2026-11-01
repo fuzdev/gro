@@ -19,15 +19,17 @@
 //! a timeout (`--timeout`, else `gro_runtime::eval::DEFAULT_TIMEOUT`), and
 //! its console writes every level to stderr, uncolored. It clears its
 //! environment but `TZ` before it starts a thread, so past exec no variable
-//! configures it or a library it runs, and refuses a time zone other than
-//! UTC, which ICU reads from `TZ`. Out of memory, the runtime writes a
-//! prepared envelope through its own handle to stdout, duplicated here
-//! before the run. With `--graph`, the envelope also carries the module
+//! configures it or a library it runs, then caps the process's memory
+//! (`RLIMIT_DATA`, at `gro_runtime::eval::MEMORY_LIMIT`), the default
+//! thread stack lowered first so an inherited stack limit doesn't size V8's
+//! workers, and refuses a time zone other than UTC, which ICU reads from
+//! `TZ`. Out of memory, the runtime writes a prepared envelope through its
+//! own handle to stdout, duplicated here before the run. With `--graph`, the envelope also carries the module
 //! graph the run loaded, as `graph` (`gro_runtime::eval::GraphDump`).
 //! Once eval starts, the envelope is always written, `ok: false` with an
-//! error kind on failure, unless the process dies first (a panic, or memory
-//! outside V8's heap running out); a usage error prints to stderr with no
-//! envelope.
+//! error kind on failure, unless the process dies first (a panic, or an
+//! allocation past the memory cap that nothing reports: V8's on a thread of
+//! its own, or Rust's); a usage error prints to stderr with no envelope.
 //!
 //! Every command but `eval` runs on one thread with [`STACK_SIZE`] reserved,
 //! not on the main thread, so a debug build stays inside the 16 MiB of stack
@@ -41,7 +43,8 @@
 //! inherited (which the box, gating only new opens, wouldn't reach; failing
 //! that, eval fails as `environment`), opens the phases file in a phases
 //! build, clears the environment but `TZ` (failing that, as `environment`),
-//! and reads the driver from stdin, the working directory, and the
+//! fixes the default thread stack and caps the process's memory (failing
+//! that, as `environment`), and reads the driver from stdin, the working directory, and the
 //! out-of-memory handle; a thread with [`STACK_SIZE`] reserved resolves the
 //! entry and computes the box (`gro_runtime::eval::prepass`) and is joined;
 //! the main thread, then the process's only one, confines it
@@ -561,6 +564,14 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     } else {
         clear_env()
     };
+    // then the process's memory is capped, before the pre-pass thread, so
+    // every thread and allocation after is under it, the default thread
+    // stack lowered first, so no inherited stack limit sizes the engine's
+    let limited = if prices::off(EvalDefault::DataLimit) {
+        Ok(())
+    } else {
+        limit_memory()
+    };
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -591,6 +602,13 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
         let error = EvalError::new(
             ErrorKind::Environment,
             format!("cannot clear the environment the eval inherited: {error}"),
+        );
+        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+    }
+    if let Err(error) = limited {
+        let error = EvalError::new(
+            ErrorKind::Environment,
+            format!("cannot cap the eval's memory: {error}"),
         );
         return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
     }
@@ -690,6 +708,31 @@ fn clear_env() -> std::io::Result<()> {
     reason = "the same signature as Linux's, which can fail"
 )]
 const fn clear_env() -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Lowers the stack of a thread started without a size of its own (V8's
+/// platform workers) to `gro_runtime::eval::DEFAULT_THREAD_STACK`, from the
+/// size glibc takes from the inherited `RLIMIT_STACK`, keeping a smaller
+/// one: `gro_sys::set_default_thread_stack`. Then caps the process's data
+/// segment, which counts those stacks, at
+/// `gro_runtime::eval::MEMORY_LIMIT`, soft and hard alike, or keeps the
+/// lower limit the parent set: `gro_sys::limit_data`. The box's seccomp
+/// filter then refuses `setrlimit` and `prlimit64`, so nothing the eval
+/// runs raises it.
+#[cfg(target_os = "linux")]
+fn limit_memory() -> std::io::Result<()> {
+    gro_sys::set_default_thread_stack(gro_runtime::eval::DEFAULT_THREAD_STACK)?;
+    gro_sys::limit_data(gro_runtime::eval::MEMORY_LIMIT).map(drop)
+}
+
+/// No box elsewhere: eval refuses before it would start.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as Linux's, which can fail"
+)]
+const fn limit_memory() -> std::io::Result<()> {
     Ok(())
 }
 

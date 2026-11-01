@@ -1,7 +1,8 @@
-//! Raw system calls the safe std API lacks, kept in one crate so every other
-//! gro crate stays free of `unsafe`: they forbid it, and this one denies it
-//! and allows it per function, each `unsafe` block beside the argument for
-//! why it's sound.
+//! Raw system calls the safe std API lacks, kept in one crate so every gro
+//! crate but this one and `gro_v8`, its twin for the V8 calls `rusty_v8`
+//! exposes only as `unsafe`, stays free of `unsafe`: they forbid it, and
+//! this one denies it and allows it per function, each `unsafe` block
+//! beside the argument for why it's sound.
 //!
 //! Linux only; elsewhere the crate is empty.
 //!
@@ -10,6 +11,11 @@
 //!   only new opens doesn't reach.
 //! - [`clear_env_except`] clears the process's environment but the
 //!   variables it names, so no library the process runs later reads one.
+//! - [`limit_data`] caps the process's data segment (`RLIMIT_DATA`), its
+//!   soft and hard limits alike, so it can't be raised again.
+//! - [`set_default_thread_stack`] lowers the stack size of a thread started
+//!   without one, which glibc otherwise takes from `RLIMIT_STACK`, never
+//!   raising it.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size, which std's `wait` drops.
 //!
@@ -167,6 +173,219 @@ pub fn clear_env_except(kept: &[&str]) -> io::Result<()> {
         unsafe { std::env::set_var(name, value) };
     }
     Ok(())
+}
+
+/// Caps the process's data segment, `RLIMIT_DATA`, at `bytes`, and returns
+/// the cap set.
+///
+/// A limit already lower, soft or hard, stands, and the cap is set soft and
+/// hard alike, so nothing in the process can raise it again (raising a hard
+/// limit takes `CAP_SYS_RESOURCE`).
+///
+/// Since Linux 4.7 the limit counts the process's private writable
+/// mappings: what `malloc` and anonymous `mmap` take, thread stacks
+/// included, but not a reservation made without write access until it's
+/// made writable, nor a file's mapped code. A mapping, or a growth of one,
+/// that would pass it fails with `ENOMEM`, so `malloc` returns null.
+///
+/// It touches no memory of the process's and holds no lock, so it's safe on
+/// any thread; it governs every thread, the ones started after included.
+///
+/// # Errors
+///
+/// Returns the error of `getrlimit` or `setrlimit`, the limit unchanged.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std has no `getrlimit` or `setrlimit`, and a libc call is `unsafe`"
+)]
+pub fn limit_data(bytes: u64) -> io::Result<u64> {
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `getrlimit` writes only to the pointer, to a live local of the
+    // type it expects
+    if unsafe { libc::getrlimit(libc::RLIMIT_DATA, &raw mut current) } != 0 {
+        return Err(context(
+            "getrlimit(RLIMIT_DATA) failed",
+            &io::Error::last_os_error(),
+        ));
+    }
+    // a limit the parent set lower stands, the soft one included (it's never
+    // above the hard one); `RLIM_INFINITY` is the largest value, so it never
+    // wins
+    let cap = bytes.min(current.rlim_cur);
+    let limit = libc::rlimit {
+        rlim_cur: cap,
+        rlim_max: cap,
+    };
+    // SAFETY: `setrlimit` reads only the pointer, to a live local of the
+    // type it expects, and changes no memory of the process's
+    if unsafe { libc::setrlimit(libc::RLIMIT_DATA, &raw const limit) } != 0 {
+        return Err(context(
+            "setrlimit(RLIMIT_DATA) failed",
+            &io::Error::last_os_error(),
+        ));
+    }
+    Ok(cap)
+}
+
+/// The process's `RLIMIT_DATA`, soft and hard, from `getrlimit`.
+///
+/// # Errors
+///
+/// Returns the call's error.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std has no `getrlimit`, and a libc call is `unsafe`"
+)]
+pub fn data_limit() -> io::Result<(u64, u64)> {
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `getrlimit` writes only to the pointer, to a live local of the
+    // type it expects
+    if unsafe { libc::getrlimit(libc::RLIMIT_DATA, &raw mut current) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((current.rlim_cur, current.rlim_max))
+}
+
+/// Lowers the stack size of a thread started without a size of its own to
+/// `bytes`, never raising it.
+///
+/// It reads the default ([`default_thread_stack`]) and keeps it when it's no
+/// larger, else sets `bytes` by `pthread_setattr_default_np`.
+///
+/// Such a thread is one a C or C++ library starts with a default attribute,
+/// V8's platform workers among them, any time after the call.
+///
+/// glibc sizes such a thread's stack by the `RLIMIT_STACK` the process
+/// started with, so a parent's large stack limit, a few hundred MiB, would
+/// make each one that large, every byte of it counted by [`limit_data`]'s
+/// cap. Under an unlimited `RLIMIT_STACK`, glibc takes a smaller default of
+/// its own instead, which stands. A thread std starts sets its own size, and
+/// keeps it.
+///
+/// The calls take glibc's lock on its default attribute and touch no other
+/// memory of the process's, so they're safe on any thread; a thread starting
+/// while they run gets the old size or the new one, and a default another
+/// thread sets between the read and the write is replaced.
+///
+/// Elsewhere than glibc it does nothing: musl sizes such a thread by a
+/// fixed default of its own, never by `RLIMIT_STACK`.
+///
+/// # Errors
+///
+/// Returns the error of `pthread_getattr_default_np`,
+/// `pthread_attr_getstacksize`, `pthread_attr_init`,
+/// `pthread_attr_setstacksize` (a size below `PTHREAD_STACK_MIN`), or
+/// `pthread_setattr_default_np`, the default unchanged.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no default thread attribute, and a libc call is `unsafe`"
+)]
+pub fn set_default_thread_stack(bytes: usize) -> io::Result<()> {
+    let current = default_thread_stack()
+        .map_err(|error| context("reading the default thread stack failed", &error))?;
+    if current <= bytes {
+        return Ok(());
+    }
+    let mut attr = std::mem::MaybeUninit::<libc::pthread_attr_t>::uninit();
+    // SAFETY: `pthread_attr_init` initializes the attribute the pointer
+    // names, a live local of the type it expects
+    let code = unsafe { libc::pthread_attr_init(attr.as_mut_ptr()) };
+    if code != 0 {
+        return Err(context(
+            "pthread_attr_init failed",
+            &io::Error::from_raw_os_error(code),
+        ));
+    }
+    // SAFETY: the attribute was initialized above and isn't destroyed until
+    // below; the call writes only its stack size
+    let code = unsafe { libc::pthread_attr_setstacksize(attr.as_mut_ptr(), bytes) };
+    let set = if code == 0 {
+        // SAFETY: the attribute is initialized, with no stack address or CPU
+        // set, which the call would refuse; glibc copies it under its own
+        // lock, keeping no pointer to it
+        let code = unsafe { pthread_setattr_default_np(attr.as_ptr()) };
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(context(
+                "pthread_setattr_default_np failed",
+                &io::Error::from_raw_os_error(code),
+            ))
+        }
+    } else {
+        Err(context(
+            "pthread_attr_setstacksize failed",
+            &io::Error::from_raw_os_error(code),
+        ))
+    };
+    // SAFETY: the attribute was initialized above and is destroyed once;
+    // glibc kept no pointer to it
+    unsafe { libc::pthread_attr_destroy(attr.as_mut_ptr()) };
+    set
+}
+
+/// Elsewhere than glibc, nothing to lower: musl sizes a thread started
+/// without a size by a fixed default, never by `RLIMIT_STACK`.
+///
+/// # Errors
+///
+/// Never: the signature is glibc's, which can fail.
+#[cfg(all(target_os = "linux", not(target_env = "gnu")))]
+pub const fn set_default_thread_stack(_bytes: usize) -> io::Result<()> {
+    Ok(())
+}
+
+/// The stack size, in bytes, of a thread started without one, from
+/// `pthread_getattr_default_np`.
+///
+/// # Errors
+///
+/// Returns the error of a call.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no default thread attribute, and a libc call is `unsafe`"
+)]
+pub fn default_thread_stack() -> io::Result<usize> {
+    let mut attr = std::mem::MaybeUninit::<libc::pthread_attr_t>::uninit();
+    // SAFETY: `pthread_getattr_default_np` initializes the attribute the
+    // pointer names, a live local of the type it expects, to a copy of the
+    // default
+    let code = unsafe { pthread_getattr_default_np(attr.as_mut_ptr()) };
+    if code != 0 {
+        return Err(io::Error::from_raw_os_error(code));
+    }
+    let mut bytes: libc::size_t = 0;
+    // SAFETY: the attribute was initialized above; the call writes only to
+    // `bytes`, a live local of the type it expects
+    let code = unsafe { libc::pthread_attr_getstacksize(attr.as_ptr(), &raw mut bytes) };
+    // SAFETY: the attribute was initialized above and is destroyed once
+    unsafe { libc::pthread_attr_destroy(attr.as_mut_ptr()) };
+    if code == 0 {
+        Ok(bytes)
+    } else {
+        Err(io::Error::from_raw_os_error(code))
+    }
+}
+
+// glibc's, since 2.18; the `libc` crate doesn't declare them
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[expect(
+    unsafe_code,
+    reason = "the `libc` crate lacks these two, so they're declared here, as glibc's headers do"
+)]
+unsafe extern "C" {
+    fn pthread_setattr_default_np(attr: *const libc::pthread_attr_t) -> libc::c_int;
+    fn pthread_getattr_default_np(attr: *mut libc::pthread_attr_t) -> libc::c_int;
 }
 
 /// The process's thread count, from `/proc/self/status`.

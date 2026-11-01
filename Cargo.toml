@@ -4,6 +4,7 @@ members = [
     "crates/gro_runtime",
     "crates/gro_cli",
     "crates/gro_sys",
+    "crates/gro_v8",
     "crates/gro_bench",
     "crates/xtask",
 ]
@@ -46,6 +47,10 @@ tokio = { version = "1", features = ["rt"] }
 # layer (its `json` feature)
 tsv_ts = { git = "https://github.com/fuzdev/tsv", rev = "509ba615d1c381548a987a71b60717216d55f839", default-features = false }
 url = "2.5"
+# the V8 binding itself, for gro_v8's calls `deno_core` doesn't wrap; pinned to
+# the exact version `deno_core` re-exports as `deno_core::v8`, with the features
+# it enables, so both name one crate and V8 builds once
+v8 = { version = "=150.4.0", default-features = false, features = ["simdutf", "use_custom_libcxx"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

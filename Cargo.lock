@@ -811,6 +811,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "getrandom",
+ "gro_v8",
  "landlock",
  "libc",
  "seccompiler",
@@ -827,6 +828,13 @@ name = "gro_sys"
 version = "0.0.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "gro_v8"
+version = "0.0.0"
+dependencies = [
+ "v8",
 ]
 
 [[package]]

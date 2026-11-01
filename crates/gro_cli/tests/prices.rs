@@ -123,6 +123,18 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         ))
         .is_number()
     );
+    // the memory cap: an array buffer its size stops the run, unless the
+    // cap is off, when it's made (its pages untouched, so not resident)
+    let output = fgro(&["eval", "memory_external.js"], None);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("\"memory\""),
+        "{output:?}"
+    );
+    assert_eq!(
+        value(&fgro(&["eval", "memory_external.js"], Some("data_limit"))),
+        2_147_483_648_u64
+    );
     // the locale: en-US whatever the host's, unless the pin is off and the
     // environment kept, so ICU reads the host's; then the time zone check,
     // which reads the epoch's date string, sees the zone named in German,

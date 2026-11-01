@@ -7,7 +7,7 @@
 > Today `fgro run <file>` (renamed `gro` when ready) runs a JS or TypeScript module
 > from disk on V8 (x86_64 Linux only) using Deno's libraries,
 > with strict resolution and origin containment ([run](run.md)),
-> and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied, its heap and time limited,
+> and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied, its heap, memory, and time limited,
 > and its process held in a kernel box, read-only to its project's files ([eval](eval.md#the-box)),
 > reporting the module graph it loaded when asked ([eval](eval.md#the-graph));
 > the grants, the policy file, and the kernel backstop for runs below are designed, not built,

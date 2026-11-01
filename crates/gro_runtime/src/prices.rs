@@ -42,6 +42,9 @@ pub enum EvalDefault {
     CloseFds,
     /// The environment cleared but `TZ`, so no library reads a variable.
     ClearEnv,
+    /// The process's data segment capped (`eval::MEMORY_LIMIT`), and the
+    /// default thread stack it counts lowered (`eval::DEFAULT_THREAD_STACK`).
+    DataLimit,
     /// The box's Landlock rules (and the `no_new_privs` they set).
     Landlock,
     /// The box's seccomp filters: the killing filter and the allowlist,
@@ -78,9 +81,10 @@ pub enum EvalDefault {
 
 impl EvalDefault {
     /// Every default, in the order eval applies them.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::CloseFds,
         Self::ClearEnv,
+        Self::DataLimit,
         Self::Landlock,
         Self::Seccomp,
         Self::BoxRule,
@@ -101,6 +105,7 @@ impl EvalDefault {
         match self {
             Self::CloseFds => "close_fds",
             Self::ClearEnv => "clear_env",
+            Self::DataLimit => "data_limit",
             Self::Landlock => "landlock",
             Self::Seccomp => "seccomp",
             Self::BoxRule => "box_rule",
