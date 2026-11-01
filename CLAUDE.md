@@ -809,11 +809,27 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   runs from a fresh copy of it, written from the pinned tree's objects into
   the gitignored `target/bench/`, with the workload's script at the copy's
   root so its relative imports stay inside the collection; the command still
-  runs from the suite's directory. A suite naming
+  runs from the suite's directory. A workload that names a `project` (a
+  committed directory holding its script) runs from a fresh copy of it under
+  `target/bench/projects/`, with a generated `node_modules` of stub packages
+  (each only a `package.json`) and symlinks to sibling checkouts the suite
+  names, a missing checkout, or a link outside any git checkout, failing the
+  run. The record carries the git state (commit, dirty flag, and a blake3 of
+  the changes, untracked files included, ignored ones not) of each linked
+  checkout and of a checkout holding a script outside the suite's, read again
+  after the samples, a move discarding the run like an artifact's. A runtime
+  can read a file on
+  stdin (`stdin`, hashed like a file argument, opened fresh before each
+  timed span) and say what its stdout holds (`stdout`: an eval `envelope`
+  with `ok: true`, or `json`); every row first runs once, untimed, and the
+  run fails unless it exits 0 with that stdout, and unless the values of the
+  suite's `parity` runtimes are equal on each workload. A suite naming
   `fgro` gets the release snapshot build: the bench builds it first and
   refuses any other binary, then prints each `fgro` row against its gate row
   (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
-  beside), report only. Record it on a quiet machine with
+  beside), or, when the suite has a `gate`, the gate's runtimes against its
+  incumbent, gated on the workloads it names, with every other row reported
+  only; the table is a report either way. Record it on a quiet machine with
   `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`,
   after `cargo xtask build --release`, so the bench's own build is a cache hit
   and doesn't load the machine just before timing

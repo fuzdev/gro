@@ -1,0 +1,296 @@
+//! Materializing a workload's project: a fresh copy of a committed directory,
+//! with a generated `node_modules`, for workloads that evaluate a project the
+//! way a tool does in real use.
+//!
+//! The copy holds the committed directory's files as they are, then a
+//! `node_modules` the run writes: `stub_packages` stub packages, each a
+//! directory holding only a `package.json`, and a symlink for each of the
+//! project's `links`, to a checkout outside the copy. A runtime that walks a
+//! project's `node_modules` (a box computing its link closure) walks the
+//! stubs as it would a real install's top level, and follows each link into
+//! the checkout and its own `node_modules`, as in real use.
+//!
+//! Only regular files and directories are copied: a symlink or other special
+//! file in the committed directory, or a `node_modules` at its root, which the
+//! run generates, is refused.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crate::collection::remove_existing;
+use crate::error::BenchError;
+use crate::suite::Project;
+
+/// A project's copy, written.
+#[derive(Debug)]
+pub struct ProjectCopy {
+    /// The copy's root, canonical.
+    pub root: PathBuf,
+    /// Every regular file the run wrote into it, stubs included.
+    pub files: Vec<PathBuf>,
+    /// The workload's script in the copy.
+    pub entry: PathBuf,
+}
+
+/// The directory of the copy's `node_modules` stub package `index`.
+fn stub_name(index: u32) -> String {
+    format!("stub_{index:04}")
+}
+
+/// Writes the project of the workload `workload` into
+/// `<work_dir>/projects/<workload>`, after removing anything already there.
+///
+/// It writes the files of `project.dir` (relative to `suite_dir`), then its
+/// `node_modules`. `script` is the workload's script, inside `project.dir`.
+///
+/// # Errors
+///
+/// Fails with [`BenchError::ProjectLinkMissing`] when a link's checkout
+/// doesn't exist or isn't a directory (checked before anything is written),
+/// [`BenchError::ProjectEntry`] when the committed directory holds something
+/// the copy doesn't support, [`BenchError::SuiteFileMissing`] when the
+/// directory itself is missing, and otherwise when a read or write fails.
+pub fn materialize_project(
+    workload: &str,
+    project: &Project,
+    script: &Path,
+    suite_dir: &Path,
+    work_dir: &Path,
+) -> Result<ProjectCopy, BenchError> {
+    let source = suite_dir.join(&project.dir);
+    let source = source.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            BenchError::SuiteFileMissing {
+                path: source.clone(),
+                source: error,
+            }
+        } else {
+            BenchError::Read {
+                path: source.clone(),
+                source: error,
+            }
+        }
+    })?;
+    // every link resolved first, so a missing checkout fails before any write
+    let mut links = Vec::with_capacity(project.links.len());
+    for (package, target) in &project.links {
+        let path = suite_dir.join(target);
+        let missing = |source| BenchError::ProjectLinkMissing {
+            workload: workload.to_owned(),
+            package: package.clone(),
+            path: path.clone(),
+            source,
+        };
+        let resolved = path.canonicalize().map_err(missing)?;
+        if !resolved.is_dir() {
+            return Err(missing(std::io::Error::from(
+                std::io::ErrorKind::NotADirectory,
+            )));
+        }
+        links.push((package, resolved));
+    }
+    let write_error = |path: &Path| {
+        let path = path.to_owned();
+        move |source| BenchError::Write { path, source }
+    };
+    fs::create_dir_all(work_dir).map_err(write_error(work_dir))?;
+    // canonical, so the paths written are the paths hashed and run
+    let work_dir = work_dir.canonicalize().map_err(|source| BenchError::Read {
+        path: work_dir.to_owned(),
+        source,
+    })?;
+    // validation makes the workload's name one plain segment
+    let root = work_dir.join("projects").join(workload);
+    remove_existing(&root)?;
+    fs::create_dir_all(&root).map_err(write_error(&root))?;
+    let mut files = copy_tree(workload, &source, &root)?;
+
+    let node_modules = root.join("node_modules");
+    fs::create_dir_all(&node_modules).map_err(write_error(&node_modules))?;
+    for index in 0..project.stub_packages {
+        let name = stub_name(index);
+        let dir = node_modules.join(&name);
+        fs::create_dir(&dir).map_err(write_error(&dir))?;
+        let package_json = dir.join("package.json");
+        let text = format!(
+            "{{\"name\": \"{name}\", \"type\": \"module\", \"exports\": {{\".\": \"./index.js\"}}}}\n"
+        );
+        fs::write(&package_json, text).map_err(write_error(&package_json))?;
+        files.push(package_json);
+    }
+    for (package, target) in links {
+        let link = node_modules.join(package);
+        if let Some(parent) = link.parent() {
+            fs::create_dir_all(parent).map_err(write_error(parent))?;
+        }
+        symlink(&target, &link).map_err(write_error(&link))?;
+    }
+    // validation puts the script inside the project's directory
+    let inside = script.strip_prefix(&project.dir).unwrap_or(script);
+    Ok(ProjectCopy {
+        entry: root.join(inside),
+        root,
+        files,
+    })
+}
+
+/// Copies the regular files and directories under `source` into `dest`,
+/// returning the files written, and refuses anything else, and a
+/// `node_modules` at the root.
+fn copy_tree(workload: &str, source: &Path, dest: &Path) -> Result<Vec<PathBuf>, BenchError> {
+    let refused = |path: &Path, reason: &str| BenchError::ProjectEntry {
+        workload: workload.to_owned(),
+        path: path.to_owned(),
+        reason: reason.to_owned(),
+    };
+    let mut files = Vec::new();
+    let mut pending = vec![PathBuf::new()];
+    while let Some(relative) = pending.pop() {
+        let dir = source.join(&relative);
+        let read_error = |error| BenchError::Read {
+            path: dir.clone(),
+            source: error,
+        };
+        let mut entries = fs::read_dir(&dir)
+            .map_err(read_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(read_error)?;
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let relative = relative.join(entry.file_name());
+            let from = source.join(&relative);
+            let to = dest.join(&relative);
+            if relative == Path::new("node_modules") {
+                return Err(refused(
+                    &from,
+                    "the run writes the project's `node_modules`",
+                ));
+            }
+            let kind = entry.file_type().map_err(|error| BenchError::Read {
+                path: from.clone(),
+                source: error,
+            })?;
+            if kind.is_dir() {
+                fs::create_dir(&to).map_err(|source| BenchError::Write {
+                    path: to.clone(),
+                    source,
+                })?;
+                pending.push(relative);
+            } else if kind.is_file() {
+                fs::copy(&from, &to).map_err(|source| BenchError::Write {
+                    path: to.clone(),
+                    source,
+                })?;
+                files.push(to);
+            } else {
+                return Err(refused(
+                    &from,
+                    "a copy holds only regular files and directories",
+                ));
+            }
+        }
+    }
+    Ok(files)
+}
+
+#[cfg(unix)]
+fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn symlink(_target: &Path, _link: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "a project's links are symlinks, which this platform's run doesn't write",
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    #[test]
+    fn writes_the_files_stubs_and_links_and_refuses_a_missing_checkout() {
+        let base = std::env::temp_dir().join(format!("gro_bench_project_{}", std::process::id()));
+        let suite_dir = base.join("suite");
+        fs::create_dir_all(suite_dir.join("p/lib")).unwrap();
+        fs::write(suite_dir.join("p/package.json"), "{}\n").unwrap();
+        fs::write(suite_dir.join("p/main.ts"), "").unwrap();
+        fs::write(suite_dir.join("p/lib/a.ts"), "export {};\n").unwrap();
+        fs::create_dir_all(base.join("checkout")).unwrap();
+        let checkout = base.join("checkout").canonicalize().unwrap();
+        let mut project = Project {
+            dir: PathBuf::from("p"),
+            stub_packages: 3,
+            links: BTreeMap::from([("@s/linked".to_owned(), PathBuf::from("../checkout"))]),
+        };
+        let work = base.join("work");
+        // a stale copy, which the run replaces
+        fs::create_dir_all(work.join("projects/w/stale")).unwrap();
+        let copy =
+            materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work).unwrap();
+        let root = copy.root.clone();
+        let listed = crate::collection::list_paths(&root).unwrap();
+        let link = fs::read_link(root.join("node_modules/@s/linked")).unwrap();
+        let stub = fs::read_to_string(root.join("node_modules/stub_0002/package.json")).unwrap();
+
+        project.links = BTreeMap::from([("x".to_owned(), PathBuf::from("../nope"))]);
+        let missing = materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        fs::write(base.join("file"), "").unwrap();
+        project.links = BTreeMap::from([("x".to_owned(), PathBuf::from("../file"))]);
+        let file = materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        // the failed run wrote nothing: the earlier copy stands
+        let kept = root.join("main.ts").is_file();
+        fs::create_dir_all(suite_dir.join("p/node_modules")).unwrap();
+        project.links.clear();
+        let installed =
+            materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        fs::remove_dir_all(&base).unwrap();
+
+        assert_eq!(copy.entry, root.join("main.ts"));
+        let relative: Vec<String> = listed
+            .iter()
+            .map(|path| path.strip_prefix(&root).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            relative,
+            [
+                "lib",
+                "lib/a.ts",
+                "main.ts",
+                "node_modules",
+                "node_modules/@s",
+                "node_modules/@s/linked",
+                "node_modules/stub_0000",
+                "node_modules/stub_0000/package.json",
+                "node_modules/stub_0001",
+                "node_modules/stub_0001/package.json",
+                "node_modules/stub_0002",
+                "node_modules/stub_0002/package.json",
+                "package.json",
+            ]
+        );
+        // the copied files and the stubs' manifests, not the link
+        assert_eq!(copy.files.len(), 6);
+        assert_eq!(link, checkout);
+        assert_eq!(
+            stub,
+            "{\"name\": \"stub_0002\", \"type\": \"module\", \"exports\": {\".\": \"./index.js\"}}\n"
+        );
+        assert!(
+            matches!(missing, Err(BenchError::ProjectLinkMissing { ref package, .. }) if package == "x"),
+            "{missing:?}"
+        );
+        // the message says which: absent, or not a directory
+        let message = |result: Result<ProjectCopy, BenchError>| result.unwrap_err().to_string();
+        assert!(message(missing).ends_with("which doesn't exist"));
+        assert!(message(file).ends_with("which isn't a directory"));
+        assert!(kept);
+        assert!(
+            matches!(installed, Err(BenchError::ProjectEntry { .. })),
+            "{installed:?}"
+        );
+    }
+}

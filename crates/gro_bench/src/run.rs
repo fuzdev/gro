@@ -6,24 +6,35 @@
 //!    runtime's executable, refusing a script (a file starting with `#!`),
 //!    writes a fresh copy of each collection a workload names, with the
 //!    workload's script at its root ([`collection`](crate::collection)), and
-//!    hashes the artifacts (every executable, script, file argument, and
-//!    file of a copy) with blake3;
+//!    of each project ([`project`](crate::project)), and hashes the artifacts
+//!    (every executable, script, file argument, stdin file, and file of a
+//!    copy) with blake3, and reads the git state of each checkout outside the
+//!    suite's own that a workload reads: each project link's target, which
+//!    must be in a checkout, and the checkout of a script outside the
+//!    suite's;
 //! 2. probes each runtime's version and measures its executable's size, as
 //!    is and gzipped;
-//! 3. runs each row's warmup processes, then its timed samples, in the
+//! 3. runs each row once, untimed, for correctness: it must exit
+//!    successfully, with stdout of the shape its runtime's `stdout` names,
+//!    and the values of the suite's `parity` runtimes must be equal on each
+//!    workload ([`check`](crate::check));
+//! 4. runs each row's warmup processes, then its timed samples, in the
 //!    interleaved order of [`schedule`], with the
 //!    first row's A/A copy as one more row (a row is a workload and a
 //!    runtime);
-//! 4. hashes the artifacts, lists each copy, and reads the corpora's tree
-//!    again, and discards the run if any changed (a copy gaining or losing a
-//!    path counts), since a rebuild mid-run means the samples timed different
-//!    code: the copies cover what a collection's workloads run, and the
-//!    checkout's tree what the others read from it;
-//! 5. computes each row's statistics.
+//! 5. hashes the artifacts, lists each copy, and reads the corpora's tree
+//!    and the other checkouts' states again, and discards the run if any
+//!    changed (a copy gaining or losing a path counts), since a rebuild or an
+//!    edit mid-run means the samples timed different code: the copies cover
+//!    what a collection's workloads run, the corpora's tree what the others
+//!    read from it, and a checkout's state what a link or script reaches in
+//!    it;
+//! 6. computes each row's statistics.
 //!
 //! Every sample is a fresh process, timed from just before its spawn to just
-//! after its exit is reaped, with stdin, stdout and stderr on the null
-//! device. A process that exits unsuccessfully fails the run, naming the
+//! after its exit is reaped, with stdout and stderr on the null device, and
+//! stdin on its runtime's `stdin` file, opened before the timed span, or the
+//! null device. A process that exits unsuccessfully fails the run, naming the
 //! command to re-run alone. Nothing prints during the run, so the terminal is
 //! no part of any sample.
 //!
@@ -42,15 +53,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Instant, SystemTime};
 
+use crate::check::{first_difference, stdout_value, truncated};
 use crate::collection::{list_paths, materialize};
 use crate::error::BenchError;
+use crate::project::materialize_project;
 use crate::record::{
-    GitState, Machine, MachineQuiet, Metric, NoiseRecord, RECORD_VERSION, RowRecord, RunRecord,
-    RuntimeInfo, SuiteId, read_corpora_tree,
+    CheckoutState, GitState, Machine, MachineQuiet, Metric, NoiseRecord, RECORD_VERSION, RowRecord,
+    RunRecord, RuntimeInfo, SuiteId, checkout_root, read_corpora_tree,
 };
 use crate::schedule::schedule;
 use crate::stats::{Stats, ratio_deviation};
-use crate::suite::{Arg, FileArg, Runtime, Suite, Workload};
+use crate::suite::{Arg, FileArg, Runtime, Stdout, Suite, Workload};
 
 /// What a run takes from the caller: what it records but can't learn itself,
 /// and where it writes.
@@ -125,21 +138,39 @@ struct RowCommand {
     /// The runtime's `cold` env on a cold row, over the runtime's `env`.
     env: BTreeMap<String, String>,
     warmup: u32,
+    /// The file each process reads on stdin, the runtime's `stdin`.
+    stdin: Option<PathBuf>,
+    /// What the runtime's stdout holds, for the correctness run.
+    stdout: Option<Stdout>,
 }
 
 impl RowCommand {
-    fn command(&self, dir: &Path) -> Command {
+    /// A process of this row, its stdin opened fresh, with stdout and
+    /// stderr on the null device.
+    fn command(&self, dir: &Path) -> Result<Command, BenchError> {
         let mut command = self.program.command(dir);
         command
             .args(&self.args)
             .envs(&self.env)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        command
+        if let Some(stdin) = &self.stdin {
+            let file = File::open(stdin).map_err(|source| BenchError::Read {
+                path: stdin.clone(),
+                source,
+            })?;
+            command.stdin(file);
+        }
+        Ok(command)
     }
 
+    /// The command line to re-run alone, with its stdin redirect.
     fn display(&self) -> String {
-        display_command(&self.program.path, &self.args)
+        let line = display_command(&self.program.path, &self.args);
+        match &self.stdin {
+            Some(stdin) => format!("{line} < {}", stdin.display()),
+            None => line,
+        }
     }
 }
 
@@ -196,25 +227,41 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         .iter()
         .map(|workload| Ok((workload.name.as_str(), resolve(&workload.script)?)))
         .collect::<Result<BTreeMap<_, _>, BenchError>>()?;
-    let copies = materialize_collections(suite, corpora.as_ref(), &context.work_dir, &scripts)?;
-    let program_of: BTreeMap<&str, &Program> = suite
+    // each runtime's stdin file, hashed like a file argument
+    let stdins = suite
+        .runtimes
+        .iter()
+        .map(|runtime| {
+            runtime
+                .stdin
+                .as_ref()
+                .map(|FileArg { file }| resolve(file))
+                .transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut copies = materialize_collections(suite, corpora.as_ref(), &context.work_dir, &scripts)?;
+    materialize_projects(suite, dir, &context.work_dir, &mut copies)?;
+    let program_of: BTreeMap<&str, (&Program, &Option<PathBuf>)> = suite
         .runtimes
         .iter()
         .map(|runtime| runtime.name.as_str())
-        .zip(&programs)
+        .zip(programs.iter().zip(&stdins))
         .collect();
     let mut rows = Vec::new();
     for (workload, runtime) in suite.rows() {
         let name = workload.name.as_str();
         let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
         let (args, env) = row_args(runtime, workload, script, &mut resolve)?;
+        let (program, stdin) = program_of[runtime.name.as_str()];
         rows.push(RowCommand {
             runtime: runtime.name.clone(),
             workload: workload.name.clone(),
-            program: program_of[runtime.name.as_str()].clone(),
+            program: program.clone(),
             args,
             env,
             warmup: workload.warmup,
+            stdin: stdin.clone(),
+            stdout: runtime.stdout,
         });
     }
     artifacts.extend(copies.files.iter().cloned());
@@ -228,6 +275,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         .into_iter()
         .map(|(file, resolved)| (file, before[&resolved].clone()))
         .collect();
+    let checkouts = read_checkouts(suite, dir)?;
 
     // one thread per runtime, since gzipping each executable takes seconds
     let runtimes = std::thread::scope(|scope| {
@@ -254,6 +302,8 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             .collect::<Result<Vec<_>, _>>()
     })?;
 
+    check_rows(suite, &rows, dir)?;
+
     // the noise row: the first row again, measured as a row of its own
     let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
     let warmups: Vec<usize> = commands.iter().map(|row| row.warmup as usize).collect();
@@ -277,6 +327,16 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         // a re-pin or a local change mid-run, which the tree id wouldn't name
         if read_corpora_tree(path).ok().as_ref() != Some(tree) {
             changed.push(path.clone());
+        }
+    }
+    let roots: BTreeMap<&PathBuf, &CheckoutState> = checkouts
+        .values()
+        .map(|(root, state)| (root, state))
+        .collect();
+    for (root, state) in roots {
+        // a commit, a switch, or an edit mid-run in another checkout
+        if CheckoutState::read(root).ok().as_ref() != Some(state) {
+            changed.push(root.clone());
         }
     }
     if !changed.is_empty() {
@@ -309,6 +369,10 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         corpora: corpora.map(|(_, tree)| tree),
         runtimes,
         artifacts: artifact_hashes,
+        checkouts: checkouts
+            .into_iter()
+            .map(|(path, (_, state))| (path, state))
+            .collect(),
         rows: rows_record,
         noise,
     })
@@ -393,6 +457,132 @@ fn materialize_collections(
         copies.entries.insert(workload.name.clone(), entry);
     }
     Ok(copies)
+}
+
+/// Copies each workload's project into `<work_dir>/projects/<workload>`
+/// ([`materialize_project`]), adding the copies to `copies`.
+fn materialize_projects(
+    suite: &Suite,
+    dir: &Path,
+    work_dir: &Path,
+    copies: &mut Copies,
+) -> Result<(), BenchError> {
+    for workload in &suite.workloads {
+        let Some(project) = &workload.project else {
+            continue;
+        };
+        let copy = materialize_project(&workload.name, project, &workload.script, dir, work_dir)?;
+        copies.roots.push(copy.root);
+        copies.files.extend(copy.files);
+        copies.entries.insert(workload.name.clone(), copy.entry);
+    }
+    Ok(())
+}
+
+/// Reads the state of each checkout outside the suite's own (the one holding
+/// `dir`, if any) that the workloads read, by the path as the suite writes
+/// it, beside the checkout's root: each project link's target, refused when
+/// it's in no checkout, and the checkout holding a script outside the
+/// suite's (a collection's script runs from its copy, which the run covers).
+fn read_checkouts(
+    suite: &Suite,
+    dir: &Path,
+) -> Result<BTreeMap<String, (PathBuf, CheckoutState)>, BenchError> {
+    let own = checkout_root(dir);
+    let other = |root: &PathBuf| own.as_ref() != Some(root);
+    let mut checkouts = BTreeMap::new();
+    for workload in &suite.workloads {
+        if let Some(project) = &workload.project {
+            for (package, target) in &project.links {
+                let path = dir.join(target);
+                let root =
+                    checkout_root(&path).ok_or_else(|| BenchError::ProjectLinkUnversioned {
+                        workload: workload.name.clone(),
+                        package: package.clone(),
+                        path: path.clone(),
+                    })?;
+                if other(&root) {
+                    let state = CheckoutState::read(&root)?;
+                    checkouts.insert(target.to_string_lossy().into_owned(), (root, state));
+                }
+            }
+        } else if workload.collection.is_none() {
+            let script = resolve_file(dir, &workload.script)?;
+            if let Some(root) = checkout_root(&script).filter(other) {
+                let state = CheckoutState::read(&root)?;
+                checkouts.insert(
+                    workload.script.to_string_lossy().into_owned(),
+                    (root, state),
+                );
+            }
+        }
+    }
+    Ok(checkouts)
+}
+
+/// Runs each row once, untimed, and checks it: it exits successfully, its
+/// stdout is what its runtime's `stdout` says, and the values of the suite's
+/// `parity` runtimes are equal on each workload.
+fn check_rows(suite: &Suite, rows: &[RowCommand], dir: &Path) -> Result<(), BenchError> {
+    // each checked row's value, by workload and then runtime
+    let mut values: BTreeMap<&str, BTreeMap<&str, serde_json::Value>> = BTreeMap::new();
+    for row in rows {
+        if let Some(value) = check_row(row, dir)? {
+            values
+                .entry(row.workload.as_str())
+                .or_default()
+                .insert(row.runtime.as_str(), value);
+        }
+    }
+    let Some((first, others)) = suite.parity.split_first() else {
+        return Ok(());
+    };
+    for workload in &suite.workloads {
+        let values = &values[workload.name.as_str()];
+        // validation gives every parity runtime a `stdout`, so each has a value
+        let expected = &values[first.as_str()];
+        for other in others {
+            if let Some(difference) = first_difference(&values[other.as_str()], expected) {
+                return Err(BenchError::ParityMismatch {
+                    workload: workload.name.clone(),
+                    runtime: other.clone(),
+                    against: first.clone(),
+                    difference: Box::new(difference),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Runs one process of `row`, untimed, capturing its output: it must exit
+/// successfully, and its stdout must be what `row.stdout` says, whose value
+/// it returns.
+fn check_row(row: &RowCommand, dir: &Path) -> Result<Option<serde_json::Value>, BenchError> {
+    let output = row
+        .command(dir)?
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|source| BenchError::Spawn {
+            command: row.display(),
+            source,
+        })?;
+    let failed = |reason: String| BenchError::CheckFailed {
+        command: row.display(),
+        reason,
+    };
+    if !output.status.success() {
+        return Err(failed(format!(
+            "it exited unsuccessfully ({}); stdout: {}; stderr: {}",
+            output.status,
+            truncated(String::from_utf8_lossy(&output.stdout).trim()),
+            truncated(String::from_utf8_lossy(&output.stderr).trim()),
+        )));
+    }
+    row.stdout
+        .map(|check| stdout_value(check, &output.stdout).map_err(failed))
+        .transpose()
 }
 
 /// Finds a runtime's executable, canonicalized so the file hashed is the file
@@ -614,7 +804,8 @@ fn probe_line(program: &Program, args: &[String], dir: &Path) -> Result<String, 
 
 /// Runs one fresh process of `row` and times it.
 fn run_once(row: &RowCommand, dir: &Path) -> Result<Sample, BenchError> {
-    let mut command = row.command(dir);
+    // stdin is opened here, before the timed span
+    let mut command = row.command(dir)?;
     let start = Instant::now();
     let status = command.status();
     let elapsed = start.elapsed();

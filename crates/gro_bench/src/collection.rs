@@ -110,7 +110,7 @@ pub fn materialize(
 
 /// Removes `path`, a directory or anything else, when it exists, so nothing
 /// stale survives into a fresh copy.
-fn remove_existing(path: &Path) -> Result<(), BenchError> {
+pub(crate) fn remove_existing(path: &Path) -> Result<(), BenchError> {
     let removed = match fs::symlink_metadata(path) {
         Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
         Ok(_) => fs::remove_file(path),

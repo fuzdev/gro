@@ -6,6 +6,8 @@ use std::process::ExitStatus;
 
 use thiserror::Error;
 
+use crate::check::Difference;
+
 /// Why a run, or reading its input, failed. A failed run records nothing.
 #[derive(Debug, Error)]
 pub enum BenchError {
@@ -112,6 +114,58 @@ pub enum BenchError {
         collection: String,
         entry: PathBuf,
     },
+    /// A link of a workload's project names a checkout that doesn't exist,
+    /// isn't a directory, or can't be read, saying which.
+    #[error(
+        "the workload `{workload}` links `{package}` to {}, which {}",
+        path.display(),
+        link_problem(source)
+    )]
+    ProjectLinkMissing {
+        workload: String,
+        package: String,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    /// A link of a workload's project names a directory in no git checkout,
+    /// whose code the record couldn't name.
+    #[error(
+        "the workload `{workload}` links `{package}` to {}, which is in no git checkout git can read, so the record can't name the code it holds",
+        path.display()
+    )]
+    ProjectLinkUnversioned {
+        workload: String,
+        package: String,
+        path: PathBuf,
+    },
+    /// A workload's project directory holds something its copy doesn't
+    /// support, saying why.
+    #[error("the workload `{workload}`'s project has {}: {reason}", path.display())]
+    ProjectEntry {
+        workload: String,
+        path: PathBuf,
+        reason: String,
+    },
+    /// A row's untimed correctness run failed: it exited unsuccessfully, or
+    /// its stdout isn't what its runtime's `stdout` says, saying why.
+    #[error("`{command}` failed its correctness run: {reason}")]
+    CheckFailed { command: String, reason: String },
+    /// Two runtimes of the suite's `parity` gave different values on a
+    /// workload, naming where and what each holds there (as JSON, cut short):
+    /// `difference.a` is `runtime`'s, `difference.b` is `against`'s.
+    #[error(
+        "on the workload `{workload}`, the runtime `{runtime}`'s value differs from `{against}`'s at {}: {} against {}",
+        difference.at,
+        difference.a,
+        difference.b
+    )]
+    ParityMismatch {
+        workload: String,
+        runtime: String,
+        against: String,
+        difference: Box<Difference>,
+    },
     /// A file or directory the run writes couldn't be written or removed.
     #[error("failed to write {}", path.display())]
     Write {
@@ -119,8 +173,9 @@ pub enum BenchError {
         #[source]
         source: io::Error,
     },
-    /// An artifact's hash, or the corpora's tree, changed during the run, or
-    /// a materialized collection gained or lost a path.
+    /// An artifact's hash, the corpora's tree, or the state of another
+    /// checkout a workload reads (its commit, or its changes) moved during
+    /// the run, or a materialized copy gained or lost a path.
     #[error(
         "artifacts changed during the run, so its samples are discarded: {}",
         paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
@@ -135,11 +190,22 @@ pub enum BenchError {
     },
 }
 
+/// What's wrong with a project link's target, by the error reading it.
+fn link_problem(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::NotFound => "doesn't exist".to_owned(),
+        io::ErrorKind::NotADirectory => "isn't a directory".to_owned(),
+        _ => format!("can't be read ({error})"),
+    }
+}
+
 impl BenchError {
     /// Whether the input is at fault (the suite, a program or file it names,
     /// a command that fails or prints no version, a corpora checkout off its
-    /// pin, a collection the pinned tree lacks or a copy can't hold, or an
-    /// entry colliding with a collection's file), so the caller must change
+    /// pin, a collection the pinned tree lacks or a copy can't hold, an
+    /// entry colliding with a collection's file, a project's missing or
+    /// unversioned link or unsupported entry, a failed correctness run, or values that break the
+    /// suite's parity), so the caller must change
     /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
@@ -157,6 +223,11 @@ impl BenchError {
                 | Self::CollectionNotFound { .. }
                 | Self::CollectionEntry { .. }
                 | Self::EntryCollides { .. }
+                | Self::ProjectLinkMissing { .. }
+                | Self::ProjectLinkUnversioned { .. }
+                | Self::ProjectEntry { .. }
+                | Self::CheckFailed { .. }
+                | Self::ParityMismatch { .. }
         )
     }
 }

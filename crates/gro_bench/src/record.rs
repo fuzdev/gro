@@ -3,7 +3,8 @@
 //! A line carries what a number needs to be read later: the suite and its
 //! version, the gro checkout's commit, the config hash, the runtimes'
 //! versions, binary hashes, and sizes, the hashes of the scripts and files the suite
-//! names, the machine, the corpus pins, and every row's
+//! names, the state of the other checkouts the workloads read, the machine,
+//! the corpus pins, and every row's
 //! samples beside their statistics. Raw samples stay in the line, so later
 //! comparisons can recompute from them.
 //!
@@ -13,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ use crate::error::BenchError;
 use crate::stats::Stats;
 
 /// The line shape's version, bumped when it changes incompatibly.
-pub const RECORD_VERSION: u32 = 4;
+pub const RECORD_VERSION: u32 = 5;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +50,13 @@ pub struct RunRecord {
     /// The blake3 hash of every workload script and file argument, by its
     /// path as the suite writes it (relative to the suite's directory).
     pub artifacts: BTreeMap<String, String>,
+    /// The git state of each checkout outside the suite's own that the
+    /// workloads read, by the path as the suite writes it: a project link's
+    /// target, and a script in another checkout (naming that checkout).
+    /// Read before the correctness run and again after the samples, and the
+    /// run discarded if one moved. Left out of the line when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub checkouts: BTreeMap<String, CheckoutState>,
     /// Every row, workload by workload, each in runtime order.
     pub rows: Vec<RowRecord>,
     /// The A/A noise row.
@@ -70,6 +78,28 @@ pub struct GitState {
     /// Whether the working tree differs from it, so `sha` alone doesn't
     /// name the code that ran.
     pub dirty: bool,
+}
+
+/// The state of a checkout a run reads outside the gro checkout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckoutState {
+    /// The `HEAD` commit SHA.
+    pub sha: String,
+    /// Whether the working tree differs from it, untracked files included:
+    /// exactly when there are changes to hash.
+    pub dirty: bool,
+    /// The blake3 hash of what makes it dirty, which names the code that ran
+    /// where `sha` can't: `git diff HEAD` (binary, full index ids, and the
+    /// output options a flag can pin set to git's default, so a user's diff
+    /// settings don't change the bytes; attribute-driven filters and hunk
+    /// headers, and `core.fileMode`, still apply), then each untracked
+    /// file's path and contents. Ignored files
+    /// (a checkout's `node_modules`, its build output) are in neither part,
+    /// so what a workload reaches through them isn't named here. A
+    /// submodule shows only as its commit and whether it's dirty, so edits
+    /// inside an already-dirty submodule aren't seen. `None` exactly when
+    /// it's clean.
+    pub changes_blake3: Option<String>,
 }
 
 /// The machine a run measured on: what makes numbers comparable, with no
@@ -228,7 +258,12 @@ impl GitState {
     /// Fails when `git` can't run or fails, as outside a checkout.
     pub fn read(root: &Path, history: &Path) -> Result<Self, BenchError> {
         let sha = git(root, &["rev-parse", "HEAD"])?.trim().to_owned();
-        let mut status_args = vec!["status".to_owned(), "--porcelain".to_owned()];
+        // untracked files listed whatever `status.showUntrackedFiles` says
+        let mut status_args = vec![
+            "status".to_owned(),
+            "--porcelain".to_owned(),
+            "--untracked-files=normal".to_owned(),
+        ];
         if let Some(relative) = history.strip_prefix(root).ok().filter(|relative| {
             relative
                 .components()
@@ -242,6 +277,120 @@ impl GitState {
         // raw bytes, since `core.quotePath=false` prints names that aren't UTF-8
         let dirty = !git_output(root, &status_args)?.trim_ascii().is_empty();
         Ok(Self { sha, dirty })
+    }
+}
+
+/// The root of the git checkout holding `path` (a file or directory),
+/// canonical, or `None` when it's in none or git can't say.
+pub fn checkout_root(path: &Path) -> Option<PathBuf> {
+    let dir = if path.is_dir() { path } else { path.parent()? };
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let root = String::from_utf8(output.stdout).ok()?;
+    PathBuf::from(root.trim_end_matches('\n'))
+        .canonicalize()
+        .ok()
+}
+
+impl CheckoutState {
+    /// Reads the state of the checkout whose root is `root`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `git` can't run or fails, as outside a checkout, or an
+    /// untracked file can't be read.
+    pub fn read(root: &Path) -> Result<Self, BenchError> {
+        let sha = git(root, &["rev-parse", "HEAD"])?.trim().to_owned();
+        // the options a flag can pin set to git's default, so a user's diff
+        // settings change neither the bytes nor what runs (no external diff,
+        // textconv, or color)
+        let diff = git_output(
+            root,
+            &[
+                "-c",
+                "core.quotePath=true",
+                "-c",
+                "diff.suppressBlankEmpty=false",
+                "diff",
+                "HEAD",
+                "--binary",
+                "--full-index",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
+                "--diff-algorithm=myers",
+                "--indent-heuristic",
+                "--unified=3",
+                "--inter-hunk-context=0",
+                "-O/dev/null",
+            ],
+        )?;
+        // listed by `ls-files`, not `status`, which `status.showUntrackedFiles`
+        // could make blind to them
+        let untracked = git_output(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+        if diff.is_empty() && untracked.is_empty() {
+            return Ok(Self {
+                sha,
+                dirty: false,
+                changes_blake3: None,
+            });
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&diff);
+        for name in untracked
+            .split(|byte| *byte == 0)
+            .filter(|name| !name.is_empty())
+        {
+            let name_error = || BenchError::Read {
+                path: root.to_owned(),
+                source: io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "an untracked file's name isn't UTF-8",
+                ),
+            };
+            let path = root.join(std::str::from_utf8(name).map_err(|_| name_error())?);
+            let read_error = |source| BenchError::Read {
+                path: path.clone(),
+                source,
+            };
+            let meta = fs::symlink_metadata(&path).map_err(read_error)?;
+            let contents = if meta.is_symlink() {
+                fs::read_link(&path)
+                    .map_err(read_error)?
+                    .into_os_string()
+                    .into_encoded_bytes()
+            } else if meta.is_file() {
+                fs::read(&path).map_err(read_error)?
+            } else {
+                // a nested checkout, listed as a directory, which its own
+                // state would name
+                Vec::new()
+            };
+            // each part length-prefixed, so no two lists hash alike
+            for part in [name, &contents[..]] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part);
+            }
+        }
+        Ok(Self {
+            sha,
+            dirty: true,
+            changes_blake3: Some(hasher.finalize().to_hex().to_string()),
+        })
     }
 }
 
@@ -261,7 +410,17 @@ pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
         .trim()
         .to_owned();
     // untracked files count: a workload could import one, under any name
-    let status = git_output(path, &["status", "--porcelain", "--", CORPORA_TREE])?;
+    // (listed whatever `status.showUntrackedFiles` says)
+    let status = git_output(
+        path,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+            "--",
+            CORPORA_TREE,
+        ],
+    )?;
     if !status.trim_ascii().is_empty() {
         return Err(BenchError::CorporaDirty {
             path: path.to_owned(),
@@ -290,6 +449,8 @@ pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, BenchErr
         .args(args)
         // a local `git replace` would change the objects behind a matching id
         .env("GIT_NO_REPLACE_OBJECTS", "1")
+        // a read never writes the index: the checkout may be another's, in use
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .output()
@@ -313,8 +474,6 @@ fn git_command(root: &Path, args: &[&str]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     fn metric(samples: Vec<u64>) -> Metric {
@@ -366,6 +525,14 @@ mod tests {
                 ("empty.js".to_owned(), "ef".repeat(32)),
                 ("shims/deno.js".to_owned(), "01".repeat(32)),
             ]),
+            checkouts: BTreeMap::from([(
+                "../zap".to_owned(),
+                CheckoutState {
+                    sha: "89abcdef0123456789abcdef0123456789abcdef".to_owned(),
+                    dirty: true,
+                    changes_blake3: Some("23".repeat(32)),
+                },
+            )]),
             rows: vec![RowRecord {
                 runtime: "node".to_owned(),
                 workload: "empty".to_owned(),
@@ -425,9 +592,10 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                4,
+                5,
                 vec![
                     "artifacts",
+                    "checkouts",
                     "config_hash",
                     "corpora",
                     "git",
@@ -443,6 +611,15 @@ mod tests {
             )
         );
         assert_eq!(value["record_version"], RECORD_VERSION);
+    }
+
+    #[test]
+    fn no_checkouts_leave_the_line_without_the_key() {
+        let mut record = record();
+        record.checkouts.clear();
+        let line = record.to_line();
+        assert!(!line.contains("checkouts"), "{line}");
+        assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
     }
 
     #[test]
@@ -526,6 +703,84 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
         assert!(!clean);
         assert!(dirty);
+    }
+
+    #[test]
+    fn a_checkout_state_names_its_changes() {
+        let (base, root) = git_checkout("gro_bench_git_checkout_state");
+        fs::write(root.join("tracked.txt"), "a").unwrap();
+        git(&root, &["add", "."]).unwrap();
+        commit(&root, &[], "add");
+        let found = checkout_root(&root.join("tracked.txt"));
+        let canonical = root.canonicalize().unwrap();
+        let clean = CheckoutState::read(&root).unwrap();
+        fs::write(root.join("tracked.txt"), "b").unwrap();
+        let edited = CheckoutState::read(&root).unwrap();
+        fs::write(root.join("new.txt"), "c").unwrap();
+        let untracked = CheckoutState::read(&root).unwrap();
+        // the same untracked file with other contents
+        fs::write(root.join("new.txt"), "d").unwrap();
+        let rewritten = CheckoutState::read(&root).unwrap();
+        let again = CheckoutState::read(&root).unwrap();
+        let outside = checkout_root(&base);
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(found, Some(canonical));
+        assert_eq!(outside, None);
+        assert_eq!(clean.sha.len(), 40);
+        assert!(!clean.dirty);
+        assert_eq!(clean.changes_blake3, None);
+        assert!(edited.dirty);
+        let hashes = [&edited, &untracked, &rewritten].map(|state| {
+            assert_eq!(state.sha, clean.sha);
+            state.changes_blake3.clone().unwrap()
+        });
+        assert_ne!(hashes[0], hashes[1]);
+        assert_ne!(hashes[1], hashes[2]);
+        assert_eq!(again, rewritten);
+    }
+
+    #[test]
+    fn a_checkouts_config_changes_neither_its_dirty_flag_nor_its_hash() {
+        let (base, root) = git_checkout("gro_bench_git_config");
+        fs::create_dir_all(root.join("collections")).unwrap();
+        fs::write(root.join("collections/x.ts"), "a\n\nb\n").unwrap();
+        fs::write(root.join("é.txt"), "a").unwrap();
+        git(&root, &["add", "."]).unwrap();
+        commit(&root, &[], "add");
+        let history = root.join("history.jsonl");
+        // only untracked changes first, then edits too
+        fs::write(root.join("collections/new.ts"), "c").unwrap();
+        let untracked_plain = CheckoutState::read(&root).unwrap();
+        fs::write(root.join("collections/x.ts"), "a\n\nB\n").unwrap();
+        fs::write(root.join("é.txt"), "b").unwrap();
+        let edited_plain = CheckoutState::read(&root).unwrap();
+        for setting in [
+            "status.showUntrackedFiles=no",
+            "core.quotePath=false",
+            "diff.suppressBlankEmpty=true",
+            "diff.noprefix=true",
+            "diff.algorithm=histogram",
+            "diff.context=9",
+            "diff.renames=copies",
+            // would run a program, and change the output, if it were honored
+            "diff.external=false",
+        ] {
+            let (key, value) = setting.split_once('=').unwrap();
+            git(&root, &["config", key, value]).unwrap();
+        }
+        let edited = CheckoutState::read(&root).unwrap();
+        // back to only the untracked file, which `status` now doesn't list
+        git(&root, &["checkout", "--quiet", "--", "."]).unwrap();
+        let untracked = CheckoutState::read(&root).unwrap();
+        let git_dirty = GitState::read(&root, &history).unwrap().dirty;
+        let corpora = read_corpora_tree(&root);
+        fs::remove_dir_all(&base).unwrap();
+        assert!(untracked.dirty);
+        assert_eq!(untracked, untracked_plain);
+        assert_eq!(edited, edited_plain);
+        assert_ne!(edited.changes_blake3, untracked.changes_blake3);
+        assert!(git_dirty);
+        assert!(matches!(corpora, Err(BenchError::CorporaDirty { .. })));
     }
 
     #[test]

@@ -7,6 +7,9 @@
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
 //! - [`collection`]: a fresh copy of one collection of the pinned corpora,
 //!   for workloads that run inside the collection's own root
+//! - [`project`]: a fresh copy of a committed project with a generated
+//!   `node_modules`, for workloads that run inside a project
+//! - [`check`]: the untimed correctness run's checks of a row's stdout
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,
 //!   with an A/A noise row, and refuses a run whose artifacts changed
 //! - [`schedule`]: the interleaved order of a run's samples
@@ -16,8 +19,10 @@
 //!
 //! `cargo xtask bench <suite.json>` runs a suite and appends its record.
 
+pub mod check;
 pub mod collection;
 pub mod error;
+pub mod project;
 pub mod record;
 pub mod run;
 pub mod schedule;

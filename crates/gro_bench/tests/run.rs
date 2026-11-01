@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use gro_bench::error::BenchError;
 use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run};
-use gro_bench::suite::{Arg, Cold, CorporaPin, FileArg, Runtime, Suite, Workload};
+use gro_bench::suite::{Arg, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload};
 
 fn context() -> RunContext {
     RunContext {
@@ -47,6 +47,8 @@ fn sh(args: Vec<Arg>) -> Runtime {
         v8_args: None,
         env: BTreeMap::new(),
         cold: None,
+        stdin: None,
+        stdout: None,
     }
 }
 
@@ -65,9 +67,12 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
                 cold: false,
                 weight: 1,
                 collection: None,
+                project: None,
             })
             .collect(),
         corpora: None,
+        parity: Vec::new(),
+        gate: None,
     }
 }
 
@@ -139,18 +144,275 @@ fn a_changed_artifact_discards_the_run() {
 
 #[test]
 fn a_failing_process_fails_the_run() {
-    let dir = scratch("failing", &[("fails.sh", "exit 3\n")]);
-    let suite = suite(vec![sh(Vec::new())], &["fails.sh"], 2);
-    let error = run_in(&dir, &suite).unwrap_err();
+    // the untimed correctness run catches a row that always fails
+    let dir = scratch(
+        "failing",
+        &[("fails.sh", "echo out; echo err >&2; exit 3\n")],
+    );
+    let fails = suite(vec![sh(Vec::new())], &["fails.sh"], 2);
+    let error = run_in(&dir, &fails).unwrap_err();
+    match &error {
+        BenchError::CheckFailed { command, reason } => {
+            assert!(command.ends_with("fails.sh"), "{command}");
+            assert!(reason.contains("exit status: 3"), "{reason}");
+            assert!(reason.contains("stdout: out; stderr: err"), "{reason}");
+        }
+        other => panic!("expected CheckFailed, got {other:?}"),
+    }
+    // re-running unchanged fails the same way
+    assert!(error.is_input_error());
+
+    // and a timed process that fails after the check passed fails the run too
+    let dir = scratch(
+        "failing_later",
+        &[("later.sh", "test -e \"$0.ran\" && exit 3; : > \"$0.ran\"\n")],
+    );
+    let later = suite(vec![sh(Vec::new())], &["later.sh"], 2);
+    let error = run_in(&dir, &later).unwrap_err();
     match &error {
         BenchError::CommandFailed { command, status } => {
-            assert!(command.ends_with("fails.sh"), "{command}");
+            assert!(command.ends_with("later.sh"), "{command}");
             assert_eq!(status.code(), Some(3));
         }
         other => panic!("expected CommandFailed, got {other:?}"),
     }
-    // re-running unchanged fails the same way
     assert!(error.is_input_error());
+}
+
+/// Every process reads the runtime's `stdin` file from its start, the
+/// correctness run's, the warmups', and each sample's, and the file is
+/// hashed as an artifact.
+#[test]
+fn each_process_reads_the_runtime_stdin_afresh() {
+    let dir = scratch(
+        "stdin",
+        &[
+            ("reads.sh", "read -r line && test \"$line\" = hello\n"),
+            ("in.txt", "hello\nworld\n"),
+        ],
+    );
+    let mut runtime = sh(Vec::new());
+    runtime.stdin = Some(FileArg {
+        file: PathBuf::from("in.txt"),
+    });
+    let record = run_in(&dir, &suite(vec![runtime.clone()], &["reads.sh"], 4)).unwrap();
+    assert_eq!(record.rows[0].wall_ns.samples.len(), 4);
+    assert_eq!(
+        record.artifacts.keys().collect::<Vec<_>>(),
+        ["in.txt", "reads.sh"]
+    );
+    // without it, stdin is the null device, and the read fails
+    let dir = scratch("no_stdin", &[("reads.sh", "read -r line\n")]);
+    runtime.stdin = None;
+    let error = run_in(&dir, &suite(vec![runtime], &["reads.sh"], 2)).unwrap_err();
+    assert!(matches!(error, BenchError::CheckFailed { .. }), "{error:?}");
+}
+
+/// A runtime printing `stdout` as `sh -c` does, its script argument unused.
+fn printing(name: &str, stdout: &str, check: Stdout) -> Runtime {
+    let mut runtime = sh(vec![
+        Arg::Text("-c".to_owned()),
+        Arg::Text(format!("printf '%s' '{stdout}'")),
+    ]);
+    name.clone_into(&mut runtime.name);
+    runtime.stdout = Some(check);
+    runtime
+}
+
+#[test]
+fn the_correctness_run_checks_stdout_and_parity() {
+    let envelope = r#"{"ok": true, "value": {"a": [1, {"b": "c"}]}}"#;
+    let json = r#"{"a": [1, {"b": "c"}]}"#;
+    let other = r#"{"a": [1, {"b": "d"}]}"#;
+    let run_with = |test: &str, runtimes: Vec<Runtime>, parity: &[&str]| {
+        let dir = scratch(test, &[("w.sh", "")]);
+        let mut suite = suite(runtimes, &["w.sh"], 2);
+        suite.parity = parity.iter().map(|name| (*name).to_owned()).collect();
+        run_in(&dir, &suite)
+    };
+    // an envelope's value equal to another runtime's JSON
+    let equal = vec![
+        printing("fgro", envelope, Stdout::Envelope),
+        printing("deno", json, Stdout::Json),
+    ];
+    assert!(run_with("parity_equal", equal, &["fgro", "deno"]).is_ok());
+    // a value that differs, named where
+    let differ = vec![
+        printing("fgro", envelope, Stdout::Envelope),
+        printing("deno", other, Stdout::Json),
+    ];
+    let error = run_with("parity_differs", differ.clone(), &["fgro", "deno"]).unwrap_err();
+    match &error {
+        BenchError::ParityMismatch {
+            workload,
+            runtime,
+            against,
+            difference,
+        } => {
+            assert_eq!(
+                (workload.as_str(), runtime.as_str(), against.as_str()),
+                ("w", "deno", "fgro")
+            );
+            assert_eq!(
+                (
+                    difference.at.as_str(),
+                    difference.a.as_str(),
+                    difference.b.as_str()
+                ),
+                (r#"$["a"][1]["b"]"#, r#""d""#, r#""c""#)
+            );
+            assert!(
+                error
+                    .to_string()
+                    .ends_with(r#"at $["a"][1]["b"]: "d" against "c""#),
+                "{error}"
+            );
+        }
+        other => panic!("expected ParityMismatch, got {other:?}"),
+    }
+    assert!(error.is_input_error());
+    // with no parity, differing values are fine
+    assert!(run_with("parity_none", differ, &[]).is_ok());
+    // an envelope that isn't ok, and stdout that isn't JSON
+    let not_ok = printing(
+        "fgro",
+        r#"{"ok": false, "error": {"kind": "resolve"}}"#,
+        Stdout::Envelope,
+    );
+    let error = run_with("not_ok", vec![not_ok], &[]).unwrap_err();
+    assert!(
+        matches!(error, BenchError::CheckFailed { ref reason, .. } if reason.contains("resolve")),
+        "{error:?}"
+    );
+    let not_json = printing("deno", "nope", Stdout::Json);
+    let error = run_with("not_json", vec![not_json], &[]).unwrap_err();
+    assert!(
+        matches!(error, BenchError::CheckFailed { ref reason, .. } if reason.contains("isn't one JSON value")),
+        "{error:?}"
+    );
+}
+
+/// Runs `git -C dir` with `args`, with a throwaway identity and no signing,
+/// and returns its trimmed stdout.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// Makes `dir` a git checkout with everything in it committed.
+fn commit_all(dir: &Path) {
+    git(dir, &["init", "--quiet"]);
+    git(dir, &["add", "."]);
+    git(dir, &["commit", "--quiet", "-m", "init"]);
+}
+
+/// A project workload runs its script from a fresh copy holding the
+/// committed files, the stubs, and the links.
+#[cfg(unix)]
+#[test]
+fn a_project_workload_runs_from_a_fresh_copy() {
+    // it runs only beside its copy's node_modules, with the stubs and the link
+    let entry = "cd \"$(dirname \"$0\")\" && test -f node_modules/stub_0001/package.json \
+        && test ! -e node_modules/stub_0002 && test -f node_modules/linked/marker \
+        && test -f lib/x.sh\n";
+    let dir = scratch("project", &[]);
+    fs::create_dir_all(dir.join("p/lib")).unwrap();
+    fs::write(dir.join("p/main.sh"), entry).unwrap();
+    fs::write(dir.join("p/lib/x.sh"), "").unwrap();
+    fs::create_dir_all(dir.join("checkout")).unwrap();
+    fs::write(dir.join("checkout/marker"), "").unwrap();
+    commit_all(&dir.join("checkout"));
+    let sha = git(&dir.join("checkout"), &["rev-parse", "HEAD"]);
+    let mut suite = suite(vec![sh(Vec::new())], &["p/main.sh"], 2);
+    suite.workloads[0].name = "proj".to_owned();
+    suite.workloads[0].project = Some(Project {
+        dir: PathBuf::from("p"),
+        stub_packages: 2,
+        links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
+    });
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    let record = run(&suite, &dir, context.clone()).unwrap();
+    let copied = dir.join("work/projects/proj/main.sh").is_file();
+    // a link outside any git checkout is refused, since nothing names its code
+    fs::create_dir_all(dir.join("plain")).unwrap();
+    fs::write(dir.join("plain/marker"), "").unwrap();
+    suite.workloads[0].project.as_mut().unwrap().links =
+        BTreeMap::from([("linked".to_owned(), PathBuf::from("plain"))]);
+    let unversioned = run(&suite, &dir, context.clone()).unwrap_err();
+    // a missing checkout fails before anything runs
+    suite.workloads[0].project.as_mut().unwrap().links =
+        BTreeMap::from([("linked".to_owned(), PathBuf::from("gone"))]);
+    let missing = run(&suite, &dir, context).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(copied);
+    assert_eq!(record.rows.len(), 1);
+    assert_eq!(record.artifacts.keys().collect::<Vec<_>>(), ["p/main.sh"]);
+    // the link's checkout, by its path as the suite writes it
+    let state = &record.checkouts["checkout"];
+    assert_eq!(
+        (state.sha.as_str(), state.dirty, &state.changes_blake3),
+        (sha.as_str(), false, &None)
+    );
+    assert!(
+        matches!(unversioned, BenchError::ProjectLinkUnversioned { .. }),
+        "{unversioned:?}"
+    );
+    assert!(unversioned.is_input_error());
+    assert!(
+        matches!(missing, BenchError::ProjectLinkMissing { ref package, .. } if package == "linked"),
+        "{missing:?}"
+    );
+    assert!(missing.is_input_error());
+}
+
+/// A change to a linked checkout during the run discards it, even when the
+/// checkout was dirty already and only an untracked file's contents move.
+#[cfg(unix)]
+#[test]
+fn a_linked_checkout_changing_mid_run_discards_it() {
+    let dir = scratch("checkout_moves", &[]);
+    fs::create_dir_all(dir.join("p")).unwrap();
+    fs::create_dir_all(dir.join("checkout")).unwrap();
+    fs::write(dir.join("checkout/tracked"), "").unwrap();
+    commit_all(&dir.join("checkout"));
+    fs::write(dir.join("checkout/notes"), "").unwrap();
+    // each process appends to the untracked file through the link
+    fs::write(
+        dir.join("p/main.sh"),
+        "cd \"$(dirname \"$0\")\" && echo x >> node_modules/linked/notes\n",
+    )
+    .unwrap();
+    let mut suite = suite(vec![sh(Vec::new())], &["p/main.sh"], 2);
+    suite.workloads[0].name = "proj".to_owned();
+    suite.workloads[0].project = Some(Project {
+        dir: PathBuf::from("p"),
+        stub_packages: 0,
+        links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
+    });
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    let error = run(&suite, &dir, context).unwrap_err();
+    let checkout = dir.join("checkout").canonicalize().unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    match &error {
+        BenchError::ArtifactsChanged { paths } => assert_eq!(paths, &[checkout]),
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
 }
 
 #[test]

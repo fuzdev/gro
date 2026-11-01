@@ -44,6 +44,18 @@
 //! the collection's own root. The command still runs from the suite file's
 //! directory.
 //!
+//! A workload can instead name a `project`, a committed directory holding its
+//! script: the run writes a fresh copy of it, with a generated
+//! `node_modules` of stub packages and links to sibling checkouts
+//! ([`project`](crate::project)), and runs the script from the copy.
+//!
+//! A runtime can read a file on stdin (`stdin`, opened fresh for each
+//! process), and can say what its stdout holds (`stdout`): before any timed
+//! sample, each row runs once, untimed, and must exit successfully with
+//! stdout of that shape, or the run fails. A suite's `parity` names runtimes
+//! whose stdout values must be equal on every workload, and its `gate` names
+//! the rows judged against an incumbent; every other row is reported only.
+//!
 //! Everything runtime-specific (a flag, a variable, a shim file) sits in the
 //! runtime's entry and counts against that runtime; workload scripts are web
 //! standards only, run unmodified by every runtime.
@@ -82,6 +94,42 @@ pub struct Suite {
     /// change (and a version bump), never a silent one.
     #[serde(default)]
     pub corpora: Option<CorporaPin>,
+    /// Runtimes whose stdout values ([`Stdout`]) must be equal on every
+    /// workload, checked on the untimed run before any sample: the run fails
+    /// naming the workload and where the values first differ. Absent or
+    /// empty serializes as no key, like every field added to the suite since
+    /// the first record, so an older suite's config hash doesn't move.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parity: Vec<String>,
+    /// The rows judged against an incumbent in the report. Without one, the
+    /// report gates each `fgro` row against Node; with one, only the rows it
+    /// names, and every other row is reported only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Gate>,
+}
+
+/// Which rows a suite judges, and against which runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Gate {
+    /// The incumbent each gated row is judged against, on the same workload.
+    pub against: String,
+    /// The runtimes judged.
+    pub runtimes: Vec<String>,
+    /// The workloads they're judged on; their other workloads are reported
+    /// only.
+    pub workloads: Vec<String>,
+}
+
+/// What a runtime's stdout holds, checked on each row's untimed run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stdout {
+    /// One `fgro eval` envelope with `ok: true`; its value is the envelope's
+    /// `value`.
+    Envelope,
+    /// One JSON value, which is its value.
+    Json,
 }
 
 /// A pinned corpora checkout, a clone of `fuzdev/corpora`.
@@ -128,6 +176,15 @@ pub struct Runtime {
     /// each runtime states how it goes cold.
     #[serde(default)]
     pub cold: Option<Cold>,
+    /// A file every process of the runtime reads on stdin, hashed as an
+    /// artifact and opened fresh for each process before its timed span.
+    /// Absent, stdin is the null device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<FileArg>,
+    /// What the runtime's stdout holds, checked once per row before the
+    /// samples. Absent, only the exit status is checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<Stdout>,
 }
 
 /// What a cold row adds to the runtime's command.
@@ -201,6 +258,31 @@ pub struct Workload {
     /// suite that names none doesn't depend on the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
+    /// A committed project the workload runs inside: the run copies it fresh,
+    /// writes its `node_modules`, and runs the script from the copy. The
+    /// script is a file inside the project's directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<Project>,
+}
+
+/// A workload's project, `{"dir": …, "stub_packages": N, "links": {…}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Project {
+    /// The committed directory, relative to the suite file's directory,
+    /// holding the project's own files and no `node_modules`.
+    pub dir: PathBuf,
+    /// How many stub packages the copy's `node_modules` holds: directories
+    /// each holding only a `package.json` with a name, `"type": "module"`,
+    /// and `"exports"`, so a runtime that walks `node_modules` has the
+    /// breadth of a real project's to walk.
+    #[serde(default)]
+    pub stub_packages: u32,
+    /// Packages linked into the copy's `node_modules`, by package name (`a`
+    /// or `@scope/a`), each a symlink to a checkout given relative to the
+    /// suite file's directory. A missing checkout fails the run.
+    #[serde(default)]
+    pub links: BTreeMap<String, PathBuf>,
 }
 
 const fn default_weight() -> u32 {
@@ -237,8 +319,9 @@ impl Suite {
 
     /// Checks what the types can't: something to run, an even sample count,
     /// unique names, a `cold` entry on every runtime when a workload is cold,
-    /// and workload collections that name a corpora pin's directory, each with
-    /// one script per entry file name.
+    /// workload projects that hold their scripts, workload collections that
+    /// name a corpora pin's directory, each with one script per entry file
+    /// name, and `parity` and `gate` naming what the suite has.
     ///
     /// # Errors
     ///
@@ -265,7 +348,111 @@ impl Suite {
                 workload.name, runtime.name
             )));
         }
-        self.validate_collections()
+        self.validate_projects()?;
+        self.validate_collections()?;
+        self.validate_checks()
+    }
+
+    /// Checks each workload's `project`: no `collection` beside it, a name
+    /// that's one plain path segment (it names the copy), a script inside
+    /// its directory by plain segments, and links naming packages.
+    fn validate_projects(&self) -> Result<(), BenchError> {
+        for workload in &self.workloads {
+            let Some(project) = &workload.project else {
+                continue;
+            };
+            let invalid = |problem: String| {
+                Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` {problem}",
+                    workload.name
+                )))
+            };
+            if workload.collection.is_some() {
+                return invalid("names both a collection and a project".to_owned());
+            }
+            if !is_plain_segment(&workload.name) {
+                return invalid(
+                    "has a project, so its name must be a single directory name".to_owned(),
+                );
+            }
+            let inside = workload
+                .script
+                .strip_prefix(&project.dir)
+                .ok()
+                .filter(|rest| is_plain_relative(rest));
+            if inside.is_none() {
+                return invalid(format!(
+                    "has the script `{}`, which isn't a file inside its project `{}`",
+                    workload.script.display(),
+                    project.dir.display()
+                ));
+            }
+            for name in project.links.keys() {
+                if !is_package_name(name) {
+                    return invalid(format!(
+                        "links `{name}`, which isn't a package name (`a` or `@scope/a`)"
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks the names `parity` and `gate` use: known runtimes and
+    /// workloads, each once, parity's runtimes each with a `stdout`, and a
+    /// gate's incumbent not among the runtimes it judges.
+    fn validate_checks(&self) -> Result<(), BenchError> {
+        let runtime = |name: &str| self.runtimes.iter().find(|r| r.name == name);
+        let unknown = |kind: &str, name: &str, field: &str| {
+            Err(BenchError::SuiteInvalid(format!(
+                "`{field}` names the {kind} `{name}`, which the suite doesn't have"
+            )))
+        };
+        if !self.parity.is_empty() {
+            if self.parity.len() < 2 {
+                return Err(BenchError::SuiteInvalid(
+                    "`parity` compares runtimes, so it names at least two".to_owned(),
+                ));
+            }
+            unique("parity runtime", self.parity.iter().map(String::as_str))?;
+            for name in &self.parity {
+                match runtime(name) {
+                    None => return unknown("runtime", name, "parity"),
+                    Some(found) if found.stdout.is_none() => {
+                        return Err(BenchError::SuiteInvalid(format!(
+                            "`parity` compares the runtime `{name}`, which has no `stdout` saying what its value is"
+                        )));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        if let Some(gate) = &self.gate {
+            for name in std::iter::once(&gate.against).chain(&gate.runtimes) {
+                if runtime(name).is_none() {
+                    return unknown("runtime", name, "gate");
+                }
+            }
+            for name in &gate.workloads {
+                if !self.workloads.iter().any(|w| &w.name == name) {
+                    return unknown("workload", name, "gate");
+                }
+            }
+            unique("gate runtime", gate.runtimes.iter().map(String::as_str))?;
+            unique("gate workload", gate.workloads.iter().map(String::as_str))?;
+            if gate.runtimes.is_empty() || gate.workloads.is_empty() {
+                return Err(BenchError::SuiteInvalid(
+                    "`gate` names at least one runtime and one workload".to_owned(),
+                ));
+            }
+            if gate.runtimes.contains(&gate.against) {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "`gate` judges the runtime `{}` against itself",
+                    gate.against
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Checks each workload's `collection`: it needs the suite's `corpora`, it
@@ -332,6 +519,29 @@ impl Suite {
 /// with no separator.
 fn is_plain_segment(name: &str) -> bool {
     !matches!(name, "" | "." | "..") && !name.contains(['/', '\\', '\0'])
+}
+
+/// Whether `path` is one or more plain segments, with no root, `.`, or `..`.
+fn is_plain_relative(path: &Path) -> bool {
+    path.components().next().is_some()
+        && path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+}
+
+/// Whether `name` is a package name as a `node_modules` path spells it: one
+/// plain segment, or `@scope/` then one, never starting with `.`.
+pub(crate) fn is_package_name(name: &str) -> bool {
+    let segment =
+        |part: &str| is_plain_segment(part) && !part.starts_with('.') && !part.starts_with('@');
+    name.strip_prefix('@').map_or_else(
+        || segment(name),
+        |scoped| {
+            scoped
+                .split_once('/')
+                .is_some_and(|(scope, rest)| segment(scope) && segment(rest))
+        },
+    )
 }
 
 fn unique<'a>(kind: &str, names: impl Iterator<Item = &'a str>) -> Result<(), BenchError> {
@@ -573,6 +783,140 @@ mod tests {
                     "{import}"
                 );
             }
+        }
+    }
+
+    /// The baseline suite's config hash is the one its records carry: the
+    /// fields added since serialize as no key when absent.
+    #[test]
+    fn absent_checks_leave_the_config_hash_alone() {
+        let json = r#"{"name":"s","version":1,"samples":4,
+            "runtimes":[{"name":"r","program":"r"}],"workloads":[{"name":"w","script":"w.js"}]}"#;
+        let suite = parse(json).unwrap();
+        let value = serde_json::to_value(&suite).unwrap();
+        for key in ["parity", "gate"] {
+            assert!(value.get(key).is_none(), "{value}");
+        }
+        for key in ["stdin", "stdout"] {
+            assert!(value["runtimes"][0].get(key).is_none(), "{value}");
+        }
+        assert!(value["workloads"][0].get("project").is_none(), "{value}");
+    }
+
+    #[test]
+    fn parity_and_gate_name_what_the_suite_has() {
+        let suite = |extra: &str| {
+            format!(
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [
+                        {{"name": "fgro", "program": "f", "stdin": {{"file": "d.js"}}, "stdout": "envelope"}},
+                        {{"name": "deno", "program": "d", "stdout": "json"}},
+                        {{"name": "box", "program": "f"}}
+                    ],
+                    "workloads": [{{"name": "w", "script": "w.js"}}, {{"name": "v", "script": "v.js"}}]{extra}}}"#
+            )
+        };
+        let parsed = parse(&suite(
+            r#", "parity": ["fgro", "deno"], "gate": {"against": "deno", "runtimes": ["fgro"], "workloads": ["w"]}"#,
+        ))
+        .unwrap();
+        assert_eq!(parsed.runtimes[0].stdout, Some(Stdout::Envelope));
+        assert_eq!(
+            parsed.runtimes[0].stdin,
+            Some(FileArg {
+                file: PathBuf::from("d.js")
+            })
+        );
+        assert_eq!(parsed.parity, ["fgro", "deno"]);
+        assert_eq!(parsed.gate.as_ref().unwrap().against, "deno");
+        for (extra, says) in [
+            (r#", "parity": ["fgro"]"#, "at least two"),
+            (r#", "parity": ["fgro", "nope"]"#, "`nope`"),
+            (r#", "parity": ["fgro", "box"]"#, "no `stdout`"),
+            (r#", "parity": ["fgro", "fgro"]"#, "used twice"),
+            (
+                r#", "gate": {"against": "nope", "runtimes": ["fgro"], "workloads": ["w"]}"#,
+                "`nope`",
+            ),
+            (
+                r#", "gate": {"against": "deno", "runtimes": ["fgro"], "workloads": ["x"]}"#,
+                "`x`",
+            ),
+            (
+                r#", "gate": {"against": "deno", "runtimes": ["deno"], "workloads": ["w"]}"#,
+                "against itself",
+            ),
+            (
+                r#", "gate": {"against": "deno", "runtimes": [], "workloads": ["w"]}"#,
+                "at least one",
+            ),
+        ] {
+            assert!(
+                matches!(parse(&suite(extra)), Err(BenchError::SuiteInvalid(ref message)) if message.contains(says)),
+                "{extra}"
+            );
+        }
+        assert!(matches!(
+            parse(&suite(r#", "runtimes": []"#)),
+            Err(BenchError::SuiteParse { .. })
+        ));
+    }
+
+    #[test]
+    fn a_project_holds_its_script_and_names_its_links() {
+        let suite = |workload: &str| {
+            format!(
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [{{"name": "r", "program": "r"}}],
+                    "workloads": [{workload}]}}"#
+            )
+        };
+        let parsed = parse(&suite(
+            r#"{"name": "w", "script": "p/src/zap.ts", "project": {"dir": "p", "stub_packages": 3, "links": {"@a/b": "../b", "c": "../c"}}}"#,
+        ))
+        .unwrap();
+        let project = parsed.workloads[0].project.as_ref().unwrap();
+        assert_eq!(project.stub_packages, 3);
+        assert_eq!(project.links.len(), 2);
+        for (workload, says) in [
+            (
+                r#"{"name": "w", "script": "q/zap.ts", "project": {"dir": "p"}}"#,
+                "inside its project",
+            ),
+            (
+                r#"{"name": "w", "script": "p", "project": {"dir": "p"}}"#,
+                "inside its project",
+            ),
+            (
+                r#"{"name": "w", "script": "p/../q.ts", "project": {"dir": "p"}}"#,
+                "inside its project",
+            ),
+            (
+                r#"{"name": "a/b", "script": "p/z.ts", "project": {"dir": "p"}}"#,
+                "single directory name",
+            ),
+            (
+                r#"{"name": "w", "script": "p/z.ts", "project": {"dir": "p", "links": {"@a": "x"}}}"#,
+                "package name",
+            ),
+            (
+                r#"{"name": "w", "script": "p/z.ts", "project": {"dir": "p", "links": {".bin": "x"}}}"#,
+                "package name",
+            ),
+            (
+                r#"{"name": "w", "script": "p/z.ts", "project": {"dir": "p", "links": {"a/b": "x"}}}"#,
+                "package name",
+            ),
+            (
+                r#"{"name": "w", "script": "p/z.ts", "collection": "c", "project": {"dir": "p"}}"#,
+                "both",
+            ),
+        ] {
+            assert!(
+                matches!(parse(&suite(workload)), Err(BenchError::SuiteInvalid(ref message)) if message.contains(says)),
+                "{workload}: {:?}",
+                parse(&suite(workload))
+            );
         }
     }
 

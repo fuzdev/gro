@@ -46,8 +46,10 @@
 //! cache hit and doesn't load the machine just before timing. After the
 //! summary it prints each `fgro` row's median against its gate row (warm
 //! rows against `node_compile_cache`, cold ones against `node`, `deno`
-//! beside), a report that fails nothing. A failed run records nothing, and
-//! its exit code says what the caller must do:
+//! beside), or, for a suite with its own `gate`, each of the gate's runtimes
+//! against its incumbent, every row it doesn't name marked reported only: a
+//! report that fails nothing. A failed run records nothing, and its exit
+//! code says what the caller must do:
 //!
 //! - `0`: the run's record was appended
 //! - `2`: change something before re-running, since unchanged it fails the
@@ -57,11 +59,16 @@
 //!   corpora checkout isn't at its pinned tree or has local changes, a
 //!   collection a workload names isn't in the pinned tree or holds a
 //!   symlink, a submodule, or a name that isn't UTF-8, a workload's entry
-//!   would replace a file of its collection, `--history` is empty, names a
-//!   directory, or names no file in an existing directory, or the `fgro` it
-//!   names isn't the release snapshot build (or that build failed)
-//! - `1`: anything else, such as an artifact changing mid-run or a failed
-//!   write
+//!   would replace a file of its collection, a workload's project holds a
+//!   symlink or a `node_modules` or links a missing checkout or a directory
+//!   in no git checkout, a row's
+//!   untimed correctness run fails (a nonzero exit, or stdout not what its
+//!   runtime's `stdout` says) or breaks the suite's `parity`, `--history` is
+//!   empty, names a directory, or names no file in an existing directory, or
+//!   the `fgro` it names isn't the release snapshot build (or that build
+//!   failed)
+//! - `1`: anything else, such as an artifact or a linked checkout changing
+//!   mid-run or a failed write
 //!
 //! A usage error (an unknown subcommand or flag, a missing argument) exits
 //! `2` as well, printing to stderr; `--help` prints to stdout and exits `0`.
@@ -77,7 +84,7 @@ use argh::{EarlyExit, FromArgs};
 use gro_bench::error::BenchError;
 use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{RunContext, run as run_suite};
-use gro_bench::suite::{Runtime, Suite};
+use gro_bench::suite::{Gate, Runtime, Suite};
 
 mod snapshot;
 mod v8_archive;
@@ -555,11 +562,16 @@ const GATE_COLD: &str = "node";
 /// Reported beside the gate.
 const BESIDE: &str = "deno";
 
-/// Prints each `fgro` row's median ([`is_fgro`] runtimes only) against its
-/// gate row's, same-session: warm rows gate against Node with its compile
-/// cache, cold rows against plain Node, with Deno beside. Report only;
-/// nothing fails on it.
+/// Prints the gate table, report only; nothing fails on it: the suite's own
+/// `gate` when it has one ([`print_suite_gate`]), else each `fgro` row's
+/// median ([`is_fgro`] runtimes only) against its gate row's, same-session:
+/// warm rows gate against Node with its compile cache, cold rows against
+/// plain Node, with Deno beside.
 fn print_gate(suite: &Suite, record: &RunRecord) {
+    if let Some(gate) = &suite.gate {
+        print_suite_gate(suite, gate, record);
+        return;
+    }
     let median = |runtime: &str, workload: &str| {
         record
             .rows
@@ -599,6 +611,69 @@ fn print_gate(suite: &Suite, record: &RunRecord) {
     );
     for line in lines {
         println!("{line}");
+    }
+    println!(
+        "(medians, same session; the noise row ({} {} against its copy) sat {:.2}% apart, and each row's mad above bounds its own spread)",
+        record.noise.runtime,
+        record.noise.workload,
+        record.noise.median_deviation * 100.0
+    );
+}
+
+/// The median of the row `runtime` × `workload`, in milliseconds.
+fn median_ms(record: &RunRecord, runtime: &str, workload: &str) -> Option<f64> {
+    record
+        .rows
+        .iter()
+        .find(|row| row.runtime == runtime && row.workload == workload)
+        .map(|row| row.wall_ns.stats.median / 1e6)
+}
+
+/// Prints a suite's own `gate`: each of its runtimes on every workload
+/// against `gate.against`, marked `gate` on the workloads it names and
+/// `report` on the rest, then the runtimes reported only. Report only.
+fn print_suite_gate(suite: &Suite, gate: &Gate, record: &RunRecord) {
+    let ms =
+        |value: Option<f64>| value.map_or_else(|| "-".to_owned(), |value| format!("{value:.3}"));
+    println!(
+        "\n{:<10} {:<16} {:>10} {:<10} {:>10} {:>9} {:<6}",
+        "runtime", "workload", "median ms", "against", "its ms", "x it", "row"
+    );
+    for runtime in &gate.runtimes {
+        for workload in &suite.workloads {
+            let median = median_ms(record, runtime, &workload.name);
+            let against = median_ms(record, &gate.against, &workload.name);
+            let ratio = median
+                .zip(against)
+                .map_or_else(|| "-".to_owned(), |(a, b)| format!("{:.2}x", a / b));
+            let role = if gate.workloads.contains(&workload.name) {
+                "gate"
+            } else {
+                "report"
+            };
+            println!(
+                "{:<10} {:<16} {:>10} {:<10} {:>10} {:>9} {:<6}",
+                runtime,
+                workload.name,
+                ms(median),
+                gate.against,
+                ms(against),
+                ratio,
+                role,
+            );
+        }
+    }
+    let reported: Vec<&str> = suite
+        .runtimes
+        .iter()
+        .map(|runtime| runtime.name.as_str())
+        .filter(|name| *name != gate.against && !gate.runtimes.iter().any(|gated| gated == name))
+        .collect();
+    if !reported.is_empty() {
+        println!(
+            "reported only, in the summary above: {}",
+            reported.join(", ")
+        );
     }
     println!(
         "(medians, same session; the noise row ({} {} against its copy) sat {:.2}% apart, and each row's mad above bounds its own spread)",
@@ -754,6 +829,8 @@ fn relative(root: &Path, path: &Path) -> String {
 mod tests {
     use std::process::ExitStatus;
 
+    use gro_bench::check::Difference;
+
     use super::*;
 
     #[test]
@@ -900,6 +977,36 @@ mod tests {
             },
             BenchError::NoVersion {
                 command: "c".to_owned(),
+            },
+            BenchError::ProjectLinkMissing {
+                workload: "w".to_owned(),
+                package: "p".to_owned(),
+                path: path(),
+                source: io_error(),
+            },
+            BenchError::ProjectLinkUnversioned {
+                workload: "w".to_owned(),
+                package: "p".to_owned(),
+                path: path(),
+            },
+            BenchError::ProjectEntry {
+                workload: "w".to_owned(),
+                path: path(),
+                reason: "r".to_owned(),
+            },
+            BenchError::CheckFailed {
+                command: "c".to_owned(),
+                reason: "r".to_owned(),
+            },
+            BenchError::ParityMismatch {
+                workload: "w".to_owned(),
+                runtime: "a".to_owned(),
+                against: "b".to_owned(),
+                difference: Box::new(Difference {
+                    at: "$".to_owned(),
+                    a: "1".to_owned(),
+                    b: "2".to_owned(),
+                }),
             },
             BenchError::CollectionNotFound {
                 corpora: path(),
