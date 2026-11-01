@@ -302,7 +302,8 @@ so each piece can be rewritten on its own as measurements justify it.
   Built so far for `fgro eval` alone, with no grants to enforce yet: its box reads file contents only under its project
   and the packages linked into it, though a path's metadata (whether it exists, its `stat`, a symlink's target) stays readable everywhere;
   it writes to no file and changes no file's metadata, executes nothing, reaches no network,
-  and signals no process outside it nor sets one's limits, priority, or scheduling ([eval](eval.md#the-box)).
+  signals no process outside it nor sets one's limits, priority, or scheduling,
+  and keeps no descriptor it inherited beyond stdin, stdout, and stderr ([eval](eval.md#the-box)).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.

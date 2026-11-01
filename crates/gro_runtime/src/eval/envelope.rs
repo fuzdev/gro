@@ -115,8 +115,9 @@ pub enum ErrorKind {
     Heap,
     /// The run passed its timeout and was stopped.
     Timeout,
-    /// The process's environment can't give the same result everywhere:
-    /// its time zone isn't UTC.
+    /// The process's environment can't give the same result everywhere, or
+    /// can't hold the eval: its time zone isn't UTC, the descriptors it
+    /// inherited can't be closed, or the host can't hold the box.
     Environment,
     /// The host failed: a module changed on disk between resolving and
     /// loading, a read failed, or the host broke one of its own invariants.

@@ -33,9 +33,12 @@
 //! rather than overflowing the stack.
 //!
 //! `eval` keeps its process confinable: the main thread parses the
-//! arguments and reads the driver from stdin, the working directory, and the
-//! out-of-memory handle; a thread with [`STACK_SIZE`] reserved resolves the
-//! entry and computes the box (`gro_runtime::eval::prepass`) and is joined;
+//! arguments, closes every file descriptor above stderr the process
+//! inherited (which the box, gating only new opens, wouldn't reach; failing
+//! that, eval fails as `environment`), and reads the driver from stdin, the
+//! working directory, and the out-of-memory handle; a thread with
+//! [`STACK_SIZE`] reserved resolves the entry and computes the box
+//! (`gro_runtime::eval::prepass`) and is joined;
 //! the main thread, then the process's only one, confines it
 //! (`gro_runtime::confine`); and only then does a second thread with
 //! [`STACK_SIZE`] reserved start the engine and evaluate, so every thread
@@ -422,11 +425,12 @@ fn run(args: &[&str]) -> u8 {
     }
 }
 
-/// Runs `fgro eval` on the main thread: checks the flags, reads the driver
-/// from stdin when asked, resolves the entry and computes the box on a thread
-/// of its own, confines the process, evaluates on eval's engine on another
-/// thread, and prints the envelope to stdout, returning the exit code. A usage
-/// error prints to stderr with no envelope.
+/// Runs `fgro eval` on the main thread: checks the flags, closes the
+/// descriptors the process inherited, reads the driver from stdin when asked,
+/// resolves the entry and computes the box on a thread of its own, confines
+/// the process, evaluates on eval's engine on another thread, and prints the
+/// envelope to stdout, returning the exit code. A usage error prints to stderr
+/// with no envelope.
 fn eval(args: EvalArgs) -> u8 {
     let EvalArgs {
         module,
@@ -460,6 +464,9 @@ fn eval(args: EvalArgs) -> u8 {
             return EXIT_USAGE;
         }
     }
+    // first, before the process opens anything: a descriptor it inherited
+    // would reach past the box, which gates only new opens
+    let closed = close_inherited();
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -478,6 +485,13 @@ fn eval(args: EvalArgs) -> u8 {
             .ok()
             .map(|fd| Arc::new(File::from(fd))),
     };
+    if let Err(error) = closed {
+        let error = EvalError::new(
+            ErrorKind::Environment,
+            format!("cannot close the descriptors the eval inherited: {error}"),
+        );
+        return write_envelope(&gro_runtime::eval::failed(&options, error));
+    }
     // read here, before the box, not in the runtime, which takes them as inputs
     let mut read = || -> Result<(), String> {
         options.cwd = std::env::current_dir()
@@ -538,6 +552,26 @@ fn eval(args: EvalArgs) -> u8 {
         Joined::Unstarted(error) => write_envelope(&with_error(unstarted, &error)),
         Joined::Panicked => EXIT_PANIC,
     }
+}
+
+/// Closes every file descriptor above stderr the process inherited (a file,
+/// a socket, a device its parent left open), which the box, gating only new
+/// opens, wouldn't reach: `gro_sys::close_inherited_fds`, sound because it
+/// runs first on the main thread, the only one, before anything in the
+/// process opens a descriptor.
+#[cfg(target_os = "linux")]
+fn close_inherited() -> std::io::Result<()> {
+    gro_sys::close_inherited_fds()
+}
+
+/// No box to escape elsewhere: eval refuses before it would start.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as Linux's, which can fail"
+)]
+const fn close_inherited() -> std::io::Result<()> {
+    Ok(())
 }
 
 /// `envelope`, its error's message followed by `error`, why a thread didn't

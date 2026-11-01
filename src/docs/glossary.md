@@ -22,7 +22,7 @@ Compare [pure globals](#pure-globals) and [host modules](#host-modules).
 ## box
 
 The kernel rules `gro eval` holds its process in on Linux (Landlock and seccomp),
-installed from the process's one thread before V8 starts:
+installed from the process's one thread before V8 starts, after it closes every descriptor it inherited above stderr:
 file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
 (a path's metadata stays readable everywhere),
 no write, no execution, no network,

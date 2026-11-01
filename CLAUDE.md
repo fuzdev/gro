@@ -733,7 +733,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   [--driver -] [--export NAME] [--jit] [--timeout MS]` prints one envelope on stdout and
   exits by the same table (`2` only for a usage error or an entry that
   doesn't resolve or that no project owns); it reads stdin for the driver and no environment
-  variable ([src/docs/eval.md](src/docs/eval.md)). Every
+  variable ([src/docs/eval.md](src/docs/eval.md)), and first closes every
+  file descriptor above stderr the process inherited
+  (`gro_sys::close_inherited_fds`), which the box, gating only new opens,
+  wouldn't reach, failing as `environment` when it can't. Every
   command but `eval` runs on one thread with a 32 MiB stack of its own
   (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
   the 16 MiB its strip is sized for (a release build needs 2 MiB); a module
@@ -755,6 +758,15 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `GRO_SNAPSHOT_DIR`, and only that feature reads `GRO_COMMIT`;
   a plain `cargo build` builds it without one, so it runs only from its build
   tree
+- `gro_sys` - raw system calls the safe std API lacks, kept in one crate so
+  every other crate stays free of `unsafe` (Linux only, `libc` its one
+  dependency): `close_inherited_fds` closes every descriptor above stderr
+  (`close_range`, or listing `/proc/self/fd` when the kernel has none, before
+  5.9, or a parent's seccomp filter refuses it with `EPERM`), safe
+  with a documented precondition, that nothing in the process owns one, so
+  it runs first on the main thread, and it refuses with more than one
+  thread alive. Its tests close descriptors only in a child process
+  (`tests/close.rs`, no libtest harness)
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
@@ -819,8 +831,12 @@ warnings denied, then `build --verify`), `check-js` (the JS/TS under
 `crates/`, which `gro check`'s typecheck and format don't reach), then
 `gro check`. CI runs the first two as its own jobs, so the gate list lives in
 the xtask only. The toolchain is pinned
-in `rust-toolchain.toml`, every crate takes the workspace lints, and `unsafe`
-is forbidden.
+in `rust-toolchain.toml`, and every crate takes the workspace lints, `unsafe`
+forbidden, but `gro_sys`, whose system calls need it: it re-declares the
+whole table with `unsafe_code` at `deny` (Cargo replaces a crate's table
+whole, so diff it against the workspace's when either changes), each
+`unsafe` block allowed by its function's `#[expect]` and explained by a
+`// SAFETY:` comment (`clippy::undocumented_unsafe_blocks`).
 
 ## Implementation reference
 

@@ -541,6 +541,49 @@ fn every_task_of_a_confined_eval_is_boxed() {
     }
 }
 
+/// A descriptor the eval inherits above stderr, a file outside the box
+/// opened by the shell that starts it, is closed before the box goes up, so
+/// the process no longer holds it while the driver runs; the eval still runs.
+#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[test]
+fn an_inherited_descriptor_is_closed() {
+    use std::io::BufRead as _;
+
+    let scratch = Scratch::new("inherited", &[("outside/secret.txt", "outside\n")]);
+    let outside = scratch.0.join("outside/secret.txt");
+    // bash leaves the descriptor open across its exec of fgro, as a shell
+    // that leaks one into every command does
+    let mut command = Command::new("bash");
+    command
+        .args(["-c", r#"exec 7<"$1"; shift; exec "$@""#, "bash"])
+        .arg(&outside)
+        .arg(env!("CARGO_BIN_EXE_fgro"))
+        .args(["eval", "value.js", "--driver", "-", "--timeout", "60000"])
+        .env("TZ", "UTC")
+        .current_dir(fixtures())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&std::fs::read(fixtures().join("drivers/spin.js")).unwrap())
+        .unwrap();
+    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    stderr.read_line(&mut line).unwrap();
+    let held: Vec<PathBuf> = std::fs::read_dir(format!("/proc/{}/fd", child.id()))
+        .unwrap()
+        .filter_map(|fd| std::fs::read_link(fd.unwrap().path()).ok())
+        .collect();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_eq!(line, "ready\n", "the eval didn't start: {line}");
+    assert!(!held.contains(&outside), "{held:?}");
+}
+
 /// A package linked into the project's `node_modules` from outside it is in
 /// the link closure, so it loads.
 #[test]

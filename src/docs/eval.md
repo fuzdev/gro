@@ -123,6 +123,9 @@ or to one a world-writable directory holds, which the resolver refuses to read a
 Each root is opened as it's found, and the box goes up on the directories opened,
 so one swapped in at a root's path afterward isn't what the box admits.
 
+Before anything else, the process closes every file descriptor above stderr it inherited:
+a file, a socket, or a device its parent left open, which the box, gating only new opens, wouldn't reach.
+If they can't be closed, the eval fails as `environment`.
 The process resolves the module and finds the roots on a thread it then ends,
 installs the box from its one remaining thread, and only then starts V8 on another,
 so every thread V8 and its event loop start is inside the box.
@@ -279,7 +282,7 @@ never from a message:
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
-| `environment`    | the process's time zone isn't UTC, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
+| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
 | `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, or a host invariant broke |
 
 ## Exit codes

@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/gro_runtime", "crates/gro_cli", "crates/gro_bench", "crates/xtask"]
+members = [
+    "crates/gro_runtime",
+    "crates/gro_cli",
+    "crates/gro_sys",
+    "crates/gro_bench",
+    "crates/xtask",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -22,7 +28,7 @@ getrandom = "0.4.3"
 # the kernel box `fgro eval` confines its process to (Linux): Landlock's
 # filesystem, network, and scope rules, and a seccomp-bpf denylist, with libc's
 # open flags for the box's roots and its syscall numbers and socket constants
-# for the filter
+# for the filter, and the raw system calls of gro_sys
 landlock = "0.4.7"
 libc = "0.2.190"
 seccompiler = "0.5.0"

@@ -15,6 +15,10 @@ path = "src/main.rs"
 argh.workspace = true
 gro_runtime = { path = "../gro_runtime" }
 
+# eval's first step, closing the descriptors the process inherited
+[target.'cfg(target_os = "linux")'.dependencies]
+gro_sys = { path = "../gro_sys" }
+
 [dev-dependencies]
 blake3.workspace = true
 serde_json.workspace = true

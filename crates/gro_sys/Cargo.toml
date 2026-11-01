@@ -1,0 +1,63 @@
+[package]
+name = "gro_sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "gro's raw system calls, the one gro crate allowed `unsafe`"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+# a child process closing its descriptors, which libtest's harness, with its
+# threads and its own handles, must never do
+[[test]]
+name = "close"
+harness = false
+
+# The workspace's lint table, re-declared whole (Cargo replaces the table, so a
+# partial override would drop the rest), with `unsafe_code` at `deny` instead
+# of `forbid`, so each `unsafe` block can carry its own `#[expect]`, and every
+# `unsafe` block required to say why it's sound. Diff against the workspace's
+# `[workspace.lints]` when either changes.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+invalid_html_tags = "deny"
+bare_urls = "deny"
+redundant_explicit_links = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+assert_is_empty = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+
+significant_drop_tightening = "allow"
+
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+# gro_sys alone: every `unsafe` block carries a `// SAFETY:` comment
+undocumented_unsafe_blocks = "warn"
