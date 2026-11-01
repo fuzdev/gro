@@ -44,14 +44,15 @@
 //!    seccomp, and the kernel module calls). The second is an allowlist:
 //!    the calls the runtime makes after the box goes up, and their named
 //!    siblings ([`ALLOWED_CALLS`]), pass; `prctl`, `fcntl`, `ioctl`,
-//!    `socketpair`, and `clone` pass only with the arguments the runtime
-//!    uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
-//!    [`KEPT_SOCKETPAIR`], and a `clone` that starts a thread, setting no
-//!    flag in `CLONE_NAMESPACES`); the mapping calls ([`MAPPING_CALLS`]:
-//!    `mmap`, `mprotect`, and `pkey_mprotect`) pass whatever their
-//!    arguments with the JIT on, whose compiled code needs executable
-//!    memory, and with it off only when their `prot` has `PROT_EXEC` clear,
-//!    so once the box is up a jitless process makes no mapping executable:
+//!    `socketpair`, `faccessat2`, and `clone` pass only with the arguments
+//!    the runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
+//!    [`KEPT_SOCKETPAIR`], `KEPT_ACCESS_MODE`, and a `clone` that starts a
+//!    thread, setting no flag in `CLONE_NAMESPACES`); the mapping calls
+//!    ([`MAPPING_CALLS`]: `mmap`, `mprotect`, and `pkey_mprotect`) pass
+//!    whatever their arguments with the JIT on, whose compiled code needs
+//!    executable memory, and with it off only when their `prot` has
+//!    `PROT_EXEC` clear, so once the box is up a jitless process makes no
+//!    mapping executable:
 //!    what it mapped before, its own code and its libraries', stays
 //!    executable, and `mremap`, which keeps a mapping's protection, can
 //!    still move, copy, or grow those mappings over their files' own bytes;
@@ -387,9 +388,9 @@ pub const KILLED_CALLS: [libc::c_long; 16] = [
 /// They are the calls the runtime was seen to make after the box goes up,
 /// and the named siblings a host may make in their place. Every call
 /// missing from it and from the calls allowed by their arguments
-/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`], a
-/// `clone` that starts a thread, `CLONE_NAMESPACES`, and the
-/// [`MAPPING_CALLS`]) fails with `ENOSYS`.
+/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`],
+/// `KEPT_ACCESS_MODE`, a `clone` that starts a thread, `CLONE_NAMESPACES`,
+/// and the [`MAPPING_CALLS`]) fails with `ENOSYS`.
 ///
 /// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
 /// process, since glibc names the caller by its thread id, not 0: for
@@ -520,6 +521,20 @@ const KEPT_IOCTLS: [libc::Ioctl; 6] = [
 /// send to any socket file by its path.
 #[cfg(target_os = "linux")]
 pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
+
+/// The one `faccessat2` mode the box keeps, by the third argument: `F_OK`,
+/// whether the path exists, which `statx` tells already and Landlock gates
+/// for neither. glibc's `realpath`, behind `std::fs::canonicalize` and so the
+/// resolver's every lookup, asks it of a directory that a `.` or `..`
+/// component or a trailing slash follows, as a link's target
+/// `/x/a/b/../../pkg` or `/x/pkg/` has. Every other mode, which asks whether
+/// the process may read, write, or execute the path, fails with `ENOSYS`.
+///
+/// `faccessat`, glibc's fallback when `faccessat2` fails with `ENOSYS`,
+/// isn't allowed: every kernel the box runs on (Landlock ABI 6, Linux 6.12)
+/// has `faccessat2`, which arrived in Linux 5.8.
+#[cfg(target_os = "linux")]
+const KEPT_ACCESS_MODE: libc::c_int = libc::F_OK;
 
 /// The bits of a socket type that name it, below the `SOCK_NONBLOCK` and
 /// `SOCK_CLOEXEC` flags.
@@ -674,6 +689,8 @@ fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], ConfineErro
     let fcntls = each_value(1, &KEPT_FCNTLS.map(int))?;
     // `ioctl`'s request, the second argument, an unsigned int
     let ioctls = each_value(1, &KEPT_IOCTLS)?;
+    // `faccessat2`'s mode, the third argument, an int
+    let accesses = each_value(2, &[int(KEPT_ACCESS_MODE)])?;
     // `socketpair`'s domain, the first argument, and its type, the second,
     // its flags masked off
     let [kept_domain, kept_type] = KEPT_SOCKETPAIR.map(int);
@@ -719,6 +736,7 @@ fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], ConfineErro
             (libc::SYS_fcntl, fcntls),
             (libc::SYS_ioctl, ioctls),
             (libc::SYS_socketpair, pairs),
+            (libc::SYS_faccessat2, accesses),
             (libc::SYS_clone, threads),
         ])
         .collect();
@@ -1397,11 +1415,12 @@ mod tests {
     /// The calls the allowlist allows only by their arguments, the mapping
     /// calls jitless.
     #[cfg(target_os = "linux")]
-    const RULED_CALLS: [libc::c_long; 8] = [
+    const RULED_CALLS: [libc::c_long; 9] = [
         libc::SYS_prctl,
         libc::SYS_fcntl,
         libc::SYS_ioctl,
         libc::SYS_socketpair,
+        libc::SYS_faccessat2,
         libc::SYS_clone,
         libc::SYS_mmap,
         libc::SYS_mprotect,
@@ -1424,6 +1443,7 @@ mod tests {
             libc::SYS_accept4,
             libc::SYS_sendto,
             libc::SYS_sendmsg,
+            libc::SYS_faccessat,
             libc::SYS_fchmod,
             libc::SYS_fchmodat,
             // `fchmodat2`, `setxattrat`, `removexattrat`, and `file_setattr`,
@@ -1564,6 +1584,7 @@ mod tests {
             ]
         );
         assert_eq!(super::KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
+        assert_eq!(super::KEPT_ACCESS_MODE, libc::F_OK);
         assert_eq!(
             super::MAPPING_CALLS,
             [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect]
@@ -1712,6 +1733,16 @@ mod tests {
             | libc::CLONE_SETTLS
             | libc::CLONE_PARENT_SETTID
             | libc::CLONE_CHILD_CLEARTID);
+        // `AT_FDCWD` as glibc passes it, the int's bits
+        let at_cwd = u64::from(libc::AT_FDCWD.cast_unsigned());
+        let [f_ok, r_ok, w_ok, x_ok, at_eaccess] = [
+            libc::F_OK,
+            libc::R_OK,
+            libc::W_OK,
+            libc::X_OK,
+            libc::AT_EACCESS,
+        ]
+        .map(int);
         let sigchld = int(libc::SIGCHLD);
         let fork = int(libc::CLONE_CHILD_SETTID | libc::CLONE_CHILD_CLEARTID) | sigchld;
         let spawn = int(libc::CLONE_VM | libc::CLONE_VFORK) | sigchld;
@@ -1789,6 +1820,32 @@ mod tests {
                 [int(libc::AF_INET), stream, 0, 0, 0, 0],
                 ENOSYS,
             ),
+            // the kept access mode, as glibc's `realpath` asks it and also
+            // with an upper half, and the modes asking for access refused
+            (
+                libc::SYS_faccessat2,
+                [at_cwd, 0, f_ok, at_eaccess, 0, 0],
+                ALLOW,
+            ),
+            (
+                libc::SYS_faccessat2,
+                [at_cwd, 0, high | f_ok, 0, 0, 0],
+                ALLOW,
+            ),
+            (libc::SYS_faccessat2, [at_cwd, 0, r_ok, 0, 0, 0], ENOSYS),
+            (
+                libc::SYS_faccessat2,
+                [at_cwd, 0, w_ok, at_eaccess, 0, 0],
+                ENOSYS,
+            ),
+            (libc::SYS_faccessat2, [at_cwd, 0, x_ok, 0, 0, 0], ENOSYS),
+            (
+                libc::SYS_faccessat2,
+                [at_cwd, 0, r_ok | w_ok | x_ok, 0, 0, 0],
+                ENOSYS,
+            ),
+            // `faccessat`, glibc's fallback, refused even for `F_OK`
+            (libc::SYS_faccessat, [at_cwd, 0, f_ok, 0, 0, 0], ENOSYS),
         ];
         for namespace in [
             libc::CLONE_NEWNS,

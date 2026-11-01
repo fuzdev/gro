@@ -643,6 +643,50 @@ fn a_package_linked_from_outside_the_project_loads() {
     run.assert_value(&json!({"value": "linked"}));
 }
 
+/// A linked package whose link's target has a `.` or `..` after a
+/// directory, or ends in a slash, loads as one written plainly: glibc's
+/// `realpath` checks that the directory before such a component exists, a
+/// call the box keeps.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_package_linked_through_dot_components_loads() {
+    let scratch = Scratch::new(
+        "linked_dots",
+        &[
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/config.js",
+                "import {value} from 'lib';\nexport default {value};\n",
+            ),
+            (
+                "lib/package.json",
+                r#"{"name": "lib", "type": "module", "exports": "./value.js"}"#,
+            ),
+            ("lib/value.js", "export const value = 'linked';\n"),
+            ("a/b/.keep", ""),
+        ],
+    );
+    std::fs::create_dir_all(scratch.0.join("project/node_modules")).unwrap();
+    let link = scratch.0.join("project/node_modules/lib");
+    let root = scratch.0.display();
+    for target in [
+        format!("{root}/a/b/../../lib"),
+        format!("{root}/lib/"),
+        format!("{root}/lib/."),
+        "../../a/b/../../lib".to_owned(),
+        "../../lib/".to_owned(),
+    ] {
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let run = eval(&[&scratch.path("project/config.js")]);
+        assert_eq!(run.code, 0, "{target}: {}", run.stdout);
+        run.assert_value(&json!({"value": "linked"}));
+    }
+}
+
 /// A project's `package.json` symlinked to a file outside the box is read
 /// at its real path. The pre-pass reads it before the box exists; a bare
 /// import's walk up passes it again, and that read is refused as outside

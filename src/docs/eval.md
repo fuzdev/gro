@@ -179,6 +179,9 @@ The walls, in order:
   `ioctl` only to set and clear non-blocking and close-on-exec, read the bytes waiting, and read a terminal's settings and size;
   `socketpair` only as a unix stream pair
   (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate);
+  `faccessat2` only to ask whether a path exists (`F_OK`), which `statx` tells already,
+  as glibc's `realpath` asks of a directory before a `.` or `..` component or a trailing slash, in a link's target, say
+  (`faccessat`, its fallback, isn't allowed: every kernel the box runs on has `faccessat2`);
   and `clone` only to start a thread, with no namespace flag, so no process is forked and no namespace made.
   When the JIT is off, no mapping can be made executable:
   `mmap`, `mprotect`, and `pkey_mprotect` with `PROT_EXEC` fail with `ENOSYS`,

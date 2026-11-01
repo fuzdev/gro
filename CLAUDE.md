@@ -633,7 +633,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `KEPT_IOCTLS` (`FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS`,
   `TIOCGWINSZ`), `socketpair` as `KEPT_SOCKETPAIR` (a unix stream pair, for
   tokio; a datagram pair could `sendto` a socket file by path, which
-  Landlock below ABI 9 doesn't gate), `clone` only as a thread
+  Landlock below ABI 9 doesn't gate), `faccessat2` only with the mode
+  `KEPT_ACCESS_MODE` (`F_OK`, which glibc's `realpath` asks of a directory
+  before a `.`, `..`, or trailing slash; `faccessat`, its fallback, refused),
+  `clone` only as a thread
   (`CLONE_THREAD` set, no flag in `CLONE_NAMESPACES`: no fork, no
   namespace); ints compare at 32 bits; and the `MAPPING_CALLS` (`mmap`,
   `mprotect`, `pkey_mprotect`) by the JIT the box is installed for
