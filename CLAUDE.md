@@ -829,8 +829,25 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
   beside), or, when the suite has a `gate`, the gate's runtimes against its
   incumbent, gated on the workloads it names, with every other row reported
-  only; the table is a report either way. Record it on a quiet machine with
-  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`,
+  only; the table is a report either way. The eval suite
+  (`crates/gro_bench/suites/eval/`) times `fgro eval --driver -` against
+  `deno run` with the flags, pinned environment (`TZ`, `LC_ALL`,
+  `NO_COLOR`), and stdin wrapper zap's eval passes it, plus
+  `DENO_NO_UPDATE_CHECK`, which zap doesn't set, so no update check runs in a
+  sample, each with zap's own driver read from a sibling zap checkout
+  (`builder_fgro.js` and `builder.js`; the suite holds no zap code), on a
+  committed fixture project (`fixture/`, a config written for the bench over
+  zap's recipes, gated; its `node_modules` is stubs plus a link to the zap
+  checkout) and on a sibling fuz_forge checkout's `zap.forge2.ts` in place
+  (reported only); beside them, reported only, `deno info` (the graph pass
+  zap runs before each eval) and `fgro eval-box` (the box's own cost). Its
+  rows are warm only, as zap runs Deno with its cache warm, which the
+  warmups fill. The rows run from the suite's directory: both runtimes get
+  absolute paths, and Deno resolves bare imports from the importing module,
+  so the working directory changes neither's output. Record a suite on a
+  quiet machine with
+  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
+  (or `suites/eval/suite.json`),
   after `cargo xtask build --release`, so the bench's own build is a cache hit
   and doesn't load the machine just before timing
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,

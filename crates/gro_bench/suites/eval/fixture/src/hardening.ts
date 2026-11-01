@@ -1,0 +1,51 @@
+/**
+ * Phase 8, last: close root login and password auth, once a check confirms
+ * the service account and the operators can still get in.
+ *
+ * @module
+ */
+
+import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
+import { ssh_hardening } from '@fuzdev/zap/recipe_ssh.ts';
+import { debian_ssh_reload } from '@fuzdev/zap/recipe_debian_ssh.ts';
+
+import { DEPLOY_USER, OPERATORS } from './host.ts';
+import { ID } from './ids.ts';
+
+export const declare_hardening = (zap: ZapBuilder): void => {
+	const logins = [DEPLOY_USER, ...OPERATORS.map((operator) => operator.username)];
+	zap.verify({
+		id: ID.verify_pre_hardening,
+		name: 'Every login keeps its keys before root login closes',
+		assertions: logins.flatMap((username) => [
+			{
+				type: 'path_exists' as const,
+				path: `/home/${username}/.ssh/authorized_keys`,
+				file_type: 'file' as const,
+				owner: username,
+				not_empty: true
+			},
+			{ type: 'command' as const, run: `id -u ${username}` }
+		]),
+		depends_on: [ID.verify_firewall, ...OPERATORS.map((operator) => ID.operator(operator.username))]
+	});
+
+	zap.file({
+		id: ID.ssh_config,
+		name: 'SSH hardening',
+		path: '/etc/ssh/sshd_config.d/50-harbor.conf',
+		content: {
+			type: 'inline',
+			content: ssh_hardening({ user: DEPLOY_USER, max_auth_tries: 3, login_grace_time: 30 })
+		},
+		mode: '644',
+		validate: 'sudo sshd -t -f %s',
+		depends_on: [ID.verify_pre_hardening]
+	});
+	zap.script({
+		id: ID.ssh_reload,
+		name: 'Reload sshd with the hardened config',
+		...debian_ssh_reload(),
+		depends_on: [ID.ssh_config]
+	});
+};

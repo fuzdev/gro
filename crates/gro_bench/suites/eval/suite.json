@@ -1,0 +1,64 @@
+{
+	"name": "eval",
+	"version": 1,
+	"samples": 200,
+	"runtimes": [
+		{
+			"name": "fgro",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": ["eval", "--driver", "-"],
+			"env": {"TZ": "UTC"},
+			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"},
+			"stdout": "envelope"
+		},
+		{
+			"name": "deno",
+			"program": "deno",
+			"args": [
+				"run",
+				"--no-config",
+				"--no-prompt",
+				"--no-remote",
+				"--cached-only",
+				"--node-modules-dir=manual",
+				"--no-lock",
+				"--allow-read",
+				"-"
+			],
+			"v8_args": ["eval", "console.log(Deno.version.v8)"],
+			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
+			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder.js"},
+			"stdout": "json"
+		},
+		{
+			"name": "deno_info",
+			"program": "deno",
+			"args": ["info", "--json", "--no-config", "--no-remote", "--node-modules-dir=manual", "--no-lock"],
+			"v8_args": ["eval", "console.log(Deno.version.v8)"],
+			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
+			"stdout": "json"
+		},
+		{
+			"name": "fgro_box",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": ["eval-box", "--driver", "-"],
+			"env": {"TZ": "UTC"},
+			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"}
+		}
+	],
+	"workloads": [
+		{
+			"name": "fixture",
+			"script": "fixture/zap.ts",
+			"warmup": 10,
+			"project": {
+				"dir": "fixture",
+				"stub_packages": 230,
+				"links": {"@fuzdev/zap": "../../../../../private_zap"}
+			}
+		},
+		{"name": "forge2", "script": "../../../../../private_fuz_forge/zap.forge2.ts", "warmup": 10}
+	],
+	"parity": ["fgro", "deno"],
+	"gate": {"against": "deno", "runtimes": ["fgro"], "workloads": ["fixture"]}
+}

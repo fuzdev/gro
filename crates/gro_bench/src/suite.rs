@@ -921,6 +921,25 @@ mod tests {
     }
 
     #[test]
+    fn the_eval_suite_is_valid() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/eval");
+        let suite = Suite::load(&dir.join("suite.json")).unwrap();
+        // warm rows only: zap's Deno keeps its cache warm in real use
+        assert!(suite.workloads.iter().all(|w| !w.cold));
+        let gate = suite.gate.as_ref().unwrap();
+        assert_eq!(
+            (gate.against.as_str(), &gate.runtimes[..]),
+            ("deno", &["fgro".to_owned()][..])
+        );
+        assert_eq!(suite.parity, ["fgro", "deno"]);
+        let project = suite.workloads[0].project.as_ref().unwrap();
+        // the fixture's files are committed, its node_modules generated
+        assert!(dir.join(&suite.workloads[0].script).is_file());
+        assert!(dir.join(&project.dir).join("package.json").is_file());
+        assert!(!dir.join(&project.dir).join("node_modules").exists());
+    }
+
+    #[test]
     fn rejects_bad_suites() {
         let runtime = r#"{"name": "r", "program": "r"}"#;
         let workload = r#"{"name": "w", "script": "w.js"}"#;
