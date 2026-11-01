@@ -8,6 +8,11 @@
 //! under the box, and Linux, the only platform with one, so it runs from
 //! `cargo xtask build --verify`; elsewhere it does nothing.
 //!
+//! Built with the `prices` feature too, it adds a case that installs
+//! Landlock without the seccomp allowlist (`GRO_PRICES_OFF=seccomp`), whose
+//! `ENOSYS` for every socket call otherwise answers before Landlock's TCP
+//! and abstract unix socket walls can.
+//!
 //! On a kernel whose Landlock is below the ABI the box requires, every case
 //! fails, naming the kernel's ABI: confined eval refuses to run there, so its
 //! tests don't pass there either.
@@ -49,6 +54,10 @@ mod confined {
         include!(concat!(env!("GRO_SNAPSHOT_DIR"), "/residual.rs"));
     }
 
+    /// The variable naming the defaults a priced build turns off,
+    /// `gro_runtime::prices`'s.
+    const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
+
     /// The signal seccomp kills a process with.
     const SIGSYS: i32 = 31;
 
@@ -80,8 +89,9 @@ mod confined {
     const PROT_WRITE: i32 = 2;
     const PROT_EXEC: i32 = 4;
 
-    /// The cases, each run in a child of its own.
-    const CASES: [&str; 9] = [
+    /// The cases, each run in a child of its own; a priced build adds the
+    /// one that turns the allowlist off.
+    const CASES: &[&str] = &[
         "reads",
         "exec",
         "sockets",
@@ -91,6 +101,8 @@ mod confined {
         "memory_jit",
         "threads",
         "eval",
+        #[cfg(feature = "prices")]
+        "landlock_sockets",
     ];
 
     pub fn main() {
@@ -123,18 +135,29 @@ mod confined {
         dir.canonicalize().unwrap()
     }
 
+    /// The file the reads case tries to create in `/tmp`, named by the
+    /// scratch directory, so the parent can remove it if one was.
+    fn tmp_file(scratch: &Path) -> PathBuf {
+        Path::new("/tmp").join(format!("gro_{}", scratch.file_name().unwrap().display()))
+    }
+
     /// Runs every case in a child and checks what it reports.
     fn parent() {
         let scratch = scratch();
         let mut failures = Vec::new();
-        for case in CASES {
-            let output = Command::new(std::env::current_exe().unwrap())
+        for &case in CASES {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
                 .args(["child", case])
                 .arg(&scratch)
                 // eval refuses any other time zone, and ICU reads the host's
                 .env("TZ", "UTC")
-                .output()
-                .unwrap();
+                // a priced build's switches, read only with its feature
+                .env_remove(PRICES_OFF_ENV);
+            if case == "landlock_sockets" {
+                command.env(PRICES_OFF_ENV, "seccomp");
+            }
+            let output = command.output().unwrap();
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             // the signal case's process outside the box
@@ -153,6 +176,8 @@ mod confined {
                 ));
             }
         }
+        // a file a breached box created in `/tmp`
+        let _ = std::fs::remove_file(tmp_file(&scratch));
         std::fs::remove_dir_all(&scratch).unwrap();
         assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
@@ -177,6 +202,12 @@ mod confined {
                 "read /proc/self/status: denied",
                 "read /dev/urandom: denied",
                 "write inside: denied",
+                "create outside: denied",
+                "outside after: absent",
+                "create /tmp: denied",
+                "/tmp after: absent",
+                "write outside: denied",
+                "append outside: denied",
                 "truncate inside: denied",
                 "chmod inside: enosys",
                 "fchmod inside: enosys",
@@ -200,6 +231,18 @@ mod confined {
                 "socketpair dgram: enosys",
                 "bind abstract: enosys",
                 "listen: enosys",
+                "tcp connect made before: enosys",
+                "connect abstract made before: enosys",
+            ],
+            "landlock_sockets" => &[
+                "confined",
+                "tcp bind: denied",
+                "tcp connect: denied",
+                "connect abstract: denied",
+                "tcp connect made before: denied",
+                "connect abstract made before: denied",
+                "bind abstract inside: ok",
+                "connect abstract inside: ok",
             ],
             "signal" => &[
                 "confined",
@@ -293,6 +336,42 @@ mod confined {
                     "write inside: {}",
                     outcome(std::fs::write(project.join("written.txt"), ""))
                 );
+                // outside the roots: a file created beside the project and in
+                // `/tmp`, and one that exists opened to write and to append;
+                // whether a path exists stays readable (`statx`), so nothing
+                // was created
+                let tmp = tmp_file(scratch);
+                for (name, path) in [
+                    ("outside", scratch.join("outside/written.txt")),
+                    ("/tmp", tmp),
+                ] {
+                    println!(
+                        "create {name}: {}",
+                        outcome(
+                            std::fs::OpenOptions::new()
+                                .write(true)
+                                .create_new(true)
+                                .open(&path)
+                        )
+                    );
+                    println!(
+                        "{name} after: {}",
+                        match std::fs::symlink_metadata(&path) {
+                            Ok(_) => "present".to_owned(),
+                            Err(error) if error.kind() == ErrorKind::NotFound =>
+                                "absent".to_owned(),
+                            Err(error) => format!("failed: {error}"),
+                        }
+                    );
+                }
+                println!(
+                    "write outside: {}",
+                    outcome(std::fs::OpenOptions::new().write(true).open(&outside))
+                );
+                println!(
+                    "append outside: {}",
+                    outcome(std::fs::OpenOptions::new().append(true).open(&outside))
+                );
                 // opened to read, which the box allows, with `O_TRUNC`, which
                 // Landlock gates from ABI 3
                 println!(
@@ -375,6 +454,7 @@ mod confined {
                 println!("exec returned: {error}");
             }
             "sockets" => {
+                let outside_box = Listeners::new();
                 confine(&project, Jit::Off);
                 println!(
                     "tcp: {}",
@@ -428,6 +508,40 @@ mod confined {
                     )
                 );
                 println!("listen: {}", outcome(kept.listen(1)));
+                // `connect`, by sockets made before the box, to listeners
+                // outside it
+                outside_box.connect();
+            }
+            // Landlock alone, the allowlist turned off (a priced build's
+            // `seccomp`), so its own walls answer what the allowlist's
+            // `ENOSYS` hides: no TCP bind or connect, and no connect to an
+            // abstract unix socket made outside the box, while one made
+            // inside it takes a connect
+            #[cfg(feature = "prices")]
+            "landlock_sockets" => {
+                let outside_box = Listeners::new();
+                confine(&project, Jit::Off);
+                println!(
+                    "tcp bind: {}",
+                    outcome(std::net::TcpListener::bind("127.0.0.1:0"))
+                );
+                println!(
+                    "tcp connect: {}",
+                    outcome(std::net::TcpStream::connect(outside_box.tcp_address))
+                );
+                println!(
+                    "connect abstract: {}",
+                    outcome(std::os::unix::net::UnixStream::connect_addr(
+                        &outside_box.unix_address
+                    ))
+                );
+                outside_box.connect();
+                let inside = abstract_address("in");
+                // the listener held while the connect is tried
+                let listener = std::os::unix::net::UnixListener::bind_addr(&inside);
+                let connected = std::os::unix::net::UnixStream::connect_addr(&inside);
+                println!("bind abstract inside: {}", outcome(listener));
+                println!("connect abstract inside: {}", outcome(connected));
             }
             "signal" => {
                 // a process outside the box, started before it; the parent
@@ -521,6 +635,61 @@ mod confined {
             }
             "eval" => eval(&project, &outside),
             _ => panic!("no case {case}"),
+        }
+    }
+
+    /// An abstract unix socket address unique to this process, named by
+    /// `which`.
+    fn abstract_address(which: &str) -> std::os::unix::net::SocketAddr {
+        use std::os::linux::net::SocketAddrExt as _;
+        let name = format!("gro_confine_{which}_{}", std::process::id());
+        std::os::unix::net::SocketAddr::from_abstract_name(name).unwrap()
+    }
+
+    /// Listeners made before the box, so outside it: a TCP one and an
+    /// abstract unix one, and a socket of each kind, made before the box
+    /// too, to connect to them from inside it once `socket` is refused.
+    struct Listeners {
+        _tcp: std::net::TcpListener,
+        tcp_address: std::net::SocketAddr,
+        _unix: std::os::unix::net::UnixListener,
+        unix_address: std::os::unix::net::SocketAddr,
+        tcp_socket: socket2::Socket,
+        unix_socket: socket2::Socket,
+    }
+
+    impl Listeners {
+        fn new() -> Self {
+            let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let unix_address = abstract_address("out");
+            let socket = |domain| socket2::Socket::new(domain, socket2::Type::STREAM, None);
+            Self {
+                tcp_address: tcp.local_addr().unwrap(),
+                _tcp: tcp,
+                _unix: std::os::unix::net::UnixListener::bind_addr(&unix_address).unwrap(),
+                unix_address,
+                tcp_socket: socket(socket2::Domain::IPV4).unwrap(),
+                unix_socket: socket(socket2::Domain::UNIX).unwrap(),
+            }
+        }
+
+        /// Connects the sockets made before the box to the listeners, and
+        /// prints what each `connect` did.
+        fn connect(&self) {
+            use std::os::linux::net::SocketAddrExt as _;
+            use std::os::unix::ffi::OsStrExt as _;
+            println!(
+                "tcp connect made before: {}",
+                outcome(self.tcp_socket.connect(&self.tcp_address.into()))
+            );
+            // the abstract name, after its leading NUL
+            let mut path = vec![0];
+            path.extend_from_slice(self.unix_address.as_abstract_name().unwrap());
+            let address = socket2::SockAddr::unix(std::ffi::OsStr::from_bytes(&path));
+            println!(
+                "connect abstract made before: {}",
+                outcome(address.and_then(|address| self.unix_socket.connect(&address)))
+            );
         }
     }
 

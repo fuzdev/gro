@@ -301,6 +301,8 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         "snapshot,prices",
         "--test",
         "prices",
+        "--test",
+        "confine",
     ];
     if release {
         prices.push("--release");
