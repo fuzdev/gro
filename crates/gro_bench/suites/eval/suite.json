@@ -37,13 +37,6 @@
 			"v8_args": ["eval", "console.log(Deno.version.v8)"],
 			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
 			"stdout": "json"
-		},
-		{
-			"name": "fgro_box",
-			"program": "../../../../target/gro_snapshot/release/fgro",
-			"args": ["eval-box", "--driver", "-"],
-			"env": {"TZ": "UTC"},
-			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"}
 		}
 	],
 	"workloads": [

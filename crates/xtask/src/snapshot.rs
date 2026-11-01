@@ -28,8 +28,13 @@
 //! Cargo keeps both builds of `fgro`, one per feature set, so switching
 //! between them relinks nothing.
 //!
+//! The phases build (`cargo xtask bench --phases`) is stage two with the
+//! `phases` feature beside `snapshot`, from the same snapshot, linked to
+//! `<target>/gro_snapshot/<profile>-phases/fgro`.
+//!
 //! `--verify` then checks the result: clippy over the `snapshot` feature's
-//! code, `fgro`'s integration tests against the snapshot build, and a fixture
+//! code, `fgro`'s integration tests against the snapshot build, its phases
+//! test against a build with the `phases` feature too, and a fixture
 //! run with the cargo registry's sources (`$CARGO_HOME/registry/src`) and
 //! gro's own extension sources hidden (tmpfs mounts in a private user and
 //! mount namespace, `unshare -rm`), its output compared with a run that can
@@ -93,7 +98,12 @@ fn commit_value(state: &GitState) -> String {
 ///
 /// Its paths come from `target_dir`, cargo's target directory, which
 /// `CARGO_TARGET_DIR` or `build.target-dir` may move off the checkout.
-pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<SnapshotBuild, ExitCode> {
+pub fn build(
+    root: &Path,
+    target_dir: &Path,
+    release: bool,
+    phases: bool,
+) -> Result<SnapshotBuild, ExitCode> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
     let dir = target_dir.join("gro_snapshot").join(profile);
@@ -128,14 +138,12 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<SnapshotBu
         })?;
     }
 
-    let mut stage_two = vec![
-        "build",
-        "--locked",
-        "-p",
-        "gro_cli",
-        "--features",
-        "snapshot",
-    ];
+    let features = if phases {
+        "snapshot,phases"
+    } else {
+        "snapshot"
+    };
+    let mut stage_two = vec!["build", "--locked", "-p", "gro_cli", "--features", features];
     stage_two.extend(profile_args);
     // read last, so it names the tree this build compiles
     let commit = commit(root);
@@ -146,7 +154,18 @@ pub fn build(root: &Path, target_dir: &Path, release: bool) -> Result<SnapshotBu
         &stage_two,
     )?;
     let built = target_dir.join(profile).join("fgro");
-    let linked = dir.join("fgro");
+    let linked = if phases {
+        let dir = target_dir
+            .join("gro_snapshot")
+            .join(format!("{profile}-phases"));
+        fs::create_dir_all(&dir).map_err(|error| {
+            eprintln!("[xtask] failed to create {}: {error}", dir.display());
+            ExitCode::FAILURE
+        })?;
+        dir.join("fgro")
+    } else {
+        dir.join("fgro")
+    };
     let _ = fs::remove_file(&linked);
     fs::hard_link(&built, &linked).map_err(|error| {
         eprintln!(
@@ -223,6 +242,21 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         test.push("--release");
     }
     run(root, &env, "cargo", &test)?;
+    // the phases build's marks, eval's written from inside its box
+    let mut phases = vec![
+        "test",
+        "--locked",
+        "-p",
+        "gro_cli",
+        "--features",
+        "snapshot,phases",
+        "--test",
+        "phases",
+    ];
+    if release {
+        phases.push("--release");
+    }
+    run(root, &env, "cargo", &phases)?;
     off_build_tree(root, binary)
 }
 

@@ -39,6 +39,9 @@ harness = false
 # start from a snapshot embedded at compile time, read from `GRO_SNAPSHOT_DIR`;
 # `cargo xtask build` sets it up
 snapshot = []
+# write a timestamp at each phase boundary to the file `GRO_PHASES_FILE` names,
+# for `cargo xtask bench --phases`; release and snapshot builds never enable it
+phases = ["gro_runtime/phases"]
 
 [lints]
 workspace = true

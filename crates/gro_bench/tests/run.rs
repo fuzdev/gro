@@ -4,14 +4,14 @@
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use gro_bench::error::BenchError;
-use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
-use gro_bench::run::{RunContext, run};
+use gro_bench::record::{GitState, Machine, MachineQuiet, Mode, RunRecord};
+use gro_bench::run::{Measure, RunContext, run};
 use gro_bench::suite::{Arg, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload};
 
 fn context() -> RunContext {
@@ -24,6 +24,7 @@ fn context() -> RunContext {
         machine_quiet: MachineQuiet::Unchecked,
         // only a suite naming a collection writes here, and those tests set their own
         work_dir: std::env::temp_dir().join("gro_bench_unused_work"),
+        measure: Measure::Wall,
     }
 }
 
@@ -705,4 +706,106 @@ fn a_collection_entry_must_be_new_to_the_collection() {
         "{error:?}"
     );
     assert!(error.is_input_error());
+}
+
+/// A phases run gives the runtimes it names the file to write, and turns each
+/// sample's marks into durations from the spawn to the reap; the others run
+/// as they are.
+#[test]
+fn a_phases_run_records_each_sample_s_phases() {
+    let dir = scratch(
+        "phases",
+        &[(
+            "marks.sh",
+            "[ -n \"$GRO_PHASES_FILE\" ] || exit 0\n\
+             printf 'gro_phases 1\\nmain_unix_ns %s\\nwork 1000\\nexit 3000\\n' \
+             \"$(date +%s%N)\" > \"$GRO_PHASES_FILE\"\n",
+        )],
+    );
+    let mut plain = sh(Vec::new());
+    plain.name = "plain".to_owned();
+    let suite = suite(vec![sh(Vec::new()), plain], &["marks.sh"], 4);
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    context.measure = Measure::Phases {
+        runtimes: BTreeSet::from(["sh".to_owned()]),
+    };
+    let result = run(&suite, &dir, context);
+    fs::remove_dir_all(&dir).unwrap();
+    let record = result.unwrap();
+    assert_eq!(record.mode, Mode::Phases);
+    let row = &record.rows[0];
+    let names: Vec<&str> = row.phases.iter().map(|phase| phase.name.as_str()).collect();
+    assert_eq!(names, ["start", "work", "exit", "reap"]);
+    for phase in &row.phases {
+        assert_eq!(phase.ns.samples.len(), 4);
+    }
+    assert_eq!(row.phases[1].ns.samples, [1000; 4]);
+    assert_eq!(row.phases[2].ns.samples, [2000; 4]);
+    // the spans sum to about the wall time, each sample
+    for (index, wall) in row.wall_ns.samples.iter().enumerate() {
+        let sum: u64 = row.phases.iter().map(|phase| phase.ns.samples[index]).sum();
+        assert!(sum.abs_diff(*wall) < wall / 10, "{sum} against {wall}");
+    }
+    assert!(record.rows[1].phases.is_empty());
+    assert!(row.instructions.is_none());
+}
+
+/// A phases run of a runtime that writes no file fails, naming it.
+#[test]
+fn a_phases_run_of_a_plain_build_fails() {
+    let dir = scratch("phases_plain", &[("plain.sh", "true\n")]);
+    let suite = suite(vec![sh(Vec::new())], &["plain.sh"], 2);
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    context.measure = Measure::Phases {
+        runtimes: BTreeSet::from(["sh".to_owned()]),
+    };
+    let result = run(&suite, &dir, context.clone());
+    context.measure = Measure::Phases {
+        runtimes: BTreeSet::from(["nope".to_owned()]),
+    };
+    let unknown = run(&suite, &dir, context);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        matches!(&result, Err(BenchError::Phases(message)) if message.contains("isn't a phases build")),
+        "{result:?}"
+    );
+    assert!(
+        matches!(&unknown, Err(BenchError::SuiteInvalid(message)) if message.contains("`nope`")),
+        "{unknown:?}"
+    );
+}
+
+/// A counter run counts every sample under `perf stat`, the noise row's
+/// too; where perf can't count here, it says so and the test skips.
+#[test]
+fn a_counter_run_counts_every_sample() {
+    let dir = scratch("counters", &[("counted.sh", "true\n")]);
+    let suite = suite(vec![sh(Vec::new())], &["counted.sh"], 4);
+    let mut context = context();
+    context.work_dir = dir.join("work");
+    context.measure = Measure::Counters;
+    let result = run(&suite, &dir, context);
+    fs::remove_dir_all(&dir).unwrap();
+    let record = match result {
+        Err(BenchError::Counters(why)) => {
+            eprintln!("perf can't count here, so nothing to check: {why}");
+            return;
+        }
+        other => other.unwrap(),
+    };
+    assert_eq!(record.mode, Mode::Counters);
+    assert_eq!(
+        record.counters.as_ref().unwrap().events,
+        ["instructions:u", "cycles:u"]
+    );
+    let row = &record.rows[0];
+    for metric in [row.instructions.as_ref(), row.cycles.as_ref()] {
+        let metric = metric.unwrap();
+        assert_eq!(metric.samples.len(), 4);
+        assert!(metric.samples.iter().all(|&count| count > 0));
+    }
+    assert!(record.noise.instructions.is_some());
+    assert!(record.noise.instructions_median_deviation.is_some());
 }

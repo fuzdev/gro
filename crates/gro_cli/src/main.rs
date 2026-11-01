@@ -54,7 +54,7 @@
 //! commit it was built from, full, with `-dirty` when the working tree
 //! differed from it (`commit unknown` when no build embedded one, as a plain
 //! `cargo build` doesn't), and whether a startup snapshot is embedded
-//! (`no snapshot` otherwise).
+//! (`no snapshot` otherwise), then `, phases` in a phases build.
 //!
 //! Exit codes, the same for `run` and `eval`:
 //!
@@ -73,13 +73,12 @@
 //!   not under `"type": "module"`), or, for `eval`, one no project owns
 //!   (inside `node_modules`, or with no project root above it)
 //!
-//! `fgro eval-box`, internal and so not in `--help`, takes `eval`'s arguments
-//! and runs `eval`'s path through the box and no further, by the same
-//! functions: it closes the inherited descriptors, reads the driver from
-//! stdin when `--driver -` asks (and drops it), runs the pre-pass, and
-//! confines the process, then exits `0` with no output, starting no engine.
-//! A failure on the way writes `eval`'s envelope and exits as `eval` would.
-//! It times the box's own cost, which `eval`'s rows otherwise hide.
+//! Built with the `phases` feature, which release and snapshot builds never
+//! enable, `fgro` takes a timestamp at each phase boundary of `run` and `eval`
+//! and writes them at exit to the file `GRO_PHASES_FILE` names
+//! (`gro_runtime::phases`), for `cargo xtask bench --phases`; eval opens the
+//! file before its box goes up. Without the feature it reads no such
+//! variable.
 //!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`
@@ -105,6 +104,7 @@ use argh::{EarlyExit, FromArgs};
 use gro_runtime::confine::{Confined, Confinement};
 use gro_runtime::engine::{EngineOptions, init_confined_engine, init_engine};
 use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, Prepass, RuntimeInfo};
+use gro_runtime::phases::{self, Phase};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -128,10 +128,6 @@ const STARTUP_SNAPSHOT: Option<StartupSnapshot> = None;
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
 const MAKE_SNAPSHOT: &str = "make-snapshot";
-
-/// The internal subcommand that runs `eval`'s path through the box and stops
-/// ([`eval_box`]), handled before argh so it stays out of `--help`.
-const EVAL_BOX: &str = "eval-box";
 
 /// The caller must change the arguments before re-running.
 const EXIT_USAGE: u8 = 2;
@@ -216,10 +212,11 @@ const fn commit(value: Option<&'static str>) -> Option<&'static str> {
 /// The `--version` line:
 /// `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`, with
 /// `commit unknown` for a build without [`COMMIT`] and `no snapshot` for a
-/// build without one.
+/// build without one, and `, phases` before the parenthesis closes in a
+/// build that records phases (`gro_runtime::phases::ENABLED`).
 fn version_line() -> String {
     format!(
-        "fgro {} (commit {}, V8 {}, {})",
+        "fgro {} (commit {}, V8 {}, {}{})",
         env!("CARGO_PKG_VERSION"),
         COMMIT.unwrap_or(COMMIT_UNKNOWN),
         gro_runtime::v8_version(),
@@ -227,7 +224,8 @@ fn version_line() -> String {
             "snapshot"
         } else {
             "no snapshot"
-        }
+        },
+        if phases::ENABLED { ", phases" } else { "" }
     )
 }
 
@@ -276,6 +274,14 @@ struct EvalArgs {
 const DRIVER_STDIN: &str = "-";
 
 fn main() -> ExitCode {
+    phases::start();
+    let code = main_code();
+    phases::finish();
+    ExitCode::from(code)
+}
+
+/// [`main`]'s work, returning the exit code.
+fn main_code() -> u8 {
     let args: Result<Vec<String>, OsString> = std::env::args_os()
         .skip(1)
         .map(OsString::into_string)
@@ -287,25 +293,22 @@ fn main() -> ExitCode {
                 "error: an argument is not valid UTF-8: {}",
                 arg.to_string_lossy()
             );
-            return ExitCode::from(EXIT_USAGE);
+            return EXIT_USAGE;
         }
     };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     // eval's process must keep one thread until it is confined, so it runs
     // here and starts its own
     if runs_on_main_thread(&args) {
-        return ExitCode::from(run(&args));
+        return run(&args);
     }
-    ExitCode::from(run_on_sized_stack(&args))
+    run_on_sized_stack(&args)
 }
 
 /// Whether `args` parse as `fgro eval`, which confines its process and so
 /// runs on the main thread: decided from what argh parses, not the first
 /// argument, so every spelling it accepts (`fgro -- eval`) runs there.
 fn runs_on_main_thread(args: &[&str]) -> bool {
-    if args.first() == Some(&EVAL_BOX) {
-        return true;
-    }
     args.first() != Some(&MAKE_SNAPSHOT)
         && matches!(
             Args::from_args(&["fgro"], args),
@@ -372,9 +375,6 @@ fn run(args: &[&str]) -> u8 {
             |()| 0,
         );
     }
-    if let [EVAL_BOX, rest @ ..] = args {
-        return EvalArgs::from_args(&["fgro", EVAL_BOX], rest).map_or_else(early_exit, eval_box);
-    }
     match Args::from_args(&["fgro"], args) {
         Ok(Args {
             version: true,
@@ -408,6 +408,7 @@ fn run(args: &[&str]) -> u8 {
                     return EXIT_FAILURE;
                 }
             };
+            phases::mark(Phase::Engine);
             let options = RuntimeOptions {
                 snapshot: STARTUP_SNAPSHOT,
                 console: color::console_options(),
@@ -462,26 +463,20 @@ fn eval(args: EvalArgs) -> u8 {
     // every thread the engine starts comes after the box, spawned from here
     let evaluated = on_sized_thread("fgro", move || {
         match init_confined_engine(confined, &gro_runtime::eval::engine_options(jit)) {
-            Ok(engine) => gro_runtime::eval::eval(engine, prepass),
+            Ok(engine) => {
+                phases::mark(Phase::Engine);
+                gro_runtime::eval::eval(engine, prepass)
+            }
             Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
         }
     });
-    match evaluated {
+    let code = match evaluated {
         Joined::Returned(envelope) => write_envelope(&envelope),
         Joined::Unstarted(error) => write_envelope(&with_error(unstarted, &error)),
         Joined::Panicked => EXIT_PANIC,
-    }
-}
-
-/// Runs `fgro eval-box` on the main thread: [`confine_eval`], exactly as
-/// `eval` runs it, then exits `0` with no output, starting no engine. A
-/// failure exits as `eval`'s would, its envelope written.
-///
-/// It returns `0` only once the process is confined: the `Ok` it maps holds a
-/// [`Confined`], whose fields are private and which only
-/// `Prepared::confine` makes, so no path reaches `0` unconfined.
-fn eval_box(args: EvalArgs) -> u8 {
-    confine_eval(args).map_or_else(|code| code, |_| 0)
+    };
+    phases::mark(Phase::Write);
+    code
 }
 
 /// `eval`'s path up to and including the box, on the main thread: checks the
@@ -531,6 +526,8 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     // first, before the process opens anything: a descriptor it inherited
     // would reach past the box, which gates only new opens
     let closed = close_inherited();
+    // the phases file, under the `phases` feature, opens before the box
+    phases::open();
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -582,7 +579,10 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
         ),
     );
     let prepass = match on_sized_thread("fgro-prepass", || gro_runtime::eval::prepass(options)) {
-        Joined::Returned(Ok(prepass)) => prepass,
+        Joined::Returned(Ok(prepass)) => {
+            phases::mark(Phase::Prepass);
+            prepass
+        }
         Joined::Returned(Err(envelope)) => return Err(write_envelope(&envelope)),
         Joined::Unstarted(error) => return Err(write_envelope(&with_error(unstarted, &error))),
         Joined::Panicked => return Err(EXIT_PANIC),
@@ -597,7 +597,10 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     // the box takes eval's JIT choice from the pre-pass's options, as the
     // engine does, so a jitless eval's box refuses executable mappings
     match prepass.confine() {
-        Ok(confined) => Ok((prepass, confined)),
+        Ok(confined) => {
+            phases::mark(Phase::Confine);
+            Ok((prepass, confined))
+        }
         Err(error) => Err(write_envelope(
             &prepass.failed(gro_runtime::eval::confine_error(&error)),
         )),
@@ -711,7 +714,6 @@ mod tests {
         assert_eq!(run(&["--version"]), 0);
         assert_eq!(run(&["run", "--help"]), 0);
         assert_eq!(run(&["eval", "--help"]), 0);
-        assert_eq!(run(&["eval-box", "--help"]), 0);
     }
 
     /// Every spelling argh parses as `eval` runs on the main thread, `--`
@@ -722,8 +724,6 @@ mod tests {
             &["eval", "a.js"][..],
             &["--", "eval", "a.js"],
             &["eval", "--jit", "a.js"],
-            &["eval-box", "a.js"],
-            &["eval-box"],
         ] {
             assert!(runs_on_main_thread(args), "{args:?}");
         }
@@ -807,8 +807,5 @@ mod tests {
         assert_eq!(run(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--unknown"]), EXIT_USAGE);
-        assert_eq!(run(&["eval-box"]), EXIT_USAGE);
-        assert_eq!(run(&["eval-box", "a.js", "--driver", "d.js"]), EXIT_USAGE);
-        assert_eq!(run(&["eval-box", "a.js", "--timeout", "0"]), EXIT_USAGE);
     }
 }

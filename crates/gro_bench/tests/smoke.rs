@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use gro_bench::record::{GitState, Machine, MachineQuiet};
-use gro_bench::run::{RunContext, find_program, run};
+use gro_bench::run::{Measure, RunContext, find_program, run};
 use gro_bench::suite::Suite;
 
 #[test]
@@ -29,6 +29,7 @@ fn smoke_suite_runs_under_installed_runtimes() {
         machine_quiet: MachineQuiet::Unchecked,
         // the smoke suite names no collection, so nothing is written here
         work_dir: std::env::temp_dir().join("gro_bench_smoke_work"),
+        measure: Measure::Wall,
     };
     let record = run(&suite, &dir, context).unwrap();
     assert_eq!(record.runtimes.len(), suite.runtimes.len());

@@ -8,8 +8,18 @@
 //! samples beside their statistics. Raw samples stay in the line, so later
 //! comparisons can recompute from them.
 //!
+//! A run measures in one [`Mode`]: wall time alone, wall time with fgro's
+//! phase timings, or wall time with hardware counters (`perf stat`). The
+//! mode is part of the line, since a phases build or a counted process times
+//! more than the plain one.
+//!
 //! The types are plain data, so the JSON schema can be derived from them when
 //! the renderer needs it.
+//!
+//! Line versions: 5 added `checkouts`; 6 added `mode`, `counters`, and each
+//! row's (and the noise row's) `instructions`, `cycles`, and `phases`. A
+//! line of an older version still reads as this shape, as a wall run, with
+//! the fields it lacks empty.
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -23,13 +33,20 @@ use crate::error::BenchError;
 use crate::stats::Stats;
 
 /// The line shape's version, bumped when it changes incompatibly.
-pub const RECORD_VERSION: u32 = 5;
+pub const RECORD_VERSION: u32 = 6;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunRecord {
     /// [`RECORD_VERSION`] when written.
     pub record_version: u32,
+    /// What the run measured. Absent from a line before version 6, which
+    /// measured wall time alone.
+    #[serde(default)]
+    pub mode: Mode,
+    /// The counter tool a counter run read, absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counters: Option<CounterTool>,
     /// The suite that ran.
     pub suite: SuiteId,
     /// The suite's [`config_hash`](crate::suite::Suite::config_hash).
@@ -61,6 +78,32 @@ pub struct RunRecord {
     pub rows: Vec<RowRecord>,
     /// The A/A noise row.
     pub noise: NoiseRecord,
+}
+
+/// What a run measured, beside wall time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// Wall time alone, each process run as is.
+    #[default]
+    Wall,
+    /// Wall time, and each sample's phase timings from the runtimes a
+    /// phases build runs ([`RowRecord::phases`]); that build times a little
+    /// more than the plain one.
+    Phases,
+    /// Wall time and user-space hardware counters, each sample run under
+    /// `perf stat` ([`RowRecord::instructions`], [`RowRecord::cycles`]); the
+    /// wall times include perf's own startup.
+    Counters,
+}
+
+/// The tool a counter run read its counts with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CounterTool {
+    /// The first line its `--version` printed (`perf version 6.12.0`).
+    pub version: String,
+    /// The events counted, as passed to it.
+    pub events: Vec<String>,
 }
 
 /// A suite's identity.
@@ -153,6 +196,28 @@ pub struct RowRecord {
     pub warmup: u32,
     /// Wall time per process, in nanoseconds.
     pub wall_ns: Metric,
+    /// User-space instructions retired per process, in a counter run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Metric>,
+    /// User-space cycles per process, in a counter run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cycles: Option<Metric>,
+    /// Each phase's duration per process, in nanoseconds, in a phases run,
+    /// in the order the phases ran: `start` (from the harness's spawn to the
+    /// runtime's entry), each phase the runtime marked, then `reap` (from its
+    /// last mark to its exit being reaped). They sum to about the wall time.
+    /// Empty for a runtime that marks none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub phases: Vec<PhaseMetric>,
+}
+
+/// One phase's durations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhaseMetric {
+    /// The phase's name.
+    pub name: String,
+    /// Its duration per process, in nanoseconds.
+    pub ns: Metric,
 }
 
 /// One metric's samples and their statistics.
@@ -174,6 +239,13 @@ pub struct NoiseRecord {
     /// How far the two medians sit apart, as a ratio deviation (0.01 is 1%):
     /// a difference between rows smaller than this is noise.
     pub median_deviation: f64,
+    /// The copy's instruction counts, in a counter run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<Metric>,
+    /// How far the two instruction medians sit apart, as a ratio deviation,
+    /// in a counter run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions_median_deviation: Option<f64>,
 }
 
 impl RunRecord {
@@ -486,6 +558,11 @@ mod tests {
     fn record() -> RunRecord {
         RunRecord {
             record_version: RECORD_VERSION,
+            mode: Mode::Counters,
+            counters: Some(CounterTool {
+                version: "perf version 6.12.0".to_owned(),
+                events: vec!["instructions:u".to_owned(), "cycles:u".to_owned()],
+            }),
             suite: SuiteId {
                 name: "smoke".to_owned(),
                 version: 1,
@@ -545,12 +622,20 @@ mod tests {
                     39_999_999,
                     120_000_000,
                 ]),
+                instructions: Some(metric(vec![9_000_001, 9_000_003, 9_000_002])),
+                cycles: Some(metric(vec![7_000_001, 7_000_003, 7_000_002])),
+                phases: vec![PhaseMetric {
+                    name: "start".to_owned(),
+                    ns: metric(vec![300_001, 300_002, 300_003]),
+                }],
             }],
             noise: NoiseRecord {
                 runtime: "node".to_owned(),
                 workload: "empty".to_owned(),
                 wall_ns: metric(vec![41_000_003, 40_100_007, 42_222_229]),
                 median_deviation: 0.012_345_678_901_234_5,
+                instructions: Some(metric(vec![9_000_002, 9_000_004])),
+                instructions_median_deviation: Some(0.000_000_3),
             },
         }
     }
@@ -592,15 +677,17 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                5,
+                6,
                 vec![
                     "artifacts",
                     "checkouts",
                     "config_hash",
                     "corpora",
+                    "counters",
                     "git",
                     "machine",
                     "machine_quiet",
+                    "mode",
                     "noise",
                     "record_version",
                     "rows",
@@ -611,6 +698,47 @@ mod tests {
             )
         );
         assert_eq!(value["record_version"], RECORD_VERSION);
+    }
+
+    #[test]
+    fn a_wall_run_leaves_out_the_counter_and_phase_keys() {
+        let mut record = record();
+        record.mode = Mode::Wall;
+        record.counters = None;
+        for row in &mut record.rows {
+            row.instructions = None;
+            row.cycles = None;
+            row.phases.clear();
+        }
+        record.noise.instructions = None;
+        record.noise.instructions_median_deviation = None;
+        let line = record.to_line();
+        for key in ["counters", "instructions", "cycles", "phases"] {
+            assert!(!line.contains(key), "{key}: {line}");
+        }
+        assert!(line.contains(r#""mode":"wall""#), "{line}");
+        assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
+    }
+
+    /// A line from before version 6 reads as a wall run with the new
+    /// fields empty.
+    #[test]
+    fn an_older_line_reads_as_a_wall_run() {
+        let mut value: serde_json::Value = serde_json::from_str(&record().to_line()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("record_version".to_owned(), 5.into());
+        object.remove("mode");
+        object.remove("counters");
+        let row = value["rows"][0].as_object_mut().unwrap();
+        for key in ["instructions", "cycles", "phases"] {
+            row.remove(key);
+        }
+        let parsed: RunRecord = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.record_version, 5);
+        assert_eq!(parsed.mode, Mode::Wall);
+        assert_eq!(parsed.counters, None);
+        assert_eq!(parsed.rows[0].instructions, None);
+        assert!(parsed.rows[0].phases.is_empty());
     }
 
     #[test]

@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "fgro 0.0.0 (commit unknown, V8 1, snapshot)"

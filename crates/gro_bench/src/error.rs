@@ -181,6 +181,14 @@ pub enum BenchError {
         paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
     )]
     ArtifactsChanged { paths: Vec<PathBuf> },
+    /// Counter mode can't count: `perf` is missing or fails, the kernel
+    /// won't count, or an event was multiplexed, saying which.
+    #[error("counter mode: {0}")]
+    Counters(String),
+    /// A phases run's sample wrote no phase timings, or ones that don't read
+    /// as the format or run backward, saying which.
+    #[error("phases mode: {0}")]
+    Phases(String),
     /// The record couldn't be appended to the history.
     #[error("failed to append to the history {path}")]
     HistoryWrite {
@@ -204,8 +212,9 @@ impl BenchError {
     /// a command that fails or prints no version, a corpora checkout off its
     /// pin, a collection the pinned tree lacks or a copy can't hold, an
     /// entry colliding with a collection's file, a project's missing or
-    /// unversioned link or unsupported entry, a failed correctness run, or values that break the
-    /// suite's parity), so the caller must change
+    /// unversioned link or unsupported entry, a failed correctness run,
+    /// values that break the suite's parity, or counters the machine can't
+    /// give), so the caller must change
     /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
@@ -228,6 +237,7 @@ impl BenchError {
                 | Self::ProjectEntry { .. }
                 | Self::CheckFailed { .. }
                 | Self::ParityMismatch { .. }
+                | Self::Counters(_)
         )
     }
 }

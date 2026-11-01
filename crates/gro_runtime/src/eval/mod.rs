@@ -147,7 +147,7 @@ use crate::loader::reads::{Reads, RecordingTree};
 use crate::loader::{Loader, Rules};
 use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 use crate::snapshot::StartupSnapshot;
-use crate::{ConsoleOptions, ConsoleRouting, Mode, report, report_js, start_runtime};
+use crate::{ConsoleOptions, ConsoleRouting, Mode, phases, report, report_js, start_runtime};
 
 /// The driver's URL: a scheme the resolver refuses, so no module can import
 /// it, and no path on disk.
@@ -468,6 +468,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
         Rc::clone(&loader),
         &stopped,
     );
+    phases::mark(phases::Phase::Teardown);
     let breach = loader.breach();
     // the runtime, and its share of the loader, is gone once the eval ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
@@ -495,6 +496,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
         }
     };
     cap_envelope(&mut envelope, MAX_ENVELOPE_SIZE, MAX_TEXT_KEPT);
+    phases::mark(phases::Phase::Envelope);
     envelope
 }
 
@@ -972,14 +974,20 @@ fn evaluate(
                 )
             })?;
         check_time_zone(&mut runtime)?;
+        phases::mark(phases::Phase::Guards);
         let driver = match &options.driver {
-            Some(source) => Some(load_driver(&mut runtime, driver_url, source).await?),
+            Some(source) => {
+                let driver = load_driver(&mut runtime, driver_url, source).await?;
+                phases::mark(phases::Phase::Driver);
+                Some(driver)
+            }
             None => None,
         };
         let id = runtime
             .load_main_es_module(entry)
             .await
             .map_err(|error| Failed::core(Phase::Load, &error))?;
+        phases::mark(phases::Phase::Load);
         let evaluation = runtime.mod_evaluate(id);
         settle(&mut runtime, evaluation)
             .await
@@ -1002,7 +1010,9 @@ fn evaluate(
                 )
             })?
         };
+        phases::mark(phases::Phase::Evaluate);
         let json = serialize_value(&mut runtime, &value, stopped)?;
+        phases::mark(phases::Phase::Serialize);
         runtime
             .run_event_loop(PollEventLoopOptions::default())
             .await
@@ -1016,6 +1026,7 @@ fn evaluate(
                 .await
                 .map_err(|unsettled| unsettled.failed(Phase::Drain, "the driver's after_drain"))?;
         }
+        phases::mark(phases::Phase::Drain);
         Ok(json)
     })
 }

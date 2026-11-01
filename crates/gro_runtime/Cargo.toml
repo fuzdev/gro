@@ -26,5 +26,10 @@ landlock.workspace = true
 libc.workspace = true
 seccompiler.workspace = true
 
+[features]
+# phase timings for the measurement harness (`phases`); release and snapshot
+# builds never enable it
+phases = []
+
 [lints]
 workspace = true

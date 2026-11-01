@@ -31,6 +31,13 @@
 //!    it;
 //! 6. computes each row's statistics.
 //!
+//! The context's [`Measure`] says what a sample measures beside wall time:
+//! nothing, the phase timings a phases build of fgro writes
+//! ([`phases`]), or hardware counters under `perf stat`
+//! ([`counters`](crate::counters)), which the run checks work before
+//! anything else. Only the timed samples are counted; the correctness run,
+//! the warmups, and the version probes run as they are.
+//!
 //! Every sample is a fresh process, timed from just before its spawn to just
 //! after its exit is reaped, with stdout and stderr on the null device, and
 //! stdin on its runtime's `stdin` file, opened before the timed span, or the
@@ -55,11 +62,13 @@ use std::time::{Instant, SystemTime};
 
 use crate::check::{first_difference, stdout_value, truncated};
 use crate::collection::{list_paths, materialize};
+use crate::counters::{Counts, Perf};
 use crate::error::BenchError;
+use crate::phases::{self, PHASES_FILE_ENV, SampleSpan};
 use crate::project::materialize_project;
 use crate::record::{
-    CheckoutState, GitState, Machine, MachineQuiet, Metric, NoiseRecord, RECORD_VERSION, RowRecord,
-    RunRecord, RuntimeInfo, SuiteId, checkout_root, read_corpora_tree,
+    CheckoutState, GitState, Machine, MachineQuiet, Metric, Mode, NoiseRecord, PhaseMetric,
+    RECORD_VERSION, RowRecord, RunRecord, RuntimeInfo, SuiteId, checkout_root, read_corpora_tree,
 };
 use crate::schedule::schedule;
 use crate::stats::{Stats, ratio_deviation};
@@ -77,15 +86,48 @@ pub struct RunContext {
     /// `cargo xtask bench` passes the gro checkout's gitignored
     /// `target/bench/`, which is trusted like the rest of `target/` (a
     /// symlink already in it is followed), since anyone who can write there
-    /// can already change build output.
+    /// can already change build output. A phases or counter run also writes
+    /// each sample's file here, under `phases/` or `counters/`.
     pub work_dir: PathBuf,
+    /// What each sample measures beside wall time.
+    pub measure: Measure,
 }
 
-/// One timed process. Counter mode adds its counts (`instructions:u`,
-/// `cycles:u`) here.
-#[derive(Debug, Clone, Copy)]
+/// What a run's samples measure beside wall time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Measure {
+    /// Nothing: each process runs as is.
+    Wall,
+    /// The phase timings of the runtimes named, each a phases build of fgro,
+    /// whose processes get [`PHASES_FILE_ENV`] naming the file to write.
+    Phases { runtimes: BTreeSet<String> },
+    /// User-space instructions and cycles, each sample under `perf stat`.
+    Counters,
+}
+
+/// How the run takes its samples, set up from the [`Measure`].
+#[derive(Debug)]
+enum Sampler {
+    Wall,
+    Phases {
+        /// The file each sample of a phases runtime writes.
+        file: PathBuf,
+    },
+    Counters {
+        perf: Perf,
+        /// The file each sample's counts go to.
+        out: PathBuf,
+    },
+}
+
+/// One timed process.
+#[derive(Debug, Clone)]
 struct Sample {
     wall_ns: u64,
+    /// Its counts, under [`Sampler::Counters`].
+    counts: Option<Counts>,
+    /// Its phases' durations, under [`Sampler::Phases`] for a phases runtime.
+    phases: Vec<(String, u64)>,
 }
 
 /// The environment variables a measured process keeps from the caller's.
@@ -114,6 +156,13 @@ impl Program {
             use std::os::unix::process::CommandExt;
             command.arg0(&self.argv0);
         }
+        self.isolate(&mut command, dir);
+        command
+    }
+
+    /// Sets `command`'s environment to the isolated one with this program's
+    /// variables, its directory to `dir`, and its stdin to the null device.
+    fn isolate(&self, command: &mut Command, dir: &Path) {
         command.env_clear();
         for key in KEPT_ENV {
             if let Some(value) = std::env::var_os(key) {
@@ -124,7 +173,6 @@ impl Program {
             .envs(&self.env)
             .current_dir(dir)
             .stdin(Stdio::null());
-        command
     }
 }
 
@@ -142,6 +190,8 @@ struct RowCommand {
     stdin: Option<PathBuf>,
     /// What the runtime's stdout holds, for the correctness run.
     stdout: Option<Stdout>,
+    /// Whether its samples write phase timings, under [`Sampler::Phases`].
+    phases: bool,
 }
 
 impl RowCommand {
@@ -149,8 +199,22 @@ impl RowCommand {
     /// stderr on the null device.
     fn command(&self, dir: &Path) -> Result<Command, BenchError> {
         let mut command = self.program.command(dir);
+        command.args(&self.args);
+        self.finish(command)
+    }
+
+    /// A process of this row under `perf stat`, writing its counts to
+    /// `out`, set up as [`command`](Self::command) sets one up.
+    fn counted(&self, perf: &Perf, out: &Path, dir: &Path) -> Result<Command, BenchError> {
+        let mut command = perf.command(out, &self.program.path, &self.args);
+        self.program.isolate(&mut command, dir);
+        self.finish(command)
+    }
+
+    /// Adds the row's variables to `command`, puts its stdout and stderr on
+    /// the null device, and opens its stdin.
+    fn finish(&self, mut command: Command) -> Result<Command, BenchError> {
         command
-            .args(&self.args)
             .envs(&self.env)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -183,6 +247,7 @@ impl RowCommand {
 /// during the run.
 pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, BenchError> {
     suite.validate()?;
+    let sampler = sampler(suite, &context)?;
     let corpora = suite
         .corpora
         .as_ref()
@@ -251,8 +316,17 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     for (workload, runtime) in suite.rows() {
         let name = workload.name.as_str();
         let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
-        let (args, env) = row_args(runtime, workload, script, &mut resolve)?;
+        let (args, mut env) = row_args(runtime, workload, script, &mut resolve)?;
         let (program, stdin) = program_of[runtime.name.as_str()];
+        let phases = match (&context.measure, &sampler) {
+            (Measure::Phases { runtimes }, Sampler::Phases { file })
+                if runtimes.contains(&runtime.name) =>
+            {
+                env.insert(PHASES_FILE_ENV.to_owned(), file.display().to_string());
+                true
+            }
+            _ => false,
+        };
         rows.push(RowCommand {
             runtime: runtime.name.clone(),
             workload: workload.name.clone(),
@@ -262,6 +336,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             warmup: workload.warmup,
             stdin: stdin.clone(),
             stdout: runtime.stdout,
+            phases,
         });
     }
     artifacts.extend(copies.files.iter().cloned());
@@ -308,12 +383,12 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
     let warmups: Vec<usize> = commands.iter().map(|row| row.warmup as usize).collect();
     for index in schedule(&warmups) {
-        run_once(commands[index], dir)?;
+        run_once(commands[index], dir, &Sampler::Wall)?;
     }
     let sample_count = suite.samples.get() as usize;
     let mut samples: Vec<Vec<Sample>> = vec![Vec::with_capacity(sample_count); commands.len()];
     for index in schedule(&vec![sample_count; commands.len()]) {
-        samples[index].push(run_once(commands[index], dir)?);
+        samples[index].push(run_once(commands[index], dir, &sampler)?);
     }
 
     let after = hash_artifacts(&artifacts)?;
@@ -346,17 +421,31 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     let rows_record: Vec<RowRecord> = rows
         .iter()
         .zip(&samples)
-        .map(|(row, samples)| RowRecord {
-            runtime: row.runtime.clone(),
-            workload: row.workload.clone(),
-            warmup: row.warmup,
-            wall_ns: wall_metric(samples),
+        .map(|(row, samples)| {
+            Ok(RowRecord {
+                runtime: row.runtime.clone(),
+                workload: row.workload.clone(),
+                warmup: row.warmup,
+                wall_ns: wall_metric(samples),
+                instructions: count_metric(samples, |counts| counts.instructions),
+                cycles: count_metric(samples, |counts| counts.cycles),
+                phases: phase_metrics(row, samples)?,
+            })
         })
-        .collect();
-    let noise = noise_record(&rows_record[0], wall_metric(&samples[rows.len()]));
+        .collect::<Result<_, BenchError>>()?;
+    let noise = noise_record(&rows_record[0], &samples[rows.len()]);
 
     Ok(RunRecord {
         record_version: RECORD_VERSION,
+        mode: match context.measure {
+            Measure::Wall => Mode::Wall,
+            Measure::Phases { .. } => Mode::Phases,
+            Measure::Counters => Mode::Counters,
+        },
+        counters: match &sampler {
+            Sampler::Counters { perf, .. } => Some(perf.tool.clone()),
+            Sampler::Wall | Sampler::Phases { .. } => None,
+        },
         suite: SuiteId {
             name: suite.name.clone(),
             version: suite.version,
@@ -802,13 +891,79 @@ fn probe_line(program: &Program, args: &[String], dir: &Path) -> Result<String, 
         .ok_or(BenchError::NoVersion { command })
 }
 
-/// Runs one fresh process of `row` and times it.
-fn run_once(row: &RowCommand, dir: &Path) -> Result<Sample, BenchError> {
+/// Sets up the run's [`Sampler`] from the context's [`Measure`]: for a
+/// phases run, the runtimes it names must be the suite's, and for a counter
+/// run, `perf` must count ([`Perf::find`]).
+fn sampler(suite: &Suite, context: &RunContext) -> Result<Sampler, BenchError> {
+    let dir = |name: &str| -> Result<PathBuf, BenchError> {
+        let dir = context.work_dir.join(name);
+        fs::create_dir_all(&dir).map_err(|source| BenchError::Write {
+            path: dir.clone(),
+            source,
+        })?;
+        Ok(dir)
+    };
+    match &context.measure {
+        Measure::Wall => Ok(Sampler::Wall),
+        Measure::Phases { runtimes } => {
+            if let Some(unknown) = runtimes
+                .iter()
+                .find(|name| !suite.runtimes.iter().any(|runtime| &runtime.name == *name))
+            {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "phases are asked of the runtime `{unknown}`, which the suite doesn't have"
+                )));
+            }
+            Ok(Sampler::Phases {
+                file: dir("phases")?.join("sample.txt"),
+            })
+        }
+        Measure::Counters => {
+            let dir = dir("counters")?;
+            let perf = Perf::find(&dir.join("probe.csv"))?;
+            Ok(Sampler::Counters {
+                perf,
+                out: dir.join("sample.csv"),
+            })
+        }
+    }
+}
+
+/// The wall clock, in nanoseconds since the Unix epoch, for the spans a
+/// phases sample prices outside the runtime's own.
+fn unix_ns() -> u128 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos())
+}
+
+/// Runs one fresh process of `row` and times it, measuring what `sampler`
+/// says.
+fn run_once(row: &RowCommand, dir: &Path, sampler: &Sampler) -> Result<Sample, BenchError> {
+    let remove = |path: &Path| match fs::remove_file(path) {
+        Err(source) if source.kind() != io::ErrorKind::NotFound => Err(BenchError::Write {
+            path: path.to_owned(),
+            source,
+        }),
+        _ => Ok(()),
+    };
     // stdin is opened here, before the timed span
-    let mut command = row.command(dir)?;
+    let (mut command, phases_file, counts_out) = match sampler {
+        Sampler::Counters { perf, out } => {
+            remove(out)?;
+            (row.counted(perf, out, dir)?, None, Some((perf, out)))
+        }
+        Sampler::Phases { file } if row.phases => {
+            remove(file)?;
+            (row.command(dir)?, Some(file), None)
+        }
+        Sampler::Wall | Sampler::Phases { .. } => (row.command(dir)?, None, None),
+    };
+    let spawn_unix_ns = phases_file.map(|_| unix_ns());
     let start = Instant::now();
     let status = command.status();
     let elapsed = start.elapsed();
+    let reap_unix_ns = phases_file.map(|_| unix_ns());
     let status = status.map_err(|source| BenchError::Spawn {
         command: row.display(),
         source,
@@ -819,13 +974,45 @@ fn run_once(row: &RowCommand, dir: &Path) -> Result<Sample, BenchError> {
             status,
         });
     }
+    let counts = counts_out.map(|(perf, out)| perf.read(out)).transpose()?;
+    let phases = match (phases_file, spawn_unix_ns, reap_unix_ns) {
+        (Some(file), Some(spawn_unix_ns), Some(reap_unix_ns)) => {
+            let text = fs::read_to_string(file).map_err(|source| {
+                if source.kind() == io::ErrorKind::NotFound {
+                    BenchError::Phases(format!(
+                        "`{}` wrote no phases file, so it isn't a phases build",
+                        row.display()
+                    ))
+                } else {
+                    BenchError::Read {
+                        path: file.clone(),
+                        source,
+                    }
+                }
+            })?;
+            phases::durations(
+                &text,
+                SampleSpan {
+                    spawn_unix_ns,
+                    reap_unix_ns,
+                },
+            )?
+        }
+        _ => Vec::new(),
+    };
     Ok(Sample {
         wall_ns: u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
+        counts,
+        phases,
     })
 }
 
 fn wall_metric(samples: &[Sample]) -> Metric {
-    let samples: Vec<u64> = samples.iter().map(|sample| sample.wall_ns).collect();
+    metric(samples.iter().map(|sample| sample.wall_ns).collect())
+}
+
+/// The metric of `samples`, which a row always has.
+fn metric(samples: Vec<u64>) -> Metric {
     #[expect(
         clippy::expect_used,
         reason = "every row gets `samples` samples, which the suite's type keeps above 0"
@@ -834,12 +1021,65 @@ fn wall_metric(samples: &[Sample]) -> Metric {
     Metric { stats, samples }
 }
 
-fn noise_record(first: &RowRecord, copy: Metric) -> NoiseRecord {
+/// One count of every sample, when each was counted.
+fn count_metric(samples: &[Sample], count: impl Fn(&Counts) -> u64) -> Option<Metric> {
+    samples
+        .iter()
+        .map(|sample| sample.counts.as_ref().map(&count))
+        .collect::<Option<Vec<u64>>>()
+        .map(metric)
+}
+
+/// Each phase's durations over `row`'s samples, which must name the same
+/// phases in the same order.
+fn phase_metrics(row: &RowCommand, samples: &[Sample]) -> Result<Vec<PhaseMetric>, BenchError> {
+    let Some(first) = samples.first() else {
+        return Ok(Vec::new());
+    };
+    let names: Vec<&str> = first.phases.iter().map(|(name, _)| name.as_str()).collect();
+    for sample in samples {
+        if !sample
+            .phases
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .eq(names.iter().copied())
+        {
+            return Err(BenchError::Phases(format!(
+                "the samples of `{}` marked different phases",
+                row.display()
+            )));
+        }
+    }
+    Ok(names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| PhaseMetric {
+            name: (*name).to_owned(),
+            ns: metric(
+                samples
+                    .iter()
+                    .map(|sample| sample.phases[index].1)
+                    .collect(),
+            ),
+        })
+        .collect())
+}
+
+fn noise_record(first: &RowRecord, copy: &[Sample]) -> NoiseRecord {
+    let wall_ns = wall_metric(copy);
+    let instructions = count_metric(copy, |counts| counts.instructions);
+    let instructions_median_deviation = first
+        .instructions
+        .as_ref()
+        .zip(instructions.as_ref())
+        .map(|(first, copy)| ratio_deviation(first.stats.median, copy.stats.median));
     NoiseRecord {
         runtime: first.runtime.clone(),
         workload: first.workload.clone(),
-        median_deviation: ratio_deviation(first.wall_ns.stats.median, copy.stats.median),
-        wall_ns: copy,
+        median_deviation: ratio_deviation(first.wall_ns.stats.median, wall_ns.stats.median),
+        wall_ns,
+        instructions,
+        instructions_median_deviation,
     }
 }
 

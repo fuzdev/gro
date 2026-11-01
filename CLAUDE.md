@@ -647,8 +647,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   on any architecture, its file outside the roots and its code `PROT_EXEC`);
   `Confined` records the `Jit`, `init_engine` refuses a confined engine
   whose `jitless` disagrees (`EngineError::JitConflict`), and eval's
-  `Prepass::confine` reads it from `engine_options`, so `fgro eval` and
-  `eval-box` take it from `--jit`. `clone3` isn't allowed (its flags
+  `Prepass::confine` reads it from `engine_options`, so `fgro eval` takes
+  it from `--jit`. `clone3` isn't allowed (its flags
   are in memory, past a filter), so glibc falls back to `clone`; the
   filter compares exact numbers, so x32 calls fail too; `seccomp` isn't
   allowed, so nothing is added after it. The aarch64 list follows its call
@@ -668,8 +668,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   from a `Confined`, so no embedder can evaluate outside the box; each runtime's own choices are
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
   each level writes to and whether each is colored, read when the run
-  starts, never in the snapshot). The crate reads no environment variable;
-  `fgro` decides color.
+  starts, never in the snapshot). The crate reads no environment variable (but
+  the `phases` feature's file, below); `fgro` decides color.
   It starts from a startup snapshot when the embedder passes one
   (`snapshot.rs`; built in its own process from the same extension list, with
   the lazy scripts it didn't load embedded beside it as `residual.rs`), else
@@ -796,17 +796,22 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   out-of-memory handle, runs `eval::prepass` on a sized thread it joins,
   confines the process alone, then starts the engine and evaluates on a
   second sized thread, so every thread V8 and tokio start comes after the
-  confinement. The internal `eval-box` subcommand (hidden from `--help`, like
-  `make-snapshot`) takes eval's arguments, runs that path through the
-  confinement by the same functions, and exits `0` with no output and no
-  engine, for the bench's box-cost row. Confined eval runs only from a snapshot build, so
+  confinement. Confined eval runs only from a snapshot build, so
   `tests/eval.rs`'s tests that evaluate are ignored in a plain `cargo test`
   and run from `cargo xtask build --verify`, beside `tests/confine.rs`
   (no libtest harness, whose threads would refuse the box: each case
   confines a child of its own and reports what it could reach); on a kernel
   whose Landlock is below ABI 6 they fail, naming its ABI.
   `gro_runtime::run_main` documents the requirement for any embedder.
-  `fgro --version` names the git commit it was built from (with `-dirty`, or
+  The `phases` feature (`gro_cli`'s, enabling `gro_runtime`'s), which
+  release and snapshot builds never enable, records a timestamp at each
+  phase boundary of `run` and `eval` (`gro_runtime::phases`: the entry,
+  `prepass`, `confine`, `engine`, `runtime`, `bootstrap` (where eval
+  installs `deny`), `guards`, `driver`, `load`, `evaluate`, `serialize`,
+  `drain`, `teardown`, `envelope`, `write`, `exit`) and writes them at exit
+  to the file `GRO_PHASES_FILE` names, opened before eval's box; without
+  the feature each call is an empty `const fn`, and nothing reads the
+  variable. `fgro --version` names the git commit it was built from (with `-dirty`, or
   `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot
   is embedded. Its `snapshot` feature embeds a startup snapshot read from
   `GRO_SNAPSHOT_DIR`, and only that feature reads `GRO_COMMIT`;
@@ -871,7 +876,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   zap's recipes, gated; its `node_modules` is stubs plus a link to the zap
   checkout) and on a sibling fuz_forge checkout's `zap.forge2.ts` in place
   (reported only); beside them, reported only, `deno info` (the graph pass
-  zap runs before each eval) and `fgro eval-box` (the box's own cost). Its
+  zap runs before each eval); in a `--phases` run, `prepass` plus
+  `confine` approximate the box's own cost (`prepass` also holds argument
+  parsing, the descriptor close, and the stdin read). Its
   rows are warm only, as zap runs Deno with its cache warm, which the
   warmups fill. The rows run from the suite's directory: both runtimes get
   absolute paths, and Deno resolves bare imports from the importing module,
@@ -880,7 +887,32 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
   (or `suites/eval/suite.json`),
   after `cargo xtask build --release`, so the bench's own build is a cache hit
-  and doesn't load the machine just before timing
+  and doesn't load the machine just before timing. A run's `mode` (record
+  version 6) says what each sample measured beside wall time: `--phases`
+  runs a `phases` build of `fgro` (`<target>/gro_snapshot/release-phases/`)
+  in place of each `fgro` runtime and records each sample's phase durations
+  per row, from `start` (spawn to the entry, by the wall clocks on both
+  sides) through each mark to `reap` (the last mark to the reaped exit), so
+  they sum to the wall time; `--counters` runs each sample under
+  `perf stat -e instructions:u,cycles:u` (stdin opened fresh per sample) and
+  records the counts, refusing when perf is missing or an event isn't
+  counted for the whole run (multiplexed). `--samples N` replaces the
+  suite's count. **The perf rule**: a change to `gro_runtime` or `gro_cli`
+  runs
+  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
+  (and the eval suite) before commit: it builds the release `fgro` at that
+  revision in a clone outside the checkout (`--base-dir`, default
+  `$XDG_CACHE_HOME/gro/bench_base`, locked for the A/B), from a cleared
+  environment so the revision's own toolchain pin builds it (its
+  `rustc --version` checked against the pin and printed beside the
+  checkout's), runs each `fgro` row beside its base
+  copy interleaved, prints each row's instruction, cycle, and wall medians
+  against the base's, flags an instruction move past 2% (which needs a
+  written reason in review), and records nothing.
+  `cargo xtask bench report` prints, per suite version and mode, each row's
+  latest record against the previous and the last attested one, wall moves
+  flagged past the noise floor and instruction moves past 2%, with phase
+  medians when recorded; it names and skips a line it can't read
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
   `check-rust` (the Rust half alone, which CI's rust job runs), `check-js`
   (the JS/TS step alone, which CI's Node job runs), `bench`

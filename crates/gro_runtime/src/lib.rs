@@ -30,13 +30,16 @@
 //!   unconfined
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
+//! - [`phases`]: a timestamp at each phase boundary of a run, for the
+//!   measurement harness, recorded only under the `phases` feature
 //! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
 //!   an optional driver module, the clock and randomness denied and the heap
 //!   and time limited, written by a strict host serializer into one
 //!   envelope that reports success or the kind of failure
 //!
 //! `deno_core`'s types stay out of this crate's public API, and the crate
-//! reads no environment variable: what a runtime decides per run, such as the
+//! reads no environment variable (but the `phases` feature's file,
+//! [`phases::PHASES_FILE_ENV`]): what a runtime decides per run, such as the
 //! console's color and streams ([`ConsoleOptions`]), comes in through
 //! [`RuntimeOptions`] from the embedder.
 //!
@@ -53,6 +56,7 @@ pub mod confine;
 pub mod engine;
 pub mod eval;
 mod loader;
+pub mod phases;
 pub mod resolver;
 pub mod snapshot;
 
@@ -66,6 +70,7 @@ use url::Url;
 use crate::engine::Engine;
 use crate::loader::Loader;
 use crate::loader::graph::{Graph, Recording};
+use crate::phases::Phase;
 use crate::resolver::{DiskTree, ResolveError};
 use crate::snapshot::StartupSnapshot;
 
@@ -207,6 +212,7 @@ pub(crate) fn run_recorded(
     };
     let loader = Rc::new(Loader::new(&entry, roots, recording));
     let result = run_loaded(engine, *snapshot, *console, &entry.url, Rc::clone(&loader));
+    phases::mark(Phase::Teardown);
     // the runtime, and its share of the loader, is gone once the run ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
     (result, Some(graph))
@@ -233,12 +239,15 @@ fn run_loaded(
             .load_main_es_module(entry)
             .await
             .map_err(|error| uncaught(&error))?;
+        phases::mark(Phase::Load);
         let evaluation = runtime.mod_evaluate(id);
         runtime
             .run_event_loop(PollEventLoopOptions::default())
             .await
             .map_err(|error| uncaught(&error))?;
-        evaluation.await.map_err(|error| uncaught(&error))
+        let evaluated = evaluation.await.map_err(|error| uncaught(&error));
+        phases::mark(Phase::Evaluate);
+        evaluated
     })
 }
 
@@ -266,12 +275,14 @@ fn start_runtime(
     mode: Mode,
 ) -> Result<JsRuntime, String> {
     let mut runtime = new_runtime(snapshot, loader, mode)?;
+    phases::mark(Phase::Runtime);
     // before the bootstrap's start reads them
     let state = runtime.op_state();
     state.borrow_mut().put(console);
     state.borrow_mut().put(bootstrap::Deny(mode == Mode::Eval));
     drop(state);
     bootstrap::start(&mut runtime).map_err(|error| report_js(&error))?;
+    phases::mark(Phase::Bootstrap);
     Ok(runtime)
 }
 

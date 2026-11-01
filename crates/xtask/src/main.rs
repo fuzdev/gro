@@ -20,7 +20,9 @@
 //! stopping at the first failure with that step's exit code:
 //!
 //! 1. the V8 archive, as `fetch-v8`
-//! 2. the Rust gates: `cargo fmt`, `cargo clippy`, `cargo test`, and
+//! 2. the Rust gates: `cargo fmt`, `cargo clippy` (again with the `phases`
+//!    feature on `gro_runtime` and `gro_cli`), `cargo test` (again for
+//!    `gro_runtime`'s unit tests with the feature), and
 //!    `cargo doc`, with warnings denied; after clippy, the first build, the
 //!    V8 library copy it left is checked before the tests run V8 code
 //! 3. the snapshot build, as `build --verify`
@@ -48,8 +50,31 @@
 //! rows against `node_compile_cache`, cold ones against `node`, `deno`
 //! beside), or, for a suite with its own `gate`, each of the gate's runtimes
 //! against its incumbent, every row it doesn't name marked reported only: a
-//! report that fails nothing. A failed run records nothing, and its exit
-//! code says what the caller must do:
+//! report that fails nothing. `--samples N` replaces the suite's sample
+//! count (even), which the record's config hash then carries.
+//!
+//! `--phases` builds `fgro` with its `phases` feature too
+//! (`<target>/gro_snapshot/release-phases/fgro`), runs that build in place of
+//! each `fgro` runtime, and records each sample's phase durations
+//! (`gro_bench::phases`). `--counters` runs each sample under `perf stat`
+//! and records its user-space instructions and cycles
+//! (`gro_bench::counters`), refusing when perf can't count them in full.
+//! Either is the record's `mode`; they don't combine.
+//!
+//! `--counters --base <rev>` is the A/B for the perf rule: it builds the
+//! release snapshot `fgro` at `rev` too, in a clone of its own outside the
+//! checkout ([`base`], under `--base-dir`), runs each `fgro` runtime beside a
+//! copy on that build (`<name>_base`), interleaved, with every other runtime
+//! left out, and prints each row's instruction, cycle, and wall medians
+//! against the base's, flagging an instruction move past 2%. It records
+//! nothing.
+//!
+//! `cargo xtask bench report` reads the history (`--history` too) and
+//! prints, per suite version and mode, each row's latest record against the
+//! one before it and the last attested one (`gro_bench::report`).
+//!
+//! A failed run records nothing, and its exit code says what the caller must
+//! do:
 //!
 //! - `0`: the run's record was appended
 //! - `2`: change something before re-running, since unchanged it fails the
@@ -65,27 +90,32 @@
 //!   untimed correctness run fails (a nonzero exit, or stdout not what its
 //!   runtime's `stdout` says) or breaks the suite's `parity`, `--history` is
 //!   empty, names a directory, or names no file in an existing directory, or
-//!   the `fgro` it names isn't the release snapshot build (or that build
-//!   failed)
+//!   the `fgro` it names isn't the release snapshot build (or that build, or
+//!   the phases build, failed), perf can't count, the flags don't combine, or
+//!   `--base` names no commit, or the history `report` reads is missing
 //! - `1`: anything else, such as an artifact or a linked checkout changing
 //!   mid-run or a failed write
 //!
 //! A usage error (an unknown subcommand or flag, a missing argument) exits
 //! `2` as well, printing to stderr; `--help` prints to stdout and exits `0`.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 use argh::{EarlyExit, FromArgs};
 use gro_bench::error::BenchError;
-use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
-use gro_bench::run::{RunContext, run as run_suite};
+use gro_bench::record::{GitState, Machine, MachineQuiet, Mode, RunRecord};
+use gro_bench::report::INSTRUCTIONS_FLAG;
+use gro_bench::run::{Measure, RunContext, run as run_suite};
 use gro_bench::suite::{Gate, Runtime, Suite};
 
+mod base;
 mod snapshot;
 mod v8_archive;
 
@@ -171,20 +201,46 @@ struct Build {
 #[argh(subcommand, name = "check")]
 struct Check {}
 
-/// run a measurement suite and append its record to the history
+/// run a measurement suite and append its record to the history, or, given
+/// `report`, report on the history
 #[derive(FromArgs)]
 #[argh(subcommand, name = "bench")]
 struct Bench {
-    /// the suite file (JSON)
+    /// the suite file (JSON), or `report` to report on the history (a suite
+    /// file named `report` is `./report`)
     #[argh(positional)]
     suite: PathBuf,
-    /// the history file to append to (default: `crates/gro_bench/history.jsonl`)
+    /// the history file to append to or report on (default:
+    /// `crates/gro_bench/history.jsonl`)
     #[argh(option)]
     history: Option<PathBuf>,
     /// attest that the machine was quieted by hand, per the machine protocol
     #[argh(switch)]
     attest_quiet: bool,
+    /// time fgro's phases: run a build with the `phases` feature in place of
+    /// each fgro runtime and record each sample's phase durations
+    #[argh(switch)]
+    phases: bool,
+    /// run each sample under `perf stat`, recording user-space instructions
+    /// and cycles
+    #[argh(switch)]
+    counters: bool,
+    /// with --counters, build fgro at this git revision too, run each fgro
+    /// row against it interleaved, and print the instruction moves, recording
+    /// nothing
+    #[argh(option)]
+    base: Option<String>,
+    /// where --base clones and builds (default: `$XDG_CACHE_HOME/gro/bench_base`)
+    #[argh(option)]
+    base_dir: Option<PathBuf>,
+    /// the timed samples per row, in place of the suite's (even)
+    #[argh(option)]
+    samples: Option<u32>,
 }
+
+/// The `bench` positional that reports on the history instead of running a
+/// suite.
+const REPORT: &str = "report";
 
 /// Parses the process's arguments. Unlike `argh::from_env`, a usage error
 /// exits `2` (the caller must change the command line), and `--help` prints to
@@ -235,7 +291,7 @@ fn main() -> ExitCode {
         Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
         Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
             let target_dir = target_dir(&root)?;
-            let build = snapshot::build(&root, &target_dir, release)?;
+            let build = snapshot::build(&root, &target_dir, release, false)?;
             if verify {
                 snapshot::verify(&root, release, &build)?;
             }
@@ -334,6 +390,26 @@ fn check_rust(root: &Path) -> StepResult {
             "warnings",
         ],
     )?;
+    // the workspace clippy builds without it, so the phases feature's code goes unlinted there
+    run(
+        root,
+        &[],
+        "cargo",
+        &[
+            "clippy",
+            "--locked",
+            "-p",
+            "gro_runtime",
+            "-p",
+            "gro_cli",
+            "--features",
+            "gro_runtime/phases,gro_cli/phases",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )?;
     // the first build step; check the V8 library copy before the tests run V8 code
     let target_dir = target_dir(root)?;
     verify_linked_step(&target_dir, "debug")?;
@@ -342,6 +418,21 @@ fn check_rust(root: &Path) -> StepResult {
         &[],
         "cargo",
         &["test", "--locked", "--workspace", "--no-fail-fast"],
+    )?;
+    // the phases feature's own unit tests, which the workspace's leave out
+    run(
+        root,
+        &[],
+        "cargo",
+        &[
+            "test",
+            "--locked",
+            "-p",
+            "gro_runtime",
+            "--features",
+            "phases",
+            "--lib",
+        ],
     )?;
     // private items too, so the links in their docs are checked
     run(
@@ -356,12 +447,51 @@ fn check_rust(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
-    let build = snapshot::build(root, &target_dir, false)?;
+    let build = snapshot::build(root, &target_dir, false, false)?;
     snapshot::verify(root, false, &build)
 }
 
-/// Runs a suite, prints a summary, and appends the record to the history.
+/// Runs a suite, prints a summary, and appends the record to the history;
+/// or, with `report`, reports on the history; or, with `--base`, runs the
+/// A/B and prints it.
 fn bench(root: &Path, args: Bench) -> StepResult {
+    let usage = |message: &str| {
+        eprintln!("[xtask] bench: {message}");
+        Err(ExitCode::from(EXIT_INPUT))
+    };
+    if args.suite == Path::new(REPORT) {
+        if args.attest_quiet
+            || args.phases
+            || args.counters
+            || args.base.is_some()
+            || args.base_dir.is_some()
+            || args.samples.is_some()
+        {
+            return usage("`report` takes only --history");
+        }
+        return bench_report(root, args.history);
+    }
+    if args.phases && args.counters {
+        return usage("--phases and --counters measure apart: a phases build counts more");
+    }
+    if args.base.is_some() && !args.counters {
+        return usage("--base compares instruction counts, so it needs --counters");
+    }
+    if args.base_dir.is_some() && args.base.is_none() {
+        return usage("--base-dir is where --base builds, so it needs --base");
+    }
+    if args.base.is_some() {
+        let set = base::codegen_overrides(
+            std::env::vars_os().map(|(name, _)| name.to_string_lossy().into_owned()),
+        );
+        if !set.is_empty() {
+            return usage(&format!(
+                "--base builds the base from a cleared environment, so the head's build would take \
+                 {} and the base's wouldn't; unset them for the A/B",
+                set.join(", ")
+            ));
+        }
+    }
     let history = history_path(root, args.history).map_err(|error| {
         eprintln!("[xtask] bench failed: invalid --history: {error}");
         ExitCode::from(EXIT_INPUT)
@@ -371,8 +501,68 @@ fn bench(root: &Path, args: Bench) -> StepResult {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let suite = Suite::load(&args.suite).map_err(|error| bench_failed(&error))?;
+    let mut suite = Suite::load(&args.suite).map_err(|error| bench_failed(&error))?;
+    if let Some(samples) = args.samples {
+        let Some(samples) = NonZeroU32::new(samples) else {
+            return usage("--samples is at least 2");
+        };
+        suite.samples = samples;
+        suite.validate().map_err(|error| bench_failed(&error))?;
+    }
     build_fgro(root, &suite, suite_dir)?;
+    let fgro_names: BTreeSet<String> = suite
+        .runtimes
+        .iter()
+        .filter(|runtime| is_fgro(runtime))
+        .map(|runtime| runtime.name.clone())
+        .collect();
+    let measure = if args.phases {
+        if fgro_names.is_empty() {
+            return usage("--phases times fgro's phases, and the suite runs no fgro");
+        }
+        let target_dir = target_dir(root).map_err(|_| ExitCode::from(EXIT_INPUT))?;
+        let built = snapshot::build(root, &target_dir, true, true)
+            .map_err(|_| ExitCode::from(EXIT_INPUT))?
+            .binary;
+        for runtime in &mut suite.runtimes {
+            if fgro_names.contains(&runtime.name) {
+                runtime.program = built.display().to_string();
+            }
+        }
+        println!();
+        Measure::Phases {
+            runtimes: fgro_names.clone(),
+        }
+    } else if args.counters {
+        Measure::Counters
+    } else {
+        Measure::Wall
+    };
+    let base = match &args.base {
+        Some(rev) => {
+            if fgro_names.is_empty() {
+                return usage("--base compares fgro builds, and the suite runs no fgro");
+            }
+            let sha = base::resolve(root, rev)?;
+            let dir = base::base_dir(args.base_dir)?;
+            let lock = base::lock(&dir)?;
+            let built = base::build(root, &dir, &sha, &lock)?;
+            suite = base_suite(&suite, &fgro_names, &built.binary);
+            // the toolchain the head's build ran: this process's, which
+            // `cargo xtask` started under the checkout's pin
+            let mut rustc = Command::new("rustc");
+            rustc.current_dir(root);
+            let head_rustc = base::rustc_version(rustc)?;
+            Some(BaseRun {
+                rev: rev.clone(),
+                sha,
+                rustc: built.rustc,
+                head_rustc,
+                _lock: lock,
+            })
+        }
+        None => None,
+    };
     let result = GitState::read(root, &history).and_then(|git| {
         let context = RunContext {
             git,
@@ -383,6 +573,7 @@ fn bench(root: &Path, args: Bench) -> StepResult {
                 MachineQuiet::Unchecked
             },
             work_dir: root.join(BENCH_DIR),
+            measure,
         };
         println!(
             "[xtask] bench {} v{}: {} rows plus the noise row, {} samples each, interleaved",
@@ -392,13 +583,142 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             suite.samples,
         );
         let record = run_suite(&suite, suite_dir, context)?;
-        record.append_to(&history)?;
+        if base.is_none() {
+            record.append_to(&history)?;
+        }
         Ok(record)
     });
     let record = result.map_err(|error| bench_failed(&error))?;
     print_summary(&record);
-    print_gate(&suite, &record);
+    if let Some(base) = &base {
+        print_base(&record, base);
+        println!("[xtask] an A/B records nothing");
+        return Ok(());
+    }
+    if record.mode == Mode::Wall {
+        print_gate(&suite, &record);
+    } else {
+        println!("\n(no gate table: it reads wall times, which this mode's processes inflate)");
+    }
     println!("[xtask] appended the record to {}", history.display());
+    Ok(())
+}
+
+/// The suite an A/B runs: its fgro runtimes (`fgro_names`), each beside a
+/// copy named `<name>_base` running `base_binary`, and nothing else, with no
+/// `parity` or `gate`, since the copies are the comparison.
+fn base_suite(suite: &Suite, fgro_names: &BTreeSet<String>, base_binary: &Path) -> Suite {
+    let mut suite = suite.clone();
+    suite.runtimes = suite
+        .runtimes
+        .iter()
+        .filter(|runtime| fgro_names.contains(&runtime.name))
+        .flat_map(|runtime| {
+            let mut base = runtime.clone();
+            base.name = format!("{}{BASE_SUFFIX}", runtime.name);
+            base.program = base_binary.display().to_string();
+            [runtime.clone(), base]
+        })
+        .collect();
+    suite.parity.clear();
+    suite.gate = None;
+    suite
+}
+
+/// The suffix of an A/B's base copy of a runtime.
+const BASE_SUFFIX: &str = "_base";
+
+/// What an A/B compared against.
+#[derive(Debug)]
+struct BaseRun {
+    /// `--base` as given.
+    rev: String,
+    sha: String,
+    /// The `rustc --version` line of the base's toolchain.
+    rustc: String,
+    /// The `rustc --version` line of the head's.
+    head_rustc: String,
+    /// The base dir's lock, held from the base's build to the end of the
+    /// run.
+    _lock: base::BaseLock,
+}
+
+/// Prints an A/B's moves: each fgro row's median instructions, cycles, and
+/// wall time against its base copy's, an instruction move past
+/// [`INSTRUCTIONS_FLAG`] (the perf rule's 2%) flagged.
+fn print_base(record: &RunRecord, base: &BaseRun) {
+    println!(
+        "\n[xtask] A/B: this checkout ({}{}) against --base {} ({}), same session, interleaved",
+        record.git.sha.get(..12).unwrap_or(&record.git.sha),
+        if record.git.dirty { "-dirty" } else { "" },
+        base.rev,
+        base.sha,
+    );
+    println!(
+        "[xtask] toolchains: this checkout {}, the base {}",
+        base.head_rustc, base.rustc
+    );
+    println!(
+        "{:<10} {:<16} {:>14} {:>14} {:>9} {:>9} {:>9}",
+        "runtime", "workload", "instructions", "base", "x instr", "x cycles", "x wall"
+    );
+    let mut flagged = 0;
+    for row in &record.rows {
+        let Some(base) = record.rows.iter().find(|base| {
+            base.workload == row.workload && base.runtime == format!("{}{BASE_SUFFIX}", row.runtime)
+        }) else {
+            continue;
+        };
+        let median = |metric: Option<&gro_bench::record::Metric>| {
+            metric.map_or(f64::NAN, |metric| metric.stats.median)
+        };
+        let instructions = median(row.instructions.as_ref());
+        let base_instructions = median(base.instructions.as_ref());
+        let ratio = instructions / base_instructions;
+        let moved = (ratio - 1.0).abs() > INSTRUCTIONS_FLAG;
+        if moved {
+            flagged += 1;
+        }
+        println!(
+            "{:<10} {:<16} {:>14.0} {:>14.0} {:>8.4}x{} {:>8.4}x {:>8.4}x",
+            row.runtime,
+            row.workload,
+            instructions,
+            base_instructions,
+            ratio,
+            if moved { "!" } else { " " },
+            median(row.cycles.as_ref()) / median(base.cycles.as_ref()),
+            row.wall_ns.stats.median / base.wall_ns.stats.median,
+        );
+    }
+    println!(
+        "(user-space medians, this checkout over the base; the noise row's instructions sat {} apart; `!` marks a move past {:.0}%, which needs a written reason)",
+        record.noise.instructions_median_deviation.map_or_else(
+            || "-".to_owned(),
+            |deviation| format!("{:.3}%", deviation * 100.0)
+        ),
+        INSTRUCTIONS_FLAG * 100.0
+    );
+    if flagged > 0 {
+        println!("[xtask] {flagged} row(s) moved past the perf rule");
+    }
+}
+
+/// Prints the report on the history (`--history`, or the default).
+fn bench_report(root: &Path, history: Option<PathBuf>) -> StepResult {
+    let history = history_path(root, history).map_err(|error| {
+        eprintln!("[xtask] bench report: invalid --history: {error}");
+        ExitCode::from(EXIT_INPUT)
+    })?;
+    let text = fs::read_to_string(&history).map_err(|error| {
+        eprintln!(
+            "[xtask] bench report: can't read {}: {error}",
+            history.display()
+        );
+        ExitCode::from(EXIT_INPUT)
+    })?;
+    println!("[xtask] the history {}", history.display());
+    print!("{}", gro_bench::report::report(&text));
     Ok(())
 }
 
@@ -437,7 +757,7 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
     let input = |_| ExitCode::from(EXIT_INPUT);
     fetch_v8(root).map_err(input)?;
     let target_dir = target_dir(root).map_err(input)?;
-    let built = snapshot::build(root, &target_dir, true)
+    let built = snapshot::build(root, &target_dir, true, false)
         .map_err(input)?
         .binary;
     let built = built.canonicalize().map_err(|error| {
@@ -445,7 +765,38 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
         ExitCode::FAILURE
     })?;
     check_fgro_programs(suite, suite_dir, &built).map_err(|error| bench_failed(&error))?;
+    refuse_phases_build(&built)?;
     println!();
+    Ok(())
+}
+
+/// The marker a phases build's `--version` line carries.
+const PHASES_MARKER: &str = ", phases";
+
+/// Refuses a release build that is a phases build, which a feature unified
+/// in from elsewhere in the build graph would make: its marks would time
+/// what a release doesn't run.
+fn refuse_phases_build(built: &Path) -> StepResult {
+    let output = Command::new(built)
+        .arg("--version")
+        .output()
+        .map_err(|error| {
+            eprintln!(
+                "[xtask] bench failed: {} --version: {error}",
+                built.display()
+            );
+            ExitCode::FAILURE
+        })?;
+    let line = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() || line.contains(PHASES_MARKER) {
+        eprintln!(
+            "[xtask] bench failed: the release build {} is a phases build or doesn't run ({}): {}",
+            built.display(),
+            output.status,
+            line.trim()
+        );
+        return Err(ExitCode::from(EXIT_INPUT));
+    }
     Ok(())
 }
 
@@ -527,6 +878,42 @@ fn print_summary(record: &RunRecord) {
             stats.n,
         );
     }
+    if record.rows.iter().any(|row| row.instructions.is_some()) {
+        println!(
+            "\n{:<width$} {:<16} {:>14} {:>9} {:>14} {:>14}",
+            "runtime", "workload", "instructions", "cv", "min", "cycles"
+        );
+        for row in &record.rows {
+            let (Some(instructions), Some(cycles)) = (&row.instructions, &row.cycles) else {
+                continue;
+            };
+            println!(
+                "{:<width$} {:<16} {:>14.0} {:>8.3}% {:>14.0} {:>14.0}",
+                row.runtime,
+                row.workload,
+                instructions.stats.median,
+                instructions.stats.cv * 100.0,
+                instructions.stats.min,
+                cycles.stats.median,
+            );
+        }
+        println!(
+            "(user-space medians under perf stat, whose startup the wall times above include)"
+        );
+    }
+    if record.rows.iter().any(|row| !row.phases.is_empty()) {
+        println!(
+            "\nphase medians in ms (start: spawn to entry; reap: the last mark to the reaped exit)"
+        );
+        for row in record.rows.iter().filter(|row| !row.phases.is_empty()) {
+            let phases: Vec<String> = row
+                .phases
+                .iter()
+                .map(|phase| format!("{} {:.3}", phase.name, phase.ns.stats.median / 1e6))
+                .collect();
+            println!("{} {}: {}", row.runtime, row.workload, phases.join(", "));
+        }
+    }
     // the version column fits the longest line, fgro's with its full commit
     let version_width = record
         .runtimes
@@ -548,10 +935,16 @@ fn print_summary(record: &RunRecord) {
     }
     let noise = &record.noise;
     println!(
-        "\nnoise ({} {} against its copy): the medians sit {:.2}% apart",
+        "\nnoise ({} {} against its copy): the medians sit {:.2}% apart{}",
         noise.runtime,
         noise.workload,
         noise.median_deviation * 100.0,
+        noise
+            .instructions_median_deviation
+            .map_or_else(String::new, |deviation| format!(
+                ", the instruction medians {:.3}%",
+                deviation * 100.0
+            )),
     );
 }
 
@@ -889,6 +1282,20 @@ mod tests {
             all
         };
         assert!(parse_args(&args(&["bench", "suite.json"])).is_ok());
+        assert!(parse_args(&args(&["bench", "report"])).is_ok());
+        assert!(
+            parse_args(&args(&[
+                "bench",
+                "s.json",
+                "--counters",
+                "--base",
+                "HEAD",
+                "--samples",
+                "20"
+            ]))
+            .is_ok()
+        );
+        assert!(parse_args(&args(&["bench", "s.json", "--phases"])).is_ok());
         assert!(parse_args(&args(&["build", "--release", "--verify"])).is_ok());
         assert!(parse_args(&args(&["fetch-v8"])).is_ok());
         assert!(parse_args(&args(&["check-js"])).is_ok());
@@ -945,6 +1352,19 @@ mod tests {
         assert!(!refused(&format!(
             r#"{{"name": "fgro", "program": "{built_program}"}}"#
         )));
+    }
+
+    /// The fakes are committed executables, not written by the test, since
+    /// a file just written can't run while another thread's fork holds it
+    /// open for writing (`ETXTBSY`).
+    #[test]
+    fn a_phases_build_is_refused_as_the_timed_release() {
+        let fakes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/phases_guard");
+        assert_eq!(refuse_phases_build(&fakes.join("release")), Ok(()));
+        assert_eq!(
+            refuse_phases_build(&fakes.join("phases")),
+            Err(ExitCode::from(EXIT_INPUT))
+        );
     }
 
     #[test]
