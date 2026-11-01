@@ -647,10 +647,12 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   eval's `environment` from `internal`. A confined engine's entropy callback
   aborts with a message when `getrandom` fails, rather than let V8 fall
   back to the clock (`/dev/urandom` is outside the box);
-  it returns an `Engine` token naming both, which `run_main`,
-  `snapshot::make_snapshot`, and `eval::eval` require, so no runtime starts
+  it returns an `Engine` token naming both, which `run_main` and
+  `snapshot::make_snapshot` require, so no runtime starts
   on an engine nobody chose or before the process is confined or named
-  unconfined (V8's workers start with the engine); each runtime's own choices are
+  unconfined (V8's workers start with the engine); `eval::eval` takes an
+  `engine::ConfinedEngine` instead, made only by `init_confined_engine`
+  from a `Confined`, so no embedder can evaluate outside the box; each runtime's own choices are
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
   each level writes to and whether each is colored, read when the run
   starts, never in the snapshot). The crate reads no environment variable;
@@ -684,13 +686,13 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   nested `node_modules` or a subdirectory's own, or drops, to a directory
   holding the project or another package's, or a `package.json` symlinked
   out, so a refusal is recorded as the loader's breach and fails
-  the eval as `internal`, naming the path, the box, and the fix). A
-  confined `eval::eval` refuses a build with no startup snapshot, whose
+  the eval as `internal`, naming the path, the box, and the fix).
+  `eval::eval` refuses a build with no startup snapshot, whose
   runtime would read `deno_web`'s JS from the build tree, as `internal`
   (`eval::no_snapshot_error`, which `fgro eval` returns after its pre-pass
   and before the box, so the refusal is the same on every host). The engine
   `eval::engine_options` gives (jitless unless `--jit`, code generation from
-  strings off, locale `en-US`, checked against the `Engine` token), the
+  strings off, locale `en-US`, checked against the engine's token), the
   console to stderr uncolored, the stdin driver evaluated first as a side
   module at the synthetic URL `gro:driver`, then the entry, then
   `driver.default(namespace)` or the export, the strict host serializer

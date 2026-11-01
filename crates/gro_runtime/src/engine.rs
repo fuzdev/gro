@@ -7,12 +7,15 @@
 //! what each runtime decides for itself.
 //!
 //! [`init_engine`] returns an [`Engine`], the token every runtime start takes
-//! ([`crate::run_main`], [`crate::snapshot::make_snapshot`], [`crate::eval::eval`]).
-//! Only [`init_engine`] makes one, so no runtime starts on an engine nobody
+//! ([`crate::run_main`], [`crate::snapshot::make_snapshot`]). Only
+//! [`init_engine`] makes one, so no runtime starts on an engine nobody
 //! chose, and the token names the options the engine has and its process's
 //! [`Confinement`]: the engine starts only once the process is confined or
 //! named unconfined, since V8's worker threads start with it and a box
-//! installed after them would leave them outside.
+//! installed after them would leave them outside. [`init_confined_engine`]
+//! returns a [`ConfinedEngine`], the token [`crate::eval::eval`] takes, which
+//! only a confined process's engine has, so no caller can evaluate a module
+//! outside the box.
 //!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
@@ -38,7 +41,7 @@ use std::sync::OnceLock;
 
 use deno_core::v8;
 
-use crate::confine::Confinement;
+use crate::confine::{Confined, Confinement};
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
 /// the JIT on, code generation from strings allowed, and ICU's own locale.
@@ -118,6 +121,52 @@ impl Engine {
     #[must_use]
     pub const fn confinement(self) -> &'static Confinement {
         &self.0.confinement
+    }
+}
+
+/// An [`Engine`] set up in a process held in its box.
+///
+/// The token [`crate::eval::eval`] takes: made only by
+/// [`init_confined_engine`], from a [`Confined`] that only the box's
+/// installation makes, so an engine set up unconfined never has one.
+#[derive(Debug, Clone, Copy)]
+pub struct ConfinedEngine {
+    /// The engine.
+    engine: Engine,
+    /// The box its process is held in.
+    confined: &'static Confined,
+}
+
+impl ConfinedEngine {
+    /// The engine, for what any engine's token answers.
+    #[must_use]
+    pub const fn engine(self) -> Engine {
+        self.engine
+    }
+
+    /// The box the engine's process is held in.
+    #[must_use]
+    pub const fn confined(self) -> &'static Confined {
+        self.confined
+    }
+}
+
+/// [`init_engine`] in a process held in the box `confined` names, returning
+/// the token only a confined engine has.
+///
+/// # Errors
+///
+/// As [`init_engine`]: the engine was set up already with other options,
+/// or confined otherwise (unconfined among them).
+pub fn init_confined_engine(
+    confined: Confined,
+    options: &EngineOptions,
+) -> Result<ConfinedEngine, EngineError> {
+    let engine = init_engine(Confinement::Confined(confined), options)?;
+    match engine.confinement() {
+        Confinement::Confined(confined) => Ok(ConfinedEngine { engine, confined }),
+        // `init_engine` returns only an engine confined as asked
+        Confinement::Unconfined => Err(EngineError::ConfinementConflict { confined: false }),
     }
 }
 

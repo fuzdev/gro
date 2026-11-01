@@ -38,7 +38,7 @@ mod confined {
 
     use gro_runtime::STACK_SIZE;
     use gro_runtime::confine::{ConfineError, Confinement, Prepared};
-    use gro_runtime::engine::init_engine;
+    use gro_runtime::engine::init_confined_engine;
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
 
@@ -497,8 +497,7 @@ mod confined {
         let sized = std::thread::Builder::new().stack_size(STACK_SIZE);
         sized
             .spawn(move || {
-                let engine =
-                    init_engine(Confinement::Confined(confined), &engine_options(false)).unwrap();
+                let engine = init_confined_engine(confined, &engine_options(false)).unwrap();
                 let envelope = gro_runtime::eval::eval(engine, prepass);
                 let value = envelope.result.map_err(|error| error.message).unwrap();
                 println!("value: {value}");

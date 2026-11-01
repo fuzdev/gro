@@ -57,8 +57,9 @@
 //!
 //! The engine eval runs on is [`engine_options`]'s: jitless unless the
 //! caller turns the JIT on (and with it `WebAssembly`), code generation from
-//! strings off in both modes, and the locale [`LOCALE`]. [`eval`] checks its
-//! [`Engine`] token against them. The console writes every level to stderr,
+//! strings off in both modes, and the locale [`LOCALE`]. [`eval`] takes a
+//! [`ConfinedEngine`], which only a process held in its box has, and checks
+//! it against them and against the eval's box. The console writes every level to stderr,
 //! uncolored, leaving stdout to the envelope. Eval reads no environment
 //! variable.
 //!
@@ -137,8 +138,8 @@ pub use self::envelope::{
 };
 pub use self::limits::{DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE};
 use self::limits::{Stop, Stopped, Watchdog};
-use crate::confine::{self, Confinement};
-use crate::engine::{Engine, EngineOptions};
+use crate::confine;
+use crate::engine::{ConfinedEngine, EngineOptions};
 use crate::loader::graph::{
     Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
@@ -370,9 +371,13 @@ fn unbounded_end(stopped_at: Option<&Path>) -> String {
 /// Evaluates `prepass` as the module doc describes, on the engine `engine`
 /// names, and returns the envelope, whatever happened.
 ///
+/// The engine is a confined one, so there is no eval outside the box: one
+/// confined to another box than the prepass's, or started with no snapshot,
+/// fails as `internal`.
+///
 /// Runs on the calling thread, which must reserve
 /// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
-pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
+pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
     let Prepass {
         options,
         entry,
@@ -387,19 +392,18 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
         EvalError::new(ErrorKind::Internal, "not evaluated"),
     );
     envelope.entry.id = entry_id(&entry);
-    if let Confinement::Confined(confined) = engine.confinement() {
-        if confined.roots() != confinement.roots() {
-            envelope.result = Err(EvalError::new(
-                ErrorKind::Internal,
-                "the process is confined to another box than this eval's",
-            ));
-            return envelope;
-        }
-        if options.snapshot.is_none() {
-            envelope.result = Err(no_snapshot_error());
-            return envelope;
-        }
+    if engine.confined().roots() != confinement.roots() {
+        envelope.result = Err(EvalError::new(
+            ErrorKind::Internal,
+            "the process is confined to another box than this eval's",
+        ));
+        return envelope;
     }
+    if options.snapshot.is_none() {
+        envelope.result = Err(no_snapshot_error());
+        return envelope;
+    }
+    let engine = engine.engine();
     let expected = engine_options(options.jit);
     if engine.options() != &expected {
         envelope.result = Err(EvalError::new(

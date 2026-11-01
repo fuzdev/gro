@@ -103,7 +103,7 @@ use std::time::Duration;
 
 use argh::{EarlyExit, FromArgs};
 use gro_runtime::confine::{Confined, Confinement};
-use gro_runtime::engine::{EngineOptions, init_engine};
+use gro_runtime::engine::{EngineOptions, init_confined_engine, init_engine};
 use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, Prepass, RuntimeInfo};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
@@ -461,10 +461,7 @@ fn eval(args: EvalArgs) -> u8 {
     ));
     // every thread the engine starts comes after the box, spawned from here
     let evaluated = on_sized_thread("fgro", move || {
-        match init_engine(
-            Confinement::Confined(confined),
-            &gro_runtime::eval::engine_options(jit),
-        ) {
+        match init_confined_engine(confined, &gro_runtime::eval::engine_options(jit)) {
             Ok(engine) => gro_runtime::eval::eval(engine, prepass),
             Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
         }
