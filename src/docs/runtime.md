@@ -8,7 +8,8 @@
 > from disk on V8 (x86_64 Linux only) using Deno's libraries,
 > with strict resolution and origin containment ([run](run.md)),
 > and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied, its heap and time limited,
-> and its process held in a kernel box, read-only to its project's files ([eval](eval.md#the-box));
+> and its process held in a kernel box, read-only to its project's files ([eval](eval.md#the-box)),
+> reporting the module graph it loaded when asked ([eval](eval.md#the-graph));
 > the grants, the policy file, and the kernel backstop for runs below are designed, not built,
 > so no grant is enforced yet; the [roadmap](#roadmap) marks what's built.
 > The design doesn't have every answer yet ([open questions](#open-questions)),
@@ -18,7 +19,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the security model, the design, and the roadmap
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
-- [eval](eval.md) - the reference for `fgro eval` as built today: the driver, determinism, the limits, the serializer, the envelope, and exit codes
+- [eval](eval.md) - the reference for `fgro eval` as built today: the driver, determinism, the limits, the serializer, the envelope, the graph dump, and exit codes
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size

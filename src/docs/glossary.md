@@ -67,6 +67,13 @@ Narrower ways to widen sit beside each default, like the globals grant and the J
 One accepted reach, like a host module, named network hosts, a read root, or an authority global.
 A grant is always of something specific, so even a wide one keeps a run [confined](#confined).
 
+## graph dump
+
+The module graph a `gro eval` run loaded, written into its [envelope](#envelope) with `--graph`:
+each module and `package.json` it read, by an id relative to the [project root](#project-root) and the hash of the bytes read,
+and each path it went past finding nothing there, so a cache can tell when any changes.
+[eval](eval.md#the-graph) has its fields.
+
 ## handle
 
 A capability as a value, like the `net` handle, a directory handle, or a spawn handle for one executable.

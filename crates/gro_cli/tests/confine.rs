@@ -406,6 +406,7 @@ mod confined {
             runtime: RuntimeInfo::new("0.0.0", None),
             timeout: Duration::from_secs(30),
             backstop: None,
+            graph: false,
         };
         let sized = std::thread::Builder::new().stack_size(STACK_SIZE);
         let prepass = sized

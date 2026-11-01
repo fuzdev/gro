@@ -57,10 +57,6 @@ impl fmt::Debug for FileRead {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the graph dump, its reader, lands next")
-)]
 impl Reads {
     /// What a read says when the file at a path isn't the one an earlier
     /// read in the run found there.

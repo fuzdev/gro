@@ -6,7 +6,7 @@
 > **status**: built in part; the reference for the current binary, which has no release yet.
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 > Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
-> the heap and time limits, and the box its process runs in (Linux only).
+> the heap and time limits, the box its process runs in (Linux only), and the graph dump.
 
 ## Usage
 
@@ -16,6 +16,7 @@ fgro eval <module> --export NAME        # serialize another export
 fgro eval <module> --driver - < d.js    # call a driver read from stdin with the module's namespace
 fgro eval <module> --jit                # turn V8's JIT on, and with it WebAssembly
 fgro eval <module> --timeout 2000       # stop the eval after 2000 ms (default: 10000)
+fgro eval <module> --graph              # add the module graph the run loaded to the envelope
 ```
 
 The module is a `.js`, `.mjs`, `.ts`, or `.mts` file, relative to the working directory or absolute.
@@ -274,6 +275,8 @@ A usage error prints to stderr with no envelope.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
   `access` is `null` only in the out-of-memory envelope, prepared before the run.
+- `graph`, last, is present only with `--graph` ([the graph](#the-graph)).
+  Without the flag, the envelope is exactly as above.
 
 The kinds, the contract a caller branches on, derived from the phase that failed and the loader's record,
 never from a message:
@@ -289,7 +292,90 @@ never from a message:
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
 | `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
-| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, or a host invariant broke |
+| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
+
+## The graph
+
+With `--graph`, the envelope ends with the module graph the run loaded:
+each module it resolved, each `package.json` a resolution read, and each path a resolution went past finding nothing there.
+
+```json
+"graph": {
+	"graph_version": 1,
+	"roots": ["project:src/config.ts"],
+	"modules": [
+		{
+			"id": "project:src/config.ts",
+			"blake3": "…",
+			"origin": {"kind": "project"},
+			"format": "typescript",
+			"imports": [{"specifier": "@x/lib", "resolved": "linked:../lib/index.js", "reach": "static"}]
+		}
+	],
+	"consulted": [{"id": "project:package.json", "blake3": "…", "role": "search_bound"}],
+	"absent": ["project:src/node_modules/@x/lib", "project:src/package.json"],
+	"local": {
+		"project": "/abs/project",
+		"box": ["/abs/project", "/abs/lib"],
+		"paths": {"project:src/config.ts": "/abs/project/src/config.ts"}
+	}
+}
+```
+
+A file's id is its real path relative to the project's real directory, P (the [project root](#the-protocol)),
+so an id doesn't depend on where the project lives (a module's value can, through `import.meta.url`):
+`project:<path>` under P, `node_modules` included,
+and `linked:<path>` outside it, with `..` segments (`linked:../lib/index.js` for a package linked from beside the project).
+The path is joined by `/`, with `%`, `?`, and `#` percent-encoded,
+and a module's query and fragment join its id as its URL has them (`project:src/a.js?x#y`),
+so an import with a query or fragment is a module of its own, as it is to V8.
+The package's name and version are only in `origin`.
+No module is built in yet, so `graph_version` 1 has no `builtin:` id and no `builtin` origin.
+Absolute paths are only in `local`.
+Every array is sorted, so the dump is a function of what was read, not of the order the run reached it in.
+
+| field                | what                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `graph_version`      | `1`; it changes with any change to the dump a reader must know about, such as a new field, id prefix, origin, format, reach, or role |
+| `roots`              | the module the graph loads from: the entry alone (the driver, which has no file, is named by `entry.driver_blake3`)           |
+| `modules`            | each module the run resolved, by id                                                                                            |
+| `modules[].blake3`   | the BLAKE3 of the bytes read for it, before any type strip, in hex; `null` if it didn't load, which only a failed run leaves |
+| `modules[].origin`   | `{"kind": "project"}`, or `{"kind": "package", name, version, linked}`: the name it was first imported by, its `package.json` `"version"` (`null` when that isn't a string), and whether its real root is outside every `node_modules` |
+| `modules[].format`   | `javascript`, run as read, or `typescript`, stripped of its types; `null` if it didn't load                                     |
+| `modules[].imports`  | each import of it that resolved, `{specifier, resolved, reach}`, by specifier then reach: the specifier as written, the id of the module it resolved to, and `static` or `dynamic` (eval refuses every `import()` before resolving it, so none is `dynamic` yet) |
+| `consulted`          | each `package.json` a resolution read, `{id, blake3, role}`, by id then role, once per role: `exports` (a package's, for its `"exports"`), `package_scope` (the nearest above a module, for its `"type"`, or above an importer, for a self-reference), `search_bound` (one on the walk up for the project root), `version` (the package's an entry inside `node_modules` is in, which eval refuses, so none appears yet) |
+| `absent`             | each path a resolution went on past finding nothing of the kind it looked for, by id: a `package.json` on a walk up, with no file there, and a package in a `node_modules` the search passed, with no directory there; each is the path as looked up |
+| `local.project`      | P's absolute path                                                                                                              |
+| `local.box`          | the [box](#the-box)'s roots, P first, then the link closure                                                                     |
+| `local.paths`        | each file's absolute path, keyed by its id; a module's is under its id cut at the first `?` or `#`                              |
+
+Each `package.json` is read once per run ([the protocol](#the-protocol)),
+so a consulted file's `blake3` is the hash of the bytes every resolution in the run parsed.
+
+What the run depended on is `modules` and `consulted` by id and hash and `absent` by id:
+a file edited, added in a directory a walk or the package search passed, or moved under a link
+changes one of them.
+A cache keyed on them, with the driver's hash, the runtime, and the invocation
+(`entry.export`, and `--jit`, which brings WebAssembly),
+never keys on `origin`, whose name is whichever import reached the package first.
+Some inputs aren't recorded:
+where the project lives, which a module can read as `import.meta.url`,
+so a cache keys on the entry's canonical path (`entry.id`) too;
+what `import.meta.resolve` resolved to, whose file is a module of the graph only if it's also imported,
+and when it fails and the code catches it, the `package.json` files it read;
+a directory's mode: one a walk passed or a package was found through turning world-writable makes a fresh run refuse;
+and the box's roots: a link added to `node_modules` that changes the closure can make a fresh run fail as `internal`.
+
+`graph` is `null` when the run never reached its module graph
+(the module didn't resolve, the box didn't go up, or the process ran out of memory and wrote its prepared envelope),
+or when a path in it isn't UTF-8, which no id can name, or a module's URL names no file;
+those are the only cases, and under `ok: true` the value stands but there's no graph to cache it on.
+A graph the host failed to record (a `package.json` consulted with no read of it kept) fails the eval as `internal`.
+A failed run still dumps the graph as far as it got, for diagnosis, under `ok: false`:
+a module that resolved but never loaded has a `null` `blake3`,
+and the `package.json` files a failed resolution read aren't in `consulted` (the paths it went past are in `absent`).
+So only an envelope with `ok: true` describes a run whose graph a caller may cache on.
+A reader refuses a `graph_version` it doesn't know.
 
 ## Exit codes
 

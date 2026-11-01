@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use super::dump::GraphDump;
+
 /// The envelope's protocol version, its first field. It moves with any change
 /// to the envelope's shape that a reader must know about.
 pub const EVAL_PROTOCOL: u32 = 1;
@@ -28,6 +30,24 @@ pub struct Envelope {
     /// envelope the out-of-memory backstop writes, prepared before the run
     /// and written without it.
     pub access: Option<Access>,
+    /// The module graph, when the caller asked for it.
+    pub graph: GraphField,
+}
+
+/// Whether an envelope carries the module graph, and what it carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphField {
+    /// Not asked for: the envelope has no `graph` field.
+    Omitted,
+    /// Asked for, with no graph to write: `null`. The run never reached
+    /// its module graph (the entry didn't resolve, the box didn't go up,
+    /// or the process ran out of memory and wrote its prepared envelope),
+    /// or the graph names a path no id can: one that isn't UTF-8, or a
+    /// module URL with no path ([`super::DumpError`]). A graph the host
+    /// failed to record fails the eval as `internal`, and is `null` too.
+    Unavailable,
+    /// The graph, from the run as far as it got.
+    Dumped(Box<GraphDump>),
 }
 
 /// The runtime that evaluated, for display only: two binaries can share
@@ -199,7 +219,8 @@ impl Envelope {
 
     /// The envelope as one line of compact JSON, its fields in this order:
     /// `eval_protocol`, `ok`, `runtime`, `entry`, then `value` or `error`,
-    /// then `access` (`null` when unset). The value is spliced in as the
+    /// then `access` (`null` when unset), then `graph` when it was asked
+    /// for (`null` when unavailable). The value is spliced in as the
     /// serializer wrote it.
     ///
     /// # Errors
@@ -225,6 +246,14 @@ impl Envelope {
         }
         out.push_str(",\"access\":");
         out.push_str(&serde_json::to_string(&self.access)?);
+        match &self.graph {
+            GraphField::Omitted => {}
+            GraphField::Unavailable => out.push_str(",\"graph\":null"),
+            GraphField::Dumped(graph) => {
+                out.push_str(",\"graph\":");
+                out.push_str(&serde_json::to_string(graph)?);
+            }
+        }
         out.push('}');
         Ok(out)
     }
@@ -256,6 +285,7 @@ mod tests {
                     importer: "file:///p/main.ts".to_owned(),
                 }],
             }),
+            graph: GraphField::Omitted,
         }
     }
 
@@ -296,6 +326,16 @@ mod tests {
             serde_json::json!({"kind": "timeout", "message": "slow", "hint": "faster"})
         );
         assert_eq!(parsed["access"], serde_json::Value::Null);
+        assert!(parsed.get("graph").is_none());
+        // asked for, the graph is last, null when there is none
+        let mut unavailable = envelope(Ok("1".to_owned()));
+        unavailable.graph = GraphField::Unavailable;
+        assert!(
+            unavailable
+                .to_json()
+                .unwrap()
+                .ends_with(r#""access":{"dynamic":[{"specifier":"./x.js","importer":"file:///p/main.ts"}]},"graph":null}"#)
+        );
     }
 
     #[test]

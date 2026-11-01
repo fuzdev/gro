@@ -517,7 +517,8 @@ thesis, why, the security model, the design, open questions, and the roadmap.
 The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
 reference for the built binary (what loads, the globals, errors, exit codes),
 [src/docs/eval.md](src/docs/eval.md) the reference for `fgro eval` (the driver,
-determinism, the limits, the serializer, the envelope and its error kinds),
+determinism, the limits, the serializer, the envelope and its error kinds,
+the graph dump),
 [src/docs/resolver.md](src/docs/resolver.md) the resolver's rules and
 departures from Node, [src/docs/typescript.md](src/docs/typescript.md) the
 type-strip rules, and [src/docs/comparison.md](src/docs/comparison.md) the
@@ -696,7 +697,18 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `DisallowJavascriptExecutionScope`, reading property descriptors so no
   getter or `toJSON` runs, refusing non-plain objects, cycles, lone
   surrogates, and nesting past 1000 with the JS path), the drain, and the
-  driver's optional `after_drain`; the error kind comes from the phase that
+  driver's optional `after_drain`; with `EvalOptions::graph` (`--graph`),
+  `eval::dump_graph` (`eval/dump.rs`, `graph_version` 1) writes the run's
+  `Graph` as the envelope's last field, `graph`: path ids relative to the
+  project's real directory (`project:` under it, `linked:` outside it with
+  `..`, `%`, `?`, and `#` percent-encoded, a module's query and fragment
+  appended), each module's blake3 and origin, each consulted file's blake3
+  and role, the absent paths, every array sorted, and absolute paths (P,
+  the box's roots, each id's path) only in `local`; `null` when the run
+  reached no graph or it names a path no id can (not UTF-8, or a module
+  URL with no path), and in the out-of-memory backstop's prepared
+  envelope, which never carries one; a consulted file with no read kept,
+  a host bug, fails the eval as `internal`; without the flag the envelope doesn't move; the error kind comes from the phase that
   failed plus the first static failure the graph recorded, never from a
   message. Eval's runtime starts from the same snapshot as `run`'s and is
   made eval's per run (`Mode::Eval`, never frozen into the snapshot): the
@@ -739,7 +751,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   only on a terminal, unless `FORCE_COLOR` decides it or `NO_COLOR`,
   `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM=dumb`, turns it off
   (the order is in [src/docs/run.md](src/docs/run.md)). `fgro eval <module>
-  [--driver -] [--export NAME] [--jit] [--timeout MS]` prints one envelope on stdout and
+  [--driver -] [--export NAME] [--jit] [--timeout MS] [--graph]` prints one envelope on stdout and
   exits by the same table (`2` only for a usage error or an entry that
   doesn't resolve or that no project owns); it reads stdin for the driver and no environment
   variable ([src/docs/eval.md](src/docs/eval.md)), and first closes every

@@ -9,8 +9,8 @@
 //! to stderr, prefixed `error:`; an uncaught error's report carries its stack
 //! with source positions (`file:///path:line:column`).
 //!
-//! `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]`
-//! evaluates a module to JSON data and prints one envelope on stdout
+//! `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]
+//! [--graph]` evaluates a module to JSON data and prints one envelope on stdout
 //! (`gro_runtime::eval`): with no driver, the module's export (`default`
 //! unless `--export` names another); with `--driver -`, a driver module read
 //! from stdin, whose default export is called with the module's namespace.
@@ -21,7 +21,8 @@
 //! environment variable for its own configuration, and refuses a time zone
 //! other than UTC, which ICU reads from `TZ`. Out of memory, the runtime
 //! writes a prepared envelope through its own handle to stdout, duplicated
-//! here before the run.
+//! here before the run. With `--graph`, the envelope also carries the module
+//! graph the run loaded, as `graph` (`gro_runtime::eval::GraphDump`).
 //! Once eval starts, the envelope is always written, `ok: false` with an
 //! error kind on failure; a usage error prints to stderr with no envelope.
 //!
@@ -254,6 +255,9 @@ struct EvalArgs {
     /// stop the eval after this many milliseconds, at least 1 (default: 10000)
     #[argh(option)]
     timeout: Option<u64>,
+    /// add the module graph to the envelope, as `graph`
+    #[argh(switch)]
+    graph: bool,
 }
 
 /// The `--driver` value that reads the driver from stdin, the only one so far.
@@ -438,6 +442,7 @@ fn eval(args: EvalArgs) -> u8 {
         export,
         jit,
         timeout,
+        graph,
     } = args;
     let timeout = match timeout {
         None => gro_runtime::eval::DEFAULT_TIMEOUT,
@@ -484,6 +489,7 @@ fn eval(args: EvalArgs) -> u8 {
             .try_clone_to_owned()
             .ok()
             .map(|fd| Arc::new(File::from(fd))),
+        graph,
     };
     if let Err(error) = closed {
         let error = EvalError::new(
@@ -753,6 +759,6 @@ mod tests {
         assert_eq!(run(&["eval", "a.js", "--timeout", "0"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "--graph"]), EXIT_USAGE);
+        assert_eq!(run(&["eval", "a.js", "--unknown"]), EXIT_USAGE);
     }
 }

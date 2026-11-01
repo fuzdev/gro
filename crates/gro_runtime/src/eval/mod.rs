@@ -43,6 +43,13 @@
 //!    code made a call into it too late, after the value was taken, even when
 //!    that code caught the driver's error.
 //!
+//! With [`EvalOptions::graph`], the envelope also carries the run's module
+//! graph ([`GraphDump`], [`dump_graph`]), built after the run from the
+//! loader's record, whatever the outcome: only an envelope with a value
+//! describes a run a caller may cache on. With no graph to dump (the entry
+//! didn't resolve, or the box didn't go up) it is `null`. Without the
+//! option, the envelope has no `graph` field and nothing is kept for one.
+//!
 //! In a confined process, eval starts only from a startup snapshot: from
 //! source, the runtime would read its extensions' JS from the build tree,
 //! outside the box, so a build with none is refused as `internal` before the
@@ -97,6 +104,7 @@
 //! a read outside the box refused, or a build with no snapshot that a
 //! confined eval refuses.
 
+mod dump;
 mod envelope;
 mod limits;
 mod serialize;
@@ -113,9 +121,13 @@ use deno_core::error::{CoreError, CoreErrorKind, JsError};
 use deno_core::{JsRuntime, PollEventLoopOptions, ascii_str, v8};
 use url::Url;
 
+pub use self::dump::{
+    DumpConsulted, DumpError, DumpFormat, DumpImport, DumpLocal, DumpModule, DumpOrigin, DumpReach,
+    DumpRole, GRAPH_VERSION, GraphDump, dump_graph,
+};
 pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
-    RuntimeInfo, TSV_REV,
+    GraphField, RuntimeInfo, TSV_REV,
 };
 pub use self::limits::{DEFAULT_TIMEOUT, HEAP_LIMIT};
 use self::limits::{Stop, Stopped, Watchdog};
@@ -192,6 +204,8 @@ pub struct EvalOptions {
     /// that passes another fails as `internal`. Without one, the process
     /// still exits 1 out of memory, with no envelope.
     pub backstop: Option<Arc<File>>,
+    /// Whether the envelope carries the module graph ([`GraphField`]).
+    pub graph: bool,
 }
 
 /// An eval resolved, its box computed, before any runtime: what [`prepass`]
@@ -409,6 +423,9 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
         driver: options.driver.is_some().then(|| driver_url.clone()),
         box_roots: Some(confinement.roots().clone()),
     };
+    let box_roots = options
+        .graph
+        .then(|| confinement.roots().as_slice().to_vec());
     // the roots' handles are done with once the box is up
     drop(confinement);
     let loader = Rc::new(
@@ -428,15 +445,44 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
     // the runtime, and its share of the loader, is gone once the eval ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
     envelope.access = Some(access(&graph));
+    let mut unread = None;
+    if let Some(box_roots) = box_roots {
+        envelope.graph = match dump_graph(&graph, &entry.url, &box_roots) {
+            Ok(dump) => GraphField::Dumped(Box::new(dump)),
+            Err(DumpError::Unread(path)) => {
+                unread = Some(path);
+                GraphField::Unavailable
+            }
+            Err(DumpError::NotUtf8(_) | DumpError::NotAPath(_)) => GraphField::Unavailable,
+        };
+    }
     // a read refused outside the box fails the eval, whatever the run did
-    // with the error; a stop decides the kind otherwise, whatever the run
-    // reported after it
-    envelope.result = match (result, stopped.get(), breach) {
-        (_, _, Some(path)) => Err(breach_error(&path)),
-        (_, Some(stop), None) => Err(stop_error(stop, options)),
-        (result, None, None) => result.map_err(|failed| failed.into_error(&graph, options.jit)),
+    // with the error, and then a graph the host failed to record; a stop
+    // decides the kind otherwise, whatever the run reported after it
+    envelope.result = match (result, stopped.get(), breach, unread) {
+        (_, _, Some(path), _) => Err(breach_error(&path)),
+        (_, _, None, Some(path)) => Err(unread_error(&path)),
+        (_, Some(stop), None, None) => Err(stop_error(stop, options)),
+        (result, None, None, None) => {
+            result.map_err(|failed| failed.into_error(&graph, options.jit))
+        }
     };
     envelope
+}
+
+/// The error of an eval whose graph names `path` as consulted with no read
+/// of it recorded, which only a bug in the host makes: the graph would name
+/// a file with no hash, so the eval fails rather than write one partial or
+/// none under a value.
+fn unread_error(path: &Path) -> EvalError {
+    EvalError::new(
+        ErrorKind::Internal,
+        format!(
+            "the eval's graph names {} as consulted with no read of it recorded, a bug in \
+             fgro, so no graph is written",
+            path.display()
+        ),
+    )
 }
 
 /// The error of an eval whose loader was asked to read `path`, outside the
@@ -494,7 +540,7 @@ fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
 
 /// The `heap` envelope the out-of-memory backstop writes for an eval whose
 /// envelope so far is `envelope`, one line: written without the run, it
-/// carries no `access`.
+/// carries no `access`, and no graph, `null` when one was asked for.
 fn backstop_envelope(envelope: &Envelope) -> Option<String> {
     let backstop = Envelope {
         runtime: envelope.runtime.clone(),
@@ -508,6 +554,11 @@ fn backstop_envelope(envelope: &Envelope) -> Option<String> {
             ),
         )),
         access: None,
+        // prepared before the run, so never a graph, only its absence
+        graph: match envelope.graph {
+            GraphField::Omitted => GraphField::Omitted,
+            GraphField::Unavailable | GraphField::Dumped(_) => GraphField::Unavailable,
+        },
     };
     let mut json = backstop.to_json().ok()?;
     json.push('\n');
@@ -567,6 +618,11 @@ pub fn failed(options: &EvalOptions, error: EvalError) -> Envelope {
         },
         result: Err(error),
         access: Some(Access::default()),
+        graph: if options.graph {
+            GraphField::Unavailable
+        } else {
+            GraphField::Omitted
+        },
     }
 }
 
@@ -1237,6 +1293,7 @@ mod tests {
             runtime: RuntimeInfo::new("0.0.0", None),
             timeout: DEFAULT_TIMEOUT,
             backstop: None,
+            graph: false,
         }
     }
 
@@ -1295,6 +1352,19 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A graph with a consulted file the run didn't record reading is an
+    /// `internal` naming the path.
+    #[test]
+    fn an_unread_consulted_file_is_internal() {
+        let error = unread_error(Path::new("/p/package.json"));
+        assert_eq!(error.kind, ErrorKind::Internal);
+        assert_eq!(
+            error.message,
+            "the eval's graph names /p/package.json as consulted with no read of it recorded, a \
+             bug in fgro, so no graph is written"
+        );
     }
 
     /// A read outside the box names the path, says how the box is made, and
