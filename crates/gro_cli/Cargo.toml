@@ -24,8 +24,9 @@ blake3.workspace = true
 serde_json.workspace = true
 url.workspace = true
 
-# the box's socket cases, which run on Linux alone
+# the box's socket and signal cases, which run on Linux alone
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+gro_sys = { path = "../gro_sys", features = ["testing"] }
 socket2.workspace = true
 
 # the box from inside a confined process, whose one thread libtest's harness

@@ -615,31 +615,33 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   connect denied, the signal and
   abstract unix socket scopes; below ABI 6, without Landlock, or with it
   off, it refuses naming the kernel's ABI, with no weaker mode), then two
-  `seccompiler` filters with no thread sync, one killing the process on
-  `KILLED_CALLS` (exec, ptrace, the cross-process memory calls, bpf,
-  perf_event_open, userfaultfd, kexec, io_uring, the module calls), one
-  refusing with `EACCES` `REFUSED_CALLS` (every `socket`, `connect`,
-  `bind`, and `listen`, the calls that change a file's mode, owner, times,
-  extended attributes, or attribute flags, which Landlock at ABI 6 doesn't
-  gate, the ones `libc` doesn't name on every architecture by their number
-  in the table x86_64 and aarch64 share from 424 on, `inotify_add_watch`
-  and `fanotify_init`, the System V IPC calls, and `mq_open` and
-  `mq_unlink`), every `fcntl` in `REFUSED_FCNTLS` (`F_SETLEASE`, whose
-  lease stalls another process's open for writing and tells the holder,
-  and `F_NOTIFY`; the advisory locks, `flock` and `F_SETLK`, pass: they
-  write nothing, and only hold off another process locking the same file
-  inside the box while the eval runs), every `ioctl` whose request isn't in
+  `seccompiler` filters with no thread sync: first one killing the process
+  on `KILLED_CALLS` (exec, ptrace, the cross-process memory calls, bpf,
+  perf_event_open, userfaultfd, kexec, io_uring, the module calls), a
+  tripwire, then the allowlist, which fails every call it doesn't allow
+  with `ENOSYS` (what a call the kernel lacks returns, so glibc and std fall
+  back, and a host making a call the list doesn't name degrades where its
+  libc has a fallback, and otherwise fails with `ENOSYS`):
+  `ALLOWED_CALLS` (the calls a syscall census saw after the box goes up,
+  then siblings, each sibling with its reason: `getrandom`, the
+  `epoll` waits, `fstat` and `newfstatat`, `rt_sigreturn` and
+  `restart_syscall`, `tgkill`, the clock fallbacks; `sched_get*` with any
+  pid, since glibc passes a thread id), and some calls only by their
+  arguments: `prctl` in `KEPT_PRCTLS` (`PR_SET_NAME`, `PR_SET_VMA`),
+  `fcntl` in `KEPT_FCNTLS` (the descriptor and status flags and
+  `F_DUPFD_CLOEXEC`; no locks, leases, or notices), `ioctl` in
   `KEPT_IOCTLS` (`FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS`,
-  `TIOCGWINSZ`, compared as the kernel's 32-bit request; every other,
-  setting attribute flags, the generation, extended attributes, verity, or a
-  filesystem's own among them, is refused), every call in `SELF_ONLY_CALLS`
-  (setting resource limits, priority, I/O priority, CPU affinity, or
-  scheduling) that names a process other than the caller (its pid or who
-  argument not 0, or for `setpriority` and `ioprio_set` its which not one
-  process), which Landlock's scopes don't reach (`getpriority`,
-  `ioprio_get`, and the `sched_get*` calls pass), and every `socketpair` but
-  `KEPT_SOCKETPAIR` (a unix stream pair, for tokio; a datagram pair could
-  `sendto` a socket file by path, which Landlock below ABI 9 doesn't gate);
+  `TIOCGWINSZ`), `socketpair` as `KEPT_SOCKETPAIR` (a unix stream pair, for
+  tokio; a datagram pair could `sendto` a socket file by path, which
+  Landlock below ABI 9 doesn't gate), and `clone` only as a thread
+  (`CLONE_THREAD` set, no flag in `CLONE_NAMESPACES`: no fork, no
+  namespace); ints compare at 32 bits. `clone3` isn't allowed (its flags
+  are in memory, past a filter), so glibc falls back to `clone`; the
+  filter compares exact numbers, so x32 calls fail too; `seccomp` isn't
+  allowed, so nothing is added after it. The aarch64 list follows its call
+  table (`readlinkat`, no `epoll_wait`) and is unverified on a host. A
+  change to the allowlist reruns the census
+  ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist));
   an architecture `seccompiler` can't target is
   `ConfineError::SeccompArch`; `ConfineError::is_host_unsupported` splits
   eval's `environment` from `internal`. A confined engine's entropy callback
@@ -787,7 +789,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   with a documented precondition, that nothing in the process owns one, so
   it runs first on the main thread, and it refuses with more than one
   thread alive. Its tests close descriptors only in a child process
-  (`tests/close.rs`, no libtest harness)
+  (`tests/close.rs`, no libtest harness). Its `testing` feature, which only
+  `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
+  it touches no memory), so the box's tests reach Landlock's signal scope
+  past seccomp's refusal of `kill`
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per

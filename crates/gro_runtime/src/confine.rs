@@ -35,26 +35,28 @@
 //!    outside it. A kernel without Landlock, or with it below ABI 6, is
 //!    refused, naming what is missing and the kernel's ABI.
 //! 3. **seccomp**, two filters on the calling thread (no thread sync, since
-//!    it is the process's only thread): one kills the process on the calls
-//!    no part of the runtime makes and code that escaped the engine would
-//!    ([`KILLED_CALLS`]: `execve` and `execveat`, `ptrace`, the cross-process
-//!    memory calls, `bpf`, `perf_event_open`, `userfaultfd`, the `kexec`
-//!    calls, the `io_uring` calls, whose operations bypass seccomp, and the
-//!    kernel module calls); the other refuses with `EACCES` what a library
-//!    may try and handle failing ([`REFUSED_CALLS`]): every `socket`,
-//!    `connect`, `bind`, and `listen`, every `socketpair` but
-//!    [`KEPT_SOCKETPAIR`], the unix stream pair tokio uses (a datagram pair
-//!    can send to any socket file by its path, which Landlock below ABI 9
-//!    doesn't gate), the calls that change a file's mode, owner, times,
-//!    extended attributes, or attribute flags, which Landlock at ABI 6
-//!    doesn't gate, `inotify_add_watch` and `fanotify_init`, the System V
-//!    IPC calls and `mq_open`/`mq_unlink`, the `fcntl` commands that take a
-//!    lease or ask for directory change notices (`REFUSED_FCNTLS`; the
-//!    advisory locks, `flock` and `F_SETLK`, are accepted: they write
-//!    nothing, and only hold off another process locking the same file
-//!    inside the box while the eval runs), the calls that set another process's
-//!    limits, priority, CPUs, or scheduling (`SELF_ONLY_CALLS`), which
-//!    Landlock's scopes don't reach, and every `ioctl` but `KEPT_IOCTLS`.
+//!    it is the process's only thread). The first kills the process on the
+//!    calls no part of the runtime makes and code that escaped the engine
+//!    would ([`KILLED_CALLS`]: `execve` and `execveat`, `ptrace`, the
+//!    cross-process memory calls, `bpf`, `perf_event_open`, `userfaultfd`,
+//!    the `kexec` calls, the `io_uring` calls, whose operations bypass
+//!    seccomp, and the kernel module calls). The second is an allowlist:
+//!    the calls the runtime makes after the box goes up, and their named
+//!    siblings ([`ALLOWED_CALLS`]), pass; `prctl`, `fcntl`, `ioctl`,
+//!    `socketpair`, and `clone` pass only with the arguments the runtime
+//!    uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
+//!    [`KEPT_SOCKETPAIR`], and a `clone` that starts a thread, setting no
+//!    flag in `CLONE_NAMESPACES`); every other call fails with `ENOSYS`,
+//!    an argument outside its rules included. `ENOSYS` is what a call the
+//!    kernel lacks returns, so glibc and std fall back where they can
+//!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call
+//!    the list doesn't name degrades where its libc has a fallback, and
+//!    otherwise fails with `ENOSYS`. The filter
+//!    compares exact call numbers, so an x32 call (`nr | 0x40000000`)
+//!    matches nothing and fails too, and since the allowlist doesn't allow
+//!    `seccomp`, no filter can be added after it. Built for `x86_64` and
+//!    `aarch64`; the `aarch64` list follows that architecture's call table
+//!    and is unverified on a host.
 //!
 //! Every thread the calling thread starts afterward inherits all three. The
 //! reads the runtime makes at startup outside the roots (the CPU and cgroup
@@ -295,8 +297,13 @@ impl ConfineError {
 /// number, for the messages, which every platform builds.
 const REQUIRED_LANDLOCK_ABI: u32 = 6;
 
-/// The calls that kill the process: none is made by any part of the runtime,
-/// so reaching one means code escaped the engine.
+/// The calls that kill the process, by their own filter, installed before
+/// the allowlist.
+///
+/// None is made by any part of the runtime, so reaching one means code
+/// escaped the engine. The allowlist doesn't allow them either; this filter
+/// is the tripwire that ends the process rather than let it carry on past
+/// `ENOSYS`.
 #[cfg(target_os = "linux")]
 pub const KILLED_CALLS: [libc::c_long; 16] = [
     libc::SYS_execve,
@@ -317,124 +324,116 @@ pub const KILLED_CALLS: [libc::c_long; 16] = [
     libc::SYS_delete_module,
 ];
 
-/// The calls refused with `EACCES` whatever their arguments, beside every
-/// `socketpair` but [`KEPT_SOCKETPAIR`]: what a library may try and handle
-/// failing.
+/// The calls the allowlist filter allows whatever their arguments.
 ///
-/// - Every `socket`, `connect`, `bind`, and `listen`: no socket is made or
-///   reached, and the kept stream pair's sockets can't be bound to an
-///   abstract name or listen on one.
-/// - The calls that change a file's mode, owner, times, extended
-///   attributes, or attribute flags, which Landlock at ABI 6 doesn't gate.
-///   aarch64 has none of the older path calls (`chmod`, `chown`, `lchown`,
-///   `utime`, `utimes`, `futimesat`); the calls `libc` doesn't name on every
-///   architecture are numbered from the table both share (`SYS_FCHMODAT2`).
-/// - `inotify_add_watch` and `fanotify_init`, whose events would tell the
-///   process when a file outside the box changes.
-/// - The System V IPC calls and the POSIX message queue calls that make or
-///   remove a queue (`mq_open`, `mq_unlink`, which Landlock doesn't gate),
-///   whose objects live outside the box, outlast the process, and are
-///   shared with the user's other processes.
+/// They are the calls the runtime was seen to make after the box goes up,
+/// and the named siblings a host may make in their place. Every call
+/// missing from it and from the calls allowed by their arguments
+/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`], and a
+/// `clone` that starts a thread, `CLONE_NAMESPACES`) fails with `ENOSYS`.
+///
+/// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
+/// process, since glibc names the caller by its thread id, not 0: for
+/// another process they tell whether it exists and how it's scheduled, not
+/// its files or memory. Built for `x86_64` and `aarch64`; the `aarch64` list
+/// is written from its call table and unverified on a host.
 #[cfg(target_os = "linux")]
-pub const REFUSED_CALLS: &[libc::c_long] = &[
-    libc::SYS_socket,
-    libc::SYS_connect,
-    libc::SYS_bind,
-    libc::SYS_listen,
+pub const ALLOWED_CALLS: &[libc::c_long] = &[
+    libc::SYS_brk,
+    libc::SYS_clock_gettime,
+    libc::SYS_clock_nanosleep,
+    libc::SYS_close,
+    libc::SYS_epoll_create1,
+    libc::SYS_epoll_ctl,
+    libc::SYS_eventfd2,
+    libc::SYS_exit,
+    libc::SYS_exit_group,
+    libc::SYS_futex,
+    libc::SYS_getpid,
+    libc::SYS_gettid,
+    libc::SYS_lseek,
+    libc::SYS_madvise,
+    libc::SYS_mmap,
+    libc::SYS_mprotect,
+    libc::SYS_mremap,
+    libc::SYS_munmap,
+    libc::SYS_openat,
+    libc::SYS_pkey_alloc,
+    libc::SYS_pkey_mprotect,
+    libc::SYS_read,
+    // aarch64 has only `readlinkat`, which glibc's `readlink` makes there
     #[cfg(target_arch = "x86_64")]
-    libc::SYS_chmod,
-    libc::SYS_fchmod,
-    libc::SYS_fchmodat,
-    SYS_FCHMODAT2,
+    libc::SYS_readlink,
+    #[cfg(target_arch = "aarch64")]
+    libc::SYS_readlinkat,
+    libc::SYS_rseq,
+    libc::SYS_rt_sigaction,
+    libc::SYS_rt_sigprocmask,
+    libc::SYS_sched_getaffinity,
+    libc::SYS_sched_getparam,
+    libc::SYS_sched_getscheduler,
+    libc::SYS_sched_yield,
+    libc::SYS_set_robust_list,
+    libc::SYS_sigaltstack,
+    libc::SYS_statx,
+    libc::SYS_uname,
+    libc::SYS_write,
+    // V8's entropy, whose failure aborts the process (`engine`): the vDSO's
+    // on glibc 2.41 and Linux 6.11 and later, a call elsewhere
+    libc::SYS_getrandom,
+    // the event loop's wait, made only when it blocks: which one depends on
+    // the architecture and the libc (aarch64 has no `epoll_wait`)
     #[cfg(target_arch = "x86_64")]
-    libc::SYS_chown,
-    libc::SYS_fchown,
-    #[cfg(target_arch = "x86_64")]
-    libc::SYS_lchown,
-    libc::SYS_fchownat,
-    #[cfg(target_arch = "x86_64")]
-    libc::SYS_utime,
-    #[cfg(target_arch = "x86_64")]
-    libc::SYS_utimes,
-    libc::SYS_utimensat,
-    #[cfg(target_arch = "x86_64")]
-    libc::SYS_futimesat,
-    libc::SYS_setxattr,
-    libc::SYS_lsetxattr,
-    libc::SYS_fsetxattr,
-    libc::SYS_removexattr,
-    libc::SYS_lremovexattr,
-    libc::SYS_fremovexattr,
-    SYS_SETXATTRAT,
-    SYS_REMOVEXATTRAT,
-    SYS_FILE_SETATTR,
-    libc::SYS_inotify_add_watch,
-    libc::SYS_fanotify_init,
-    libc::SYS_mq_open,
-    libc::SYS_mq_unlink,
-    libc::SYS_shmget,
-    libc::SYS_shmat,
-    libc::SYS_shmctl,
-    libc::SYS_msgget,
-    libc::SYS_msgsnd,
-    libc::SYS_msgrcv,
-    libc::SYS_msgctl,
-    libc::SYS_semget,
-    libc::SYS_semop,
-    libc::SYS_semtimedop,
-    libc::SYS_semctl,
+    libc::SYS_epoll_wait,
+    libc::SYS_epoll_pwait,
+    libc::SYS_epoll_pwait2,
+    // std's fallback when `statx` fails
+    libc::SYS_fstat,
+    libc::SYS_newfstatat,
+    // the return from a handled signal (`--jit`'s WebAssembly trap handler)
+    // and the restart of a call it interrupted
+    libc::SYS_rt_sigreturn,
+    libc::SYS_restart_syscall,
+    // `abort()`'s signal to its own thread; Landlock's signal scope keeps
+    // it inside the box
+    libc::SYS_tgkill,
+    // the clock calls' fallbacks when the vDSO lacks one, and `nanosleep`,
+    // which other libcs make for a sleep
+    libc::SYS_clock_getres,
+    libc::SYS_gettimeofday,
+    libc::SYS_nanosleep,
 ];
 
-/// `fchmodat2`, by its number in the syscall table `x86_64` and `aarch64`
-/// share from 424 on, since `libc` names it on `x86_64` alone. A kernel too old to
-/// have a call refuses it with `ENOSYS` anyway.
+/// The `prctl` options the box keeps, by the first argument: naming a
+/// thread, and naming an anonymous mapping (glibc's and V8's). Every other
+/// fails with `ENOSYS`, the ones that change what the process may do
+/// (`PR_SET_NO_NEW_PRIVS`, `PR_SET_SECCOMP`, the capability options) or
+/// who may reach it (`PR_SET_DUMPABLE`, `PR_SET_PTRACER`) among them.
 #[cfg(target_os = "linux")]
-const SYS_FCHMODAT2: libc::c_long = 452;
+const KEPT_PRCTLS: [libc::c_int; 2] = [libc::PR_SET_NAME, libc::PR_SET_VMA];
 
-/// `setxattrat`, by its number in the shared table ([`SYS_FCHMODAT2`]).
+/// The `fcntl` commands the box keeps, by the second argument: reading and
+/// setting the descriptor and status flags, and duplicating a descriptor
+/// close-on-exec, the ones std and tokio use. Every other fails with
+/// `ENOSYS`: the advisory locks, which would hold off another process
+/// locking the same file inside the box, a lease, which stalls another
+/// process's open for writing and tells the holder it was tried, directory
+/// change notices, and setting a descriptor's owner among them.
 #[cfg(target_os = "linux")]
-const SYS_SETXATTRAT: libc::c_long = 463;
-
-/// `removexattrat`, by its number in the shared table ([`SYS_FCHMODAT2`]).
-#[cfg(target_os = "linux")]
-const SYS_REMOVEXATTRAT: libc::c_long = 466;
-
-/// `file_setattr`, by its number in the shared table ([`SYS_FCHMODAT2`]).
-#[cfg(target_os = "linux")]
-const SYS_FILE_SETATTR: libc::c_long = 469;
-
-/// The calls refused with `EACCES` when they name a process other than the
-/// caller: setting another process's resource limits, priority, I/O
-/// priority, CPUs, or scheduling. Landlock scopes signals and `ptrace`, not
-/// these, and a limit is a signal by other means (a CPU limit's `SIGXCPU`).
-///
-/// Each is the call, the argument naming the process, refused unless 0 (the
-/// caller), and for `setpriority` and `ioprio_set` the value the argument
-/// before it must hold to say that names one process, not a group or a
-/// user. The calls that only read these (`getpriority`, `ioprio_get`,
-/// `sched_getaffinity`, `sched_getparam`, `sched_getscheduler`,
-/// `sched_getattr`) pass: for another process they tell whether it exists
-/// and how it's scheduled, not its files or memory. A `prlimit64` that only
-/// reads names its process the same way and is refused with the rest.
-#[cfg(target_os = "linux")]
-const SELF_ONLY_CALLS: [(libc::c_long, u8, Option<u64>); 7] = [
-    (libc::SYS_prlimit64, 0, None),
-    // `PRIO_PROCESS`, 0
-    (libc::SYS_setpriority, 1, Some(0)),
-    // `IOPRIO_WHO_PROCESS`, 1
-    (libc::SYS_ioprio_set, 1, Some(1)),
-    (libc::SYS_sched_setaffinity, 0, None),
-    (libc::SYS_sched_setscheduler, 0, None),
-    (libc::SYS_sched_setparam, 0, None),
-    (libc::SYS_sched_setattr, 0, None),
+const KEPT_FCNTLS: [libc::c_int; 5] = [
+    libc::F_GETFD,
+    libc::F_SETFD,
+    libc::F_GETFL,
+    libc::F_SETFL,
+    libc::F_DUPFD_CLOEXEC,
 ];
 
 /// The `ioctl` requests the box keeps: setting and clearing non-blocking
 /// and close-on-exec, the bytes waiting, and reading a terminal's settings
-/// and size. Every other request is refused with `EACCES`, the ones that
-/// change a file's attribute flags, generation, extended attributes, or
-/// verity, or a filesystem's own (a btrfs subvolume), from a handle opened
-/// only to read among them, which Landlock gates only on devices.
+/// and size. Every other request fails with `ENOSYS`, the ones that change
+/// a file's attribute flags, generation, extended attributes, or verity, or
+/// a filesystem's own (a btrfs subvolume), from a handle opened only to
+/// read among them, which Landlock gates only on devices.
 #[cfg(target_os = "linux")]
 const KEPT_IOCTLS: [libc::Ioctl; 6] = [
     libc::FIONBIO,
@@ -445,22 +444,10 @@ const KEPT_IOCTLS: [libc::Ioctl; 6] = [
     libc::TIOCGWINSZ,
 ];
 
-/// The `fcntl` commands refused with `EACCES`: taking a lease (`F_SETLEASE`),
-/// which stalls another process's open for writing until the lease breaks
-/// and tells the holder it was tried, and asking for directory change
-/// notices (`F_NOTIFY`), the older form of `inotify_add_watch`. Every other
-/// command passes, the flag and descriptor commands std and tokio use among
-/// them, and the advisory locks (`F_SETLK` and the others, like `flock`),
-/// which write nothing and only hold off another process locking the same
-/// file inside the box, such as a build tool's under the project root, for
-/// as long as the eval runs.
-#[cfg(target_os = "linux")]
-const REFUSED_FCNTLS: [libc::c_int; 2] = [libc::F_SETLEASE, libc::F_NOTIFY];
-
 /// The one `socketpair` the box keeps, by domain and type: a unix stream
 /// pair, which tokio uses, connected only to itself.
 ///
-/// Every other is refused with `EACCES`, a datagram pair above all, which can
+/// Every other fails with `ENOSYS`, a datagram pair above all, which can
 /// send to any socket file by its path.
 #[cfg(target_os = "linux")]
 pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
@@ -470,6 +457,24 @@ pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM]
 #[cfg(target_os = "linux")]
 const SOCKET_TYPE_MASK: u64 = 0xf;
 
+/// The namespace flags `clone` accepts, which the box's one kept `clone`
+/// must not set: the flags under the mask of these and `CLONE_THREAD`, the
+/// first argument on `x86_64` and `aarch64`, must be `CLONE_THREAD` alone, so a
+/// thread starts, and no process is forked and no namespace made.
+/// `CLONE_NEWTIME` isn't among them: `clone` reads its flags' low byte as
+/// the exit signal, and takes that flag only from `clone3`.
+///
+/// `clone3` isn't allowed: its flags sit in memory, out of a filter's reach,
+/// and its `ENOSYS` makes glibc start the thread with `clone` instead.
+#[cfg(target_os = "linux")]
+const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
+    | libc::CLONE_NEWCGROUP
+    | libc::CLONE_NEWUTS
+    | libc::CLONE_NEWIPC
+    | libc::CLONE_NEWUSER
+    | libc::CLONE_NEWPID
+    | libc::CLONE_NEWNET;
+
 /// Installs the box `prepared` on the calling thread, the process's only
 /// one.
 #[cfg(target_os = "linux")]
@@ -477,6 +482,9 @@ fn install(prepared: &Prepared) -> Result<(), ConfineError> {
     // compiled first, so a filter that can't be built fails before any wall
     let filters = seccomp_filters()?;
     landlock(&prepared.pins)?;
+    // the killing filter first, so it passes the allowlist's own `seccomp`
+    // call; the allowlist doesn't allow `seccomp`, so it is the last filter
+    // the process can take
     for filter in &filters {
         seccompiler::apply_filter(filter).map_err(ConfineError::Seccomp)?;
     }
@@ -550,95 +558,98 @@ fn landlock_floor(status: landlock::LandlockStatus) -> Result<(), ConfineError> 
     }
 }
 
-/// The box's two seccomp filters, compiled for this architecture: the calls
-/// that kill the process, and the calls refused with `EACCES`.
+/// The box's two seccomp filters, compiled for this architecture, in the
+/// order they are installed: the calls that kill the process, then the
+/// allowlist, which fails every call it doesn't allow with `ENOSYS`.
 #[cfg(target_os = "linux")]
 fn seccomp_filters() -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
     use std::collections::BTreeMap;
 
     use seccompiler::{
-        SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
-        SeccompRule, TargetArch,
+        SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule,
     };
-    let arch =
-        TargetArch::try_from(std::env::consts::ARCH).map_err(|_| ConfineError::SeccompArch {
+    let arch = seccompiler::TargetArch::try_from(std::env::consts::ARCH).map_err(|_| {
+        ConfineError::SeccompArch {
             arch: std::env::consts::ARCH,
-        })?;
+        }
+    })?;
     let killed: BTreeMap<i64, Vec<SeccompRule>> = KILLED_CALLS
         .into_iter()
         .map(|call| (call, Vec::new()))
         .collect();
-    // `socketpair` is refused when any rule matches: its domain, the first
-    // argument, an int, isn't the kept one, or its type, the second, its
-    // flags masked off, isn't
-    let [kept_domain, kept_type] = KEPT_SOCKETPAIR.map(|value| u64::from(value.unsigned_abs()));
-    let rule = |argument, op, value| {
-        SeccompCondition::new(argument, SeccompCmpArgLen::Dword, op, value)
-            .and_then(|condition| SeccompRule::new(vec![condition]))
+    // a call with rules is allowed when any rule matches, and a rule matches
+    // when all its conditions hold; an int argument is compared at 32 bits,
+    // the half the kernel reads
+    let condition = |argument, length, op, value| {
+        SeccompCondition::new(argument, length, op, value).map_err(ConfineError::SeccompFilter)
     };
-    let other_pairs = std::iter::once(rule(0, SeccompCmpOp::Ne, kept_domain))
-        .chain(
-            (0..=SOCKET_TYPE_MASK)
-                .filter(|socket_type| *socket_type != kept_type)
-                .map(|socket_type| rule(1, SeccompCmpOp::MaskedEq(SOCKET_TYPE_MASK), socket_type)),
-        )
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ConfineError::SeccompFilter)?;
-    // `ioctl` is refused unless its request, the second argument, an
-    // unsigned int and so compared at 32 bits, is one of the kept: one rule
-    // whose conditions all hold, so all must differ
-    let ioctls = KEPT_IOCTLS
-        .into_iter()
-        .map(|request| SeccompCondition::new(1, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, request))
-        .collect::<Result<Vec<_>, _>>()
-        .and_then(SeccompRule::new)
-        .map(|other_requests| vec![other_requests])
-        .map_err(ConfineError::SeccompFilter)?;
-    // `fcntl` is refused when its command, the second argument, an unsigned
-    // int, is one of the refused: one rule each, any matching
-    let fcntls = REFUSED_FCNTLS
-        .into_iter()
-        .map(|command| rule(1, SeccompCmpOp::Eq, u64::from(command.unsigned_abs())))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ConfineError::SeccompFilter)?;
-    // the calls that set another process's limits, priority, CPUs, or
-    // scheduling are refused when they name anything but the caller (0),
-    // which Landlock's signal and ptrace scopes don't reach: a CPU limit of
-    // one second kills the process it's set on
-    let other_processes = SELF_ONLY_CALLS
-        .into_iter()
-        .map(|(call, who, which)| {
-            // `setpriority` and `ioprio_set` also name what `who` is, so one
-            // naming a whole process group or user is refused too
-            let which = which.map(|process| rule(0, SeccompCmpOp::Ne, process));
-            std::iter::once(rule(who, SeccompCmpOp::Ne, 0))
-                .chain(which)
-                .collect::<Result<Vec<_>, _>>()
-                .map(|rules| (call, rules))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ConfineError::SeccompFilter)?;
-    let refused: BTreeMap<i64, Vec<SeccompRule>> = REFUSED_CALLS
+    let rule = |conditions| SeccompRule::new(conditions).map_err(ConfineError::SeccompFilter);
+    let each_value = |argument, values: &[u64]| {
+        values
+            .iter()
+            .map(|value| {
+                rule(vec![condition(
+                    argument,
+                    SeccompCmpArgLen::Dword,
+                    SeccompCmpOp::Eq,
+                    *value,
+                )?])
+            })
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let int = |value: libc::c_int| u64::from(value.unsigned_abs());
+    // `prctl`'s option, the first argument, and `fcntl`'s command, the
+    // second, ints
+    let prctls = each_value(0, &KEPT_PRCTLS.map(int))?;
+    let fcntls = each_value(1, &KEPT_FCNTLS.map(int))?;
+    // `ioctl`'s request, the second argument, an unsigned int
+    let ioctls = each_value(1, &KEPT_IOCTLS)?;
+    // `socketpair`'s domain, the first argument, and its type, the second,
+    // its flags masked off
+    let [kept_domain, kept_type] = KEPT_SOCKETPAIR.map(int);
+    let pairs = vec![rule(vec![
+        condition(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Eq, kept_domain)?,
+        condition(
+            1,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::MaskedEq(SOCKET_TYPE_MASK),
+            kept_type,
+        )?,
+    ])?];
+    // `clone`'s flags, the first argument, an unsigned long, compared whole:
+    // a thread, and no namespace
+    let thread = int(libc::CLONE_THREAD);
+    let threads = vec![rule(vec![condition(
+        0,
+        SeccompCmpArgLen::Qword,
+        SeccompCmpOp::MaskedEq(thread | int(CLONE_NAMESPACES)),
+        thread,
+    )?])?];
+    let allowed: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED_CALLS
         .iter()
         .map(|call| (*call, Vec::new()))
         .chain([
-            (libc::SYS_socketpair, other_pairs),
-            (libc::SYS_ioctl, ioctls),
+            (libc::SYS_prctl, prctls),
             (libc::SYS_fcntl, fcntls),
+            (libc::SYS_ioctl, ioctls),
+            (libc::SYS_socketpair, pairs),
+            (libc::SYS_clone, threads),
         ])
-        .chain(other_processes)
         .collect();
-    let compile = |rules, action| {
-        SeccompFilter::new(rules, SeccompAction::Allow, action, arch)
+    let compile = |rules, mismatch, matched| {
+        SeccompFilter::new(rules, mismatch, matched, arch)
             .and_then(seccompiler::BpfProgram::try_from)
             .map_err(ConfineError::SeccompFilter)
     };
     Ok([
-        compile(killed, SeccompAction::KillProcess)?,
-        compile(refused, SeccompAction::Errno(libc::EACCES.unsigned_abs()))?,
+        compile(killed, SeccompAction::Allow, SeccompAction::KillProcess)?,
+        compile(
+            allowed,
+            SeccompAction::Errno(libc::ENOSYS.unsigned_abs()),
+            SeccompAction::Allow,
+        )?,
     ])
 }
-
 /// The link closure of the project at `project`, opened as `pinned`: it
 /// first, then each `node_modules` entry's real path that is a package
 /// directory ([`is_package`]), neither under a root so far nor holding one,
@@ -1027,22 +1038,105 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn the_seccomp_filters_compile() {
-        let [killed, refused] = super::seccomp_filters().unwrap();
-        assert!(!killed.is_empty());
-        assert!(!refused.is_empty());
+        let [killing, allowing] = super::seccomp_filters().unwrap();
+        assert!(!killing.is_empty());
+        assert!(!allowing.is_empty());
     }
 
-    /// The calls the box refuses whatever their arguments, listed apart from
-    /// [`super::REFUSED_CALLS`], so a call dropped there fails the tests.
+    /// The calls the allowlist allows whatever their arguments, listed apart
+    /// from [`super::ALLOWED_CALLS`], so a call added or dropped there fails
+    /// the tests: the calls the runtime was seen to make after the box goes
+    /// up, then the named siblings.
     #[cfg(target_os = "linux")]
-    fn refused_calls() -> Vec<libc::c_long> {
+    fn allowed_calls() -> Vec<libc::c_long> {
         let mut expected = vec![
+            libc::SYS_brk,
+            libc::SYS_clock_gettime,
+            libc::SYS_clock_nanosleep,
+            libc::SYS_close,
+            libc::SYS_epoll_create1,
+            libc::SYS_epoll_ctl,
+            libc::SYS_eventfd2,
+            libc::SYS_exit,
+            libc::SYS_exit_group,
+            libc::SYS_futex,
+            libc::SYS_getpid,
+            libc::SYS_gettid,
+            libc::SYS_lseek,
+            libc::SYS_madvise,
+            libc::SYS_mmap,
+            libc::SYS_mprotect,
+            libc::SYS_mremap,
+            libc::SYS_munmap,
+            libc::SYS_openat,
+            libc::SYS_pkey_alloc,
+            libc::SYS_pkey_mprotect,
+            libc::SYS_read,
+            libc::SYS_rseq,
+            libc::SYS_rt_sigaction,
+            libc::SYS_rt_sigprocmask,
+            libc::SYS_sched_getaffinity,
+            libc::SYS_sched_getparam,
+            libc::SYS_sched_getscheduler,
+            libc::SYS_sched_yield,
+            libc::SYS_set_robust_list,
+            libc::SYS_sigaltstack,
+            libc::SYS_statx,
+            libc::SYS_uname,
+            libc::SYS_write,
+            libc::SYS_getrandom,
+            libc::SYS_epoll_pwait,
+            libc::SYS_epoll_pwait2,
+            libc::SYS_fstat,
+            libc::SYS_newfstatat,
+            libc::SYS_rt_sigreturn,
+            libc::SYS_restart_syscall,
+            libc::SYS_tgkill,
+            libc::SYS_clock_getres,
+            libc::SYS_gettimeofday,
+            libc::SYS_nanosleep,
+        ];
+        #[cfg(target_arch = "x86_64")]
+        expected.extend([libc::SYS_readlink, libc::SYS_epoll_wait]);
+        #[cfg(target_arch = "aarch64")]
+        expected.push(libc::SYS_readlinkat);
+        expected
+    }
+
+    /// The calls the allowlist allows only by their arguments.
+    #[cfg(target_os = "linux")]
+    const RULED_CALLS: [libc::c_long; 5] = [
+        libc::SYS_prctl,
+        libc::SYS_fcntl,
+        libc::SYS_ioctl,
+        libc::SYS_socketpair,
+        libc::SYS_clone,
+    ];
+
+    /// A sample of the calls the allowlist doesn't allow: every call the
+    /// box once refused by name (the socket calls, the metadata calls, the
+    /// watches, the System V and POSIX queue calls, and the calls that set
+    /// a process's limits, priority, or scheduling), then the namespace,
+    /// key, filter, process, and filesystem calls nothing in the runtime
+    /// makes.
+    #[cfg(target_os = "linux")]
+    fn unlisted_calls() -> Vec<libc::c_long> {
+        vec![
             libc::SYS_socket,
             libc::SYS_connect,
             libc::SYS_bind,
             libc::SYS_listen,
+            libc::SYS_accept4,
+            libc::SYS_sendto,
+            libc::SYS_sendmsg,
             libc::SYS_fchmod,
             libc::SYS_fchmodat,
+            // `fchmodat2`, `setxattrat`, `removexattrat`, and `file_setattr`,
+            // by their numbers in the table x86_64 and aarch64 share from 424
+            452,
+            463,
+            466,
+            469,
             libc::SYS_fchown,
             libc::SYS_fchownat,
             libc::SYS_utimensat,
@@ -1052,10 +1146,6 @@ mod tests {
             libc::SYS_removexattr,
             libc::SYS_lremovexattr,
             libc::SYS_fremovexattr,
-            super::SYS_FCHMODAT2,
-            super::SYS_SETXATTRAT,
-            super::SYS_REMOVEXATTRAT,
-            super::SYS_FILE_SETATTR,
             libc::SYS_inotify_add_watch,
             libc::SYS_fanotify_init,
             libc::SYS_mq_open,
@@ -1071,69 +1161,118 @@ mod tests {
             libc::SYS_semop,
             libc::SYS_semtimedop,
             libc::SYS_semctl,
-        ];
-        #[cfg(target_arch = "x86_64")]
-        expected.extend([
+            libc::SYS_prlimit64,
+            libc::SYS_setpriority,
+            libc::SYS_ioprio_set,
+            libc::SYS_sched_setaffinity,
+            libc::SYS_sched_setscheduler,
+            libc::SYS_sched_setparam,
+            libc::SYS_sched_setattr,
+            libc::SYS_clone3,
+            libc::SYS_unshare,
+            libc::SYS_setns,
+            libc::SYS_keyctl,
+            libc::SYS_add_key,
+            libc::SYS_request_key,
+            libc::SYS_seccomp,
+            libc::SYS_landlock_create_ruleset,
+            libc::SYS_landlock_restrict_self,
+            libc::SYS_kill,
+            libc::SYS_tkill,
+            libc::SYS_pidfd_open,
+            libc::SYS_pidfd_send_signal,
+            libc::SYS_process_madvise,
+            libc::SYS_personality,
+            libc::SYS_setuid,
+            libc::SYS_capset,
+            libc::SYS_flock,
+            libc::SYS_mount,
+            libc::SYS_pivot_root,
+            libc::SYS_chdir,
+            libc::SYS_getcwd,
+            libc::SYS_getdents64,
+            libc::SYS_pipe2,
+            libc::SYS_memfd_create,
+            libc::SYS_mknodat,
+            libc::SYS_mkdirat,
+            libc::SYS_unlinkat,
+            libc::SYS_renameat2,
+            libc::SYS_linkat,
+            libc::SYS_symlinkat,
+            libc::SYS_ftruncate,
+            libc::SYS_fallocate,
+            libc::SYS_name_to_handle_at,
+            libc::SYS_open_by_handle_at,
+            libc::SYS_pread64,
+            libc::SYS_readv,
+            libc::SYS_writev,
+            libc::SYS_set_tid_address,
+            libc::SYS_close_range,
+            libc::SYS_clock_settime,
+            libc::SYS_reboot,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_chmod,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_chown,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_lchown,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_utime,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_utimes,
+            #[cfg(target_arch = "x86_64")]
             libc::SYS_futimesat,
-        ]);
-        expected
+            #[cfg(target_arch = "x86_64")]
+            libc::SYS_open,
+            #[cfg(target_arch = "x86_64")]
+            libc::SYS_fork,
+            #[cfg(target_arch = "x86_64")]
+            libc::SYS_vfork,
+            #[cfg(target_arch = "x86_64")]
+            libc::SYS_readlinkat,
+        ]
     }
 
-    /// The calls refused whatever their arguments include every one the
-    /// confined-process tests can't make from safe code: the extended
-    /// attribute calls (`setxattrat` and `removexattrat` by number),
-    /// `fchmodat2` and `file_setattr` by number, `inotify_add_watch`,
-    /// `fanotify_init`, and the System V IPC calls, beside the socket calls
-    /// and the metadata calls those tests make.
+    /// The allowlist is the list above, plus the calls allowed by their
+    /// arguments, each with the values pinned here; none is a killed call,
+    /// and the sample of unlisted calls is unlisted.
     #[cfg(target_os = "linux")]
     #[test]
-    fn the_refused_calls_cover_metadata_and_watches() {
-        let mut expected = refused_calls();
-        let mut refused = super::REFUSED_CALLS.to_vec();
-        refused.sort_unstable();
+    fn the_allowlist_is_the_census() {
+        let mut allowed = super::ALLOWED_CALLS.to_vec();
+        let mut expected = allowed_calls();
+        allowed.sort_unstable();
         expected.sort_unstable();
-        assert_eq!(refused, expected);
-    }
-
-    /// The calls that set another process's limits, priority, CPUs, or
-    /// scheduling are refused unless they name the caller, by the argument
-    /// that names the process, and for `setpriority` and `ioprio_set` unless
-    /// that argument names one process; the refusing filter matches each.
-    /// The confined-process tests can't make these from safe code.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn the_self_only_calls_name_the_caller() {
+        assert_eq!(allowed, expected);
+        allowed.dedup();
         assert_eq!(
-            super::SELF_ONLY_CALLS,
+            allowed.len(),
+            super::ALLOWED_CALLS.len(),
+            "a call listed twice"
+        );
+        for call in super::KILLED_CALLS.into_iter().chain(RULED_CALLS) {
+            assert!(!allowed.contains(&call), "{call}");
+        }
+        for call in unlisted_calls() {
+            assert!(!allowed.contains(&call), "{call}");
+            assert!(!RULED_CALLS.contains(&call), "{call}");
+        }
+        assert_eq!(super::KEPT_PRCTLS, [libc::PR_SET_NAME, libc::PR_SET_VMA]);
+        assert_eq!(
+            super::KEPT_FCNTLS,
             [
-                (libc::SYS_prlimit64, 0, None),
-                // `PRIO_PROCESS` and `IOPRIO_WHO_PROCESS`
-                (libc::SYS_setpriority, 1, Some(0)),
-                (libc::SYS_ioprio_set, 1, Some(1)),
-                (libc::SYS_sched_setaffinity, 0, None),
-                (libc::SYS_sched_setscheduler, 0, None),
-                (libc::SYS_sched_setparam, 0, None),
-                (libc::SYS_sched_setattr, 0, None),
+                libc::F_GETFD,
+                libc::F_SETFD,
+                libc::F_GETFL,
+                libc::F_SETFL,
+                libc::F_DUPFD_CLOEXEC,
             ]
         );
-        let [_, refused] = super::seccomp_filters().unwrap();
-        for (call, _, _) in super::SELF_ONLY_CALLS {
-            assert!(
-                refused
-                    .iter()
-                    .any(|instruction| i64::from(instruction.k) == call),
-                "{call}"
-            );
-        }
+        assert_eq!(super::KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
     }
 
     /// The `ioctl` requests kept are the ones std, tokio, and the console
-    /// make, and the refusing filter compares the request with each; the
+    /// make, and the allowlist compares the request with each; the
     /// ones that set a file's attributes aren't kept.
     #[cfg(target_os = "linux")]
     #[test]
@@ -1158,10 +1297,10 @@ mod tests {
         ] {
             assert!(!super::KEPT_IOCTLS.contains(&refused), "{refused:#x}");
         }
-        let [_, refused] = super::seccomp_filters().unwrap();
+        let [_, allowing] = super::seccomp_filters().unwrap();
         for request in super::KEPT_IOCTLS {
             assert!(
-                refused
+                allowing
                     .iter()
                     .any(|instruction| u64::from(instruction.k) == request),
                 "{request:#x}"
@@ -1237,155 +1376,209 @@ mod tests {
         }
     }
 
-    /// The refusing filter decides each call as the policy says, read as
-    /// the kernel reads it: the requests, commands, and processes it keeps
-    /// pass, every other is refused, and an argument's upper half, which the
-    /// kernel drops from an int, changes nothing. The killing filter passes
+    /// The filters decide each call as the policy says, read as the kernel
+    /// reads them. The allowlist allows every listed call, and the calls
+    /// allowed by their arguments only with the kept values, an int's upper
+    /// half, which the kernel drops, changing nothing; every other call, an
+    /// x32 call among them, fails with `ENOSYS`. The killing filter allows
     /// all of those and kills on its own calls, and both kill a call from
     /// another architecture.
     #[cfg(target_os = "linux")]
     #[test]
-    fn the_refusing_filter_decides_by_its_arguments() {
-        const PASS: u32 = libc::SECCOMP_RET_ALLOW;
-        const REFUSE: u32 = libc::SECCOMP_RET_ERRNO | libc::EACCES.unsigned_abs();
+    fn the_filters_decide_by_the_allowlist() {
+        const ALLOW: u32 = libc::SECCOMP_RET_ALLOW;
+        const ENOSYS: u32 = libc::SECCOMP_RET_ERRNO | libc::ENOSYS.unsigned_abs();
         const KILL: u32 = libc::SECCOMP_RET_KILL_PROCESS;
-        let [killing, refusing] = super::seccomp_filters().unwrap();
+        let [killing, allowing] = super::seccomp_filters().unwrap();
         let arch = audit_arch();
         let high = 0xdead_0000_0000_0000_u64;
-        let some_pid = 4242;
-        let [prio_process, prio_pgrp, prio_user] =
-            [libc::PRIO_PROCESS, libc::PRIO_PGRP, libc::PRIO_USER].map(u64::from);
-        // `IOPRIO_WHO_PROCESS`, `IOPRIO_WHO_PGRP`, `IOPRIO_WHO_USER`
-        let [who_process, who_pgrp, who_user] = [1, 2, 3];
-        let unix = u64::from(libc::AF_UNIX.unsigned_abs());
-        let [stream, datagram, cloexec] = [libc::SOCK_STREAM, libc::SOCK_DGRAM, libc::SOCK_CLOEXEC]
-            .map(|value| u64::from(value.unsigned_abs()));
-        let [
-            set_lease,
-            notify,
-            get_lease,
-            get_fl,
-            set_fl,
-            get_fd,
-            set_fd,
-            dup_cloexec,
-            set_lock,
-        ] = [
-            libc::F_SETLEASE,
-            libc::F_NOTIFY,
-            libc::F_GETLEASE,
-            libc::F_GETFL,
-            libc::F_SETFL,
-            libc::F_GETFD,
-            libc::F_SETFD,
-            libc::F_DUPFD_CLOEXEC,
-            libc::F_SETLK,
+        let int = |value: libc::c_int| u64::from(value.unsigned_abs());
+        let unix = int(libc::AF_UNIX);
+        let [stream, datagram, seqpacket, cloexec, nonblock] = [
+            libc::SOCK_STREAM,
+            libc::SOCK_DGRAM,
+            libc::SOCK_SEQPACKET,
+            libc::SOCK_CLOEXEC,
+            libc::SOCK_NONBLOCK,
         ]
-        .map(|command| u64::from(command.unsigned_abs()));
-        let read_lock = u64::from(libc::F_RDLCK.unsigned_abs());
+        .map(int);
+        // glibc's flags for a thread, and for `fork` and `posix_spawn`
+        let thread = int(libc::CLONE_VM
+            | libc::CLONE_FS
+            | libc::CLONE_FILES
+            | libc::CLONE_SIGHAND
+            | libc::CLONE_THREAD
+            | libc::CLONE_SYSVSEM
+            | libc::CLONE_SETTLS
+            | libc::CLONE_PARENT_SETTID
+            | libc::CLONE_CHILD_CLEARTID);
+        let sigchld = int(libc::SIGCHLD);
+        let fork = int(libc::CLONE_CHILD_SETTID | libc::CLONE_CHILD_CLEARTID) | sigchld;
+        let spawn = int(libc::CLONE_VM | libc::CLONE_VFORK) | sigchld;
         let mut cases = vec![
-            // the kept ioctls, also with an upper half, and the refused
-            (libc::SYS_ioctl, [2, high | libc::FIONBIO, 0, 0, 0, 0], PASS),
+            // a thread, also with an upper half the kernel drops from
+            // `clone`'s flags; a fork, a spawn, and a namespace refused
+            (libc::SYS_clone, [thread, 0, 0, 0, 0, 0], ALLOW),
             (
-                libc::SYS_ioctl,
-                [2, libc::FS_IOC_GETFLAGS, 0, 0, 0, 0],
-                REFUSE,
+                libc::SYS_clone,
+                [int(libc::CLONE_THREAD), 0, 0, 0, 0, 0],
+                ALLOW,
+            ),
+            (libc::SYS_clone, [high | thread, 0, 0, 0, 0, 0], ALLOW),
+            (libc::SYS_clone, [fork, 0, 0, 0, 0, 0], ENOSYS),
+            (libc::SYS_clone, [spawn, 0, 0, 0, 0, 0], ENOSYS),
+            (libc::SYS_clone, [0, 0, 0, 0, 0, 0], ENOSYS),
+            (
+                libc::SYS_clone,
+                [int(libc::CLONE_NEWUSER | libc::CLONE_THREAD), 0, 0, 0, 0, 0],
+                ENOSYS,
+            ),
+            // the kept prctls, also with an upper half, and others refused
+            (
+                libc::SYS_prctl,
+                [int(libc::PR_SET_NAME), 0, 0, 0, 0, 0],
+                ALLOW,
             ),
             (
-                libc::SYS_ioctl,
-                [2, libc::FS_IOC_SETFLAGS, 0, 0, 0, 0],
-                REFUSE,
+                libc::SYS_prctl,
+                [high | int(libc::PR_SET_NAME), 0, 0, 0, 0, 0],
+                ALLOW,
             ),
+            (
+                libc::SYS_prctl,
+                [int(libc::PR_SET_VMA), 0, 0, 0, 0, 0],
+                ALLOW,
+            ),
+            // the kept fcntls, also with an upper half, and others refused
+            (libc::SYS_fcntl, [3, int(libc::F_GETFD), 0, 0, 0, 0], ALLOW),
+            (
+                libc::SYS_fcntl,
+                [3, high | int(libc::F_SETFL), 0, 0, 0, 0],
+                ALLOW,
+            ),
+            // the kept ioctls, also with an upper half, and others refused
+            (
+                libc::SYS_ioctl,
+                [2, high | libc::FIONBIO, 0, 0, 0, 0],
+                ALLOW,
+            ),
+            (libc::SYS_ioctl, [2, libc::TCGETS, 0, 0, 0, 0], ALLOW),
             (
                 libc::SYS_ioctl,
                 [2, high | libc::FS_IOC_SETFLAGS, 0, 0, 0, 0],
-                REFUSE,
-            ),
-            (libc::SYS_ioctl, [2, libc::TIOCSTI, 0, 0, 0, 0], REFUSE),
-            (libc::SYS_ioctl, [2, 0, 0, 0, 0, 0], REFUSE),
-            // leases and directory notices refused, also with an upper half;
-            // the flag, descriptor, and advisory lock commands pass
-            (libc::SYS_fcntl, [3, set_lease, read_lock, 0, 0, 0], REFUSE),
-            (
-                libc::SYS_fcntl,
-                [3, high | set_lease, read_lock, 0, 0, 0],
-                REFUSE,
-            ),
-            (libc::SYS_fcntl, [3, notify, 0, 0, 0, 0], REFUSE),
-            (libc::SYS_fcntl, [3, get_lease, 0, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, get_fl, 0, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, set_fl, 0, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, get_fd, 0, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, set_fd, 0, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, dup_cloexec, 3, 0, 0, 0], PASS),
-            (libc::SYS_fcntl, [3, set_lock, 0, 0, 0, 0], PASS),
-            // one process, the caller, by 0 only
-            (libc::SYS_setpriority, [prio_process, 0, 19, 0, 0, 0], PASS),
-            (
-                libc::SYS_setpriority,
-                [prio_process, some_pid, 19, 0, 0, 0],
-                REFUSE,
+                ENOSYS,
             ),
             (
-                libc::SYS_setpriority,
-                [prio_process, high | some_pid, 19, 0, 0, 0],
-                REFUSE,
+                libc::SYS_ioctl,
+                [2, libc::FS_IOC_GETFLAGS, 0, 0, 0, 0],
+                ENOSYS,
             ),
-            (
-                libc::SYS_setpriority,
-                [prio_process, high, 19, 0, 0, 0],
-                PASS,
-            ),
-            (libc::SYS_setpriority, [prio_pgrp, 0, 19, 0, 0, 0], REFUSE),
-            (libc::SYS_setpriority, [prio_user, 0, 19, 0, 0, 0], REFUSE),
-            (libc::SYS_ioprio_set, [who_process, 0, 0, 0, 0, 0], PASS),
-            (
-                libc::SYS_ioprio_set,
-                [who_process, some_pid, 0, 0, 0, 0],
-                REFUSE,
-            ),
-            (libc::SYS_ioprio_set, [who_pgrp, 0, 0, 0, 0, 0], REFUSE),
-            (libc::SYS_ioprio_set, [who_user, 0, 0, 0, 0, 0], REFUSE),
-            // the reads pass
-            (libc::SYS_getpriority, [prio_user, 0, 0, 0, 0, 0], PASS),
-            // the kept socketpair, with its flags, and two others
+            (libc::SYS_ioctl, [2, libc::TIOCSTI, 0, 0, 0, 0], ENOSYS),
+            (libc::SYS_ioctl, [2, 0, 0, 0, 0, 0], ENOSYS),
+            // the kept socketpair, with its flags, and others refused
+            (libc::SYS_socketpair, [unix, stream, 0, 0, 0, 0], ALLOW),
             (
                 libc::SYS_socketpair,
-                [unix, stream | cloexec, 0, 0, 0, 0],
-                PASS,
+                [unix, stream | cloexec | nonblock, 0, 0, 0, 0],
+                ALLOW,
             ),
-            (libc::SYS_socketpair, [unix, datagram, 0, 0, 0, 0], REFUSE),
+            (libc::SYS_socketpair, [unix, datagram, 0, 0, 0, 0], ENOSYS),
+            (libc::SYS_socketpair, [unix, seqpacket, 0, 0, 0, 0], ENOSYS),
             (
                 libc::SYS_socketpair,
-                [u64::from(libc::AF_INET.unsigned_abs()), stream, 0, 0, 0, 0],
-                REFUSE,
+                [int(libc::AF_INET), stream, 0, 0, 0, 0],
+                ENOSYS,
             ),
-            (libc::SYS_read, [0; 6], PASS),
         ];
-        for (call, who, _) in super::SELF_ONLY_CALLS {
-            let mut args = [0; 6];
-            if call == libc::SYS_ioprio_set {
-                args[0] = who_process;
-            }
-            cases.push((call, args, PASS));
-            args[usize::from(who)] = some_pid;
-            cases.push((call, args, REFUSE));
+        for namespace in [
+            libc::CLONE_NEWNS,
+            libc::CLONE_NEWCGROUP,
+            libc::CLONE_NEWUTS,
+            libc::CLONE_NEWIPC,
+            libc::CLONE_NEWUSER,
+            libc::CLONE_NEWPID,
+            libc::CLONE_NEWNET,
+        ] {
+            cases.push((
+                libc::SYS_clone,
+                [thread | int(namespace), 0, 0, 0, 0, 0],
+                ENOSYS,
+            ));
         }
-        for call in refused_calls() {
-            cases.push((call, [0; 6], REFUSE));
+        for option in [
+            libc::PR_SET_DUMPABLE,
+            libc::PR_SET_NO_NEW_PRIVS,
+            libc::PR_SET_SECCOMP,
+            libc::PR_SET_PTRACER,
+            libc::PR_SET_PDEATHSIG,
+            libc::PR_CAP_AMBIENT,
+            libc::PR_SET_MM,
+            0,
+        ] {
+            cases.push((libc::SYS_prctl, [int(option), 0, 0, 0, 0, 0], ENOSYS));
+        }
+        for command in super::KEPT_FCNTLS {
+            cases.push((libc::SYS_fcntl, [3, int(command), 0, 0, 0, 0], ALLOW));
+        }
+        for command in [
+            libc::F_DUPFD,
+            libc::F_SETLK,
+            libc::F_SETLKW,
+            libc::F_GETLK,
+            libc::F_OFD_SETLK,
+            libc::F_SETLEASE,
+            libc::F_GETLEASE,
+            libc::F_NOTIFY,
+            libc::F_SETOWN,
+            libc::F_SETPIPE_SZ,
+            libc::F_ADD_SEALS,
+        ] {
+            cases.push((libc::SYS_fcntl, [3, int(command), 0, 0, 0, 0], ENOSYS));
+            cases.push((
+                libc::SYS_fcntl,
+                [3, high | int(command), 0, 0, 0, 0],
+                ENOSYS,
+            ));
+        }
+        for request in super::KEPT_IOCTLS {
+            cases.push((libc::SYS_ioctl, [2, request, 0, 0, 0, 0], ALLOW));
+        }
+        for call in allowed_calls() {
+            cases.push((call, [0; 6], ALLOW));
+        }
+        for call in unlisted_calls() {
+            cases.push((call, [0; 6], ENOSYS));
+        }
+        // an x32 call, the x86_64 call number with bit 30 set, matches no
+        // number the filters compare
+        #[cfg(target_arch = "x86_64")]
+        for call in allowed_calls().into_iter().chain(RULED_CALLS) {
+            cases.push((call | 0x4000_0000, [0; 6], ENOSYS));
         }
         for (call, args, expected) in cases {
             assert_eq!(
-                decide(&refusing, arch, call, args),
+                decide(&allowing, arch, call, args),
                 expected,
                 "{call} {args:x?}"
             );
-            assert_eq!(decide(&killing, arch, call, args), PASS, "{call} {args:x?}");
+            assert_eq!(
+                decide(&killing, arch, call, args),
+                ALLOW,
+                "{call} {args:x?}"
+            );
         }
         for call in super::KILLED_CALLS {
             assert_eq!(decide(&killing, arch, call, [0; 6]), KILL, "{call}");
+            assert_eq!(decide(&allowing, arch, call, [0; 6]), ENOSYS, "{call}");
+            // by its x32 number, past the killing filter, the allowlist
+            // still refuses it
+            #[cfg(target_arch = "x86_64")]
+            {
+                assert_eq!(decide(&killing, arch, call | 0x4000_0000, [0; 6]), ALLOW);
+                assert_eq!(decide(&allowing, arch, call | 0x4000_0000, [0; 6]), ENOSYS);
+            }
         }
-        for filter in [&killing, &refusing] {
+        for filter in [&killing, &allowing] {
             assert_eq!(decide(filter, arch ^ 1, libc::SYS_read, [0; 6]), KILL);
         }
     }

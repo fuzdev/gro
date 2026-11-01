@@ -10,6 +10,10 @@ description = "gro's raw system calls, the one gro crate allowed `unsafe`"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
 
+[features]
+# `signal_thread`, for tests of the box from inside it; only tests enable it
+testing = []
+
 # a child process closing its descriptors, which libtest's harness, with its
 # threads and its own handles, must never do
 [[test]]

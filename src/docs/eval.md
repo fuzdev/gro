@@ -145,29 +145,34 @@ The walls, in order:
   and no signal reaches a process outside the box, nor can it connect to an abstract unix socket outside it.
   Every rule is enforced in full, or eval doesn't run.
   Landlock doesn't gate a path's metadata: `stat`, a symlink's target, and so whether a path exists stay readable everywhere.
-- **seccomp**: `execve` and `execveat`, `ptrace`, the cross-process memory calls, `bpf`, `perf_event_open`,
-  `userfaultfd`, the `kexec` calls, the `io_uring` calls, and the kernel module calls kill the process,
-  since nothing in the runtime makes them;
-  every `socket`, `connect`, `bind`, and `listen`, and every `socketpair` but a unix stream pair, fail with `EACCES`
-  (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate,
-  and a stream pair's socket could be bound to an abstract name);
-  so do the calls that change a file's metadata, which Landlock at ABI 6 doesn't gate
-  (`chmod`, `chown`, and `utime` in all their forms, setting or removing an extended attribute in all its forms,
-  and `file_setattr`);
-  every `ioctl` but the requests that set and clear non-blocking and close-on-exec, read the bytes waiting,
-  and read a terminal's settings and size, so none sets a file's attribute flags, generation,
-  extended attributes, or verity, or reaches a filesystem's own requests, which Landlock gates only on devices;
-  the calls that set a process's resource limits, priority, I/O priority, CPUs, or scheduling,
-  unless they name the caller by 0 (its own pid, named explicitly, is refused too), since Landlock's scopes don't reach them
-  and a CPU limit set on another process kills it with `SIGXCPU`
-  (reading another process's priority or scheduling is allowed, which tells whether it exists and how it's scheduled);
-  `inotify_add_watch` and `fanotify_init`, which would tell the process when a file outside the box changes;
-  the `fcntl` commands that take a lease, which stalls another process's open for writing and tells the holder it was tried,
-  and that ask for directory change notices (`F_SETLEASE` and `F_NOTIFY`;
-  advisory locks, `flock` and `F_SETLK`, are accepted: they write nothing, and they only hold off another process taking a lock on the same file inside the box, such as a build tool's under the project root, for as long as the eval runs);
-  and the System V IPC calls (shared memory, message queues, and semaphores)
-  and the POSIX message queue calls that make or remove a queue (`mq_open` and `mq_unlink`, which Landlock doesn't gate),
-  whose objects live outside the box, outlast the process, and are shared with the user's other processes.
+- **seccomp**, two filters. The first kills the process on `execve` and `execveat`, `ptrace`, the cross-process memory calls,
+  `bpf`, `perf_event_open`, `userfaultfd`, the `kexec` calls, the `io_uring` calls, and the kernel module calls,
+  since nothing in the runtime makes them: a tripwire for code that escaped the engine.
+  The second is an allowlist: the calls the runtime makes once the box is up pass,
+  and every other call fails with `ENOSYS`.
+  The allowed calls (the ones the census saw, then their siblings, each sibling with its reason in the source) cover memory (`mmap`, `mprotect`, `madvise`, and the rest),
+  threads and their futexes, the clock, sleeping, signal handlers and `abort`, `read`, `write`, `openat`, `close`, `lseek`,
+  `statx` (and `fstat` and `newfstatat`, std's fallback), `readlink`, `uname`,
+  the event loop's `epoll` and `eventfd2` calls, `getrandom`, the process's and thread's ids,
+  and reading scheduling and CPU affinity (another process's included, which tells only whether it exists and how it's scheduled).
+  Some pass only with the arguments the runtime uses:
+  `prctl` only to name a thread or a mapping;
+  `fcntl` only to read and set a descriptor's flags and to duplicate it close-on-exec
+  (so no advisory lock, lease, or change notice);
+  `ioctl` only to set and clear non-blocking and close-on-exec, read the bytes waiting, and read a terminal's settings and size;
+  `socketpair` only as a unix stream pair
+  (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate);
+  and `clone` only to start a thread, with no namespace flag, so no process is forked and no namespace made.
+  `clone3` isn't allowed, since its flags are in memory, out of a filter's reach;
+  glibc falls back to `clone` when it fails.
+  So every `socket`, `connect`, `bind`, and `listen`, every call that changes a file's metadata
+  (which Landlock at ABI 6 doesn't gate), `kill`, file watches, System V IPC and POSIX message queues,
+  resource limits and priorities, namespaces, keys, and further seccomp filters fail with `ENOSYS`.
+  `ENOSYS` is what a call the kernel lacks returns, so a library falls back where it can,
+  and a host whose libc makes a call the list doesn't name degrades where the libc has a fallback,
+  and otherwise fails with `ENOSYS`.
+  An x32 call fails the same way, since the filter compares exact call numbers.
+  The list is built for x86_64 and aarch64, and has been checked on x86_64 only.
 
 The reads the runtime makes at startup outside the roots (the CPU and cgroup files, `/proc/self/maps`) fail and fall back quietly.
 V8's entropy comes from the `getrandom` call, and if that fails, the process stops with a message
@@ -189,6 +194,23 @@ or drops (one to a directory holding the project or another package's directory,
 and reads a `package.json` symlinked out of the roots at its real path.
 Such a read is refused, and the eval fails as `internal`, naming the path, whatever the code did with the error;
 the fix is to link the package's own directory directly into the project's `node_modules`, and to keep each `package.json` a file.
+
+### Changing the allowlist
+
+The allowlist comes from a census: what the runtime calls once the box is up, on a real kernel.
+To take one, in a scratch copy of the repo:
+
+1. Change the allowlist's mismatch action in `seccomp_filters` to `SeccompAction::Log` (`SECCOMP_RET_LOG`), allowing the candidate list, and build with `cargo xtask build`.
+2. Run the eval tests' fixtures and real projects' config modules through `fgro eval`, with and without `--jit` and `--graph`, and with a driver.
+3. Read the kernel's audit records, `type=1326 ... syscall=N`, with `journalctl -k`.
+   The printk rate limit drops records, shown as `kauditd_printk_skb: N callbacks suppressed`,
+   so pause between runs.
+4. Add each call logged, and repeat until a run logs nothing and nothing is suppressed.
+
+Then restore `ENOSYS`, run `cargo xtask build --verify`, and check those config modules exit as before.
+Take it again when deno_core, tokio, V8, the Rust toolchain, or the host's glibc or kernel moves
+(glibc 2.41 on Linux 6.11 or later takes `getrandom` from the vDSO, so what a census sees depends on both).
+A call the census didn't see is added only as a sibling, with a reason the code states.
 
 ## The driver
 

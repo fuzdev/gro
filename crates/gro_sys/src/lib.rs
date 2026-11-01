@@ -8,6 +8,12 @@
 //! - [`close_inherited_fds`] closes every file descriptor above stderr, the
 //!   ones a process inherits from its parent, which a kernel box that gates
 //!   only new opens doesn't reach.
+//!
+//! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
+//! dev-dependencies), it also has:
+//!
+//! - `signal_thread`, which sends a signal to one thread by `tgkill`, the call
+//!   the box allows and Landlock's signal scope keeps inside it.
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
@@ -200,6 +206,36 @@ fn close(fd: libc::c_int) -> io::Result<()> {
     // process's memory, so the call itself can't break memory safety; that
     // nothing owns `fd` is `close_inherited_fds`'s precondition
     if unsafe { libc::close(fd) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Sends `signal` to the thread `tid` of the process `tgid`, by `tgkill`;
+/// a `signal` of 0 sends nothing and checks only that it could be sent.
+///
+/// For tests of a box, from inside it: std's `Child::kill` makes `kill`,
+/// which the box's seccomp allowlist refuses, so only this call reaches what
+/// Landlock's signal scope decides.
+///
+/// # Errors
+///
+/// Returns the call's error: `EPERM` when the signal may not be sent (a
+/// Landlock scope among the reasons), `ESRCH` when no such thread exists, or
+/// `EINVAL` for an invalid signal or a `tgid` or `tid` not above 0.
+#[cfg(all(target_os = "linux", feature = "testing"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no `tgkill`, and a raw system call is `unsafe`"
+)]
+pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
+    // SAFETY: `tgkill` takes three integers and reads or writes none of this
+    // process's memory, so the call itself can't break memory safety; what a
+    // signal's handler then does is that handler's own concern, as with
+    // std's `Child::kill`
+    let result = unsafe { libc::syscall(libc::SYS_tgkill, tgid, tid, signal) };
+    if result == 0 {
         Ok(())
     } else {
         Err(io::Error::last_os_error())

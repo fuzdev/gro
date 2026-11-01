@@ -52,6 +52,11 @@ mod confined {
     /// The signal seccomp kills a process with.
     const SIGSYS: i32 = 31;
 
+    /// The signal the signal case sends a process outside the box, harmless
+    /// to a sleeping one, the same on every architecture the box is built
+    /// for.
+    const SIGCONT: i32 = 18;
+
     /// `open`'s truncate flag, the same on every architecture the box is
     /// built for.
     const O_TRUNC: i32 = 0o1000;
@@ -64,8 +69,14 @@ mod confined {
     /// socket of.
     const AF_VSOCK: i32 = 40;
 
+    /// The error a call fails with when the box's allowlist doesn't allow it,
+    /// the same on every architecture the box is built for.
+    const ENOSYS: i32 = 38;
+
     /// The cases, each run in a child of its own.
-    const CASES: [&str; 6] = ["reads", "exec", "sockets", "signal", "threads", "eval"];
+    const CASES: [&str; 7] = [
+        "reads", "exec", "sockets", "signal", "process", "threads", "eval",
+    ];
 
     pub fn main() {
         let mut args = std::env::args().skip(1);
@@ -152,27 +163,36 @@ mod confined {
                 "read /dev/urandom: denied",
                 "write inside: denied",
                 "truncate inside: denied",
-                "chmod inside: denied",
-                "fchmod inside: denied",
-                "chown inside: denied",
-                "utimensat inside: denied",
+                "chmod inside: enosys",
+                "fchmod inside: enosys",
+                "chown inside: enosys",
+                "utimensat inside: enosys",
+                "flock inside: enosys",
+                "dup inside: ok",
                 "available_parallelism: ok",
                 "read outside from a thread: denied",
                 "read outside from its thread: denied",
             ],
             "sockets" => &[
                 "confined",
-                "tcp: denied",
-                "udp6: denied",
-                "unix: denied",
-                "vsock: denied",
-                "alg: denied",
+                "tcp: enosys",
+                "udp6: enosys",
+                "unix: enosys",
+                "vsock: enosys",
+                "alg: enosys",
                 "socketpair: ok",
-                "socketpair dgram: denied",
-                "bind abstract: denied",
-                "listen: denied",
+                "socketpair nonblocking: ok",
+                "socketpair dgram: enosys",
+                "bind abstract: enosys",
+                "listen: enosys",
             ],
-            "signal" => &["confined", "kill outside: denied"],
+            "signal" => &[
+                "confined",
+                "kill outside: enosys",
+                "tgkill outside: denied",
+                "tgkill self: ok",
+            ],
+            "process" => &["confined", "thread: ok", "spawn: enosys"],
             "threads" => &["refused: 2 threads", "read outside: ok"],
             "eval" => &[
                 "confined",
@@ -203,11 +223,13 @@ mod confined {
         }
     }
 
-    /// `ok`, or `denied` for a permission error, or the error.
+    /// `ok`, or `denied` for a permission error (Landlock's), or `enosys`
+    /// for a call the allowlist doesn't allow, or the error.
     fn outcome<T>(result: std::io::Result<T>) -> String {
         match result {
             Ok(_) => "ok".to_owned(),
             Err(error) if error.kind() == ErrorKind::PermissionDenied => "denied".to_owned(),
+            Err(error) if error.raw_os_error() == Some(ENOSYS) => "enosys".to_owned(),
             Err(error) => format!("failed: {error}"),
         }
     }
@@ -246,8 +268,9 @@ mod confined {
                     )
                 );
                 // a file's metadata, which Landlock at ABI 6 doesn't gate and
-                // seccomp refuses: its mode set to the one it has, by path
-                // and by handle, its owner to the one it has, and its times
+                // the allowlist doesn't allow: its mode set to the one it has,
+                // by path and by handle, its owner to the one it has, and its
+                // times
                 let main = project.join("main.js");
                 let metadata = std::fs::metadata(&main).unwrap();
                 println!(
@@ -275,6 +298,17 @@ mod confined {
                         std::fs::File::open(&main)
                             .and_then(|file| file.set_modified(metadata.modified()?))
                     )
+                );
+                // an advisory lock (`flock`), which the allowlist refuses, and
+                // a duplicate handle (`fcntl`'s `F_DUPFD_CLOEXEC`), which it
+                // keeps
+                println!(
+                    "flock inside: {}",
+                    outcome(std::fs::File::open(&main).and_then(|file| file.lock()))
+                );
+                println!(
+                    "dup inside: {}",
+                    outcome(std::fs::File::open(&main).and_then(|file| file.try_clone()))
                 );
                 // std's fallback when the cgroup and CPU files are denied
                 println!(
@@ -314,7 +348,7 @@ mod confined {
                     "unix: {}",
                     outcome(std::os::unix::net::UnixDatagram::unbound())
                 );
-                // families std can't make, refused whatever the family
+                // families std can't make: no `socket` call is allowed
                 for (name, family, kind) in [
                     ("vsock", AF_VSOCK, socket2::Type::STREAM),
                     ("alg", AF_ALG, socket2::Type::SEQPACKET),
@@ -331,6 +365,14 @@ mod confined {
                 println!(
                     "socketpair: {}",
                     outcome(std::os::unix::net::UnixStream::pair())
+                );
+                // made non-blocking as tokio makes it, by `ioctl`'s `FIONBIO`
+                println!(
+                    "socketpair nonblocking: {}",
+                    outcome(
+                        std::os::unix::net::UnixStream::pair()
+                            .and_then(|(kept, _peer)| kept.set_nonblocking(true))
+                    )
                 );
                 // a datagram pair could send to any socket file by its path
                 println!(
@@ -368,8 +410,41 @@ mod confined {
                     .spawn()
                     .unwrap();
                 eprintln!("victim {}", victim.id());
+                let victim_id = i32::try_from(victim.id()).unwrap();
                 confine(&project);
+                // `kill`, std's call, which the allowlist refuses
                 println!("kill outside: {}", outcome(victim.kill()));
+                // `tgkill`, which the allowlist keeps for `abort()`, so only
+                // Landlock's signal scope refuses it, to the victim's one
+                // thread, whose id is its process's
+                println!(
+                    "tgkill outside: {}",
+                    outcome(gro_sys::signal_thread(victim_id, victim_id, SIGCONT))
+                );
+                // this process's own thread, the main one, whose id is the
+                // process's, with signal 0, which sends nothing
+                let own = i32::try_from(std::process::id()).unwrap();
+                println!(
+                    "tgkill self: {}",
+                    outcome(gro_sys::signal_thread(own, own, 0))
+                );
+            }
+            "process" => {
+                confine(&project);
+                // glibc starts a thread with `clone3` first, which the
+                // allowlist refuses, then with `clone`, which it allows for a
+                // thread: the thread's start is what's checked, since its
+                // name, set with `prctl`, can't be read back from inside the
+                // box (`PR_GET_NAME` is refused, and `/proc` is outside it)
+                let main = project.join("main.js");
+                std::thread::spawn(move || {
+                    println!("thread: {}", outcome(std::fs::read(&main)));
+                })
+                .join()
+                .unwrap();
+                // a process forked or spawned is refused before anything is
+                // executed, so the killing filter's `execve` is never reached
+                println!("spawn: {}", outcome(Command::new("/bin/true").status()));
             }
             "threads" => {
                 let (stop, wait) = std::sync::mpsc::channel::<()>();
