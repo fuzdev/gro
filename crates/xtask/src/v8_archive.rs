@@ -18,6 +18,18 @@
 //!   `v8` build script last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`),
 //!   which other build units of `v8` share, so it can't tell which copy a given
 //!   binary linked.
+//! - [`heal_missing_copies`] runs before the xtask's first build. The `v8`
+//!   rlib bundles the library, so binaries link without the copy, but a target
+//!   directory can hold `v8`'s build outputs without it: a manual prune, or
+//!   a CI cache that restores only `build/`, `deps/`, and `.fingerprint/`, so
+//!   on CI it fires on every cache hit, at the cost of rebuilding `v8` and
+//!   what depends on it.
+//!   Since nothing reruns the build script then, for each profile
+//!   [`verify_linked`] checks (`debug` and `release`) whose copy is missing
+//!   while a `v8` build script output is present, it cleans that profile's
+//!   `v8` outputs (`cargo clean -p v8 --profile <profile>`), so the next
+//!   build recopies and relinks. A target with no `v8` outputs is left alone,
+//!   and a copy still missing after the build fails [`verify_linked`].
 //!
 //! What's left: a plain cargo build against a bad file at the path, with the
 //! file then fixed by hand before any xtask runs, isn't detectable here; a
@@ -188,19 +200,72 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
 fn clean_v8(root: &Path) -> Result<(), ArchiveError> {
     // the built-in `dev` and `release`, plus every custom `[profile.*]` in `Cargo.toml`
     for profile in ["dev", "release", "profiling"] {
-        crate::run(
-            root,
-            &[],
-            "cargo",
-            &["clean", "--locked", "-p", "v8", "--profile", profile],
-        )
-        .map_err(|_| {
-            ArchiveError::Command(format!(
-                "cargo clean -p v8 --profile {profile} failed; see the output above"
-            ))
-        })?;
+        clean_v8_profile(root, profile)?;
     }
     Ok(())
+}
+
+/// Removes the `v8` crate's build outputs for one cargo `profile`.
+fn clean_v8_profile(root: &Path, profile: &str) -> Result<(), ArchiveError> {
+    crate::run(
+        root,
+        &[],
+        "cargo",
+        &["clean", "--locked", "-p", "v8", "--profile", profile],
+    )
+    .map_err(|_| {
+        ArchiveError::Command(format!(
+            "cargo clean -p v8 --profile {profile} failed; see the output above"
+        ))
+    })
+}
+
+/// The profiles [`verify_linked`] checks: each one's directory under the
+/// target directory, and the name `cargo clean --profile` takes for it.
+const LINKED_PROFILES: [(&str, &str); 2] = [("debug", "dev"), ("release", "release")];
+
+/// Cleans the `v8` build outputs of each profile [`verify_linked`] checks
+/// whose library copy is missing under `target_dir` though the `v8` build
+/// script has run there ([`copy_is_missing`]), so the next build reruns it,
+/// which recopies the library. Run before the xtask's first build.
+///
+/// # Errors
+///
+/// Returns an [`ArchiveError`] if `cargo clean` fails.
+pub fn heal_missing_copies(root: &Path, target_dir: &Path) -> Result<(), ArchiveError> {
+    for (dir, profile) in LINKED_PROFILES {
+        if copy_is_missing(target_dir, dir) {
+            println!(
+                "[xtask] {} is missing but v8 was built for {dir}; cleaning v8's {dir} \
+                 build outputs so the next build recopies it",
+                linked_path(target_dir, dir).display()
+            );
+            clean_v8_profile(root, profile)?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the library copy for the profile directory `dir` is missing while
+/// a `v8` build script output (`<dir>/build/v8-*/output`) is present: cargo
+/// counts that build script as done and won't rerun it to write the copy.
+fn copy_is_missing(target_dir: &Path, dir: &str) -> bool {
+    if linked_path(target_dir, dir).is_file() {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(target_dir.join(dir).join("build")) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry.file_name().to_string_lossy().starts_with("v8-")
+            && entry.path().join("output").is_file()
+    })
+}
+
+/// The library copy the `v8` build script writes for the profile directory
+/// `dir`.
+fn linked_path(target_dir: &Path, dir: &str) -> PathBuf {
+    target_dir.join(dir).join("gn_out/obj/librusty_v8.a")
 }
 
 /// Checks the library copy the `v8` build script last wrote for `profile`
@@ -214,7 +279,7 @@ fn clean_v8(root: &Path) -> Result<(), ArchiveError> {
 /// Returns [`ArchiveError::LinkedMismatch`] with the remedy when it differs,
 /// and an I/O error when it's missing.
 pub fn verify_linked(target_dir: &Path, profile: &str) -> Result<(), ArchiveError> {
-    let path = target_dir.join(profile).join("gn_out/obj/librusty_v8.a");
+    let path = linked_path(target_dir, profile);
     if !path.is_file() {
         return Err(ArchiveError::Io {
             path,
@@ -383,6 +448,28 @@ mod tests {
         // a profile the build script never wrote is an error too, not a pass
         let error = verify_linked(&dir, "debug").unwrap_err();
         assert!(matches!(error, ArchiveError::Io { .. }), "{error}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_copy_needs_healing_only_after_a_v8_build() {
+        let dir = std::env::temp_dir().join(format!("xtask_copy_missing_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // a fresh target: nothing to heal, the first build writes the copy
+        assert!(!copy_is_missing(&dir, "debug"));
+        let build = dir.join("debug/build");
+        fs::create_dir_all(build.join("v8-0123/out")).unwrap();
+        fs::create_dir_all(build.join("other-0123")).unwrap();
+        fs::write(build.join("other-0123/output"), b"").unwrap();
+        // the build script's own compile, not yet run
+        assert!(!copy_is_missing(&dir, "debug"));
+        fs::write(build.join("v8-0123/output"), b"").unwrap();
+        assert!(copy_is_missing(&dir, "debug"));
+        assert!(!copy_is_missing(&dir, "release"));
+        let lib = dir.join("debug/gn_out/obj");
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("librusty_v8.a"), b"").unwrap();
+        assert!(!copy_is_missing(&dir, "debug"));
         fs::remove_dir_all(&dir).unwrap();
     }
 

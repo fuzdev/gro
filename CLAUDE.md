@@ -969,7 +969,10 @@ version moves off the pin), and replaces a file that doesn't match after
 `cargo clean -p v8`, so the next build recopies and relinks. Before running V8
 code, the xtask's builds also check the library copy the `v8` build script
 last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`, shared by its
-build units), a stale-copy check that names the remedy. The pin protects the
+build units), a stale-copy check that names the remedy. When a profile's copy
+is missing though `v8`'s build script output is present (a CI cache restores
+`build/`, `deps/`, and `.fingerprint/` without `gn_out/`), the fetch step cleans
+that profile's `v8` outputs so the build reruns the script. The pin protects the
 download's integrity; local writes to the target directory are out of scope,
 since anyone who can write there can alter any build output already. A plain
 cargo build against a bad file, fixed by hand before any xtask runs, goes

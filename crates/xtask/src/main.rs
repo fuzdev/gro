@@ -321,21 +321,22 @@ fn main() -> ExitCode {
 /// A failed step: the exit code `cargo xtask` returns.
 type StepResult = Result<(), ExitCode>;
 
-/// Ensures the pinned V8 archive is in place and verified.
+/// Ensures the pinned V8 archive is in place and verified, and that the next
+/// build rewrites any library copy missing from the target directory.
 fn fetch_v8(root: &Path) -> StepResult {
-    match v8_archive::ensure(root) {
-        Ok(path) => {
-            println!(
-                "[xtask] the V8 archive is verified: {}",
-                relative(root, &path)
-            );
-            Ok(())
-        }
-        Err(error) => {
-            eprintln!("[xtask] {error}");
-            Err(ExitCode::FAILURE)
-        }
-    }
+    let path = v8_archive::ensure(root).map_err(|error| {
+        eprintln!("[xtask] {error}");
+        ExitCode::FAILURE
+    })?;
+    println!(
+        "[xtask] the V8 archive is verified: {}",
+        relative(root, &path)
+    );
+    let target_dir = target_dir(root)?;
+    v8_archive::heal_missing_copies(root, &target_dir).map_err(|error| {
+        eprintln!("[xtask] {error}");
+        ExitCode::FAILURE
+    })
 }
 
 /// Cargo's target directory, as `cargo metadata` reports it, so a
