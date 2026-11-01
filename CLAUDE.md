@@ -768,7 +768,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   out-of-memory handle, runs `eval::prepass` on a sized thread it joins,
   confines the process alone, then starts the engine and evaluates on a
   second sized thread, so every thread V8 and tokio start comes after the
-  confinement. Confined eval runs only from a snapshot build, so
+  confinement. The internal `eval-box` subcommand (hidden from `--help`, like
+  `make-snapshot`) takes eval's arguments, runs that path through the
+  confinement by the same functions, and exits `0` with no output and no
+  engine, for the bench's box-cost row. Confined eval runs only from a snapshot build, so
   `tests/eval.rs`'s tests that evaluate are ignored in a plain `cargo test`
   and run from `cargo xtask build --verify`, beside `tests/confine.rs`
   (no libtest harness, whose threads would refuse the box: each case

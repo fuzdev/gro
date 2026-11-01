@@ -105,12 +105,22 @@ struct Output {
 /// set, `TZ=UTC` unless `env` sets it, and every color variable cleared
 /// otherwise.
 fn spawn_eval(args: &[&str], driver: Option<&str>, env: &[(&str, &str)]) -> Output {
+    spawn_command("eval", args, driver, env)
+}
+
+/// [`spawn_eval`] with another subcommand of eval's arguments.
+fn spawn_command(
+    subcommand: &str,
+    args: &[&str],
+    driver: Option<&str>,
+    env: &[(&str, &str)],
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
     for name in COLOR_VARS {
         command.env_remove(name);
     }
     command
-        .arg("eval")
+        .arg(subcommand)
         .args(args)
         // eval refuses any other time zone, and ICU reads the host's
         .env("TZ", "UTC")
@@ -1797,4 +1807,48 @@ fn the_graph_dump_of_refused_and_failed_runs() {
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_BACKSTOP);
     assert_eq!(run.envelope["graph"], Value::Null);
+}
+
+/// `fgro eval-box` runs eval's path through the box and stops: confined, a
+/// driven module that evaluates exits 0 with no output.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn eval_box_confines_and_exits_without_output() {
+    let run = spawn_command(
+        "eval-box",
+        &["driven.js", "--driver", "-"],
+        Some("call.js"),
+        &[],
+    );
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "", "")
+    );
+    let run = spawn_command("eval-box", &["value.js"], None, &[]);
+    assert_eq!((run.code, run.stdout.as_str()), (0, ""), "{}", run.stderr);
+}
+
+/// `fgro eval-box` fails as eval does, with eval's envelope and exit code:
+/// before the box (a module that doesn't resolve) and, in a build with no
+/// snapshot, at the snapshot check.
+#[test]
+fn eval_box_fails_as_eval_does() {
+    for args in [&["missing.js"][..], &["value.js", "--timeout", "100"]] {
+        let boxed = spawn_command("eval-box", args, None, &[]);
+        let evaled = spawn_eval(args, None, &[]);
+        if cfg!(feature = "snapshot") && evaled.code == 0 {
+            // a snapshot build evaluates the value, which eval-box stops short of
+            assert_eq!((boxed.code, boxed.stdout.as_str()), (0, ""), "{args:?}");
+            continue;
+        }
+        assert_eq!(
+            (boxed.code, &boxed.stdout, &boxed.stderr),
+            (evaled.code, &evaled.stdout, &evaled.stderr),
+            "{args:?}"
+        );
+        assert_ne!(boxed.code, 0, "{args:?}");
+    }
 }

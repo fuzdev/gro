@@ -73,6 +73,14 @@
 //!   not under `"type": "module"`), or, for `eval`, one no project owns
 //!   (inside `node_modules`, or with no project root above it)
 //!
+//! `fgro eval-box`, internal and so not in `--help`, takes `eval`'s arguments
+//! and runs `eval`'s path through the box and no further, by the same
+//! functions: it closes the inherited descriptors, reads the driver from
+//! stdin when `--driver -` asks (and drops it), runs the pre-pass, and
+//! confines the process, then exits `0` with no output, starting no engine.
+//! A failure on the way writes `eval`'s envelope and exits as `eval` would.
+//! It times the box's own cost, which `eval`'s rows otherwise hide.
+//!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`
 //! makes that build in two stages: a plain `fgro` writes the snapshot with
@@ -94,9 +102,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use argh::{EarlyExit, FromArgs};
-use gro_runtime::confine::Confinement;
+use gro_runtime::confine::{Confined, Confinement};
 use gro_runtime::engine::{EngineOptions, init_engine};
-use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, RuntimeInfo};
+use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, Prepass, RuntimeInfo};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -120,6 +128,10 @@ const STARTUP_SNAPSHOT: Option<StartupSnapshot> = None;
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
 const MAKE_SNAPSHOT: &str = "make-snapshot";
+
+/// The internal subcommand that runs `eval`'s path through the box and stops
+/// ([`eval_box`]), handled before argh so it stays out of `--help`.
+const EVAL_BOX: &str = "eval-box";
 
 /// The caller must change the arguments before re-running.
 const EXIT_USAGE: u8 = 2;
@@ -291,6 +303,9 @@ fn main() -> ExitCode {
 /// runs on the main thread: decided from what argh parses, not the first
 /// argument, so every spelling it accepts (`fgro -- eval`) runs there.
 fn runs_on_main_thread(args: &[&str]) -> bool {
+    if args.first() == Some(&EVAL_BOX) {
+        return true;
+    }
     args.first() != Some(&MAKE_SNAPSHOT)
         && matches!(
             Args::from_args(&["fgro"], args),
@@ -357,6 +372,9 @@ fn run(args: &[&str]) -> u8 {
             |()| 0,
         );
     }
+    if let [EVAL_BOX, rest @ ..] = args {
+        return EvalArgs::from_args(&["fgro", EVAL_BOX], rest).map_or_else(early_exit, eval_box);
+    }
     match Args::from_args(&["fgro"], args) {
         Ok(Args {
             version: true,
@@ -411,31 +429,75 @@ fn run(args: &[&str]) -> u8 {
             version: false,
             command: Some(Command::Eval(args)),
         }) => eval(args),
-        // argh's `from_env` exits `1` on a usage error, so map its result by hand
-        Err(EarlyExit {
-            output,
-            status: Ok(()),
-        }) => {
-            println!("{}", output.trim_end());
-            0
-        }
-        Err(EarlyExit {
-            output,
-            status: Err(()),
-        }) => {
-            eprintln!("{}", output.trim_end());
-            EXIT_USAGE
-        }
+        Err(early) => early_exit(early),
     }
 }
 
-/// Runs `fgro eval` on the main thread: checks the flags, closes the
-/// descriptors the process inherited, reads the driver from stdin when asked,
-/// resolves the entry and computes the box on a thread of its own, confines
-/// the process, evaluates on eval's engine on another thread, and prints the
-/// envelope to stdout, returning the exit code. A usage error prints to stderr
-/// with no envelope.
+/// The exit code of argh's early exit, `--help` or a usage error, printed:
+/// argh's `from_env` exits `1` on a usage error, so its result is mapped by
+/// hand.
+fn early_exit(EarlyExit { output, status }: EarlyExit) -> u8 {
+    if status.is_ok() {
+        println!("{}", output.trim_end());
+        0
+    } else {
+        eprintln!("{}", output.trim_end());
+        EXIT_USAGE
+    }
+}
+
+/// Runs `fgro eval` on the main thread: [`confine_eval`], then evaluates on
+/// eval's engine on another thread, and prints the envelope to stdout,
+/// returning the exit code. A usage error prints to stderr with no envelope.
 fn eval(args: EvalArgs) -> u8 {
+    let jit = args.jit;
+    let (prepass, confined) = match confine_eval(args) {
+        Ok(confined) => confined,
+        Err(code) => return code,
+    };
+    let unstarted = prepass.failed(EvalError::new(
+        ErrorKind::Internal,
+        "could not start the thread that evaluates",
+    ));
+    // every thread the engine starts comes after the box, spawned from here
+    let evaluated = on_sized_thread("fgro", move || {
+        match init_engine(
+            Confinement::Confined(confined),
+            &gro_runtime::eval::engine_options(jit),
+        ) {
+            Ok(engine) => gro_runtime::eval::eval(engine, prepass),
+            Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
+        }
+    });
+    match evaluated {
+        Joined::Returned(envelope) => write_envelope(&envelope),
+        Joined::Unstarted(error) => write_envelope(&with_error(unstarted, &error)),
+        Joined::Panicked => EXIT_PANIC,
+    }
+}
+
+/// Runs `fgro eval-box` on the main thread: [`confine_eval`], exactly as
+/// `eval` runs it, then exits `0` with no output, starting no engine. A
+/// failure exits as `eval`'s would, its envelope written.
+///
+/// It returns `0` only once the process is confined: the `Ok` it maps holds a
+/// [`Confined`], whose fields are private and which only
+/// `Prepared::confine` makes, so no path reaches `0` unconfined.
+fn eval_box(args: EvalArgs) -> u8 {
+    confine_eval(args).map_or_else(|code| code, |_| 0)
+}
+
+/// `eval`'s path up to and including the box, on the main thread: checks the
+/// flags, closes the descriptors the process inherited, reads the working
+/// directory and, when asked, the driver from stdin, resolves the entry and
+/// computes the box on a thread of its own, refuses a build with no snapshot,
+/// and confines the process, returning the pre-pass and the confinement.
+///
+/// # Errors
+///
+/// Returns the exit code of a failure, after printing it: a usage error to
+/// stderr with no envelope, any other as its envelope on stdout.
+fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     let EvalArgs {
         module,
         driver,
@@ -448,7 +510,7 @@ fn eval(args: EvalArgs) -> u8 {
         None => gro_runtime::eval::DEFAULT_TIMEOUT,
         Some(0) => {
             eprintln!("error: --timeout takes a number of milliseconds of at least 1");
-            return EXIT_USAGE;
+            return Err(EXIT_USAGE);
         }
         Some(ms) => Duration::from_millis(ms),
     };
@@ -459,14 +521,14 @@ fn eval(args: EvalArgs) -> u8 {
                 "error: --export reads an export with no driver; a driver is handed the whole \
                  namespace"
             );
-            return EXIT_USAGE;
+            return Err(EXIT_USAGE);
         }
         (Some(path), _) => {
             eprintln!(
                 "error: --driver takes `-`, to read the driver from stdin, not {path:?}: a \
                  driver from a file isn't supported yet"
             );
-            return EXIT_USAGE;
+            return Err(EXIT_USAGE);
         }
     }
     // first, before the process opens anything: a descriptor it inherited
@@ -496,7 +558,7 @@ fn eval(args: EvalArgs) -> u8 {
             ErrorKind::Environment,
             format!("cannot close the descriptors the eval inherited: {error}"),
         );
-        return write_envelope(&gro_runtime::eval::failed(&options, error));
+        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
     }
     // read here, before the box, not in the runtime, which takes them as inputs
     let mut read = || -> Result<(), String> {
@@ -513,7 +575,7 @@ fn eval(args: EvalArgs) -> u8 {
     };
     if let Err(message) = read() {
         let error = EvalError::new(ErrorKind::Internal, message);
-        return write_envelope(&gro_runtime::eval::failed(&options, error));
+        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
     }
     let unstarted = gro_runtime::eval::failed(
         &options,
@@ -524,39 +586,22 @@ fn eval(args: EvalArgs) -> u8 {
     );
     let prepass = match on_sized_thread("fgro-prepass", || gro_runtime::eval::prepass(options)) {
         Joined::Returned(Ok(prepass)) => prepass,
-        Joined::Returned(Err(envelope)) => return write_envelope(&envelope),
-        Joined::Unstarted(error) => return write_envelope(&with_error(unstarted, &error)),
-        Joined::Panicked => return EXIT_PANIC,
+        Joined::Returned(Err(envelope)) => return Err(write_envelope(&envelope)),
+        Joined::Unstarted(error) => return Err(write_envelope(&with_error(unstarted, &error))),
+        Joined::Panicked => return Err(EXIT_PANIC),
     };
     // a confined eval starts only from a snapshot, so a build with none is
     // refused here, the same on every host, before the box is attempted
     if !prepass.has_snapshot() {
-        return write_envelope(&prepass.failed(gro_runtime::eval::no_snapshot_error()));
+        return Err(write_envelope(
+            &prepass.failed(gro_runtime::eval::no_snapshot_error()),
+        ));
     }
-    let confined = match prepass.confinement().confine() {
-        Ok(confined) => confined,
-        Err(error) => {
-            return write_envelope(&prepass.failed(gro_runtime::eval::confine_error(&error)));
-        }
-    };
-    let unstarted = prepass.failed(EvalError::new(
-        ErrorKind::Internal,
-        "could not start the thread that evaluates",
-    ));
-    // every thread the engine starts comes after the box, spawned from here
-    let evaluated = on_sized_thread("fgro", move || {
-        match init_engine(
-            Confinement::Confined(confined),
-            &gro_runtime::eval::engine_options(jit),
-        ) {
-            Ok(engine) => gro_runtime::eval::eval(engine, prepass),
-            Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
-        }
-    });
-    match evaluated {
-        Joined::Returned(envelope) => write_envelope(&envelope),
-        Joined::Unstarted(error) => write_envelope(&with_error(unstarted, &error)),
-        Joined::Panicked => EXIT_PANIC,
+    match prepass.confinement().confine() {
+        Ok(confined) => Ok((prepass, confined)),
+        Err(error) => Err(write_envelope(
+            &prepass.failed(gro_runtime::eval::confine_error(&error)),
+        )),
     }
 }
 
@@ -667,6 +712,7 @@ mod tests {
         assert_eq!(run(&["--version"]), 0);
         assert_eq!(run(&["run", "--help"]), 0);
         assert_eq!(run(&["eval", "--help"]), 0);
+        assert_eq!(run(&["eval-box", "--help"]), 0);
     }
 
     /// Every spelling argh parses as `eval` runs on the main thread, `--`
@@ -677,6 +723,8 @@ mod tests {
             &["eval", "a.js"][..],
             &["--", "eval", "a.js"],
             &["eval", "--jit", "a.js"],
+            &["eval-box", "a.js"],
+            &["eval-box"],
         ] {
             assert!(runs_on_main_thread(args), "{args:?}");
         }
@@ -760,5 +808,8 @@ mod tests {
         assert_eq!(run(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
         assert_eq!(run(&["eval", "a.js", "--unknown"]), EXIT_USAGE);
+        assert_eq!(run(&["eval-box"]), EXIT_USAGE);
+        assert_eq!(run(&["eval-box", "a.js", "--driver", "d.js"]), EXIT_USAGE);
+        assert_eq!(run(&["eval-box", "a.js", "--timeout", "0"]), EXIT_USAGE);
     }
 }
