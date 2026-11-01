@@ -39,7 +39,11 @@
 //! the main thread, then the process's only one, confines it
 //! (`gro_runtime::confine`); and only then does a second thread with
 //! [`STACK_SIZE`] reserved start the engine and evaluate, so every thread
-//! the engine and the runtime start comes after the box.
+//! the engine and the runtime start comes after the box. The box is Linux's,
+//! and needs Landlock ABI 6; elsewhere, and without it, eval refuses. A build
+//! with no snapshot, whose runtime would read its sources from the build
+//! tree, outside the box, refuses once the entry resolves, before the box,
+//! so the same on every host.
 //!
 //! `fgro --version` prints one line,
 //! `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`: the git
@@ -504,6 +508,11 @@ fn eval(args: EvalArgs) -> u8 {
         Joined::Unstarted(error) => return write_envelope(&with_error(unstarted, &error)),
         Joined::Panicked => return EXIT_PANIC,
     };
+    // a confined eval starts only from a snapshot, so a build with none is
+    // refused here, the same on every host, before the box is attempted
+    if !prepass.has_snapshot() {
+        return write_envelope(&prepass.failed(gro_runtime::eval::no_snapshot_error()));
+    }
     let confined = match prepass.confinement().confine() {
         Ok(confined) => confined,
         Err(error) => {

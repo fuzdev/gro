@@ -6,8 +6,7 @@
 > **status**: built in part; the reference for the current binary, which has no release yet.
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 > Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
-> and the heap and time limits.
-> Not yet built is the kernel backstop ([runtime](runtime.md#roadmap)).
+> the heap and time limits, and the box its process runs in (Linux only).
 
 ## Usage
 
@@ -24,6 +23,7 @@ The module is a `.js`, `.mjs`, `.ts`, or `.mts` file, relative to the working di
 `--driver` takes only `-`.
 Eval reads no environment variable for its own configuration: every setting is a flag.
 It runs only with the time zone UTC (below), which ICU takes from the host's `TZ`, so run it with `TZ=UTC`.
+It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build with its startup snapshot embedded ([the box](#the-box)).
 
 ## The engine
 
@@ -109,19 +109,70 @@ Every `import()` in the run is refused before anything is resolved, whatever it 
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
 caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md).
 
-## What eval reads
+## The box
 
-Eval reads modules and `package.json` files only under its read roots:
-the project root, and each package linked into the project's `node_modules` from outside it.
-Those are found before the module runs, from the directory structure alone:
+Eval's process is held in a kernel box before any of the module's code, or V8 itself, runs.
+The box's roots are the project root and each package linked into the project's `node_modules` from outside it,
+found from the directory structure alone before the box goes up:
 every entry of the project's `node_modules` (and of each `@scope` directory in it) whose real path is a directory outside the roots so far,
 with a `package.json` file of its own (not a symlink), becomes a root,
 and its own `node_modules` is read the same way, until nothing new is found.
 A package installed in the project's `node_modules` is under the project root already.
 A link to a file, to a directory with no `package.json` file, to a directory holding a root (an ancestor of the project, or `/`),
 or to one a world-writable directory holds, which the resolver refuses to read a package through, adds nothing.
+Each root is opened as it's found, and the box goes up on the directories opened,
+so one swapped in at a root's path afterward isn't what the box admits.
 
-Every read is checked against the roots before it happens.
+The process resolves the module and finds the roots on a thread it then ends,
+installs the box from its one remaining thread, and only then starts V8 on another,
+so every thread V8 and its event loop start is inside the box.
+The process refuses to install the box with any other thread alive, and fails as `internal`.
+The walls, in order:
+
+- **`no_new_privs`**: nothing the process could run gains privileges.
+- **Landlock**: only files and directories under the roots can be read:
+  no write anywhere, no execution, nothing outside the roots (`/proc` and `/dev` included);
+  no TCP socket can bind or connect;
+  and no signal reaches a process outside the box, nor can it connect to an abstract unix socket outside it.
+  Every rule is enforced in full, or eval doesn't run.
+  Landlock doesn't gate a path's metadata: `stat`, a symlink's target, and so whether a path exists stay readable everywhere.
+- **seccomp**: `execve` and `execveat`, `ptrace`, the cross-process memory calls, `bpf`, `perf_event_open`,
+  `userfaultfd`, the `kexec` calls, the `io_uring` calls, and the kernel module calls kill the process,
+  since nothing in the runtime makes them;
+  every `socket`, `connect`, `bind`, and `listen`, and every `socketpair` but a unix stream pair, fail with `EACCES`
+  (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate,
+  and a stream pair's socket could be bound to an abstract name);
+  so do the calls that change a file's metadata, which Landlock at ABI 6 doesn't gate
+  (`chmod`, `chown`, and `utime` in all their forms, setting or removing an extended attribute in all its forms,
+  and `file_setattr`);
+  every `ioctl` but the requests that set and clear non-blocking and close-on-exec, read the bytes waiting,
+  and read a terminal's settings and size, so none sets a file's attribute flags, generation,
+  extended attributes, or verity, or reaches a filesystem's own requests, which Landlock gates only on devices;
+  the calls that set a process's resource limits, priority, I/O priority, CPUs, or scheduling,
+  unless they name the caller by 0 (its own pid, named explicitly, is refused too), since Landlock's scopes don't reach them
+  and a CPU limit set on another process kills it with `SIGXCPU`
+  (reading another process's priority or scheduling is allowed, which tells whether it exists and how it's scheduled);
+  `inotify_add_watch` and `fanotify_init`, which would tell the process when a file outside the box changes;
+  the `fcntl` commands that take a lease, which stalls another process's open for writing and tells the holder it was tried,
+  and that ask for directory change notices (`F_SETLEASE` and `F_NOTIFY`;
+  advisory locks, `flock` and `F_SETLK`, are accepted: they write nothing, and they only hold off another process taking a lock on the same file inside the box, such as a build tool's under the project root, for as long as the eval runs);
+  and the System V IPC calls (shared memory, message queues, and semaphores)
+  and the POSIX message queue calls that make or remove a queue (`mq_open` and `mq_unlink`, which Landlock doesn't gate),
+  whose objects live outside the box, outlast the process, and are shared with the user's other processes.
+
+The reads the runtime makes at startup outside the roots (the CPU and cgroup files, `/proc/self/maps`) fail and fall back quietly.
+V8's entropy comes from the `getrandom` call, and if that fails, the process stops with a message
+rather than let V8 seed itself from the clock.
+
+Eval refuses to run, as `environment`, on a kernel without Landlock, with it switched off,
+or with it below ABI 6, which the signal and abstract unix socket walls need, naming the kernel's ABI;
+on an architecture the seccomp filters aren't built for (they are for x86_64 and aarch64)
+or a kernel that refuses them; and on a platform other than Linux.
+A build with no embedded startup snapshot is refused as `internal`:
+started from source, the runtime would read its extensions' JS from the build tree, outside the box.
+There's no flag to run with a weaker box or none.
+
+On top of the box, every module and `package.json` read is checked against the roots before it happens.
 A module graph can reach past them: the resolver follows links the closure doesn't
 (one in a nested `node_modules`, or in a subdirectory's own `node_modules`)
 or drops (one to a directory holding the project or another package's directory, which `fgro run` follows),
@@ -208,8 +259,9 @@ A usage error prints to stderr with no envelope.
   `specifier` and `importer` name the import that failed to resolve or load.
   `hint` is a fix, apart from the message, which stays the error's own report:
   `--jit` for `WebAssembly` not defined in a jitless eval and for a jitless `timeout`,
-  and that code generation from strings is off for an uncaught `EvalError`
-  (V8 throws one natively for nothing else).
+  that code generation from strings is off for an uncaught `EvalError`
+  (V8 throws one natively for nothing else),
+  how to link a package for a read outside the box, and the build command for a build with no snapshot.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
   `access` is `null` only in the out-of-memory envelope, prepared before the run.
@@ -227,8 +279,8 @@ never from a message:
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
-| `environment`    | the process's time zone isn't UTC                                                                                      |
-| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the read roots was refused, or a host invariant broke |
+| `environment`    | the process's time zone isn't UTC, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
+| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, or a host invariant broke |
 
 ## Exit codes
 

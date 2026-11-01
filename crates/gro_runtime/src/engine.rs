@@ -17,7 +17,10 @@
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
 //! opens `/dev/urandom` itself and falls back to the clock, without a word,
-//! when it can't.
+//! when it can't. In a confined process, where the box denies
+//! `/dev/urandom`, a failed draw stops the process with a message instead
+//! of letting V8 fall back to the clock; unconfined, V8's fallback stands,
+//! its `/dev/urandom` read first.
 //!
 //! The order, before `deno_core` initializes V8 in the first
 //! `JsRuntime::try_new` (its `setup::init_v8`): the entropy source, which V8
@@ -140,11 +143,19 @@ pub fn init_engine(
 ) -> Result<Engine, EngineError> {
     let mut confinement = Some(confinement);
     let applied = ENGINE.get_or_init(|| {
-        apply(options);
+        // never a default: an engine set up unconfined in a confined process
+        // would fail open
+        #[expect(
+            clippy::expect_used,
+            reason = "the closure runs at most once, before anything else takes the confinement"
+        )]
+        let confinement = confinement
+            .take()
+            .expect("the confinement is taken once, by the engine's setup");
+        apply(options, &confinement);
         Setup {
             options: options.clone(),
-            // always set here: the closure runs at most once, before anything takes it
-            confinement: confinement.take().unwrap_or(Confinement::Unconfined),
+            confinement,
         }
     });
     let Some(confinement) = confinement else {
@@ -161,9 +172,14 @@ pub fn init_engine(
     }
 }
 
-/// Applies `options` to V8, in the order the module doc gives.
-fn apply(options: &EngineOptions) {
-    v8::V8::set_entropy_source(fill_entropy);
+/// Applies `options` to V8 in a process confined as `confinement` says, in
+/// the order the module doc gives.
+fn apply(options: &EngineOptions, confinement: &Confinement) {
+    // each a function item, which V8's binding requires: it stores no pointer
+    match confinement {
+        Confinement::Confined(_) => v8::V8::set_entropy_source(fill_entropy_or_abort),
+        Confinement::Unconfined => v8::V8::set_entropy_source(fill_entropy),
+    }
     let flags = options.v8_flags();
     if !flags.is_empty() {
         v8::V8::set_flags_from_string(&flags);
@@ -180,6 +196,20 @@ fn fill_entropy(buffer: &mut [u8]) -> bool {
     #[cfg(test)]
     tests::ENTROPY_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     getrandom::fill(buffer).is_ok()
+}
+
+/// V8's entropy source in a confined process: fills `buffer` as
+/// [`fill_entropy`] does, and when it can't, prints why and aborts the
+/// process, since V8's fallbacks there are the clock alone.
+fn fill_entropy_or_abort(buffer: &mut [u8]) -> bool {
+    if fill_entropy(buffer) {
+        return true;
+    }
+    eprintln!(
+        "error: the operating system's random source failed, and in a confined process V8's \
+         only other source is the clock, so the process stops"
+    );
+    std::process::abort();
 }
 
 #[cfg(test)]

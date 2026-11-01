@@ -7,8 +7,9 @@
 > Today `fgro run <file>` (renamed `gro` when ready) runs a JS or TypeScript module
 > from disk on V8 (x86_64 Linux only) using Deno's libraries,
 > with strict resolution and origin containment ([run](run.md)),
-> and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied and its heap and time limited ([eval](eval.md));
-> the grants, the policy file, and the kernel backstop below are designed, not built,
+> and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied, its heap and time limited,
+> and its process held in a kernel box, read-only to its project's files ([eval](eval.md#the-box));
+> the grants, the policy file, and the kernel backstop for runs below are designed, not built,
 > so no grant is enforced yet; the [roadmap](#roadmap) marks what's built.
 > The design doesn't have every answer yet ([open questions](#open-questions)),
 > and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
@@ -298,6 +299,10 @@ so each piece can be rewritten on its own as measurements justify it.
   child process, so an op-check bug, an engine escape, or a spawned tool still lands in a box.
   The kernel layer is coarser than the runtime's own checks (paths and ports, not
   files carved out of a tree or hostnames), so it backstops them rather than replacing them.
+  Built so far for `fgro eval` alone, with no grants to enforce yet: its box reads file contents only under its project
+  and the packages linked into it, though a path's metadata (whether it exists, its `stat`, a symlink's target) stays readable everywhere;
+  it writes to no file and changes no file's metadata, executes nothing, reaches no network,
+  and signals no process outside it nor sets one's limits, priority, or scheduling ([eval](eval.md#the-box)).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.

@@ -20,9 +20,49 @@
 //! otherwise, and every thread the engine starts comes after it, spawned from
 //! the thread that installed it.
 //!
-//! The kernel's walls aren't built yet: [`Prepared::confine`] checks the
-//! thread count and nothing more, and the box's roots bound only the
-//! loader's reads (the loader's `Rules::box_roots`).
+//! The box, on Linux, installed by [`Prepared::confine`] in this order on the
+//! calling thread, after the thread count is checked:
+//!
+//! 1. **`no_new_privs`**: nothing the process executes can gain privileges.
+//! 2. **Landlock**, at ABI 6 (Linux 6.12) or later, with every rule
+//!    enforced in full, or the confinement fails. The filesystem: of every access right ABI 6
+//!    knows, only reading files and listing directories, and only beneath
+//!    the box's roots, named by the handles opened when each was found, so
+//!    nothing is written or executed anywhere and nothing
+//!    outside the roots is read (`/proc` and `/dev` included). The network:
+//!    binding and connecting TCP sockets refused. The scopes: no signal to a
+//!    process outside the box, and no connection to an abstract unix socket
+//!    outside it. A kernel without Landlock, or with it below ABI 6, is
+//!    refused, naming what is missing and the kernel's ABI.
+//! 3. **seccomp**, two filters on the calling thread (no thread sync, since
+//!    it is the process's only thread): one kills the process on the calls
+//!    no part of the runtime makes and code that escaped the engine would
+//!    ([`KILLED_CALLS`]: `execve` and `execveat`, `ptrace`, the cross-process
+//!    memory calls, `bpf`, `perf_event_open`, `userfaultfd`, the `kexec`
+//!    calls, the `io_uring` calls, whose operations bypass seccomp, and the
+//!    kernel module calls); the other refuses with `EACCES` what a library
+//!    may try and handle failing ([`REFUSED_CALLS`]): every `socket`,
+//!    `connect`, `bind`, and `listen`, every `socketpair` but
+//!    [`KEPT_SOCKETPAIR`], the unix stream pair tokio uses (a datagram pair
+//!    can send to any socket file by its path, which Landlock below ABI 9
+//!    doesn't gate), the calls that change a file's mode, owner, times,
+//!    extended attributes, or attribute flags, which Landlock at ABI 6
+//!    doesn't gate, `inotify_add_watch` and `fanotify_init`, the System V
+//!    IPC calls and `mq_open`/`mq_unlink`, the `fcntl` commands that take a
+//!    lease or ask for directory change notices (`REFUSED_FCNTLS`; the
+//!    advisory locks, `flock` and `F_SETLK`, are accepted: they write
+//!    nothing, and only hold off another process locking the same file
+//!    inside the box while the eval runs), the calls that set another process's
+//!    limits, priority, CPUs, or scheduling (`SELF_ONLY_CALLS`), which
+//!    Landlock's scopes don't reach, and every `ioctl` but `KEPT_IOCTLS`.
+//!
+//! Every thread the calling thread starts afterward inherits all three. The
+//! reads the runtime makes at startup outside the roots (the CPU and cgroup
+//! files `available_parallelism` reads, `/proc/self/maps`) fail and fall back
+//! quietly; V8's entropy comes from the `getrandom` call, not a file
+//! (`engine`).
+//!
+//! Off Linux there is no box, and [`Prepared::confine`] refuses.
 //!
 //! The link closure is the box's directory structure, read with no parsing:
 //! starting from the project, every entry of a root's `node_modules` (each
@@ -86,13 +126,10 @@ impl BoxRoots {
 pub struct Prepared {
     /// What the box admits.
     roots: BoxRoots,
-    /// Each root, opened, in the roots' order.
+    /// Each root, opened, in the roots' order: what Landlock's rules name.
     #[cfg_attr(
-        not(all(test, target_os = "linux")),
-        expect(
-            dead_code,
-            reason = "the kernel's walls, not built yet, are installed on them"
-        )
+        not(target_os = "linux"),
+        expect(dead_code, reason = "off Linux there is no box to install")
     )]
     pins: Vec<Pin>,
 }
@@ -123,15 +160,21 @@ impl Prepared {
         &self.roots
     }
 
-    /// Confines the process to the box, from its one thread.
+    /// Confines the process to the box, from its one thread, as the module
+    /// doc describes.
     ///
     /// # Errors
     ///
     /// Returns [`ConfineError::Threads`] when the process has another thread,
-    /// [`ConfineError::ThreadsUnread`] when its thread count can't be read,
-    /// and [`ConfineError::Unsupported`] off Linux.
+    /// or [`ConfineError::ThreadsUnread`] when its thread count can't be
+    /// read, before anything is installed; on Linux, an error naming the wall
+    /// the kernel can't hold (checked before any is installed) or that failed
+    /// to install, after which the process may hold part of the box and must
+    /// run nothing it was to confine; and [`ConfineError::Unsupported`] off
+    /// Linux.
     pub fn confine(&self) -> Result<Confined, ConfineError> {
         alone()?;
+        install(self)?;
         Ok(Confined {
             roots: self.roots.clone(),
         })
@@ -178,9 +221,422 @@ pub enum ConfineError {
     /// The process's thread count couldn't be read.
     #[error("failed to read the process's thread count from /proc/self/status: {0}")]
     ThreadsUnread(#[source] io::Error),
+    /// The kernel has no Landlock, or has it switched off.
+    #[error(
+        "the kernel {}, and the box's filesystem, network, and scope walls are Landlock's: \
+         confined eval needs Landlock ABI {REQUIRED_LANDLOCK_ABI} (Linux 6.12) or later",
+        if *.built { "has Landlock but it isn't enabled (it is missing from the boot's \
+         `lsm=` list)" } else { "has no Landlock" }
+    )]
+    NoLandlock {
+        /// Whether the kernel is built with Landlock, though it isn't enabled.
+        built: bool,
+    },
+    /// The kernel's Landlock is older than the box needs.
+    #[error(
+        "the kernel's Landlock is ABI {abi}, below the ABI {REQUIRED_LANDLOCK_ABI} (Linux \
+         6.12) the box requires for its scope walls, which stop a signal to a process outside \
+         the box and a connection to an abstract unix socket outside it"
+    )]
+    LandlockAbi {
+        /// The kernel's ABI.
+        abi: u32,
+    },
+    /// The Landlock rules couldn't be made or installed.
+    #[cfg(target_os = "linux")]
+    #[error("failed to install the box's Landlock rules: {0}")]
+    Landlock(#[source] landlock::RulesetError),
+    /// The kernel installed only part of the Landlock rules.
+    #[error("the kernel enforced the box's Landlock rules only in part, so none can be relied on")]
+    LandlockPartial,
+    /// The seccomp filters can't be built for this architecture.
+    #[error(
+        "the box's seccomp filters can't be built for the {arch} architecture: they are built \
+         for x86_64 and aarch64"
+    )]
+    SeccompArch {
+        /// The architecture, as Rust names it.
+        arch: &'static str,
+    },
+    /// The seccomp filters couldn't be compiled.
+    #[cfg(target_os = "linux")]
+    #[error("failed to compile the box's seccomp filters: {0}")]
+    SeccompFilter(#[source] seccompiler::BackendError),
+    /// The kernel refused the seccomp filters.
+    #[cfg(target_os = "linux")]
+    #[error("failed to install the box's seccomp filters: {0}")]
+    Seccomp(#[source] seccompiler::Error),
     /// The platform has no box: confinement is Linux's.
     #[error("confinement is built for Linux only, and this platform has no box")]
     Unsupported,
+}
+
+impl ConfineError {
+    /// Whether the host can't hold the box (no Landlock, an older one, an
+    /// architecture the seccomp filters aren't built for, a kernel refusing
+    /// them, another platform), as opposed to the process breaking the order
+    /// the box needs or failing to build it.
+    pub const fn is_host_unsupported(&self) -> bool {
+        match self {
+            Self::NoLandlock { .. }
+            | Self::LandlockAbi { .. }
+            | Self::SeccompArch { .. }
+            | Self::Unsupported => true,
+            #[cfg(target_os = "linux")]
+            Self::Seccomp(_) => true,
+            #[cfg(target_os = "linux")]
+            Self::Landlock(_) | Self::SeccompFilter(_) => false,
+            Self::Threads { .. } | Self::ThreadsUnread(_) | Self::LandlockPartial => false,
+        }
+    }
+}
+
+/// The Landlock ABI the box requires, for its scope walls: [`LANDLOCK_ABI`]'s
+/// number, for the messages, which every platform builds.
+const REQUIRED_LANDLOCK_ABI: u32 = 6;
+
+/// The calls that kill the process: none is made by any part of the runtime,
+/// so reaching one means code escaped the engine.
+#[cfg(target_os = "linux")]
+pub const KILLED_CALLS: [libc::c_long; 16] = [
+    libc::SYS_execve,
+    libc::SYS_execveat,
+    libc::SYS_ptrace,
+    libc::SYS_process_vm_readv,
+    libc::SYS_process_vm_writev,
+    libc::SYS_bpf,
+    libc::SYS_perf_event_open,
+    libc::SYS_userfaultfd,
+    libc::SYS_kexec_load,
+    libc::SYS_kexec_file_load,
+    libc::SYS_io_uring_setup,
+    libc::SYS_io_uring_enter,
+    libc::SYS_io_uring_register,
+    libc::SYS_init_module,
+    libc::SYS_finit_module,
+    libc::SYS_delete_module,
+];
+
+/// The calls refused with `EACCES` whatever their arguments, beside every
+/// `socketpair` but [`KEPT_SOCKETPAIR`]: what a library may try and handle
+/// failing.
+///
+/// - Every `socket`, `connect`, `bind`, and `listen`: no socket is made or
+///   reached, and the kept stream pair's sockets can't be bound to an
+///   abstract name or listen on one.
+/// - The calls that change a file's mode, owner, times, extended
+///   attributes, or attribute flags, which Landlock at ABI 6 doesn't gate.
+///   aarch64 has none of the older path calls (`chmod`, `chown`, `lchown`,
+///   `utime`, `utimes`, `futimesat`); the calls `libc` doesn't name on every
+///   architecture are numbered from the table both share (`SYS_FCHMODAT2`).
+/// - `inotify_add_watch` and `fanotify_init`, whose events would tell the
+///   process when a file outside the box changes.
+/// - The System V IPC calls and the POSIX message queue calls that make or
+///   remove a queue (`mq_open`, `mq_unlink`, which Landlock doesn't gate),
+///   whose objects live outside the box, outlast the process, and are
+///   shared with the user's other processes.
+#[cfg(target_os = "linux")]
+pub const REFUSED_CALLS: &[libc::c_long] = &[
+    libc::SYS_socket,
+    libc::SYS_connect,
+    libc::SYS_bind,
+    libc::SYS_listen,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_chmod,
+    libc::SYS_fchmod,
+    libc::SYS_fchmodat,
+    SYS_FCHMODAT2,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_chown,
+    libc::SYS_fchown,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_lchown,
+    libc::SYS_fchownat,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_utime,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_utimes,
+    libc::SYS_utimensat,
+    #[cfg(target_arch = "x86_64")]
+    libc::SYS_futimesat,
+    libc::SYS_setxattr,
+    libc::SYS_lsetxattr,
+    libc::SYS_fsetxattr,
+    libc::SYS_removexattr,
+    libc::SYS_lremovexattr,
+    libc::SYS_fremovexattr,
+    SYS_SETXATTRAT,
+    SYS_REMOVEXATTRAT,
+    SYS_FILE_SETATTR,
+    libc::SYS_inotify_add_watch,
+    libc::SYS_fanotify_init,
+    libc::SYS_mq_open,
+    libc::SYS_mq_unlink,
+    libc::SYS_shmget,
+    libc::SYS_shmat,
+    libc::SYS_shmctl,
+    libc::SYS_msgget,
+    libc::SYS_msgsnd,
+    libc::SYS_msgrcv,
+    libc::SYS_msgctl,
+    libc::SYS_semget,
+    libc::SYS_semop,
+    libc::SYS_semtimedop,
+    libc::SYS_semctl,
+];
+
+/// `fchmodat2`, by its number in the syscall table `x86_64` and `aarch64`
+/// share from 424 on, since `libc` names it on `x86_64` alone. A kernel too old to
+/// have a call refuses it with `ENOSYS` anyway.
+#[cfg(target_os = "linux")]
+const SYS_FCHMODAT2: libc::c_long = 452;
+
+/// `setxattrat`, by its number in the shared table ([`SYS_FCHMODAT2`]).
+#[cfg(target_os = "linux")]
+const SYS_SETXATTRAT: libc::c_long = 463;
+
+/// `removexattrat`, by its number in the shared table ([`SYS_FCHMODAT2`]).
+#[cfg(target_os = "linux")]
+const SYS_REMOVEXATTRAT: libc::c_long = 466;
+
+/// `file_setattr`, by its number in the shared table ([`SYS_FCHMODAT2`]).
+#[cfg(target_os = "linux")]
+const SYS_FILE_SETATTR: libc::c_long = 469;
+
+/// The calls refused with `EACCES` when they name a process other than the
+/// caller: setting another process's resource limits, priority, I/O
+/// priority, CPUs, or scheduling. Landlock scopes signals and `ptrace`, not
+/// these, and a limit is a signal by other means (a CPU limit's `SIGXCPU`).
+///
+/// Each is the call, the argument naming the process, refused unless 0 (the
+/// caller), and for `setpriority` and `ioprio_set` the value the argument
+/// before it must hold to say that names one process, not a group or a
+/// user. The calls that only read these (`getpriority`, `ioprio_get`,
+/// `sched_getaffinity`, `sched_getparam`, `sched_getscheduler`,
+/// `sched_getattr`) pass: for another process they tell whether it exists
+/// and how it's scheduled, not its files or memory. A `prlimit64` that only
+/// reads names its process the same way and is refused with the rest.
+#[cfg(target_os = "linux")]
+const SELF_ONLY_CALLS: [(libc::c_long, u8, Option<u64>); 7] = [
+    (libc::SYS_prlimit64, 0, None),
+    // `PRIO_PROCESS`, 0
+    (libc::SYS_setpriority, 1, Some(0)),
+    // `IOPRIO_WHO_PROCESS`, 1
+    (libc::SYS_ioprio_set, 1, Some(1)),
+    (libc::SYS_sched_setaffinity, 0, None),
+    (libc::SYS_sched_setscheduler, 0, None),
+    (libc::SYS_sched_setparam, 0, None),
+    (libc::SYS_sched_setattr, 0, None),
+];
+
+/// The `ioctl` requests the box keeps: setting and clearing non-blocking
+/// and close-on-exec, the bytes waiting, and reading a terminal's settings
+/// and size. Every other request is refused with `EACCES`, the ones that
+/// change a file's attribute flags, generation, extended attributes, or
+/// verity, or a filesystem's own (a btrfs subvolume), from a handle opened
+/// only to read among them, which Landlock gates only on devices.
+#[cfg(target_os = "linux")]
+const KEPT_IOCTLS: [libc::Ioctl; 6] = [
+    libc::FIONBIO,
+    libc::FIOCLEX,
+    libc::FIONCLEX,
+    libc::FIONREAD,
+    libc::TCGETS,
+    libc::TIOCGWINSZ,
+];
+
+/// The `fcntl` commands refused with `EACCES`: taking a lease (`F_SETLEASE`),
+/// which stalls another process's open for writing until the lease breaks
+/// and tells the holder it was tried, and asking for directory change
+/// notices (`F_NOTIFY`), the older form of `inotify_add_watch`. Every other
+/// command passes, the flag and descriptor commands std and tokio use among
+/// them, and the advisory locks (`F_SETLK` and the others, like `flock`),
+/// which write nothing and only hold off another process locking the same
+/// file inside the box, such as a build tool's under the project root, for
+/// as long as the eval runs.
+#[cfg(target_os = "linux")]
+const REFUSED_FCNTLS: [libc::c_int; 2] = [libc::F_SETLEASE, libc::F_NOTIFY];
+
+/// The one `socketpair` the box keeps, by domain and type: a unix stream
+/// pair, which tokio uses, connected only to itself.
+///
+/// Every other is refused with `EACCES`, a datagram pair above all, which can
+/// send to any socket file by its path.
+#[cfg(target_os = "linux")]
+pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
+
+/// The bits of a socket type that name it, below the `SOCK_NONBLOCK` and
+/// `SOCK_CLOEXEC` flags.
+#[cfg(target_os = "linux")]
+const SOCKET_TYPE_MASK: u64 = 0xf;
+
+/// Installs the box `prepared` on the calling thread, the process's only
+/// one.
+#[cfg(target_os = "linux")]
+fn install(prepared: &Prepared) -> Result<(), ConfineError> {
+    // compiled first, so a filter that can't be built fails before any wall
+    let filters = seccomp_filters()?;
+    landlock(&prepared.pins)?;
+    for filter in &filters {
+        seccompiler::apply_filter(filter).map_err(ConfineError::Seccomp)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+const fn install(_prepared: &Prepared) -> Result<(), ConfineError> {
+    Err(ConfineError::Unsupported)
+}
+
+/// Installs the Landlock rules, reading beneath each of `pins`, the roots'
+/// handles opened before, after `no_new_privs`, which the kernel requires
+/// first and Landlock sets.
+#[cfg(target_os = "linux")]
+fn landlock(pins: &[Pin]) -> Result<(), ConfineError> {
+    use std::os::fd::AsFd as _;
+
+    use landlock::{
+        Access, AccessFs, AccessNet, CompatLevel, Compatible, PathBeneath, RestrictSelf, Ruleset,
+        RulesetAttr, RulesetCreatedAttr, RulesetError, RulesetStatus, Scope,
+    };
+    // the kernel's status, read with nothing installed: no flags, and
+    // `no_new_privs` left to the ruleset
+    let status = RestrictSelf::default()
+        .no_new_privs(false)
+        .apply()
+        .map_err(ConfineError::Landlock)?;
+    landlock_floor(status.landlock)?;
+    let restricted = Ruleset::default()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(AccessFs::from_all(LANDLOCK_ABI))
+        .and_then(|ruleset| ruleset.handle_access(AccessNet::from_all(LANDLOCK_ABI)))
+        .and_then(|ruleset| ruleset.scope(Scope::from_all(LANDLOCK_ABI)))
+        .and_then(Ruleset::create)
+        .and_then(|ruleset| {
+            ruleset.add_rules(pins.iter().map(|pin| {
+                Ok::<_, RulesetError>(PathBeneath::new(
+                    pin.as_fd(),
+                    AccessFs::ReadFile | AccessFs::ReadDir,
+                ))
+            }))
+        })
+        .and_then(landlock::RulesetCreated::restrict_self)
+        .map_err(ConfineError::Landlock)?;
+    if restricted.ruleset != RulesetStatus::FullyEnforced || !restricted.no_new_privs {
+        return Err(ConfineError::LandlockPartial);
+    }
+    Ok(())
+}
+
+/// The Landlock ABI the box's rules are written for, and the least the
+/// kernel's may be.
+#[cfg(target_os = "linux")]
+const LANDLOCK_ABI: landlock::ABI = landlock::ABI::V6;
+
+/// Refuses a kernel whose Landlock, as `status` reports it, can't hold the
+/// box: none, switched off, or below [`LANDLOCK_ABI`].
+#[cfg(target_os = "linux")]
+fn landlock_floor(status: landlock::LandlockStatus) -> Result<(), ConfineError> {
+    use landlock::LandlockStatus;
+    match status {
+        LandlockStatus::NotEnabled => Err(ConfineError::NoLandlock { built: true }),
+        LandlockStatus::NotImplemented => Err(ConfineError::NoLandlock { built: false }),
+        LandlockStatus::Available { effective_abi, .. } if effective_abi < LANDLOCK_ABI => {
+            Err(ConfineError::LandlockAbi {
+                abi: effective_abi as u32,
+            })
+        }
+        LandlockStatus::Available { .. } => Ok(()),
+    }
+}
+
+/// The box's two seccomp filters, compiled for this architecture: the calls
+/// that kill the process, and the calls refused with `EACCES`.
+#[cfg(target_os = "linux")]
+fn seccomp_filters() -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
+    use std::collections::BTreeMap;
+
+    use seccompiler::{
+        SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
+        SeccompRule, TargetArch,
+    };
+    let arch =
+        TargetArch::try_from(std::env::consts::ARCH).map_err(|_| ConfineError::SeccompArch {
+            arch: std::env::consts::ARCH,
+        })?;
+    let killed: BTreeMap<i64, Vec<SeccompRule>> = KILLED_CALLS
+        .into_iter()
+        .map(|call| (call, Vec::new()))
+        .collect();
+    // `socketpair` is refused when any rule matches: its domain, the first
+    // argument, an int, isn't the kept one, or its type, the second, its
+    // flags masked off, isn't
+    let [kept_domain, kept_type] = KEPT_SOCKETPAIR.map(|value| u64::from(value.unsigned_abs()));
+    let rule = |argument, op, value| {
+        SeccompCondition::new(argument, SeccompCmpArgLen::Dword, op, value)
+            .and_then(|condition| SeccompRule::new(vec![condition]))
+    };
+    let other_pairs = std::iter::once(rule(0, SeccompCmpOp::Ne, kept_domain))
+        .chain(
+            (0..=SOCKET_TYPE_MASK)
+                .filter(|socket_type| *socket_type != kept_type)
+                .map(|socket_type| rule(1, SeccompCmpOp::MaskedEq(SOCKET_TYPE_MASK), socket_type)),
+        )
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ConfineError::SeccompFilter)?;
+    // `ioctl` is refused unless its request, the second argument, an
+    // unsigned int and so compared at 32 bits, is one of the kept: one rule
+    // whose conditions all hold, so all must differ
+    let ioctls = KEPT_IOCTLS
+        .into_iter()
+        .map(|request| SeccompCondition::new(1, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, request))
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(SeccompRule::new)
+        .map(|other_requests| vec![other_requests])
+        .map_err(ConfineError::SeccompFilter)?;
+    // `fcntl` is refused when its command, the second argument, an unsigned
+    // int, is one of the refused: one rule each, any matching
+    let fcntls = REFUSED_FCNTLS
+        .into_iter()
+        .map(|command| rule(1, SeccompCmpOp::Eq, u64::from(command.unsigned_abs())))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ConfineError::SeccompFilter)?;
+    // the calls that set another process's limits, priority, CPUs, or
+    // scheduling are refused when they name anything but the caller (0),
+    // which Landlock's signal and ptrace scopes don't reach: a CPU limit of
+    // one second kills the process it's set on
+    let other_processes = SELF_ONLY_CALLS
+        .into_iter()
+        .map(|(call, who, which)| {
+            // `setpriority` and `ioprio_set` also name what `who` is, so one
+            // naming a whole process group or user is refused too
+            let which = which.map(|process| rule(0, SeccompCmpOp::Ne, process));
+            std::iter::once(rule(who, SeccompCmpOp::Ne, 0))
+                .chain(which)
+                .collect::<Result<Vec<_>, _>>()
+                .map(|rules| (call, rules))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ConfineError::SeccompFilter)?;
+    let refused: BTreeMap<i64, Vec<SeccompRule>> = REFUSED_CALLS
+        .iter()
+        .map(|call| (*call, Vec::new()))
+        .chain([
+            (libc::SYS_socketpair, other_pairs),
+            (libc::SYS_ioctl, ioctls),
+            (libc::SYS_fcntl, fcntls),
+        ])
+        .chain(other_processes)
+        .collect();
+    let compile = |rules, action| {
+        SeccompFilter::new(rules, SeccompAction::Allow, action, arch)
+            .and_then(seccompiler::BpfProgram::try_from)
+            .map_err(ConfineError::SeccompFilter)
+    };
+    Ok([
+        compile(killed, SeccompAction::KillProcess)?,
+        compile(refused, SeccompAction::Errno(libc::EACCES.unsigned_abs()))?,
+    ])
 }
 
 /// The link closure of the project at `project`, opened as `pinned`: it
@@ -564,6 +1020,417 @@ mod tests {
         assert!(roots.holds(Path::new("/q/lib/node_modules/y/z.js")));
         assert!(!roots.holds(Path::new("/pp/x.js")));
         assert!(!roots.holds(Path::new("/q/x.js")));
+    }
+
+    /// The filters compile for this architecture; installing them is the
+    /// confined-process tests' (a test process has threads of its own).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_seccomp_filters_compile() {
+        let [killed, refused] = super::seccomp_filters().unwrap();
+        assert!(!killed.is_empty());
+        assert!(!refused.is_empty());
+    }
+
+    /// The calls the box refuses whatever their arguments, listed apart from
+    /// [`super::REFUSED_CALLS`], so a call dropped there fails the tests.
+    #[cfg(target_os = "linux")]
+    fn refused_calls() -> Vec<libc::c_long> {
+        let mut expected = vec![
+            libc::SYS_socket,
+            libc::SYS_connect,
+            libc::SYS_bind,
+            libc::SYS_listen,
+            libc::SYS_fchmod,
+            libc::SYS_fchmodat,
+            libc::SYS_fchown,
+            libc::SYS_fchownat,
+            libc::SYS_utimensat,
+            libc::SYS_setxattr,
+            libc::SYS_lsetxattr,
+            libc::SYS_fsetxattr,
+            libc::SYS_removexattr,
+            libc::SYS_lremovexattr,
+            libc::SYS_fremovexattr,
+            super::SYS_FCHMODAT2,
+            super::SYS_SETXATTRAT,
+            super::SYS_REMOVEXATTRAT,
+            super::SYS_FILE_SETATTR,
+            libc::SYS_inotify_add_watch,
+            libc::SYS_fanotify_init,
+            libc::SYS_mq_open,
+            libc::SYS_mq_unlink,
+            libc::SYS_shmget,
+            libc::SYS_shmat,
+            libc::SYS_shmctl,
+            libc::SYS_msgget,
+            libc::SYS_msgsnd,
+            libc::SYS_msgrcv,
+            libc::SYS_msgctl,
+            libc::SYS_semget,
+            libc::SYS_semop,
+            libc::SYS_semtimedop,
+            libc::SYS_semctl,
+        ];
+        #[cfg(target_arch = "x86_64")]
+        expected.extend([
+            libc::SYS_chmod,
+            libc::SYS_chown,
+            libc::SYS_lchown,
+            libc::SYS_utime,
+            libc::SYS_utimes,
+            libc::SYS_futimesat,
+        ]);
+        expected
+    }
+
+    /// The calls refused whatever their arguments include every one the
+    /// confined-process tests can't make from safe code: the extended
+    /// attribute calls (`setxattrat` and `removexattrat` by number),
+    /// `fchmodat2` and `file_setattr` by number, `inotify_add_watch`,
+    /// `fanotify_init`, and the System V IPC calls, beside the socket calls
+    /// and the metadata calls those tests make.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_refused_calls_cover_metadata_and_watches() {
+        let mut expected = refused_calls();
+        let mut refused = super::REFUSED_CALLS.to_vec();
+        refused.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(refused, expected);
+    }
+
+    /// The calls that set another process's limits, priority, CPUs, or
+    /// scheduling are refused unless they name the caller, by the argument
+    /// that names the process, and for `setpriority` and `ioprio_set` unless
+    /// that argument names one process; the refusing filter matches each.
+    /// The confined-process tests can't make these from safe code.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_self_only_calls_name_the_caller() {
+        assert_eq!(
+            super::SELF_ONLY_CALLS,
+            [
+                (libc::SYS_prlimit64, 0, None),
+                // `PRIO_PROCESS` and `IOPRIO_WHO_PROCESS`
+                (libc::SYS_setpriority, 1, Some(0)),
+                (libc::SYS_ioprio_set, 1, Some(1)),
+                (libc::SYS_sched_setaffinity, 0, None),
+                (libc::SYS_sched_setscheduler, 0, None),
+                (libc::SYS_sched_setparam, 0, None),
+                (libc::SYS_sched_setattr, 0, None),
+            ]
+        );
+        let [_, refused] = super::seccomp_filters().unwrap();
+        for (call, _, _) in super::SELF_ONLY_CALLS {
+            assert!(
+                refused
+                    .iter()
+                    .any(|instruction| i64::from(instruction.k) == call),
+                "{call}"
+            );
+        }
+    }
+
+    /// The `ioctl` requests kept are the ones std, tokio, and the console
+    /// make, and the refusing filter compares the request with each; the
+    /// ones that set a file's attributes aren't kept.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_kept_ioctls_set_nothing() {
+        assert_eq!(
+            super::KEPT_IOCTLS,
+            [
+                libc::FIONBIO,
+                libc::FIOCLEX,
+                libc::FIONCLEX,
+                libc::FIONREAD,
+                libc::TCGETS,
+                libc::TIOCGWINSZ,
+            ]
+        );
+        for refused in [
+            libc::FS_IOC_SETFLAGS,
+            libc::FS_IOC32_SETFLAGS,
+            libc::FS_IOC_SETVERSION,
+            libc::FS_IOC32_SETVERSION,
+            0x401c_5820,
+        ] {
+            assert!(!super::KEPT_IOCTLS.contains(&refused), "{refused:#x}");
+        }
+        let [_, refused] = super::seccomp_filters().unwrap();
+        for request in super::KEPT_IOCTLS {
+            assert!(
+                refused
+                    .iter()
+                    .any(|instruction| u64::from(instruction.k) == request),
+                "{request:#x}"
+            );
+        }
+    }
+
+    /// The `seccomp_data` architecture value of the kernel's ABI this test
+    /// runs on: `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64`, the
+    /// architectures the box is built for.
+    #[cfg(target_os = "linux")]
+    fn audit_arch() -> u32 {
+        match std::env::consts::ARCH {
+            "x86_64" => 0xc000_003e,
+            "aarch64" => 0xc000_00b7,
+            other => panic!("no seccomp_data architecture value for {other}"),
+        }
+    }
+
+    /// What the kernel would decide for the call `nr` with `args`, from the
+    /// architecture `arch`, under the compiled `filter`: a classic BPF
+    /// interpreter over the instructions `seccompiler` emits, run on the
+    /// `seccomp_data` the kernel hands a filter (`nr` and `arch`, 32 bits
+    /// each, the instruction pointer, then the six arguments, 64 bits each,
+    /// little-endian on both architectures), so a table can pin the policy
+    /// as compiled. Returns the filter's return value, its action and data.
+    /// An instruction it doesn't know panics, never passes.
+    #[cfg(target_os = "linux")]
+    fn decide(
+        filter: &[seccompiler::sock_filter],
+        arch: u32,
+        nr: libc::c_long,
+        args: [u64; 6],
+    ) -> u32 {
+        const LOAD: u32 = libc::BPF_LD | libc::BPF_W | libc::BPF_ABS;
+        const AND: u32 = libc::BPF_ALU | libc::BPF_AND | libc::BPF_K;
+        const JUMP: u32 = libc::BPF_JMP | libc::BPF_JA;
+        const EQUAL: u32 = libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K;
+        const ABOVE: u32 = libc::BPF_JMP | libc::BPF_JGT | libc::BPF_K;
+        const AT_LEAST: u32 = libc::BPF_JMP | libc::BPF_JGE | libc::BPF_K;
+        const RETURN: u32 = libc::BPF_RET | libc::BPF_K;
+        let mut data = [0_u8; 64];
+        data[..4].copy_from_slice(&i32::try_from(nr).unwrap().to_le_bytes());
+        data[4..8].copy_from_slice(&arch.to_le_bytes());
+        for (slot, arg) in data[16..].as_chunks_mut::<8>().0.iter_mut().zip(args) {
+            slot.copy_from_slice(&arg.to_le_bytes());
+        }
+        let (mut pc, mut accumulator) = (0, 0_u32);
+        loop {
+            let instruction = &filter[pc];
+            pc += 1;
+            let k = instruction.k;
+            let taken = |taken: bool| {
+                usize::from(if taken {
+                    instruction.jt
+                } else {
+                    instruction.jf
+                })
+            };
+            match u32::from(instruction.code) {
+                LOAD => {
+                    let at = usize::try_from(k).unwrap();
+                    accumulator = u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                }
+                AND => accumulator &= k,
+                JUMP => pc += usize::try_from(k).unwrap(),
+                EQUAL => pc += taken(accumulator == k),
+                ABOVE => pc += taken(accumulator > k),
+                AT_LEAST => pc += taken(accumulator >= k),
+                RETURN => return k,
+                code => panic!("an instruction the evaluator doesn't know: {code:#x}"),
+            }
+        }
+    }
+
+    /// The refusing filter decides each call as the policy says, read as
+    /// the kernel reads it: the requests, commands, and processes it keeps
+    /// pass, every other is refused, and an argument's upper half, which the
+    /// kernel drops from an int, changes nothing. The killing filter passes
+    /// all of those and kills on its own calls, and both kill a call from
+    /// another architecture.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_refusing_filter_decides_by_its_arguments() {
+        const PASS: u32 = libc::SECCOMP_RET_ALLOW;
+        const REFUSE: u32 = libc::SECCOMP_RET_ERRNO | libc::EACCES.unsigned_abs();
+        const KILL: u32 = libc::SECCOMP_RET_KILL_PROCESS;
+        let [killing, refusing] = super::seccomp_filters().unwrap();
+        let arch = audit_arch();
+        let high = 0xdead_0000_0000_0000_u64;
+        let some_pid = 4242;
+        let [prio_process, prio_pgrp, prio_user] =
+            [libc::PRIO_PROCESS, libc::PRIO_PGRP, libc::PRIO_USER].map(u64::from);
+        // `IOPRIO_WHO_PROCESS`, `IOPRIO_WHO_PGRP`, `IOPRIO_WHO_USER`
+        let [who_process, who_pgrp, who_user] = [1, 2, 3];
+        let unix = u64::from(libc::AF_UNIX.unsigned_abs());
+        let [stream, datagram, cloexec] = [libc::SOCK_STREAM, libc::SOCK_DGRAM, libc::SOCK_CLOEXEC]
+            .map(|value| u64::from(value.unsigned_abs()));
+        let [
+            set_lease,
+            notify,
+            get_lease,
+            get_fl,
+            set_fl,
+            get_fd,
+            set_fd,
+            dup_cloexec,
+            set_lock,
+        ] = [
+            libc::F_SETLEASE,
+            libc::F_NOTIFY,
+            libc::F_GETLEASE,
+            libc::F_GETFL,
+            libc::F_SETFL,
+            libc::F_GETFD,
+            libc::F_SETFD,
+            libc::F_DUPFD_CLOEXEC,
+            libc::F_SETLK,
+        ]
+        .map(|command| u64::from(command.unsigned_abs()));
+        let read_lock = u64::from(libc::F_RDLCK.unsigned_abs());
+        let mut cases = vec![
+            // the kept ioctls, also with an upper half, and the refused
+            (libc::SYS_ioctl, [2, high | libc::FIONBIO, 0, 0, 0, 0], PASS),
+            (
+                libc::SYS_ioctl,
+                [2, libc::FS_IOC_GETFLAGS, 0, 0, 0, 0],
+                REFUSE,
+            ),
+            (
+                libc::SYS_ioctl,
+                [2, libc::FS_IOC_SETFLAGS, 0, 0, 0, 0],
+                REFUSE,
+            ),
+            (
+                libc::SYS_ioctl,
+                [2, high | libc::FS_IOC_SETFLAGS, 0, 0, 0, 0],
+                REFUSE,
+            ),
+            (libc::SYS_ioctl, [2, libc::TIOCSTI, 0, 0, 0, 0], REFUSE),
+            (libc::SYS_ioctl, [2, 0, 0, 0, 0, 0], REFUSE),
+            // leases and directory notices refused, also with an upper half;
+            // the flag, descriptor, and advisory lock commands pass
+            (libc::SYS_fcntl, [3, set_lease, read_lock, 0, 0, 0], REFUSE),
+            (
+                libc::SYS_fcntl,
+                [3, high | set_lease, read_lock, 0, 0, 0],
+                REFUSE,
+            ),
+            (libc::SYS_fcntl, [3, notify, 0, 0, 0, 0], REFUSE),
+            (libc::SYS_fcntl, [3, get_lease, 0, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, get_fl, 0, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, set_fl, 0, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, get_fd, 0, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, set_fd, 0, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, dup_cloexec, 3, 0, 0, 0], PASS),
+            (libc::SYS_fcntl, [3, set_lock, 0, 0, 0, 0], PASS),
+            // one process, the caller, by 0 only
+            (libc::SYS_setpriority, [prio_process, 0, 19, 0, 0, 0], PASS),
+            (
+                libc::SYS_setpriority,
+                [prio_process, some_pid, 19, 0, 0, 0],
+                REFUSE,
+            ),
+            (
+                libc::SYS_setpriority,
+                [prio_process, high | some_pid, 19, 0, 0, 0],
+                REFUSE,
+            ),
+            (
+                libc::SYS_setpriority,
+                [prio_process, high, 19, 0, 0, 0],
+                PASS,
+            ),
+            (libc::SYS_setpriority, [prio_pgrp, 0, 19, 0, 0, 0], REFUSE),
+            (libc::SYS_setpriority, [prio_user, 0, 19, 0, 0, 0], REFUSE),
+            (libc::SYS_ioprio_set, [who_process, 0, 0, 0, 0, 0], PASS),
+            (
+                libc::SYS_ioprio_set,
+                [who_process, some_pid, 0, 0, 0, 0],
+                REFUSE,
+            ),
+            (libc::SYS_ioprio_set, [who_pgrp, 0, 0, 0, 0, 0], REFUSE),
+            (libc::SYS_ioprio_set, [who_user, 0, 0, 0, 0, 0], REFUSE),
+            // the reads pass
+            (libc::SYS_getpriority, [prio_user, 0, 0, 0, 0, 0], PASS),
+            // the kept socketpair, with its flags, and two others
+            (
+                libc::SYS_socketpair,
+                [unix, stream | cloexec, 0, 0, 0, 0],
+                PASS,
+            ),
+            (libc::SYS_socketpair, [unix, datagram, 0, 0, 0, 0], REFUSE),
+            (
+                libc::SYS_socketpair,
+                [u64::from(libc::AF_INET.unsigned_abs()), stream, 0, 0, 0, 0],
+                REFUSE,
+            ),
+            (libc::SYS_read, [0; 6], PASS),
+        ];
+        for (call, who, _) in super::SELF_ONLY_CALLS {
+            let mut args = [0; 6];
+            if call == libc::SYS_ioprio_set {
+                args[0] = who_process;
+            }
+            cases.push((call, args, PASS));
+            args[usize::from(who)] = some_pid;
+            cases.push((call, args, REFUSE));
+        }
+        for call in refused_calls() {
+            cases.push((call, [0; 6], REFUSE));
+        }
+        for (call, args, expected) in cases {
+            assert_eq!(
+                decide(&refusing, arch, call, args),
+                expected,
+                "{call} {args:x?}"
+            );
+            assert_eq!(decide(&killing, arch, call, args), PASS, "{call} {args:x?}");
+        }
+        for call in super::KILLED_CALLS {
+            assert_eq!(decide(&killing, arch, call, [0; 6]), KILL, "{call}");
+        }
+        for filter in [&killing, &refusing] {
+            assert_eq!(decide(filter, arch ^ 1, libc::SYS_read, [0; 6]), KILL);
+        }
+    }
+
+    /// A kernel with no Landlock, with it off, or below ABI 6 is refused,
+    /// naming what is missing; ABI 6 and later pass.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_landlock_floor_is_abi_6() {
+        use landlock::{ABI, LandlockStatus};
+        let available = |abi| LandlockStatus::Available {
+            effective_abi: abi,
+            kernel_abi: None,
+        };
+        for abi in [ABI::V1, ABI::V4, ABI::V5] {
+            let error = super::landlock_floor(available(abi)).unwrap_err();
+            assert!(
+                matches!(error, ConfineError::LandlockAbi { abi: found } if found == abi as u32),
+                "{error:?}"
+            );
+            assert!(error.is_host_unsupported());
+            assert!(
+                error.to_string().starts_with(&format!(
+                    "the kernel's Landlock is ABI {}, below the ABI 6",
+                    abi as u32
+                )),
+                "{error}"
+            );
+        }
+        for (status, says) in [
+            (LandlockStatus::NotImplemented, "the kernel has no Landlock"),
+            (
+                LandlockStatus::NotEnabled,
+                "the kernel has Landlock but it isn't enabled",
+            ),
+        ] {
+            let error = super::landlock_floor(status).unwrap_err();
+            assert!(error.is_host_unsupported());
+            assert!(error.to_string().starts_with(says), "{error}");
+        }
+        for abi in [ABI::V6, ABI::V7, ABI::V9] {
+            assert!(super::landlock_floor(available(abi)).is_ok());
+        }
+        // the number the messages name is the floor's
+        assert_eq!(super::LANDLOCK_ABI as u32, super::REQUIRED_LANDLOCK_ABI);
     }
 
     /// A test runs beside the harness's own threads, so confining from it is

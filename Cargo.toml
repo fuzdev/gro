@@ -19,11 +19,18 @@ deno_web = "0.290.0"
 deno_webidl = "0.259.0"
 # V8's entropy source, the operating system's random source
 getrandom = "0.4.3"
-# the open flags of the directories `fgro eval` confines its process to (Linux)
+# the kernel box `fgro eval` confines its process to (Linux): Landlock's
+# filesystem, network, and scope rules, and a seccomp-bpf denylist, with libc's
+# open flags for the box's roots and its syscall numbers and socket constants
+# for the filter
+landlock = "0.4.7"
 libc = "0.2.190"
+seccompiler = "0.5.0"
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: a recorded f64 parses back to the same bits
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# a socket of a family std can't make, for the box's tests (tokio's already)
+socket2 = "0.6.5"
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
 # TypeScript's type strip, in process; pinned to a tsv `main` commit past

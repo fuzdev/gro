@@ -594,9 +594,47 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `disallow_code_generation_from_strings`, both off for `fgro run`), once
   per process before the first runtime, and it takes the process's
   `confine::Confinement`: `Confined`, made only by
-  `confine::Prepared::confine` (which refuses unless `/proc/self/status`
-  reads `Threads: 1`, rereading while a joined thread finishes exiting), or
-  `Unconfined`, which `fgro run`, `make-snapshot`, and the unit tests name;
+  `confine::Prepared::confine`, or `Unconfined`, which `fgro run`,
+  `make-snapshot`, and the unit tests name. `confine` (Linux only; elsewhere
+  it refuses) checks `/proc/self/status` reads `Threads: 1` (rereading while
+  a joined thread finishes exiting) and then, on that one thread, installs
+  the box: `no_new_privs`, Landlock (the `landlock` crate, ABI 6 required,
+  `HardRequirement` and full enforcement checked: read files and directories
+  beneath the box's roots only, by the handles the pre-pass opened, every
+  other filesystem right ABI 6 knows handled and so denied, TCP bind and
+  connect denied, the signal and
+  abstract unix socket scopes; below ABI 6, without Landlock, or with it
+  off, it refuses naming the kernel's ABI, with no weaker mode), then two
+  `seccompiler` filters with no thread sync, one killing the process on
+  `KILLED_CALLS` (exec, ptrace, the cross-process memory calls, bpf,
+  perf_event_open, userfaultfd, kexec, io_uring, the module calls), one
+  refusing with `EACCES` `REFUSED_CALLS` (every `socket`, `connect`,
+  `bind`, and `listen`, the calls that change a file's mode, owner, times,
+  extended attributes, or attribute flags, which Landlock at ABI 6 doesn't
+  gate, the ones `libc` doesn't name on every architecture by their number
+  in the table x86_64 and aarch64 share from 424 on, `inotify_add_watch`
+  and `fanotify_init`, the System V IPC calls, and `mq_open` and
+  `mq_unlink`), every `fcntl` in `REFUSED_FCNTLS` (`F_SETLEASE`, whose
+  lease stalls another process's open for writing and tells the holder,
+  and `F_NOTIFY`; the advisory locks, `flock` and `F_SETLK`, pass: they
+  write nothing, and only hold off another process locking the same file
+  inside the box while the eval runs), every `ioctl` whose request isn't in
+  `KEPT_IOCTLS` (`FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS`,
+  `TIOCGWINSZ`, compared as the kernel's 32-bit request; every other,
+  setting attribute flags, the generation, extended attributes, verity, or a
+  filesystem's own among them, is refused), every call in `SELF_ONLY_CALLS`
+  (setting resource limits, priority, I/O priority, CPU affinity, or
+  scheduling) that names a process other than the caller (its pid or who
+  argument not 0, or for `setpriority` and `ioprio_set` its which not one
+  process), which Landlock's scopes don't reach (`getpriority`,
+  `ioprio_get`, and the `sched_get*` calls pass), and every `socketpair` but
+  `KEPT_SOCKETPAIR` (a unix stream pair, for tokio; a datagram pair could
+  `sendto` a socket file by path, which Landlock below ABI 9 doesn't gate);
+  an architecture `seccompiler` can't target is
+  `ConfineError::SeccompArch`; `ConfineError::is_host_unsupported` splits
+  eval's `environment` from `internal`. A confined engine's entropy callback
+  aborts with a message when `getrandom` fails, rather than let V8 fall
+  back to the clock (`/dev/urandom` is outside the box);
   it returns an `Engine` token naming both, which `run_main`,
   `snapshot::make_snapshot`, and `eval::eval` require, so no runtime starts
   on an engine nobody chose or before the process is confined or named
@@ -634,7 +672,11 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   nested `node_modules` or a subdirectory's own, or drops, to a directory
   holding the project or another package's, or a `package.json` symlinked
   out, so a refusal is recorded as the loader's breach and fails
-  the eval as `internal`, naming the path, the box, and the fix). The engine
+  the eval as `internal`, naming the path, the box, and the fix). A
+  confined `eval::eval` refuses a build with no startup snapshot, whose
+  runtime would read `deno_web`'s JS from the build tree, as `internal`
+  (`eval::no_snapshot_error`, which `fgro eval` returns after its pre-pass
+  and before the box, so the refusal is the same on every host). The engine
   `eval::engine_options` gives (jitless unless `--jit`, code generation from
   strings off, locale `en-US`, checked against the `Engine` token), the
   console to stderr uncolored, the stdin driver evaluated first as a side
@@ -700,7 +742,12 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   out-of-memory handle, runs `eval::prepass` on a sized thread it joins,
   confines the process alone, then starts the engine and evaluates on a
   second sized thread, so every thread V8 and tokio start comes after the
-  confinement.
+  confinement. Confined eval runs only from a snapshot build, so
+  `tests/eval.rs`'s tests that evaluate are ignored in a plain `cargo test`
+  and run from `cargo xtask build --verify`, beside `tests/confine.rs`
+  (no libtest harness, whose threads would refuse the box: each case
+  confines a child of its own and reports what it could reach); on a kernel
+  whose Landlock is below ABI 6 they fail, naming its ABI.
   `gro_runtime::run_main` documents the requirement for any embedder.
   `fgro --version` names the git commit it was built from (with `-dirty`, or
   `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot

@@ -20,6 +20,16 @@ blake3.workspace = true
 serde_json.workspace = true
 url.workspace = true
 
+# the box's socket cases, which run on Linux alone
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+socket2.workspace = true
+
+# the box from inside a confined process, whose one thread libtest's harness
+# would break
+[[test]]
+name = "confine"
+harness = false
+
 [features]
 # start from a snapshot embedded at compile time, read from `GRO_SNAPSHOT_DIR`;
 # `cargo xtask build` sets it up

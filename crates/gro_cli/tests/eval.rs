@@ -213,6 +213,10 @@ fn driven(module: &str, driver: &str) -> Eval {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_default_export_is_the_value_with_no_driver() {
     let run = eval(&["value.js"]);
     run.assert_value(&json!({
@@ -259,6 +263,10 @@ fn the_default_export_is_the_value_with_no_driver() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn export_names_another_export_and_typescript_evaluates() {
     let run = eval(&["value.js", "--export", "named"]);
     run.assert_value(&json!(["the", "named", "export"]));
@@ -269,6 +277,10 @@ fn export_names_another_export_and_typescript_evaluates() {
 /// The driver is called with the module's namespace, and its result is the
 /// value; the envelope names the driver by the hash of its bytes.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_driver_is_called_with_the_namespace() {
     let run = driven("driven.js", "call.js");
     run.assert_value(&json!({"exports": ["default", "other"], "value": 42}));
@@ -283,6 +295,10 @@ fn a_driver_is_called_with_the_namespace() {
 /// The driver evaluates before the config: what it captures at its top
 /// level is the realm's original, which the config then patches.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_driver_evaluates_before_the_config() {
     driven("patch.js", "primordials.js")
         .assert_value(&json!({"patched_since": true, "captured": "[1]"}));
@@ -291,6 +307,10 @@ fn the_driver_evaluates_before_the_config() {
 /// A builder call the config makes after its default export returned, and
 /// catches, still fails the eval through the driver's `after_drain`.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_late_call_guard_fails_a_caught_late_call() {
     let run = driven("builder_config.js", "builder.js");
     run.assert_failed("late_rejection", 1);
@@ -304,6 +324,10 @@ fn the_late_call_guard_fails_a_caught_late_call() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn an_import_in_the_driver_is_refused() {
     let run = driven("value.js", "import.js");
     run.assert_failed("resolve", 1);
@@ -327,6 +351,10 @@ fn an_import_in_the_driver_is_refused() {
 /// Every `import()` is refused, whatever it names, catchably, and listed in
 /// `access.dynamic`; uncaught, the refusal fails the evaluation.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn every_dynamic_import_is_refused() {
     let run = eval(&["dynamic.js"]);
     let url = format!("{}/dynamic.js", fixtures_url());
@@ -438,9 +466,88 @@ fn an_entry_no_project_owns_is_a_resolve_exiting_2() {
     );
 }
 
+/// A build with no snapshot refuses to evaluate once the entry resolves,
+/// before it confines its process, so the same on every host: its runtime
+/// would read its extensions' JS from the build tree, outside the box.
+#[cfg(not(feature = "snapshot"))]
+#[test]
+fn a_build_with_no_snapshot_refuses_to_evaluate() {
+    let run = eval(&["value.js"]);
+    run.assert_failed("internal", 1);
+    assert!(
+        run.message()
+            .starts_with("a confined eval starts only from a startup snapshot"),
+        "{}",
+        run.message()
+    );
+    assert_eq!(
+        run.envelope["error"]["hint"],
+        "build fgro with its snapshot: cargo xtask build"
+    );
+}
+
+/// Every task of a confined eval's process, its main thread, the thread
+/// that evaluates, V8's workers, and the watchdog, has `no_new_privs` and
+/// seccomp's filter mode, read from outside while the driver runs.
+#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[test]
+fn every_task_of_a_confined_eval_is_boxed() {
+    use std::io::BufRead as _;
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
+    command
+        .args(["eval", "value.js", "--driver", "-", "--timeout", "60000"])
+        .env("TZ", "UTC")
+        .current_dir(fixtures())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&std::fs::read(fixtures().join("drivers/spin.js")).unwrap())
+        .unwrap();
+    // the driver says it runs once every thread the eval starts with is up
+    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    stderr.read_line(&mut line).unwrap();
+    let tasks: Vec<(String, String)> = std::fs::read_dir(format!("/proc/{}/task", child.id()))
+        .unwrap()
+        .map(|task| {
+            let path = task.unwrap().path().join("status");
+            (
+                path.display().to_string(),
+                std::fs::read_to_string(path).unwrap(),
+            )
+        })
+        .collect();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_eq!(line, "ready\n", "the eval didn't start: {line}");
+    // the main thread, the thread that evaluates, and V8's workers at least
+    assert!(tasks.len() >= 3, "{tasks:?}");
+    for (path, status) in &tasks {
+        let field = |name: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .map(str::trim)
+        };
+        assert_eq!(field("NoNewPrivs:"), Some("1"), "{path}\n{status}");
+        assert_eq!(field("Seccomp:"), Some("2"), "{path}\n{status}");
+        assert_eq!(field("Seccomp_filters:"), Some("2"), "{path}\n{status}");
+    }
+}
+
 /// A package linked into the project's `node_modules` from outside it is in
 /// the link closure, so it loads.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_package_linked_from_outside_the_project_loads() {
     let scratch = Scratch::new(
         "linked",
@@ -468,6 +575,10 @@ fn a_package_linked_from_outside_the_project_loads() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
     let run = eval(&["import_missing.js"]);
     run.assert_failed("resolve", 1);
@@ -479,6 +590,10 @@ fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_graph_that_does_not_link_is_a_link() {
     let run = eval(&["syntax_error.mjs"]);
     run.assert_failed("link", 1);
@@ -500,6 +615,10 @@ fn a_graph_that_does_not_link_is_a_link() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_throw_is_module_threw() {
     let run = eval(&["throw.js"]);
     run.assert_failed("module_threw", 1);
@@ -522,6 +641,10 @@ fn a_throw_is_module_threw() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_missing_export_is_export_missing() {
     let run = eval(&["value.js", "--export", "nope"]);
     run.assert_failed("export_missing", 1);
@@ -538,6 +661,10 @@ fn a_missing_export_is_export_missing() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_value_that_is_not_data_is_serialize() {
     let run = eval(&["function.js"]);
     run.assert_failed("serialize", 1);
@@ -552,6 +679,10 @@ fn a_value_that_is_not_data_is_serialize() {
 /// run before the value is taken: an error in one, however long the chain
 /// before it, fails the evaluation.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn late_work_runs_before_the_value_is_taken() {
     let run = eval(&["late.js"]);
     run.assert_failed("module_threw", 1);
@@ -566,6 +697,10 @@ fn late_work_runs_before_the_value_is_taken() {
 
 /// Jitless by default, so `WebAssembly` is absent; `--jit` brings it.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn webassembly_comes_only_with_the_jit() {
     eval(&["wasm.js"]).assert_value(&json!("undefined"));
     eval(&["wasm.js", "--jit"]).assert_value(&json!("object"));
@@ -573,6 +708,10 @@ fn webassembly_comes_only_with_the_jit() {
 
 /// Code generation from strings throws an `EvalError` in both modes.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn code_generation_from_strings_throws_in_both_modes() {
     let thrown = json!({
         "eval": "EvalError",
@@ -586,6 +725,10 @@ fn code_generation_from_strings_throws_in_both_modes() {
 
 /// The locale is `en-US` whatever the host's, which `fgro run` would take.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn intl_is_en_us_whatever_the_host_locale() {
     let run = eval_with(&["intl.js"], None, &[("LC_ALL", "de_DE.UTF-8")]);
     run.assert_value(&json!({
@@ -598,6 +741,10 @@ fn intl_is_en_us_whatever_the_host_locale() {
 /// Every console level goes to stderr, uncolored, even with `FORCE_COLOR`,
 /// leaving stdout to the envelope.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_console_writes_to_stderr_uncolored() {
     let run = eval_with(&["console.js"], None, &[("FORCE_COLOR", "1")]);
     run.assert_value(&json!("logged"));
@@ -614,6 +761,10 @@ fn the_console_writes_to_stderr_uncolored() {
 /// `TZ=UTC ../../../../../target/debug/fgro eval global_names.js | python3 -c "import json, sys; print('\\n'.join(json.load(sys.stdin)['value']))" > global_names_jitless.txt`,
 /// and with `--jit` into `global_names.txt`.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_global_names_are_pinned() {
     let names = |args: &[&str]| -> String {
         let run = eval(args);
@@ -684,6 +835,10 @@ fn usage_errors_print_no_envelope() {
 /// A value inside the depth cap serializes even when the walk allocates
 /// enough near its deepest level to start a garbage collection.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_deep_value_serializes_through_a_garbage_collection() {
     // nested past what `serde_json` parses, so checked as text
     let run = spawn_eval(&["deep_gc.js"], None, &[]);
@@ -704,6 +859,10 @@ fn a_deep_value_serializes_through_a_garbage_collection() {
 /// The config can't import the driver: `gro:driver` resolves only as the
 /// root of the driver's own load.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_config_cannot_import_the_driver() {
     let run = driven("import_driver.js", "call.js");
     run.assert_failed("resolve", 1);
@@ -747,6 +906,10 @@ fn refusal(shown: &str, why: &str) -> String {
 /// kept still works, with each replaced member's attributes, and the
 /// stand-ins are inert.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn determinism_deny_refuses_each_entry_and_keeps_no_original() {
     let run = eval(&["deny.js"]);
     assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
@@ -870,6 +1033,10 @@ fn determinism_deny_refuses_each_entry_and_keeps_no_original() {
 /// The driver, evaluated before any of the module's code, already sees the
 /// refusals and no timers.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_driver_sees_determinism_deny() {
     driven("value.js", "deny.js").assert_value(&json!({
         "random": "Math.random() is refused in eval (random)",
@@ -883,6 +1050,10 @@ fn the_driver_sees_determinism_deny() {
 /// The timers are absent, `AbortSignal.timeout` refuses, and `Atomics.wait`
 /// can't block the main thread.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn no_timer_is_reachable() {
     eval(&["timers.js"]).assert_value(&json!({
         "globals": ["undefined", "undefined", "undefined", "undefined"],
@@ -897,6 +1068,10 @@ fn no_timer_is_reachable() {
 /// A time zone other than UTC fails the eval before any code runs, naming
 /// the fix; `Etc/UTC`, which ICU resolves to `UTC`, is accepted.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_time_zone_other_than_utc_is_refused() {
     let run = eval_with(&["value.js"], None, &[("TZ", "America/New_York")]);
     run.assert_failed("environment", 1);
@@ -922,6 +1097,10 @@ fn a_time_zone_other_than_utc_is_refused() {
 /// (which `Intl` reports as no zone, or `Etc/Unknown` for an empty `TZ`) is
 /// refused as unknown.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_utc_alias_with_another_display_name_is_refused() {
     let refused = |found: &str| {
         format!(
@@ -981,6 +1160,10 @@ const HEAP_BACKSTOP: &str = "the eval's heap reached its cap of 512 MiB with not
 /// Run one after another, so no two of these children hold their heaps at
 /// once.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_heap_cap_fails_the_eval_as_heap() {
     let run = eval(&["heap_grow.js"]);
     run.assert_failed("heap", 1);
@@ -1012,6 +1195,10 @@ fn the_heap_cap_fails_the_eval_as_heap() {
 /// treats as a failure (see `HEAP_LIMIT`). When eval caps that memory too,
 /// this becomes a `heap` failure.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn array_buffer_memory_sits_outside_the_heap_cap() {
     eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
 }
@@ -1020,6 +1207,10 @@ fn array_buffer_memory_sits_outside_the_heap_cap() {
 /// large to reserve changes nothing: the watchdog still starts, and the value
 /// is written.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_huge_rust_min_stack_changes_nothing() {
     let run = eval_with(&["value.js"], None, &[("RUST_MIN_STACK", "1099511627776")]);
     assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
@@ -1029,6 +1220,10 @@ fn a_huge_rust_min_stack_changes_nothing() {
 /// The timeout stops a loop that never ends, jitless or with the JIT, as
 /// `timeout`, with a hint naming `--jit` only jitless.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn a_run_past_its_timeout_fails_as_timeout() {
     let run = eval(&["loop.js", "--timeout", "200"]);
     run.assert_failed("timeout", 1);
@@ -1053,6 +1248,10 @@ fn a_run_past_its_timeout_fails_as_timeout() {
 /// The timeout stops the serializer's walk, which runs no JS for a
 /// terminate to stop: this value's walk would outlast the test.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_timeout_stops_the_serializer_walk() {
     let started = Instant::now();
     let run = eval(&["walk.js", "--timeout", "500"]);
@@ -1063,6 +1262,10 @@ fn the_timeout_stops_the_serializer_walk() {
 /// `WebAssembly` undefined in a jitless eval hints at `--jit`, and an
 /// uncaught `EvalError` that code generation from strings is off.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn the_hints_name_the_fix() {
     let run = eval(&["wasm_global.js"]);
     run.assert_failed("module_threw", 1);

@@ -19,6 +19,16 @@ and they're [declared](#declared) instead, absent until granted.
 One [realm](#realm) has one global object, so a grant of one covers every module in the run.
 Compare [pure globals](#pure-globals) and [host modules](#host-modules).
 
+## box
+
+The kernel rules `gro eval` holds its process in on Linux (Landlock and seccomp),
+installed from the process's one thread before V8 starts:
+file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
+(a path's metadata stays readable everywhere),
+no write, no execution, no network,
+and no signal outside it, nor a limit, priority, or schedule set on a process outside it.
+The first built part of the [kernel backstop](#kernel-backstop) ([eval](eval.md#the-box)).
+
 ## composition root
 
 The module where capabilities enter a program and get handed down,
@@ -98,6 +108,15 @@ On Linux, the grant set enforced again as kernel rules (Landlock and seccomp),
 installed before V8 starts and inherited by every child process.
 It's coarser than the runtime's own checks (paths and ports, not single files or hostnames),
 so it backs them up rather than replacing them.
+Built so far as `gro eval`'s [box](#box).
+
+## link closure
+
+The packages linked into a project's `node_modules` from outside it, found from the directory structure alone:
+each `node_modules` entry (and `@scope` entry) whose real path is a package's directory outside the roots found so far
+(holding a `package.json` file of its own, holding no root, and held by no world-writable directory),
+then the same in each one's own `node_modules`, until nothing new is found.
+With the [project root](#project-root), it's what `gro eval`'s [box](#box) can read.
 
 ## narrowing
 

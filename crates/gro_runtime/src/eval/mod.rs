@@ -43,6 +43,11 @@
 //!    code made a call into it too late, after the value was taken, even when
 //!    that code caught the driver's error.
 //!
+//! In a confined process, eval starts only from a startup snapshot: from
+//! source, the runtime would read its extensions' JS from the build tree,
+//! outside the box, so a build with none is refused as `internal` before the
+//! runtime starts.
+//!
 //! The engine eval runs on is [`engine_options`]'s: jitless unless the
 //! caller turns the JIT on (and with it `WebAssembly`), code generation from
 //! strings off in both modes, and the locale [`LOCALE`]. [`eval`] checks its
@@ -89,7 +94,8 @@
 //! message: a resolution's failure is `resolve`, a load's or none at all is
 //! `link` (a syntax error, a missing export binding, a strip refusal), and
 //! `internal` is a failure of the host: a host bug, a file changed on disk,
-//! or a read outside the box refused.
+//! a read outside the box refused, or a build with no snapshot that a
+//! confined eval refuses.
 
 mod envelope;
 mod limits;
@@ -208,6 +214,12 @@ impl Prepass {
         &self.confinement
     }
 
+    /// Whether the eval has a startup snapshot to start from, which a
+    /// confined eval needs ([`no_snapshot_error`]).
+    pub const fn has_snapshot(&self) -> bool {
+        self.options.snapshot.is_some()
+    }
+
     /// The envelope of this eval failed with `error` before it ran: the
     /// entry by its canonical path.
     pub fn failed(&self, error: EvalError) -> Envelope {
@@ -300,11 +312,10 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
 /// `environment` when the host can't hold the box, an `internal` when the
 /// process broke the order the box needs.
 pub fn confine_error(error: &confine::ConfineError) -> EvalError {
-    let kind = match error {
-        confine::ConfineError::Unsupported => ErrorKind::Environment,
-        confine::ConfineError::Threads { .. } | confine::ConfineError::ThreadsUnread(_) => {
-            ErrorKind::Internal
-        }
+    let kind = if error.is_host_unsupported() {
+        ErrorKind::Environment
+    } else {
+        ErrorKind::Internal
     };
     EvalError::new(kind, format!("cannot confine the eval: {error}"))
 }
@@ -341,14 +352,18 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
         EvalError::new(ErrorKind::Internal, "not evaluated"),
     );
     envelope.entry.id = entry_id(&entry);
-    if let Confinement::Confined(confined) = engine.confinement()
-        && confined.roots() != confinement.roots()
-    {
-        envelope.result = Err(EvalError::new(
-            ErrorKind::Internal,
-            "the process is confined to another box than this eval's",
-        ));
-        return envelope;
+    if let Confinement::Confined(confined) = engine.confinement() {
+        if confined.roots() != confinement.roots() {
+            envelope.result = Err(EvalError::new(
+                ErrorKind::Internal,
+                "the process is confined to another box than this eval's",
+            ));
+            return envelope;
+        }
+        if options.snapshot.is_none() {
+            envelope.result = Err(no_snapshot_error());
+            return envelope;
+        }
     }
     let expected = engine_options(options.jit);
     if engine.options() != &expected {
@@ -485,6 +500,25 @@ fn backstop_envelope(envelope: &Envelope) -> Option<String> {
     json.push('\n');
     Some(json)
 }
+
+/// The error of a confined eval with no startup snapshot, an `internal`.
+///
+/// Started from source, its runtime would read its extensions' JS from the
+/// build tree, outside the box. [`eval`] refuses one, and a caller that
+/// confines refuses one with this before it confines, whatever the host.
+pub fn no_snapshot_error() -> EvalError {
+    let mut error = EvalError::new(
+        ErrorKind::Internal,
+        "a confined eval starts only from a startup snapshot embedded in the binary, and this \
+         build has none: started from source, the runtime reads its extensions' JS from the \
+         build tree, outside the box",
+    );
+    error.hint = Some(NO_SNAPSHOT_HINT.to_owned());
+    error
+}
+
+/// The hint for a confined eval with no startup snapshot.
+const NO_SNAPSHOT_HINT: &str = "build fgro with its snapshot: cargo xtask build";
 
 /// The hint for a `WebAssembly` that isn't defined in a jitless eval.
 const WASM_HINT: &str = "eval runs jitless unless asked, and WebAssembly comes only with V8's \
