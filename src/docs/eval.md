@@ -30,6 +30,7 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
 
 - **Jitless** by default: JS runs in V8's interpreter, and `WebAssembly` is absent.
   `--jit` turns the JIT on, and `WebAssembly` is present.
+  The box is installed for the same choice: jitless, it refuses new executable mappings ([The box](#the-box)).
 - **No code generation from strings**, with or without the JIT:
   `eval`, `new Function`, the async and generator function constructors,
   and a string passed to `setTimeout` throw an `EvalError`.
@@ -166,7 +167,7 @@ The walls, in order:
   since nothing in the runtime makes them: a tripwire for code that escaped the engine.
   The second is an allowlist: the calls the runtime makes once the box is up pass,
   and every other call fails with `ENOSYS`.
-  The allowed calls (the ones the census saw, then their siblings, each sibling with its reason in the source) cover memory (`mmap`, `mprotect`, `madvise`, and the rest),
+  The allowed calls (the ones the census saw, then their siblings, each sibling with its reason in the source) cover memory (`madvise`, `mremap`, `munmap`, and the rest),
   threads and their futexes, the clock, sleeping, signal handlers and `abort`, `read`, `write`, `openat`, `close`, `lseek`,
   `statx` (and `fstat` and `newfstatat`, std's fallback), `readlink`, `uname`,
   the event loop's `epoll` and `eventfd2` calls, `getrandom`, the process's and thread's ids,
@@ -179,6 +180,11 @@ The walls, in order:
   `socketpair` only as a unix stream pair
   (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate);
   and `clone` only to start a thread, with no namespace flag, so no process is forked and no namespace made.
+  When the JIT is off, no mapping can be made executable:
+  `mmap`, `mprotect`, and `pkey_mprotect` with `PROT_EXEC` fail with `ENOSYS`,
+  and with `--jit` they pass whatever they ask, since the JIT's compiled code needs executable memory.
+  What was mapped before the box went up, the binary's code and its libraries', stays executable,
+  and `mremap` can move, copy, or grow it, over the same files' bytes.
   `clone3` isn't allowed, since its flags are in memory, out of a filter's reach;
   glibc falls back to `clone` when it fails.
   So every `socket`, `connect`, `bind`, and `listen`, every call that changes a file's metadata

@@ -594,7 +594,9 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
             &prepass.failed(gro_runtime::eval::no_snapshot_error()),
         ));
     }
-    match prepass.confinement().confine() {
+    // the box takes eval's JIT choice from the pre-pass's options, as the
+    // engine does, so a jitless eval's box refuses executable mappings
+    match prepass.confine() {
         Ok(confined) => Ok((prepass, confined)),
         Err(error) => Err(write_envelope(
             &prepass.failed(gro_runtime::eval::confine_error(&error)),

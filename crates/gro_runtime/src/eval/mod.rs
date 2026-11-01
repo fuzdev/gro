@@ -243,6 +243,19 @@ impl Prepass {
         &self.confinement
     }
 
+    /// Confines the process to the eval's box ([`confine::Prepared::confine`]),
+    /// installed for the JIT the eval's engine is to have, read from
+    /// [`engine_options`], so the box and the engine take the choice from one
+    /// place: jitless, the box refuses executable mappings.
+    ///
+    /// # Errors
+    ///
+    /// As [`confine::Prepared::confine`].
+    pub fn confine(&self) -> Result<confine::Confined, confine::ConfineError> {
+        let jit = confine::Jit::from_jitless(engine_options(self.options.jit).jitless);
+        self.confinement.confine(jit)
+    }
+
     /// Whether the eval has a startup snapshot to start from, which a
     /// confined eval needs ([`no_snapshot_error`]).
     pub const fn has_snapshot(&self) -> bool {

@@ -15,7 +15,10 @@
 //! installed after them would leave them outside. [`init_confined_engine`]
 //! returns a [`ConfinedEngine`], the token [`crate::eval::eval`] takes, which
 //! only a confined process's engine has, so no caller can evaluate a module
-//! outside the box.
+//! outside the box. A confined engine's JIT must be the one its box was
+//! installed for ([`Confined::jit`]), since a jitless box refuses the
+//! executable mappings the JIT makes: [`init_engine`] refuses a disagreement
+//! before V8 starts.
 //!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
@@ -41,7 +44,7 @@ use std::sync::OnceLock;
 
 use deno_core::v8;
 
-use crate::confine::{Confined, Confinement};
+use crate::confine::{Confined, Confinement, Jit};
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
 /// the JIT on, code generation from strings allowed, and ICU's own locale.
@@ -53,7 +56,8 @@ pub struct EngineOptions {
     pub locale: Option<&'static str>,
     /// V8's `--jitless`: JS runs in the interpreter alone, with no code
     /// compiled at run time, and `WebAssembly` is absent from every global
-    /// scope, since it needs the compilers.
+    /// scope, since it needs the compilers. In a confined process it must
+    /// agree with the box's [`Jit`].
     pub jitless: bool,
     /// V8's `--disallow-code-generation-from-strings`: `eval`, the
     /// `Function` constructors (async and generator ones included), and a
@@ -87,6 +91,18 @@ pub enum EngineError {
     ConfinementConflict {
         /// Whether it was set up confined.
         confined: bool,
+    },
+    /// The process's box was installed for one JIT choice and the options
+    /// make the other: a jitless box would fail the JIT's executable
+    /// mappings, and a box for the JIT would allow them to a jitless engine.
+    #[error(
+        "the box was installed for an engine with the JIT {}, and the engine's options turn it {}",
+        if matches!(.box_jit, Jit::On) { "on" } else { "off" },
+        if matches!(.box_jit, Jit::On) { "off" } else { "on" }
+    )]
+    JitConflict {
+        /// The JIT the box was installed for.
+        box_jit: Jit,
     },
 }
 
@@ -156,8 +172,9 @@ impl ConfinedEngine {
 ///
 /// # Errors
 ///
-/// As [`init_engine`]: the engine was set up already with other options,
-/// or confined otherwise (unconfined among them).
+/// As [`init_engine`]: the box was installed for another JIT than
+/// `options` make, or the engine was set up already with other options, or
+/// confined otherwise (unconfined among them).
 pub fn init_confined_engine(
     confined: Confined,
     options: &EngineOptions,
@@ -179,8 +196,10 @@ pub fn init_confined_engine(
 ///
 /// # Errors
 ///
-/// Returns [`EngineError::Conflict`] when the engine was set up already with
-/// options other than `options`, and [`EngineError::ConfinementConflict`]
+/// Returns [`EngineError::JitConflict`], before anything is set up, when
+/// `confinement` is a box installed for another JIT than `options` make;
+/// [`EngineError::Conflict`] when the engine was set up already with
+/// options other than `options`; and [`EngineError::ConfinementConflict`]
 /// when it was set up confined otherwise.
 ///
 /// # Panics
@@ -190,6 +209,13 @@ pub fn init_engine(
     confinement: Confinement,
     options: &EngineOptions,
 ) -> Result<Engine, EngineError> {
+    if let Confinement::Confined(confined) = &confinement
+        && confined.jit() != Jit::from_jitless(options.jitless)
+    {
+        return Err(EngineError::JitConflict {
+            box_jit: confined.jit(),
+        });
+    }
     let mut confinement = Some(confinement);
     let applied = ENGINE.get_or_init(|| {
         // never a default: an engine set up unconfined in a confined process
@@ -267,7 +293,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{EngineError, EngineOptions, init_engine};
-    use crate::confine::Confinement;
+    use crate::confine::{BoxRoots, Confined, Confinement, Jit};
     use crate::{RuntimeOptions, STACK_SIZE, run_main};
 
     /// How many times V8 has asked [`fill_entropy`](super::fill_entropy) in
@@ -309,5 +335,26 @@ mod tests {
             init_engine(Confinement::Unconfined, &other),
             Err(EngineError::Conflict(options)) if options == EngineOptions::default()
         ));
+    }
+
+    /// A box and an engine that disagree on the JIT are refused before
+    /// anything is set up, either way round, whatever engine the process
+    /// has: the check reads no state.
+    #[test]
+    fn a_box_for_another_jit_is_refused() {
+        for (box_jit, jitless) in [(Jit::Off, false), (Jit::On, true)] {
+            let confined = Confined::for_test(BoxRoots::for_test(Vec::new()), box_jit);
+            let options = EngineOptions {
+                jitless,
+                ..EngineOptions::default()
+            };
+            let error = init_engine(Confinement::Confined(confined), &options).unwrap_err();
+            assert!(
+                matches!(error, EngineError::JitConflict { box_jit: found } if found == box_jit),
+                "{error:?}"
+            );
+        }
+        assert_eq!(Jit::from_jitless(true), Jit::Off);
+        assert_eq!(Jit::from_jitless(false), Jit::On);
     }
 }

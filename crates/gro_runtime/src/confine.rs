@@ -10,7 +10,8 @@
 //!   closure below it, each opened as it is found, so the box goes up on the
 //!   directories found, not on whatever their paths name later.
 //! - [`Confined`]: the process passed through [`Prepared::confine`], made only
-//!   there, on the process's one thread.
+//!   there, on the process's one thread, for an engine with the JIT on or
+//!   off ([`Jit`]), which the box records and the engine is checked against.
 //! - [`Confinement::Unconfined`]: named by the caller, for a run that holds
 //!   no box (`fgro run`, the snapshot builder, and tests).
 //!
@@ -46,7 +47,15 @@
 //!    `socketpair`, and `clone` pass only with the arguments the runtime
 //!    uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
 //!    [`KEPT_SOCKETPAIR`], and a `clone` that starts a thread, setting no
-//!    flag in `CLONE_NAMESPACES`); every other call fails with `ENOSYS`,
+//!    flag in `CLONE_NAMESPACES`); the mapping calls ([`MAPPING_CALLS`]:
+//!    `mmap`, `mprotect`, and `pkey_mprotect`) pass whatever their
+//!    arguments with the JIT on, whose compiled code needs executable
+//!    memory, and with it off only when their `prot` has `PROT_EXEC` clear,
+//!    so once the box is up a jitless process makes no mapping executable:
+//!    what it mapped before, its own code and its libraries', stays
+//!    executable, and `mremap`, which keeps a mapping's protection, can
+//!    still move, copy, or grow those mappings over their files' own bytes;
+//!    every other call fails with `ENOSYS`,
 //!    an argument outside its rules included. `ENOSYS` is what a call the
 //!    kernel lacks returns, so glibc and std fall back where they can
 //!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call
@@ -56,7 +65,16 @@
 //!    matches nothing and fails too, and since the allowlist doesn't allow
 //!    `seccomp`, no filter can be added after it. Built for `x86_64` and
 //!    `aarch64`; the `aarch64` list follows that architecture's call table
-//!    and is unverified on a host.
+//!    and is unverified on a host. A library loaded after the box goes up
+//!    (by `dlopen`, which nothing in the runtime is known to call) fails on
+//!    either architecture: Landlock refuses its file outside the roots, and
+//!    jitless, the rule refuses its code's `PROT_EXEC` mapping.
+//!
+//!    The `READ_IMPLIES_EXEC` personality, which would make every readable
+//!    mapping executable past the rule, can't be inherited: the kernel
+//!    clears it when a 64-bit binary executes (checked on `x86_64`:
+//!    `setarch -X` leaves `/proc/self/personality` without it), and the
+//!    allowlist refuses `personality`.
 //!
 //! Every thread the calling thread starts afterward inherits all three. The
 //! reads the runtime makes at startup outside the roots (the CPU and cgroup
@@ -163,7 +181,8 @@ impl Prepared {
     }
 
     /// Confines the process to the box, from its one thread, as the module
-    /// doc describes.
+    /// doc describes, for an engine whose JIT is `jit`: off, the box refuses
+    /// executable mappings.
     ///
     /// # Errors
     ///
@@ -174,12 +193,37 @@ impl Prepared {
     /// to install, after which the process may hold part of the box and must
     /// run nothing it was to confine; and [`ConfineError::Unsupported`] off
     /// Linux.
-    pub fn confine(&self) -> Result<Confined, ConfineError> {
+    pub fn confine(&self, jit: Jit) -> Result<Confined, ConfineError> {
         alone()?;
-        install(self)?;
+        install(self, jit)?;
         Ok(Confined {
             roots: self.roots.clone(),
+            jit,
         })
+    }
+}
+
+/// Whether the engine a box holds runs V8's JIT, which the box is installed
+/// for: off, no mapping made or changed after the box goes up by `mmap`,
+/// `mprotect`, or `pkey_mprotect` may be executable.
+///
+/// The engine takes the same choice as a flag (`EngineOptions::jitless`),
+/// and a confined engine whose flag disagrees with its box's [`Jit`] is
+/// refused before it starts (`engine::init_engine`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Jit {
+    /// Jitless: JS runs in V8's interpreter alone, and the box refuses
+    /// executable mappings.
+    Off,
+    /// The JIT on: its compiled code needs executable mappings, which the
+    /// box allows.
+    On,
+}
+
+impl Jit {
+    /// The JIT as an engine's `jitless` flag says.
+    pub const fn from_jitless(jitless: bool) -> Self {
+        if jitless { Self::Off } else { Self::On }
     }
 }
 
@@ -189,12 +233,26 @@ impl Prepared {
 pub struct Confined {
     /// What the box admits.
     roots: BoxRoots,
+    /// Whether the box was installed for an engine with the JIT on.
+    jit: Jit,
 }
 
 impl Confined {
+    /// A confinement no box backs, for a test of what checks one.
+    #[cfg(test)]
+    pub(crate) const fn for_test(roots: BoxRoots, jit: Jit) -> Self {
+        Self { roots, jit }
+    }
+
     /// The roots the box admits.
     pub const fn roots(&self) -> &BoxRoots {
         &self.roots
+    }
+
+    /// Whether the box was installed for an engine with the JIT on, which
+    /// decides whether it allows executable mappings.
+    pub const fn jit(&self) -> Jit {
+        self.jit
     }
 }
 
@@ -329,8 +387,9 @@ pub const KILLED_CALLS: [libc::c_long; 16] = [
 /// They are the calls the runtime was seen to make after the box goes up,
 /// and the named siblings a host may make in their place. Every call
 /// missing from it and from the calls allowed by their arguments
-/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`], and a
-/// `clone` that starts a thread, `CLONE_NAMESPACES`) fails with `ENOSYS`.
+/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`], a
+/// `clone` that starts a thread, `CLONE_NAMESPACES`, and the
+/// [`MAPPING_CALLS`]) fails with `ENOSYS`.
 ///
 /// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
 /// process, since glibc names the caller by its thread id, not 0: for
@@ -353,13 +412,10 @@ pub const ALLOWED_CALLS: &[libc::c_long] = &[
     libc::SYS_gettid,
     libc::SYS_lseek,
     libc::SYS_madvise,
-    libc::SYS_mmap,
-    libc::SYS_mprotect,
     libc::SYS_mremap,
     libc::SYS_munmap,
     libc::SYS_openat,
     libc::SYS_pkey_alloc,
-    libc::SYS_pkey_mprotect,
     libc::SYS_read,
     // aarch64 has only `readlinkat`, which glibc's `readlink` makes there
     #[cfg(target_arch = "x86_64")]
@@ -403,6 +459,19 @@ pub const ALLOWED_CALLS: &[libc::c_long] = &[
     libc::SYS_gettimeofday,
     libc::SYS_nanosleep,
 ];
+
+/// The calls that set a mapping's protection, by their third argument,
+/// `prot`, on `x86_64` and `aarch64` alike.
+///
+/// A box for the JIT ([`Jit::On`]), whose compiled code needs executable
+/// memory, allows them whatever their arguments; a jitless one only with
+/// `PROT_EXEC` clear in `prot`, so no mapping becomes executable after the
+/// box goes up. `mremap` keeps a mapping's protection, so it stays allowed:
+/// it can move, copy, or grow an executable mapping made before the box,
+/// over its file's own bytes, but never over bytes the process wrote.
+#[cfg(target_os = "linux")]
+pub const MAPPING_CALLS: [libc::c_long; 3] =
+    [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect];
 
 /// The `prctl` options the box keeps, by the first argument: naming a
 /// thread, and naming an anonymous mapping (glibc's and V8's). Every other
@@ -475,12 +544,12 @@ const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
     | libc::CLONE_NEWPID
     | libc::CLONE_NEWNET;
 
-/// Installs the box `prepared` on the calling thread, the process's only
-/// one.
+/// Installs the box `prepared`, for an engine whose JIT is `jit`, on the
+/// calling thread, the process's only one.
 #[cfg(target_os = "linux")]
-fn install(prepared: &Prepared) -> Result<(), ConfineError> {
+fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     // compiled first, so a filter that can't be built fails before any wall
-    let filters = seccomp_filters()?;
+    let filters = seccomp_filters(jit)?;
     landlock(&prepared.pins)?;
     // the killing filter first, so it passes the allowlist's own `seccomp`
     // call; the allowlist doesn't allow `seccomp`, so it is the last filter
@@ -492,7 +561,7 @@ fn install(prepared: &Prepared) -> Result<(), ConfineError> {
 }
 
 #[cfg(not(target_os = "linux"))]
-const fn install(_prepared: &Prepared) -> Result<(), ConfineError> {
+const fn install(_prepared: &Prepared, _jit: Jit) -> Result<(), ConfineError> {
     Err(ConfineError::Unsupported)
 }
 
@@ -558,11 +627,12 @@ fn landlock_floor(status: landlock::LandlockStatus) -> Result<(), ConfineError> 
     }
 }
 
-/// The box's two seccomp filters, compiled for this architecture, in the
-/// order they are installed: the calls that kill the process, then the
-/// allowlist, which fails every call it doesn't allow with `ENOSYS`.
+/// The box's two seccomp filters, for an engine whose JIT is `jit`,
+/// compiled for this architecture, in the order they are installed: the
+/// calls that kill the process, then the allowlist, which fails every call
+/// it doesn't allow with `ENOSYS`.
 #[cfg(target_os = "linux")]
-fn seccomp_filters() -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
+fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
     use std::collections::BTreeMap;
 
     use seccompiler::{
@@ -625,9 +695,25 @@ fn seccomp_filters() -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
         SeccompCmpOp::MaskedEq(thread | int(CLONE_NAMESPACES)),
         thread,
     )?])?];
+    // the mapping calls' `prot`, the third argument, an int: any with the
+    // JIT, and jitless only with `PROT_EXEC` clear
+    let mapping = || match jit {
+        Jit::On => Ok(Vec::new()),
+        Jit::Off => Ok(vec![rule(vec![condition(
+            2,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::MaskedEq(int(libc::PROT_EXEC)),
+            0,
+        )?])?]),
+    };
+    let mappings = MAPPING_CALLS
+        .into_iter()
+        .map(|call| Ok((call, mapping()?)))
+        .collect::<Result<Vec<_>, ConfineError>>()?;
     let allowed: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED_CALLS
         .iter()
         .map(|call| (*call, Vec::new()))
+        .chain(mappings)
         .chain([
             (libc::SYS_prctl, prctls),
             (libc::SYS_fcntl, fcntls),
@@ -948,7 +1034,7 @@ mod tests {
 
     use std::os::unix::fs::PermissionsExt as _;
 
-    use super::{BoxRoots, ConfineError, Prepared};
+    use super::{BoxRoots, ConfineError, Jit, Prepared};
 
     /// A fresh directory under the system's temporary directory, removed on
     /// drop, its path canonical. Every directory it makes has the mode
@@ -1244,9 +1330,11 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn the_seccomp_filters_compile() {
-        let [killing, allowing] = super::seccomp_filters().unwrap();
-        assert!(!killing.is_empty());
-        assert!(!allowing.is_empty());
+        for jit in [Jit::Off, Jit::On] {
+            let [killing, allowing] = super::seccomp_filters(jit).unwrap();
+            assert!(!killing.is_empty());
+            assert!(!allowing.is_empty());
+        }
     }
 
     /// The calls the allowlist allows whatever their arguments, listed apart
@@ -1270,13 +1358,10 @@ mod tests {
             libc::SYS_gettid,
             libc::SYS_lseek,
             libc::SYS_madvise,
-            libc::SYS_mmap,
-            libc::SYS_mprotect,
             libc::SYS_mremap,
             libc::SYS_munmap,
             libc::SYS_openat,
             libc::SYS_pkey_alloc,
-            libc::SYS_pkey_mprotect,
             libc::SYS_read,
             libc::SYS_rseq,
             libc::SYS_rt_sigaction,
@@ -1309,14 +1394,18 @@ mod tests {
         expected
     }
 
-    /// The calls the allowlist allows only by their arguments.
+    /// The calls the allowlist allows only by their arguments, the mapping
+    /// calls jitless.
     #[cfg(target_os = "linux")]
-    const RULED_CALLS: [libc::c_long; 5] = [
+    const RULED_CALLS: [libc::c_long; 8] = [
         libc::SYS_prctl,
         libc::SYS_fcntl,
         libc::SYS_ioctl,
         libc::SYS_socketpair,
         libc::SYS_clone,
+        libc::SYS_mmap,
+        libc::SYS_mprotect,
+        libc::SYS_pkey_mprotect,
     ];
 
     /// A sample of the calls the allowlist doesn't allow: every call the
@@ -1475,6 +1564,10 @@ mod tests {
             ]
         );
         assert_eq!(super::KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
+        assert_eq!(
+            super::MAPPING_CALLS,
+            [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect]
+        );
     }
 
     /// The `ioctl` requests kept are the ones std, tokio, and the console
@@ -1503,7 +1596,7 @@ mod tests {
         ] {
             assert!(!super::KEPT_IOCTLS.contains(&refused), "{refused:#x}");
         }
-        let [_, allowing] = super::seccomp_filters().unwrap();
+        let [_, allowing] = super::seccomp_filters(Jit::Off).unwrap();
         for request in super::KEPT_IOCTLS {
             assert!(
                 allowing
@@ -1583,19 +1676,20 @@ mod tests {
     }
 
     /// The filters decide each call as the policy says, read as the kernel
-    /// reads them. The allowlist allows every listed call, and the calls
-    /// allowed by their arguments only with the kept values, an int's upper
-    /// half, which the kernel drops, changing nothing; every other call, an
-    /// x32 call among them, fails with `ENOSYS`. The killing filter allows
-    /// all of those and kills on its own calls, and both kill a call from
-    /// another architecture.
+    /// reads them, for a box with the JIT off and one with it on. The
+    /// allowlist allows every listed call, and the calls allowed by their
+    /// arguments only with the kept values, an int's upper half, which the
+    /// kernel drops, changing nothing; jitless, the mapping calls only with
+    /// `PROT_EXEC` clear in `prot`, and with the JIT, whatever their
+    /// arguments; every other call, an x32 call among them, fails with
+    /// `ENOSYS`. The killing filter allows all of those and kills on its own
+    /// calls, and both kill a call from another architecture.
     #[cfg(target_os = "linux")]
     #[test]
     fn the_filters_decide_by_the_allowlist() {
         const ALLOW: u32 = libc::SECCOMP_RET_ALLOW;
         const ENOSYS: u32 = libc::SECCOMP_RET_ERRNO | libc::ENOSYS.unsigned_abs();
         const KILL: u32 = libc::SECCOMP_RET_KILL_PROCESS;
-        let [killing, allowing] = super::seccomp_filters().unwrap();
         let arch = audit_arch();
         let high = 0xdead_0000_0000_0000_u64;
         let int = |value: libc::c_int| u64::from(value.unsigned_abs());
@@ -1761,31 +1855,77 @@ mod tests {
         for call in allowed_calls().into_iter().chain(RULED_CALLS) {
             cases.push((call | 0x4000_0000, [0; 6], ENOSYS));
         }
-        for (call, args, expected) in cases {
-            assert_eq!(
-                decide(&allowing, arch, call, args),
-                expected,
-                "{call} {args:x?}"
-            );
-            assert_eq!(
-                decide(&killing, arch, call, args),
-                ALLOW,
-                "{call} {args:x?}"
-            );
-        }
-        for call in super::KILLED_CALLS {
-            assert_eq!(decide(&killing, arch, call, [0; 6]), KILL, "{call}");
-            assert_eq!(decide(&allowing, arch, call, [0; 6]), ENOSYS, "{call}");
-            // by its x32 number, past the killing filter, the allowlist
-            // still refuses it
-            #[cfg(target_arch = "x86_64")]
-            {
-                assert_eq!(decide(&killing, arch, call | 0x4000_0000, [0; 6]), ALLOW);
-                assert_eq!(decide(&allowing, arch, call | 0x4000_0000, [0; 6]), ENOSYS);
+        // the mapping calls' `prot`, the third argument, and whether a
+        // jitless box refuses it: `PROT_EXEC` clear passes, also with an
+        // upper half the kernel's flag test never reads as `PROT_EXEC`, with
+        // its bit shifted into that half, and with the bit set in every
+        // other argument; `PROT_EXEC` set is refused, beside any other flag
+        // and under any upper half
+        let [read, write, exec, grows_down] = [
+            libc::PROT_READ,
+            libc::PROT_WRITE,
+            libc::PROT_EXEC,
+            libc::PROT_GROWSDOWN,
+        ]
+        .map(int);
+        let exec_elsewhere = [exec, exec, read, exec, exec, exec];
+        let mappings = [
+            ([0, 4096, 0, 0, 0, 0], false),
+            ([0, 4096, read, 0, 0, 0], false),
+            ([0, 4096, read | write, 0, 0, 0], false),
+            ([0, 4096, high | read | write, 0, 0, 0], false),
+            ([0, 4096, exec << 32, 0, 0, 0], false),
+            ([0, 4096, grows_down | read, 0, 0, 0], false),
+            (exec_elsewhere, false),
+            ([0, 4096, exec, 0, 0, 0], true),
+            ([0, 4096, read | exec, 0, 0, 0], true),
+            ([0, 4096, read | write | exec, 0, 0, 0], true),
+            ([0, 4096, high | exec, 0, 0, 0], true),
+            ([0, 4096, grows_down | read | exec, 0, 0, 0], true),
+            ([0, 4096, 0xffff_ffff, 0, 0, 0], true),
+            ([0, 4096, u64::MAX, 0, 0, 0], true),
+        ];
+        for jit in [Jit::Off, Jit::On] {
+            let [killing, allowing] = super::seccomp_filters(jit).unwrap();
+            let mut cases = cases.clone();
+            // listed apart from `MAPPING_CALLS`, so a call dropped there
+            // fails here too
+            for call in [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect] {
+                for (args, exec_set) in mappings {
+                    let expected = if exec_set && jit == Jit::Off {
+                        ENOSYS
+                    } else {
+                        ALLOW
+                    };
+                    cases.push((call, args, expected));
+                }
             }
-        }
-        for filter in [&killing, &allowing] {
-            assert_eq!(decide(filter, arch ^ 1, libc::SYS_read, [0; 6]), KILL);
+            for (call, args, expected) in cases {
+                assert_eq!(
+                    decide(&allowing, arch, call, args),
+                    expected,
+                    "{jit:?} {call} {args:x?}"
+                );
+                assert_eq!(
+                    decide(&killing, arch, call, args),
+                    ALLOW,
+                    "{jit:?} {call} {args:x?}"
+                );
+            }
+            for call in super::KILLED_CALLS {
+                assert_eq!(decide(&killing, arch, call, [0; 6]), KILL, "{call}");
+                assert_eq!(decide(&allowing, arch, call, [0; 6]), ENOSYS, "{call}");
+                // by its x32 number, past the killing filter, the allowlist
+                // still refuses it
+                #[cfg(target_arch = "x86_64")]
+                {
+                    assert_eq!(decide(&killing, arch, call | 0x4000_0000, [0; 6]), ALLOW);
+                    assert_eq!(decide(&allowing, arch, call | 0x4000_0000, [0; 6]), ENOSYS);
+                }
+            }
+            for filter in [&killing, &allowing] {
+                assert_eq!(decide(filter, arch ^ 1, libc::SYS_read, [0; 6]), KILL);
+            }
         }
     }
 
@@ -1841,7 +1981,7 @@ mod tests {
         let other = std::thread::spawn(move || wait.recv());
         let scratch = Scratch::new("threads");
         let prepared = Prepared::for_project(scratch.0.clone()).unwrap();
-        match prepared.confine() {
+        match prepared.confine(Jit::Off) {
             Err(ConfineError::Threads { count }) => assert!(count >= 2, "{count}"),
             other => panic!("expected a refusal by the thread count, got {other:?}"),
         }

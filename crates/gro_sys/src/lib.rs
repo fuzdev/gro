@@ -14,6 +14,9 @@
 //!
 //! - `signal_thread`, which sends a signal to one thread by `tgkill`, the call
 //!   the box allows and Landlock's signal scope keeps inside it.
+//! - `map_anonymous` and `protect_anonymous`, which map an anonymous page
+//!   with a protection, or map one and change it to that protection, and
+//!   unmap it, so a box's tests reach its rule on executable mappings.
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
@@ -240,6 +243,104 @@ pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -
     } else {
         Err(io::Error::last_os_error())
     }
+}
+
+/// The length [`map_anonymous`] and [`protect_anonymous`] map, which the
+/// kernel rounds up to a whole page where pages are larger.
+#[cfg(all(target_os = "linux", feature = "testing"))]
+const TEST_MAPPING_LEN: usize = 4096;
+
+/// Maps an anonymous private page with the protection `prot` (`PROT_READ`,
+/// `PROT_EXEC`, ...) by `mmap`, then unmaps it, exposing none of its memory.
+///
+/// For tests of a box, from inside it: whether a mapping with `prot` may be
+/// made, the jitless box refusing `PROT_EXEC`.
+///
+/// # Errors
+///
+/// Returns the `mmap` call's error (`ENOSYS` when a box's allowlist refuses
+/// it), or the `munmap` call's.
+#[cfg(all(target_os = "linux", feature = "testing"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no `mmap` or `munmap`, and a raw system call is `unsafe`"
+)]
+pub fn map_anonymous(prot: libc::c_int) -> io::Result<()> {
+    // SAFETY: with no address hint and `MAP_ANONYMOUS`, `mmap` makes a new
+    // mapping where nothing in the process is mapped, so no memory the
+    // process uses changes; the pointer it returns is never read or written
+    let mapped = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            TEST_MAPPING_LEN,
+            prot,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        )
+    };
+    if mapped == libc::MAP_FAILED {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `mapped` is the mapping made above, `TEST_MAPPING_LEN` long,
+    // whose pointer was never handed out, so nothing references it
+    if unsafe { libc::munmap(mapped, TEST_MAPPING_LEN) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Maps an anonymous private page readable and writable by `mmap`, changes
+/// its protection to `prot` by `mprotect`, then unmaps it, exposing none of
+/// its memory.
+///
+/// For tests of a box, from inside it: whether a mapping's protection may
+/// become `prot`, the jitless box refusing `PROT_EXEC`, as a JIT asks for it
+/// after writing its code.
+///
+/// # Errors
+///
+/// Returns the `mmap` call's error, the `mprotect` call's (`ENOSYS` when a
+/// box's allowlist refuses it), or the `munmap` call's. The page is unmapped
+/// whatever `mprotect` returns.
+#[cfg(all(target_os = "linux", feature = "testing"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no `mmap`, `mprotect`, or `munmap`, and a raw system call is `unsafe`"
+)]
+pub fn protect_anonymous(prot: libc::c_int) -> io::Result<()> {
+    // SAFETY: as `map_anonymous`'s: a new anonymous mapping, its pointer
+    // never read or written
+    let mapped = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            TEST_MAPPING_LEN,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+            -1,
+            0,
+        )
+    };
+    if mapped == libc::MAP_FAILED {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `mapped` is the mapping made above, `TEST_MAPPING_LEN` long,
+    // which nothing else in the process references, so changing its
+    // protection affects no memory the process uses
+    let protected = if unsafe { libc::mprotect(mapped, TEST_MAPPING_LEN, prot) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    };
+    // SAFETY: as above, the mapping made here, whose pointer was never
+    // handed out, so nothing references it
+    let unmapped = if unsafe { libc::munmap(mapped, TEST_MAPPING_LEN) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    };
+    protected.and(unmapped)
 }
 
 /// `error`, of the same kind, its message prefixed with `what`.

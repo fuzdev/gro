@@ -633,9 +633,19 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `KEPT_IOCTLS` (`FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS`,
   `TIOCGWINSZ`), `socketpair` as `KEPT_SOCKETPAIR` (a unix stream pair, for
   tokio; a datagram pair could `sendto` a socket file by path, which
-  Landlock below ABI 9 doesn't gate), and `clone` only as a thread
+  Landlock below ABI 9 doesn't gate), `clone` only as a thread
   (`CLONE_THREAD` set, no flag in `CLONE_NAMESPACES`: no fork, no
-  namespace); ints compare at 32 bits. `clone3` isn't allowed (its flags
+  namespace); ints compare at 32 bits; and the `MAPPING_CALLS` (`mmap`,
+  `mprotect`, `pkey_mprotect`) by the JIT the box is installed for
+  (`Prepared::confine(confine::Jit)`): any `prot` with `Jit::On`, and
+  jitless only with `PROT_EXEC` clear, so once the box is up a jitless
+  process makes no mapping executable (`mremap` can still move, copy, or
+  grow the code mapped before it; a library `dlopen`ed after the box fails
+  on any architecture, its file outside the roots and its code `PROT_EXEC`);
+  `Confined` records the `Jit`, `init_engine` refuses a confined engine
+  whose `jitless` disagrees (`EngineError::JitConflict`), and eval's
+  `Prepass::confine` reads it from `engine_options`, so `fgro eval` and
+  `eval-box` take it from `--jit`. `clone3` isn't allowed (its flags
   are in memory, past a filter), so glibc falls back to `clone`; the
   filter compares exact numbers, so x32 calls fail too; `seccomp` isn't
   allowed, so nothing is added after it. The aarch64 list follows its call
@@ -810,7 +820,10 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   (`tests/close.rs`, no libtest harness). Its `testing` feature, which only
   `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
   it touches no memory), so the box's tests reach Landlock's signal scope
-  past seccomp's refusal of `kill`
+  past seccomp's refusal of `kill`, and `map_anonymous` and
+  `protect_anonymous` (`mmap`, or `mmap` then `mprotect`, of an anonymous
+  page with a given `prot`, then `munmap`; safe: no memory is exposed),
+  which reach the jitless box's refusal of `PROT_EXEC`
 - `gro_bench` - the measurement harness, independent of the runtime crates:
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per

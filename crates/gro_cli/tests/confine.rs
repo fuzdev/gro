@@ -37,7 +37,7 @@ mod confined {
     use std::time::Duration;
 
     use gro_runtime::STACK_SIZE;
-    use gro_runtime::confine::{ConfineError, Confinement, Prepared};
+    use gro_runtime::confine::{ConfineError, Confinement, Jit, Prepared};
     use gro_runtime::engine::init_confined_engine;
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
@@ -73,9 +73,24 @@ mod confined {
     /// the same on every architecture the box is built for.
     const ENOSYS: i32 = 38;
 
+    /// `mmap`'s and `mprotect`'s flags for a readable, writable, and
+    /// executable mapping, the same on every architecture the box is built
+    /// for.
+    const PROT_READ: i32 = 1;
+    const PROT_WRITE: i32 = 2;
+    const PROT_EXEC: i32 = 4;
+
     /// The cases, each run in a child of its own.
-    const CASES: [&str; 7] = [
-        "reads", "exec", "sockets", "signal", "process", "threads", "eval",
+    const CASES: [&str; 9] = [
+        "reads",
+        "exec",
+        "sockets",
+        "signal",
+        "process",
+        "memory",
+        "memory_jit",
+        "threads",
+        "eval",
     ];
 
     pub fn main() {
@@ -193,6 +208,24 @@ mod confined {
                 "tgkill self: ok",
             ],
             "process" => &["confined", "thread: ok", "spawn: enosys"],
+            "memory" => &[
+                "confined",
+                "mmap read write: ok",
+                "mmap exec: enosys",
+                "mmap read exec: enosys",
+                "mprotect read: ok",
+                "mprotect exec: enosys",
+                "mprotect read write exec: enosys",
+            ],
+            "memory_jit" => &[
+                "confined",
+                "mmap read write: ok",
+                "mmap exec: ok",
+                "mmap read exec: ok",
+                "mprotect read: ok",
+                "mprotect exec: ok",
+                "mprotect read write exec: ok",
+            ],
             "threads" => &["refused: 2 threads", "read outside: ok"],
             "eval" => &[
                 "confined",
@@ -209,9 +242,13 @@ mod confined {
         }
     }
 
-    /// Confines this process to `project`, or prints why it can't and exits.
-    fn confine(project: &Path) -> Confinement {
-        match Prepared::for_project(project.to_owned()).unwrap().confine() {
+    /// Confines this process to `project`, for an engine whose JIT is `jit`,
+    /// or prints why it can't and exits.
+    fn confine(project: &Path, jit: Jit) -> Confinement {
+        match Prepared::for_project(project.to_owned())
+            .unwrap()
+            .confine(jit)
+        {
             Ok(confined) => {
                 println!("confined");
                 Confinement::Confined(confined)
@@ -240,7 +277,7 @@ mod confined {
         let outside = scratch.join("outside/secret.txt");
         match case {
             "reads" => {
-                confine(&project);
+                confine(&project, Jit::Off);
                 let read = |path: &Path| outcome(std::fs::read(path));
                 println!("read inside: {}", read(&project.join("main.js")));
                 println!("read outside: {}", read(&outside));
@@ -333,12 +370,12 @@ mod confined {
                 .unwrap();
             }
             "exec" => {
-                confine(&project);
+                confine(&project, Jit::Off);
                 let error = Command::new("/bin/true").exec();
                 println!("exec returned: {error}");
             }
             "sockets" => {
-                confine(&project);
+                confine(&project, Jit::Off);
                 println!(
                     "tcp: {}",
                     outcome(std::net::TcpListener::bind("127.0.0.1:0"))
@@ -411,7 +448,7 @@ mod confined {
                     .unwrap();
                 eprintln!("victim {}", victim.id());
                 let victim_id = i32::try_from(victim.id()).unwrap();
-                confine(&project);
+                confine(&project, Jit::Off);
                 // `kill`, std's call, which the allowlist refuses
                 println!("kill outside: {}", outcome(victim.kill()));
                 // `tgkill`, which the allowlist keeps for `abort()`, so only
@@ -430,7 +467,7 @@ mod confined {
                 );
             }
             "process" => {
-                confine(&project);
+                confine(&project, Jit::Off);
                 // glibc starts a thread with `clone3` first, which the
                 // allowlist refuses, then with `clone`, which it allows for a
                 // thread: the thread's start is what's checked, since its
@@ -446,10 +483,33 @@ mod confined {
                 // executed, so the killing filter's `execve` is never reached
                 println!("spawn: {}", outcome(Command::new("/bin/true").status()));
             }
+            // the jitless box refuses an executable mapping, made or changed
+            // to, and allows the rest; the JIT's box allows both
+            "memory" | "memory_jit" => {
+                let jit = if case == "memory" { Jit::Off } else { Jit::On };
+                confine(&project, jit);
+                for (name, prot) in [
+                    ("read write", PROT_READ | PROT_WRITE),
+                    ("exec", PROT_EXEC),
+                    ("read exec", PROT_READ | PROT_EXEC),
+                ] {
+                    println!("mmap {name}: {}", outcome(gro_sys::map_anonymous(prot)));
+                }
+                for (name, prot) in [
+                    ("read", PROT_READ),
+                    ("exec", PROT_EXEC),
+                    ("read write exec", PROT_READ | PROT_WRITE | PROT_EXEC),
+                ] {
+                    println!(
+                        "mprotect {name}: {}",
+                        outcome(gro_sys::protect_anonymous(prot))
+                    );
+                }
+            }
             "threads" => {
                 let (stop, wait) = std::sync::mpsc::channel::<()>();
                 let other = std::thread::spawn(move || wait.recv());
-                match Prepared::for_project(project).unwrap().confine() {
+                match Prepared::for_project(project).unwrap().confine(Jit::Off) {
                     Ok(_) => println!("confined with another thread alive"),
                     Err(ConfineError::Threads { count }) => println!("refused: {count} threads"),
                     Err(error) => println!("refused otherwise: {error}"),
@@ -490,7 +550,7 @@ mod confined {
             .join()
             .unwrap()
             .unwrap();
-        let Confinement::Confined(confined) = confine(project) else {
+        let Confinement::Confined(confined) = confine(project, Jit::Off) else {
             unreachable!("confine exits when it refuses")
         };
         let outside = outside.to_owned();
