@@ -651,29 +651,41 @@ fn seccomp_filters() -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
     ])
 }
 /// The link closure of the project at `project`, opened as `pinned`: it
-/// first, then each `node_modules` entry's real path that is a package
-/// directory ([`is_package`]), neither under a root so far nor holding one,
+/// first, then each `node_modules` entry's real path that is neither under a
+/// root so far nor holding one, is a package directory ([`is_package`]), is
 /// held by no world-writable directory ([`held_by_world_writable`]), and
-/// opened as found ([`pin`]), read in turn to a fixed point. Returns the
+/// opens as found ([`pin`]), read in turn to a fixed point. Returns the
 /// roots and their handles, in the same order.
+///
+/// An entry the listing says isn't a symlink has its holder's real path,
+/// read once per holder, joined with its name as its own
+/// ([`PackageEntry::real`]), and the containment check, which reads nothing
+/// from the disk, comes first: every package installed under a root is
+/// skipped with no path resolved, and only a link, or an entry whose holder
+/// is real outside the roots, is read further.
 fn link_closure(project: PathBuf, pinned: Pin) -> (Vec<PathBuf>, Vec<Pin>) {
     let mut roots = vec![project];
     let mut pins = vec![pinned];
     let mut next = 0;
     while let Some(root) = roots.get(next) {
-        let node_modules = root.join("node_modules");
-        let entries = package_entries(&node_modules);
+        let listing = package_entries(root.join("node_modules"));
         next += 1;
-        for entry in entries {
+        for entry in &listing.entries {
             // a package is a directory with a package.json, and none holds a
             // root: a link to a file, to an ancestor of the project, to `/`,
             // or to a directory that isn't a package widens nothing
-            if let Ok(target) = std::fs::canonicalize(&entry)
+            let Some(target) = entry
+                .real
+                .clone()
+                .or_else(|| std::fs::canonicalize(&entry.path).ok())
+            else {
+                continue;
+            };
+            if !roots
+                .iter()
+                .any(|root| target.starts_with(root) || root.starts_with(&target))
                 && is_package(&target)
-                && !roots
-                    .iter()
-                    .any(|root| target.starts_with(root) || root.starts_with(&target))
-                && !held_by_world_writable(&node_modules, &entry, &target)
+                && !held_by_world_writable(&listing, entry, &target)
                 && let Ok(pinned) = pin(&target)
             {
                 roots.push(target);
@@ -737,67 +749,157 @@ const fn pin(_dir: &Path) -> io::Result<Pin> {
     Ok(())
 }
 
-/// Whether the package linked at `entry` in `node_modules`, whose real path
-/// is `target`, is held by a world-writable directory, which any user can
-/// plant files in: `node_modules` and the entry's `@scope` directory, the real
-/// parent of each, `target`, or the directories holding `target`, one per
-/// segment of the package's name. The resolver refuses a
+/// Whether the package linked at `entry` in `listing`'s `node_modules`,
+/// whose real path is `target`, is held by a world-writable directory, which
+/// any user can plant files in: `node_modules` and the entry's `@scope`
+/// directory, the real parent of each, `target`, or the directories holding
+/// `target`, one per segment of the package's name. The resolver refuses a
 /// package found through any of them, by the same predicate
 /// ([`SourceTree::is_world_writable`]), so none is worth a root. A directory
 /// whose mode can't be read counts as one.
-fn held_by_world_writable(node_modules: &Path, entry: &Path, target: &Path) -> bool {
-    let scope = entry.parent().filter(|parent| *parent != node_modules);
+fn held_by_world_writable(listing: &Listing, entry: &PackageEntry, target: &Path) -> bool {
+    let scope = entry.scope.map(|scope| &listing.scopes[scope]);
     let segments = if scope.is_some() { 2 } else { 1 };
-    let real_parents = [Some(node_modules), scope]
-        .into_iter()
-        .flatten()
-        .filter_map(|dir| std::fs::canonicalize(dir).ok())
-        .filter_map(|real| real.parent().map(Path::to_path_buf));
-    let mut dirs: Vec<PathBuf> = [Some(node_modules), scope]
-        .into_iter()
-        .flatten()
-        .map(Path::to_path_buf)
+    let holders = [Some(&listing.node_modules), scope].into_iter().flatten();
+    let mut dirs: Vec<&Path> = holders
+        .clone()
+        .map(|holder| holder.path.as_path())
         .collect();
-    dirs.extend(real_parents);
-    dirs.extend(target.ancestors().take(segments + 1).map(Path::to_path_buf));
+    dirs.extend(
+        holders
+            .filter_map(|holder| holder.real.as_deref())
+            .filter_map(Path::parent),
+    );
+    dirs.extend(target.ancestors().take(segments + 1));
     dirs.iter()
         .any(|dir| !matches!(DiskTree.is_world_writable(dir), Ok(false)))
 }
 
-/// The package entries of the `node_modules` at `node_modules`, sorted: each
-/// `<name>` and each `@<scope>/<name>`, the dot-named ones (`.bin`, a
-/// `.package-lock.json`, a `.deno` store) skipped.
-fn package_entries(node_modules: &Path) -> Vec<PathBuf> {
-    let mut entries = Vec::new();
-    for entry in list(node_modules) {
-        let Some(name) = entry.file_name().and_then(|name| name.to_str()) else {
+/// A `node_modules` directory's package entries, with the directories
+/// holding them.
+struct Listing {
+    /// The `node_modules` directory.
+    node_modules: Holder,
+    /// Its `@scope` directories that were listed.
+    scopes: Vec<Holder>,
+    /// The entries, sorted by path.
+    entries: Vec<PackageEntry>,
+}
+
+/// A directory holding package entries: a `node_modules` or an `@scope` in
+/// one.
+struct Holder {
+    /// Its path, as listed.
+    path: PathBuf,
+    /// Its real path, or none when it can't be read.
+    real: Option<PathBuf>,
+}
+
+/// A package entry: a `<name>` in `node_modules` or a `<name>` in one of its
+/// `@scope` directories.
+struct PackageEntry {
+    /// Its path, as listed.
+    path: PathBuf,
+    /// The index in [`Listing::scopes`] of the `@scope` directory holding
+    /// it, or none when `node_modules` does.
+    scope: Option<usize>,
+    /// Its real path when the listing gives it with no path resolved: the
+    /// entry isn't a symlink (by its directory entry's type, or an `lstat`
+    /// where the filesystem records none) and its holder's real path is
+    /// known, so the real path is the holder's joined with the entry's
+    /// name; otherwise none, and it's resolved in full.
+    real: Option<PathBuf>,
+}
+
+/// The package entries of the `node_modules` at `node_modules`, sorted by
+/// path: each `<name>` and each `@<scope>/<name>`, the dot-named ones (`.bin`,
+/// a `.package-lock.json`, a `.deno` store) skipped. Its real path is read
+/// once, after it's listed, and each `@scope`'s is derived from it the same
+/// way an entry's is ([`PackageEntry::real`]).
+fn package_entries(node_modules: PathBuf) -> Listing {
+    let listed = list(&node_modules);
+    let real = if listed.is_empty() {
+        None
+    } else {
+        std::fs::canonicalize(&node_modules).ok()
+    };
+    let mut listing = Listing {
+        node_modules: Holder {
+            path: node_modules,
+            real,
+        },
+        scopes: Vec::new(),
+        entries: Vec::new(),
+    };
+    for (path, linked) in listed {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
         if name.starts_with('.') {
             continue;
         }
+        let real = real_by_name(listing.node_modules.real.as_deref(), &path, linked);
         if name.starts_with('@') {
-            entries.extend(list(&entry).into_iter().filter(|scoped| {
-                !scoped
-                    .file_name()
-                    .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."))
-            }));
+            let scoped = list(&path);
+            if scoped.is_empty() {
+                continue;
+            }
+            let scope = Holder {
+                real: real.or_else(|| std::fs::canonicalize(&path).ok()),
+                path,
+            };
+            listing.entries.extend(
+                scoped
+                    .into_iter()
+                    .filter(|(scoped, _)| {
+                        !scoped
+                            .file_name()
+                            .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."))
+                    })
+                    .map(|(scoped, linked)| PackageEntry {
+                        real: real_by_name(scope.real.as_deref(), &scoped, linked),
+                        path: scoped,
+                        scope: Some(listing.scopes.len()),
+                    }),
+            );
+            listing.scopes.push(scope);
         } else {
-            entries.push(entry);
+            listing.entries.push(PackageEntry {
+                path,
+                scope: None,
+                real,
+            });
         }
     }
-    entries.sort();
-    entries
+    listing.entries.sort_by(|a, b| a.path.cmp(&b.path));
+    listing
 }
 
-/// The paths of the entries of the directory `dir`, or none when it can't be
-/// listed.
-fn list(dir: &Path) -> Vec<PathBuf> {
+/// The real path of the entry at `path`, listed in a directory whose real
+/// path is `holder`, when it isn't `linked`: `holder` joined with its name,
+/// since only a symlink in its last component could resolve elsewhere.
+fn real_by_name(holder: Option<&Path>, path: &Path, linked: bool) -> Option<PathBuf> {
+    if linked {
+        return None;
+    }
+    Some(holder?.join(path.file_name()?))
+}
+
+/// The entries of the directory `dir`, or none when it can't be listed: each
+/// path, and whether it may be a symlink, by its directory entry's type,
+/// which std reads with `lstat` where the filesystem records none (and an
+/// entry whose type can't be read may be one).
+fn list(dir: &Path) -> Vec<(PathBuf, bool)> {
     std::fs::read_dir(dir).map_or_else(
         |_| Vec::new(),
         |entries| {
             entries
-                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter_map(|entry| {
+                    entry.ok().map(|entry| {
+                        let linked = !entry.file_type().is_ok_and(|kind| !kind.is_symlink());
+                        (entry.path(), linked)
+                    })
+                })
                 .collect()
         },
     )
@@ -971,6 +1073,110 @@ mod tests {
             "w/tool/node_modules/back",
         );
         assert_eq!(closure(&project), [project, tool, scoped, util]);
+    }
+
+    /// A package found through a `node_modules` or an `@scope` linked into a
+    /// world-writable directory adds nothing, even when it is a link to a
+    /// directory no world-writable one holds.
+    #[test]
+    fn a_linked_holder_in_a_world_writable_directory_holds_no_root() {
+        let scratch = Scratch::new("open_holders");
+        let project = scratch.dir("w/project");
+        let plain = scratch.dir("w/plain");
+        let open = scratch.dir("w/open");
+        let store = scratch.dir("w/open/store");
+        let scope = scratch.dir("w/open/scope");
+        scratch.dir("w/plain/node_modules");
+        for dir in ["w/a", "w/b", "w/c"] {
+            scratch.dir(dir);
+            scratch.file(&format!("{dir}/package.json"));
+        }
+        set_mode(&open, 0o777);
+        scratch.link(&store, "w/project/node_modules");
+        scratch.link(&scratch.0.join("w/a"), "w/open/store/a");
+        scratch.link(&scope, "w/plain/node_modules/@s");
+        scratch.link(&scratch.0.join("w/b"), "w/open/scope/b");
+        scratch.link(&scratch.0.join("w/c"), "w/plain/node_modules/c");
+        assert_eq!(closure(&project), [project]);
+        assert_eq!(closure(&plain), [plain, scratch.0.join("w/c")]);
+    }
+
+    /// An entry that isn't a symlink is a root when the directory holding it
+    /// is real outside the roots: a project's `node_modules` linked out, an
+    /// `@scope` in it linked out, or an `@scope` in a linked package's
+    /// `node_modules` linked out holds packages installed there, and each is
+    /// one. A package installed under a root, the project's or a linked
+    /// package's, is not; a linked package is, and so is a link in its own
+    /// `node_modules`.
+    #[test]
+    fn entries_held_by_a_linked_directory_are_read_at_their_real_paths() {
+        let scratch = Scratch::new("holders");
+        // below the scratch directory, whose own parent is world-writable
+        let project = scratch.dir("w/project");
+        let outside = scratch.dir("w/store/outside");
+        let scope = scratch.dir("w/store/scope");
+        let lib = scratch.dir("w/lib");
+        let util = scratch.dir("w/util");
+        let lib_store = scratch.dir("w/lib_store");
+        for dir in [
+            "w/store/outside/alpha",
+            "w/store/outside/beta",
+            "w/store/scope/gamma",
+            "w/lib/node_modules/installed",
+            "w/lib_store/delta",
+        ] {
+            scratch.dir(dir);
+            scratch.file(&format!("{dir}/package.json"));
+        }
+        for dir in ["w/lib", "w/util"] {
+            scratch.file(&format!("{dir}/package.json"));
+        }
+        // the project's `node_modules` is a directory outside it, with
+        // packages installed in it and an `@scope` linked further out
+        scratch.link(&outside, "w/project/node_modules");
+        scratch.link(&scope, "w/store/outside/@linked");
+        // a linked package, its own installed package, a link in its
+        // `node_modules`, and an `@scope` there holding a store linked out
+        scratch.dir("w/store/outside/@fuzdev");
+        scratch.link(&lib, "w/store/outside/@fuzdev/lib");
+        scratch.link(&util, "w/lib/node_modules/util");
+        scratch.link(&lib_store, "w/lib/node_modules/@store");
+        assert_eq!(
+            closure(&project),
+            [
+                project.clone(),
+                lib.clone(),
+                scope.join("gamma"),
+                outside.join("alpha"),
+                outside.join("beta"),
+                lib_store.join("delta"),
+                util.clone(),
+            ]
+        );
+
+        // the same packages under a real `node_modules` in the project: the
+        // installed ones are inside it, and only the links reach out
+        let plain = scratch.dir("w/plain");
+        scratch.dir("w/plain/node_modules/@fuzdev");
+        for dir in [
+            "w/plain/node_modules/installed",
+            "w/plain/node_modules/@fuzdev/scoped",
+        ] {
+            scratch.dir(dir);
+            scratch.file(&format!("{dir}/package.json"));
+        }
+        scratch.link(&lib, "w/plain/node_modules/@fuzdev/lib");
+        scratch.link(&scope, "w/plain/node_modules/@linked");
+        assert_eq!(
+            closure(&plain),
+            [
+                plain,
+                lib,
+                scope.join("gamma"),
+                lib_store.join("delta"),
+                util,
+            ]
+        );
     }
 
     /// Each root is opened as the directory found: the kernel names every
