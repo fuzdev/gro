@@ -1,9 +1,26 @@
 //! `fgro eval`: one module evaluated to JSON data, written into one
 //! [`Envelope`] that reports the value or the kind of failure.
 //!
+//! An eval runs in two steps, so that its process can be confined between
+//! them ([`crate::confine`]): [`prepass`] resolves the entry and computes the
+//! box's roots, before any runtime exists, and [`eval`] runs the rest on an
+//! engine started after the box.
+//!
 //! The protocol, in order:
 //!
-//! 1. The entry resolves, as `fgro run`'s does; a failure is a `resolve`.
+//! 1. The entry resolves, as `fgro run`'s does; a failure is a `resolve`. It
+//!    must be a project's module: one inside `node_modules`, or one with no
+//!    project root above it (no `package.json` outside `node_modules` that
+//!    isn't a type marker, up to the filesystem's root or a world-writable
+//!    directory), is refused as a `resolve` the caller must fix. The project
+//!    root is the box's first root, and the link closure below it the rest
+//!    (`confine`); every module and `package.json` the run reads must lie
+//!    under one of them, or it isn't read and the eval fails as `internal`.
+//!    A graph can reach past them: the resolver follows a link the closure
+//!    doesn't (one in a nested `node_modules`, or in a subdirectory's own)
+//!    or drops (one to a directory holding the project or another package's
+//!    directory), and reads a `package.json` symlinked out of the box at its
+//!    real path.
 //! 2. With a driver (its source from stdin), the driver loads and evaluates
 //!    first, so it holds the realm's primordials before any of the config's
 //!    code can patch them. It's a module with a synthetic URL
@@ -70,16 +87,16 @@
 //! An error's kind comes from the phase that failed and, for a load, from
 //! the failure the loader recorded for the graph's static load, never from a
 //! message: a resolution's failure is `resolve`, a load's or none at all is
-//! `link` (a syntax error, a missing export binding, a strip refusal), and a
-//! failure that only a host bug or a file changed on disk can cause is
-//! `internal`.
+//! `link` (a syntax error, a missing export binding, a strip refusal), and
+//! `internal` is a failure of the host: a host bug, a file changed on disk,
+//! or a read outside the box refused.
 
 mod envelope;
 mod limits;
 mod serialize;
 
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -96,12 +113,13 @@ pub use self::envelope::{
 };
 pub use self::limits::{DEFAULT_TIMEOUT, HEAP_LIMIT};
 use self::limits::{Stop, Stopped, Watchdog};
+use crate::confine::{self, Confinement};
 use crate::engine::{Engine, EngineOptions};
 use crate::loader::graph::{
     Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
 use crate::loader::{Loader, Rules};
-use crate::resolver::{self, DiskTree};
+use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, ConsoleRouting, Mode, report, report_js, start_runtime};
 
@@ -169,17 +187,169 @@ pub struct EvalOptions {
     pub backstop: Option<Arc<File>>,
 }
 
-/// Evaluates as the module doc describes, on the engine `engine` names, and
-/// returns the envelope, whatever happened.
+/// An eval resolved, its box computed, before any runtime: what [`prepass`]
+/// returns and [`eval`] runs.
+#[derive(Debug)]
+pub struct Prepass {
+    /// What to evaluate, and how.
+    options: EvalOptions,
+    /// The entry, resolved.
+    entry: Resolution,
+    /// The roots the entry's graph starts with.
+    roots: Roots,
+    /// The box: the project's real directory and the link closure below it.
+    confinement: confine::Prepared,
+}
+
+impl Prepass {
+    /// The box the eval's process is to be confined to, before the engine
+    /// starts.
+    pub const fn confinement(&self) -> &confine::Prepared {
+        &self.confinement
+    }
+
+    /// The envelope of this eval failed with `error` before it ran: the
+    /// entry by its canonical path.
+    pub fn failed(&self, error: EvalError) -> Envelope {
+        let mut envelope = failed(&self.options, error);
+        envelope.entry.id = entry_id(&self.entry);
+        envelope
+    }
+}
+
+/// The entry's canonical path, as the envelope names it.
+fn entry_id(entry: &Resolution) -> String {
+    entry.url.to_file_path().map_or_else(
+        |()| entry.url.to_string(),
+        |path| path.to_string_lossy().into_owned(),
+    )
+}
+
+/// Resolves the entry of `options` and computes the box its eval runs in,
+/// reading the disk and starting no runtime: the first step of the module
+/// doc's protocol, the box's roots included.
+///
+/// # Errors
+///
+/// Returns the envelope of a failed eval, a `resolve`, when the entry
+/// doesn't resolve, is inside `node_modules`, or has no project root, and an
+/// `internal` when the project's directory can't be opened as the one
+/// resolved ([`confine::Prepared::for_project`]).
+pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
+    let refused = |options: &EvalOptions, message: String, specifier_error: bool| {
+        let mut failure = EvalError::new(ErrorKind::Resolve, message);
+        failure.usage = specifier_error;
+        failure.specifier = Some(options.entry.display().to_string());
+        failure.importer = Some(options.cwd.display().to_string());
+        failure
+    };
+    let (entry, roots, bound) =
+        match resolver::resolve_entry_with_bound(&DiskTree, &options.entry, &options.cwd) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                let failure = refused(&options, error.to_string(), error.kind.is_specifier_error());
+                return Err(Box::new(failed(&options, failure)));
+            }
+        };
+    let project = roots.project().dir.clone();
+    let refusal = match bound {
+        EntryBound::Found => None,
+        EntryBound::InNodeModules => Some(format!(
+            "cannot evaluate {}: it is inside node_modules, and eval evaluates a project's own \
+             module, whose project root bounds what it reads. Fix: evaluate a module of the \
+             project, outside node_modules",
+            entry_id(&entry)
+        )),
+        EntryBound::Unbounded { stopped_at } => Some(format!(
+            "cannot evaluate {}: it has no project root, which bounds what eval reads: no \
+             package.json outside node_modules that holds more than \"type\" and \
+             \"sideEffects\" is at or above {}, and the search for one {}. Fix: add a \
+             package.json to the project's directory",
+            entry_id(&entry),
+            project.display(),
+            unbounded_end(stopped_at.as_deref())
+        )),
+    };
+    if let Some(message) = refusal {
+        let failure = refused(&options, message, true);
+        let mut envelope = failed(&options, failure);
+        envelope.entry.id = entry_id(&entry);
+        return Err(Box::new(envelope));
+    }
+    let confinement = match confine::Prepared::for_project(project) {
+        Ok(confinement) => confinement,
+        Err(error) => {
+            let failure = EvalError::new(
+                ErrorKind::Internal,
+                format!("failed to open the project's directory for the box: {error}"),
+            );
+            let mut envelope = failed(&options, failure);
+            envelope.entry.id = entry_id(&entry);
+            return Err(Box::new(envelope));
+        }
+    };
+    Ok(Prepass {
+        options,
+        entry,
+        roots,
+        confinement,
+    })
+}
+
+/// The error of an eval whose process `error` says couldn't be confined: an
+/// `environment` when the host can't hold the box, an `internal` when the
+/// process broke the order the box needs.
+pub fn confine_error(error: &confine::ConfineError) -> EvalError {
+    let kind = match error {
+        confine::ConfineError::Unsupported => ErrorKind::Environment,
+        confine::ConfineError::Threads { .. } | confine::ConfineError::ThreadsUnread(_) => {
+            ErrorKind::Internal
+        }
+    };
+    EvalError::new(kind, format!("cannot confine the eval: {error}"))
+}
+
+/// How the walk for a project root ended without one.
+fn unbounded_end(stopped_at: Option<&Path>) -> String {
+    stopped_at.map_or_else(
+        || "reached the filesystem's root".to_owned(),
+        |dir| {
+            format!(
+                "stopped at {}, a directory any user can write, reading nothing in it",
+                dir.display()
+            )
+        },
+    )
+}
+
+/// Evaluates `prepass` as the module doc describes, on the engine `engine`
+/// names, and returns the envelope, whatever happened.
 ///
 /// Runs on the calling thread, which must reserve
 /// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
-pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
+pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
+    let Prepass {
+        options,
+        entry,
+        roots,
+        confinement,
+    } = prepass;
+    let options = &options;
     let driver_url = Url::parse(DRIVER_SPECIFIER).ok();
     let mut envelope = failed(
         options,
         EvalError::new(ErrorKind::Internal, "not evaluated"),
     );
+    envelope.entry.id = entry_id(&entry);
+    if let Confinement::Confined(confined) = engine.confinement()
+        && confined.roots() != confinement.roots()
+    {
+        envelope.result = Err(EvalError::new(
+            ErrorKind::Internal,
+            "the process is confined to another box than this eval's",
+        ));
+        return envelope;
+    }
     let expected = engine_options(options.jit);
     if engine.options() != &expected {
         envelope.result = Err(EvalError::new(
@@ -198,20 +368,6 @@ pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
         ));
         return envelope;
     };
-    let (entry, roots) = match resolver::resolve_entry(&DiskTree, &options.entry, &options.cwd) {
-        Ok(resolved) => resolved,
-        Err(error) => {
-            let mut failure = EvalError::new(ErrorKind::Resolve, error.to_string());
-            failure.usage = error.kind.is_specifier_error();
-            failure.specifier = Some(error.specifier);
-            failure.importer = Some(error.importer);
-            envelope.result = Err(failure);
-            return envelope;
-        }
-    };
-    if let Ok(path) = entry.url.to_file_path() {
-        envelope.entry.id = path.to_string_lossy().into_owned();
-    }
     if let Some(out) = &options.backstop
         && let Some(json) = backstop_envelope(&envelope)
         && !limits::set_backstop(Arc::clone(out), json)
@@ -225,7 +381,10 @@ pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
     let rules = Rules {
         refuse_dynamic_import: true,
         driver: options.driver.is_some().then(|| driver_url.clone()),
+        box_roots: Some(confinement.roots().clone()),
     };
+    // the roots' handles are done with once the box is up
+    drop(confinement);
     let loader = Rc::new(
         Loader::new(&entry, roots, crate::loader::graph::Recording::Full).with_rules(rules),
     );
@@ -237,16 +396,47 @@ pub fn eval(engine: Engine, options: &EvalOptions) -> Envelope {
         Rc::clone(&loader),
         &stopped,
     );
+    let breach = loader.breach();
     // the runtime, and its share of the loader, is gone once the eval ends
     let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
     envelope.access = Some(access(&graph));
-    // a stop decides the kind, whatever the run reported after it
-    envelope.result = match (result, stopped.get()) {
-        (_, Some(stop)) => Err(stop_error(stop, options)),
-        (result, None) => result.map_err(|failed| failed.into_error(&graph, options.jit)),
+    // a read refused outside the box fails the eval, whatever the run did
+    // with the error; a stop decides the kind otherwise, whatever the run
+    // reported after it
+    envelope.result = match (result, stopped.get(), breach) {
+        (_, _, Some(path)) => Err(breach_error(&path)),
+        (_, Some(stop), None) => Err(stop_error(stop, options)),
+        (result, None, None) => result.map_err(|failed| failed.into_error(&graph, options.jit)),
     };
     envelope
 }
+
+/// The error of an eval whose loader was asked to read `path`, outside the
+/// box: reached through a link the closure doesn't follow, or a
+/// `package.json` symlinked out of the box.
+fn breach_error(path: &Path) -> EvalError {
+    let mut error = EvalError::new(
+        ErrorKind::Internal,
+        format!(
+            "the eval was to read {}, which lies outside its box, so it wasn't read: the box \
+             is the project root and each package linked directly into its node_modules (or \
+             an @scope directory there) from outside it, followed through each one's own \
+             node_modules, except a link to a directory with no package.json file of its \
+             own, to a directory holding the project or another package's directory, or to \
+             one a world-writable directory holds; a link elsewhere (in a nested \
+             node_modules, or a subdirectory's own) or a package.json symlinked out of the \
+             box reaches past it",
+            path.display()
+        ),
+    );
+    error.hint = Some(BREACH_HINT.to_owned());
+    error
+}
+
+/// The hint for a read outside the box.
+const BREACH_HINT: &str = "link the package's own directory directly into the project's \
+                           node_modules, not a directory holding the project or another \
+                           package, and keep each package.json a file rather than a symlink";
 
 /// The error of a run the host stopped.
 fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
@@ -826,7 +1016,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::*;
     use crate::loader::graph::{Position, Recording};
@@ -986,6 +1176,107 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// The options of an eval of `entry` from `cwd`, with no driver.
+    fn options(entry: &Path, cwd: &Path) -> EvalOptions {
+        EvalOptions {
+            entry: entry.to_owned(),
+            cwd: cwd.to_owned(),
+            export: None,
+            driver: None,
+            jit: false,
+            snapshot: None,
+            runtime: RuntimeInfo::new("0.0.0", None),
+            timeout: DEFAULT_TIMEOUT,
+            backstop: None,
+        }
+    }
+
+    /// The pre-pass refuses an entry inside `node_modules` and one with no
+    /// project root as a `resolve` the command line must fix, naming the
+    /// entry by its canonical path; a project's module gets the project's
+    /// directory as its box. The temporary directory is world-writable, so
+    /// the walk from a directory in it with no `package.json` stops there.
+    #[test]
+    fn the_prepass_refuses_an_entry_no_project_owns() {
+        let dir = std::env::temp_dir().join(format!("gro_runtime_eval_{}_c1", std::process::id()));
+        let files = [
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            ("project/main.mjs", ""),
+            (
+                "project/node_modules/pkg/package.json",
+                r#"{"name": "pkg", "exports": "./i.mjs"}"#,
+            ),
+            ("project/node_modules/pkg/i.mjs", ""),
+            ("bare/main.mjs", ""),
+        ];
+        for (file, content) in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let dir = dir.canonicalize().unwrap();
+        let project = dir.join("project");
+
+        let resolved = prepass(options(Path::new("main.mjs"), &project)).unwrap();
+        assert_eq!(
+            resolved.confinement().roots().as_slice(),
+            std::slice::from_ref(&project)
+        );
+        assert_eq!(
+            resolved
+                .failed(EvalError::new(ErrorKind::Internal, "x"))
+                .entry
+                .id,
+            project.join("main.mjs").to_string_lossy()
+        );
+
+        for (entry, says) in [
+            ("node_modules/pkg/i.mjs", "it is inside node_modules"),
+            ("../bare/main.mjs", "it has no project root"),
+        ] {
+            let envelope = prepass(options(Path::new(entry), &project)).unwrap_err();
+            let error = envelope.result.as_ref().unwrap_err();
+            assert_eq!(error.kind, ErrorKind::Resolve, "{entry}");
+            assert!(error.usage, "{entry}");
+            assert!(error.message.contains(says), "{}", error.message);
+            assert_eq!(error.specifier.as_deref(), Some(entry));
+            assert_eq!(
+                Path::new(&envelope.entry.id),
+                project.join(entry).canonicalize().unwrap()
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A read outside the box names the path, says how the box is made, and
+    /// hints at the fix; it is `internal`, not a resolve the code could fix.
+    #[test]
+    fn a_read_outside_the_box_names_the_path_and_the_box() {
+        let error = breach_error(Path::new("/elsewhere/package.json"));
+        assert_eq!(error.kind, ErrorKind::Internal);
+        assert!(
+            error.message.starts_with(
+                "the eval was to read /elsewhere/package.json, which lies outside its box"
+            ),
+            "{}",
+            error.message
+        );
+        assert!(
+            error
+                .message
+                .contains("linked directly into its node_modules")
+        );
+        assert!(
+            error.message.contains(
+                "except a link to a directory with no package.json file of its own, to a \
+                 directory holding the project or another package's directory"
+            ),
+            "{}",
+            error.message
+        );
+        assert_eq!(error.hint.as_deref(), Some(BREACH_HINT));
     }
 
     #[test]

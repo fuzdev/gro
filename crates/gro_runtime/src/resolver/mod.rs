@@ -337,6 +337,42 @@ pub fn resolve_entry(
     path: &Path,
     cwd: &Path,
 ) -> Result<(Resolution, Roots), ResolveError> {
+    resolve_entry_with_bound(tree, path, cwd).map(|(resolution, roots, _)| (resolution, roots))
+}
+
+/// How the entry's project root was found, which [`resolve_entry_with_bound`]
+/// reports beside the resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntryBound {
+    /// The walk for the project root found one: the project root is the
+    /// directory of the first `package.json` at or above the entry, outside
+    /// `node_modules`, that isn't a type marker.
+    Found,
+    /// The walk ended with none, at the filesystem's root or, when
+    /// `stopped_at` is set, at that world-writable directory, so the project
+    /// root is the entry's own directory.
+    Unbounded {
+        /// The world-writable directory the walk stopped at, reading nothing
+        /// in it; unset when it reached the filesystem's root.
+        stopped_at: Option<PathBuf>,
+    },
+    /// The entry is inside `node_modules`: its project root is the directory
+    /// holding the first `node_modules` segment, found by the path, not by a
+    /// walk.
+    InNodeModules,
+}
+
+/// Resolves the entry as [`resolve_entry`] does, and also returns how its
+/// project root was found.
+///
+/// # Errors
+///
+/// Returns a [`ResolveError`] when the path names no loadable module.
+pub fn resolve_entry_with_bound(
+    tree: &impl SourceTree,
+    path: &Path,
+    cwd: &Path,
+) -> Result<(Resolution, Roots, EntryBound), ResolveError> {
     let specifier = path.display().to_string();
     let error = |kind| ResolveError {
         specifier: specifier.clone(),
@@ -353,7 +389,7 @@ pub fn resolve_entry(
     let mut consulted = Consulted::default();
     let (real_path, file_id) =
         find_module(tree, &path, Some(&specifier), &mut consulted, |_| Ok(())).map_err(error)?;
-    let (roots, root) = entry_roots(tree, &real_path, &mut consulted).map_err(error)?;
+    let (roots, root, bound) = entry_roots(tree, &real_path, &mut consulted).map_err(error)?;
     let url = Url::from_file_path(&real_path).map_err(|()| {
         error(ResolveErrorKind::InvalidUrl(
             "names no local path".to_owned(),
@@ -366,16 +402,17 @@ pub fn resolve_entry(
         origin: root.origin,
         files_consulted: consulted.0,
     };
-    Ok((resolution, roots))
+    Ok((resolution, roots, bound))
 }
 
 /// The roots a graph whose entry is the module at `real_path` starts with,
-/// and the entry's own root among them (see [`resolve_entry`]).
+/// the entry's own root among them, and how the project root was found (see
+/// [`resolve_entry`]).
 fn entry_roots(
     tree: &impl SourceTree,
     real_path: &Path,
     consulted: &mut Consulted,
-) -> Result<(Roots, Root), ResolveErrorKind> {
+) -> Result<(Roots, Root, EntryBound), ResolveErrorKind> {
     let dir = real_path.parent().unwrap_or(real_path);
     let segments: Vec<usize> = real_path
         .components()
@@ -384,13 +421,19 @@ fn entry_roots(
         .map(|(index, _)| index)
         .collect();
     let (Some(&first), Some(&last)) = (segments.first(), segments.last()) else {
-        let project_dir = match find_bound(tree, dir, None, consulted)? {
-            Walk::Found((bound_dir, _)) => bound_dir,
-            Walk::Ended | Walk::Stopped(_) => dir.to_owned(),
+        let (project_dir, bound) = match find_bound(tree, dir, None, consulted)? {
+            Walk::Found((bound_dir, _)) => (bound_dir, EntryBound::Found),
+            Walk::Ended => (dir.to_owned(), EntryBound::Unbounded { stopped_at: None }),
+            Walk::Stopped(stopped_at) => (
+                dir.to_owned(),
+                EntryBound::Unbounded {
+                    stopped_at: Some(stopped_at),
+                },
+            ),
         };
         let roots = Roots::new(project_dir);
         let root = roots.project().clone();
-        return Ok((roots, root));
+        return Ok((roots, root, bound));
     };
     let project_dir: PathBuf = real_path.components().take(first).collect();
     let mut roots = Roots::new(project_dir);
@@ -424,7 +467,7 @@ fn entry_roots(
         dir: package_dir,
     };
     roots.admit(root.clone());
-    Ok((roots, root))
+    Ok((roots, root, EntryBound::InNodeModules))
 }
 
 /// Whether `path`, as written, has a `node_modules` segment past what it

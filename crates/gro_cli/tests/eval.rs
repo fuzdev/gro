@@ -370,6 +370,103 @@ fn an_entry_that_does_not_resolve_is_a_resolve_exiting_2() {
     assert!(run.message().contains("no such file"), "{}", run.message());
 }
 
+/// Files written under a fresh directory in the target's temporary
+/// directory, which no world-writable directory holds, removed on drop.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("eval_{}_{name}", std::process::id()));
+        for (file, content) in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        Self(dir.canonicalize().unwrap())
+    }
+
+    fn path(&self, file: &str) -> String {
+        self.0.join(file).display().to_string()
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Eval evaluates a project's own module: one inside `node_modules`, or one
+/// with no project root above it, is refused as a `resolve` exiting 2,
+/// named by its canonical path. The system's temporary directory is
+/// world-writable, so the walk from a directory in it stops there.
+#[test]
+fn an_entry_no_project_owns_is_a_resolve_exiting_2() {
+    let scratch = Scratch::new(
+        "unowned",
+        &[
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/node_modules/pkg/package.json",
+                r#"{"name": "pkg", "exports": "./i.mjs"}"#,
+            ),
+            ("project/node_modules/pkg/i.mjs", "export default 1;\n"),
+        ],
+    );
+    let entry = scratch.path("project/node_modules/pkg/i.mjs");
+    let run = eval(&[&entry]);
+    run.assert_failed("resolve", 2);
+    assert_eq!(run.envelope["entry"]["id"], entry.as_str());
+    assert!(
+        run.message().contains("it is inside node_modules"),
+        "{}",
+        run.message()
+    );
+
+    let loose = std::env::temp_dir().join(format!("gro_cli_eval_{}_loose", std::process::id()));
+    std::fs::create_dir_all(&loose).unwrap();
+    std::fs::write(loose.join("main.mjs"), "export default 1;\n").unwrap();
+    let entry = loose.join("main.mjs").display().to_string();
+    let run = eval(&[&entry]);
+    std::fs::remove_dir_all(&loose).unwrap();
+    run.assert_failed("resolve", 2);
+    assert!(
+        run.message().contains("it has no project root"),
+        "{}",
+        run.message()
+    );
+}
+
+/// A package linked into the project's `node_modules` from outside it is in
+/// the link closure, so it loads.
+#[test]
+fn a_package_linked_from_outside_the_project_loads() {
+    let scratch = Scratch::new(
+        "linked",
+        &[
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/config.js",
+                "import {value} from '@x/lib/value.js';\nexport default {value};\n",
+            ),
+            (
+                "lib/package.json",
+                r#"{"name": "@x/lib", "type": "module", "exports": {"./value.js": "./value.js"}}"#,
+            ),
+            ("lib/value.js", "export const value = 'linked';\n"),
+        ],
+    );
+    std::fs::create_dir_all(scratch.0.join("project/node_modules/@x")).unwrap();
+    std::os::unix::fs::symlink(
+        "../../../lib",
+        scratch.0.join("project/node_modules/@x/lib"),
+    )
+    .unwrap();
+    let run = eval(&[&scratch.path("project/config.js")]);
+    run.assert_value(&json!({"value": "linked"}));
+}
+
 #[test]
 fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
     let run = eval(&["import_missing.js"]);
@@ -917,6 +1014,16 @@ fn the_heap_cap_fails_the_eval_as_heap() {
 #[test]
 fn array_buffer_memory_sits_outside_the_heap_cap() {
     eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
+}
+
+/// Every thread eval starts sets its own stack, so a `RUST_MIN_STACK` too
+/// large to reserve changes nothing: the watchdog still starts, and the value
+/// is written.
+#[test]
+fn a_huge_rust_min_stack_changes_nothing() {
+    let run = eval_with(&["value.js"], None, &[("RUST_MIN_STACK", "1099511627776")]);
+    assert_eq!(run.code, 0, "{}\n{}", run.stdout, run.stderr);
+    assert_eq!(run.envelope["ok"], true, "{}", run.stdout);
 }
 
 /// The timeout stops a loop that never ends, jitless or with the JIT, as

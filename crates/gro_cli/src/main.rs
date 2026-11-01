@@ -25,12 +25,21 @@
 //! Once eval starts, the envelope is always written, `ok: false` with an
 //! error kind on failure; a usage error prints to stderr with no envelope.
 //!
-//! The whole command runs on one thread with [`STACK_SIZE`] reserved, not on
-//! the main thread, so a debug build stays inside the 16 MiB of stack tsv's
-//! TypeScript strip is sized for (a release build needs 2 MiB), whatever the
-//! platform's main thread has. A module nested or chained past tsv's depth
-//! limits fails to load (exit `1`) with a message naming the limit, rather
-//! than overflowing the stack.
+//! Every command but `eval` runs on one thread with [`STACK_SIZE`] reserved,
+//! not on the main thread, so a debug build stays inside the 16 MiB of stack
+//! tsv's TypeScript strip is sized for (a release build needs 2 MiB), whatever
+//! the platform's main thread has. A module nested or chained past tsv's
+//! depth limits fails to load (exit `1`) with a message naming the limit,
+//! rather than overflowing the stack.
+//!
+//! `eval` keeps its process confinable: the main thread parses the
+//! arguments and reads the driver from stdin, the working directory, and the
+//! out-of-memory handle; a thread with [`STACK_SIZE`] reserved resolves the
+//! entry and computes the box (`gro_runtime::eval::prepass`) and is joined;
+//! the main thread, then the process's only one, confines it
+//! (`gro_runtime::confine`); and only then does a second thread with
+//! [`STACK_SIZE`] reserved start the engine and evaluate, so every thread
+//! the engine and the runtime start comes after the box.
 //!
 //! `fgro --version` prints one line,
 //! `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`: the git
@@ -53,7 +62,8 @@
 //!   with `--export` or its `--timeout` below 1, or an entry file that
 //!   doesn't resolve
 //!   (missing, not a `.js`, `.mjs`, `.ts`, or `.mts` file, or a `.js` file
-//!   not under `"type": "module"`)
+//!   not under `"type": "module"`), or, for `eval`, one no project owns
+//!   (inside `node_modules`, or with no project root above it)
 //!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`
@@ -76,8 +86,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use argh::{EarlyExit, FromArgs};
+use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
-use gro_runtime::eval::{ErrorKind, EvalError, EvalOptions, RuntimeInfo};
+use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, RuntimeInfo};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -257,7 +268,26 @@ fn main() -> ExitCode {
         }
     };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    // eval's process must keep one thread until it is confined, so it runs
+    // here and starts its own
+    if runs_on_main_thread(&args) {
+        return ExitCode::from(run(&args));
+    }
     ExitCode::from(run_on_sized_stack(&args))
+}
+
+/// Whether `args` parse as `fgro eval`, which confines its process and so
+/// runs on the main thread: decided from what argh parses, not the first
+/// argument, so every spelling it accepts (`fgro -- eval`) runs there.
+fn runs_on_main_thread(args: &[&str]) -> bool {
+    args.first() != Some(&MAKE_SNAPSHOT)
+        && matches!(
+            Args::from_args(&["fgro"], args),
+            Ok(Args {
+                version: false,
+                command: Some(Command::Eval(_)),
+            })
+        )
 }
 
 /// Runs [`run`] on a thread named `fgro` with [`STACK_SIZE`] reserved, so the
@@ -342,7 +372,7 @@ fn run(args: &[&str]) -> u8 {
             version: false,
             command: Some(Command::Run(RunArgs { file })),
         }) => {
-            let engine = match init_engine(&EngineOptions::default()) {
+            let engine = match init_engine(Confinement::Unconfined, &EngineOptions::default()) {
                 Ok(engine) => engine,
                 Err(error) => {
                     eprintln!("error: {error}");
@@ -388,9 +418,11 @@ fn run(args: &[&str]) -> u8 {
     }
 }
 
-/// Runs `fgro eval`: checks the flags, reads the driver from stdin when
-/// asked, evaluates on eval's engine, and prints the envelope to stdout,
-/// returning the exit code. A usage error prints to stderr with no envelope.
+/// Runs `fgro eval` on the main thread: checks the flags, reads the driver
+/// from stdin when asked, resolves the entry and computes the box on a thread
+/// of its own, confines the process, evaluates on eval's engine on another
+/// thread, and prints the envelope to stdout, returning the exit code. A usage
+/// error prints to stderr with no envelope.
 fn eval(args: EvalArgs) -> u8 {
     let EvalArgs {
         module,
@@ -424,13 +456,6 @@ fn eval(args: EvalArgs) -> u8 {
             return EXIT_USAGE;
         }
     }
-    let engine = match init_engine(&gro_runtime::eval::engine_options(jit)) {
-        Ok(engine) => engine,
-        Err(error) => {
-            eprintln!("error: {error}");
-            return EXIT_FAILURE;
-        }
-    };
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -449,8 +474,8 @@ fn eval(args: EvalArgs) -> u8 {
             .ok()
             .map(|fd| Arc::new(File::from(fd))),
     };
+    // read here, before the box, not in the runtime, which takes them as inputs
     let mut read = || -> Result<(), String> {
-        // read here, not in the runtime, which takes them as inputs
         options.cwd = std::env::current_dir()
             .map_err(|error| format!("failed to read the working directory: {error}"))?;
         if driver.is_some() {
@@ -462,12 +487,87 @@ fn eval(args: EvalArgs) -> u8 {
         }
         Ok(())
     };
-    let envelope = match read() {
-        Ok(()) => gro_runtime::eval::eval(engine, &options),
-        Err(message) => {
-            gro_runtime::eval::failed(&options, EvalError::new(ErrorKind::Internal, message))
+    if let Err(message) = read() {
+        let error = EvalError::new(ErrorKind::Internal, message);
+        return write_envelope(&gro_runtime::eval::failed(&options, error));
+    }
+    let unstarted = gro_runtime::eval::failed(
+        &options,
+        EvalError::new(
+            ErrorKind::Internal,
+            "could not start the thread that resolves the eval",
+        ),
+    );
+    let prepass = match on_sized_thread("fgro-prepass", || gro_runtime::eval::prepass(options)) {
+        Joined::Returned(Ok(prepass)) => prepass,
+        Joined::Returned(Err(envelope)) => return write_envelope(&envelope),
+        Joined::Unstarted(error) => return write_envelope(&with_error(unstarted, &error)),
+        Joined::Panicked => return EXIT_PANIC,
+    };
+    let confined = match prepass.confinement().confine() {
+        Ok(confined) => confined,
+        Err(error) => {
+            return write_envelope(&prepass.failed(gro_runtime::eval::confine_error(&error)));
         }
     };
+    let unstarted = prepass.failed(EvalError::new(
+        ErrorKind::Internal,
+        "could not start the thread that evaluates",
+    ));
+    // every thread the engine starts comes after the box, spawned from here
+    let evaluated = on_sized_thread("fgro", move || {
+        match init_engine(
+            Confinement::Confined(confined),
+            &gro_runtime::eval::engine_options(jit),
+        ) {
+            Ok(engine) => gro_runtime::eval::eval(engine, prepass),
+            Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
+        }
+    });
+    match evaluated {
+        Joined::Returned(envelope) => write_envelope(&envelope),
+        Joined::Unstarted(error) => write_envelope(&with_error(unstarted, &error)),
+        Joined::Panicked => EXIT_PANIC,
+    }
+}
+
+/// `envelope`, its error's message followed by `error`, why a thread didn't
+/// start.
+fn with_error(mut envelope: Envelope, error: &std::io::Error) -> Envelope {
+    if let Err(failure) = &mut envelope.result {
+        failure.message = format!("{} ({error})", failure.message);
+    }
+    envelope
+}
+
+/// How a thread [`on_sized_thread`] ran ended.
+enum Joined<T> {
+    /// Its work returned this.
+    Returned(T),
+    /// It couldn't start.
+    Unstarted(std::io::Error),
+    /// Its work panicked, and the panic has printed.
+    Panicked,
+}
+
+/// Runs `work` on a thread named `name` with [`STACK_SIZE`] reserved, and
+/// joins it.
+fn on_sized_thread<T: Send>(name: &str, work: impl FnOnce() -> T + Send) -> Joined<T> {
+    std::thread::scope(|scope| {
+        let spawned = std::thread::Builder::new()
+            .name(name.to_owned())
+            .stack_size(STACK_SIZE)
+            .spawn_scoped(scope, work);
+        match spawned {
+            Ok(handle) => handle.join().map_or(Joined::Panicked, Joined::Returned),
+            Err(error) => Joined::Unstarted(error),
+        }
+    })
+}
+
+/// Writes `envelope` to stdout, one line, returning the exit code its result
+/// gives, or [`EXIT_FAILURE`] when it can't be written.
+fn write_envelope(envelope: &Envelope) -> u8 {
     // written and flushed by hand: `println!` panics when stdout fails (a
     // closed pipe, a full disk)
     let written = envelope
@@ -495,7 +595,7 @@ fn eval(args: EvalArgs) -> u8 {
 fn make_snapshot(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
     // the engine `fgro run` sets up
-    let engine = init_engine(&EngineOptions::default())?;
+    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     // the xtask's stamp decides when to rerun
     gro_runtime::snapshot::make_snapshot(engine)?.write_to(dir)?;
     Ok(())
@@ -518,6 +618,29 @@ mod tests {
         assert_eq!(run(&["--version"]), 0);
         assert_eq!(run(&["run", "--help"]), 0);
         assert_eq!(run(&["eval", "--help"]), 0);
+    }
+
+    /// Every spelling argh parses as `eval` runs on the main thread, `--`
+    /// before the subcommand included, and nothing else does.
+    #[test]
+    fn eval_alone_runs_on_the_main_thread() {
+        for args in [
+            &["eval", "a.js"][..],
+            &["--", "eval", "a.js"],
+            &["eval", "--jit", "a.js"],
+        ] {
+            assert!(runs_on_main_thread(args), "{args:?}");
+        }
+        for args in [
+            &["run", "a.js"][..],
+            &["--version"],
+            &["eval"],
+            &["--version", "eval", "a.js"],
+            &["make-snapshot", "eval"],
+            &[],
+        ] {
+            assert!(!runs_on_main_thread(args), "{args:?}");
+        }
     }
 
     #[test]

@@ -7,9 +7,12 @@
 //! what each runtime decides for itself.
 //!
 //! [`init_engine`] returns an [`Engine`], the token every runtime start takes
-//! ([`crate::run_main`], [`crate::snapshot::make_snapshot`]). Only
-//! [`init_engine`] makes one, so no runtime starts on an engine nobody chose,
-//! and the token names the options the engine has.
+//! ([`crate::run_main`], [`crate::snapshot::make_snapshot`], [`crate::eval::eval`]).
+//! Only [`init_engine`] makes one, so no runtime starts on an engine nobody
+//! chose, and the token names the options the engine has and its process's
+//! [`Confinement`]: the engine starts only once the process is confined or
+//! named unconfined, since V8's worker threads start with it and a box
+//! installed after them would leave them outside.
 //!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
@@ -31,6 +34,8 @@
 use std::sync::OnceLock;
 
 use deno_core::v8;
+
+use crate::confine::Confinement;
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
 /// the JIT on, code generation from strings allowed, and ICU's own locale.
@@ -71,51 +76,88 @@ pub enum EngineError {
     /// The engine was set up already, with other options.
     #[error("the engine is already set up with other options: {0:?}")]
     Conflict(EngineOptions),
+    /// The engine was set up already, in a process confined otherwise.
+    #[error("the engine is already set up, {}", if *.confined { "confined to another box" } else { "unconfined" })]
+    ConfinementConflict {
+        /// Whether it was set up confined.
+        confined: bool,
+    },
 }
 
-/// The options the engine was set up with. A static because the engine is
-/// process state by nature: V8 keeps these settings for the life of the
-/// process, whichever runtime asked first.
-static ENGINE: OnceLock<EngineOptions> = OnceLock::new();
+/// What the engine was set up with.
+#[derive(Debug)]
+struct Setup {
+    /// Its options.
+    options: EngineOptions,
+    /// Its process's confinement.
+    confinement: Confinement,
+}
 
-/// The engine, set up: proof that [`init_engine`] ran in this process, and
-/// with which options. Every runtime start takes one.
+/// What the engine was set up with. A static because the engine is process
+/// state by nature: V8 keeps these settings for the life of the process,
+/// whichever runtime asked first.
+static ENGINE: OnceLock<Setup> = OnceLock::new();
+
+/// The engine, set up: proof that [`init_engine`] ran in this process, with
+/// which options, and how the process is confined. Every runtime start takes
+/// one.
 #[derive(Debug, Clone, Copy)]
-pub struct Engine(&'static EngineOptions);
+pub struct Engine(&'static Setup);
 
 impl Engine {
     /// The options the engine was set up with.
     #[must_use]
     pub const fn options(self) -> &'static EngineOptions {
-        self.0
+        &self.0.options
+    }
+
+    /// The process's confinement, as the engine was set up with it.
+    #[must_use]
+    pub const fn confinement(self) -> &'static Confinement {
+        &self.0.confinement
     }
 }
 
-/// Sets the engine up with `options`, once per process, before the first
-/// runtime starts, and returns the token runtimes start with.
+/// Sets the engine up with `options` in a process confined as `confinement`
+/// says, once per process, before the first runtime starts, and returns the
+/// token runtimes start with.
 ///
-/// A second call with equal options does nothing but return the token again,
-/// so callers needn't track whether it ran.
+/// A second call with equal options and an equal confinement does nothing but
+/// return the token again, so callers needn't track whether it ran.
 ///
 /// # Errors
 ///
 /// Returns [`EngineError::Conflict`] when the engine was set up already with
-/// options other than `options`.
+/// options other than `options`, and [`EngineError::ConfinementConflict`]
+/// when it was set up confined otherwise.
 ///
 /// # Panics
 ///
 /// When the locale contains a NUL byte, which no locale name does.
-pub fn init_engine(options: &EngineOptions) -> Result<Engine, EngineError> {
-    let mut applied_here = false;
+pub fn init_engine(
+    confinement: Confinement,
+    options: &EngineOptions,
+) -> Result<Engine, EngineError> {
+    let mut confinement = Some(confinement);
     let applied = ENGINE.get_or_init(|| {
-        applied_here = true;
         apply(options);
-        options.clone()
+        Setup {
+            options: options.clone(),
+            // always set here: the closure runs at most once, before anything takes it
+            confinement: confinement.take().unwrap_or(Confinement::Unconfined),
+        }
     });
-    if applied_here || applied == options {
-        Ok(Engine(applied))
+    let Some(confinement) = confinement else {
+        return Ok(Engine(applied));
+    };
+    if &applied.options != options {
+        Err(EngineError::Conflict(applied.options.clone()))
+    } else if applied.confinement != confinement {
+        Err(EngineError::ConfinementConflict {
+            confined: matches!(applied.confinement, Confinement::Confined(_)),
+        })
     } else {
-        Err(EngineError::Conflict(applied.clone()))
+        Ok(Engine(applied))
     }
 }
 
@@ -146,6 +188,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{EngineError, EngineOptions, init_engine};
+    use crate::confine::Confinement;
     use crate::{RuntimeOptions, STACK_SIZE, run_main};
 
     /// How many times V8 has asked [`fill_entropy`](super::fill_entropy) in
@@ -157,7 +200,7 @@ mod tests {
     /// test sets it up first, a run here has V8 asking the source.
     #[test]
     fn v8_draws_its_entropy_from_the_source() {
-        let engine = init_engine(&EngineOptions::default()).unwrap();
+        let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let dir = std::env::temp_dir().join(format!("gro_runtime_{}_entropy", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let entry: PathBuf = dir.join("main.mjs");
@@ -178,13 +221,13 @@ mod tests {
         assert!(super::fill_entropy(&mut [0; 8]));
         // set up with the default options, so equal ones are accepted and
         // others refused
-        assert!(init_engine(&EngineOptions::default()).is_ok());
+        assert!(init_engine(Confinement::Unconfined, &EngineOptions::default()).is_ok());
         let other = EngineOptions {
             locale: Some("en-US"),
             ..EngineOptions::default()
         };
         assert!(matches!(
-            init_engine(&other),
+            init_engine(Confinement::Unconfined, &other),
             Err(EngineError::Conflict(options)) if options == EngineOptions::default()
         ));
     }

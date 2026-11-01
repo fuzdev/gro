@@ -149,7 +149,8 @@ pub struct EvalError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
     /// Whether the command line must change: the entry didn't resolve as a
-    /// specifier. Not written; it decides the exit code.
+    /// specifier, or it is no project's own module (inside `node_modules`,
+    /// or with no project root). Not written; it decides the exit code.
     #[serde(skip)]
     pub usage: bool,
 }

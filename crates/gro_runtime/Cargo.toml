@@ -21,5 +21,8 @@ tokio.workspace = true
 tsv_ts.workspace = true
 url.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
 [lints]
 workspace = true

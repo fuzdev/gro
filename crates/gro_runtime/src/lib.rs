@@ -25,6 +25,9 @@
 //!   once per process by [`engine::init_engine`] before the first runtime,
 //!   whose token ([`engine::Engine`]) every runtime start takes, apart from
 //!   each runtime's [`RuntimeOptions`]
+//! - [`confine`]: the box a run's process is held in, and the type state
+//!   ([`confine::Confinement`]) the engine takes, confined or named
+//!   unconfined
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
 //! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
@@ -46,6 +49,7 @@
 //! once the runtime has started.
 
 mod bootstrap;
+pub mod confine;
 pub mod engine;
 pub mod eval;
 mod loader;
@@ -378,6 +382,7 @@ fn push_frames(report: &mut String, error: &JsError) {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
 
     use super::{
@@ -434,7 +439,7 @@ mod tests {
     /// Runs `source` as an `.mjs` entry in a fresh directory, on a thread
     /// reserving [`STACK_SIZE`] as `run_main` requires.
     fn run_source(name: &str, source: &str) -> Result<(), RunError> {
-        let engine = init_engine(&EngineOptions::default()).unwrap();
+        let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let dir = std::env::temp_dir().join(format!("gro_runtime_{}_{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let entry: PathBuf = dir.join("main.mjs");
@@ -548,7 +553,7 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
     ) -> (Result<(), RunError>, Option<Graph>, PathBuf) {
         use crate::resolver::test_tree::disk_test_dir;
 
-        let engine = init_engine(&EngineOptions::default()).unwrap();
+        let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let dir = disk_test_dir(name);
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
@@ -585,7 +590,7 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         use crate::resolver::DiskTree;
         use crate::resolver::test_tree::disk_test_dir;
 
-        init_engine(&EngineOptions::default()).unwrap();
+        init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let dir = disk_test_dir(name);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("main.mjs"), "").unwrap();

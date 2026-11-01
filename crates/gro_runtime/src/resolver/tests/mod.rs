@@ -71,7 +71,7 @@ pub(super) fn roots(tree: &impl SourceTree, importer: &Url) -> Roots {
     let path = importer.to_file_path().unwrap();
     entry_roots(tree, &path, &mut Consulted::default()).map_or_else(
         |_| Roots::new(path.parent().unwrap().to_owned()),
-        |(roots, _)| roots,
+        |(roots, _, _)| roots,
     )
 }
 

@@ -6,6 +6,7 @@ use deno_core::{JsRuntime, v8};
 
 use super::{MAX_DEPTH, Reason, SerializeError, to_json};
 use crate::STACK_SIZE;
+use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 
 /// Runs `test` on a thread reserving [`STACK_SIZE`], as eval runs.
@@ -27,7 +28,7 @@ struct Realm {
 
 impl Realm {
     fn new() -> Self {
-        init_engine(&EngineOptions::default()).unwrap();
+        init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let tokio = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

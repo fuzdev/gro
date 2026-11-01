@@ -592,9 +592,15 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   entropy drawn from `getrandom`, always, an optional ICU default locale,
   and two V8 flags set before V8 starts, `jitless` and
   `disallow_code_generation_from_strings`, both off for `fgro run`), once
-  per process before the first runtime; it returns an
-  `Engine` token, which `run_main` and `snapshot::make_snapshot` require, so
-  no runtime starts on an engine nobody chose; each runtime's own choices are
+  per process before the first runtime, and it takes the process's
+  `confine::Confinement`: `Confined`, made only by
+  `confine::Prepared::confine` (which refuses unless `/proc/self/status`
+  reads `Threads: 1`, rereading while a joined thread finishes exiting), or
+  `Unconfined`, which `fgro run`, `make-snapshot`, and the unit tests name;
+  it returns an `Engine` token naming both, which `run_main`,
+  `snapshot::make_snapshot`, and `eval::eval` require, so no runtime starts
+  on an engine nobody chose or before the process is confined or named
+  unconfined (V8's workers start with the engine); each runtime's own choices are
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
   each level writes to and whether each is colored, read when the run
   starts, never in the snapshot). The crate reads no environment variable;
@@ -609,7 +615,26 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   of the exact name when the loader refuses an import, and dispatches a
   synthetic one before asking the loader, so either would load into user
   code past the resolver's refusal of `ext:`. `eval/` is `fgro eval`'s
-  protocol (`eval::eval`, which always returns an `Envelope`): the engine
+  protocol in two steps: `eval::prepass` resolves the entry
+  (`resolver::resolve_entry_with_bound`, which also says how the project
+  root was found, `EntryBound`), refuses one inside `node_modules` or with no
+  project root as a usage `resolve`, and computes the read roots
+  (`confine::Prepared::for_project`: the project root and the link closure,
+  each `node_modules` entry and `@scope` entry whose real path is a
+  directory outside the roots so far, holding none, holding a `package.json`
+  that is a file (not a symlink), and held by no world-writable directory
+  (the resolver's `SourceTree::is_world_writable`), followed through each
+  new root's `node_modules` to a fixed point, directory structure only, each
+  root opened as it's found, `O_PATH` with `O_DIRECTORY` and `O_NOFOLLOW`,
+  and kept only when the kernel names the handle by the root's path, so the
+  box goes up on the directories found); then `eval::eval` (which always
+  returns an `Envelope`) runs it, the loader's `Rules::box_roots` checking
+  every module and `package.json` read against those roots first (a graph
+  can reach past them, through a link the closure doesn't follow, in a
+  nested `node_modules` or a subdirectory's own, or drops, to a directory
+  holding the project or another package's, or a `package.json` symlinked
+  out, so a refusal is recorded as the loader's breach and fails
+  the eval as `internal`, naming the path, the box, and the fix). The engine
   `eval::engine_options` gives (jitless unless `--jit`, code generation from
   strings off, locale `en-US`, checked against the `Engine` token), the
   console to stderr uncolored, the stdin driver evaluated first as a side
@@ -665,12 +690,17 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   (the order is in [src/docs/run.md](src/docs/run.md)). `fgro eval <module>
   [--driver -] [--export NAME] [--jit] [--timeout MS]` prints one envelope on stdout and
   exits by the same table (`2` only for a usage error or an entry that
-  doesn't resolve); it reads stdin for the driver and no environment
-  variable ([src/docs/eval.md](src/docs/eval.md)). The
-  whole command runs on one thread with a 32 MiB stack of its own
+  doesn't resolve or that no project owns); it reads stdin for the driver and no environment
+  variable ([src/docs/eval.md](src/docs/eval.md)). Every
+  command but `eval` runs on one thread with a 32 MiB stack of its own
   (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
   the 16 MiB its strip is sized for (a release build needs 2 MiB); a module
-  past tsv's depth limits is a load error, not an abort.
+  past tsv's depth limits is a load error, not an abort. `eval` runs on the
+  main thread, which reads stdin, the working directory, and the
+  out-of-memory handle, runs `eval::prepass` on a sized thread it joins,
+  confines the process alone, then starts the engine and evaluates on a
+  second sized thread, so every thread V8 and tokio start comes after the
+  confinement.
   `gro_runtime::run_main` documents the requirement for any embedder.
   `fgro --version` names the git commit it was built from (with `-dirty`, or
   `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot

@@ -788,6 +788,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "getrandom",
+ "libc",
  "serde",
  "serde_json",
  "thiserror",

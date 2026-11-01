@@ -7,8 +7,9 @@ use url::Url;
 use super::{MODULE, from_entry, package, packages, roots};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    ConsultedFile, DiskTree, Entry, FileId, FileRole, MAX_PACKAGE_JSON_SIZE, PackageSearchBound,
-    ResolveErrorKind, SourceTree, resolve, resolve_entry,
+    ConsultedFile, DiskTree, Entry, EntryBound, FileId, FileRole, MAX_PACKAGE_JSON_SIZE,
+    PackageSearchBound, ResolveErrorKind, SourceTree, resolve, resolve_entry,
+    resolve_entry_with_bound,
 };
 
 /// The search ends at the first `package.json` outside `node_modules`
@@ -849,5 +850,57 @@ fn world_writable_is_the_other_write_bit() {
     assert_eq!(
         writable,
         [false, false, false, true, true, true, false, true]
+    );
+}
+
+/// The entry's bound says how its project root was found: by the walk, by a
+/// `node_modules` segment in its path, or not at all, the walk ending at the
+/// filesystem's root or at a world-writable directory.
+#[test]
+fn the_entry_bound_says_how_the_project_root_was_found() {
+    let tree = MemoryTree {
+        files: BTreeMap::from([
+            ("/w/proj/package.json", r#"{"name": "proj"}"#),
+            ("/w/proj/dist/package.json", r#"{"type": "module"}"#),
+            ("/w/proj/dist/x.mjs", ""),
+            (
+                "/w/proj/node_modules/t/package.json",
+                r#"{"exports": "./i.mjs"}"#,
+            ),
+            ("/w/proj/node_modules/t/i.mjs", ""),
+            ("/loose/x.mjs", ""),
+            ("/shared/open/x.mjs", ""),
+        ]),
+        world_writable: vec!["/shared"],
+        ..MemoryTree::default()
+    };
+    let bound = |entry: &str| {
+        let (_, roots, bound) =
+            resolve_entry_with_bound(&tree, Path::new(entry), Path::new("/")).unwrap();
+        (roots.project().dir.clone(), bound)
+    };
+    assert_eq!(
+        bound("/w/proj/dist/x.mjs"),
+        (PathBuf::from("/w/proj"), EntryBound::Found)
+    );
+    assert_eq!(
+        bound("/w/proj/node_modules/t/i.mjs"),
+        (PathBuf::from("/w/proj"), EntryBound::InNodeModules)
+    );
+    assert_eq!(
+        bound("/loose/x.mjs"),
+        (
+            PathBuf::from("/loose"),
+            EntryBound::Unbounded { stopped_at: None }
+        )
+    );
+    assert_eq!(
+        bound("/shared/open/x.mjs"),
+        (
+            PathBuf::from("/shared/open"),
+            EntryBound::Unbounded {
+                stopped_at: Some(PathBuf::from("/shared"))
+            }
+        )
     );
 }

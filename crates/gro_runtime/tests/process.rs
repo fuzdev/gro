@@ -11,6 +11,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{Engine, EngineError, EngineOptions, init_engine};
 use gro_runtime::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
@@ -55,7 +56,7 @@ fn console_case(console: ConsoleOptions) {
         console,
         ..RuntimeOptions::default()
     };
-    let engine = init_engine(&EngineOptions::default()).unwrap();
+    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     run_source(engine, "console", CONSOLE_SOURCE, options);
 }
 
@@ -86,12 +87,17 @@ fn child() {
                 locale: Some(LOCALE),
                 ..EngineOptions::default()
             };
-            let engine = init_engine(&options).unwrap();
+            let engine = init_engine(Confinement::Unconfined, &options).unwrap();
             assert_eq!(engine.options(), &options);
             // equal options again are accepted, others refused
-            assert_eq!(init_engine(&options).unwrap().options(), &options);
+            assert_eq!(
+                init_engine(Confinement::Unconfined, &options)
+                    .unwrap()
+                    .options(),
+                &options
+            );
             assert!(matches!(
-                init_engine(&EngineOptions::default()),
+                init_engine(Confinement::Unconfined, &EngineOptions::default()),
                 Err(EngineError::Conflict(applied)) if applied == options
             ));
             run_source(

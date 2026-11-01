@@ -53,6 +53,18 @@
 //! [`FailureError::DynamicImport`]), and reach JS as a `TypeError`. The
 //! default rules refuse nothing more.
 //!
+//! With [`Rules::box_roots`] set, as eval sets them, every read the loader
+//! makes, a module's or a `package.json`'s, is checked first: its real path
+//! must lie under one of the box's roots, the directories the run's process
+//! is confined to (`confine`), or it isn't read. The box is the project and
+//! the link closure found from its `node_modules` before the run, and a graph
+//! can reach past it: the resolver follows a link the closure doesn't (one
+//! in a nested `node_modules`, or in a subdirectory's own) or drops (one to
+//! a directory holding the project or another package's directory), and
+//! reads a `package.json` symlinked out of the box at its real path. A refused read
+//! is recorded once ([`Loader::breach`]) for the caller to fail the run on,
+//! whatever the run did with the error.
+//!
 //! The loader keeps the run's [`Graph`]. With recording off, what a plain
 //! run uses, it keeps only what loading needs, the roots and each URL's root
 //! and file, and does no work for anything else: no hash, edge, or failure
@@ -77,6 +89,7 @@ pub mod strip;
 
 use std::cell::RefCell;
 use std::io;
+use std::path::{Path, PathBuf};
 
 use deno_core::error::ModuleLoaderError;
 use deno_core::{
@@ -85,8 +98,9 @@ use deno_core::{
 };
 use url::Url;
 
+use crate::confine::BoxRoots;
 use crate::resolver::{
-    self, DiskTree, FileId, ModuleFormat, Resolution, ResolveError, Roots, SourceTree,
+    self, DiskTree, Entry, FileId, ModuleFormat, Resolution, ResolveError, Roots, SourceTree,
 };
 use graph::{
     Failure, FailureError, Graph, LoadFailure, Loaded, Position, Reach, Reached, Recording,
@@ -103,6 +117,8 @@ pub struct Loader {
     graph: RefCell<Graph>,
     /// What it refuses beyond the resolver's rules.
     rules: Rules,
+    /// The first read refused for lying outside [`Rules::box_roots`].
+    breach: RefCell<Option<PathBuf>>,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -117,6 +133,9 @@ pub struct Rules {
     /// its own load, and every import and `import.meta.resolve` from it is
     /// refused, since it has no place on disk to resolve against.
     pub driver: Option<Url>,
+    /// The roots of the box the run's process is confined to: a module or a
+    /// `package.json` whose real path lies under none of them isn't read.
+    pub box_roots: Option<BoxRoots>,
 }
 
 /// Why an import from the driver is refused, the reason in its message.
@@ -145,6 +164,7 @@ impl Loader {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
             rules: Rules::default(),
+            breach: RefCell::new(None),
         }
     }
 
@@ -205,6 +225,47 @@ impl Loader {
                  neither import nor resolve a module"
             ),
         ))
+    }
+
+    /// The first path a read was refused at for lying outside
+    /// [`Rules::box_roots`], if any.
+    pub fn breach(&self) -> Option<PathBuf> {
+        self.breach.borrow().clone()
+    }
+
+    /// Checks a read of the real path `path` against [`Rules::box_roots`],
+    /// recording the first refusal.
+    fn check_read(&self, path: &Path) -> io::Result<()> {
+        match &self.rules.box_roots {
+            Some(roots) if !roots.holds(path) => {
+                self.breach
+                    .borrow_mut()
+                    .get_or_insert_with(|| path.to_owned());
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "{} lies outside the box's roots, so it isn't read",
+                        path.display()
+                    ),
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Resolves as [`Loader::resolve_reached`] over the disk, each read
+    /// checked against the box.
+    fn resolve_on_disk(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reached: Reached,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        let tree = Boxed {
+            loader: self,
+            tree: &DiskTree,
+        };
+        self.resolve_reached(&tree, specifier, referrer, reached)
     }
 
     /// The graph, taken from the loader.
@@ -269,7 +330,11 @@ impl Loader {
                     )),
                 ))
             },
-            |file_id| load(specifier, requested, file_id, recording),
+            |file_id| {
+                load(specifier, requested, file_id, recording, |path| {
+                    self.check_read(path)
+                })
+            },
         );
         match result {
             Ok((source, loaded)) => {
@@ -339,7 +404,7 @@ impl ModuleLoader for Loader {
                 ),
             ));
         }
-        self.resolve_reached(&DiskTree, specifier, referrer, reached)
+        self.resolve_on_disk(specifier, referrer, reached)
     }
 
     /// Resolves as an import does, roots and all, but admits no root and
@@ -351,7 +416,7 @@ impl ModuleLoader for Loader {
         referrer: &str,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         self.refuse_from_driver(specifier, referrer, Reached::MetaResolve)?;
-        self.resolve_reached(&DiskTree, specifier, referrer, Reached::MetaResolve)
+        self.resolve_on_disk(specifier, referrer, Reached::MetaResolve)
     }
 
     fn load(
@@ -371,6 +436,30 @@ impl ModuleLoader for Loader {
             reach,
             referrer,
         ))
+    }
+}
+
+/// A tree whose reads are checked against the loader's box first
+/// ([`Loader::check_read`]).
+struct Boxed<'a, T> {
+    /// The loader whose box checks the reads.
+    loader: &'a Loader,
+    /// The tree read.
+    tree: &'a T,
+}
+
+impl<T: SourceTree> SourceTree for Boxed<'_, T> {
+    fn lookup(&self, path: &Path) -> io::Result<Option<Entry>> {
+        self.tree.lookup(path)
+    }
+
+    fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
+        self.loader.check_read(path)?;
+        self.tree.read(path, id)
+    }
+
+    fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+        self.tree.is_world_writable(dir)
     }
 }
 
@@ -427,14 +516,15 @@ fn resolve_into(
 }
 
 /// Reads the module at `specifier`, a URL the resolver produced for the file
-/// `file_id` names, stripping a TypeScript module's types, and returns it
-/// with, when `recording` is full, what was read: its format and the hash of
-/// the bytes read.
+/// `file_id` names, once `check` allows its path, stripping a TypeScript
+/// module's types, and returns it with, when `recording` is full, what was
+/// read: its format and the hash of the bytes read.
 fn load(
     specifier: &ModuleSpecifier,
     requested: &RequestedModuleType,
     file_id: FileId,
     recording: Recording,
+    check: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(ModuleSource, Option<Loaded>), Refused> {
     let refused = |failure, error| (reason(recording, || FailureError::Load(failure)), error);
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
@@ -463,6 +553,7 @@ fn load(
             ModuleLoaderError::generic(format!("cannot load {specifier}: {error}")),
         )
     };
+    check(&path).map_err(io_error)?;
     // read from the file checked, never the path again, which can change in between
     let Some(code) = resolver::read_checked(&path, file_id, None).map_err(io_error)? else {
         return Err(refused(
@@ -513,6 +604,7 @@ mod tests {
     use super::graph::{Edge, FailureSite, Record};
     use super::strip::StripFailure;
     use super::*;
+    use crate::confine::BoxRoots;
     use crate::resolver::test_tree::{MemoryTree, disk_test_dir};
     use crate::resolver::{ConsultedFile, FileRole, ResolveErrorKind};
 
@@ -730,6 +822,76 @@ mod tests {
     }
 
     const SOURCE: &str = "export const a = 1;\n";
+
+    /// A loader over `/p/main.ts` in `tree`, its reads checked against the
+    /// box `roots`.
+    fn boxed_loader(tree: &MemoryTree, roots: &[&str]) -> Loader {
+        let roots = roots.iter().map(PathBuf::from).collect();
+        new_loader(tree).with_rules(Rules {
+            box_roots: Some(BoxRoots::for_test(roots)),
+            ..Rules::default()
+        })
+    }
+
+    /// A `package.json` read outside the box is refused before it is read,
+    /// and the loader records the breach; inside it, nothing is.
+    #[test]
+    fn a_read_outside_the_box_is_a_breach() {
+        let mut tree = tree();
+        tree.files.insert(
+            "/q/ext/package.json",
+            r#"{"name": "ext", "type": "module", "exports": "./x.js"}"#,
+        );
+        tree.files.insert("/q/ext/x.js", "");
+        tree.links.insert("/p/node_modules/ext", "/q/ext");
+        let resolve = |loader: &Loader, specifier: &str| {
+            let boxed = Boxed {
+                loader,
+                tree: &tree,
+            };
+            loader.resolve_reached(&boxed, specifier, MAIN, STATIC)
+        };
+
+        let inside = boxed_loader(&tree, &["/p", "/q/ext"]);
+        assert!(resolve(&inside, "ext").is_ok());
+        assert!(resolve(&inside, "bar").is_ok());
+        assert_eq!(inside.breach(), None);
+
+        let outside = boxed_loader(&tree, &["/p"]);
+        assert!(resolve(&outside, "bar").is_ok());
+        assert_eq!(outside.breach(), None);
+        let error = resolve(&outside, "ext").unwrap_err();
+        assert!(error.to_string().contains("outside the box"), "{error}");
+        assert_eq!(outside.breach(), Some(PathBuf::from("/q/ext/package.json")));
+        // the first breach stands
+        let _ = resolve(&outside, "ext");
+        assert_eq!(outside.breach(), Some(PathBuf::from("/q/ext/package.json")));
+    }
+
+    /// A module outside the box isn't read, and the loader records the
+    /// breach; with no box, reads aren't checked.
+    #[test]
+    fn a_module_outside_the_box_is_not_read() {
+        let fixtures = DiskFixtures::new("box", &[("main.js", SOURCE)]);
+        let url = fixtures.url("main.js");
+        let unboxed = fixtures.loader("main.js");
+        assert_eq!(load_disk(&unboxed, &url).as_deref(), Ok(SOURCE));
+        assert_eq!(unboxed.breach(), None);
+        let inside = fixtures.loader("main.js").with_rules(Rules {
+            box_roots: Some(BoxRoots::for_test(vec![fixtures.0.clone()])),
+            ..Rules::default()
+        });
+        assert_eq!(load_disk(&inside, &url).as_deref(), Ok(SOURCE));
+        assert_eq!(inside.breach(), None);
+        let elsewhere = fixtures.0.with_file_name("elsewhere");
+        let outside = fixtures.loader("main.js").with_rules(Rules {
+            box_roots: Some(BoxRoots::for_test(vec![elsewhere])),
+            ..Rules::default()
+        });
+        let error = load_disk(&outside, &url).unwrap_err();
+        assert!(error.contains("outside the box"), "{error}");
+        assert_eq!(outside.breach(), Some(fixtures.path("main.js")));
+    }
 
     fn load_disk(loader: &Loader, url: &Url) -> Result<String, String> {
         loader

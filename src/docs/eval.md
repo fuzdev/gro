@@ -45,13 +45,16 @@ It runs only with the time zone UTC (below), which ICU takes from the host's `TZ
   What a stop can't interrupt (one long builtin call, or allocation under the JIT)
   runs out of memory instead: the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
   V8 prints its last garbage collections to stderr first.
-  The cap counts V8's heap only: the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array
-  live outside it, uncapped, so a runaway allocation there can end the process with no envelope.
-  A caller treats a missing envelope as a failure.
+  The cap counts V8's heap only. Outside it, uncapped, are the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array,
+  a module's source and its parse, and the envelope's own bytes (serializing a large string makes several copies of it),
+  so a runaway allocation there can end the process with no envelope.
+  A caller treats a missing envelope as a failure, and a caller that wants a hard bound on memory sets one on the process.
 - **The timeout** stops the run after `--timeout` milliseconds, 10000 by default, and fails it as `timeout`.
   It counts from the runtime's start to the drain's end, and stops JS and the serializer's walk;
   a module load in progress finishes first, and so does a builtin call in progress
   (one long `JSON.stringify`, say), bounded by the heap's cap, so a stop can come seconds late.
+  Console output goes to stderr, and a write blocks while stderr's reader isn't reading,
+  which the timeout can't interrupt: a caller drains stderr while the eval runs.
 
 ## Determinism
 
@@ -87,6 +90,10 @@ Inert: `WeakRef` holds its target, so `deref()` always returns it;
 ## The protocol
 
 1. The module resolves; if it doesn't, the kind is `resolve`.
+   It must be a project's own module, so its project root bounds what the eval reads:
+   a module inside `node_modules`, or one with no project root above it
+   (no `package.json` outside `node_modules` that holds more than `"type"` and `"sideEffects"`,
+   up to the filesystem's root or a world-writable directory), is refused as a `resolve` too, exiting 2.
 2. With `--driver -`, the driver evaluates first, before any of the module's code,
    so it holds the realm's original `JSON`, `Object`, and prototypes before the module could patch them.
 3. The module's graph loads and evaluates.
@@ -101,6 +108,26 @@ Inert: `WeakRef` holds its target, so `deref()` always returns it;
 Every `import()` in the run is refused before anything is resolved, whatever it names,
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
 caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md).
+
+## What eval reads
+
+Eval reads modules and `package.json` files only under its read roots:
+the project root, and each package linked into the project's `node_modules` from outside it.
+Those are found before the module runs, from the directory structure alone:
+every entry of the project's `node_modules` (and of each `@scope` directory in it) whose real path is a directory outside the roots so far,
+with a `package.json` file of its own (not a symlink), becomes a root,
+and its own `node_modules` is read the same way, until nothing new is found.
+A package installed in the project's `node_modules` is under the project root already.
+A link to a file, to a directory with no `package.json` file, to a directory holding a root (an ancestor of the project, or `/`),
+or to one a world-writable directory holds, which the resolver refuses to read a package through, adds nothing.
+
+Every read is checked against the roots before it happens.
+A module graph can reach past them: the resolver follows links the closure doesn't
+(one in a nested `node_modules`, or in a subdirectory's own `node_modules`)
+or drops (one to a directory holding the project or another package's directory, which `fgro run` follows),
+and reads a `package.json` symlinked out of the roots at its real path.
+Such a read is refused, and the eval fails as `internal`, naming the path, whatever the code did with the error;
+the fix is to link the package's own directory directly into the project's `node_modules`, and to keep each `package.json` a file.
 
 ## The driver
 
@@ -192,7 +219,7 @@ never from a message:
 
 | kind             | when                                                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `resolve`        | the module didn't resolve, or a static import didn't (an import in the driver among them)                             |
+| `resolve`        | the module didn't resolve, or isn't a project's own module (inside `node_modules`, or with no project root), or a static import didn't resolve (an import in the driver among them) |
 | `link`           | the graph didn't form: a syntax error, a missing export binding, TypeScript the strip refuses, or import attributes |
 | `module_threw`   | a module's evaluation, or the driver's call, threw, rejected, or left a top-level `await` unsettled                   |
 | `export_missing` | the export to serialize is absent, or the driver has no `default` function (or an `after_drain` that isn't one)       |
@@ -201,7 +228,7 @@ never from a message:
 | `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
 | `environment`    | the process's time zone isn't UTC                                                                                      |
-| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, or a host invariant broke     |
+| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the read roots was refused, or a host invariant broke |
 
 ## Exit codes
 
@@ -211,7 +238,7 @@ The same table as [run](run.md#errors-and-exit-codes):
 | ---- | -------------------------------------------------------------------------------------------------------- |
 | 0    | the value serialized, or `--help`                                                                        |
 | 1    | any failure after the module resolved, the kind in the envelope                                          |
-| 2    | a usage error (an unknown flag, `--driver` other than `-`, `--driver` with `--export`, a `--timeout` below 1), or a module that doesn't resolve |
+| 2    | a usage error (an unknown flag, `--driver` other than `-`, `--driver` with `--export`, a `--timeout` below 1), or a module that doesn't resolve or isn't a project's own |
 
 A module that fails to resolve on an I/O error or a symlink loop exits 1, not 2, as in `run`.
 A failure writing the envelope (a closed pipe, a full disk) is reported on stderr and exits 1, whatever the eval's outcome.

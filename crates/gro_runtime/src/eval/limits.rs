@@ -41,12 +41,16 @@ use deno_core::{JsRuntime, v8};
 /// machine's memory, so a runaway eval on the heap fails as `heap` long
 /// before the kernel's out-of-memory killer would take it, and its process.
 ///
-/// The cap is V8's heap only. The backing memory of an `ArrayBuffer`, a
-/// `SharedArrayBuffer`, or a typed array lives outside it, uncapped: a
-/// runaway allocation there grows the process until the kernel ends it,
-/// with no envelope written, so a caller treats a missing envelope as a
-/// failure. Capping it would take a bounded array-buffer allocator or a
-/// process limit, neither of which the runtime sets.
+/// The cap is V8's heap only. Outside it, uncapped, are the backing memory
+/// of an `ArrayBuffer`, a `SharedArrayBuffer`, or a typed array; a module's
+/// source, as read and stripped, and its parse; and the envelope's own
+/// bytes, which the serializer writes outside the heap (serializing a large
+/// string makes several copies of it). A runaway allocation there grows the
+/// process until the kernel ends it, with no envelope written, so a caller
+/// treats a missing envelope as a failure, and a caller that wants a hard
+/// bound on memory sets one on the process. Capping them would take a
+/// bounded array-buffer allocator and byte caps, none of which the runtime
+/// sets.
 pub const HEAP_LIMIT: usize = 512 << 20;
 
 /// The room the cap is raised by, once, when the heap first nears it: 32
@@ -60,6 +64,12 @@ pub const HEAP_HEADROOM: usize = 32 << 20;
 /// eval and still below the spawn timeouts a caller commonly kills its
 /// child at, so the caller gets the envelope rather than a killed process.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The watchdog thread's stack: 128 KiB, set rather than left to
+/// `RUST_MIN_STACK`, which a huge value would make the spawn fail, and the
+/// eval with it. The thread waits on a channel and asks V8 to terminate, so
+/// it needs little; std raises a size below the platform's least to it.
+const WATCHDOG_STACK_SIZE: usize = 128 << 10;
 
 /// Why the host stopped the run's JS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +202,7 @@ impl Watchdog {
         let (cancel, cancelled) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
             .name("fgro-watchdog".to_owned())
+            .stack_size(WATCHDOG_STACK_SIZE)
             .spawn(move || {
                 if cancelled.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {
                     stopped.set(Stop::Timeout);
