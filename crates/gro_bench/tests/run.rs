@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use gro_bench::error::BenchError;
 use gro_bench::record::{GitState, Machine, MachineQuiet, Mode, RunRecord};
 use gro_bench::run::{Measure, RunContext, run};
-use gro_bench::suite::{Arg, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload};
+use gro_bench::suite::{
+    Arg, Budget, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload,
+};
 
 fn context() -> RunContext {
     RunContext {
@@ -25,6 +27,7 @@ fn context() -> RunContext {
         // only a suite naming a collection writes here, and those tests set their own
         work_dir: std::env::temp_dir().join("gro_bench_unused_work"),
         measure: Measure::Wall,
+        snapshot: None,
     }
 }
 
@@ -74,6 +77,8 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
         corpora: None,
         parity: Vec::new(),
         gate: None,
+        budgets: BTreeMap::new(),
+        prices: None,
     }
 }
 
@@ -129,6 +134,112 @@ fn measures_every_row_and_the_noise_row() {
     assert_eq!(record.runtimes[0].blake3.len(), 64);
     assert_eq!(record.config_hash, suite.config_hash());
     assert_eq!(record.suite.name, "test");
+}
+
+/// Each sample's peak memory is recorded, above the floor every spawned
+/// process reads at least, which the run measures too.
+#[cfg(target_os = "linux")]
+#[test]
+fn records_each_sample_s_peak_memory_and_the_floor() {
+    let dir = scratch(
+        "peak",
+        &[
+            ("light.sh", "true\n"),
+            // a 200 MB string, held by awk, a descendant sh reaps
+            (
+                "heavy.sh",
+                "awk 'BEGIN { s = sprintf(\"%200000000s\", \"\"); print length(s) }' > /dev/null\n",
+            ),
+        ],
+    );
+    let suite = suite(vec![sh(Vec::new())], &["light.sh", "heavy.sh"], 2);
+    let record = run_in(&dir, &suite).unwrap();
+    let floor = record.rss_floor_kib.unwrap();
+    let peak = |workload: &str| {
+        record
+            .rows
+            .iter()
+            .find(|row| row.workload == workload)
+            .and_then(|row| row.peak_rss_kib.clone())
+            .unwrap()
+    };
+    assert_eq!(peak("light").samples.len(), 2);
+    assert!(floor > 0);
+    assert!(peak("light").max() < 100_000, "{floor} {:?}", peak("light"));
+    assert!(
+        peak("heavy").stats.median > 190_000.0,
+        "{:?}",
+        peak("heavy")
+    );
+    assert!(floor < 100_000, "{floor}");
+}
+
+/// A runtime over a budget fails the run before any sample, naming it.
+#[test]
+fn a_size_over_budget_fails_the_run() {
+    let dir = scratch("budget", &[("a.sh", "true\n")]);
+    let mut suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
+    suite.budgets = BTreeMap::from([(
+        "sh".to_owned(),
+        Budget {
+            gzip_bytes: Some(1),
+            ..Budget::default()
+        },
+    )]);
+    let error = run(&suite, &dir, context()).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        matches!(
+            error,
+            BenchError::BudgetExceeded {
+                budget: "gzip_bytes",
+                limit: 1,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(
+        message.contains("`sh`") && message.contains("gzip_bytes"),
+        "{message}"
+    );
+    assert!(error.is_input_error());
+    // a phases run, whose fgro is a measurement build, checks none, and
+    // records no peaks
+    let mut phases = context();
+    phases.measure = Measure::Phases {
+        runtimes: BTreeSet::new(),
+    };
+    let record = run(&suite, &dir, phases).unwrap();
+    assert_eq!(record.mode, Mode::Phases);
+    assert!(record.rows.iter().all(|row| row.peak_rss_kib.is_none()));
+    assert_eq!(record.rss_floor_kib, None);
+    // a snapshot budget with no snapshot to measure fails loudly too
+    suite.budgets = BTreeMap::from([(
+        "sh".to_owned(),
+        Budget {
+            snapshot_bytes: Some(1 << 30),
+            ..Budget::default()
+        },
+    )]);
+    let error = run(&suite, &dir, context()).unwrap_err();
+    assert!(
+        error.to_string().contains("no size was measured"),
+        "{error}"
+    );
+    // within its limits, and the budgets left out of the config hash
+    suite.budgets = BTreeMap::from([(
+        "sh".to_owned(),
+        Budget {
+            bytes: Some(1 << 40),
+            gzip_bytes: Some(1 << 40),
+            snapshot_bytes: None,
+        },
+    )]);
+    let record = run_in(&dir, &suite).unwrap();
+    let mut without = suite;
+    without.budgets.clear();
+    assert_eq!(record.config_hash, without.config_hash());
 }
 
 #[test]
@@ -344,6 +455,7 @@ fn a_project_workload_runs_from_a_fresh_copy() {
         dir: PathBuf::from("p"),
         stub_packages: 2,
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
+        generate: BTreeMap::new(),
     });
     let mut context = context();
     context.work_dir = dir.join("work");
@@ -404,6 +516,7 @@ fn a_linked_checkout_changing_mid_run_discards_it() {
         dir: PathBuf::from("p"),
         stub_packages: 0,
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
+        generate: BTreeMap::new(),
     });
     let mut context = context();
     context.work_dir = dir.join("work");
@@ -796,16 +909,24 @@ fn a_counter_run_counts_every_sample() {
         other => other.unwrap(),
     };
     assert_eq!(record.mode, Mode::Counters);
-    assert_eq!(
-        record.counters.as_ref().unwrap().events,
-        ["instructions:u", "cycles:u"]
-    );
+    // the kernel's instructions too where perf may count them for this user
+    let events = &record.counters.as_ref().unwrap().events;
+    let kernel = events.len() == 3;
+    assert_eq!(events[..2], ["instructions:u", "cycles:u"]);
+    assert!(!kernel || events[2] == "instructions:k", "{events:?}");
     let row = &record.rows[0];
-    for metric in [row.instructions.as_ref(), row.cycles.as_ref()] {
+    assert_eq!(row.kernel_instructions.is_some(), kernel);
+    for metric in [row.instructions.as_ref(), row.cycles.as_ref()]
+        .into_iter()
+        .chain(kernel.then_some(row.kernel_instructions.as_ref()))
+    {
         let metric = metric.unwrap();
         assert_eq!(metric.samples.len(), 4);
         assert!(metric.samples.iter().all(|&count| count > 0));
     }
     assert!(record.noise.instructions.is_some());
     assert!(record.noise.instructions_median_deviation.is_some());
+    // perf, the spawner, would mask a small row's peak: none is recorded
+    assert_eq!(row.peak_rss_kib, None);
+    assert_eq!(record.rss_floor_kib, None);
 }

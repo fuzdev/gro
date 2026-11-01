@@ -1,0 +1,199 @@
+//! The `prices` feature from outside: a default build ignores
+//! `GRO_PRICES_OFF`, and a priced build turns off each default it names
+//! (each test turning off one it can see from outside) and refuses a name it
+//! doesn't know. The priced build's test runs from
+//! `cargo xtask build --verify`, which builds `fgro` with the feature for it.
+
+// clippy's test allowance covers `#[test]` functions, not their helpers
+#![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
+
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
+
+/// The variable naming the defaults to turn off, `gro_runtime::prices`'s.
+const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
+
+/// Runs `fgro` with `args` from the eval fixtures, with `off` as the
+/// switches when given.
+fn fgro(args: &[&str], off: Option<&str>) -> Output {
+    fgro_in(args, off, &[])
+}
+
+/// Runs `fgro` as [`fgro`] does, with `env` set over its defaults.
+fn fgro_in(args: &[&str], off: Option<&str>, env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
+    command
+        .args(args)
+        // eval refuses any other time zone
+        .env("TZ", "UTC")
+        .env_remove("LC_ALL")
+        .envs(env.iter().copied())
+        .env_remove(PRICES_OFF_ENV)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval"))
+        .stdin(Stdio::null());
+    if let Some(off) = off {
+        command.env(PRICES_OFF_ENV, off);
+    }
+    command.output().unwrap()
+}
+
+fn version(off: Option<&str>) -> String {
+    let output = fgro(&["--version"], off);
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[cfg(not(feature = "prices"))]
+#[test]
+fn a_default_build_ignores_the_switches() {
+    let line = version(Some("not_a_default"));
+    assert!(!line.contains(", prices"), "{line}");
+}
+
+/// The envelope's `value`, after checking the eval succeeded.
+#[cfg(feature = "prices")]
+fn value(output: &Output) -> serde_json::Value {
+    assert!(output.status.success(), "{output:?}");
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(envelope["ok"], true, "{envelope}");
+    envelope["value"].clone()
+}
+
+#[cfg(feature = "prices")]
+#[test]
+fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    assert!(version(None).contains(", prices)"), "{}", version(None));
+    let output = fgro(&["--version"], Some("deny,jitless"));
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("`jitless`"),
+        "{output:?}"
+    );
+    if !cfg!(feature = "snapshot") {
+        return;
+    }
+    // every default on: the clock is refused, and code generation throws
+    let output = fgro(&["eval", "clock.js"], None);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        value(&fgro(&["eval", "codegen.js"], Some(""))),
+        serde_json::json!({
+            "eval": "EvalError",
+            "indirect_eval": "EvalError",
+            "function": "EvalError",
+            "async_function": "EvalError"
+        })
+    );
+    // each turned off alone
+    assert_eq!(value(&fgro(&["eval", "clock.js"], Some("deny"))), "number");
+    assert_eq!(
+        value(&fgro(&["eval", "codegen.js"], Some("codegen"))),
+        serde_json::json!({
+            "eval": "generated",
+            "indirect_eval": "generated",
+            "function": "generated",
+            "async_function": "generated"
+        })
+    );
+    // the time zone: refused unless the check is off
+    let tokyo = [("TZ", "Asia/Tokyo")];
+    let output = fgro_in(&["eval", "value.js"], None, &tokyo);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("\"environment\""),
+        "{output:?}"
+    );
+    assert_eq!(
+        value(&fgro_in(&["eval", "value.js"], Some("utc_check"), &tokyo))["b"],
+        1
+    );
+    // the timeout: a millisecond stops the work, unless no watchdog keeps it
+    let output = fgro(&["eval", "--timeout", "1", "busy.js"], None);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("\"timeout\""),
+        "{output:?}"
+    );
+    assert!(
+        value(&fgro(
+            &["eval", "--timeout", "1", "busy.js"],
+            Some("watchdog")
+        ))
+        .is_number()
+    );
+    // the locale: en-US whatever the host's, unless the pin is off; then
+    // the time zone check, which reads the epoch's date string, sees the
+    // zone named in German, so it's off too
+    let german = [("LC_ALL", "de_DE.UTF-8")];
+    assert_eq!(
+        value(&fgro_in(&["eval", "intl.js"], None, &german))["number_locale"],
+        "en-US"
+    );
+    assert_eq!(
+        value(&fgro_in(
+            &["eval", "intl.js"],
+            Some("locale,utc_check"),
+            &german
+        ))["number_locale"],
+        "de-DE"
+    );
+    // the box: a package linked from a subdirectory's `node_modules`, which
+    // the box's link closure doesn't follow, is refused by the loader's own
+    // rule, then, with that off, by Landlock, and loads with both off
+    let base = std::env::temp_dir().join(format!("fgro_prices_box_{}", std::process::id()));
+    let project = base.join("p");
+    let outside = base.join("outside/pkg");
+    std::fs::create_dir_all(project.join("sub/node_modules")).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    // not world-writable, which would end the walks up and refuse the package
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(
+        project.join("package.json"),
+        r#"{"name": "p", "type": "module"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("sub/main.js"),
+        "import value from 'pkg';\nexport default value;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        outside.join("package.json"),
+        r#"{"name": "pkg", "type": "module", "exports": "./index.js"}"#,
+    )
+    .unwrap();
+    std::fs::write(outside.join("index.js"), "export default 'outside';\n").unwrap();
+    std::os::unix::fs::symlink(&outside, project.join("sub/node_modules/pkg")).unwrap();
+    let outside_kind = |off: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_fgro"))
+            .args(["eval", "sub/main.js"])
+            .env("TZ", "UTC")
+            .env(PRICES_OFF_ENV, off)
+            .current_dir(&project)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        if envelope["ok"] == true {
+            envelope["value"].clone()
+        } else {
+            envelope["error"]["kind"].clone()
+        }
+    };
+    let kinds = [
+        outside_kind(""),
+        outside_kind("box_rule"),
+        outside_kind("box_rule,landlock"),
+    ];
+    std::fs::remove_dir_all(&base).unwrap();
+    // the loader's rule names the breach; Landlock's refused read fails the
+    // resolution, which reads the package's `package.json`
+    assert_eq!(kinds, ["internal", "resolve", "outside"]);
+    // the box gone, the eval runs the same
+    assert_eq!(
+        value(&fgro(&["eval", "clock.js"], Some("deny,landlock,seccomp"))),
+        "number"
+    );
+}

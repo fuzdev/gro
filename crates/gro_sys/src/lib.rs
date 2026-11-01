@@ -8,6 +8,8 @@
 //! - [`close_inherited_fds`] closes every file descriptor above stderr, the
 //!   ones a process inherits from its parent, which a kernel box that gates
 //!   only new opens doesn't reach.
+//! - [`wait_child`] reaps a child process by `wait4`, returning its exit
+//!   status with its peak resident set size, which std's `wait` drops.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -215,6 +217,67 @@ fn close(fd: libc::c_int) -> io::Result<()> {
     }
 }
 
+/// A child reaped by [`wait_child`].
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reaped {
+    /// How it exited.
+    pub status: std::process::ExitStatus,
+    /// Its peak resident set size in KiB, the kernel's `ru_maxrss`: the
+    /// largest of its own and that of each descendant it reaped.
+    ///
+    /// Not the child's own peak alone: `exec` folds the peak of the memory
+    /// the child ran in before it into `ru_maxrss`. Spawned sharing its
+    /// parent's memory (`vfork`, or `posix_spawn`, std's path), that is the
+    /// parent's own peak, so a child whose peak is below its parent's reads
+    /// the parent's; forked, it is the copy's, which starts at the size of
+    /// what was copied.
+    pub max_rss_kib: u64,
+}
+
+/// Waits for `child` to exit and reaps it by `wait4`, returning its exit
+/// status and peak resident set size ([`Reaped`]), retrying an interrupted
+/// wait. It takes the child by value, so nothing reaps it twice.
+///
+/// # Errors
+///
+/// Returns the call's error, such as `ECHILD` when the child was reaped
+/// already some other way.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std's `wait` drops the resource usage, and a raw system call is `unsafe`"
+)]
+pub fn wait_child(child: std::process::Child) -> io::Result<Reaped> {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    let pid = libc::pid_t::try_from(child.id())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a pid past pid_t"))?;
+    // its handles close here, as std's `wait` closes stdin first
+    drop(child);
+    let mut status: libc::c_int = 0;
+    // SAFETY: an all-zero `rusage` is a valid value of the plain-integer
+    // struct
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    loop {
+        // SAFETY: `wait4` writes only to the two pointers, each to a live
+        // local of the type it expects, and reaps only `pid`, a child of this
+        // process that `child`, now consumed, named
+        let result = unsafe { libc::wait4(pid, &raw mut status, 0, &raw mut usage) };
+        if result == pid {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Ok(Reaped {
+        status: std::process::ExitStatus::from_raw(status),
+        max_rss_kib: u64::try_from(usage.ru_maxrss).unwrap_or(0),
+    })
+}
+
 /// Sends `signal` to the thread `tid` of the process `tgid`, by `tgkill`;
 /// a `signal` of 0 sends nothing and checks only that it could be sent.
 ///
@@ -369,5 +432,17 @@ mod tests {
             let error = super::above_stderr([OsString::from(name)]).unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{name:?}");
         }
+    }
+
+    /// A reaped child's status is its exit's, and its peak is counted.
+    #[test]
+    fn wait_child_reaps_with_the_status_and_the_peak() {
+        let child = std::process::Command::new("sh")
+            .args(["-c", "exit 3"])
+            .spawn()
+            .unwrap();
+        let reaped = super::wait_child(child).unwrap();
+        assert_eq!(reaped.status.code(), Some(3));
+        assert!(reaped.max_rss_kib > 0, "{reaped:?}");
     }
 }

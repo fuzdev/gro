@@ -30,6 +30,9 @@ seccompiler.workspace = true
 # phase timings for the measurement harness (`phases`); release and snapshot
 # builds never enable it
 phases = []
+# switches that each turn off one of eval's defaults, read from `GRO_PRICES_OFF`,
+# for the bench's prices suite; release and snapshot builds never enable it
+prices = []
 
 [lints]
 workspace = true

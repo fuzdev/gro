@@ -563,13 +563,21 @@ const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
 /// calling thread, the process's only one.
 #[cfg(target_os = "linux")]
 fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
+    use crate::prices::{self, EvalDefault};
+    // a priced build can leave either wall out, to time it (`prices`)
     // compiled first, so a filter that can't be built fails before any wall
-    let filters = seccomp_filters(jit)?;
-    landlock(&prepared.pins)?;
+    let filters = if prices::off(EvalDefault::Seccomp) {
+        None
+    } else {
+        Some(seccomp_filters(jit)?)
+    };
+    if !prices::off(EvalDefault::Landlock) {
+        landlock(&prepared.pins)?;
+    }
     // the killing filter first, so it passes the allowlist's own `seccomp`
     // call; the allowlist doesn't allow `seccomp`, so it is the last filter
     // the process can take
-    for filter in &filters {
+    for filter in filters.iter().flatten() {
         seccompiler::apply_filter(filter).map_err(ConfineError::Seccomp)?;
     }
     Ok(())

@@ -13,5 +13,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+# each sample's peak memory, read as it's reaped (`wait4`)
+[target.'cfg(target_os = "linux")'.dependencies]
+gro_sys = { path = "../gro_sys" }
+
 [lints]
 workspace = true

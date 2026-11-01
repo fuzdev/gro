@@ -145,6 +145,7 @@ use crate::loader::graph::{
 };
 use crate::loader::reads::{Reads, RecordingTree};
 use crate::loader::{Loader, Rules};
+use crate::prices::{self, EvalDefault};
 use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, ConsoleRouting, Mode, phases, report, report_js, start_runtime};
@@ -178,12 +179,13 @@ pub const TIME_ZONE: &str = "UTC";
 pub const UTC_EPOCH: &str = "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)";
 
 /// The engine eval runs on: jitless unless `jit`, code generation from
-/// strings off either way, and [`LOCALE`].
-pub const fn engine_options(jit: bool) -> EngineOptions {
+/// strings off either way, and [`LOCALE`]. A priced build can turn either
+/// of the last two off ([`prices`]).
+pub fn engine_options(jit: bool) -> EngineOptions {
     EngineOptions {
-        locale: Some(LOCALE),
+        locale: (!prices::off(EvalDefault::Locale)).then_some(LOCALE),
         jitless: !jit,
-        disallow_code_generation_from_strings: true,
+        disallow_code_generation_from_strings: !prices::off(EvalDefault::Codegen),
     }
 }
 
@@ -436,6 +438,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
         return envelope;
     };
     if let Some(out) = &options.backstop
+        && !prices::off(EvalDefault::HeapWatch)
         && let Some(json) = backstop_envelope(&envelope)
         && !limits::set_backstop(Arc::clone(out), json)
     {
@@ -448,7 +451,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
     let rules = Rules {
         refuse_dynamic_import: true,
         driver: options.driver.is_some().then(|| driver_url.clone()),
-        box_roots: Some(confinement.roots().clone()),
+        box_roots: (!prices::off(EvalDefault::BoxRule)).then(|| confinement.roots().clone()),
     };
     let box_roots = options
         .graph
@@ -456,7 +459,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
     // the roots' handles are done with once the box is up
     drop(confinement);
     let loader = Rc::new(
-        Loader::new(&entry, roots, crate::loader::graph::Recording::Full)
+        Loader::new(&entry, roots, recording())
             .with_reads(reads)
             .with_rules(rules),
     );
@@ -495,9 +498,22 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
             result.map_err(|failed| failed.into_error(&graph, options.jit))
         }
     };
-    cap_envelope(&mut envelope, MAX_ENVELOPE_SIZE, MAX_TEXT_KEPT);
+    if !prices::off(EvalDefault::EnvelopeCap) {
+        cap_envelope(&mut envelope, MAX_ENVELOPE_SIZE, MAX_TEXT_KEPT);
+    }
     phases::mark(phases::Phase::Envelope);
     envelope
+}
+
+/// How much the loader records of the graph: all of it, which the
+/// envelope's `access` and a failure's kind read, unless a priced build
+/// turns it off.
+fn recording() -> crate::loader::graph::Recording {
+    if prices::off(EvalDefault::Recording) {
+        crate::loader::graph::Recording::Off
+    } else {
+        crate::loader::graph::Recording::Full
+    }
 }
 
 /// The bytes of each text field of a failure past the envelope's cap that
@@ -964,16 +980,27 @@ fn evaluate(
     tokio_runtime.block_on(async {
         let mut runtime = start_runtime(options.snapshot, CONSOLE, loader, Mode::Eval)
             .map_err(|message| Failed::new(Phase::Start, message))?;
-        limits::watch_heap(&mut runtime, stopped.clone());
+        if !prices::off(EvalDefault::HeapWatch) {
+            limits::watch_heap(&mut runtime, stopped.clone());
+        }
         // stopped, and joined, when the eval returns
-        let _watchdog =
-            Watchdog::start(&mut runtime, options.timeout, stopped.clone()).map_err(|error| {
-                Failed::new(
-                    Phase::Start,
-                    format!("failed to start the timeout's watchdog: {error}"),
-                )
-            })?;
-        check_time_zone(&mut runtime)?;
+        let _watchdog = if prices::off(EvalDefault::Watchdog) {
+            None
+        } else {
+            Some(
+                Watchdog::start(&mut runtime, options.timeout, stopped.clone()).map_err(
+                    |error| {
+                        Failed::new(
+                            Phase::Start,
+                            format!("failed to start the timeout's watchdog: {error}"),
+                        )
+                    },
+                )?,
+            )
+        };
+        if !prices::off(EvalDefault::UtcCheck) {
+            check_time_zone(&mut runtime)?;
+        }
         phases::mark(phases::Phase::Guards);
         let driver = match &options.driver {
             Some(source) => {

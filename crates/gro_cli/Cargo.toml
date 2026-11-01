@@ -42,6 +42,9 @@ snapshot = []
 # write a timestamp at each phase boundary to the file `GRO_PHASES_FILE` names,
 # for `cargo xtask bench --phases`; release and snapshot builds never enable it
 phases = ["gro_runtime/phases"]
+# read `GRO_PRICES_OFF`, whose names each turn off one of eval's defaults, for
+# the bench's prices suite; release and snapshot builds never enable it
+prices = ["gro_runtime/prices"]
 
 [lints]
 workspace = true

@@ -1,0 +1,31 @@
+{
+	"name": "memory",
+	"version": 1,
+	"samples": 10,
+	"runtimes": [
+		{"name": "fgro", "program": "../../../../target/gro_snapshot/release/fgro", "args": ["eval"], "env": {"TZ": "UTC"}},
+		{
+			"name": "fgro_jit",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": ["eval", "--jit"],
+			"env": {"TZ": "UTC"}
+		},
+		{
+			"name": "deno",
+			"program": "deno",
+			"args": ["run", "--no-config", "--no-prompt", "--no-remote", "--no-lock", "--allow-read", "-"],
+			"v8_args": ["eval", "console.log(Deno.version.v8)"],
+			"env": {"TZ": "UTC", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
+			"stdin": {"file": "deno.js"}
+		}
+	],
+	"gate": {"against": "deno", "runtimes": ["fgro", "fgro_jit"], "workloads": ["data_module"]},
+	"workloads": [
+		{
+			"name": "data_module",
+			"script": "data/entry.js",
+			"warmup": 1,
+			"project": {"dir": "data", "generate": {"data.js": {"data_module": {"bytes": 16000000}}}}
+		}
+	]
+}

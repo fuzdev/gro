@@ -17,9 +17,20 @@
 //! the renderer needs it.
 //!
 //! Line versions: 5 added `checkouts`; 6 added `mode`, `counters`, and each
-//! row's (and the noise row's) `instructions`, `cycles`, and `phases`. A
-//! line of an older version still reads as this shape, as a wall run, with
-//! the fields it lacks empty.
+//! row's (and the noise row's) `instructions`, `cycles`, and `phases`; 7
+//! added each row's `peak_rss_kib` and `kernel_instructions`, the run's
+//! `rss_floor_kib`, and `snapshot_bytes`. A line of an older version still reads as this shape,
+//! as a wall run, with the fields it lacks empty.
+//!
+//! A row's peak memory is each process's `ru_maxrss` as its reaping returns
+//! it (`wait4`), which counts from the memory the process ran in before it
+//! executed its program: its spawner's (the harness's, or `perf`'s in a
+//! counter run). So a sample reads at least that spawner's own peak, and the
+//! run measures that floor too (`rss_floor_kib`): a row whose samples sit
+//! well above it read the runtime's own peak; one at or near it doesn't.
+//! Only a wall run records peaks: a counter run's spawner is `perf`, whose
+//! own peak would mask a small runtime's, and a phases run's `fgro` is a
+//! measurement build.
 
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -33,7 +44,7 @@ use crate::error::BenchError;
 use crate::stats::Stats;
 
 /// The line shape's version, bumped when it changes incompatibly.
-pub const RECORD_VERSION: u32 = 6;
+pub const RECORD_VERSION: u32 = 7;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -78,6 +89,16 @@ pub struct RunRecord {
     pub rows: Vec<RowRecord>,
     /// The A/A noise row.
     pub noise: NoiseRecord,
+    /// The peak, in KiB, that a sample's `peak_rss_kib` reads at least,
+    /// whatever it runs: the largest of a trivial program's (`true`) run as
+    /// the samples are, after them, in a wall run. Absent before version 7,
+    /// in other modes, and where the harness reads no peak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rss_floor_kib: Option<u64>,
+    /// The size in bytes of the startup snapshot the run's `fgro` embeds,
+    /// when the caller named it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_bytes: Option<u64>,
 }
 
 /// What a run measured, beside wall time.
@@ -202,6 +223,10 @@ pub struct RowRecord {
     /// User-space cycles per process, in a counter run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cycles: Option<Metric>,
+    /// Kernel-space instructions retired per process, in a counter run,
+    /// from version 7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kernel_instructions: Option<Metric>,
     /// Each phase's duration per process, in nanoseconds, in a phases run,
     /// in the order the phases ran: `start` (from the harness's spawn to the
     /// runtime's entry), each phase the runtime marked, then `reap` (from its
@@ -209,6 +234,12 @@ pub struct RowRecord {
     /// Empty for a runtime that marks none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phases: Vec<PhaseMetric>,
+    /// Peak resident set size per process, in KiB, its `ru_maxrss`, which
+    /// reads at least the run's `rss_floor_kib`, in a wall run. Absent
+    /// before version 7, in other modes, and where the harness reads no
+    /// peak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_rss_kib: Option<Metric>,
 }
 
 /// One phase's durations.
@@ -226,6 +257,13 @@ pub struct Metric {
     pub stats: Stats,
     /// The samples in the order they were taken.
     pub samples: Vec<u64>,
+}
+
+impl Metric {
+    /// The largest sample, outliers included: for a peak, the worst seen.
+    pub fn max(&self) -> u64 {
+        self.samples.iter().copied().max().unwrap_or(0)
+    }
 }
 
 /// The A/A noise row: the run's first row measured a second time, as a row of
@@ -624,10 +662,12 @@ mod tests {
                 ]),
                 instructions: Some(metric(vec![9_000_001, 9_000_003, 9_000_002])),
                 cycles: Some(metric(vec![7_000_001, 7_000_003, 7_000_002])),
+                kernel_instructions: Some(metric(vec![3_000_001, 3_000_003])),
                 phases: vec![PhaseMetric {
                     name: "start".to_owned(),
                     ns: metric(vec![300_001, 300_002, 300_003]),
                 }],
+                peak_rss_kib: Some(metric(vec![40_001, 40_003, 40_002])),
             }],
             noise: NoiseRecord {
                 runtime: "node".to_owned(),
@@ -637,6 +677,8 @@ mod tests {
                 instructions: Some(metric(vec![9_000_002, 9_000_004])),
                 instructions_median_deviation: Some(0.000_000_3),
             },
+            rss_floor_kib: Some(9_001),
+            snapshot_bytes: Some(7_000_001),
         }
     }
 
@@ -677,7 +719,7 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                6,
+                7,
                 vec![
                     "artifacts",
                     "checkouts",
@@ -691,7 +733,9 @@ mod tests {
                     "noise",
                     "record_version",
                     "rows",
+                    "rss_floor_kib",
                     "runtimes",
+                    "snapshot_bytes",
                     "started_unix_s",
                     "suite",
                 ]
@@ -708,6 +752,7 @@ mod tests {
         for row in &mut record.rows {
             row.instructions = None;
             row.cycles = None;
+            row.kernel_instructions = None;
             row.phases.clear();
         }
         record.noise.instructions = None;

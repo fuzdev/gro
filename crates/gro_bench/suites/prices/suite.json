@@ -1,0 +1,339 @@
+{
+	"name": "prices",
+	"version": 1,
+	"samples": 40,
+	"runtimes": [
+		{
+			"name": "fgro",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "close_fds",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "close_fds"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "landlock",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "landlock"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "seccomp",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "seccomp"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "box",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "landlock,seccomp"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "box_rule",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "box_rule"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "deny",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "deny"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "refuse_ops",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "refuse_ops"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "jitless",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--jit",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "codegen",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "codegen"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "locale",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "locale"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "heap_cap",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "heap_cap"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "heap_watch",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "heap_watch"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "watchdog",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "watchdog"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "utc_check",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "utc_check"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "recording",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "recording"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		},
+		{
+			"name": "envelope_cap",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"args": [
+				"eval",
+				"--driver",
+				"-"
+			],
+			"env": {
+				"TZ": "UTC",
+				"GRO_PRICES_OFF": "envelope_cap"
+			},
+			"stdin": {
+				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+			},
+			"stdout": "envelope"
+		}
+	],
+	"workloads": [
+		{
+			"name": "tiny",
+			"script": "tiny/zap.ts",
+			"warmup": 4,
+			"project": {
+				"dir": "tiny"
+			}
+		},
+		{
+			"name": "fixture",
+			"script": "../eval/fixture/zap.ts",
+			"warmup": 4,
+			"project": {
+				"dir": "../eval/fixture",
+				"stub_packages": 230,
+				"links": {
+					"@fuzdev/zap": "../../../../../private_zap"
+				}
+			}
+		}
+	],
+	"parity": [
+		"fgro",
+		"close_fds",
+		"landlock",
+		"seccomp",
+		"box",
+		"box_rule",
+		"deny",
+		"refuse_ops",
+		"jitless",
+		"codegen",
+		"locale",
+		"heap_cap",
+		"heap_watch",
+		"watchdog",
+		"utc_check",
+		"recording",
+		"envelope_cap"
+	],
+	"prices": {
+		"default": "fgro"
+	}
+}

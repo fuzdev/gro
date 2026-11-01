@@ -32,6 +32,8 @@
 //!   embedded by the binary that starts from it
 //! - [`phases`]: a timestamp at each phase boundary of a run, for the
 //!   measurement harness, recorded only under the `phases` feature
+//! - [`prices`]: switches that each turn off one of eval's defaults, for the
+//!   measurement harness to price them, read only under the `prices` feature
 //! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
 //!   an optional driver module, the clock and randomness denied and the heap
 //!   and time limited, written by a strict host serializer into one
@@ -39,7 +41,8 @@
 //!
 //! `deno_core`'s types stay out of this crate's public API, and the crate
 //! reads no environment variable (but the `phases` feature's file,
-//! [`phases::PHASES_FILE_ENV`]): what a runtime decides per run, such as the
+//! [`phases::PHASES_FILE_ENV`], and the `prices` feature's switches,
+//! [`prices::PRICES_OFF_ENV`]): what a runtime decides per run, such as the
 //! console's color and streams ([`ConsoleOptions`]), comes in through
 //! [`RuntimeOptions`] from the embedder.
 //!
@@ -57,6 +60,7 @@ pub mod engine;
 pub mod eval;
 mod loader;
 pub mod phases;
+pub mod prices;
 pub mod resolver;
 pub mod snapshot;
 
@@ -71,6 +75,7 @@ use crate::engine::Engine;
 use crate::loader::Loader;
 use crate::loader::graph::{Graph, Recording};
 use crate::phases::Phase;
+use crate::prices::EvalDefault;
 use crate::resolver::{DiskTree, ResolveError};
 use crate::snapshot::StartupSnapshot;
 
@@ -279,7 +284,9 @@ fn start_runtime(
     // before the bootstrap's start reads them
     let state = runtime.op_state();
     state.borrow_mut().put(console);
-    state.borrow_mut().put(bootstrap::Deny(mode == Mode::Eval));
+    state.borrow_mut().put(bootstrap::Deny(
+        mode == Mode::Eval && !prices::off(EvalDefault::Deny),
+    ));
     drop(state);
     bootstrap::start(&mut runtime).map_err(|error| report_js(&error))?;
     phases::mark(Phase::Bootstrap);
@@ -295,6 +302,9 @@ fn new_runtime(
 ) -> Result<JsRuntime, String> {
     let create_params = match mode {
         Mode::Run => None,
+        Mode::Eval if prices::off(EvalDefault::HeapCap) => {
+            Some(deno_core::v8::Isolate::create_params().allow_atomics_wait(false))
+        }
         Mode::Eval => Some(
             deno_core::v8::Isolate::create_params()
                 .heap_limits(0, eval::HEAP_LIMIT)
@@ -304,7 +314,9 @@ fn new_runtime(
     JsRuntime::try_new(deno_core::RuntimeOptions {
         module_loader: Some(loader),
         // the same list the snapshot was made from, in the same order
-        extensions: bootstrap::extensions(mode == Mode::Eval),
+        extensions: bootstrap::extensions(
+            mode == Mode::Eval && !prices::off(EvalDefault::RefuseOps),
+        ),
         startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
         residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
         create_params,

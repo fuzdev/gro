@@ -21,8 +21,8 @@
 //!
 //! 1. the V8 archive, as `fetch-v8`
 //! 2. the Rust gates: `cargo fmt`, `cargo clippy` (again with the `phases`
-//!    feature on `gro_runtime` and `gro_cli`), `cargo test` (again for
-//!    `gro_runtime`'s unit tests with the feature), and
+//!    and `prices` features on `gro_runtime` and `gro_cli`), `cargo test`
+//!    (again for `gro_runtime`'s unit tests with the features), and
 //!    `cargo doc`, with warnings denied; after clippy, the first build, the
 //!    V8 library copy it left is checked before the tests run V8 code
 //! 3. the snapshot build, as `build --verify`
@@ -61,6 +61,16 @@
 //! (`gro_bench::counters`), refusing when perf can't count them in full.
 //! Either is the record's `mode`; they don't combine.
 //!
+//! A suite with `prices` builds `fgro` with its `prices` feature
+//! (`<target>/gro_snapshot/release-prices/fgro`), refuses it unless its
+//! `--version` says `, prices`, runs it in place of every runtime (each must
+//! be `fgro`), and after the summary prints the price table
+//! (`gro_bench::prices`); it takes `--counters`, not `--phases` or `--base`.
+//! The release build is refused when its `--version` names either
+//! measurement build. The record carries the size of the release build's
+//! snapshot (`snapshot.bin` beside it), which a suite's `budgets` can limit
+//! with the executable's sizes: a run over one fails before its samples.
+//!
 //! `--counters --base <rev>` is the A/B for the perf rule: it builds the
 //! release snapshot `fgro` at `rev` too, in a clone of its own outside the
 //! checkout ([`base`], under `--base-dir`), runs each `fgro` runtime beside a
@@ -91,7 +101,8 @@
 //!   runtime's `stdout` says) or breaks the suite's `parity`, `--history` is
 //!   empty, names a directory, or names no file in an existing directory, or
 //!   the `fgro` it names isn't the release snapshot build (or that build, or
-//!   the phases build, failed), perf can't count, the flags don't combine, or
+//!   a measurement build, failed), a size crosses its budget, perf can't
+//!   count, the flags don't combine, or
 //!   `--base` names no commit, or the history `report` reads is missing
 //! - `1`: anything else, such as an artifact or a linked checkout changing
 //!   mid-run or a failed write
@@ -118,6 +129,8 @@ use gro_bench::suite::{Gate, Runtime, Suite};
 mod base;
 mod snapshot;
 mod v8_archive;
+
+use snapshot::Measurement;
 
 /// The workspace root, two levels above this crate's manifest, canonicalized
 /// like the history path, so a root reached through a symlink still contains
@@ -291,7 +304,7 @@ fn main() -> ExitCode {
         Subcommand::FetchV8(FetchV8 {}) => fetch_v8(&root),
         Subcommand::Build(Build { release, verify }) => fetch_v8(&root).and_then(|()| {
             let target_dir = target_dir(&root)?;
-            let build = snapshot::build(&root, &target_dir, release, false)?;
+            let build = snapshot::build(&root, &target_dir, release, Measurement::None)?;
             if verify {
                 snapshot::verify(&root, release, &build)?;
             }
@@ -390,7 +403,7 @@ fn check_rust(root: &Path) -> StepResult {
             "warnings",
         ],
     )?;
-    // the workspace clippy builds without it, so the phases feature's code goes unlinted there
+    // the workspace clippy builds without them, so the measurement features' code goes unlinted there
     run(
         root,
         &[],
@@ -403,7 +416,7 @@ fn check_rust(root: &Path) -> StepResult {
             "-p",
             "gro_cli",
             "--features",
-            "gro_runtime/phases,gro_cli/phases",
+            "gro_runtime/phases,gro_runtime/prices,gro_cli/phases,gro_cli/prices",
             "--all-targets",
             "--",
             "-D",
@@ -419,7 +432,7 @@ fn check_rust(root: &Path) -> StepResult {
         "cargo",
         &["test", "--locked", "--workspace", "--no-fail-fast"],
     )?;
-    // the phases feature's own unit tests, which the workspace's leave out
+    // the measurement features' own unit tests, which the workspace's leave out
     run(
         root,
         &[],
@@ -430,7 +443,7 @@ fn check_rust(root: &Path) -> StepResult {
             "-p",
             "gro_runtime",
             "--features",
-            "phases",
+            "phases,prices",
             "--lib",
         ],
     )?;
@@ -447,7 +460,7 @@ fn check_rust(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
-    let build = snapshot::build(root, &target_dir, false, false)?;
+    let build = snapshot::build(root, &target_dir, false, Measurement::None)?;
     snapshot::verify(root, false, &build)
 }
 
@@ -509,19 +522,45 @@ fn bench(root: &Path, args: Bench) -> StepResult {
         suite.samples = samples;
         suite.validate().map_err(|error| bench_failed(&error))?;
     }
-    build_fgro(root, &suite, suite_dir)?;
+    if suite.prices.is_some() {
+        if let Some(runtime) = suite.runtimes.iter().find(|runtime| !is_fgro(runtime)) {
+            return usage(&format!(
+                "a prices suite prices fgro's defaults, and its runtime `{}` isn't fgro",
+                runtime.name
+            ));
+        }
+        if args.phases || args.base.is_some() {
+            return usage(
+                "a prices suite runs the priced build, which --phases and --base would replace",
+            );
+        }
+    }
+    let release = build_fgro(root, &suite, suite_dir)?;
+    // beside the release binary, as `cargo xtask build` writes it
+    let snapshot = release.map(|binary| binary.with_file_name("snapshot.bin"));
     let fgro_names: BTreeSet<String> = suite
         .runtimes
         .iter()
         .filter(|runtime| is_fgro(runtime))
         .map(|runtime| runtime.name.clone())
         .collect();
+    if suite.prices.is_some() {
+        let target_dir = target_dir(root).map_err(|_| ExitCode::from(EXIT_INPUT))?;
+        let built = snapshot::build(root, &target_dir, true, Measurement::Prices)
+            .map_err(|_| ExitCode::from(EXIT_INPUT))?
+            .binary;
+        require_marker(&built, PRICES_MARKER)?;
+        for runtime in &mut suite.runtimes {
+            runtime.program = built.display().to_string();
+        }
+        println!();
+    }
     let measure = if args.phases {
         if fgro_names.is_empty() {
             return usage("--phases times fgro's phases, and the suite runs no fgro");
         }
         let target_dir = target_dir(root).map_err(|_| ExitCode::from(EXIT_INPUT))?;
-        let built = snapshot::build(root, &target_dir, true, true)
+        let built = snapshot::build(root, &target_dir, true, Measurement::Phases)
             .map_err(|_| ExitCode::from(EXIT_INPUT))?
             .binary;
         for runtime in &mut suite.runtimes {
@@ -574,6 +613,7 @@ fn bench(root: &Path, args: Bench) -> StepResult {
             },
             work_dir: root.join(BENCH_DIR),
             measure,
+            snapshot,
         };
         println!(
             "[xtask] bench {} v{}: {} rows plus the noise row, {} samples each, interleaved",
@@ -589,13 +629,26 @@ fn bench(root: &Path, args: Bench) -> StepResult {
         Ok(record)
     });
     let record = result.map_err(|error| bench_failed(&error))?;
+    if let Some(tool) = &record.counters
+        && !tool
+            .events
+            .iter()
+            .any(|event| event == gro_bench::counters::KERNEL_EVENT)
+    {
+        println!(
+            "[xtask] perf can't count the kernel's instructions for this user (`perf_event_paranoid` above 1), so this run counted user space alone"
+        );
+    }
     print_summary(&record);
     if let Some(base) = &base {
         print_base(&record, base);
         println!("[xtask] an A/B records nothing");
         return Ok(());
     }
-    if record.mode == Mode::Wall {
+    if let Some(prices) = &suite.prices {
+        println!();
+        print!("{}", gro_bench::prices::table(&record, prices));
+    } else if record.mode == Mode::Wall {
         print_gate(&suite, &record);
     } else {
         println!("\n(no gate table: it reads wall times, which this mode's processes inflate)");
@@ -749,15 +802,16 @@ fn is_fgro(runtime: &Runtime) -> bool {
 /// startup snapshot, the one path that verifies the release V8 library.
 /// Building first (cached when nothing changed) means a stale or debug binary
 /// is never timed. A failed build has printed its own error, and exits `2`,
-/// since the run can't go ahead until it's fixed.
-fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
+/// since the run can't go ahead until it's fixed. Returns the binary built,
+/// when the suite has an `fgro`.
+fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<Option<PathBuf>, ExitCode> {
     if !suite.runtimes.iter().any(is_fgro) {
-        return Ok(());
+        return Ok(None);
     }
     let input = |_| ExitCode::from(EXIT_INPUT);
     fetch_v8(root).map_err(input)?;
     let target_dir = target_dir(root).map_err(input)?;
-    let built = snapshot::build(root, &target_dir, true, false)
+    let built = snapshot::build(root, &target_dir, true, Measurement::None)
         .map_err(input)?
         .binary;
     let built = built.canonicalize().map_err(|error| {
@@ -765,18 +819,19 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> StepResult {
         ExitCode::FAILURE
     })?;
     check_fgro_programs(suite, suite_dir, &built).map_err(|error| bench_failed(&error))?;
-    refuse_phases_build(&built)?;
+    refuse_measurement_build(&built)?;
     println!();
-    Ok(())
+    Ok(Some(built))
 }
 
 /// The marker a phases build's `--version` line carries.
 const PHASES_MARKER: &str = ", phases";
 
-/// Refuses a release build that is a phases build, which a feature unified
-/// in from elsewhere in the build graph would make: its marks would time
-/// what a release doesn't run.
-fn refuse_phases_build(built: &Path) -> StepResult {
+/// The marker a priced build's `--version` line carries.
+const PRICES_MARKER: &str = ", prices";
+
+/// `built --version`'s first line, failing when it doesn't run.
+fn version_line(built: &Path) -> Result<String, ExitCode> {
     let output = Command::new(built)
         .arg("--version")
         .output()
@@ -787,13 +842,42 @@ fn refuse_phases_build(built: &Path) -> StepResult {
             );
             ExitCode::FAILURE
         })?;
-    let line = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || line.contains(PHASES_MARKER) {
+    let line = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if !output.status.success() {
         eprintln!(
-            "[xtask] bench failed: the release build {} is a phases build or doesn't run ({}): {}",
+            "[xtask] bench failed: {} doesn't run ({}): {line}",
             built.display(),
             output.status,
-            line.trim()
+        );
+        return Err(ExitCode::from(EXIT_INPUT));
+    }
+    Ok(line)
+}
+
+/// Refuses a release build that is a measurement build (phases or priced),
+/// which a feature unified in from elsewhere in the build graph would make:
+/// it would time what a release doesn't run.
+fn refuse_measurement_build(built: &Path) -> StepResult {
+    let line = version_line(built)?;
+    if line.contains(PHASES_MARKER) || line.contains(PRICES_MARKER) {
+        eprintln!(
+            "[xtask] bench failed: the release build {} is a measurement build: {line}",
+            built.display(),
+        );
+        return Err(ExitCode::from(EXIT_INPUT));
+    }
+    Ok(())
+}
+
+/// Refuses a measurement build whose `--version` lacks its `marker`, which
+/// would time the release under its name: a priced build that reads no
+/// switches prices every default at nothing.
+fn require_marker(built: &Path, marker: &str) -> StepResult {
+    let line = version_line(built)?;
+    if !line.contains(marker) {
+        eprintln!(
+            "[xtask] bench failed: {} isn't the measurement build it was built as (no `{marker}`): {line}",
+            built.display(),
         );
         return Err(ExitCode::from(EXIT_INPUT));
     }
@@ -880,25 +964,28 @@ fn print_summary(record: &RunRecord) {
     }
     if record.rows.iter().any(|row| row.instructions.is_some()) {
         println!(
-            "\n{:<width$} {:<16} {:>14} {:>9} {:>14} {:>14}",
-            "runtime", "workload", "instructions", "cv", "min", "cycles"
+            "\n{:<width$} {:<16} {:>14} {:>9} {:>14} {:>14} {:>14}",
+            "runtime", "workload", "instructions", "cv", "min", "cycles", "kernel instr"
         );
         for row in &record.rows {
             let (Some(instructions), Some(cycles)) = (&row.instructions, &row.cycles) else {
                 continue;
             };
             println!(
-                "{:<width$} {:<16} {:>14.0} {:>8.3}% {:>14.0} {:>14.0}",
+                "{:<width$} {:<16} {:>14.0} {:>8.3}% {:>14.0} {:>14.0} {:>14}",
                 row.runtime,
                 row.workload,
                 instructions.stats.median,
                 instructions.stats.cv * 100.0,
                 instructions.stats.min,
                 cycles.stats.median,
+                row.kernel_instructions
+                    .as_ref()
+                    .map_or_else(|| "-".to_owned(), |k| format!("{:.0}", k.stats.median)),
             );
         }
         println!(
-            "(user-space medians under perf stat, whose startup the wall times above include)"
+            "(medians under perf stat, user space but the kernel's instructions; the wall times above include perf's startup)"
         );
     }
     if record.rows.iter().any(|row| !row.phases.is_empty()) {
@@ -913,6 +1000,47 @@ fn print_summary(record: &RunRecord) {
                 .collect();
             println!("{} {}: {}", row.runtime, row.workload, phases.join(", "));
         }
+    }
+    if record.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
+        let mb_of = |kib: f64| kib * 1024.0 / 1e6;
+        println!(
+            "\n{:<width$} {:<16} {:>10} {:>10}",
+            "runtime", "workload", "peak MB", "max MB"
+        );
+        for row in &record.rows {
+            let Some(peak) = &row.peak_rss_kib else {
+                continue;
+            };
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "peaks in KiB are far below 2^52"
+            )]
+            let max = peak.max() as f64;
+            println!(
+                "{:<width$} {:<16} {:>9.1}{} {:>10.1}",
+                row.runtime,
+                row.workload,
+                mb_of(peak.stats.median),
+                if gro_bench::report::near_rss_floor(peak, record.rss_floor_kib) {
+                    "*"
+                } else {
+                    " "
+                },
+                mb_of(max),
+            );
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "peaks in KiB are far below 2^52"
+        )]
+        let floor = record.rss_floor_kib.map_or_else(
+            || "-".to_owned(),
+            |kib| format!("{:.1} MB", mb_of(kib as f64)),
+        );
+        println!(
+            "(peak resident memory per process, median and max, as reaped; the floor every sample reads at least is {floor}, and `*` marks a row within {:.0}% of it, so not the runtime's own)",
+            (gro_bench::report::RSS_FLOOR_MARGIN - 1.0) * 100.0
+        );
     }
     // the version column fits the longest line, fgro's with its full commit
     let version_width = record
@@ -932,6 +1060,9 @@ fn print_summary(record: &RunRecord) {
             mb(runtime.bytes),
             mb(runtime.gzip_bytes),
         );
+    }
+    if let Some(bytes) = record.snapshot_bytes {
+        println!("fgro's startup snapshot: {:.1} MB", mb(bytes));
     }
     let noise = &record.noise;
     println!(
@@ -1358,11 +1489,20 @@ mod tests {
     /// a file just written can't run while another thread's fork holds it
     /// open for writing (`ETXTBSY`).
     #[test]
-    fn a_phases_build_is_refused_as_the_timed_release() {
-        let fakes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/phases_guard");
-        assert_eq!(refuse_phases_build(&fakes.join("release")), Ok(()));
+    fn a_measurement_build_is_refused_as_the_timed_release() {
+        let fakes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/measurement_guard");
+        assert_eq!(refuse_measurement_build(&fakes.join("release")), Ok(()));
+        for build in ["phases", "prices"] {
+            assert_eq!(
+                refuse_measurement_build(&fakes.join(build)),
+                Err(ExitCode::from(EXIT_INPUT)),
+                "{build}"
+            );
+        }
+        // and a priced build must say it is one
+        assert_eq!(require_marker(&fakes.join("prices"), PRICES_MARKER), Ok(()));
         assert_eq!(
-            refuse_phases_build(&fakes.join("phases")),
+            require_marker(&fakes.join("release"), PRICES_MARKER),
             Err(ExitCode::from(EXIT_INPUT))
         );
     }
@@ -1442,6 +1582,12 @@ mod tests {
                 workload: "w".to_owned(),
                 collection: "c".to_owned(),
                 entry: path(),
+            },
+            BenchError::BudgetExceeded {
+                runtime: "fgro".to_owned(),
+                budget: "bytes",
+                current: 2,
+                limit: 1,
             },
         ];
         assert!(matches!(input[1], BenchError::SuiteParse { .. }));

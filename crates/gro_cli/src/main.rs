@@ -54,7 +54,8 @@
 //! commit it was built from, full, with `-dirty` when the working tree
 //! differed from it (`commit unknown` when no build embedded one, as a plain
 //! `cargo build` doesn't), and whether a startup snapshot is embedded
-//! (`no snapshot` otherwise), then `, phases` in a phases build.
+//! (`no snapshot` otherwise), then `, phases` in a phases build and
+//! `, prices` in a priced build.
 //!
 //! Exit codes, the same for `run` and `eval`:
 //!
@@ -79,6 +80,12 @@
 //! (`gro_runtime::phases`), for `cargo xtask bench --phases`; eval opens the
 //! file before its box goes up. Without the feature it reads no such
 //! variable.
+//!
+//! Built with the `prices` feature, which release and snapshot builds never
+//! enable, `fgro` reads `GRO_PRICES_OFF`, a comma-separated list of eval's
+//! defaults to turn off, one at a time, for the bench's prices suite
+//! (`gro_runtime::prices`); a name it doesn't know is a usage error. Without
+//! the feature it reads no such variable.
 //!
 //! Built with the `snapshot` feature, `fgro` starts from a startup snapshot
 //! embedded at compile time, and runs off its build tree. `cargo xtask build`
@@ -105,6 +112,7 @@ use gro_runtime::confine::{Confined, Confinement};
 use gro_runtime::engine::{EngineOptions, init_confined_engine, init_engine};
 use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, Prepass, RuntimeInfo};
 use gro_runtime::phases::{self, Phase};
+use gro_runtime::prices::{self, EvalDefault};
 use gro_runtime::snapshot::StartupSnapshot;
 use gro_runtime::{RunError, RuntimeOptions, STACK_SIZE};
 
@@ -213,10 +221,12 @@ const fn commit(value: Option<&'static str>) -> Option<&'static str> {
 /// `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`, with
 /// `commit unknown` for a build without [`COMMIT`] and `no snapshot` for a
 /// build without one, and `, phases` before the parenthesis closes in a
-/// build that records phases (`gro_runtime::phases::ENABLED`).
+/// build that records phases (`gro_runtime::phases::ENABLED`), and
+/// `, prices` in one that reads the prices switches
+/// (`gro_runtime::prices::ENABLED`).
 fn version_line() -> String {
     format!(
-        "fgro {} (commit {}, V8 {}, {}{})",
+        "fgro {} (commit {}, V8 {}, {}{}{})",
         env!("CARGO_PKG_VERSION"),
         COMMIT.unwrap_or(COMMIT_UNKNOWN),
         gro_runtime::v8_version(),
@@ -225,7 +235,8 @@ fn version_line() -> String {
         } else {
             "no snapshot"
         },
-        if phases::ENABLED { ", phases" } else { "" }
+        if phases::ENABLED { ", phases" } else { "" },
+        if prices::ENABLED { ", prices" } else { "" }
     )
 }
 
@@ -282,6 +293,12 @@ fn main() -> ExitCode {
 
 /// [`main`]'s work, returning the exit code.
 fn main_code() -> u8 {
+    // a priced build's switches, refused before anything runs when one is
+    // unknown; nothing without the `prices` feature
+    if let Err(message) = prices::start() {
+        eprintln!("error: {message}");
+        return EXIT_USAGE;
+    }
     let args: Result<Vec<String>, OsString> = std::env::args_os()
         .skip(1)
         .map(OsString::into_string)
@@ -525,7 +542,11 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     }
     // first, before the process opens anything: a descriptor it inherited
     // would reach past the box, which gates only new opens
-    let closed = close_inherited();
+    let closed = if prices::off(EvalDefault::CloseFds) {
+        Ok(())
+    } else {
+        close_inherited()
+    };
     // the phases file, under the `phases` feature, opens before the box
     phases::open();
     let mut options = EvalOptions {

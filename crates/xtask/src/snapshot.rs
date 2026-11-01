@@ -28,13 +28,17 @@
 //! Cargo keeps both builds of `fgro`, one per feature set, so switching
 //! between them relinks nothing.
 //!
-//! The phases build (`cargo xtask bench --phases`) is stage two with the
-//! `phases` feature beside `snapshot`, from the same snapshot, linked to
-//! `<target>/gro_snapshot/<profile>-phases/fgro`.
+//! The measurement builds are stage two with one more feature beside
+//! `snapshot`, from the same snapshot ([`Measurement`]): the phases build
+//! (`cargo xtask bench --phases`), linked to
+//! `<target>/gro_snapshot/<profile>-phases/fgro`, and the priced build (a
+//! suite with `prices`), linked to `<target>/gro_snapshot/<profile>-prices/fgro`.
 //!
-//! `--verify` then checks the result: clippy over the `snapshot` feature's
+//! `--verify` then checks the result: the baseline suite's `fgro` size
+//! budgets (the executable's in a release build only, the snapshot's in
+//! both), clippy over the `snapshot` feature's
 //! code, `fgro`'s integration tests against the snapshot build, its phases
-//! test against a build with the `phases` feature too, and a fixture
+//! and prices tests against builds with each feature too, and a fixture
 //! run with the cargo registry's sources (`$CARGO_HOME/registry/src`) and
 //! gro's own extension sources hidden (tmpfs mounts in a private user and
 //! mount namespace, `unshare -rm`), its output compared with a run that can
@@ -49,6 +53,29 @@ use std::process::{Command, ExitCode, Output, Stdio};
 use gro_bench::record::GitState;
 
 use crate::{StepResult, run};
+
+/// Which build of the snapshot `fgro` to make: the plain one, or a
+/// measurement build with one more feature, which release never carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measurement {
+    /// The build that ships.
+    None,
+    /// With `phases`: a timestamp at each phase boundary.
+    Phases,
+    /// With `prices`: the switches that turn off eval's defaults.
+    Prices,
+}
+
+impl Measurement {
+    /// The feature it adds, which also names its build's directory.
+    const fn feature(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Phases => Some("phases"),
+            Self::Prices => Some("prices"),
+        }
+    }
+}
 
 /// The fixture both runs of the off-build-tree check execute: a TypeScript
 /// entry over the web globals, so the snapshot build proves the strip too.
@@ -102,7 +129,7 @@ pub fn build(
     root: &Path,
     target_dir: &Path,
     release: bool,
-    phases: bool,
+    measurement: Measurement,
 ) -> Result<SnapshotBuild, ExitCode> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
@@ -138,12 +165,18 @@ pub fn build(
         })?;
     }
 
-    let features = if phases {
-        "snapshot,phases"
-    } else {
-        "snapshot"
-    };
-    let mut stage_two = vec!["build", "--locked", "-p", "gro_cli", "--features", features];
+    let features = measurement.feature().map_or_else(
+        || "snapshot".to_owned(),
+        |feature| format!("snapshot,{feature}"),
+    );
+    let mut stage_two = vec![
+        "build",
+        "--locked",
+        "-p",
+        "gro_cli",
+        "--features",
+        &features,
+    ];
     stage_two.extend(profile_args);
     // read last, so it names the tree this build compiles
     let commit = commit(root);
@@ -154,10 +187,10 @@ pub fn build(
         &stage_two,
     )?;
     let built = target_dir.join(profile).join("fgro");
-    let linked = if phases {
+    let linked = if let Some(feature) = measurement.feature() {
         let dir = target_dir
             .join("gro_snapshot")
-            .join(format!("{profile}-phases"));
+            .join(format!("{profile}-{feature}"));
         fs::create_dir_all(&dir).map_err(|error| {
             eprintln!("[xtask] failed to create {}: {error}", dir.display());
             ExitCode::FAILURE
@@ -200,6 +233,7 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
 /// off-build-tree run.
 pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let binary = &build.binary;
+    check_budgets(root, release, binary)?;
     let dir = binary.parent().unwrap_or(root).display().to_string();
     // the stage-two environment, so these builds reuse its gro_cli
     let env = [
@@ -257,7 +291,79 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         phases.push("--release");
     }
     run(root, &env, "cargo", &phases)?;
+    // the priced build's switches, eval's box among them
+    let mut prices = vec![
+        "test",
+        "--locked",
+        "-p",
+        "gro_cli",
+        "--features",
+        "snapshot,prices",
+        "--test",
+        "prices",
+    ];
+    if release {
+        prices.push("--release");
+    }
+    run(root, &env, "cargo", &prices)?;
     off_build_tree(root, binary)
+}
+
+/// The suite whose `fgro` budgets the build is held to.
+const BUDGET_SUITE: &str = "crates/gro_bench/suites/baseline/suite.json";
+
+/// Checks `binary` and the snapshot beside it against the baseline suite's
+/// `fgro` budgets, failing loudly on one crossed. The executable's sizes
+/// bind only a release build, the one that ships; a debug build is checked
+/// on its snapshot alone, which is the same either way, and says so.
+fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
+    let failed = |message: String| {
+        eprintln!("[xtask] budget check failed: {message}");
+        ExitCode::FAILURE
+    };
+    let suite = gro_bench::suite::Suite::load(&root.join(BUDGET_SUITE))
+        .map_err(|error| failed(error.to_string()))?;
+    let Some(budget) = suite.budgets.get("fgro") else {
+        return Err(failed(format!("{BUDGET_SUITE} has no `fgro` budget")));
+    };
+    let size = |path: &Path| {
+        fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .map_err(|error| failed(format!("{}: {error}", path.display())))
+    };
+    let snapshot_bytes = Some(size(&binary.with_file_name("snapshot.bin"))?);
+    let (budget, sizes) = if release {
+        let sizes = gro_bench::run::Sizes {
+            bytes: Some(size(binary)?),
+            gzip_bytes: Some(
+                gro_bench::run::gzip_size(binary).map_err(|error| failed(error.to_string()))?,
+            ),
+            snapshot_bytes,
+        };
+        (budget.clone(), sizes)
+    } else {
+        let snapshot_only = gro_bench::suite::Budget {
+            bytes: None,
+            gzip_bytes: None,
+            ..budget.clone()
+        };
+        let sizes = gro_bench::run::Sizes {
+            snapshot_bytes,
+            ..Default::default()
+        };
+        (snapshot_only, sizes)
+    };
+    gro_bench::run::check_budget("fgro", &budget, &sizes)
+        .map_err(|error| failed(error.to_string()))?;
+    println!(
+        "[xtask] within the fgro budgets in {BUDGET_SUITE}{}",
+        if release {
+            ""
+        } else {
+            " (the snapshot's alone: the executable's bind the release build)"
+        }
+    );
+    Ok(())
 }
 
 /// Runs the smoke fixture with `binary` twice, once seeing the build tree and

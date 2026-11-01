@@ -783,6 +783,7 @@ name = "gro_bench"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "gro_sys",
  "serde",
  "serde_json",
  "thiserror",

@@ -28,6 +28,7 @@
 			"cold": {}
 		}
 	],
+	"budgets": {"fgro": {"bytes": 62000000, "gzip_bytes": 23000000, "snapshot_bytes": 2000000}},
 	"workloads": [
 		{"name": "fuz_util_warm", "script": "fuz_util.js", "warmup": 10, "weight": 3, "collection": "fuz_util"},
 		{"name": "fuz_util_cold", "script": "fuz_util.js", "warmup": 10, "cold": true, "weight": 1, "collection": "fuz_util"},

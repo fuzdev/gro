@@ -30,6 +30,7 @@ fn smoke_suite_runs_under_installed_runtimes() {
         // the smoke suite names no collection, so nothing is written here
         work_dir: std::env::temp_dir().join("gro_bench_smoke_work"),
         measure: Measure::Wall,
+        snapshot: None,
     };
     let record = run(&suite, &dir, context).unwrap();
     assert_eq!(record.runtimes.len(), suite.runtimes.len());

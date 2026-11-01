@@ -189,6 +189,16 @@ pub enum BenchError {
     /// as the format or run backward, saying which.
     #[error("phases mode: {0}")]
     Phases(String),
+    /// A runtime's size crossed one of the suite's budgets for it.
+    #[error(
+        "the runtime `{runtime}` is over its `{budget}` budget: {current} bytes, past the limit of {limit}"
+    )]
+    BudgetExceeded {
+        runtime: String,
+        budget: &'static str,
+        current: u64,
+        limit: u64,
+    },
     /// The record couldn't be appended to the history.
     #[error("failed to append to the history {path}")]
     HistoryWrite {
@@ -213,8 +223,8 @@ impl BenchError {
     /// pin, a collection the pinned tree lacks or a copy can't hold, an
     /// entry colliding with a collection's file, a project's missing or
     /// unversioned link or unsupported entry, a failed correctness run,
-    /// values that break the suite's parity, or counters the machine can't
-    /// give), so the caller must change
+    /// values that break the suite's parity, counters the machine can't
+    /// give, or a size over its budget), so the caller must change
     /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
@@ -238,6 +248,7 @@ impl BenchError {
                 | Self::CheckFailed { .. }
                 | Self::ParityMismatch { .. }
                 | Self::Counters(_)
+                | Self::BudgetExceeded { .. }
         )
     }
 }

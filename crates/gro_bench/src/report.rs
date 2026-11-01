@@ -13,7 +13,11 @@
 //! - instruction medians when both records counted them, a move flagged `!`
 //!   past [`INSTRUCTIONS_FLAG`];
 //! - the latest record's phase medians when it has them, each beside the
-//!   previous record's.
+//!   previous record's;
+//! - peak memory medians and maxima when the latest record has them, each
+//!   median beside the previous record's, flagged past [`RSS_FLAG`], a row
+//!   whose peak sits within
+//!   [`RSS_FLOOR_MARGIN`] of the run's floor marked as not the runtime's.
 //!
 //! A line it can't read (not JSON, a version newer than this harness, a shape
 //! that doesn't parse) is named and skipped, never fatal; a line of an older
@@ -26,6 +30,27 @@ use crate::record::{MachineQuiet, Metric, Mode, RECORD_VERSION, RowRecord, RunRe
 
 /// The instruction move a report flags, as a ratio: the perf rule's 2%.
 pub const INSTRUCTIONS_FLAG: f64 = 0.02;
+
+/// The peak memory move a report flags, as a ratio: 5%.
+pub const RSS_FLAG: f64 = 0.05;
+
+/// How far above the run's peak memory floor a row's peak must sit.
+///
+/// As a ratio of `rss_floor_kib`, for the row's smallest peak to read as the
+/// runtime's own: within it, the sample may be reading the harness's peak,
+/// which every spawned process starts from.
+pub const RSS_FLOOR_MARGIN: f64 = 1.25;
+
+/// Whether `peak`'s smallest sample sits within [`RSS_FLOOR_MARGIN`] of
+/// `floor`, so it may be the spawner's peak rather than the runtime's.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "peaks in KiB are far below 2^52"
+)]
+pub fn near_rss_floor(peak: &Metric, floor: Option<u64>) -> bool {
+    let least = peak.samples.iter().copied().min().unwrap_or(0);
+    floor.is_some_and(|floor| least as f64 <= floor as f64 * RSS_FLOOR_MARGIN)
+}
 
 /// Renders the report of the history `text`, one record per line.
 pub fn report(text: &str) -> String {
@@ -170,6 +195,60 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: &str, records:
     if latest.rows.iter().any(|row| !row.phases.is_empty()) {
         write_phases(out, latest, previous);
     }
+    if latest.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
+        write_memory(out, latest, previous, width);
+    }
+}
+
+/// The peak memory table: each row's median and largest peak in MB, the
+/// median against the previous record's, a row near the floor marked `*`.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "peaks in KiB are far below 2^52"
+)]
+fn write_memory(out: &mut String, latest: &RunRecord, previous: Option<&RunRecord>, width: usize) {
+    let mb = |kib: f64| kib * 1024.0 / 1e6;
+    let _ = writeln!(
+        out,
+        "  {:<width$} {:<16} {:>10} {:>10} {:>10} {:>9}",
+        "runtime", "workload", "peak MB", "max MB", "prev MB", "x prev"
+    );
+    for row in &latest.rows {
+        let Some(peak) = &row.peak_rss_kib else {
+            continue;
+        };
+        let other = previous
+            .and_then(|previous| find_row(previous, row))
+            .and_then(|other| other.peak_rss_kib.as_ref())
+            .map(|other| other.stats.median);
+        let _ = writeln!(
+            out,
+            "  {:<width$} {:<16} {:>9.1}{} {:>10.1} {:>10} {:>9}",
+            row.runtime,
+            row.workload,
+            mb(peak.stats.median),
+            if near_rss_floor(peak, latest.rss_floor_kib) {
+                "*"
+            } else {
+                " "
+            },
+            mb(peak.max() as f64),
+            other.map_or_else(|| "-".to_owned(), |other| format!("{:.1}", mb(other))),
+            other.map_or_else(
+                || "-".to_owned(),
+                |other| format_move(peak.stats.median, other, RSS_FLAG)
+            ),
+        );
+    }
+    let _ = writeln!(
+        out,
+        "  (peak resident memory per process, median and max; `!` marks a median move past 5%; `*` marks a row within {:.0}% of the floor, {}, which every sample reads at least, so not the runtime's own)",
+        (RSS_FLOOR_MARGIN - 1.0) * 100.0,
+        latest.rss_floor_kib.map_or_else(
+            || "unmeasured".to_owned(),
+            |floor| format!("{:.1} MB", mb(floor as f64))
+        ),
+    );
 }
 
 /// A record's one-line description: when, which commit, whether quiet, its
@@ -355,7 +434,10 @@ mod tests {
             wall_ns: metric(vec![wall, wall]),
             instructions: instructions.map(|count| metric(vec![count, count])),
             cycles: instructions.map(|count| metric(vec![count * 2, count * 2])),
+            kernel_instructions: instructions.map(|count| metric(vec![count * 3, count * 3])),
             phases: Vec::new(),
+            // a peak a tenth of the wall time's nanoseconds, in KiB
+            peak_rss_kib: Some(metric(vec![wall / 100, wall / 100 + 1000])),
         };
         RunRecord {
             record_version: RECORD_VERSION,
@@ -394,6 +476,8 @@ mod tests {
                 instructions_median_deviation: None,
             },
             rows: vec![row],
+            rss_floor_kib: Some(10_000),
+            snapshot_bytes: None,
         }
     }
 
@@ -419,6 +503,16 @@ mod tests {
         // 12 against 10.05 is past the 1% floor, flagged; so is 12 against 10
         assert!(report.contains("1.194x!"), "{report}");
         assert!(report.contains("1.200x!"), "{report}");
+        // the peaks, none near the floor
+        assert!(report.contains("peak MB"), "{report}");
+        assert!(report.contains("123.4 "), "{report}");
+        // a peak at the floor is marked
+        let mut near = record("d", MachineQuiet::Unchecked, 1_000_000, None);
+        if let Some(peak) = &mut near.rows[0].peak_rss_kib {
+            *peak = metric(vec![10_500, 30_000]);
+        }
+        let near = super::report(&near.to_line());
+        assert!(near.contains("20.7*"), "{near}");
         // an attested previous isn't the attested column too
         let lines = [
             record("a", MachineQuiet::Attested, 10_000_000, None),

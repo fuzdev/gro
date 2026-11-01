@@ -36,7 +36,17 @@
 //! ([`phases`]), or hardware counters under `perf stat`
 //! ([`counters`](crate::counters)), which the run checks work before
 //! anything else. Only the timed samples are counted; the correctness run,
-//! the warmups, and the version probes run as they are.
+//! the warmups, and the version probes run as they are. In a wall run, on
+//! Linux, each sample's peak memory is read as it's reaped (`wait4`'s
+//! `ru_maxrss`), and after the samples the floor that peak can't go below
+//! (a trivial program's, run the same way; [`RunRecord`]'s `rss_floor_kib`);
+//! a counter run's spawner is `perf`, whose own peak would mask a small
+//! runtime's, so it records none, nor does a phases run.
+//!
+//! After the probes, and before any process runs, the suite's `budgets` are
+//! checked against the sizes measured, and the startup snapshot's the
+//! context names, failing the run on the first one crossed; a phases run,
+//! whose `fgro` is a measurement build, checks none.
 //!
 //! Every sample is a fresh process, timed from just before its spawn to just
 //! after its exit is reaped, with stdout and stderr on the null device, and
@@ -72,7 +82,7 @@ use crate::record::{
 };
 use crate::schedule::schedule;
 use crate::stats::{Stats, ratio_deviation};
-use crate::suite::{Arg, FileArg, Runtime, Stdout, Suite, Workload};
+use crate::suite::{Arg, Budget, FileArg, Runtime, Stdout, Suite, Workload};
 
 /// What a run takes from the caller: what it records but can't learn itself,
 /// and where it writes.
@@ -91,6 +101,9 @@ pub struct RunContext {
     pub work_dir: PathBuf,
     /// What each sample measures beside wall time.
     pub measure: Measure,
+    /// The startup snapshot the suite's `fgro` embeds, whose size the record
+    /// carries and a `snapshot_bytes` budget limits.
+    pub snapshot: Option<PathBuf>,
 }
 
 /// What a run's samples measure beside wall time.
@@ -128,6 +141,9 @@ struct Sample {
     counts: Option<Counts>,
     /// Its phases' durations, under [`Sampler::Phases`] for a phases runtime.
     phases: Vec<(String, u64)>,
+    /// Its peak resident set size in KiB, where the harness reads one
+    /// ([`reap`]).
+    max_rss_kib: Option<u64>,
 }
 
 /// The environment variables a measured process keeps from the caller's.
@@ -377,6 +393,23 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             .collect::<Result<Vec<_>, _>>()
     })?;
 
+    let snapshot_bytes = context
+        .snapshot
+        .as_ref()
+        .map(|path| {
+            fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .map_err(|source| BenchError::Read {
+                    path: path.clone(),
+                    source,
+                })
+        })
+        .transpose()?;
+    // a measurement build isn't the size that ships
+    if !matches!(context.measure, Measure::Phases { .. }) {
+        check_budgets(suite, &runtimes, snapshot_bytes)?;
+    }
+
     check_rows(suite, &rows, dir)?;
 
     // the noise row: the first row again, measured as a row of its own
@@ -390,6 +423,12 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     for index in schedule(&vec![sample_count; commands.len()]) {
         samples[index].push(run_once(commands[index], dir, &sampler)?);
     }
+    // only a wall run's spawner is the harness alone ([`RunRecord`])
+    let rss_floor_kib = if context.measure == Measure::Wall {
+        rss_floor(dir, &sampler)?
+    } else {
+        None
+    };
 
     let after = hash_artifacts(&artifacts)?;
     let mut changed = changed_artifacts(&before, &after);
@@ -429,7 +468,17 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
                 wall_ns: wall_metric(samples),
                 instructions: count_metric(samples, |counts| counts.instructions),
                 cycles: count_metric(samples, |counts| counts.cycles),
+                kernel_instructions: samples
+                    .iter()
+                    .map(|sample| sample.counts.and_then(|counts| counts.kernel_instructions))
+                    .collect::<Option<Vec<u64>>>()
+                    .map(metric),
                 phases: phase_metrics(row, samples)?,
+                peak_rss_kib: if context.measure == Measure::Wall {
+                    rss_metric(samples)
+                } else {
+                    None
+                },
             })
         })
         .collect::<Result<_, BenchError>>()?;
@@ -464,7 +513,117 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             .collect(),
         rows: rows_record,
         noise,
+        rss_floor_kib,
+        snapshot_bytes,
     })
+}
+
+/// Fails the run when a runtime's size crosses one of the suite's budgets
+/// for it, naming the budget, the size, and the limit.
+fn check_budgets(
+    suite: &Suite,
+    runtimes: &[RuntimeInfo],
+    snapshot_bytes: Option<u64>,
+) -> Result<(), BenchError> {
+    for (name, budget) in &suite.budgets {
+        let Some(runtime) = runtimes.iter().find(|runtime| &runtime.name == name) else {
+            continue;
+        };
+        let sizes = Sizes {
+            bytes: Some(runtime.bytes),
+            gzip_bytes: Some(runtime.gzip_bytes),
+            snapshot_bytes,
+        };
+        check_budget(name, budget, &sizes)?;
+    }
+    Ok(())
+}
+
+/// A runtime's sizes as measured, each in bytes, for [`check_budget`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Sizes {
+    /// The executable as installed.
+    pub bytes: Option<u64>,
+    /// The executable gzipped ([`gzip_size`]).
+    pub gzip_bytes: Option<u64>,
+    /// Its startup snapshot.
+    pub snapshot_bytes: Option<u64>,
+}
+
+/// Fails when one of `sizes` crosses its limit in `budget`, the runtime
+/// `runtime`'s, naming the budget, the size, and the limit.
+///
+/// # Errors
+///
+/// [`BenchError::BudgetExceeded`] for the first size over its limit, and
+/// [`BenchError::SuiteInvalid`] for a limit with no size measured.
+pub fn check_budget(runtime: &str, budget: &Budget, sizes: &Sizes) -> Result<(), BenchError> {
+    let checks = [
+        ("bytes", budget.bytes, sizes.bytes),
+        ("gzip_bytes", budget.gzip_bytes, sizes.gzip_bytes),
+        (
+            "snapshot_bytes",
+            budget.snapshot_bytes,
+            sizes.snapshot_bytes,
+        ),
+    ];
+    for (field, limit, current) in checks {
+        let Some(limit) = limit else {
+            continue;
+        };
+        let Some(current) = current else {
+            return Err(BenchError::SuiteInvalid(format!(
+                "the runtime `{runtime}` has a `{field}` budget, but no size was measured for it (a snapshot budget needs the snapshot named)"
+            )));
+        };
+        if current > limit {
+            return Err(BenchError::BudgetExceeded {
+                runtime: runtime.to_owned(),
+                budget: field,
+                current,
+                limit,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// How many times [`rss_floor`] runs its trivial program.
+const FLOOR_RUNS: usize = 4;
+
+/// The peak a sample reads at least, whatever it runs: the largest of a
+/// trivial program's (`true`, found on `PATH`) over a few runs as `sampler`
+/// runs the samples, taken after them, when the harness's own peak is
+/// highest. `None` where the harness reads no peak.
+fn rss_floor(dir: &Path, sampler: &Sampler) -> Result<Option<u64>, BenchError> {
+    if !cfg!(target_os = "linux") {
+        return Ok(None);
+    }
+    let program = find_program("true", dir).ok_or_else(|| BenchError::ProgramNotFound {
+        runtime: "the peak memory floor".to_owned(),
+        program: "true".to_owned(),
+    })?;
+    let row = RowCommand {
+        runtime: "true".to_owned(),
+        workload: "floor".to_owned(),
+        program: Program {
+            path: program,
+            argv0: "true".to_owned(),
+            env: BTreeMap::new(),
+        },
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        warmup: 0,
+        stdin: None,
+        stdout: None,
+        phases: false,
+    };
+    let mut floor = None;
+    for _ in 0..FLOOR_RUNS {
+        let peak = run_once(&row, dir, sampler)?.max_rss_kib;
+        floor = floor.max(peak);
+    }
+    Ok(floor)
 }
 
 /// The collections a run copied: what each workload with a collection runs,
@@ -648,30 +807,64 @@ fn check_rows(suite: &Suite, rows: &[RowCommand], dir: &Path) -> Result<(), Benc
 /// successfully, and its stdout must be what `row.stdout` says, whose value
 /// it returns.
 fn check_row(row: &RowCommand, dir: &Path) -> Result<Option<serde_json::Value>, BenchError> {
-    let output = row
+    let spawn_error = |source| BenchError::Spawn {
+        command: row.display(),
+        source,
+    };
+    let mut child = row
         .command(dir)?
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .map_err(|source| BenchError::Spawn {
-            command: row.display(),
-            source,
-        })?;
+        .spawn()
+        .map_err(spawn_error)?;
+    // stdout whole only when it's checked: a large output kept unchecked
+    // would raise the harness's peak, which every later sample reads at least
+    let stdout_kept = if row.stdout.is_some() {
+        usize::MAX
+    } else {
+        UNCHECKED_KEPT
+    };
+    let (stdout, stderr) = std::thread::scope(|scope| {
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let stdout =
+            scope.spawn(move || stdout.map_or(Ok(Vec::new()), |out| read_kept(out, stdout_kept)));
+        let stderr = stderr.map_or(Ok(Vec::new()), |err| read_kept(err, UNCHECKED_KEPT));
+        let stdout = stdout
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        (stdout, stderr)
+    });
+    let status = child.wait().map_err(spawn_error)?;
+    let (stdout, stderr) = (stdout.map_err(spawn_error)?, stderr.map_err(spawn_error)?);
     let failed = |reason: String| BenchError::CheckFailed {
         command: row.display(),
         reason,
     };
-    if !output.status.success() {
+    if !status.success() {
         return Err(failed(format!(
-            "it exited unsuccessfully ({}); stdout: {}; stderr: {}",
-            output.status,
-            truncated(String::from_utf8_lossy(&output.stdout).trim()),
-            truncated(String::from_utf8_lossy(&output.stderr).trim()),
+            "it exited unsuccessfully ({status}); stdout: {}; stderr: {}",
+            truncated(String::from_utf8_lossy(&stdout).trim()),
+            truncated(String::from_utf8_lossy(&stderr).trim()),
         )));
     }
     row.stdout
-        .map(|check| stdout_value(check, &output.stdout).map_err(failed))
+        .map(|check| stdout_value(check, &stdout).map_err(failed))
         .transpose()
+}
+
+/// The bytes of an output the correctness run keeps when it checks nothing
+/// in it, enough for its message: 64 KiB.
+const UNCHECKED_KEPT: usize = 64 << 10;
+
+/// Reads `reader` to its end, keeping its first `kept` bytes.
+fn read_kept(mut reader: impl Read, kept: usize) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    (&mut reader)
+        .take(u64::try_from(kept).unwrap_or(u64::MAX))
+        .read_to_end(&mut bytes)?;
+    io::copy(&mut reader, &mut io::sink())?;
+    Ok(bytes)
 }
 
 /// Finds a runtime's executable, canonicalized so the file hashed is the file
@@ -834,7 +1027,11 @@ fn probe(
 /// The size of `path` gzipped at gzip's default level, counted from `gzip`'s
 /// output as it streams. `-n` leaves the file's name and time out of the
 /// header, so the size depends on the bytes alone.
-fn gzip_size(path: &Path) -> Result<u64, BenchError> {
+///
+/// # Errors
+///
+/// Fails when `gzip` can't run or fails.
+pub fn gzip_size(path: &Path) -> Result<u64, BenchError> {
     let command = display_command(
         Path::new("gzip"),
         &[OsStr::new("-c"), OsStr::new("-n"), path.as_os_str()],
@@ -961,10 +1158,10 @@ fn run_once(row: &RowCommand, dir: &Path, sampler: &Sampler) -> Result<Sample, B
     };
     let spawn_unix_ns = phases_file.map(|_| unix_ns());
     let start = Instant::now();
-    let status = command.status();
+    let reaped = command.spawn().and_then(reap);
     let elapsed = start.elapsed();
     let reap_unix_ns = phases_file.map(|_| unix_ns());
-    let status = status.map_err(|source| BenchError::Spawn {
+    let (status, max_rss_kib) = reaped.map_err(|source| BenchError::Spawn {
         command: row.display(),
         source,
     })?;
@@ -1004,7 +1201,31 @@ fn run_once(row: &RowCommand, dir: &Path, sampler: &Sampler) -> Result<Sample, B
         wall_ns: u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX),
         counts,
         phases,
+        max_rss_kib,
     })
+}
+
+/// Waits for `child` and reaps it, returning its exit status and, on Linux,
+/// its peak resident set size in KiB (`gro_sys::wait_child`).
+#[cfg(target_os = "linux")]
+fn reap(child: std::process::Child) -> io::Result<(std::process::ExitStatus, Option<u64>)> {
+    gro_sys::wait_child(child).map(|reaped| (reaped.status, Some(reaped.max_rss_kib)))
+}
+
+/// Waits for `child` and reaps it, returning its exit status; elsewhere no
+/// peak is read.
+#[cfg(not(target_os = "linux"))]
+fn reap(mut child: std::process::Child) -> io::Result<(std::process::ExitStatus, Option<u64>)> {
+    child.wait().map(|status| (status, None))
+}
+
+/// The peak memory of every sample, when each has one.
+fn rss_metric(samples: &[Sample]) -> Option<Metric> {
+    samples
+        .iter()
+        .map(|sample| sample.max_rss_kib)
+        .collect::<Option<Vec<u64>>>()
+        .map(metric)
 }
 
 fn wall_metric(samples: &[Sample]) -> Metric {

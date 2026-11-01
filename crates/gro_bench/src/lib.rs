@@ -12,6 +12,8 @@
 //! - [`counters`]: counter mode, each sample under `perf stat`
 //! - [`phases`]: phases mode, each sample's phase timings from a phases
 //!   build of fgro
+//! - [`prices`]: a prices suite's price table, what each of the default
+//!   runtime's defaults costs
 //! - [`check`]: the untimed correctness run's checks of a row's stdout
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,
 //!   with an A/A noise row, and refuses a run whose artifacts changed
@@ -30,6 +32,7 @@ pub mod collection;
 pub mod counters;
 pub mod error;
 pub mod phases;
+pub mod prices;
 pub mod project;
 pub mod record;
 pub mod report;

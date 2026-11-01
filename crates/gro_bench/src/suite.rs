@@ -106,6 +106,47 @@ pub struct Suite {
     /// names, and every other row is reported only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Gate>,
+    /// Size limits, by runtime name, that fail a run crossing one before
+    /// any sample ([`Budget`]). Left out of the config hash, since a limit
+    /// changes nothing a run measures.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub budgets: BTreeMap<String, Budget>,
+    /// Makes the suite a prices suite: every other runtime is a variant of
+    /// the one it names, the default, with one of its defaults turned off,
+    /// and the run prints what each costs ([`Prices`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prices: Option<Prices>,
+}
+
+/// A runtime's size limits, each in bytes; a run whose runtime crosses one
+/// fails before its samples, naming the budget, the size, and the limit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Budget {
+    /// The executable as installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    /// The executable gzipped at gzip's default level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gzip_bytes: Option<u64>,
+    /// The startup snapshot the run was given
+    /// ([`RunContext::snapshot`](crate::run::RunContext::snapshot)), which a
+    /// run without one fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_bytes: Option<u64>,
+}
+
+/// A prices suite's default: the runtime every other one is priced against.
+///
+/// Each other runtime is the default with one of its defaults
+/// turned off (by a variable or a flag in its entry), named for that
+/// default, and its price on a workload is the default's median less its
+/// own: what keeping the default costs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Prices {
+    /// The runtime with every default on.
+    pub default: String,
 }
 
 /// Which rows a suite judges, and against which runtime.
@@ -120,6 +161,10 @@ pub struct Gate {
     /// only.
     pub workloads: Vec<String>,
 }
+
+// TODO: a check of a failing envelope (exit 1, `ok: false` of a named kind),
+// for the memory suite's large-`AggregateError` workload, once eval's
+// uncaught-error report stops copying each member's message
 
 /// What a runtime's stdout holds, checked on each row's untimed run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +328,25 @@ pub struct Project {
     /// suite file's directory. A missing checkout fails the run.
     #[serde(default)]
     pub links: BTreeMap<String, PathBuf>,
+    /// Files the run generates into the copy, by their path in it (plain
+    /// segments, outside `node_modules`, and none the committed directory
+    /// has), so a large input needn't be committed. Absent serializes as no
+    /// key.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub generate: BTreeMap<PathBuf, Generate>,
+}
+
+/// A file a project's copy gets generated, the same bytes on every run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Generate {
+    /// An ES module whose default export is an array of small records, as
+    /// JSON text, of at most `bytes` bytes and within a record's length of
+    /// it ([`write_data_module`](crate::project::write_data_module)).
+    DataModule {
+        /// The module's size.
+        bytes: u64,
+    },
 }
 
 const fn default_weight() -> u32 {
@@ -350,7 +414,34 @@ impl Suite {
         }
         self.validate_projects()?;
         self.validate_collections()?;
-        self.validate_checks()
+        self.validate_checks()?;
+        self.validate_budgets_and_prices()
+    }
+
+    /// Checks that `budgets` and `prices` name the suite's runtimes, and that
+    /// a prices suite has a variant to price.
+    fn validate_budgets_and_prices(&self) -> Result<(), BenchError> {
+        let has = |name: &str| self.runtimes.iter().any(|r| r.name == name);
+        if let Some(name) = self.budgets.keys().find(|name| !has(name)) {
+            return Err(BenchError::SuiteInvalid(format!(
+                "`budgets` names the runtime `{name}`, which the suite doesn't have"
+            )));
+        }
+        if let Some(prices) = &self.prices {
+            if !has(&prices.default) {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "`prices` names the runtime `{}`, which the suite doesn't have",
+                    prices.default
+                )));
+            }
+            if self.runtimes.len() < 2 {
+                return Err(BenchError::SuiteInvalid(
+                    "`prices` prices variants of its default, so the suite needs another runtime"
+                        .to_owned(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Checks each workload's `project`: no `collection` beside it, a name
@@ -391,6 +482,26 @@ impl Suite {
                 if !is_package_name(name) {
                     return invalid(format!(
                         "links `{name}`, which isn't a package name (`a` or `@scope/a`)"
+                    ));
+                }
+            }
+            for (path, generate) in &project.generate {
+                let in_node_modules = path
+                    .components()
+                    .next()
+                    .is_some_and(|first| first.as_os_str() == "node_modules");
+                if !is_plain_relative(path) || in_node_modules {
+                    return invalid(format!(
+                        "generates `{}`, which isn't a path inside its project outside `node_modules`",
+                        path.display()
+                    ));
+                }
+                let Generate::DataModule { bytes } = generate;
+                if *bytes < crate::project::DATA_MODULE_MIN_BYTES {
+                    return invalid(format!(
+                        "generates `{}` of {bytes} bytes, below a data module's least, {}",
+                        path.display(),
+                        crate::project::DATA_MODULE_MIN_BYTES
                     ));
                 }
             }
@@ -500,17 +611,23 @@ impl Suite {
     }
 
     /// The blake3 hash of the suite as parsed (defaults filled, formatting
-    /// ignored): two runs with the same hash ran the same rows the same way.
+    /// ignored), its `budgets` left out: two runs with the same hash ran the
+    /// same rows the same way.
     ///
     /// # Panics
     ///
     /// Never: a suite always serializes.
     pub fn config_hash(&self) -> String {
+        // a size limit changes nothing a run measures
+        let measured = Self {
+            budgets: BTreeMap::new(),
+            ..self.clone()
+        };
         #[expect(
             clippy::expect_used,
             reason = "a suite serializes infallibly: its maps have string keys, and paths parsed from JSON are UTF-8"
         )]
-        let json = serde_json::to_vec(self).expect("a suite serializes to JSON");
+        let json = serde_json::to_vec(&measured).expect("a suite serializes to JSON");
         blake3::hash(&json).to_hex().to_string()
     }
 }
@@ -937,6 +1054,86 @@ mod tests {
         assert!(dir.join(&suite.workloads[0].script).is_file());
         assert!(dir.join(&project.dir).join("package.json").is_file());
         assert!(!dir.join(&project.dir).join("node_modules").exists());
+    }
+
+    #[test]
+    fn the_prices_suite_is_valid() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/prices");
+        let suite = Suite::load(&dir.join("suite.json")).unwrap();
+        let prices = suite.prices.as_ref().unwrap();
+        let default = suite
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.name == prices.default)
+            .unwrap();
+        assert!(!default.env.contains_key("GRO_PRICES_OFF"));
+        // each variant turns off something of its own, by a switch or a flag
+        let mut seen = HashSet::new();
+        for runtime in &suite.runtimes {
+            let switch = format!("{:?} {:?}", runtime.env.get("GRO_PRICES_OFF"), runtime.args);
+            assert!(seen.insert(switch), "{}", runtime.name);
+            assert_eq!(runtime.program, default.program, "{}", runtime.name);
+            assert_eq!(runtime.stdin, default.stdin, "{}", runtime.name);
+        }
+        // every variant's value must be the default's
+        assert_eq!(suite.parity.len(), suite.runtimes.len());
+        assert!(suite.budgets.is_empty());
+    }
+
+    #[test]
+    fn the_memory_suite_is_valid() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/memory");
+        let suite = Suite::load(&dir.join("suite.json")).unwrap();
+        let project = suite.workloads[0].project.as_ref().unwrap();
+        let Some(Generate::DataModule { bytes }) = project.generate.get(Path::new("data.js"))
+        else {
+            panic!("{project:?}");
+        };
+        // under the loader's cap on a module's source, 16 MiB, so it loads
+        assert!(*bytes < 16 << 20, "{bytes}");
+        assert!(!dir.join(&project.dir).join("data.js").exists());
+    }
+
+    #[test]
+    fn the_baseline_suite_budgets_fgro() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/baseline");
+        let suite = Suite::load(&dir.join("suite.json")).unwrap();
+        let budget = &suite.budgets["fgro"];
+        assert!(budget.bytes.is_some() && budget.gzip_bytes.is_some());
+        assert!(budget.snapshot_bytes.is_some());
+    }
+
+    #[test]
+    fn budgets_prices_and_generated_files_name_what_they_may() {
+        let runtime = r#"{"name": "r", "program": "r"}"#;
+        let workload =
+            r#"{"name": "w", "script": "p/w.js", "project": {"dir": "p", "generate": GEN}}"#;
+        let suite = |extra: &str, generate: &str| {
+            parse(&format!(
+                r#"{{"name": "s", "version": 1, "samples": 2, "runtimes": [{runtime}],
+                    "workloads": [{}]{extra}}}"#,
+                workload.replace("GEN", generate)
+            ))
+        };
+        let ok = r#"{"gen/d.js": {"data_module": {"bytes": 1000}}}"#;
+        assert!(suite("", ok).is_ok());
+        for (extra, generate) in [
+            (r#", "budgets": {"x": {"bytes": 1}}"#, ok),
+            (r#", "prices": {"default": "x"}"#, ok),
+            // a prices suite needs a variant
+            (r#", "prices": {"default": "r"}"#, ok),
+            (
+                "",
+                r#"{"node_modules/d.js": {"data_module": {"bytes": 1000}}}"#,
+            ),
+            ("", r#"{"../d.js": {"data_module": {"bytes": 1000}}}"#),
+            ("", r#"{"d.js": {"data_module": {"bytes": 10}}}"#),
+        ] {
+            assert!(
+                matches!(suite(extra, generate), Err(BenchError::SuiteInvalid(_))),
+                "{extra} {generate}"
+            );
+        }
     }
 
     #[test]

@@ -669,7 +669,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
   each level writes to and whether each is colored, read when the run
   starts, never in the snapshot). The crate reads no environment variable (but
-  the `phases` feature's file, below); `fgro` decides color.
+  the `phases` feature's file and the `prices` feature's switches, below);
+  `fgro` decides color.
   It starts from a startup snapshot when the embedder passes one
   (`snapshot.rs`; built in its own process from the same extension list, with
   the lazy scripts it didn't load embedded beside it as `residual.rs`), else
@@ -811,7 +812,17 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `drain`, `teardown`, `envelope`, `write`, `exit`) and writes them at exit
   to the file `GRO_PHASES_FILE` names, opened before eval's box; without
   the feature each call is an empty `const fn`, and nothing reads the
-  variable. `fgro --version` names the git commit it was built from (with `-dirty`, or
+  variable. The `prices` feature (`gro_cli`'s, enabling `gro_runtime`'s),
+  which release and snapshot builds never enable either, reads
+  `GRO_PRICES_OFF`, a comma-separated list of eval's defaults to turn off
+  (`gro_runtime::prices::EvalDefault`: `close_fds`, `landlock`, `seccomp`,
+  `box_rule`, `deny`, `refuse_ops`, `codegen`, `locale`, `heap_cap`,
+  `heap_watch`, `watchdog`, `utc_check`, `recording`, `envelope_cap`; the
+  JIT's switch is `--jit`), refusing an unknown name as a usage error; a
+  priced build with a default off is for timing only, and its
+  `--version` ends `, prices`. The box's setup (the link closure, each
+  root's handle) runs whatever the switches say, so it is unpriced; it
+  falls within the `prepass` phase. `fgro --version` names the git commit it was built from (with `-dirty`, or
   `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot
   is embedded. Its `snapshot` feature embeds a startup snapshot read from
   `GRO_SNAPSHOT_DIR`, and only that feature reads `GRO_COMMIT`;
@@ -831,8 +842,11 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   past seccomp's refusal of `kill`, and `map_anonymous` and
   `protect_anonymous` (`mmap`, or `mmap` then `mprotect`, of an anonymous
   page with a given `prot`, then `munmap`; safe: no memory is exposed),
-  which reach the jitless box's refusal of `PROT_EXEC`
-- `gro_bench` - the measurement harness, independent of the runtime crates:
+  which reach the jitless box's refusal of `PROT_EXEC`. `wait_child` reaps a
+  child by `wait4`, returning its exit status and `ru_maxrss`, for the
+  bench's peak memory
+- `gro_bench` - the measurement harness, independent of the runtime crates
+  (it uses `gro_sys` for `wait4`):
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
   run to `crates/gro_bench/history.jsonl`. The baseline suite
@@ -897,7 +911,33 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `perf stat -e instructions:u,cycles:u` (stdin opened fresh per sample) and
   records the counts, refusing when perf is missing or an event isn't
   counted for the whole run (multiplexed). `--samples N` replaces the
-  suite's count. **The perf rule**: a change to `gro_runtime` or `gro_cli`
+  suite's count; a counter run also counts `instructions:k`, the kernel's
+  share, apart, where perf may (`perf_event_paranoid` at 1 or below; else
+  it counts user space alone and says so). A wall run records each sample's peak memory (record
+  version 7: `wait4`'s `ru_maxrss`, which reads at least its spawner's own
+  peak, so the run also records `rss_floor_kib`, the largest of a trivial
+  program's run as the samples are, after them; a row within 25% of it is
+  marked as not the runtime's own); a counter run, whose spawner is `perf`,
+  and a phases run record none. A suite's `budgets` limit a runtime's
+  executable (`bytes`, `gzip_bytes`) and the release snapshot's size
+  (`snapshot_bytes`, recorded beside it): a run over one fails before its
+  samples (exit `2`), naming the budget, the size, and the limit; a phases
+  run checks none. The baseline suite's file holds `fgro`'s budgets, which
+  `cargo xtask build --verify` also checks (the executable's in a release
+  build only). The prices suite (`crates/gro_bench/suites/prices/`, its
+  `prices` naming the default) runs the priced build as `fgro` with every
+  default on and as one variant per default turned off, interleaved, on
+  the eval fixture and a config that declares nothing (`tiny/`), all with
+  zap's driver and equal values (`parity`), and prints each default's
+  price, the default's median less the variant's: wall time in a wall run,
+  user and kernel instructions under `--counters`, a price within the two
+  rows' MADs added marked as noise. The memory suite
+  (`crates/gro_bench/suites/memory/`) evaluates a data module just under
+  the loader's 16 MiB module cap, generated into the copy at run time
+  (a project's `generate`), with `fgro eval` jitless and with `--jit`,
+  and with Deno beside; run it under a memory limit
+  (`systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0`).
+  **The perf rule**: a change to `gro_runtime` or `gro_cli`
   runs
   `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
   (and the eval suite) before commit: it builds the release `fgro` at that
