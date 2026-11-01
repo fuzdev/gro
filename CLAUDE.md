@@ -549,7 +549,16 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `fgro eval` uses, also each
   import edge and how it was reached, each loaded module's format and the
   blake3 of the bytes read, the union of the `package.json` files consulted
-  (the entry's included), and each failure as data (resolve or load, with
+  (the entry's included), each read once per run through a
+  `loader::reads::RecordingTree` (later reads served the first's bytes, a
+  file of another identity at the path refused, every served read passing
+  the inner tree's `SourceTree::check_read` first, which the loader's box
+  check overrides, a no-op by default, the bytes' blake3 kept in
+  `Graph::reads`, the entry's from the pre-pass), each path a resolution
+  went on past finding absent (`SourceTree::note_absent`: a missing
+  `package.json` on a walk up, a missing `node_modules/<name>` on the
+  search; a no-op by default, so `Off` does no work for it), and
+  each failure as data (resolve or load, with
   its reason as an enum, never parsed from a message), kept per site in the
   order each first happened. The file loaded is the file resolved: the lookup takes its
   `FileId` (device, inode, and birth time, by `symlink_metadata` on the real

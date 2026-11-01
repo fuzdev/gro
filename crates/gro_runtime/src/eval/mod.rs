@@ -124,6 +124,7 @@ use crate::engine::{Engine, EngineOptions};
 use crate::loader::graph::{
     Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
+use crate::loader::reads::{Reads, RecordingTree};
 use crate::loader::{Loader, Rules};
 use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 use crate::snapshot::StartupSnapshot;
@@ -203,6 +204,9 @@ pub struct Prepass {
     entry: Resolution,
     /// The roots the entry's graph starts with.
     roots: Roots,
+    /// What the entry's resolution read and found absent, its graph's
+    /// first reads.
+    reads: Reads,
     /// The box: the project's real directory and the link closure below it.
     confinement: confine::Prepared,
 }
@@ -255,14 +259,19 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
         failure.importer = Some(options.cwd.display().to_string());
         failure
     };
-    let (entry, roots, bound) =
-        match resolver::resolve_entry_with_bound(&DiskTree, &options.entry, &options.cwd) {
-            Ok(resolved) => resolved,
-            Err(error) => {
-                let failure = refused(&options, error.to_string(), error.kind.is_specifier_error());
-                return Err(Box::new(failed(&options, failure)));
-            }
-        };
+    let mut reads = Reads::default();
+    let resolved = resolver::resolve_entry_with_bound(
+        &RecordingTree::new(&DiskTree, &mut reads),
+        &options.entry,
+        &options.cwd,
+    );
+    let (entry, roots, bound) = match resolved {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            let failure = refused(&options, error.to_string(), error.kind.is_specifier_error());
+            return Err(Box::new(failed(&options, failure)));
+        }
+    };
     let project = roots.project().dir.clone();
     let refusal = match bound {
         EntryBound::Found => None,
@@ -304,6 +313,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
         options,
         entry,
         roots,
+        reads,
         confinement,
     })
 }
@@ -343,6 +353,7 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
         options,
         entry,
         roots,
+        reads,
         confinement,
     } = prepass;
     let options = &options;
@@ -401,7 +412,9 @@ pub fn eval(engine: Engine, prepass: Prepass) -> Envelope {
     // the roots' handles are done with once the box is up
     drop(confinement);
     let loader = Rc::new(
-        Loader::new(&entry, roots, crate::loader::graph::Recording::Full).with_rules(rules),
+        Loader::new(&entry, roots, crate::loader::graph::Recording::Full)
+            .with_reads(reads)
+            .with_rules(rules),
     );
     let stopped = Stopped::default();
     let result = evaluate(

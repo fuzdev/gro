@@ -109,6 +109,11 @@ Every `import()` in the run is refused before anything is resolved, whatever it 
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
 caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md).
 
+Each `package.json` the run's resolutions read is read once:
+a later resolution that finds the same file parses the first read's bytes,
+even when the file was rewritten in place since,
+and one that finds another file at its path (a file renamed over it after eval first read it) fails to resolve.
+
 ## The box
 
 Eval's process is held in a kernel box before any of the module's code, or V8 itself, runs.
@@ -175,7 +180,8 @@ A build with no embedded startup snapshot is refused as `internal`:
 started from source, the runtime would read its extensions' JS from the build tree, outside the box.
 There's no flag to run with a weaker box or none.
 
-On top of the box, every module and `package.json` read is checked against the roots before it happens.
+On top of the box, every module and `package.json` read is checked against the roots before it happens,
+a `package.json` served from the run's earlier read of it included.
 A module graph can reach past them: the resolver follows links the closure doesn't
 (one in a nested `node_modules`, or in a subdirectory's own `node_modules`)
 or drops (one to a directory holding the project or another package's directory, which `fgro run` follows),

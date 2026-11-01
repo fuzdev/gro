@@ -17,7 +17,11 @@
 //!   its specifier as written, and how it was reached ([`Reach`]), to the
 //!   URL it resolved to. `import.meta.resolve` adds none: it imports nothing.
 //! - **Consulted files**: every metadata file a resolution read, the entry's
-//!   and `import.meta.resolve`'s included, each once per role.
+//!   and `import.meta.resolve`'s included, each once per role, and, in
+//!   [`Graph::reads`], each read once per run with the hash of its bytes.
+//! - **Absent paths**: each path a resolution went on past finding nothing
+//!   of the kind it looked for ([`Reads::absent`]), since a resolution that
+//!   succeeds depends on them staying absent.
 //! - **Failures**: each resolution or load that failed, by where it was
 //!   reached from, with the reason as data ([`FailureError`]), never parsed
 //!   from a message. A site keeps each distinct failure once, in the order
@@ -30,6 +34,7 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
+use super::reads::Reads;
 use super::strip::StripFailure;
 use crate::resolver::{
     ConsultedFile, FileId, ModuleFormat, Resolution, ResolveErrorKind, Root, Roots,
@@ -42,7 +47,8 @@ pub enum Recording {
     /// nothing else is recorded or built.
     Off,
     /// The whole record: besides what loading needs, each load's format and
-    /// hash, the edges, the consulted files, and the failures.
+    /// hash, the edges, the consulted files with their reads' hashes, the
+    /// paths found absent, and the failures.
     Full,
 }
 
@@ -70,6 +76,10 @@ pub struct Graph {
     /// Every metadata file the graph's resolutions read, at its real path,
     /// once per role.
     pub consulted: BTreeSet<ConsultedFile>,
+    /// Each metadata file's single read, with its hash, and the paths found
+    /// absent, the entry's resolution's among them when the caller passed
+    /// its record in ([`Graph::with_reads`]).
+    pub reads: Reads,
     /// What failed at each site: each distinct failure once, in the order
     /// each first happened. One equal to a failure already there is skipped,
     /// since `deno_core` can resolve a specifier twice, but another reason
@@ -251,12 +261,25 @@ impl Graph {
             records: HashMap::new(),
             edges: BTreeMap::new(),
             consulted: BTreeSet::new(),
+            reads: Reads::default(),
             failures: BTreeMap::new(),
             paths: BTreeMap::new(),
         };
         graph.consult(entry.files_consulted.iter().cloned());
         graph.record(&entry.url, Record::new(entry));
         graph
+    }
+
+    /// The graph, its reads starting from `reads`, what the entry's
+    /// resolution read and found absent, recording in full; off, `reads`
+    /// is dropped.
+    #[must_use]
+    pub fn with_reads(self, reads: Reads) -> Self {
+        if self.is_full() {
+            Self { reads, ..self }
+        } else {
+            self
+        }
     }
 
     /// Admits the root of `resolution` and records its URL inside it, with

@@ -99,7 +99,10 @@ pub(super) fn read_package_json(
                 reason: "it is not a regular file (a FIFO, a socket, or a device)".to_owned(),
             });
         }
-        Some(Entry::Dir(_)) | None => return Ok(None),
+        Some(Entry::Dir(_)) | None => {
+            tree.note_absent(&path);
+            return Ok(None);
+        }
     };
     let invalid = |reason: String| ResolveErrorKind::InvalidPackageJson {
         path: path.clone(),

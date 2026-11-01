@@ -107,6 +107,7 @@ pub(super) fn resolve_package(
             found = Some((node_modules, package_dir, root));
             break;
         }
+        tree.note_absent(&package_dir);
         if dir == bound_dir {
             break;
         }

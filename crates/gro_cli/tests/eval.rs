@@ -617,6 +617,46 @@ fn a_package_linked_from_outside_the_project_loads() {
     run.assert_value(&json!({"value": "linked"}));
 }
 
+/// A project's `package.json` symlinked to a file outside the box is read
+/// at its real path. The pre-pass reads it before the box exists; a bare
+/// import's walk up passes it again, and that read is refused as outside
+/// the box, though the run read the file once already, failing the eval as
+/// `internal`.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_package_json_linked_out_of_the_box_is_internal() {
+    let scratch = Scratch::new(
+        "linked_out",
+        &[
+            ("out/pkg.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/main.ts",
+                "import x from 'foo';\nexport default x;\n",
+            ),
+            (
+                "project/node_modules/foo/package.json",
+                r#"{"name": "foo", "exports": "./i.mjs"}"#,
+            ),
+            ("project/node_modules/foo/i.mjs", "export default 7;\n"),
+        ],
+    );
+    std::os::unix::fs::symlink("../out/pkg.json", scratch.0.join("project/package.json")).unwrap();
+    let entry = scratch.path("project/main.ts");
+    let outside = scratch.path("out/pkg.json");
+    let run = eval(&[&entry]);
+    run.assert_failed("internal", 1);
+    assert!(
+        run.message().contains(&format!(
+            "the eval was to read {outside}, which lies outside its box"
+        )),
+        "{}",
+        run.message()
+    );
+}
+
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),

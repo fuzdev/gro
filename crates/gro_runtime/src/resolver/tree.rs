@@ -105,6 +105,32 @@ pub trait SourceTree {
     /// [`DiskTree`] off Unix, an error of kind [`io::ErrorKind::Unsupported`]
     /// (no mode bits to read), so resolution fails closed.
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool>;
+
+    /// Told of each path a resolution looked up and went on past, finding
+    /// nothing of the kind it looked for there: no `package.json` file in a
+    /// directory an upward walk passed, and no package directory in a
+    /// `node_modules` the package search passed. A resolution that succeeds
+    /// depends on these staying absent as much as on the files it read, so
+    /// a tree that records what a graph depends on keeps them. The default
+    /// does nothing, so a plain resolution does no work for it.
+    fn note_absent(&self, path: &Path) {
+        let _ = path;
+    }
+
+    /// Checks that the file at the real path `path` may be read, before
+    /// any read of it is served. A tree that applies a rule runs it at the
+    /// start of its `read`, and a tree that serves a read from bytes it
+    /// kept, without reading its inner tree again, runs its inner tree's
+    /// check first, so the rule holds however a read is served. The default
+    /// admits every path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `path` may not be read.
+    fn check_read(&self, path: &Path) -> io::Result<()> {
+        let _ = path;
+        Ok(())
+    }
 }
 
 /// What [`SourceTree::lookup`] found at a path, at its real path (every

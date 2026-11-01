@@ -54,7 +54,8 @@
 //! default rules refuse nothing more.
 //!
 //! With [`Rules::box_roots`] set, as eval sets them, every read the loader
-//! makes, a module's or a `package.json`'s, is checked first: its real path
+//! makes, a module's or a `package.json`'s, one served from an earlier
+//! read's bytes ([`RecordingTree`]) included, is checked first: its real path
 //! must lie under one of the box's roots, the directories the run's process
 //! is confined to (`confine`), or it isn't read. The box is the project and
 //! the link closure found from its `node_modules` before the run, and a graph
@@ -79,12 +80,18 @@
 //! loads as dynamic, not only the call's own); every metadata file a
 //! resolution consulted, the entry's and `import.meta.resolve`'s included;
 //! and each failed resolution or load by its site, with the reason as data
-//! built where the message is, never parsed from it. Recording changes
-//! nothing JS sees: every error keeps its message and class.
+//! built where the message is, never parsed from it. Recording in full,
+//! resolutions also read through a [`RecordingTree`]:
+//! each metadata file is read once per run, its later reads served the
+//! first's bytes, a file of another identity at its path refused, and its
+//! hash kept, and every path a resolution went on past finding absent is
+//! recorded. Recording changes nothing JS sees but that refusal: every
+//! error keeps its message and class.
 //! `import.meta.resolve` adds no edge, since it loads nothing, but its
 //! consulted files and failures are recorded.
 
 pub mod graph;
+pub mod reads;
 pub mod strip;
 
 use std::cell::RefCell;
@@ -105,6 +112,7 @@ use crate::resolver::{
 use graph::{
     Failure, FailureError, Graph, LoadFailure, Loaded, Position, Reach, Reached, Recording,
 };
+use reads::{Reads, RecordingTree};
 use strip::strip_module;
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
@@ -165,6 +173,17 @@ impl Loader {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
             rules: Rules::default(),
             breach: RefCell::new(None),
+        }
+    }
+
+    /// The loader, its graph's reads starting from `reads`, the record of
+    /// the entry's resolution, recording in full ([`Graph::with_reads`]).
+    #[must_use]
+    pub fn with_reads(self, reads: Reads) -> Self {
+        let graph = self.graph.into_inner().with_reads(reads);
+        Self {
+            graph: RefCell::new(graph),
+            ..self
         }
     }
 
@@ -454,12 +473,21 @@ impl<T: SourceTree> SourceTree for Boxed<'_, T> {
     }
 
     fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
-        self.loader.check_read(path)?;
+        self.check_read(path)?;
         self.tree.read(path, id)
     }
 
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
         self.tree.is_world_writable(dir)
+    }
+
+    fn note_absent(&self, path: &Path) {
+        self.tree.note_absent(path);
+    }
+
+    fn check_read(&self, path: &Path) -> io::Result<()> {
+        self.loader.check_read(path)?;
+        self.tree.check_read(path)
     }
 }
 
@@ -497,8 +525,13 @@ fn resolve_into(
             ModuleLoaderError::type_error(message),
         )
     };
-    let mut resolution =
-        resolver::resolve(tree, specifier, &importer, &graph.roots).map_err(refused)?;
+    let resolved = if graph.is_full() {
+        let tree = RecordingTree::new(tree, &mut graph.reads);
+        resolver::resolve(&tree, specifier, &importer, &graph.roots)
+    } else {
+        resolver::resolve(tree, specifier, &importer, &graph.roots)
+    };
+    let mut resolution = resolved.map_err(refused)?;
     // read whether or not the root is admitted
     graph.consult(std::mem::take(&mut resolution.files_consulted));
     let Reached::Import(reach) = reached else {
@@ -868,6 +901,40 @@ mod tests {
         assert_eq!(outside.breach(), Some(PathBuf::from("/q/ext/package.json")));
     }
 
+    /// A `package.json` the pre-pass read before the box existed is served
+    /// from that read only inside the box: symlinked out of it, the walk up
+    /// a bare import makes is refused as a breach, as a fresh read would be.
+    #[test]
+    fn a_read_the_prepass_kept_is_checked_against_the_box() {
+        let mut tree = tree();
+        let project = tree.files.remove("/p/package.json").unwrap();
+        tree.files.insert("/q/pkg.json", project);
+        tree.links.insert("/p/package.json", "/q/pkg.json");
+        let mut reads = Reads::default();
+        let (entry, roots) = resolver::resolve_entry(
+            &RecordingTree::new(&tree, &mut reads),
+            Path::new("/p/main.ts"),
+            Path::new("/"),
+        )
+        .unwrap();
+        assert!(reads.hash(Path::new("/q/pkg.json")).is_some());
+        let loader = Loader::new(&entry, roots, Recording::Full)
+            .with_reads(reads)
+            .with_rules(Rules {
+                box_roots: Some(BoxRoots::for_test(vec![PathBuf::from("/p")])),
+                ..Rules::default()
+            });
+        let boxed = Boxed {
+            loader: &loader,
+            tree: &tree,
+        };
+        let error = loader
+            .resolve_reached(&boxed, "bar", MAIN, STATIC)
+            .unwrap_err();
+        assert!(error.to_string().contains("outside the box"), "{error}");
+        assert_eq!(loader.breach(), Some(PathBuf::from("/q/pkg.json")));
+    }
+
     /// A module outside the box isn't read, and the loader records the
     /// breach; with no box, reads aren't checked.
     #[test]
@@ -1156,6 +1223,181 @@ mod tests {
             graph(&loader).consulted,
             BTreeSet::from([search_bound, scope, bar, lnk])
         );
+    }
+
+    /// A tree that counts its reads.
+    struct Counting {
+        tree: MemoryTree,
+        reads: std::cell::Cell<usize>,
+    }
+
+    impl SourceTree for Counting {
+        fn lookup(&self, path: &Path) -> io::Result<Option<Entry>> {
+            self.tree.lookup(path)
+        }
+
+        fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
+            self.reads.set(self.reads.get() + 1);
+            self.tree.read(path, id)
+        }
+
+        fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+            self.tree.is_world_writable(dir)
+        }
+    }
+
+    /// Resolves `bar` from the entry and from a module in a subdirectory,
+    /// recording as `recording` says, and returns the graph and how many
+    /// reads reached the tree.
+    fn resolve_bar_twice(recording: Recording) -> (Graph, usize) {
+        let mut tree = tree();
+        tree.files.insert("/p/src/deep.ts", "");
+        let (entry, roots) =
+            resolver::resolve_entry(&tree, Path::new("/p/main.ts"), Path::new("/")).unwrap();
+        let tree = Counting {
+            tree,
+            reads: std::cell::Cell::new(0),
+        };
+        let loader = Loader::new(&entry, roots, recording);
+        loader.resolve_reached(&tree, "bar", MAIN, STATIC).unwrap();
+        let deep = loader
+            .resolve_reached(&tree, "./src/deep.ts", MAIN, STATIC)
+            .unwrap();
+        loader
+            .resolve_reached(&tree, "bar", deep.as_str(), STATIC)
+            .unwrap();
+        (loader.into_graph(), tree.reads.get())
+    }
+
+    /// Recording in full, each `package.json` is read once however many
+    /// resolutions consult it, and hashed as read, and the paths a
+    /// resolution went on past are recorded absent: the subdirectory's own
+    /// `package.json`, on the walks up, and its `node_modules` entry, on
+    /// the search. Off, every resolution reads again and nothing is kept.
+    #[test]
+    fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
+        let (graph, reads) = resolve_bar_twice(Recording::Full);
+        assert_eq!(reads, 2);
+        assert_eq!(
+            graph.reads.hash(Path::new("/p/package.json")),
+            Some(blake3::hash(br#"{"name": "proj", "type": "module"}"#))
+        );
+        assert_eq!(
+            graph
+                .reads
+                .hash(Path::new("/p/node_modules/bar/package.json")),
+            Some(blake3::hash(br#"{"exports": "./i.mjs"}"#))
+        );
+        // every consulted file has its read's hash
+        assert!(
+            graph
+                .consulted
+                .iter()
+                .all(|file| graph.reads.hash(&file.path).is_some())
+        );
+        assert_eq!(
+            graph.reads.absent(),
+            &BTreeSet::from([
+                PathBuf::from("/p/src/node_modules/bar"),
+                PathBuf::from("/p/src/package.json"),
+            ])
+        );
+        let (off, off_reads) = resolve_bar_twice(Recording::Off);
+        assert_eq!(off_reads, 4);
+        assert_eq!(off.reads.hash(Path::new("/p/package.json")), None);
+        assert!(off.reads.absent().is_empty());
+        // and a record passed in is dropped off
+        let mut reads = Reads::default();
+        RecordingTree::new(&tree(), &mut reads).note_absent(Path::new("/p/x"));
+        let (entry, roots) =
+            resolver::resolve_entry(&tree(), Path::new("/p/main.ts"), Path::new("/")).unwrap();
+        let loader = Loader::new(&entry, roots.clone(), Recording::Off).with_reads(reads.clone());
+        assert!(loader.into_graph().reads.absent().is_empty());
+        let loader = Loader::new(&entry, roots, Recording::Full).with_reads(reads);
+        assert_eq!(loader.into_graph().reads.absent().len(), 1);
+    }
+
+    /// A `package.json` swapped for another file between two resolutions
+    /// that read it is refused at the second, recording in full, rather
+    /// than read as another file under the same path.
+    #[test]
+    fn a_consulted_file_of_another_identity_is_refused_in_one_run() {
+        let fixtures = DiskFixtures::new(
+            "consulted_swap",
+            &[
+                ("main.ts", ""),
+                ("sub/package.json", r#"{"type": "module"}"#),
+                ("sub/b.js", SOURCE),
+            ],
+        );
+        let main = fixtures.url("main.ts");
+        let loader = fixtures.loader("main.ts");
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js", main.as_str(), STATIC)
+            .unwrap();
+        fixtures.replace("sub/package.json", r#"{"type": "module"}"#);
+        let error = loader
+            .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(Reads::CHANGED), "{error}");
+        // off, the new file is read
+        let loader = fixtures.loader_recording("main.ts", Recording::Off);
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js", main.as_str(), STATIC)
+            .unwrap();
+        fixtures.replace("sub/package.json", r#"{"type": "module"}"#);
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
+            .unwrap();
+    }
+
+    /// A `package.json` rewritten in place between two resolutions that
+    /// read it, its identity unchanged, is served the first read's bytes,
+    /// recording in full, and its hash is theirs; off, the second
+    /// resolution reads the new bytes.
+    #[test]
+    fn a_consulted_file_rewritten_in_place_serves_the_first_read() {
+        const MODULE: &str = r#"{"type": "module"}"#;
+        let fixtures = DiskFixtures::new(
+            "consulted_rewrite",
+            &[
+                ("main.ts", ""),
+                ("sub/package.json", MODULE),
+                ("sub/b.js", SOURCE),
+            ],
+        );
+        let main = fixtures.url("main.ts");
+        let rewrite = || {
+            std::fs::write(fixtures.path("sub/package.json"), r#"{"type": "commonjs"}"#).unwrap();
+        };
+        let loader = fixtures.loader("main.ts");
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js", main.as_str(), STATIC)
+            .unwrap();
+        rewrite();
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
+            .unwrap();
+        assert_eq!(
+            loader
+                .into_graph()
+                .reads
+                .hash(&fixtures.path("sub/package.json")),
+            Some(blake3::hash(MODULE.as_bytes()))
+        );
+        // off, the rewritten file is read
+        std::fs::write(fixtures.path("sub/package.json"), MODULE).unwrap();
+        let loader = fixtures.loader_recording("main.ts", Recording::Off);
+        loader
+            .resolve_reached(&DiskTree, "./sub/b.js", main.as_str(), STATIC)
+            .unwrap();
+        rewrite();
+        let error = loader
+            .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not set"), "{error}");
     }
 
     /// A refused resolution is recorded by its specifier, importer, and

@@ -90,6 +90,11 @@ Where it departs, it departs on purpose, and always toward failing closed:
   The first resolution of a URL is the one checked: resolving it again changes nothing,
   and a module already loaded is served from the module map, not read again.
   Each `package.json` is read the same way, checked against its own lookup.
+  In `fgro eval`, which records its graph in full, each `package.json` is read once per run:
+  a later resolution that finds the same file there is served the first read's bytes,
+  and one that finds another file at the path is refused,
+  so every resolution in the run parses the same bytes, whose BLAKE3 hash the graph keeps.
+  `fgro run` reads it again at each resolution.
   A file removed and made again is told apart by its birth time,
   since ext4 hands the new file the old one's inode number;
   where the filesystem records no birth time, or the new file is made within the same tick of its clock as the original's birth,
