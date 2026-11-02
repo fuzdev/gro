@@ -17,8 +17,10 @@
 //! - [`check`]: the untimed correctness run's checks of a row's stdout
 //! - [`run`]: the process runner, which measures a suite's rows interleaved,
 //!   with an A/A noise row, and refuses a run whose artifacts changed
+//! - [`budget`]: the suite's size budgets, checked against the sizes measured
 //! - [`schedule`]: the interleaved order of a run's samples
 //! - [`stats`]: MAD-cleaned statistics
+//! - [`git`]: the git reads behind the record: each checkout's state
 //! - [`record`]: the run record, one JSON line per run in an append-only
 //!   history
 //! - [`report`]: a reading of the history, each row's latest record against
@@ -27,10 +29,12 @@
 //! `cargo xtask bench <suite.json>` runs a suite and appends its record;
 //! `cargo xtask bench report` reads the history.
 
+pub mod budget;
 pub mod check;
 pub mod collection;
 pub mod counters;
 pub mod error;
+pub mod git;
 pub mod phases;
 pub mod prices;
 pub mod project;

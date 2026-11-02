@@ -25,7 +25,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::BenchError;
-use crate::record::{git, git_output};
+use crate::git::{git, git_output};
 
 /// One file of a collection's tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
