@@ -40,7 +40,7 @@ already-`.js` specifiers are left untouched.
 In development (`gro dev`), does nothing — `svelte-package` is a build-time tool.
 
 During `adapt`, if `package.json` has a `bin` field,
-the plugin makes the binaries executable and runs `npm link -f`
+the plugin makes the binaries executable and runs `npm link -f` (the config's `pm_cli`)
 so CLI commands are available locally after building.
 
 ## configuration

@@ -421,6 +421,10 @@ so an invoking task reports only that it failed.
 The CLI exits with `1`, or with the `exit_code` of a `TaskError` thrown by the task it invoked,
 an integer 1–255, like `throw new TaskError('failed', {exit_code: 3})`.
 
+To test a caught error, use `is_task_error` and `is_silent_error` from `@fuzdev/gro/task.ts`
+rather than `instanceof`: they match subclasses and errors from other copies of Gro,
+like a project's own install beside a global one.
+
 ## why?
 
 Gro usage on the command line (`gro <builtin> [...flags]`, `gro task <path> [...flags]`)

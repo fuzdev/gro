@@ -110,7 +110,7 @@ gro # prints the builtins - defers to any local gro installation
 ```
 
 ```
-18 builtin tasks:
+builtin tasks:
 
 build      build the project
 changeset  call changeset with gro patterns

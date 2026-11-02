@@ -91,7 +91,8 @@ Key features:
     results in `{a: 2}`
   - `invoke_task` automatically forwards CLI args to invoked tasks
 - Error handling - `TaskError` suppresses stack trace, `SilentError` exits
-  silently
+  silently; `is_task_error` / `is_silent_error` (`task.ts`) match subclasses
+  and other copies of Gro, where `instanceof` misses
 
 Task composition patterns:
 
@@ -174,6 +175,7 @@ Capabilities:
 - Svelte components (`.svelte`) with SSR compilation using `compile()`
 - Svelte runes in JS and TypeScript modules (`.svelte.ts`, and `.svelte.` as an infix
   like `.svelte.test.ts`, vite-plugin-svelte's rule) using `compileModule()`
+  (types stripped by tsv first)
 - JSON imports (any extension with `type: 'json'` import attribute)
 - Raw text imports (`.css`, `.svg`, or `?raw` suffix)
 
@@ -249,7 +251,7 @@ When it runs:
 
 - `gro gen` - manual trigger
 - `gro dev` - watch mode, throttled queue via `gro_plugin_gen`
-- `gro build` - one-time generation (assumes fresh, verified by CI)
+- `gro build` - runs gen once before building (`--no-gen` skips)
 - `gro sync` - before syncing package.json
 - `gro gen --check` - verify no drift (used by `gro check` and CI)
 
@@ -356,8 +358,8 @@ filesystem, deferred until plugins are created:
 
 - `@sveltejs/kit` in package.json deps or dev deps (not peer deps) → enables
   `gro_plugin_sveltekit_app`
-- `@sveltejs/package` in package.json + the lib directory → enables
-  `gro_plugin_sveltekit_library`
+- `@sveltejs/kit` and `@sveltejs/package` in deps or dev deps, plus the lib
+  directory → enables `gro_plugin_sveltekit_library`
 - `server/server.ts` in the lib directory → enables `gro_plugin_server`
 - Always enables `gro_plugin_gen`
 

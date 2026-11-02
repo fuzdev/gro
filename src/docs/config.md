@@ -230,7 +230,7 @@ and `filter`, a `PathFilter` excluding the paths it rejects (default `null`).
 Files outside `dir` enter the graph only when a project module imports them.
 
 `filter` is called with absolute paths,
-unlike [`search_filters`](#search_filters), which test paths relative to the project root.
+unlike [`search_filters`](#search_filters), which test relative paths (see above).
 It filters change events, not the directory walk:
 a directory it rejects is still watched, and each path below it is filtered on its own.
 

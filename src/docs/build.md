@@ -23,16 +23,17 @@ forwarding any [`-- vite [...]` args](https://vitejs.dev/config/):
 gro build -- vite --config my-config.js
 ```
 
-### sync and install
+### sync, install, and gen
 
 By default, `gro build` runs `gro sync` before building
-to generate code and update `package.json` exports,
-and installs packages if needed:
+(`svelte-kit sync`, `package.json` exports, and an install unless `--no-install`),
+then `gro gen`:
 
 ```bash
-gro build               # runs sync + install + build
+gro build               # runs sync + install + gen + build
 gro build --no-sync     # skip sync step
 gro build --no-install  # skip package install
+gro build --no-gen      # skip gen
 ```
 
 Note: `--no-sync` is ignored if install runs (install requires sync to generate exports).
@@ -141,6 +142,7 @@ This usually indicates a plugin or build step is incorrectly modifying source fi
 ```
 
 This ensures build reproducibility and prevents plugins from corrupting source code.
+`gro build --allow_dirty` skips the check.
 
 ### CI/CD integration
 
@@ -160,7 +162,7 @@ gro build              # build (uses cache if valid)
 Cache not working as expected?
 
 - **workspace must be clean** - check `git status`
-- **enable debug logging** - `LOG_LEVEL=debug gro build`
+- **enable debug logging** - `PUBLIC_LOG_LEVEL=debug gro build`
 - **corrupted cache** - delete `.gro/build.json` and rebuild
 - **platform differences** - add platform/arch to `build_cache_config`
 - **non-deterministic builds** - builds with timestamps/UUIDs/random data invalidate cache every run

@@ -27,8 +27,8 @@ More flexibility is available when needed including multiple custom output files
 `gen` is implemented in Gro as [a task](/src/lib/gen.task.ts)
 and [a plugin](/src/lib/gro_plugin_gen.ts).
 By default it runs during development with `gro dev`.
-`gro build` doesn't run it, assuming generated files are fresh,
-which `gro check` verifies with `gro gen --check`.
+`gro build` runs it too (`--no-gen` opts out),
+and `gro check` verifies it with `gro gen --check`.
 
 Normally you'll want to commit generated files to git,
 but you can always gitignore a specific pattern like `*.ignore.*`
@@ -304,7 +304,7 @@ import type {Task} from '@fuzdev/gro';
 
 export const task: Task = {
 	run: async ({invoke_task}) => {
-		// this throws a `TaskError` if anything is new or different
+		// throws if anything is new or different (a `SilentError`, the gen failure as its `cause`)
 		await invoke_task('gen', {check: true});
 	},
 };
