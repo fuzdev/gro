@@ -39,7 +39,7 @@
 //!    it is the process's only thread). The first kills the process on the
 //!    calls no part of the runtime makes and code that escaped the engine
 //!    would ([`KILLED_CALLS`]: `execve` and `execveat`, `ptrace`, the
-//!    cross-process memory calls, `bpf`, `perf_event_open`, `userfaultfd`,
+//!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`, `userfaultfd`,
 //!    the `kexec` calls, the `io_uring` calls, whose operations bypass
 //!    seccomp, and the kernel module calls). The second is an allowlist:
 //!    the calls the runtime makes after the box goes up, and their named
@@ -68,8 +68,9 @@
 //!    `aarch64`; the `aarch64` list follows that architecture's call table
 //!    and is unverified on a host. A library loaded after the box goes up
 //!    (by `dlopen`, which nothing in the runtime is known to call) fails on
-//!    either architecture: Landlock refuses its file outside the roots, and
-//!    jitless, the rule refuses its code's `PROT_EXEC` mapping.
+//!    either architecture when its file is outside the roots, which Landlock
+//!    refuses, or jitless, when the rule refuses its code's `PROT_EXEC`
+//!    mapping; a library inside the roots loads under `--jit`.
 //!
 //!    The `READ_IMPLIES_EXEC` personality, which would make every readable
 //!    mapping executable past the rule, can't be inherited: the kernel

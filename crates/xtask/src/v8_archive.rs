@@ -198,11 +198,46 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
 /// archive) and relinks everything downstream of it. Run when the file at the
 /// path was wrong, since a build may already have copied it.
 fn clean_v8(root: &Path) -> Result<(), ArchiveError> {
-    // the built-in `dev` and `release`, plus every custom `[profile.*]` in `Cargo.toml`
-    for profile in ["dev", "release", "profiling"] {
-        clean_v8_profile(root, profile)?;
+    for (_, profile) in workspace_profiles(root)? {
+        clean_v8_profile(root, &profile)?;
     }
     Ok(())
+}
+
+/// Every profile the workspace builds, each as its directory under the
+/// target directory and the name `cargo clean --profile` takes for it: the
+/// built-in `dev` and `release`, plus each custom `[profile.<name>]` in the
+/// root `Cargo.toml`.
+fn workspace_profiles(root: &Path) -> Result<Vec<(String, String)>, ArchiveError> {
+    let manifest = root.join("Cargo.toml");
+    let text = fs::read_to_string(&manifest).map_err(|source| ArchiveError::Io {
+        path: manifest,
+        source,
+    })?;
+    Ok(profiles_in(&text))
+}
+
+/// The profiles [`workspace_profiles`] reads from the manifest `text`.
+fn profiles_in(text: &str) -> Vec<(String, String)> {
+    let mut profiles = vec![
+        ("debug".to_owned(), "dev".to_owned()),
+        ("release".to_owned(), "release".to_owned()),
+    ];
+    for line in text.lines() {
+        let Some(name) = line
+            .trim()
+            .strip_prefix("[profile.")
+            .and_then(|rest| rest.strip_suffix(']'))
+        else {
+            continue;
+        };
+        // `[profile.<name>.package.<crate>]` overrides a profile, naming none
+        if name.contains('.') || profiles.iter().any(|(_, known)| known == name) {
+            continue;
+        }
+        profiles.push((name.to_owned(), name.to_owned()));
+    }
+    profiles
 }
 
 /// Removes the `v8` crate's build outputs for one cargo `profile`.
@@ -220,12 +255,8 @@ fn clean_v8_profile(root: &Path, profile: &str) -> Result<(), ArchiveError> {
     })
 }
 
-/// The profiles [`verify_linked`] checks: each one's directory under the
-/// target directory, and the name `cargo clean --profile` takes for it.
-const LINKED_PROFILES: [(&str, &str); 2] = [("debug", "dev"), ("release", "release")];
-
-/// Cleans the `v8` build outputs of each profile [`verify_linked`] checks
-/// whose library copy is missing under `target_dir` though the `v8` build
+/// Cleans the `v8` build outputs of each profile the workspace builds
+/// ([`workspace_profiles`]) whose library copy is missing under `target_dir` though the `v8` build
 /// script has run there ([`copy_is_missing`]), so the next build reruns it,
 /// which recopies the library. Run before the xtask's first build.
 ///
@@ -233,14 +264,15 @@ const LINKED_PROFILES: [(&str, &str); 2] = [("debug", "dev"), ("release", "relea
 ///
 /// Returns an [`ArchiveError`] if `cargo clean` fails.
 pub fn heal_missing_copies(root: &Path, target_dir: &Path) -> Result<(), ArchiveError> {
-    for (dir, profile) in LINKED_PROFILES {
+    for (dir, profile) in workspace_profiles(root)? {
+        let dir = dir.as_str();
         if copy_is_missing(target_dir, dir) {
             println!(
                 "[xtask] {} is missing but v8 was built for {dir}; cleaning v8's {dir} \
                  build outputs so the next build recopies it",
                 linked_path(target_dir, dir).display()
             );
-            clean_v8_profile(root, profile)?;
+            clean_v8_profile(root, &profile)?;
         }
     }
     Ok(())
@@ -416,6 +448,22 @@ mod tests {
         assert!(locked_versions(lock, "nope").is_empty());
         let two = format!("{lock}\n[[package]]\nname = \"v8\"\nversion = \"152.2.0\"\n");
         assert_eq!(locked_versions(&two, "v8"), ["150.4.0", "152.2.0"]);
+    }
+
+    #[test]
+    fn the_profiles_are_the_built_ins_and_each_custom_one() {
+        let manifest = "[profile.release]\nlto = true\n\n[profile.profiling]\n\
+                        inherits = \"release\"\n\n[profile.dev.package.v8]\nopt-level = 3\n";
+        let names: Vec<String> = profiles_in(manifest)
+            .into_iter()
+            .map(|(dir, profile)| format!("{dir}:{profile}"))
+            .collect();
+        assert_eq!(
+            names,
+            ["debug:dev", "release:release", "profiling:profiling"]
+        );
+        // the workspace's own manifest reads too
+        assert!(workspace_profiles(&crate::root()).unwrap().len() >= 2);
     }
 
     #[test]

@@ -744,7 +744,9 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
 /// file, before its syntax error is parsed.
 #[test]
 fn a_module_past_its_byte_cap_fails_to_load() {
-    let cap = usize::try_from(gro_runtime::resolver::MAX_MODULE_SIZE).unwrap();
+    // `gro_runtime::resolver::MAX_MODULE_SIZE`, which gro_runtime pins; a
+    // literal keeps V8 out of this test binary
+    let cap: usize = 16 << 20;
     let padded = |first: &str, size: usize| {
         let mut source = format!("{first}\n//");
         source.push_str(&"x".repeat(size - source.len()));

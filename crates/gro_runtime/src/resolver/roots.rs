@@ -133,14 +133,37 @@ impl Roots {
     }
 
     /// The innermost admitted root strictly inside `dir` that holds `path`,
-    /// a real path inside the root at `dir`.
+    /// a real path inside the root at `dir` with no `node_modules` segment
+    /// below `dir`, which `contain` checks first.
     pub(super) fn inner(&self, dir: &Path, path: &Path) -> Option<&Root> {
-        // the packages under `dir` are one range in component order, usually empty
-        let nested_package = self
+        // the packages under `dir` are one range in component order; those
+        // under `dir/node_modules` can't hold `path`, which `contain` refuses
+        // first when it has a `node_modules` segment below `dir`, so when the
+        // range starts there it's probed again past them
+        let first = self
             .packages
             .range::<Path, _>((Bound::Excluded(dir), Bound::Unbounded))
             .next()
-            .is_some_and(|(package_dir, _)| package_dir.starts_with(dir));
+            .map(|(package_dir, _)| package_dir.as_path());
+        let nested_package = first
+            .and_then(|first| first.strip_prefix(dir).ok())
+            .is_some_and(|below| {
+                below
+                    .components()
+                    .next()
+                    .is_none_or(|component| component.as_os_str() != "node_modules")
+                    || {
+                        // the least component past `node_modules`, so every path under it sorts before
+                        let past_node_modules = dir.join("node_modules\0");
+                        self.packages
+                            .range::<Path, _>((
+                                Bound::Excluded(past_node_modules.as_path()),
+                                Bound::Unbounded,
+                            ))
+                            .next()
+                            .is_some_and(|(package_dir, _)| package_dir.starts_with(dir))
+                    }
+            });
         let nested_project = || self.project.dir != dir && self.project.dir.starts_with(dir);
         if !nested_package && !nested_project() {
             return None;

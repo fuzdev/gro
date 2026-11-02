@@ -811,6 +811,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "getrandom",
+ "gro_sys",
  "gro_v8",
  "landlock",
  "libc",

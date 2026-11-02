@@ -64,22 +64,10 @@
 //! (`no snapshot` otherwise), then `, phases` in a phases build and
 //! `, prices` in a priced build.
 //!
-//! Exit codes, the same for `run` and `eval`:
-//!
-//! - `0`: the program ran to completion (for `eval`, its value serialized),
-//!   `--help`, or `--version`
-//! - `1`: the program threw, rejected a promise no one handled, or failed to
-//!   load a module (a TypeScript module the strip refuses included), or the
-//!   runtime failed to start; for `eval`, any failure after the entry
-//!   resolved, whose kind the envelope names
-//! - `2`: a usage error, so the command line must change: an unknown
-//!   subcommand or flag, a missing argument (including no arguments at all),
-//!   an argument that isn't UTF-8, `eval`'s `--driver` other than `-` or
-//!   with `--export` or its `--timeout` below 1, or an entry file that
-//!   doesn't resolve
-//!   (missing, not a `.js`, `.mjs`, `.ts`, or `.mts` file, or a `.js` file
-//!   not under `"type": "module"`), or, for `eval`, one no project owns
-//!   (inside `node_modules`, or with no project root above it)
+//! Exit codes, the same for `run` and `eval`, are `0` for success, `1` for a
+//! run that fails, and `2` for a usage error, an entry that doesn't resolve
+//! included; the full table is `src/docs/run.md`'s, and eval's kinds
+//! `src/docs/eval.md`'s.
 //!
 //! Built with the `phases` feature, which release and snapshot builds never
 //! enable, `fgro` takes a timestamp at each phase boundary of `run` and `eval`
@@ -439,10 +427,14 @@ fn run(args: &[&str]) -> u8 {
                 ..RuntimeOptions::default()
             };
             // read here, not in the runtime, which takes it as an input
-            let result = std::env::current_dir()
-                .map_err(RunError::Start)
-                .and_then(|cwd| gro_runtime::run_main(engine, &options, &file, &cwd));
-            match result {
+            let cwd = match std::env::current_dir() {
+                Ok(cwd) => cwd,
+                Err(error) => {
+                    eprintln!("error: cannot read the working directory: {error}");
+                    return EXIT_FAILURE;
+                }
+            };
+            match gro_runtime::run_main(engine, &options, &file, &cwd) {
                 Ok(()) => 0,
                 Err(error) => {
                     eprintln!("error: {error}");

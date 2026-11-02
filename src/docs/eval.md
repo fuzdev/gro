@@ -286,7 +286,7 @@ Written:
   own enumerable string keys, integer-like keys first in ascending order, then the rest in insertion order;
   a member holding `undefined` is left out, and non-enumerable members are skipped
 - a value reached twice by different paths, written twice
-- an object of a kind V8 doesn't name (a `WeakRef`, an iterator, an `Intl` formatter, a web API object)
+- an object of a kind V8 doesn't name (a `WeakRef`, an array or string iterator, an `Intl` formatter, a web API object)
   whose prototype was set to `Object.prototype` or null is written as a plain object:
   its own enumerable data properties, never its internal state
 

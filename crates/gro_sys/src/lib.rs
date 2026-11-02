@@ -703,6 +703,23 @@ pub fn protect_anonymous(prot: libc::c_int) -> io::Result<()> {
     protected.and(unmapped)
 }
 
+/// Ends the process now with `code`, by `_exit`.
+///
+/// No `atexit` handler, no C++ static destructor, and no stdio flush runs,
+/// so a process whose other threads may be mid-operation (V8's workers, out
+/// of memory) exits by its code rather than crashing in teardown. Anything
+/// the caller wrote must be flushed first.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std has no `_exit`, and a libc call is `unsafe`"
+)]
+pub fn exit_now(code: i32) -> ! {
+    // SAFETY: `_exit` takes an integer, reads no memory of the process's,
+    // and never returns; skipping the process's teardown is its purpose
+    unsafe { libc::_exit(code) }
+}
+
 /// `error`, of the same kind, its message prefixed with `what`.
 #[cfg(target_os = "linux")]
 fn context(what: &str, error: &io::Error) -> io::Error {

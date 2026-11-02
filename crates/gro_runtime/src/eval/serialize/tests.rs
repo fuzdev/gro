@@ -479,6 +479,22 @@ fn a_key_past_the_cap_is_named_short() {
     });
 }
 
+/// A member whose value is `undefined` is skipped before its key is read,
+/// so a key past the cap costs nothing when it's never written.
+#[test]
+fn a_skipped_member_s_key_is_never_capped() {
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        let json = realm
+            .serialize_capped(
+                "({a: 1, ['\\u0001'.repeat(1 << 16)]: undefined, b: 2})",
+                1 << 10,
+            )
+            .unwrap();
+        assert_eq!(json, r#"{"a":1,"b":2}"#);
+    });
+}
+
 /// An object with internal fields is refused whatever its prototype: the
 /// global object, made to look plain.
 #[test]

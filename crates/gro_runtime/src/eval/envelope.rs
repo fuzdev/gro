@@ -119,13 +119,15 @@ pub struct Entry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
-    /// The entry didn't resolve, or a static import didn't: the first
-    /// failure of the graph's static load was a resolution's (an import from
-    /// the driver among them).
+    /// The entry didn't resolve or isn't a project's own module (inside
+    /// `node_modules`, or with no project root), or a static import didn't
+    /// resolve: the first failure of the graph's static load was a
+    /// resolution's (an import from the driver among them).
     Resolve,
     /// The graph didn't form with every import resolved: a syntax error, an
     /// import of a name a module doesn't export, TypeScript the strip
-    /// refuses, or import attributes.
+    /// refuses, import attributes, or a module past
+    /// [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE).
     Link,
     /// A module's evaluation threw or rejected, or left a top-level `await`
     /// unsettled, or the driver's call did.
@@ -155,10 +157,13 @@ pub enum ErrorKind {
     Timeout,
     /// The process's environment can't give the same result everywhere, or
     /// can't hold the eval: its time zone isn't UTC, the descriptors it
-    /// inherited can't be closed, or the host can't hold the box.
+    /// inherited can't be closed, its environment can't be cleared or its
+    /// memory capped, or the host can't hold the box.
     Environment,
     /// The host failed: a module changed on disk between resolving and
-    /// loading, a read failed, or the host broke one of its own invariants.
+    /// loading, a read failed, a read outside the box's roots was refused,
+    /// the build has no snapshot, the graph names a `package.json` with no
+    /// read of it kept, or the host broke one of its own invariants.
     Internal,
 }
 

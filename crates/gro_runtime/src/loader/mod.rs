@@ -3,7 +3,7 @@
 //! process.
 //!
 //! Static imports, `import()`, and `import.meta.resolve` all reach
-//! [`resolver::resolve`]. The entry module is resolved before the runtime
+//! `resolver::resolve_from`, from the importer's recorded root. The entry module is resolved before the runtime
 //! starts ([`resolver::resolve_entry`]), so its URL arrives here already
 //! final, with the roots its graph starts with.
 //!
@@ -42,8 +42,8 @@
 //! sourcemap. TypeScript with runtime semantics (an `enum`, a parameter
 //! property) is refused, not transformed: the load fails naming the construct,
 //! a fix, and its position, in the `at <url>:<line>:<column>` form V8's frames
-//! print. Like every load failure but an I/O error reading the file, it
-//! reaches JS as a `TypeError`, which `import()` can catch.
+//! print. Like every load failure, it reaches JS as a `TypeError`, which
+//! `import()` can catch: `deno_core` rethrows each as one, whatever its class.
 //!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the
@@ -522,13 +522,6 @@ fn resolve_into(
     // the record's root is the one its path is inside: admitting a root
     // around a recorded module is a conflict, so none moves it
     let importer_root = &importer_record.root;
-    debug_assert_eq!(
-        importer
-            .to_file_path()
-            .ok()
-            .and_then(|path| graph.roots.containing(&path)),
-        Some(importer_root),
-    );
     let refused = |error: ResolveError| {
         let message = error.to_string();
         (
@@ -594,7 +587,7 @@ fn load(
     let io_error = |error: io::Error| {
         refused(
             LoadFailure::Read(error.kind()),
-            ModuleLoaderError::generic(format!("cannot load {specifier}: {error}")),
+            ModuleLoaderError::type_error(format!("cannot load {specifier}: {error}")),
         )
     };
     check(&path).map_err(io_error)?;
@@ -633,10 +626,10 @@ fn load(
             // invalid UTF-8 reads as U+FFFD, as V8 decodes a JS module's bytes
             let source = String::from_utf8(code)
                 .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-            // the class `deno_core` drops: it rethrows every load failure to JS as a
-            // `TypeError` (`js_class_and_message_to_exception`)
+            // `deno_core` rethrows every load failure to JS as a `TypeError`
+            // (`js_class_and_message_to_exception`), so no other class is given
             let code = strip_module(source, specifier).map_err(|refusal| {
-                let error = ModuleLoaderError::new("SyntaxError", refusal.message);
+                let error = ModuleLoaderError::type_error(refusal.message);
                 let failure = LoadFailure::Strip {
                     failure: refusal.failure,
                     at: refusal.at,

@@ -124,6 +124,8 @@ pub const DEFAULT_THREAD_STACK: usize = 8 << 20;
 /// if it's still past, cutting its long text fields to 64 KiB each. A
 /// config's value is a few KiB.
 pub const MAX_ENVELOPE_SIZE: usize = 64 << 20;
+// gro_cli's tests state it as a literal, which keeps V8 out of their binaries
+const _: () = assert!(MAX_ENVELOPE_SIZE == 64 << 20);
 
 /// The room the cap is raised by, once, when the heap first nears it: 32
 /// MiB, enough for the run to unwind and its envelope to be written.
@@ -345,8 +347,9 @@ const fn heap_at_fault(is_heap_oom: bool, heap_neared: bool) -> bool {
 /// V8's out-of-memory handler for an eval's isolate: writes the prepared
 /// `heap` envelope when the heap is at fault ([`heap_at_fault`]), else the
 /// `memory` one, once, when there are any, and exits the process with
-/// code 1. V8 may call it on any thread, so it takes no lock, and it
-/// allocates nothing, since memory may be what ran out.
+/// code 1 at once, running none of its teardown (`gro_sys::exit_now`). V8
+/// may call it on any thread, so it takes no lock, and it allocates
+/// nothing, since memory may be what ran out.
 extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::OomDetails) {
     if !BACKSTOP_WRITTEN.swap(true, Ordering::SeqCst)
         && let Some(backstop) = BACKSTOP.get()
@@ -361,6 +364,10 @@ extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::Oom
         let _ = out.write_all(envelope.as_bytes());
         let _ = out.flush();
     }
+    // no teardown: V8's workers are live and V8 is in its out-of-memory path
+    #[cfg(target_os = "linux")]
+    gro_sys::exit_now(1);
+    #[cfg(not(target_os = "linux"))]
     std::process::exit(1);
 }
 

@@ -532,14 +532,12 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
 fn every_task_of_a_confined_eval_is_boxed() {
     use std::io::BufRead as _;
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
-    command
-        .args(["eval", "value.js", "--driver", "-", "--timeout", "60000"])
-        .env("TZ", "UTC")
-        .current_dir(fixtures())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+    let mut command = command(
+        "eval",
+        &["value.js", "--driver", "-", "--timeout", "60000"],
+        &[],
+    );
+    command.stdout(Stdio::null());
     let mut child = command.spawn().unwrap();
     child
         .stdin
@@ -551,14 +549,13 @@ fn every_task_of_a_confined_eval_is_boxed() {
     let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
     let mut line = String::new();
     stderr.read_line(&mut line).unwrap();
+    // a task can exit between the listing and its read, which only drops it
     let tasks: Vec<(String, String)> = std::fs::read_dir(format!("/proc/{}/task", child.id()))
         .unwrap()
-        .map(|task| {
-            let path = task.unwrap().path().join("status");
-            (
-                path.display().to_string(),
-                std::fs::read_to_string(path).unwrap(),
-            )
+        .filter_map(|task| {
+            let path = task.ok()?.path().join("status");
+            let status = std::fs::read_to_string(&path).ok()?;
+            Some((path.display().to_string(), status))
         })
         .collect();
     child.kill().unwrap();
@@ -1394,8 +1391,9 @@ fn padded_module(first: &str, size: usize) -> String {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn a_module_past_its_byte_cap_fails_to_load() {
-    let cap = usize::try_from(gro_runtime::resolver::MAX_MODULE_SIZE).unwrap();
-    assert_eq!(cap, 16 << 20);
+    // `gro_runtime::resolver::MAX_MODULE_SIZE`, which gro_runtime pins; a
+    // literal keeps V8 out of this test binary
+    let cap: usize = 16 << 20;
     let scratch = Scratch::new(
         "module_cap",
         &[
@@ -1446,8 +1444,9 @@ fn a_module_past_its_byte_cap_fails_to_load() {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn an_envelope_past_its_byte_cap_fails_as_serialize() {
-    let cap = gro_runtime::eval::MAX_ENVELOPE_SIZE;
-    assert_eq!(cap, 64 << 20);
+    // `gro_runtime::eval::MAX_ENVELOPE_SIZE`, which gro_runtime pins; a
+    // literal keeps V8 out of this test binary
+    let cap: usize = 64 << 20;
     let scratch = Scratch::new(
         "envelope_cap",
         &[("package.json", r#"{"name": "p", "type": "module"}"#)],

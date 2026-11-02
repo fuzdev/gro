@@ -38,7 +38,7 @@
 //! - a function, a bigint, a symbol, `NaN`, and the infinities
 //! - an object that isn't plain: any other prototype (a class instance),
 //!   and an array with another prototype; and, whatever its prototype, a
-//!   `Map`, `Date`, `RegExp`, `Promise`, error, boxed primitive, typed
+//!   `Map`, `Set`, `Date`, `RegExp`, `Promise`, error, boxed primitive, typed
 //!   array, buffer, `arguments`, module namespace, or `Proxy`, or a host
 //!   object
 //! - a cycle: a value that one of its own members leads back to; a value
@@ -462,8 +462,8 @@ impl Walker {
             let key = v8::Integer::new_from_unsigned(scope, index)
                 .to_string(scope)
                 .ok_or_else(|| self.error(Reason::Refused))?;
-            let item = self
-                .own_data(scope, object, key)?
+            let item = Self::own_data(scope, &self.value_key, object, key)
+                .map_err(|reason| self.error(reason))?
                 .ok_or_else(|| self.error(Reason::Hole))?;
             if !self.visit(scope, item)? {
                 self.path.pop();
@@ -476,17 +476,20 @@ impl Walker {
             .filter(|key| key.is_string())
             .ok_or_else(|| self.error(Reason::Refused))?;
         let key: v8::Local<'_, v8::String> = key.cast();
+        // read before the key, so a member never written costs nothing
+        let item = Self::own_data(scope, &self.value_key, object, key);
+        if let Ok(Some(item)) = item
+            && item.is_undefined()
+        {
+            return Ok(());
+        }
         self.check_string(key)?;
         let units = read_string(scope, key);
         self.path.push(Segment::key(&units));
-        let Some(item) = self.own_data(scope, object, key)? else {
+        let Some(item) = item.map_err(|reason| self.error(reason))? else {
             // deleted since the keys were read, which no JS here can do
             return Err(self.error(Reason::Refused));
         };
-        if item.is_undefined() {
-            self.path.pop();
-            return Ok(());
-        }
         if let Some(frame) = self.frames.last_mut() {
             if frame.wrote {
                 self.out.push(',');
@@ -656,32 +659,32 @@ impl Walker {
     /// descriptor, or `None` when it has no own property of that name. An
     /// accessor is refused, its getter never called.
     fn own_data<'s>(
-        &self,
         scope: &v8::PinScope<'s, '_>,
+        value_key: &v8::Global<v8::String>,
         object: v8::Local<'s, v8::Object>,
         key: v8::Local<'s, v8::String>,
-    ) -> Result<Option<v8::Local<'s, v8::Value>>, SerializeError> {
-        let refused = || self.error(Reason::Refused);
+    ) -> Result<Option<v8::Local<'s, v8::Value>>, Reason> {
         let descriptor = object
             .get_own_property_descriptor(scope, key.into())
-            .ok_or_else(refused)?;
+            .ok_or(Reason::Refused)?;
         if descriptor.is_undefined() {
             return Ok(None);
         }
-        let descriptor: v8::Local<'s, v8::Object> = descriptor.try_cast().map_err(|_| refused())?;
-        let value_key = v8::Local::new(scope, &self.value_key);
+        let descriptor: v8::Local<'s, v8::Object> =
+            descriptor.try_cast().map_err(|_| Reason::Refused)?;
+        let value_key = v8::Local::new(scope, value_key);
         // a data descriptor has its own `value`, an accessor's has `get` and
         // `set`; read as own data, never through `Object.prototype`
         if !descriptor
             .has_own_property(scope, value_key.into())
-            .ok_or_else(refused)?
+            .ok_or(Reason::Refused)?
         {
-            return Err(self.error(Reason::Accessor));
+            return Err(Reason::Accessor);
         }
         descriptor
             .get(scope, value_key.into())
             .map(Some)
-            .ok_or_else(refused)
+            .ok_or(Reason::Refused)
     }
 }
 

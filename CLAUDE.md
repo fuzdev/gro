@@ -620,7 +620,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   abstract unix socket scopes; below ABI 6, without Landlock, or with it
   off, it refuses naming the kernel's ABI, with no weaker mode), then two
   `seccompiler` filters with no thread sync: first one killing the process
-  on `KILLED_CALLS` (exec, ptrace, the cross-process memory calls, bpf,
+  on `KILLED_CALLS` (exec, ptrace, `process_vm_readv` and `process_vm_writev`, bpf,
   perf_event_open, userfaultfd, kexec, io_uring, the module calls), a
   tripwire, then the allowlist, which fails every call it doesn't allow
   with `ENOSYS` (what a call the kernel lacks returns, so glibc and std fall
@@ -648,7 +648,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   jitless only with `PROT_EXEC` clear, so once the box is up a jitless
   process makes no mapping executable (`mremap` can still move, copy, or
   grow the code mapped before it; a library `dlopen`ed after the box fails
-  on any architecture, its file outside the roots and its code `PROT_EXEC`);
+  on any architecture when its file is outside the roots, or, jitless, by
+  its code's `PROT_EXEC`);
   `Confined` records the `Jit`, `init_engine` refuses a confined engine
   whose `jitless` disagrees (`EngineError::JitConflict`), and eval's
   `Prepass::confine` reads it from `engine_options`, so `fgro eval` takes
@@ -880,7 +881,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   past seccomp's refusal of `kill`, and `map_anonymous` and
   `protect_anonymous` (`mmap`, or `mmap` then `mprotect`, of an anonymous
   page with a given `prot`, then `munmap`; safe: no memory is exposed),
-  which reach the jitless box's refusal of `PROT_EXEC`. `wait_child` reaps a
+  which reach the jitless box's refusal of `PROT_EXEC`. `exit_now` ends the
+  process by `_exit`, running no teardown, for eval's out-of-memory
+  backstop, whose V8 workers are still live. `wait_child` reaps a
   child by `wait4`, returning its exit status and `ru_maxrss`, for the
   bench's peak memory
 - `gro_v8` - the V8 boundary: the calls into V8 that rusty_v8 exposes only

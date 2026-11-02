@@ -14,8 +14,9 @@
 //! [`resolve_entry`] finds from the entry, and the real root of each
 //! package a bare specifier resolved into, the innermost one by path
 //! component winning, and none when a `node_modules` segment is below it.
-//! The caller owns the roots and passes them into [`resolve`], which admits
-//! nothing; a linked package's real path has no `node_modules` in it, so
+//! The caller owns the roots and passes them into [`resolve`], or into
+//! `resolve_from` with the importer's root it recorded, neither admitting
+//! anything; a linked package's real path has no `node_modules` in it, so
 //! only the admission says it's a package.
 //!
 //! What resolves today:
@@ -242,14 +243,15 @@ pub fn resolve(
 /// Resolves `specifier` as [`resolve`] does, from the importer's root.
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
-/// importer's path: a caller that recorded the importer's root when it
-/// resolved it passes that, skipping the walk.
+/// importer's path, since it decides containment: a caller that recorded the
+/// importer's root when it resolved it passes that, skipping the walk. A debug
+/// build checks it.
 ///
 /// # Errors
 ///
 /// Returns a [`ResolveError`] when the specifier names no loadable module
 /// inside its root; its kind says why.
-pub fn resolve_from(
+pub(crate) fn resolve_from(
     tree: &impl SourceTree,
     specifier: &str,
     importer: &Url,
@@ -261,6 +263,14 @@ pub fn resolve_from(
         importer: importer.to_string(),
         kind,
     };
+    debug_assert_eq!(
+        importer
+            .to_file_path()
+            .ok()
+            .and_then(|path| roots.containing(&path)),
+        Some(importer_root),
+        "the importer's root is the one its path is inside",
+    );
     let mut consulted = Consulted::default();
     match parse_specifier(specifier, importer).map_err(error)? {
         Request::Url(url) => {

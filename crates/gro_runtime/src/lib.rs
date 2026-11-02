@@ -149,11 +149,23 @@ pub enum RunError {
     Entry(#[from] ResolveError),
     /// The runtime couldn't start.
     #[error("failed to start the runtime: {0}")]
-    Start(#[source] std::io::Error),
+    Start(#[from] StartError),
     /// The program threw, rejected a promise no one handled, or failed to
     /// load a module. The report is printable as is.
     #[error("{0}")]
     Uncaught(String),
+}
+
+/// Why the runtime couldn't start, before any of the program ran.
+#[derive(Debug, thiserror::Error)]
+pub enum StartError {
+    /// tokio's runtime, which drives the event loop, couldn't be built.
+    #[error("cannot build the event loop's runtime: {0}")]
+    EventLoop(#[source] std::io::Error),
+    /// The JS runtime couldn't be made, or its bootstrap failed. The report
+    /// is printable as is.
+    #[error("{0}")]
+    Runtime(String),
 }
 
 /// Runs the ES module at `entry` (relative to `cwd`, or absolute) and drives
@@ -239,10 +251,10 @@ fn run_loaded(
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(RunError::Start)?;
+        .map_err(StartError::EventLoop)?;
     tokio_runtime.block_on(async {
         let mut runtime =
-            start_runtime(snapshot, console, loader, Mode::Run).map_err(RunError::Uncaught)?;
+            start_runtime(snapshot, console, loader, Mode::Run).map_err(StartError::Runtime)?;
         let id = runtime
             .load_main_es_module(entry)
             .await
@@ -565,6 +577,49 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
             serde_json::to_string(&specifiers).unwrap()
         );
         let result = run_source("dynamic", &source);
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    /// An `import()` whose file resolves but can't be read rejects with a
+    /// `TypeError` too: `deno_core` rethrows every load failure as one.
+    #[test]
+    fn a_dynamic_import_failing_to_read_rejects_with_a_type_error() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("gro_runtime_{}_unreadable", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let unreadable = dir.join("unreadable.mjs");
+        std::fs::write(&unreadable, "export default 1;\n").unwrap();
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // a user the mode doesn't bind, root, reads it anyway
+        if std::fs::read(&unreadable).is_ok() {
+            std::fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+        let entry = dir.join("main.mjs");
+        std::fs::write(
+            &entry,
+            "try {
+\tawait import('./unreadable.mjs');
+\tthrow new Error('the unreadable module loaded');
+} catch (error) {
+\tif (!(error instanceof TypeError) || !String(error.message).includes('cannot load')) {
+\t\tthrow new Error(`not a TypeError: ${error}`);
+\t}
+}
+",
+        )
+        .unwrap();
+        let cwd = dir.clone();
+        let result = std::thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
+            .unwrap()
+            .join()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
         assert!(result.is_ok(), "{result:?}");
     }
 

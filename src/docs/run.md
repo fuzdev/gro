@@ -102,8 +102,8 @@ then each `cause` as `Caused by:` with its frames.
 TypeScript positions are the source's, with no source map.
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
-A dynamic `import()` that fails rejects with an error the code can catch:
-a `TypeError`, or an `Error` for an I/O failure reading the resolved file.
+A dynamic `import()` that fails rejects with an error the code can catch, a `TypeError`,
+an I/O failure reading the resolved file's included.
 A module whose file was replaced between resolving and loading isn't loaded
 (`cannot load <url>: the file at its path is not the one resolved, so it isn't loaded`;
 [resolver](resolver.md#departures-from-node) has what it catches and what it can't),

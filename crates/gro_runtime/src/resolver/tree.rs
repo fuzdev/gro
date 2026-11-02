@@ -15,6 +15,8 @@ pub const MAX_PACKAGE_JSON_SIZE: u64 = 16 * 1024 * 1024;
 /// parsed or stripped, so a module that would take the process's memory
 /// past any config's fails to load instead.
 pub const MAX_MODULE_SIZE: u64 = 16 * 1024 * 1024;
+// gro_cli's tests state it as a literal, which keeps V8 out of their binaries
+const _: () = assert!(MAX_MODULE_SIZE == 16 << 20);
 
 /// `ELOOP`, the OS error a path through a symlink loop fails with: 40 on
 /// Linux and Android outside the MIPS and SPARC architectures, which number
