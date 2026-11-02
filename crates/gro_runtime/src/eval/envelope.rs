@@ -174,7 +174,7 @@ pub enum ErrorKind {
     /// inherited can't be closed, its environment can't be cleared or its
     /// memory capped, or the host can't hold the box.
     Environment,
-    /// The host failed: a module changed on disk between resolving and
+    /// The host failed: a module replaced on disk between resolving and
     /// loading, a read failed, a read outside the box's roots was refused,
     /// the build has no snapshot, the graph names a `package.json` with no
     /// read of it kept, or the host broke one of its own invariants.

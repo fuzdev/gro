@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use crate::resolver::tree::ELOOP;
-use crate::resolver::{Entry, FileId, MAX_PACKAGE_JSON_SIZE, SourceTree};
+use crate::resolver::{Entry, FileId, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
 /// An in-memory tree: files by path with their contents, symlinks as a
 /// map to their target, symlink loops, which fail with `ELOOP`, and the
@@ -55,7 +55,7 @@ impl SourceTree for MemoryTree {
             .get(path)
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
         if self.id(path) != Some(id) {
-            return Err(io::Error::other(FileId::MISMATCH));
+            return Err(ReadRefusal::ReplacedSinceLookup.into());
         }
         if content.len() as u64 > MAX_PACKAGE_JSON_SIZE {
             return Err(io::Error::from(io::ErrorKind::FileTooLarge));

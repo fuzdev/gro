@@ -5,11 +5,7 @@ use std::collections::BTreeSet;
 
 use super::super::graph::{Edge, FailureSite, Loaded, StripFailure};
 use super::*;
-use crate::resolver::{ConsultedFile, FileRole, ReadRefusal, ResolveErrorKind};
-
-fn graph(loader: &Loader) -> Graph {
-    loader.graph_clone()
-}
+use crate::resolver::{ConsultedFile, FileRole, ResolveErrorKind};
 
 fn url(path: &str) -> Url {
     Url::from_file_path(path).unwrap()
@@ -218,21 +214,15 @@ fn a_consulted_file_of_another_identity_is_refused_in_one_run() {
         .resolve_reached(&DiskTree, "./sub/b.js", main.as_str(), STATIC)
         .unwrap();
     fixtures.replace("sub/package.json", r#"{"type": "module"}"#);
-    let error = loader
+    loader
         .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains(&ReadRefusal::Changed.to_string()), "{error}");
-    let changed = fixtures.path("sub/package.json");
-    assert!(
-        graph(&loader)
-            .failures()
-            .values()
-            .flatten()
-            .any(|failure| failure.reason
-                == FailureReason::Resolve(ResolveErrorKind::ReadChanged(changed.clone()))),
-        "{:?}",
-        graph(&loader).failures()
+        .unwrap_err();
+    assert_failed(
+        &graph(&loader),
+        "./sub/b.js?again",
+        &FailureReason::Resolve(ResolveErrorKind::ReadReplacedSinceFirstRead(
+            fixtures.path("sub/package.json"),
+        )),
     );
     // off, the new file is read
     let loader = fixtures.loader_recording("main.ts", Recording::Off);
@@ -449,7 +439,14 @@ fn recording_off_records_only_roots_and_files() {
         .resolve_reached(&DiskTree, "./nope.js", main.as_str(), STATIC)
         .unwrap_err();
     fixtures.replace("b.js", SOURCE);
-    assert_refused(load_disk(&loader, &b), &b);
+    // off, the message is all a refused load leaves, and the docs quote it
+    let error = load_disk(&loader, &b).unwrap_err();
+    assert!(
+        error.contains(&format!(
+            "cannot load {b}: the file at its path is not the one resolved, so it isn't loaded"
+        )),
+        "{error}"
+    );
     let graph = graph(&loader);
     assert!(!graph.is_full());
     let mut recorded: Vec<_> = graph.records().keys().cloned().collect();
@@ -468,7 +465,7 @@ fn recording_off_records_only_roots_and_files() {
     assert!(graph.failures().is_empty());
 }
 
-/// Resolving a loaded URL again, after its file changed, keeps the first
+/// Resolving a loaded URL again, after its file was replaced, keeps the first
 /// record, its load and hash included, so they still describe the file
 /// V8 ran.
 #[test]

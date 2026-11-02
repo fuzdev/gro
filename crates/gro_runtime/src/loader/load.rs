@@ -45,11 +45,15 @@ pub(super) fn load(
             LoadFailure::OutsideBox,
             format!("cannot load {specifier}: {error}"),
         ),
-        Some(ReadRefusal::Changed) => refused(
-            LoadFailure::Read(error.kind()),
-            format!("cannot load {specifier}: {error}"),
+        Some(ReadRefusal::ReplacedSinceLookup) => refused(
+            LoadFailure::IdentityMismatch,
+            format!(
+                "cannot load {specifier}: the file at its path is not the one resolved, so it \
+                 isn't loaded"
+            ),
         ),
-        None => refused(
+        // never a load's: only the record of a run's `package.json` reads refuses it
+        Some(ReadRefusal::ReplacedSinceFirstRead) | None => refused(
             LoadFailure::Read(error.kind()),
             format!("failed to load {specifier}: {error}"),
         ),
@@ -57,7 +61,7 @@ pub(super) fn load(
     check(&path).map_err(io_error)?;
     // read from the file checked, never the path again, which can change in
     // between, and never past the cap, so a huge file or a FIFO isn't read whole
-    let read = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
+    let code = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
         if error.kind() != io::ErrorKind::FileTooLarge {
             return io_error(error);
         }
@@ -70,15 +74,6 @@ pub(super) fn load(
             ),
         )
     })?;
-    let Some(code) = read else {
-        return Err(refused(
-            LoadFailure::IdentityMismatch,
-            format!(
-                "cannot load {specifier}: the file at its path is not the one resolved, so it \
-                 isn't loaded"
-            ),
-        ));
-    };
     // the bytes read, which V8 runs as is or stripped
     let loaded = recording.is_full().then(|| Loaded {
         format,

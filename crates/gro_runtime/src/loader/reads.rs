@@ -7,13 +7,14 @@
 //! one, and nothing says which bytes it parsed. With it, a file is read once
 //! per run: its first read's identity, bytes, and hash stand, a later read
 //! finding the same identity gets the same bytes, and one finding another
-//! identity at the path is refused ([`ReadRefusal::Changed`]), as a module's
-//! load is ([`FileId`]). So the hash describes the bytes every resolution in
-//! the run parsed, even when the file is rewritten in place meanwhile. A read
-//! served from the record passes the inner tree's check first
-//! ([`SourceTree::check_read`]), and one that reaches the tree passes it there,
-//! at the start of the inner tree's own `read`, so each read is checked once,
-//! and a record seeded before a rule existed serves nothing the rule refuses.
+//! identity at the path is refused ([`ReadRefusal::ReplacedSinceFirstRead`]),
+//! as a module's load is ([`FileId`]). So the hash describes the bytes every
+//! resolution in the run parsed, even when the file is rewritten in place
+//! meanwhile. A read served from the record passes the inner tree's check
+//! first ([`SourceTree::check_read`]), and one that reaches the tree passes it
+//! there, at the start of the inner tree's own `read`, so each read is checked
+//! once, and a record seeded before a rule existed serves nothing the rule
+//! refuses.
 //!
 //! Only a graph recording in full uses it: off, a resolution reads the tree
 //! directly, hashing and keeping nothing.
@@ -111,7 +112,7 @@ impl<T: SourceTree> SourceTree for RecordingTree<'_, T> {
             // was seeded
             self.tree.check_read(path)?;
             if read.id != id {
-                return Err(ReadRefusal::Changed.into());
+                return Err(ReadRefusal::ReplacedSinceFirstRead.into());
             }
             return Ok(read.bytes.clone());
         }
@@ -192,9 +193,16 @@ mod tests {
             assert_eq!(counting.reads.get(), 1);
             let other = counting.tree.id("/p/x.json").unwrap();
             let error = tree.read(path, other).unwrap_err();
-            assert_eq!(ReadRefusal::of(&error), Some(&ReadRefusal::Changed));
+            assert_eq!(
+                ReadRefusal::of(&error),
+                Some(&ReadRefusal::ReplacedSinceFirstRead)
+            );
             // the inner tree refuses a mismatched identity, and nothing is kept
-            assert!(tree.read(Path::new("/p/x.json"), id).is_err());
+            let error = tree.read(Path::new("/p/x.json"), id).unwrap_err();
+            assert_eq!(
+                ReadRefusal::of(&error),
+                Some(&ReadRefusal::ReplacedSinceLookup)
+            );
             assert_eq!(counting.reads.get(), 2);
             tree.note_absent(Path::new("/p/a/package.json"));
             tree.note_absent(Path::new("/p/a/package.json"));

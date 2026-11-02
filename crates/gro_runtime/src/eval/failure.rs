@@ -258,7 +258,7 @@ fn first_static_failure(graph: &Graph) -> Option<(&FailureSite, &Failure)> {
 
 /// The error of a failed load, its kind from the first static failure
 /// recorded: a resolution's is `resolve`, unless only a host bug causes it;
-/// a load's is `link`, unless only a host bug or a file changed on disk
+/// a load's is `link`, unless only a host bug or a file replaced on disk
 /// causes it; none is `link`.
 fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> EvalError {
     let Some((site, failure)) = failure else {
@@ -355,7 +355,7 @@ mod tests {
     /// A load's kind comes from its static failure's variant, never its
     /// message: a resolution's is `resolve`, a strip refusal, import
     /// attributes, or a module past its byte cap `link`, and what only a
-    /// host bug, a file changed on disk, a failed read, or a read outside
+    /// host bug, a file replaced on disk, a failed read, or a read outside
     /// the box causes `internal`, a resolution's included.
     #[test]
     fn a_load_failure_takes_its_kind_from_the_recorded_failure() {
@@ -371,7 +371,15 @@ mod tests {
                 ErrorKind::Internal,
             ),
             (
-                FailureReason::Resolve(ResolveErrorKind::ReadChanged("/p/package.json".into())),
+                FailureReason::Resolve(ResolveErrorKind::ReadReplacedSinceFirstRead(
+                    "/p/package.json".into(),
+                )),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureReason::Resolve(ResolveErrorKind::ReadReplacedSinceLookup(
+                    "/p/package.json".into(),
+                )),
                 ErrorKind::Internal,
             ),
             (

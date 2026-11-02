@@ -105,7 +105,12 @@ pub(super) fn lookup(
 /// its variant, any other by its kind and message.
 fn read_error(path: &Path, error: &io::Error) -> ResolveErrorKind {
     match ReadRefusal::of(error) {
-        Some(ReadRefusal::Changed) => ResolveErrorKind::ReadChanged(path.to_owned()),
+        Some(ReadRefusal::ReplacedSinceFirstRead) => {
+            ResolveErrorKind::ReadReplacedSinceFirstRead(path.to_owned())
+        }
+        Some(ReadRefusal::ReplacedSinceLookup) => {
+            ResolveErrorKind::ReadReplacedSinceLookup(path.to_owned())
+        }
         Some(ReadRefusal::OutsideBox(_)) => ResolveErrorKind::ReadOutsideBox(path.to_owned()),
         None => ResolveErrorKind::Io {
             path: path.to_owned(),

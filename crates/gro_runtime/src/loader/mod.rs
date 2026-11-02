@@ -46,10 +46,11 @@
 //! graph's module doc lists the record, each loaded module's
 //! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in
 //! full, resolutions read through a [`RecordingTree`](reads::RecordingTree).
-//! Recording changes nothing JS sees but that tree's refusal of a file changed
-//! mid-run: every error keeps its message and class. `deno_core` resolves every
-//! import of a graph `import()` loads as dynamic ([`Reach`]), not only the
-//! call's own.
+//! Recording changes nothing JS sees but how that tree treats a file read again
+//! mid-run: one rewritten in place is served its first read's bytes, and one
+//! replaced is refused. Every error keeps its message and class. `deno_core`
+//! resolves every import of a graph `import()` loads as dynamic ([`Reach`]),
+//! not only the call's own.
 
 mod boxed;
 pub mod graph;

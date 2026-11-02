@@ -34,13 +34,19 @@ pub(super) const ELOOP: Option<i32> = None;
 /// message.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReadRefusal {
-    /// The file at the path isn't the one an earlier read in the run found
-    /// there, so it isn't read again.
+    /// The file a lookup finds at the path isn't the one an earlier read in
+    /// the run found there, so it isn't read again: a tree that serves a
+    /// run's later reads from its first refuses it before opening anything.
     #[error(
         "the file at its path is not the one an earlier resolution in this run read, so it \
          isn't read again"
     )]
-    Changed,
+    ReplacedSinceFirstRead,
+    /// The file opened at the path isn't the one its lookup found: it, or a
+    /// directory on its path, was replaced in between, so it isn't read
+    /// (`read_checked`). Its load-side form is `LoadFailure::IdentityMismatch`.
+    #[error("the file at its path is not the one looked up, so it isn't read")]
+    ReplacedSinceLookup,
     /// The path lies outside the box the reads are confined to
     /// ([`SourceTree::check_read`]), so it isn't read.
     #[error("{} lies outside the box's roots, so it isn't read", .0.display())]
@@ -59,7 +65,9 @@ impl From<ReadRefusal> for io::Error {
     /// refusal's.
     fn from(refusal: ReadRefusal) -> Self {
         let kind = match &refusal {
-            ReadRefusal::Changed => io::ErrorKind::Other,
+            ReadRefusal::ReplacedSinceFirstRead | ReadRefusal::ReplacedSinceLookup => {
+                io::ErrorKind::Other
+            }
             ReadRefusal::OutsideBox(_) => io::ErrorKind::PermissionDenied,
         };
         Self::new(kind, refusal)
@@ -90,8 +98,9 @@ pub trait SourceTree {
     /// # Errors
     ///
     /// Returns an error of kind [`io::ErrorKind::FileTooLarge`] for a file
-    /// over [`MAX_PACKAGE_JSON_SIZE`], an error when the opened file isn't
-    /// the one `id` names, and any failure to read the file.
+    /// over [`MAX_PACKAGE_JSON_SIZE`], [`ReadRefusal::ReplacedSinceLookup`]
+    /// (by `From`) when the opened file isn't the one `id` names, and any
+    /// failure to read the file.
     fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>>;
 
     /// Whether the directory at `dir`, a real path, is world-writable: its
@@ -192,8 +201,7 @@ impl SourceTree for DiskTree {
     }
 
     fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
-        read_checked(path, id, Some(MAX_PACKAGE_JSON_SIZE))?
-            .ok_or_else(|| io::Error::other(FileId::MISMATCH))
+        read_checked(path, id, Some(MAX_PACKAGE_JSON_SIZE))
     }
 
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
@@ -240,10 +248,9 @@ pub struct FileId {
 
 /// Opens the file at `path`, checks that it is the file `id` names, and
 /// reads it from that open file, never from the path again, since the path
-/// can name another file by then. Returns `None` when the opened file has
-/// another identity: the file, or a directory on the way to it, was replaced
-/// since it was looked up. The path is followed as any open follows it, so a
-/// symlink put in its place opens its target, which has another identity.
+/// can name another file by then. The path is followed as any open follows
+/// it, so a symlink put in its place opens its target, which has another
+/// identity.
 ///
 /// On Unix the open doesn't block (`O_NONBLOCK`), so a FIFO put in the
 /// file's place is refused by its identity rather than waiting for a writer;
@@ -251,11 +258,14 @@ pub struct FileId {
 ///
 /// # Errors
 ///
-/// Returns any failure to open, inspect, or read the file, an error of kind
+/// Returns [`ReadRefusal::ReplacedSinceLookup`] (by `From`) when the opened
+/// file has another identity: the file, or a directory on the way to it, was
+/// replaced since it was looked up. Otherwise returns any failure to open,
+/// inspect, or read the file, an error of kind
 /// [`io::ErrorKind::FileTooLarge`] when it holds more than `max` bytes, one of
 /// kind [`io::ErrorKind::OutOfMemory`] when its size can't be reserved, and
 /// off Unix, an error of kind [`io::ErrorKind::Unsupported`] ([`FileId::of`]).
-pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Option<Vec<u8>>> {
+pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Vec<u8>> {
     use std::io::Read as _;
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt as _;
@@ -266,7 +276,7 @@ pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Opt
     let file = options.open(path)?;
     let metadata = file.metadata()?;
     if FileId::of(&metadata)? != id {
-        return Ok(None);
+        return Err(ReadRefusal::ReplacedSinceLookup.into());
     }
     let size = metadata.len();
     let too_large = || io::Error::from(io::ErrorKind::FileTooLarge);
@@ -279,20 +289,17 @@ pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Opt
     bytes.try_reserve_exact(usize::try_from(size).unwrap_or(usize::MAX))?;
     let Some(max) = max else {
         (&file).read_to_end(&mut bytes)?;
-        return Ok(Some(bytes));
+        return Ok(bytes);
     };
     // bounded again, since the file can grow after its size is read
     file.take(max.saturating_add(1)).read_to_end(&mut bytes)?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
         return Err(too_large());
     }
-    Ok(Some(bytes))
+    Ok(bytes)
 }
 
 impl FileId {
-    /// What a read says when the file it opened isn't the one looked up.
-    pub const MISMATCH: &str = "the file at its path is not the one looked up, so it isn't read";
-
     /// The identity of the file `metadata` was read from.
     ///
     /// # Errors

@@ -130,13 +130,38 @@ fn load_disk(loader: &Loader, url: &Url) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
-fn assert_refused(result: Result<String, String>, url: &Url) {
-    let error = result.unwrap_err();
+fn graph(loader: &Loader) -> Graph {
+    loader.graph_clone()
+}
+
+/// Asserts `graph` recorded `reason` at a site of `specifier`: the
+/// specifier as written for a resolution, the URL for a load.
+fn assert_failed(graph: &Graph, specifier: &str, reason: &FailureReason) {
+    let failures = graph.failures();
     assert!(
-        error.contains(&format!(
-            "cannot load {url}: the file at its path is not the one resolved, so it isn't \
-             loaded"
-        )),
-        "{error}"
+        failures
+            .iter()
+            .filter(|(site, _)| site.specifier == specifier)
+            .flat_map(|(_, failures)| failures)
+            .any(|failure| failure.reason == *reason),
+        "no {reason:?} at {specifier}: {failures:?}"
+    );
+}
+
+/// Asserts loading `url` fails because the file at its path is not the one
+/// resolved, and the graph records exactly that one reason at its site.
+fn assert_replaced(loader: &Loader, url: &Url) {
+    load_disk(loader, url).unwrap_err();
+    let graph = graph(loader);
+    let reasons: Vec<_> = graph
+        .failures()
+        .iter()
+        .filter(|(site, _)| site.specifier == url.as_str())
+        .flat_map(|(_, failures)| failures)
+        .map(|failure| &failure.reason)
+        .collect();
+    assert_eq!(
+        reasons,
+        [&FailureReason::Load(LoadFailure::IdentityMismatch)]
     );
 }

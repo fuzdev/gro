@@ -20,8 +20,13 @@ fn an_unchanged_file_loads() {
         .resolve_reached(&DiskTree, "./a.js", main.as_str(), STATIC)
         .unwrap();
     // and a URL never resolved here isn't loaded
-    let error = load_disk(&loader, &fixtures.url("package.json")).unwrap_err();
-    assert!(error.contains("it was never resolved"), "{error}");
+    let never = fixtures.url("package.json");
+    load_disk(&loader, &never).unwrap_err();
+    assert_failed(
+        &graph(&loader),
+        never.as_str(),
+        &FailureReason::Load(LoadFailure::NeverResolved),
+    );
 }
 
 /// A file replaced by a rename after it was resolved isn't loaded, for an
@@ -36,14 +41,14 @@ fn a_file_renamed_over_is_refused() {
         .resolve_reached(&DiskTree, "./a.js", main.as_str(), STATIC)
         .unwrap();
     fixtures.replace("a.js", "export const a = 2;\n");
-    assert_refused(load_disk(&loader, &url), &url);
+    assert_replaced(&loader, &url);
     // resolving it again keeps the first file, which the load still checks
     loader
         .resolve_reached(&DiskTree, "./a.js", main.as_str(), STATIC)
         .unwrap();
-    assert_refused(load_disk(&loader, &url), &url);
+    assert_replaced(&loader, &url);
     fixtures.replace("main.ts", "");
-    assert_refused(load_disk(&loader, &main), &main);
+    assert_replaced(&loader, &main);
 }
 
 /// A directory on the path swapped for a symlink to a twin directory
@@ -66,7 +71,7 @@ fn a_directory_swapped_for_a_link_is_refused() {
         .unwrap();
     std::fs::rename(fixtures.path("sub"), fixtures.path("old_sub")).unwrap();
     fixtures.link("sub", "twin");
-    assert_refused(load_disk(&loader, &url), &url);
+    assert_replaced(&loader, &url);
 }
 
 /// The file swapped for a symlink to an identical file: the open follows
@@ -87,7 +92,7 @@ fn a_file_swapped_for_a_link_is_refused() {
         )
         .unwrap();
     fixtures.link("a.js", "copy.js");
-    assert_refused(load_disk(&loader, &url), &url);
+    assert_replaced(&loader, &url);
 }
 
 /// A file removed and made again after it was resolved isn't loaded,
@@ -108,7 +113,7 @@ fn a_file_removed_and_remade_is_refused() {
     std::thread::sleep(std::time::Duration::from_millis(50));
     std::fs::remove_file(fixtures.path("a.js")).unwrap();
     std::fs::write(fixtures.path("a.js"), "export const a = 2;\n").unwrap();
-    assert_refused(load_disk(&loader, &url), &url);
+    assert_replaced(&loader, &url);
 }
 
 /// A FIFO put in the file's place after it was resolved is refused
@@ -136,9 +141,9 @@ fn a_fifo_swapped_in_is_refused_without_blocking() {
     let (send, receive) = std::sync::mpsc::channel();
     let load_url = url.clone();
     std::thread::spawn(move || {
-        let _ = send.send(load_disk(&loader, &load_url));
+        let _ = send.send((load_disk(&loader, &load_url), graph(&loader)));
     });
-    let Ok(result) = receive.recv_timeout(std::time::Duration::from_secs(5)) else {
+    let Ok((result, graph)) = receive.recv_timeout(std::time::Duration::from_secs(5)) else {
         // a writer releases the blocked open, so the thread ends
         drop(
             std::fs::OpenOptions::new()
@@ -147,5 +152,10 @@ fn a_fifo_swapped_in_is_refused_without_blocking() {
         );
         panic!("opening a FIFO in the file's place blocked");
     };
-    assert_refused(result, &url);
+    result.unwrap_err();
+    assert_failed(
+        &graph,
+        url.as_str(),
+        &FailureReason::Load(LoadFailure::IdentityMismatch),
+    );
 }

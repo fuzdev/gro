@@ -3,9 +3,17 @@ use std::path::Path;
 
 use url::Url;
 
-use super::{from_entry, importer, packages, tree};
-use crate::resolver::test_tree::TestDir;
-use crate::resolver::{DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, SourceTree, resolve_entry};
+use super::{from_entry, importer, packages, resolve, roots, tree};
+use crate::resolver::test_tree::{MemoryTree, TestDir};
+use crate::resolver::{
+    DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, ReadRefusal, ResolveErrorKind, SourceTree,
+    resolve_entry,
+};
+
+/// Whether `error` is the refusal of a file replaced since its lookup.
+fn is_replaced(error: &io::Error) -> bool {
+    ReadRefusal::of(error) == Some(&ReadRefusal::ReplacedSinceLookup)
+}
 
 /// A resolution carries the identity of the file it found, its real
 /// file's when reached through a symlink, the entry's included.
@@ -42,10 +50,44 @@ fn a_read_refuses_another_file() {
     };
     assert!(tree.read(path, id).is_ok());
     let other = tree.id("/p/a.js").unwrap();
+    assert!(is_replaced(&tree.read(path, other).unwrap_err()));
+}
+
+/// A tree whose every read opens a file other than the one looked up, as
+/// if each were replaced in between.
+struct Replaced(MemoryTree);
+
+impl SourceTree for Replaced {
+    fn lookup(&self, path: &Path) -> io::Result<Option<Entry>> {
+        self.0.lookup(path)
+    }
+
+    fn read(&self, path: &Path, _: FileId) -> io::Result<Vec<u8>> {
+        let other = FileId {
+            dev: 0,
+            ino: 0,
+            born: None,
+        };
+        self.0.read(path, other)
+    }
+
+    fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+        self.0.is_world_writable(dir)
+    }
+}
+
+/// A resolution whose `package.json` read is refused by its identity fails
+/// with the refusal's kind, a failure of the tree rather than a refusal of
+/// the import.
+#[test]
+fn a_resolution_names_a_replaced_package_json() {
+    let roots = roots(&tree(), &importer());
+    let error = resolve(&Replaced(tree()), "./a.js", &importer(), &roots).unwrap_err();
     assert_eq!(
-        tree.read(path, other).unwrap_err().to_string(),
-        FileId::MISMATCH
+        error.kind,
+        ResolveErrorKind::ReadReplacedSinceLookup("/p/package.json".into())
     );
+    assert!(!error.kind.is_refusal());
 }
 
 /// On disk, a lookup takes the file's device and inode, and a read
@@ -84,7 +126,7 @@ fn a_disk_read_refuses_a_replaced_file() {
         })
     );
     assert_eq!(before.unwrap(), b"{}");
-    assert_eq!(after.unwrap_err().to_string(), FileId::MISMATCH);
+    assert!(is_replaced(&after.unwrap_err()));
 }
 
 /// A file with the device and inode looked up but another birth time, as
@@ -111,7 +153,7 @@ fn a_disk_read_refuses_another_birth_time() {
         "this filesystem records birth times"
     );
     assert_eq!(same.unwrap().unwrap(), b"{}");
-    assert_eq!(other.unwrap().unwrap_err().to_string(), FileId::MISMATCH);
+    assert!(is_replaced(&other.unwrap().unwrap_err()));
 }
 
 #[test]

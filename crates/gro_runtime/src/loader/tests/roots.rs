@@ -2,6 +2,7 @@
 //! `import.meta.resolve`.
 
 use super::*;
+use crate::resolver::ResolveErrorKind;
 
 /// A file reached both by a relative specifier and through its package
 /// is refused in either order, never loaded under the first one's root.
@@ -13,17 +14,20 @@ fn a_root_conflict_is_refused_in_either_order() {
     loader
         .resolve_reached(&tree, "lnk/x.ts", MAIN, STATIC)
         .unwrap();
-    let error = loader
+    let (roots, _) = state(&loader);
+    let package = roots.get(Path::new("/p/packages/lnk")).unwrap().clone();
+    let project = roots.get(Path::new("/p")).unwrap().clone();
+    loader
         .resolve_reached(&tree, "./packages/lnk/x.ts", MAIN, STATIC)
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains(
-            "cannot resolve './packages/lnk/x.ts' from file:///p/main.ts: it resolves to \
-             /p/packages/lnk/x.ts, inside package 'lnk' at /p/packages/lnk, which only a \
-             bare specifier reaches"
-        ),
-        "{error}"
+        .unwrap_err();
+    let path = PathBuf::from("/p/packages/lnk/x.ts");
+    assert_failed(
+        &graph(&loader),
+        "./packages/lnk/x.ts",
+        &FailureReason::Resolve(ResolveErrorKind::IntoPackageRoot {
+            path: path.clone(),
+            root: Box::new(package.clone()),
+        }),
     );
     // the relative specifier first: admitting the package is the conflict
     let loader = new_loader(&tree);
@@ -31,19 +35,17 @@ fn a_root_conflict_is_refused_in_either_order() {
         .resolve_reached(&tree, "./packages/lnk/x.ts", MAIN, STATIC)
         .unwrap();
     let before = state(&loader);
-    let error = loader
+    loader
         .resolve_reached(&tree, "lnk/x.ts", MAIN, STATIC)
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains(
-            "cannot resolve 'lnk/x.ts' from file:///p/main.ts: /p/packages/lnk/x.ts was \
-             resolved inside the project at /p, and package 'lnk' at /p/packages/lnk was \
-             then admitted around it, so its origin would depend on the import order. Fix: \
-             import it by name ('lnk' or a subpath it exports) everywhere, not by a relative \
-             path"
-        ),
-        "{error}"
+        .unwrap_err();
+    assert_failed(
+        &graph(&loader),
+        "lnk/x.ts",
+        &FailureReason::Resolve(ResolveErrorKind::RootConflict {
+            path,
+            recorded: Box::new(project),
+            admitted: Box::new(package),
+        }),
     );
     // nothing was admitted, so it fails the same way again
     assert_eq!(state(&loader), before);
@@ -140,13 +142,16 @@ fn import_meta_resolve_changes_nothing() {
         .unwrap();
     assert_eq!(url.as_str(), "file:///p/node_modules/bar/i.mjs");
     assert_eq!(state(&loader), before);
-    let error = loader
+    loader
         .resolve_reached(&tree, url.as_str(), MAIN, STATIC)
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("inside node_modules below /p") && error.contains("import it by name"),
-        "{error}"
+        .unwrap_err();
+    assert_failed(
+        &graph(&loader),
+        url.as_str(),
+        &FailureReason::Resolve(ResolveErrorKind::IntoNodeModules {
+            path: PathBuf::from("/p/node_modules/bar/i.mjs"),
+            root: PathBuf::from("/p"),
+        }),
     );
     // refused as an import is
     assert!(
@@ -160,9 +165,12 @@ fn import_meta_resolve_changes_nothing() {
             .is_err()
     );
     // and an importer must have been resolved here
-    let error = loader
+    loader
         .resolve_reached(&tree, "./main.ts", url.as_str(), Reached::MetaResolve)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("was never resolved"), "{error}");
+        .unwrap_err();
+    assert_failed(
+        &graph(&loader),
+        "./main.ts",
+        &FailureReason::UnknownImporter,
+    );
 }

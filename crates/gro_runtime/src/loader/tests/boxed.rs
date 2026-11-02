@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::confine::BoxRoots;
+use crate::resolver::ResolveErrorKind;
 
 /// A loader over `/p/main.ts` in `tree`, its reads checked against the
 /// box `roots`.
@@ -40,8 +41,14 @@ fn a_read_outside_the_box_is_a_breach() {
     let outside = boxed_loader(&tree, &["/p"]);
     assert!(resolve(&outside, "bar").is_ok());
     assert_eq!(outside.breach(), None);
-    let error = resolve(&outside, "ext").unwrap_err();
-    assert!(error.to_string().contains("outside the box"), "{error}");
+    resolve(&outside, "ext").unwrap_err();
+    assert_failed(
+        &graph(&outside),
+        "ext",
+        &FailureReason::Resolve(ResolveErrorKind::ReadOutsideBox(
+            "/q/ext/package.json".into(),
+        )),
+    );
     assert_eq!(outside.breach(), Some(Path::new("/q/ext/package.json")));
     // the first breach stands
     let _ = resolve(&outside, "ext");
@@ -75,10 +82,14 @@ fn a_read_the_prepass_kept_is_checked_against_the_box() {
         check: &loader.box_check,
         tree: &tree,
     };
-    let error = loader
+    loader
         .resolve_reached(&boxed, "bar", MAIN, STATIC)
         .unwrap_err();
-    assert!(error.to_string().contains("outside the box"), "{error}");
+    assert_failed(
+        &graph(&loader),
+        "bar",
+        &FailureReason::Resolve(ResolveErrorKind::ReadOutsideBox("/q/pkg.json".into())),
+    );
     assert_eq!(loader.breach(), Some(Path::new("/q/pkg.json")));
 }
 
@@ -102,7 +113,11 @@ fn a_module_outside_the_box_is_not_read() {
         box_roots: Some(BoxRoots::for_test(vec![elsewhere])),
         ..Rules::default()
     });
-    let error = load_disk(&outside, &url).unwrap_err();
-    assert!(error.contains("outside the box"), "{error}");
+    load_disk(&outside, &url).unwrap_err();
+    assert_failed(
+        &graph(&outside),
+        url.as_str(),
+        &FailureReason::Load(LoadFailure::OutsideBox),
+    );
     assert_eq!(outside.breach(), Some(fixtures.path("main.js").as_path()));
 }

@@ -246,8 +246,13 @@ pub enum ResolveErrorKind {
         message: String,
     },
     /// A file a resolution read is not, at its path, the one an earlier
-    /// resolution in the run read there ([`ReadRefusal::Changed`]).
-    ReadChanged(PathBuf),
+    /// resolution in the run read there
+    /// ([`ReadRefusal::ReplacedSinceFirstRead`]).
+    ReadReplacedSinceFirstRead(PathBuf),
+    /// A file a resolution read was replaced, or a directory on its path
+    /// was, between its lookup and its read
+    /// ([`ReadRefusal::ReplacedSinceLookup`]).
+    ReadReplacedSinceLookup(PathBuf),
     /// A file a resolution read lies outside the box the reads are confined
     /// to ([`ReadRefusal::OutsideBox`]).
     ReadOutsideBox(PathBuf),
@@ -309,7 +314,7 @@ impl ResolveErrorKind {
     /// specifier names and the files on disk hold: the specifier, the
     /// project, or a package must change for it to resolve, the common case.
     /// Otherwise reading the tree failed (an I/O error, a symlink loop, a
-    /// file changed or a read refused mid-run) or the caller broke an
+    /// file replaced mid-run, a read refused) or the caller broke an
     /// invariant (an importer with no local path,
     /// [`UrlFault::ImporterNoLocalPath`]), which no change to the import
     /// fixes.
@@ -318,7 +323,8 @@ impl ResolveErrorKind {
             self,
             Self::Io { .. }
                 | Self::SymlinkLoop(_)
-                | Self::ReadChanged(_)
+                | Self::ReadReplacedSinceFirstRead(_)
+                | Self::ReadReplacedSinceLookup(_)
                 | Self::ReadOutsideBox(_)
                 | Self::InvalidUrl(UrlFault::ImporterNoLocalPath)
         )
@@ -678,11 +684,17 @@ impl fmt::Display for ResolveErrorKind {
             Self::Io { path, message, .. } => {
                 write!(f, "failed to read {}: {message}", path.display())
             }
-            Self::ReadChanged(path) => write!(
+            Self::ReadReplacedSinceFirstRead(path) => write!(
                 f,
                 "cannot read {}: {}",
                 path.display(),
-                ReadRefusal::Changed
+                ReadRefusal::ReplacedSinceFirstRead
+            ),
+            Self::ReadReplacedSinceLookup(path) => write!(
+                f,
+                "cannot read {}: {}",
+                path.display(),
+                ReadRefusal::ReplacedSinceLookup
             ),
             Self::ReadOutsideBox(path) => write!(
                 f,
