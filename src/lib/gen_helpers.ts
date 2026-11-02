@@ -49,18 +49,18 @@ export const should_trigger_gen = async (
  * and `patterns` match like a root `.gitignore`, only for files inside the root.
  * @param inputs - the genfile's `inputs`
  * @param id - the file to check
- * @param root_dir - the project root that `files` resolve against and `patterns` anchor at
+ * @param root - the project root that `files` resolve against and `patterns` anchor at
  */
 export const gen_inputs_match = (
 	inputs: GenInputs,
 	id: PathId,
-	root_dir: string = paths.root
+	root: PathId = paths.root
 ): boolean => {
 	if (inputs === 'all') return true;
 	const { files, patterns } = inputs;
-	if (files?.some((f) => resolve(root_dir, f) === id)) return true;
+	if (files?.some((f) => resolve(root, f) === id)) return true;
 	if (!patterns?.length) return false;
-	const path = relative(root_dir, id);
+	const path = relative(root, id);
 	if (path === '..' || path.startsWith('../')) return false;
 	const stack = new IgnoreStack();
 	stack.push_gitignore('', patterns.join('\n'));
