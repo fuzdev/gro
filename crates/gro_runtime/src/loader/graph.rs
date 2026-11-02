@@ -206,7 +206,7 @@ pub enum LoadFailure {
     Format(ResolveErrorKind),
     /// The file at its path isn't the one resolved: replaced since, or a
     /// directory on its path was.
-    IdentityMismatch,
+    ReplacedSinceLookup,
     /// Opening, inspecting, or reading the file failed.
     Read(io::ErrorKind),
     /// The file lies outside the box the reads are confined to

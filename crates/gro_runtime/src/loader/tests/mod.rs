@@ -163,6 +163,6 @@ fn assert_replaced(loader: &Loader, url: &Url) {
         .collect();
     assert_eq!(
         reasons,
-        [&FailureReason::Load(LoadFailure::IdentityMismatch)]
+        [&FailureReason::Load(LoadFailure::ReplacedSinceLookup)]
     );
 }

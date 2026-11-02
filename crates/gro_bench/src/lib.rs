@@ -77,4 +77,6 @@ pub mod schedule;
 pub mod stats;
 pub mod suite;
 pub mod summary;
+#[cfg(test)]
+mod test_support;
 pub mod watchdog;

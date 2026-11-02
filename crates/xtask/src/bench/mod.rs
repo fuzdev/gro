@@ -564,21 +564,19 @@ fn probe_version(command: &mut Command) -> io::Result<VersionOutput> {
     })
 }
 
-/// What `built --version` prints to stdout, trimmed, failing when it doesn't
-/// run.
+/// What `built --version` prints to stdout, trimmed, failing when it can't
+/// be spawned or exits unsuccessfully, with the stderr that says why.
 fn version_line(built: &Path) -> Result<String, XtaskError> {
-    let output = probe_version(&mut Command::new(built)).map_err(|error| {
-        XtaskError::Failed(format!(
-            "bench failed: {} --version: {error}",
-            built.display()
-        ))
+    let output = probe_version(&mut Command::new(built)).map_err(|source| XtaskError::Spawn {
+        display: format!("{} --version", built.display()),
+        source,
     })?;
     if !output.status.success() {
         return Err(XtaskError::bench_input(format!(
             "{} doesn't run ({}): {}",
             built.display(),
             output.status,
-            output.stdout,
+            output.stderr,
         )));
     }
     Ok(output.stdout)
@@ -935,6 +933,27 @@ mod tests {
             code(require_marker(&fakes.join("release"), PRICES_MARKER)),
             Err(EXIT_INPUT)
         );
+    }
+
+    /// A build that exits unsuccessfully is refused with the stderr that
+    /// says why, and one that can't be spawned keeps its own exit code.
+    #[test]
+    fn a_build_that_doesnt_run_is_refused_with_its_stderr() {
+        let fakes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/measurement_guard");
+        let Err(error) = refuse_measurement_build(&fakes.join("fails")) else {
+            panic!("a failing build passed");
+        };
+        assert_eq!(error.exit_code(), EXIT_INPUT);
+        let message = error.to_string();
+        assert!(
+            message.ends_with("(exit status: 3): the build is broken"),
+            "{message}"
+        );
+        let Err(error) = refuse_measurement_build(&fakes.join("missing")) else {
+            panic!("a missing build passed");
+        };
+        assert!(matches!(error, XtaskError::Spawn { .. }), "{error}");
+        assert_eq!(error.exit_code(), 1);
     }
 
     /// A bench error maps to the exit code its `is_input_error` says.

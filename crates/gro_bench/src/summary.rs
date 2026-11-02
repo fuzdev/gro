@@ -409,38 +409,26 @@ fn mb(bytes: u64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
-    use crate::record::{
-        GitState, Machine, MachineQuiet, Mode, NoiseRecord, RECORD_VERSION, RowRecord, RuntimeInfo,
-        SuiteId,
-    };
-    use crate::stats::Stats;
-
-    fn metric(samples: Vec<u64>) -> Metric {
-        Metric {
-            stats: Stats::from_samples(&samples).unwrap(),
-            samples,
-        }
-    }
+    use crate::record::{Mode, NoiseRecord, RowRecord, RuntimeInfo};
+    use crate::test_support::{self, metric, run_record};
 
     /// A row of `runtime` on `workload` at `ms` milliseconds, counted at
     /// `instructions` when given, its peak `kib`.
     fn row(runtime: &str, workload: &str, ms: u64, instructions: Option<u64>) -> RowRecord {
         let ns = ms * 1_000_000;
         RowRecord {
-            runtime: runtime.to_owned(),
-            workload: workload.to_owned(),
             warmup: 1,
-            wall_ns: metric(vec![ns - 1000, ns, ns + 1000, ns]),
             instructions: instructions.map(|count| metric(vec![count, count + 10])),
             cycles: instructions.map(|count| metric(vec![count * 2, count * 2])),
-            kernel_instructions: None,
-            phases: Vec::new(),
             peak_rss_kib: instructions
                 .is_none()
                 .then(|| metric(vec![ms * 1000, ms * 1000 + 500])),
+            ..test_support::row(
+                runtime,
+                workload,
+                metric(vec![ns - 1000, ns, ns + 1000, ns]),
+            )
         }
     }
 
@@ -462,41 +450,19 @@ mod tests {
                 names.push(&row.runtime);
             }
         }
+        let runtimes = names.iter().map(|name| runtime(name)).collect();
+        let base = run_record(rows);
         RunRecord {
-            record_version: RECORD_VERSION,
             mode,
-            counters: None,
-            suite: SuiteId {
-                name: "baseline".to_owned(),
-                version: 1,
-            },
-            config_hash: String::new(),
-            started_unix_s: 0,
-            git: GitState {
-                sha: "0".repeat(40),
-                dirty: false,
-            },
-            machine: Machine {
-                cpu_model: None,
-                os: "linux".to_owned(),
-                arch: "x86_64".to_owned(),
-            },
-            machine_quiet: MachineQuiet::Unchecked,
-            corpora: None,
-            runtimes: names.iter().map(|name| runtime(name)).collect(),
-            artifacts: BTreeMap::new(),
-            checkouts: BTreeMap::new(),
+            runtimes,
             noise: NoiseRecord {
-                runtime: rows[0].runtime.clone(),
-                workload: rows[0].workload.clone(),
-                wall_ns: rows[0].wall_ns.clone(),
                 median_deviation: 0.0125,
-                instructions: None,
-                instructions_median_deviation: rows[0].instructions.as_ref().map(|_| 0.0004),
+                instructions_median_deviation: base.rows[0].instructions.as_ref().map(|_| 0.0004),
+                ..base.noise
             },
-            rows,
             rss_floor_kib: (mode == Mode::Wall).then_some(9_000),
             snapshot_bytes: Some(7_000_000),
+            ..base
         }
     }
 

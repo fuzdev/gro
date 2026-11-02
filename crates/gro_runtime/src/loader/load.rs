@@ -46,7 +46,7 @@ pub(super) fn load(
             format!("cannot load {specifier}: {error}"),
         ),
         Some(ReadRefusal::ReplacedSinceLookup) => refused(
-            LoadFailure::IdentityMismatch,
+            LoadFailure::ReplacedSinceLookup,
             format!(
                 "cannot load {specifier}: the file at its path is not the one resolved, so it \
                  isn't loaded"

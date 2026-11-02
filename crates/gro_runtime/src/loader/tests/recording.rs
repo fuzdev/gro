@@ -570,7 +570,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
         *only(&failures[&site(a.as_str(), None, dynamic)]),
         Failure {
             at: None,
-            reason: FailureReason::Load(LoadFailure::IdentityMismatch),
+            reason: FailureReason::Load(LoadFailure::ReplacedSinceLookup),
         }
     );
     assert_eq!(
@@ -648,7 +648,7 @@ fn a_site_keeps_each_distinct_failure() {
         failures[&site(a.as_str(), None, Reached::Import(Reach::Dynamic))],
         [
             failure(LoadFailure::ImportAttributes),
-            failure(LoadFailure::IdentityMismatch),
+            failure(LoadFailure::ReplacedSinceLookup),
         ]
     );
 }

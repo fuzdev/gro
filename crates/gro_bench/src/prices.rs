@@ -206,8 +206,9 @@ pub fn table(record: &RunRecord, prices_of: &Prices) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::{GitState, Machine, MachineQuiet, NoiseRecord, RECORD_VERSION, SuiteId};
+    use crate::record::{NoiseRecord, SuiteId};
     use crate::stats::Stats;
+    use crate::test_support::{self, run_record};
 
     /// Samples `value - spread` and `value + spread`: median `value`, MAD
     /// `spread`.
@@ -221,56 +222,33 @@ mod tests {
 
     fn row(runtime: &str, wall: u64, instructions: u64, spread: u64) -> RowRecord {
         RowRecord {
-            runtime: runtime.to_owned(),
-            workload: "w".to_owned(),
-            warmup: 0,
-            wall_ns: metric(wall, 1000),
             instructions: Some(metric(instructions, spread)),
-            cycles: None,
             kernel_instructions: Some(metric(instructions / 2, spread)),
-            phases: Vec::new(),
-            peak_rss_kib: None,
+            ..test_support::row(runtime, "w", metric(wall, 1000))
         }
     }
 
     fn record(mode: Mode) -> RunRecord {
+        let base = run_record(vec![
+            row("fgro", 10_000_000, 1_000_000, 10),
+            row("box", 9_000_000, 900_000, 10),
+            // a price of 100 within MADs of 10 and 200
+            row("locale", 10_000_100, 1_000_100, 200),
+        ]);
         RunRecord {
-            record_version: RECORD_VERSION,
             mode,
-            counters: None,
             suite: SuiteId {
                 name: "prices".to_owned(),
                 version: 1,
             },
-            config_hash: String::new(),
-            started_unix_s: 0,
-            git: GitState {
-                sha: "0".repeat(40),
-                dirty: false,
-            },
-            machine: Machine::detect(),
-            machine_quiet: MachineQuiet::Unchecked,
-            corpora: None,
-            runtimes: Vec::new(),
-            artifacts: std::collections::BTreeMap::new(),
-            checkouts: std::collections::BTreeMap::new(),
-            rows: vec![
-                row("fgro", 10_000_000, 1_000_000, 10),
-                row("box", 9_000_000, 900_000, 10),
-                // a price of 100 within MADs of 10 and 200
-                row("locale", 10_000_100, 1_000_100, 200),
-            ],
+            // the A/A row (the first's wall time): its deviation would call
+            // every price here noise
             noise: NoiseRecord {
-                runtime: "fgro".to_owned(),
-                workload: "w".to_owned(),
-                wall_ns: metric(10_000_000, 1000),
-                // the A/A row's deviation would call every price here noise
                 median_deviation: 0.5,
-                instructions: None,
                 instructions_median_deviation: Some(0.5),
+                ..base.noise
             },
-            rss_floor_kib: None,
-            snapshot_bytes: None,
+            ..base
         }
     }
 

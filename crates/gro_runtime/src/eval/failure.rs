@@ -267,7 +267,7 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
     let kind = match &failure.reason {
         FailureReason::Load(
             LoadFailure::NeverResolved
-            | LoadFailure::IdentityMismatch
+            | LoadFailure::ReplacedSinceLookup
             | LoadFailure::Read(_)
             | LoadFailure::OutsideBox
             | LoadFailure::NoLocalPath
@@ -395,7 +395,7 @@ mod tests {
             ),
             (FailureReason::Load(LoadFailure::TooLarge), ErrorKind::Link),
             (
-                FailureReason::Load(LoadFailure::IdentityMismatch),
+                FailureReason::Load(LoadFailure::ReplacedSinceLookup),
                 ErrorKind::Internal,
             ),
             (

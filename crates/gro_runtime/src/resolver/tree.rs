@@ -44,7 +44,7 @@ pub enum ReadRefusal {
     ReplacedSinceFirstRead,
     /// The file opened at the path isn't the one its lookup found: it, or a
     /// directory on its path, was replaced in between, so it isn't read
-    /// (`read_checked`). Its load-side form is `LoadFailure::IdentityMismatch`.
+    /// (`read_checked`). Its load-side form is `LoadFailure::ReplacedSinceLookup`.
     #[error("the file at its path is not the one looked up, so it isn't read")]
     ReplacedSinceLookup,
     /// The path lies outside the box the reads are confined to

@@ -387,13 +387,7 @@ fn cpu_model() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn metric(samples: Vec<u64>) -> Metric {
-        Metric {
-            stats: Stats::from_samples(&samples).unwrap(),
-            samples,
-        }
-    }
+    use crate::test_support::metric;
 
     fn record() -> RunRecord {
         RunRecord {

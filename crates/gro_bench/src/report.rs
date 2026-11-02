@@ -453,37 +453,25 @@ const fn civil_from_days(days: u64) -> (u64, u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::{GitState, Machine, NoiseRecord, SuiteId};
-    use crate::stats::Stats;
-
-    fn metric(samples: Vec<u64>) -> Metric {
-        Metric {
-            stats: Stats::from_samples(&samples).unwrap(),
-            samples,
-        }
-    }
+    use crate::record::{GitState, NoiseRecord, SuiteId};
+    use crate::test_support::{self, metric, run_record};
 
     fn record(sha: &str, quiet: MachineQuiet, wall: u64, instructions: Option<u64>) -> RunRecord {
         let row = RowRecord {
-            runtime: "fgro".to_owned(),
-            workload: "empty".to_owned(),
-            warmup: 0,
-            wall_ns: metric(vec![wall, wall]),
             instructions: instructions.map(|count| metric(vec![count, count])),
             cycles: instructions.map(|count| metric(vec![count * 2, count * 2])),
             kernel_instructions: instructions.map(|count| metric(vec![count * 3, count * 3])),
-            phases: Vec::new(),
             // a peak a tenth of the wall time's nanoseconds, in KiB
             peak_rss_kib: Some(metric(vec![wall / 100, wall / 100 + 1000])),
+            ..test_support::row("fgro", "empty", metric(vec![wall, wall]))
         };
+        let base = run_record(vec![row]);
         RunRecord {
-            record_version: RECORD_VERSION,
             mode: if instructions.is_some() {
                 Mode::Counters
             } else {
                 Mode::Wall
             },
-            counters: None,
             suite: SuiteId {
                 name: "baseline".to_owned(),
                 version: 5,
@@ -494,27 +482,13 @@ mod tests {
                 sha: sha.repeat(40),
                 dirty: false,
             },
-            machine: Machine {
-                cpu_model: None,
-                os: "linux".to_owned(),
-                arch: "x86_64".to_owned(),
-            },
             machine_quiet: quiet,
-            corpora: None,
-            runtimes: Vec::new(),
-            artifacts: BTreeMap::new(),
-            checkouts: BTreeMap::new(),
             noise: NoiseRecord {
-                runtime: row.runtime.clone(),
-                workload: row.workload.clone(),
-                wall_ns: row.wall_ns.clone(),
                 median_deviation: 0.01,
-                instructions: None,
-                instructions_median_deviation: None,
+                ..base.noise
             },
-            rows: vec![row],
             rss_floor_kib: Some(10_000),
-            snapshot_bytes: None,
+            ..base
         }
     }
 

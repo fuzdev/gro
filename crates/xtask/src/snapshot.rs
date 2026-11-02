@@ -335,11 +335,11 @@ fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
     let size = |path: &Path| {
         fs::metadata(path)
             .map(|metadata| metadata.len())
-            .map_err(|error| {
-                XtaskError::Failed(format!(
-                    "budget check failed: failed to read {}: {error}",
-                    path.display()
-                ))
+            .map_err(|source| {
+                XtaskError::Budget(gro_bench::error::BenchError::Read {
+                    path: path.to_owned(),
+                    source,
+                })
             })
     };
     let snapshot_bytes = Some(size(&binary.with_file_name("snapshot.bin"))?);

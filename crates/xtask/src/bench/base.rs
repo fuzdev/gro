@@ -272,9 +272,10 @@ pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &DirLock) -> Result<Base
         .map_err(|error| failed("run cargo", &error))?;
     if !status.success() {
         // the revision's own compile: unchanged, it fails the same way
-        return Err(XtaskError::BuildFailed(Box::new(XtaskError::Failed(
-            format!("the base build at {sha} failed ({status})"),
-        ))));
+        return Err(XtaskError::BuildFailed(Box::new(XtaskError::StepFailed {
+            display: format!("the base build at {sha}"),
+            status,
+        })));
     }
     let built = src.join("target/gro_snapshot/release/fgro");
     let copy = dir.join("bin").join(sha).join("fgro");

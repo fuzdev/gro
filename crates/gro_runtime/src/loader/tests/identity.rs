@@ -156,6 +156,6 @@ fn a_fifo_swapped_in_is_refused_without_blocking() {
     assert_failed(
         &graph,
         url.as_str(),
-        &FailureReason::Load(LoadFailure::IdentityMismatch),
+        &FailureReason::Load(LoadFailure::ReplacedSinceLookup),
     );
 }
