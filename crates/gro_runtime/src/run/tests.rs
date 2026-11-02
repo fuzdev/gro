@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use super::{RunError, run_main};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
-use crate::resolver::test_tree::TestDir;
+use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
 mod graph;

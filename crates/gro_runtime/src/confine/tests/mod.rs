@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::os::unix::fs::PermissionsExt as _;
 
 use super::{BoxRoots, ConfineError, Jit, Prepared};
-use crate::resolver::test_tree::TestDir;
+use crate::test_support::TestDir;
 
 mod closure;
 #[cfg(target_os = "linux")]

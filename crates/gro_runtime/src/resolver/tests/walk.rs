@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{MODULE, from_entry, package, packages, resolve, roots};
-use crate::resolver::test_tree::{MemoryTree, TestDir};
+use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
     ConsultedFile, DiskTree, Entry, EntryBound, FileId, FileRole, MAX_PACKAGE_JSON_SIZE,
     PackageSearchBound, ResolveErrorKind, SourceTree, resolve_entry, resolve_entry_with_bound,
 };
+use crate::test_support::TestDir;
 
 /// The search ends at the first `package.json` outside `node_modules` that
 /// isn't a type marker, one holding only `"type"` and `"sideEffects"`, which is

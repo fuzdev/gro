@@ -12,6 +12,9 @@
     expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")
 )]
 
+#[cfg(target_os = "linux")]
+mod support;
+
 fn main() {
     #[cfg(target_os = "linux")]
     linux::main();
@@ -23,16 +26,13 @@ mod linux {
     use std::path::Path;
     use std::process::Command;
 
+    use super::support;
+
     /// The descriptor the shell leaves open for the child.
     const INHERITED: i32 = 7;
 
     pub fn main() {
-        let mut args = std::env::args().skip(1);
-        match args.next().as_deref() {
-            Some("child") => child(&args.next().unwrap()),
-            // libtest's own flags (`--test-threads`, a filter) are ignored
-            _ => parent(),
-        }
+        support::dispatch(parent, child);
     }
 
     /// Runs each case in a child and checks what it reports.
@@ -50,7 +50,8 @@ mod linux {
                  descriptor may belong to another\nafter: inherited, own\n",
             ),
         ] {
-            let output = Command::new("bash")
+            let mut command = Command::new("bash");
+            command
                 .args([
                     "-c",
                     &format!(r#"exec {INHERITED}<"$1"; exec "$2" child "$3""#),
@@ -58,17 +59,8 @@ mod linux {
                 ])
                 .arg(&manifest)
                 .arg(&exe)
-                .arg(case)
-                .output()
-                .unwrap();
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success() && stdout == expected,
-                "{case}: {}\nstdout: {stdout}\nstderr: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            println!("test {case} ... ok");
+                .arg(case);
+            support::run_case(case, command, expected);
         }
     }
 

@@ -332,7 +332,7 @@ mod tests {
 
     use super::{EngineError, EngineOptions, init_engine};
     use crate::confine::{BoxRoots, Confined, Confinement, Jit};
-    use crate::resolver::test_tree::TestDir;
+    use crate::test_support::TestDir;
     use crate::{RuntimeOptions, STACK_SIZE, run_main};
 
     /// How many times V8 has asked [`fill_entropy`](super::fill_entropy) in

@@ -5,7 +5,7 @@ use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::Graph;
 use crate::loader::graph::Recording;
-use crate::resolver::test_tree::TestDir;
+use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE};
 
 /// Writes `files` into a fresh directory named for `name`, runs its

@@ -4,8 +4,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::resolver::test_tree::{MemoryTree, TestDir};
+use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{DiskTree, Entry, SourceTree};
+use crate::test_support::TestDir;
 
 /// What a lookup found, with no file identity, which differs by tree.
 #[derive(Debug, PartialEq, Eq)]

@@ -4,11 +4,12 @@ use std::path::Path;
 use url::Url;
 
 use super::{from_entry, importer, packages, resolve, roots, tree};
-use crate::resolver::test_tree::{MemoryTree, TestDir};
+use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
     DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, ReadRefusal, ResolveErrorKind, SourceTree,
     resolve_entry,
 };
+use crate::test_support::TestDir;
 
 /// Whether `error` is the refusal of a file replaced since its lookup.
 fn is_replaced(error: &io::Error) -> bool {

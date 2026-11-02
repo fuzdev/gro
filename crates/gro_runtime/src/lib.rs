@@ -71,6 +71,8 @@ pub mod resolver;
 mod run;
 mod runtime;
 pub mod snapshot;
+#[cfg(test)]
+mod test_support;
 
 use crate::snapshot::StartupSnapshot;
 

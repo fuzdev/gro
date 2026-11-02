@@ -11,6 +11,9 @@
     expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")
 )]
 
+#[cfg(target_os = "linux")]
+mod support;
+
 fn main() {
     #[cfg(target_os = "linux")]
     linux::main();
@@ -19,6 +22,8 @@ fn main() {
 #[cfg(target_os = "linux")]
 mod linux {
     use std::process::Command;
+
+    use super::support;
 
     /// The cap the cases set: 1 GiB.
     const CAP: u64 = 1 << 30;
@@ -29,12 +34,7 @@ mod linux {
     const STACK_LIMIT: usize = 8 << 20;
 
     pub fn main() {
-        let mut args = std::env::args().skip(1);
-        match args.next().as_deref() {
-            Some("child") => child(&args.next().unwrap()),
-            // libtest's own flags (`--test-threads`, a filter) are ignored
-            _ => parent(),
-        }
+        support::dispatch(parent, child);
     }
 
     /// Runs each case in a child and checks what it reports.
@@ -100,15 +100,8 @@ mod linux {
                     command
                 },
             );
-            let output = command.args(["child", case]).output().unwrap();
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success() && stdout == expected,
-                "{case}: {}\nstdout: {stdout}\nstderr: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            println!("test {case} ... ok");
+            command.args(["child", case]);
+            support::run_case(case, command, &expected);
         }
     }
 

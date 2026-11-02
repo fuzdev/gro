@@ -281,30 +281,8 @@ pub fn list_paths(dir: &Path) -> Result<BTreeSet<PathBuf>, BenchError> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
-
     use super::*;
-
-    /// Runs `git` in `root` with a throwaway identity and no conversions.
-    fn run_git(root: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args([
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@example.com",
-                "-c",
-                "commit.gpgsign=false",
-                "-c",
-                "core.autocrlf=false",
-            ])
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?}");
-    }
+    use crate::git::test_git;
 
     /// A corpora checkout at `<temp>/<name>/corpora` holding `files` under
     /// `collections/`, committed, and its `collections/` tree id.
@@ -312,14 +290,14 @@ mod tests {
         let base = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
         let root = base.join("corpora");
         fs::create_dir_all(&root).unwrap();
-        run_git(&root, &["init", "--quiet"]);
+        test_git(&root, &["init", "--quiet"]);
         for (path, bytes) in files {
             let path = root.join("collections").join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, bytes).unwrap();
         }
-        run_git(&root, &["add", "."]);
-        run_git(&root, &["commit", "--quiet", "-m", "init"]);
+        test_git(&root, &["add", "."]);
+        test_git(&root, &["commit", "--quiet", "-m", "init"]);
         let tree = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
         (base, root, tree.trim().to_owned())
     }
@@ -344,8 +322,8 @@ mod tests {
             fs::write(&script, "true\n").unwrap();
             fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         }
-        run_git(&root, &["add", "."]);
-        run_git(&root, &["commit", "--quiet", "-m", "exec"]);
+        test_git(&root, &["add", "."]);
+        test_git(&root, &["commit", "--quiet", "-m", "exec"]);
         let tree_with_exec = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
         let tree_with_exec = tree_with_exec.trim();
         let dest = base.join("copy/c");
@@ -467,8 +445,8 @@ mod tests {
         let (base, root, _) = corpora("gro_bench_non_utf8", &[("c/a.ts", b"")]);
         let name = std::ffi::OsStr::from_bytes(b"b\xff.ts");
         fs::write(root.join("collections/c").join(name), "").unwrap();
-        run_git(&root, &["add", "."]);
-        run_git(&root, &["commit", "--quiet", "-m", "non-utf8"]);
+        test_git(&root, &["add", "."]);
+        test_git(&root, &["commit", "--quiet", "-m", "non-utf8"]);
         let tree = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
         let result = materialize(&root, tree.trim(), "c", &base.join("copy/c"));
         fs::remove_dir_all(&base).unwrap();

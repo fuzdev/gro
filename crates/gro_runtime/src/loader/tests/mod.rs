@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use super::graph::Record;
 use super::reads::RecordingTree;
 use super::*;
-use crate::resolver::test_tree::{MemoryTree, TestDir};
+use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{self, Entry, FileId, ModuleFormat};
+use crate::test_support::TestDir;
 
 mod boxed;
 mod identity;

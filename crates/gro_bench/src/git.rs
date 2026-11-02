@@ -240,26 +240,35 @@ pub(crate) fn git_command(root: &Path, args: &[&str]) -> String {
     format!("git -C {} {}", root.display(), args.join(" "))
 }
 
+/// [`git`] for a test's throwaway checkout: a made-up identity, no signing,
+/// and no line-ending conversions, ahead of `args`.
+#[cfg(test)]
+pub(crate) fn test_git(root: &Path, args: &[&str]) -> String {
+    let mut full = vec![
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.autocrlf=false",
+    ];
+    full.extend(args);
+    git(root, &full).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Commits in the checkout at `root` with a throwaway identity and no
-    /// signing, passing `extra` (such as `--allow-empty`) and the message.
+    /// Commits in the checkout at `root`, passing `extra` (such as
+    /// `--allow-empty`) and the message.
     fn commit(root: &Path, extra: &[&str], message: &str) {
-        let mut args = vec![
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "--quiet",
-        ];
+        let mut args = vec!["commit", "--quiet"];
         args.extend(extra);
         args.extend(["-m", message]);
-        git(root, &args).unwrap();
+        test_git(root, &args);
     }
 
     /// A fresh checkout with one commit, at `<temp>/<name>/repo`.

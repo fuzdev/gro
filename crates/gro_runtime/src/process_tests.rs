@@ -9,7 +9,7 @@ use std::process::{Command, Output};
 
 use crate::confine::Confinement;
 use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
-use crate::resolver::test_tree::TestDir;
+use crate::test_support::TestDir;
 use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
 /// The full path of [`child`] in the test binary, which libtest's `--exact`

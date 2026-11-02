@@ -99,7 +99,7 @@ mod tests {
     use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
     use crate::loader::graph::Recording;
-    use crate::resolver::test_tree::TestDir;
+    use crate::test_support::TestDir;
 
     /// Runs `test` on a runtime built as `mode` says, from source, before
     /// the bootstrap's per-run steps, so `Deno.core.ops` is still there, on

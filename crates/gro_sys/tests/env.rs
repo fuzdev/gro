@@ -9,6 +9,9 @@
     expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")
 )]
 
+#[cfg(target_os = "linux")]
+mod support;
+
 fn main() {
     #[cfg(target_os = "linux")]
     linux::main();
@@ -18,13 +21,10 @@ fn main() {
 mod linux {
     use std::process::Command;
 
+    use super::support;
+
     pub fn main() {
-        let mut args = std::env::args().skip(1);
-        match args.next().as_deref() {
-            Some("child") => child(&args.next().unwrap()),
-            // libtest's own flags (`--test-threads`, a filter) are ignored
-            _ => parent(),
-        }
+        support::dispatch(parent, child);
     }
 
     /// Runs each case in a child and checks what it reports.
@@ -51,20 +51,12 @@ mod linux {
                  DENO_STARTUP_PHASES=1 LC_ALL=tr_TR.UTF-8 TZ=UTC\n",
             ),
         ] {
-            let output = Command::new(&exe)
+            let mut command = Command::new(&exe);
+            command
                 .args(["child", case])
                 .env_clear()
-                .envs(env.iter().copied())
-                .output()
-                .unwrap();
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success() && stdout == expected,
-                "{case}: {}\nstdout: {stdout}\nstderr: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            println!("test {case} ... ok");
+                .envs(env.iter().copied());
+            support::run_case(case, command, expected);
         }
     }
 

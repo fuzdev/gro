@@ -10,6 +10,9 @@
     expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")
 )]
 
+#[cfg(target_os = "linux")]
+mod support;
+
 fn main() {
     #[cfg(target_os = "linux")]
     linux::main();
@@ -17,20 +20,21 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::io::Write as _;
     use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
+
+    use super::support;
+
+    /// The case's name, which the bounded waits fail under.
+    const CASE: &str = "a_guarded_group_dies_with_its_interrupted_parent";
 
     /// How long a killed group's process may take to be gone.
     const DEADLINE: Duration = Duration::from_secs(10);
 
     pub fn main() {
-        match std::env::args().nth(1).as_deref() {
-            Some("child") => child(),
-            // libtest's own flags (`--test-threads`, a filter) are ignored
-            _ => parent(),
-        }
+        support::dispatch(parent, |_| child());
     }
 
     /// Interrupts the child once it reports its groups, and checks which
@@ -43,10 +47,7 @@ mod linux {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        let mut line = String::new();
-        BufReader::new(child.stdout.take().unwrap())
-            .read_line(&mut line)
-            .unwrap();
+        let line = support::read_line_bounded(CASE, &mut child);
         let ids: Vec<u32> = line
             .split_whitespace()
             .map(|id| id.parse().unwrap())
@@ -54,7 +55,7 @@ mod linux {
         assert_eq!(ids.len(), 2, "the child reported {line:?}");
         let (guarded, released) = (ids[0], ids[1]);
         signal("-INT", &child.id().to_string());
-        let status = child.wait().unwrap();
+        let status = support::wait_bounded(CASE, &mut child);
         assert_eq!(status.signal(), Some(libc::SIGINT), "{status}");
         let gone_by = Instant::now() + DEADLINE;
         while is_running(guarded) {
@@ -69,7 +70,7 @@ mod linux {
             "the released group's leader {released} was killed"
         );
         signal("-KILL", &format!("-{released}"));
-        println!("test a_guarded_group_dies_with_its_interrupted_parent ... ok");
+        println!("test {CASE} ... ok");
     }
 
     /// Sends `signal` to `target` by the `kill` utility, since the test

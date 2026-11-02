@@ -216,7 +216,7 @@ fn unbounded_end(stopped_at: Option<&Path>) -> String {
 mod tests {
     use super::super::options;
     use super::*;
-    use crate::resolver::test_tree::TestDir;
+    use crate::test_support::TestDir;
 
     /// The pre-pass refuses an entry inside `node_modules` and one with no
     /// project root as a `resolve` the command line must fix, naming the

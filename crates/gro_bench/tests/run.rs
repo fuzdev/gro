@@ -689,30 +689,7 @@ fn corpora_checkout(dir: &Path, files: &[(&str, &str)]) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
     }
-    for args in [
-        &["init", "--quiet"][..],
-        &["add", "."],
-        &[
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "--quiet",
-            "-m",
-            "init",
-        ],
-    ] {
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&corpora)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success());
-    }
+    commit_all(&corpora);
 }
 
 #[test]
@@ -740,14 +717,7 @@ fn a_corpora_checkout_off_its_pin_is_an_input_error() {
 
 /// The `collections/` tree id of the checkout `corpora_checkout` made in `dir`.
 fn corpora_tree(dir: &Path) -> String {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir.join("corpora"))
-        .args(["rev-parse", "HEAD:collections"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    git(&dir.join("corpora"), &["rev-parse", "HEAD:collections"])
 }
 
 /// A suite whose workloads run `scripts` inside the collection `c` of a
