@@ -16,7 +16,8 @@ use gro_bench::suite::{
     Arg, Budget, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload,
 };
 
-fn context() -> RunContext {
+/// A run's context writing under `dir`, its own per test.
+fn context(dir: &Path) -> RunContext {
     RunContext {
         git: GitState {
             sha: "0".repeat(40),
@@ -24,21 +25,38 @@ fn context() -> RunContext {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        // only a suite naming a collection writes here, and those tests set their own
-        work_dir: std::env::temp_dir().join("gro_bench_unused_work"),
+        work_dir: dir.join("work"),
         measure: Measure::Wall,
         snapshot: None,
     }
 }
 
+/// A test's directory, unique to the test and the process, removed on drop.
+struct Scratch(PathBuf);
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A fresh directory for one test, holding `files`.
-fn scratch(test: &str, files: &[(&str, &str)]) -> PathBuf {
+fn scratch(test: &str, files: &[(&str, &str)]) -> Scratch {
     let dir = std::env::temp_dir().join(format!("gro_bench_{test}_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     for (name, content) in files {
         fs::write(dir.join(name), content).unwrap();
     }
-    dir
+    Scratch(dir)
 }
 
 fn sh(args: Vec<Arg>) -> Runtime {
@@ -79,13 +97,12 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
         gate: None,
         budgets: BTreeMap::new(),
         prices: None,
+        timeout_ms: None,
     }
 }
 
 fn run_in(dir: &Path, suite: &Suite) -> Result<RunRecord, BenchError> {
-    let result = run(suite, dir, context());
-    fs::remove_dir_all(dir).unwrap();
-    result
+    run(suite, dir, context(dir))
 }
 
 #[test]
@@ -186,7 +203,7 @@ fn a_size_over_budget_fails_the_run() {
             ..Budget::default()
         },
     )]);
-    let error = run(&suite, &dir, context()).unwrap_err();
+    let error = run(&suite, &dir, context(&dir)).unwrap_err();
     let message = error.to_string();
     assert!(
         matches!(
@@ -206,7 +223,7 @@ fn a_size_over_budget_fails_the_run() {
     assert!(error.is_input_error());
     // a phases run, whose fgro is a measurement build, checks none, and
     // records no peaks
-    let mut phases = context();
+    let mut phases = context(&dir);
     phases.measure = Measure::Phases {
         runtimes: BTreeSet::new(),
     };
@@ -222,7 +239,7 @@ fn a_size_over_budget_fails_the_run() {
             ..Budget::default()
         },
     )]);
-    let error = run(&suite, &dir, context()).unwrap_err();
+    let error = run(&suite, &dir, context(&dir)).unwrap_err();
     assert!(
         error.to_string().contains("no size was measured"),
         "{error}"
@@ -240,6 +257,48 @@ fn a_size_over_budget_fails_the_run() {
     let mut without = suite;
     without.budgets.clear();
     assert_eq!(record.config_hash, without.config_hash());
+}
+
+/// A process past the suite's deadline is killed, and fails the run.
+#[test]
+fn a_hung_process_times_out() {
+    let dir = scratch("hung", &[("hangs.sh", "sleep 30\n")]);
+    let mut suite = suite(vec![sh(Vec::new())], &["hangs.sh"], 2);
+    suite.timeout_ms = std::num::NonZeroU64::new(300);
+    let started = std::time::Instant::now();
+    let error = run_in(&dir, &suite).unwrap_err();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(
+        matches!(
+            error,
+            BenchError::TimedOut {
+                timeout_ms: 300,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(error.is_input_error());
+    assert!(error.to_string().contains("hangs.sh"), "{error}");
+}
+
+/// A run refuses a work dir another holds, naming the holder.
+#[test]
+fn a_held_work_dir_is_refused() {
+    let dir = scratch("locked", &[("a.sh", "true\n")]);
+    let held = gro_bench::lock::lock_dir(&dir.join("work"), gro_bench::lock::Wait::Refuse).unwrap();
+    let suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
+    let error = run_in(&dir, &suite).unwrap_err();
+    drop(held);
+    assert!(
+        matches!(error, BenchError::WorkDirLocked { ref holder, .. } if holder.as_deref() == Some(std::process::id().to_string().as_str())),
+        "{error:?}"
+    );
+    assert!(error.is_input_error());
 }
 
 #[test]
@@ -457,8 +516,7 @@ fn a_project_workload_runs_from_a_fresh_copy() {
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
         generate: BTreeMap::new(),
     });
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let context = context(&dir);
     let record = run(&suite, &dir, context.clone()).unwrap();
     let copied = dir.join("work/projects/proj/main.sh").is_file();
     // a link outside any git checkout is refused, since nothing names its code
@@ -471,7 +529,6 @@ fn a_project_workload_runs_from_a_fresh_copy() {
     suite.workloads[0].project.as_mut().unwrap().links =
         BTreeMap::from([("linked".to_owned(), PathBuf::from("gone"))]);
     let missing = run(&suite, &dir, context).unwrap_err();
-    fs::remove_dir_all(&dir).unwrap();
     assert!(copied);
     assert_eq!(record.rows.len(), 1);
     assert_eq!(record.artifacts.keys().collect::<Vec<_>>(), ["p/main.sh"]);
@@ -518,11 +575,9 @@ fn a_linked_checkout_changing_mid_run_discards_it() {
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
         generate: BTreeMap::new(),
     });
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let context = context(&dir);
     let error = run(&suite, &dir, context).unwrap_err();
     let checkout = dir.join("checkout").canonicalize().unwrap();
-    fs::remove_dir_all(&dir).unwrap();
     match &error {
         BenchError::ArtifactsChanged { paths } => assert_eq!(paths, &[checkout]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),
@@ -669,7 +724,7 @@ fn a_corpora_checkout_off_its_pin_is_an_input_error() {
         path: PathBuf::from("corpora"),
         tree: "0".repeat(40),
     });
-    let error = run(&suite, &dir, context()).unwrap_err();
+    let error = run(&suite, &dir, context(&dir)).unwrap_err();
     let BenchError::CorporaTree { found, .. } = &error else {
         panic!("expected CorporaTree, got {error:?}");
     };
@@ -714,8 +769,7 @@ fn collection_suite(dir: &Path, scripts: &[&str]) -> (Suite, RunContext) {
     for workload in &mut suite.workloads {
         workload.collection = Some("c".to_owned());
     }
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let context = context(dir);
     (suite, context)
 }
 
@@ -741,7 +795,6 @@ fn a_collection_workload_runs_from_a_fresh_copy() {
         .collect();
     listed.sort();
     let copied_entry = fs::read_to_string(copy.join("entry.sh")).unwrap();
-    fs::remove_dir_all(&dir).unwrap();
     assert_eq!(listed, ["entry.sh", "lib.sh", "package.json"]);
     assert_eq!(copied_entry, entry);
     assert_eq!(record.rows.len(), 2);
@@ -768,7 +821,6 @@ fn a_path_written_into_a_copy_discards_the_run() {
         .join("c/lock.json")
         .canonicalize()
         .unwrap();
-    fs::remove_dir_all(&dir).unwrap();
     match result {
         Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lock]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),
@@ -793,7 +845,6 @@ fn a_file_rewritten_in_a_copy_discards_the_run() {
         .join("c/lib.sh")
         .canonicalize()
         .unwrap();
-    fs::remove_dir_all(&dir).unwrap();
     match result {
         Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lib]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),
@@ -808,7 +859,6 @@ fn a_collection_entry_must_be_new_to_the_collection() {
     // and the collection must exist in the pinned tree
     suite.workloads[0].collection = Some("nope".to_owned());
     let error = run(&suite, &dir, context).unwrap_err();
-    fs::remove_dir_all(&dir).unwrap();
     assert!(
         matches!(collides, BenchError::EntryCollides { ref entry, .. } if entry == Path::new("lib.sh")),
         "{collides:?}"
@@ -838,13 +888,11 @@ fn a_phases_run_records_each_sample_s_phases() {
     let mut plain = sh(Vec::new());
     plain.name = "plain".to_owned();
     let suite = suite(vec![sh(Vec::new()), plain], &["marks.sh"], 4);
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let mut context = context(&dir);
     context.measure = Measure::Phases {
         runtimes: BTreeSet::from(["sh".to_owned()]),
     };
     let result = run(&suite, &dir, context);
-    fs::remove_dir_all(&dir).unwrap();
     let record = result.unwrap();
     assert_eq!(record.mode, Mode::Phases);
     let row = &record.rows[0];
@@ -869,8 +917,7 @@ fn a_phases_run_records_each_sample_s_phases() {
 fn a_phases_run_of_a_plain_build_fails() {
     let dir = scratch("phases_plain", &[("plain.sh", "true\n")]);
     let suite = suite(vec![sh(Vec::new())], &["plain.sh"], 2);
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let mut context = context(&dir);
     context.measure = Measure::Phases {
         runtimes: BTreeSet::from(["sh".to_owned()]),
     };
@@ -879,7 +926,6 @@ fn a_phases_run_of_a_plain_build_fails() {
         runtimes: BTreeSet::from(["nope".to_owned()]),
     };
     let unknown = run(&suite, &dir, context);
-    fs::remove_dir_all(&dir).unwrap();
     assert!(
         matches!(&result, Err(BenchError::Phases(message)) if message.contains("isn't a phases build")),
         "{result:?}"
@@ -896,11 +942,9 @@ fn a_phases_run_of_a_plain_build_fails() {
 fn a_counter_run_counts_every_sample() {
     let dir = scratch("counters", &[("counted.sh", "true\n")]);
     let suite = suite(vec![sh(Vec::new())], &["counted.sh"], 4);
-    let mut context = context();
-    context.work_dir = dir.join("work");
+    let mut context = context(&dir);
     context.measure = Measure::Counters;
     let result = run(&suite, &dir, context);
-    fs::remove_dir_all(&dir).unwrap();
     let record = match result {
         Err(BenchError::Counters(why)) => {
             eprintln!("perf can't count here, so nothing to check: {why}");

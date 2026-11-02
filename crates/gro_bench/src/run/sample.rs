@@ -1,24 +1,29 @@
 //! One timed process: how a run takes its samples, and the sample each
 //! process yields.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
+use super::Measure;
 use super::command::{Program, RowCommand, find_program};
-use super::{Measure, RunContext};
 use crate::counters::{Counts, Perf};
 use crate::error::BenchError;
 use crate::phases::{self, SampleSpan};
+use crate::record::{CounterTool, Mode};
 use crate::suite::Suite;
+use crate::watchdog::Watchdog;
 
-/// How the run takes its samples, set up from the [`Measure`].
+/// How the run takes its samples, set up from the [`Measure`] with what
+/// each measure needs, and the record's [`Mode`] read from it.
 #[derive(Debug)]
 pub(super) enum Sampler {
     Wall,
     Phases {
+        /// The runtimes whose samples write phases, each a phases build.
+        runtimes: BTreeSet<String>,
         /// The file each sample of a phases runtime writes.
         file: PathBuf,
     },
@@ -27,6 +32,34 @@ pub(super) enum Sampler {
         /// The file each sample's counts go to.
         out: PathBuf,
     },
+}
+
+impl Sampler {
+    /// The record's mode for a run sampled this way.
+    pub(super) const fn mode(&self) -> Mode {
+        match self {
+            Self::Wall => Mode::Wall,
+            Self::Phases { .. } => Mode::Phases,
+            Self::Counters { .. } => Mode::Counters,
+        }
+    }
+
+    /// The counter tool a counter run reads its counts with.
+    pub(super) fn counter_tool(&self) -> Option<CounterTool> {
+        match self {
+            Self::Counters { perf, .. } => Some(perf.tool.clone()),
+            Self::Wall | Self::Phases { .. } => None,
+        }
+    }
+
+    /// The file the samples of `runtime` write their phases to, in a phases
+    /// run that names it.
+    pub(super) fn phases_file(&self, runtime: &str) -> Option<&Path> {
+        match self {
+            Self::Phases { runtimes, file } if runtimes.contains(runtime) => Some(file),
+            Self::Wall | Self::Phases { .. } | Self::Counters { .. } => None,
+        }
+    }
 }
 
 /// One timed process.
@@ -49,7 +82,11 @@ const FLOOR_RUNS: usize = 4;
 /// trivial program's (`true`, found on `PATH`) over a few runs as `sampler`
 /// runs the samples, taken after them, when the harness's own peak is
 /// highest. `None` where the harness reads no peak.
-pub(super) fn rss_floor(dir: &Path, sampler: &Sampler) -> Result<Option<u64>, BenchError> {
+pub(super) fn rss_floor(
+    dir: &Path,
+    sampler: &Sampler,
+    watchdog: &Watchdog,
+) -> Result<Option<u64>, BenchError> {
     if !cfg!(target_os = "linux") {
         return Ok(None);
     }
@@ -74,25 +111,30 @@ pub(super) fn rss_floor(dir: &Path, sampler: &Sampler) -> Result<Option<u64>, Be
     };
     let mut floor = None;
     for _ in 0..FLOOR_RUNS {
-        let peak = run_once(&row, dir, sampler)?.max_rss_kib;
+        let peak = run_once(&row, dir, sampler, watchdog)?.max_rss_kib;
         floor = floor.max(peak);
     }
     Ok(floor)
 }
 
-/// Sets up the run's [`Sampler`] from the context's [`Measure`]: for a
-/// phases run, the runtimes it names must be the suite's, and for a counter
-/// run, `perf` must count ([`Perf::find`]).
-pub(super) fn sampler(suite: &Suite, context: &RunContext) -> Result<Sampler, BenchError> {
+/// Sets up the run's [`Sampler`] from `measure`, writing under `work_dir`:
+/// for a phases run, the runtimes it names must be the suite's, and for a
+/// counter run, `perf` must count ([`Perf::find`]).
+pub(super) fn sampler(
+    suite: &Suite,
+    measure: &Measure,
+    work_dir: &Path,
+    watchdog: &Watchdog,
+) -> Result<Sampler, BenchError> {
     let dir = |name: &str| -> Result<PathBuf, BenchError> {
-        let dir = context.work_dir.join(name);
+        let dir = work_dir.join(name);
         fs::create_dir_all(&dir).map_err(|source| BenchError::Write {
             path: dir.clone(),
             source,
         })?;
         Ok(dir)
     };
-    match &context.measure {
+    match measure {
         Measure::Wall => Ok(Sampler::Wall),
         Measure::Phases { runtimes } => {
             if let Some(unknown) = runtimes
@@ -104,12 +146,13 @@ pub(super) fn sampler(suite: &Suite, context: &RunContext) -> Result<Sampler, Be
                 )));
             }
             Ok(Sampler::Phases {
+                runtimes: runtimes.clone(),
                 file: dir("phases")?.join("sample.txt"),
             })
         }
         Measure::Counters => {
             let dir = dir("counters")?;
-            let perf = Perf::find(&dir.join("probe.csv"))?;
+            let perf = Perf::find(&dir.join("probe.csv"), watchdog)?;
             Ok(Sampler::Counters {
                 perf,
                 out: dir.join("sample.csv"),
@@ -127,11 +170,12 @@ fn unix_ns() -> u128 {
 }
 
 /// Runs one fresh process of `row` and times it, measuring what `sampler`
-/// says.
+/// says, the process killed should it pass `watchdog`'s deadline.
 pub(super) fn run_once(
     row: &RowCommand,
     dir: &Path,
     sampler: &Sampler,
+    watchdog: &Watchdog,
 ) -> Result<Sample, BenchError> {
     let remove = |path: &Path| match fs::remove_file(path) {
         Err(source) if source.kind() != io::ErrorKind::NotFound => Err(BenchError::Write {
@@ -146,7 +190,7 @@ pub(super) fn run_once(
             remove(out)?;
             (row.counted(perf, out, dir)?, None, Some((perf, out)))
         }
-        Sampler::Phases { file } if row.phases => {
+        Sampler::Phases { file, .. } if row.phases => {
             remove(file)?;
             (row.command(dir)?, Some(file), None)
         }
@@ -154,13 +198,26 @@ pub(super) fn run_once(
     };
     let spawn_unix_ns = phases_file.map(|_| unix_ns());
     let start = Instant::now();
-    let reaped = command.spawn().and_then(reap);
+    let spawned = command.spawn();
+    // inside the span, arming is a lock and a push, waking no thread
+    let watch = spawned
+        .as_ref()
+        .ok()
+        .map(|child| watchdog.watch(child.id()));
+    let reaped = spawned.and_then(reap);
     let elapsed = start.elapsed();
     let reap_unix_ns = phases_file.map(|_| unix_ns());
+    let timed_out = watch.is_some_and(crate::watchdog::Watch::disarm);
     let (status, max_rss_kib) = reaped.map_err(|source| BenchError::Spawn {
         command: row.display(),
         source,
     })?;
+    if timed_out {
+        return Err(BenchError::TimedOut {
+            command: row.display(),
+            timeout_ms: watchdog.timeout().as_millis(),
+        });
+    }
     if !status.success() {
         return Err(BenchError::CommandFailed {
             command: row.display(),

@@ -49,7 +49,8 @@ pub struct Stats {
     /// The mean of the cleaned samples.
     pub mean: f64,
     /// The coefficient of variation of the cleaned samples: their sample
-    /// standard deviation over their mean, 0 for a single sample.
+    /// standard deviation over their mean, 0 for a single sample or a mean
+    /// of 0.
     pub cv: f64,
     /// The smallest cleaned sample.
     pub min: f64,
@@ -64,7 +65,7 @@ impl Stats {
         let values: Vec<f64> = samples.iter().copied().map(to_f64).collect();
         let median = median(&values);
         let mad = mad(&values, median);
-        let Cleaned { cleaned, outliers } = clean(&values);
+        let Cleaned { cleaned, outliers } = clean(&values, median, mad);
         // the cleaning always keeps the median's neighborhood, so `cleaned` is never empty
         let count = to_f64(cleaned.len() as u64);
         let mean = cleaned.iter().sum::<f64>() / count;
@@ -81,33 +82,43 @@ impl Stats {
             median,
             mad,
             mean,
-            cv: std_dev / mean,
+            // all zero samples have no spread to scale, and JSON has no NaN
+            cv: if mean == 0.0 { 0.0 } else { std_dev / mean },
             min,
         })
     }
 }
 
-/// How far apart two positive measurements of the same thing are, the same in
-/// either direction: the larger over the smaller, minus 1.
+/// How far apart two measurements of the same thing are, the same in either
+/// direction: the larger over the smaller, minus 1.
+///
+/// Always finite, so a record holding one writes as JSON and reads back: 0
+/// when both are 0, and [`f64::MAX`], as far apart as it can say, when only
+/// the smaller is 0 (or below).
 pub fn ratio_deviation(a: f64, b: f64) -> f64 {
-    a.max(b) / a.min(b) - 1.0
+    let (larger, smaller) = (a.max(b), a.min(b));
+    if larger <= 0.0 {
+        0.0
+    } else if smaller <= 0.0 {
+        f64::MAX
+    } else {
+        larger / smaller - 1.0
+    }
 }
 
 /// Samples split by [`clean`].
 #[derive(Debug, PartialEq)]
-pub(crate) struct Cleaned {
+struct Cleaned {
     pub cleaned: Vec<f64>,
     pub outliers: Vec<f64>,
 }
 
-/// Splits `values` into the samples kept and the outliers, by the module's
-/// method.
-pub(crate) fn clean(values: &[f64]) -> Cleaned {
+/// Splits `values`, whose `median` and `mad` the caller computed, into the
+/// samples kept and the outliers, by the module's method.
+fn clean(values: &[f64], median: f64, mad: f64) -> Cleaned {
     if values.len() < MIN_SAMPLES {
         return keep_all(values);
     }
-    let median = median(values);
-    let mad = mad(values, median);
     if mad == 0.0 {
         return clean_iqr(values);
     }
@@ -213,7 +224,8 @@ mod tests {
     }
 
     fn assert_clean(values: &[f64], cleaned: &[f64], outliers: &[f64]) {
-        let mut result = clean(values);
+        let median = median(values);
+        let mut result = clean(values, median, mad(values, median));
         result.cleaned.sort_by(f64::total_cmp);
         result.outliers.sort_by(f64::total_cmp);
         assert_eq!(result.cleaned, sorted(cleaned), "cleaned");
@@ -392,5 +404,23 @@ mod tests {
         assert_close(ratio_deviation(110.0, 100.0), 0.1);
         assert_close(ratio_deviation(100.0, 110.0), 0.1);
         assert_close(ratio_deviation(7.0, 7.0), 0.0);
+    }
+
+    #[test]
+    fn zero_samples_give_finite_figures_that_round_trip() {
+        let stats = Stats::from_samples(&[0, 0, 0, 0]).unwrap();
+        assert_eq!(stats.cv, 0.0);
+        for value in [stats.median, stats.mad, stats.mean, stats.cv, stats.min] {
+            assert!(value.is_finite(), "{stats:?}");
+        }
+        let line = serde_json::to_string(&stats).unwrap();
+        assert_eq!(serde_json::from_str::<Stats>(&line).unwrap(), stats);
+        assert_eq!(ratio_deviation(0.0, 0.0), 0.0);
+        assert_eq!(ratio_deviation(0.0, 5.0), f64::MAX);
+        assert_eq!(ratio_deviation(5.0, 0.0), f64::MAX);
+        for deviation in [ratio_deviation(0.0, 0.0), ratio_deviation(0.0, 5.0)] {
+            let line = serde_json::to_string(&deviation).unwrap();
+            assert_eq!(serde_json::from_str::<f64>(&line).unwrap(), deviation);
+        }
     }
 }

@@ -90,7 +90,9 @@
 //! - `2`: change something before re-running, since unchanged it fails the
 //!   same way: the suite is unreadable or invalid, a program, script, or file
 //!   argument it names is missing, a program is a script, a workload or
-//!   version probe exits unsuccessfully or prints no version, the suite's
+//!   version probe exits unsuccessfully, prints no version, or runs past the
+//!   suite's `timeout_ms` (two minutes by default), another run holds the
+//!   work directory (`target/bench/`), the suite's
 //!   corpora checkout isn't at its pinned tree or has local changes, a
 //!   collection a workload names isn't in the pinned tree or holds a
 //!   symlink, a submodule, or a name that isn't UTF-8, a workload's entry
@@ -100,19 +102,23 @@
 //!   untimed correctness run fails (a nonzero exit, or stdout not what its
 //!   runtime's `stdout` says) or breaks the suite's `parity`, `--history` is
 //!   empty, names a directory, or names no file in an existing directory, or
-//!   the `fgro` it names isn't the release snapshot build (or that build, or
-//!   a measurement build, failed), a size crosses its budget, perf can't
+//!   the `fgro` it names isn't the release snapshot build (or that build's
+//!   compile, or a measurement build's, failed), a size crosses its budget, perf can't
 //!   count, the flags don't combine, or
 //!   `--base` names no commit, or the history `report` reads is missing
 //! - `1`: anything else, such as an artifact or a linked checkout changing
-//!   mid-run or a failed write
+//!   mid-run, a failed read or write, or a failed fetch of the V8 archive or
+//!   `cargo metadata` before a build
 //!
 //! A usage error (an unknown subcommand or flag, a missing argument) exits
 //! `2` as well, printing to stderr; `--help` prints to stdout and exits `0`.
+//! Every other step's failure ([`error::XtaskError`]) prints once, to
+//! stderr, and exits with its code: a program a step ran exits with its own.
 
 mod bench;
 mod check;
 mod cmd;
+mod error;
 mod snapshot;
 mod v8_archive;
 
@@ -122,7 +128,6 @@ use std::process::ExitCode;
 
 use argh::{EarlyExit, FromArgs};
 
-use cmd::target_dir;
 use snapshot::Measurement;
 
 /// The workspace root, two levels above this crate's manifest, canonicalized
@@ -283,20 +288,24 @@ fn main() -> ExitCode {
         Subcommand::Check(Check {}) => check::check(&root),
         Subcommand::CheckRust(CheckRust {}) => check::check_rust(&root),
         Subcommand::CheckJs(CheckJs {}) => check::check_crates_js(&root),
-        Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root),
-        Subcommand::Build(Build { release, verify }) => check::fetch_v8(&root).and_then(|()| {
-            let target_dir = target_dir(&root)?;
-            let build = snapshot::build(&root, &target_dir, release, Measurement::None)?;
-            if verify {
-                snapshot::verify(&root, release, &build)?;
-            }
-            Ok(())
-        }),
+        Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root).map(|_| ()),
+        Subcommand::Build(Build { release, verify }) => {
+            check::fetch_v8(&root).and_then(|target_dir| {
+                let build = snapshot::build(&root, &target_dir, release, Measurement::None)?;
+                if verify {
+                    snapshot::verify(&root, release, &build)?;
+                }
+                Ok(())
+            })
+        }
         Subcommand::Bench(bench_args) => bench::bench(&root, bench_args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(code) => code,
+        Err(error) => {
+            error.print();
+            ExitCode::from(error.exit_code())
+        }
     }
 }
 

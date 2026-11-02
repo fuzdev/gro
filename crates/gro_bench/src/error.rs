@@ -63,6 +63,25 @@ pub enum BenchError {
     /// A process (a sample, a version probe, `git`) exited unsuccessfully.
     #[error("`{command}` failed ({status})")]
     CommandFailed { command: String, status: ExitStatus },
+    /// A process ran past the suite's deadline, so it was killed and
+    /// reaped.
+    #[error(
+        "`{command}` ran past the suite's timeout of {timeout_ms} ms, so it was killed; raise `timeout_ms` if it isn't hung"
+    )]
+    TimedOut { command: String, timeout_ms: u128 },
+    /// Another run holds the work directory, whose sample files and copies
+    /// two runs would overwrite under each other.
+    #[error(
+        "the work dir {} is in use by process {} (it holds {}); wait for it",
+        dir.display(),
+        holder.as_deref().unwrap_or("unknown"),
+        dir.join(crate::lock::LOCK_FILE).display()
+    )]
+    WorkDirLocked {
+        dir: PathBuf,
+        /// The process id the holder wrote, when it wrote one.
+        holder: Option<String>,
+    },
     /// A version probe printed no non-empty line to stdout.
     #[error("`{command}` printed no version")]
     NoVersion { command: String },
@@ -224,7 +243,8 @@ impl BenchError {
     /// entry colliding with a collection's file, a project's missing or
     /// unversioned link or unsupported entry, a failed correctness run,
     /// values that break the suite's parity, counters the machine can't
-    /// give, or a size over its budget), so the caller must change
+    /// give, a size over its budget, a process past its deadline, or a work
+    /// directory another run holds), so the caller must change
     /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
         matches!(
@@ -236,6 +256,8 @@ impl BenchError {
                 | Self::ProgramNotFound { .. }
                 | Self::ProgramIsScript { .. }
                 | Self::CommandFailed { .. }
+                | Self::TimedOut { .. }
+                | Self::WorkDirLocked { .. }
                 | Self::NoVersion { .. }
                 | Self::CorporaTree { .. }
                 | Self::CorporaDirty { .. }

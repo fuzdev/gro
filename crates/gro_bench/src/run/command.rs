@@ -13,6 +13,7 @@ use crate::counters::Perf;
 use crate::error::BenchError;
 use crate::record::RuntimeInfo;
 use crate::suite::{Arg, FileArg, Runtime, Stdout, Workload};
+use crate::watchdog::Watchdog;
 
 /// The environment variables a measured process keeps from the caller's.
 const KEPT_ENV: [&str; 2] = ["PATH", "HOME"];
@@ -228,12 +229,13 @@ pub(super) fn probe(
     program: &Program,
     dir: &Path,
     hash: &str,
+    watchdog: &Watchdog,
 ) -> Result<RuntimeInfo, BenchError> {
-    let version = probe_line(program, &runtime.version_args, dir)?;
+    let version = probe_line(program, &runtime.version_args, dir, watchdog)?;
     let v8 = runtime
         .v8_args
         .as_ref()
-        .map(|args| probe_line(program, args, dir))
+        .map(|args| probe_line(program, args, dir, watchdog))
         .transpose()?;
     let bytes = fs::metadata(&program.path)
         .map_err(|source| BenchError::Read {
@@ -251,18 +253,36 @@ pub(super) fn probe(
     })
 }
 
-/// Runs `program` with `args` and returns the first non-empty line it prints.
-fn probe_line(program: &Program, args: &[String], dir: &Path) -> Result<String, BenchError> {
+/// Runs `program` with `args` and returns the first non-empty line it
+/// prints, killing it past `watchdog`'s deadline.
+fn probe_line(
+    program: &Program,
+    args: &[String],
+    dir: &Path,
+    watchdog: &Watchdog,
+) -> Result<String, BenchError> {
     let command = display_command(&program.path, args);
-    let output = program
-        .command(dir)
+    let spawn_error = |source| BenchError::Spawn {
+        command: command.clone(),
+        source,
+    };
+    let mut probe = program.command(dir);
+    probe
         .args(args)
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|source| BenchError::Spawn {
-            command: command.clone(),
-            source,
-        })?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    // its own group, so a kill reaches whatever holds its stdout
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut probe, 0);
+    let child = probe.spawn().map_err(spawn_error)?;
+    let watch = watchdog.watch_group(child.id());
+    let output = child.wait_with_output().map_err(spawn_error)?;
+    if watch.disarm() {
+        return Err(BenchError::TimedOut {
+            command,
+            timeout_ms: watchdog.timeout().as_millis(),
+        });
+    }
     if !output.status.success() {
         return Err(BenchError::CommandFailed {
             command,

@@ -10,7 +10,9 @@
 //! downloading one. That copy is unchecked, and the build script reruns only
 //! when the variable's value changes, not when the file does. So:
 //!
-//! - [`ensure`] verifies the archive before the xtask's cargo runs. A file at
+//! - [`ensure`] verifies the archive before the xtask's cargo runs, holding
+//!   an exclusive lock on its directory (`target/rusty_v8/lock`), so
+//!   concurrent xtasks check and fetch it one at a time. A file at
 //!   the path that doesn't match is deleted, the `v8` crate's build outputs
 //!   are cleaned (`cargo clean -p v8`, every profile) so the next build
 //!   recopies and relinks, and the archive is fetched again.
@@ -50,6 +52,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use gro_bench::lock::{LockError, Wait, lock_dir};
 
 /// The `v8` crate version the archive belongs to.
 pub const VERSION: &str = "150.4.0";
@@ -173,6 +177,15 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
         });
     }
 
+    // one process checks, deletes, and downloads at a time, so none removes
+    // another's download or reads a file mid-replace
+    // `target/rusty_v8/`, above each version's directory, whose files an A/B
+    // links into its clone
+    let dir = root.join("target/rusty_v8");
+    let _lock = lock_dir(&dir, Wait::Block).map_err(|error| match error {
+        LockError::Io { path, source } => ArchiveError::Io { path, source },
+        held @ LockError::Held { .. } => ArchiveError::Command(held.to_string()),
+    })?;
     if path.is_file() {
         let hash = sha256(&path)?;
         if hash == SHA256 {
@@ -248,9 +261,9 @@ fn clean_v8_profile(root: &Path, profile: &str) -> Result<(), ArchiveError> {
         "cargo",
         &["clean", "--locked", "-p", "v8", "--profile", profile],
     )
-    .map_err(|_| {
+    .map_err(|error| {
         ArchiveError::Command(format!(
-            "cargo clean -p v8 --profile {profile} failed; see the output above"
+            "cargo clean -p v8 --profile {profile} failed ({error}); see the output above"
         ))
     })
 }
@@ -338,7 +351,8 @@ pub fn verify_linked(target_dir: &Path, profile: &str) -> Result<(), ArchiveErro
 
 /// Downloads the archive to a temporary name beside `path`, verifies it, and
 /// renames it into place, deleting it on a mismatch. Leftovers of an earlier
-/// download that died before cleaning up are removed first.
+/// download that died before cleaning up are removed first: the caller holds
+/// the directory's lock, so no other download is live.
 fn download(path: &Path) -> Result<(), ArchiveError> {
     let io_error = |path: &Path| {
         let path = path.to_path_buf();

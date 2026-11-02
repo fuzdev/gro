@@ -30,6 +30,12 @@ landlock.workspace = true
 libc.workspace = true
 seccompiler.workspace = true
 
+[dev-dependencies]
+# the measurement harness, which keeps its own copies of the phases file's
+# contract and names eval's defaults in its prices suite, checked against
+# these (an in-workspace crate with no V8)
+gro_bench = { path = "../gro_bench" }
+
 [features]
 # phase timings for the measurement harness (`phases`); release and snapshot
 # builds never enable it

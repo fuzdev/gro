@@ -42,7 +42,9 @@ use serde::{Deserialize, Serialize};
 use crate::error::BenchError;
 use crate::stats::Stats;
 
-/// The line shape's version, bumped when it changes incompatibly.
+/// The line shape's version, bumped on any change to it, additive ones
+/// included, so a harness older than a line skips it rather than read it
+/// without the fields it doesn't know.
 pub const RECORD_VERSION: u32 = 7;
 
 /// One run.
@@ -101,20 +103,31 @@ pub struct RunRecord {
 }
 
 /// What a run measured, beside wall time.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The variants are declared in the order of their names, so the derived
+/// order, which the report sorts its series by, is the names' order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
-    /// Wall time alone, each process run as is.
-    #[default]
-    Wall,
-    /// Wall time, and each sample's phase timings from the runtimes a
-    /// phases build runs ([`RowRecord::phases`]); that build times a little
-    /// more than the plain one.
-    Phases,
     /// Wall time and user-space hardware counters, each sample run under
     /// `perf stat` ([`RowRecord::instructions`], [`RowRecord::cycles`]); the
     /// wall times include perf's own startup.
     Counters,
+    /// Wall time, and each sample's phase timings from the runtimes a
+    /// phases build runs ([`RowRecord::phases`]); that build times a little
+    /// more than the plain one.
+    Phases,
+    /// Wall time alone, each process run as is.
+    #[default]
+    Wall,
+}
+
+impl std::fmt::Display for Mode {
+    /// The mode's name as a line writes it, from the serde attributes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = serde_json::to_value(self).map_err(|_| std::fmt::Error)?;
+        f.write_str(value.as_str().ok_or(std::fmt::Error)?)
+    }
 }
 
 /// The tool a counter run read its counts with.
@@ -286,6 +299,13 @@ pub struct NoiseRecord {
 }
 
 impl RunRecord {
+    /// The row of `runtime` on `workload`, when the run has it.
+    pub fn row(&self, runtime: &str, workload: &str) -> Option<&RowRecord> {
+        self.rows
+            .iter()
+            .find(|row| row.runtime == runtime && row.workload == workload)
+    }
+
     /// The record as one JSON line, newline included.
     ///
     /// # Panics
@@ -464,6 +484,30 @@ mod tests {
         assert_eq!(line.matches('\n').count(), 1, "one line per run");
         let parsed: RunRecord = serde_json::from_str(&line).unwrap();
         assert_eq!(parsed, record);
+    }
+
+    #[test]
+    fn a_record_of_zero_samples_round_trips() {
+        // a counter that read 0, against a copy that read 0 and one that didn't
+        let mut record = record();
+        record.rows[0].kernel_instructions = Some(metric(vec![0, 0, 0]));
+        record.noise.instructions_median_deviation = Some(crate::stats::ratio_deviation(0.0, 0.0));
+        record.noise.median_deviation = crate::stats::ratio_deviation(0.0, 5.0);
+        let parsed: RunRecord = serde_json::from_str(&record.to_line()).unwrap();
+        assert_eq!(parsed, record);
+    }
+
+    #[test]
+    fn a_mode_displays_and_orders_by_its_name() {
+        let modes = [Mode::Counters, Mode::Phases, Mode::Wall];
+        let names = modes.map(|mode| mode.to_string());
+        assert_eq!(names, ["counters", "phases", "wall"]);
+        let mut sorted = [Mode::Wall, Mode::Counters, Mode::Phases];
+        sorted.sort();
+        assert_eq!(sorted, modes);
+        for (mode, name) in modes.iter().zip(&names) {
+            assert_eq!(serde_json::to_value(mode).unwrap(), name.as_str());
+        }
     }
 
     #[test]

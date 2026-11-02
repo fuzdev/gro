@@ -10,15 +10,21 @@ use super::command::RowCommand;
 use crate::check::{first_difference, stdout_value, truncated};
 use crate::error::BenchError;
 use crate::suite::Suite;
+use crate::watchdog::Watchdog;
 
 /// Runs each row once, untimed, and checks it: it exits successfully, its
 /// stdout is what its runtime's `stdout` says, and the values of the suite's
 /// `parity` runtimes are equal on each workload.
-pub(super) fn check_rows(suite: &Suite, rows: &[RowCommand], dir: &Path) -> Result<(), BenchError> {
+pub(super) fn check_rows(
+    suite: &Suite,
+    rows: &[RowCommand],
+    dir: &Path,
+    watchdog: &Watchdog,
+) -> Result<(), BenchError> {
     // each checked row's value, by workload and then runtime
     let mut values: BTreeMap<&str, BTreeMap<&str, serde_json::Value>> = BTreeMap::new();
     for row in rows {
-        if let Some(value) = check_row(row, dir)? {
+        if let Some(value) = check_row(row, dir, watchdog)? {
             values
                 .entry(row.workload.as_str())
                 .or_default()
@@ -48,18 +54,23 @@ pub(super) fn check_rows(suite: &Suite, rows: &[RowCommand], dir: &Path) -> Resu
 
 /// Runs one process of `row`, untimed, capturing its output: it must exit
 /// successfully, and its stdout must be what `row.stdout` says, whose value
-/// it returns.
-fn check_row(row: &RowCommand, dir: &Path) -> Result<Option<serde_json::Value>, BenchError> {
+/// it returns. Past `watchdog`'s deadline it's killed, and fails the run.
+fn check_row(
+    row: &RowCommand,
+    dir: &Path,
+    watchdog: &Watchdog,
+) -> Result<Option<serde_json::Value>, BenchError> {
     let spawn_error = |source| BenchError::Spawn {
         command: row.display(),
         source,
     };
-    let mut child = row
-        .command(dir)?
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(spawn_error)?;
+    let mut command = row.command(dir)?;
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // its own group, so a kill reaches whatever holds its pipes
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut child = command.spawn().map_err(spawn_error)?;
+    let watch = watchdog.watch_group(child.id());
     // stdout whole only when it's checked: a large output kept unchecked
     // would raise the harness's peak, which every later sample reads at least
     let stdout_kept = if row.stdout.is_some() {
@@ -79,6 +90,12 @@ fn check_row(row: &RowCommand, dir: &Path) -> Result<Option<serde_json::Value>, 
         (stdout, stderr)
     });
     let status = child.wait().map_err(spawn_error)?;
+    if watch.disarm() {
+        return Err(BenchError::TimedOut {
+            command: row.display(),
+            timeout_ms: watchdog.timeout().as_millis(),
+        });
+    }
     let (stdout, stderr) = (stdout.map_err(spawn_error)?, stderr.map_err(spawn_error)?);
     let failed = |reason: String| BenchError::CheckFailed {
         command: row.display(),

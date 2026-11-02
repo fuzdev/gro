@@ -27,13 +27,20 @@
 //! An A/B holds an exclusive `flock` on `<base-dir>/lock` ([`lock`]) from the
 //! build to the end of its run, so two A/Bs on one base dir can't check out
 //! under each other or replace a binary mid-run.
+//!
+//! The clone is made under a temporary name beside `src` and renamed into
+//! place once it's complete, so a clone cut off midway is never taken for
+//! one.
 
 use std::fs;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Command, Stdio};
+
+use gro_bench::lock::{DirLock, LockError, Wait, lock_dir};
 
 use crate::cmd::run;
+use crate::error::XtaskError;
 
 /// The variables the base build keeps from this process's environment; every
 /// other is cleared.
@@ -105,23 +112,22 @@ fn clean_command(program: &str, dir: &Path) -> Command {
 
 /// The first line `rustc --version` prints from `command`, a `rustc`
 /// command set up as the caller wants it.
-pub fn rustc_version(mut command: Command) -> Result<String, ExitCode> {
+pub fn rustc_version(mut command: Command) -> Result<String, XtaskError> {
     let output = command
         .arg("--version")
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| {
-            eprintln!("[xtask] failed to run rustc --version: {error}");
-            ExitCode::FAILURE
+        .map_err(|source| XtaskError::Spawn {
+            display: "rustc --version".to_owned(),
+            source,
         })?;
     let line = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if !output.status.success() || line.is_empty() {
-        eprintln!(
-            "[xtask] rustc --version failed ({}): {}",
+        return Err(XtaskError::Failed(format!(
+            "rustc --version failed ({}): {}",
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
-        );
-        return Err(ExitCode::FAILURE);
+        )));
     }
     Ok(line)
 }
@@ -154,62 +160,34 @@ fn check_pin(rustc: &str, channel: &str) -> Option<bool> {
     })
 }
 
-/// The lock an A/B holds on its base dir: an exclusive `flock` on
-/// `<dir>/lock`, which the kernel releases when the file closes, on drop or
-/// on any exit, so no lock outlives its process.
-#[derive(Debug)]
-pub struct BaseLock {
-    _file: fs::File,
-}
+/// The lock an A/B holds on its base dir ([`gro_bench::lock`]), released
+/// when dropped or on any exit.
+pub type BaseLock = DirLock;
 
 /// Takes `<dir>/lock` without waiting, writing this process's id into it for
 /// another's refusal to name. A lock another process holds is refused,
 /// naming the id it wrote.
-pub fn lock(dir: &Path) -> Result<BaseLock, ExitCode> {
-    let failed = |error: &io::Error| {
-        eprintln!(
-            "[xtask] failed to lock the base dir {}: {error}",
+pub fn lock(dir: &Path) -> Result<BaseLock, XtaskError> {
+    lock_dir(dir, Wait::Refuse).map_err(|error| match error {
+        LockError::Held { path, holder } => XtaskError::Input(format!(
+            "the base dir {} is in use by process {} (it holds {}); wait for it, \
+             or pass another --base-dir",
+            dir.display(),
+            holder.as_deref().unwrap_or("unknown"),
+            path.display()
+        )),
+        LockError::Io { source, .. } => XtaskError::Failed(format!(
+            "failed to lock the base dir {}: {source}",
             dir.display()
-        );
-        ExitCode::FAILURE
-    };
-    fs::create_dir_all(dir).map_err(|error| failed(&error))?;
-    let path = dir.join("lock");
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(|error| failed(&error))?;
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(fs::TryLockError::WouldBlock) => {
-            let holder = fs::read_to_string(&path).unwrap_or_default();
-            let holder = holder.trim();
-            eprintln!(
-                "[xtask] the base dir {} is in use by process {} (it holds {}); wait for it, \
-                 or pass another --base-dir",
-                dir.display(),
-                if holder.is_empty() { "unknown" } else { holder },
-                path.display()
-            );
-            return Err(ExitCode::from(crate::EXIT_INPUT));
-        }
-        Err(fs::TryLockError::Error(error)) => return Err(failed(&error)),
-    }
-    file.set_len(0)
-        .and_then(|()| writeln!(file, "{}", std::process::id()))
-        .map_err(|error| failed(&error))?;
-    Ok(BaseLock { _file: file })
+        )),
+    })
 }
 
 /// The base build's directory: `--base-dir`, or the cache's.
-pub fn base_dir(given: Option<PathBuf>) -> Result<PathBuf, ExitCode> {
+pub fn base_dir(given: Option<PathBuf>) -> Result<PathBuf, XtaskError> {
     if let Some(dir) = given {
         return std::path::absolute(&dir).map_err(|error| {
-            eprintln!("[xtask] invalid --base-dir {}: {error}", dir.display());
-            ExitCode::from(crate::EXIT_INPUT)
+            XtaskError::Input(format!("invalid --base-dir {}: {error}", dir.display()))
         });
     }
     let cache = std::env::var_os("XDG_CACHE_HOME")
@@ -217,28 +195,29 @@ pub fn base_dir(given: Option<PathBuf>) -> Result<PathBuf, ExitCode> {
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
         .ok_or_else(|| {
-            eprintln!("[xtask] neither XDG_CACHE_HOME nor HOME is set; pass --base-dir");
-            ExitCode::from(crate::EXIT_INPUT)
+            XtaskError::Input("neither XDG_CACHE_HOME nor HOME is set; pass --base-dir".to_owned())
         })?;
     Ok(cache.join("gro").join("bench_base"))
 }
 
 /// The commit `rev` names in the checkout at `root`.
-pub fn resolve(root: &Path, rev: &str) -> Result<String, ExitCode> {
+pub fn resolve(root: &Path, rev: &str) -> Result<String, XtaskError> {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
         .args(["rev-parse", "--verify", "--quiet", "--end-of-options"])
         .arg(format!("{rev}^{{commit}}"))
         .output()
-        .map_err(|error| {
-            eprintln!("[xtask] failed to run git: {error}");
-            ExitCode::FAILURE
+        .map_err(|source| XtaskError::Spawn {
+            display: "git".to_owned(),
+            source,
         })?;
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if !output.status.success() || sha.is_empty() {
-        eprintln!("[xtask] --base {rev} names no commit in {}", root.display());
-        return Err(ExitCode::from(crate::EXIT_INPUT));
+        return Err(XtaskError::Input(format!(
+            "--base {rev} names no commit in {}",
+            root.display()
+        )));
     }
     Ok(sha)
 }
@@ -247,15 +226,28 @@ pub fn resolve(root: &Path, rev: &str) -> Result<String, ExitCode> {
 /// holding `dir`'s [`lock`], and returns the copy of it under
 /// `dir/bin/<sha>/fgro` with the toolchain that built it, refusing one off
 /// the revision's pin.
-pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &BaseLock) -> Result<BaseBuild, ExitCode> {
+pub fn build(
+    root: &Path,
+    dir: &Path,
+    sha: &str,
+    _lock: &BaseLock,
+) -> Result<BaseBuild, XtaskError> {
     let failed = |what: &str, error: &dyn std::fmt::Display| {
-        eprintln!("[xtask] the base build failed to {what}: {error}");
-        ExitCode::FAILURE
+        XtaskError::Failed(format!("the base build failed to {what}: {error}"))
     };
     let src = dir.join("src");
     let root_arg = root.display().to_string();
     let src_arg = src.display().to_string();
     if !src.join(".git").exists() {
+        // cloned under another name and renamed whole, so `src` is never a
+        // clone cut off midway
+        let partial = dir.join("src.partial");
+        match fs::remove_dir_all(&partial) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                return Err(failed("remove an earlier partial clone", &error));
+            }
+            _ => {}
+        }
         fs::create_dir_all(dir).map_err(|error| failed("create its directory", &error))?;
         run(
             dir,
@@ -267,9 +259,10 @@ pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &BaseLock) -> Result<Bas
                 "--shared",
                 "--no-checkout",
                 &root_arg,
-                &src_arg,
+                &partial.display().to_string(),
             ],
         )?;
+        fs::rename(&partial, &src).map_err(|error| failed("move its clone into place", &error))?;
     }
     // the shared clone reads the checkout's objects, so any commit of it checks out
     run(
@@ -291,8 +284,9 @@ pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &BaseLock) -> Result<Bas
         .status()
         .map_err(|error| failed("run cargo", &error))?;
     if !status.success() {
-        eprintln!("[xtask] the base build at {sha} failed ({status})");
-        return Err(ExitCode::FAILURE);
+        return Err(XtaskError::Failed(format!(
+            "the base build at {sha} failed ({status})"
+        )));
     }
     let built = src.join("target/gro_snapshot/release/fgro");
     let copy = dir.join("bin").join(sha).join("fgro");
@@ -311,10 +305,9 @@ pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &BaseLock) -> Result<Bas
         .map(|channel| (channel, check_pin(&rustc, channel)))
     {
         Some((channel, Some(false))) => {
-            eprintln!(
-                "[xtask] the base at {sha} pins the toolchain {channel}, but its build ran {rustc}"
-            );
-            return Err(ExitCode::FAILURE);
+            return Err(XtaskError::Failed(format!(
+                "the base at {sha} pins the toolchain {channel}, but its build ran {rustc}"
+            )));
         }
         Some((channel, Some(true))) => {
             println!("[xtask] the base built with {rustc}, its pin {channel}");
@@ -419,17 +412,17 @@ mod tests {
     }
 
     #[test]
-    fn a_held_lock_is_refused_until_dropped() {
+    fn a_held_base_dir_is_refused_as_input() {
         let dir = std::env::temp_dir().join(format!("xtask_base_lock_{}", std::process::id()));
         let held = lock(&dir).unwrap();
-        // a second open file can't take it while the first holds it
-        let refused = lock(&dir).is_err();
-        let text = fs::read_to_string(dir.join("lock")).unwrap();
+        let refused = lock(&dir).unwrap_err();
         drop(held);
-        let again = lock(&dir).is_ok();
         fs::remove_dir_all(&dir).unwrap();
-        assert!(refused);
-        assert_eq!(text.trim(), std::process::id().to_string());
-        assert!(again);
+        assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+        let message = refused.to_string();
+        assert!(
+            message.contains(&format!("in use by process {}", std::process::id())),
+            "{message}"
+        );
     }
 }

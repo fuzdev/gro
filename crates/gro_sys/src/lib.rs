@@ -20,6 +20,9 @@
 //!   process-wide change installed from one thread needs to be 1.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size, which std's `wait` drops.
+//! - [`kill_process`] and [`kill_process_group`] send `SIGKILL` to a process
+//!   or a process group by its id, for a watchdog that doesn't own the child
+//!   another thread is reaping.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -586,6 +589,73 @@ pub fn wait_child(child: std::process::Child) -> io::Result<Reaped> {
     })
 }
 
+/// Sends `SIGKILL` to the process `pid`, by `kill`.
+///
+/// For a watchdog that ends a child another thread is reaping with
+/// [`wait_child`], which owns the child, so std's `Child::kill` can't reach
+/// it. The id names the child only until it's reaped: a caller kills only a
+/// child it knows isn't reaped yet, as far as it can know, since the id is
+/// free for reuse once it is.
+///
+/// # Errors
+///
+/// Returns the call's error: `ESRCH` when no such process exists, `EPERM`
+/// when it may not be signaled, or `EINVAL` for an id past `pid_t` or not
+/// above 0, which would name a process group.
+#[cfg(target_os = "linux")]
+pub fn kill_process(pid: u32) -> io::Result<()> {
+    kill(positive_pid(pid)?)
+}
+
+/// Sends `SIGKILL` to every process of the group `pgid`, by `kill` with the
+/// id negated.
+///
+/// That is a child spawned as the leader of its own group
+/// (`CommandExt::process_group(0)`) and what it spawned, which, holding the
+/// leader's pipes, would otherwise keep a reader of them waiting. Like
+/// [`kill_process`], the id names the group only while its leader isn't
+/// reaped.
+///
+/// # Errors
+///
+/// Returns the call's error: `ESRCH` when no process is in the group,
+/// `EPERM` when none may be signaled, or `EINVAL` for an id past `pid_t` or
+/// not above 0.
+#[cfg(target_os = "linux")]
+pub fn kill_process_group(pgid: u32) -> io::Result<()> {
+    kill(-positive_pid(pgid)?)
+}
+
+/// `id` as a `pid_t` above 0, or `EINVAL`.
+#[cfg(target_os = "linux")]
+fn positive_pid(id: u32) -> io::Result<libc::pid_t> {
+    libc::pid_t::try_from(id)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))
+}
+
+/// `kill(target, SIGKILL)`, for a `target` that is a process (above 0) or a
+/// group (below -1), never 0 or -1, which name the caller's group or every
+/// process.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std kills only a child it owns, and a libc call is `unsafe`"
+)]
+fn kill(target: libc::pid_t) -> io::Result<()> {
+    debug_assert!(!matches!(target, 0 | -1), "{target}");
+    // SAFETY: `kill` takes two integers and reads or writes none of this
+    // process's memory; the callers pass one process or one group, never 0
+    // or -1
+    let result = unsafe { libc::kill(target, libc::SIGKILL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 /// Sends `signal` to the thread `tid` of the process `tgid`, by `tgkill`;
 /// a `signal` of 0 sends nothing and checks only that it could be sent.
 ///
@@ -769,5 +839,48 @@ mod tests {
         let reaped = super::wait_child(child).unwrap();
         assert_eq!(reaped.status.code(), Some(3));
         assert!(reaped.max_rss_kib > 0, "{reaped:?}");
+    }
+
+    /// A killed child reaps as killed by `SIGKILL`, and an id that would
+    /// name a group is refused.
+    #[test]
+    fn kill_process_kills_a_child_by_its_id() {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        let child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        super::kill_process(child.id()).unwrap();
+        let reaped = super::wait_child(child).unwrap();
+        assert_eq!(reaped.status.signal(), Some(libc::SIGKILL));
+        for pid in [0, u32::MAX] {
+            let error = super::kill_process(pid).unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(libc::EINVAL), "{pid}");
+            let error = super::kill_process_group(pid).unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(libc::EINVAL), "{pid}");
+        }
+    }
+
+    /// A killed group takes the leader's children with it.
+    #[test]
+    fn kill_process_group_kills_the_leader_and_its_children() {
+        use std::io::Read as _;
+        use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
+
+        let mut leader = std::process::Command::new("sh")
+            .args(["-c", "sleep 60 & echo started; wait"])
+            .stdout(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let mut stdout = leader.stdout.take().unwrap();
+        let mut started = [0; 8];
+        stdout.read_exact(&mut started).unwrap();
+        super::kill_process_group(leader.id()).unwrap();
+        // the pipe closes only when `sleep`, which holds it too, is gone
+        let mut rest = Vec::new();
+        stdout.read_to_end(&mut rest).unwrap();
+        assert_eq!(leader.wait().unwrap().signal(), Some(libc::SIGKILL));
     }
 }

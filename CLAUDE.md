@@ -889,7 +889,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   process by `_exit`, running no teardown, for eval's out-of-memory
   backstop, whose V8 workers are still live. `wait_child` reaps a
   child by `wait4`, returning its exit status and `ru_maxrss`, for the
-  bench's peak memory
+  bench's peak memory, and `kill_process` and `kill_process_group` send
+  `SIGKILL` by id, for the bench's watchdog
 - `gro_v8` - the V8 boundary: the calls into V8 that rusty_v8 exposes only
   as `unsafe`, each behind a safe API, so `gro_runtime` stays free of
   `unsafe`; its one dependency is `v8`, pinned to the exact version and
@@ -900,10 +901,13 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   only while a token in the isolate's slots, dropped before V8 frees it,
   is alive
 - `gro_bench` - the measurement harness, independent of the runtime crates
-  (it uses `gro_sys` for `wait4`):
+  (it uses `gro_sys` for `wait4` and `kill`):
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
-  run to `crates/gro_bench/history.jsonl`. The baseline suite
+  run to `crates/gro_bench/history.jsonl`. A run holds an exclusive `flock`
+  on its work directory (`target/bench/`), refusing to start while another
+  holds it, and kills any process past the suite's `timeout_ms` (two minutes
+  by default; an untimed run's whole process group), failing the run. The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, and `fgro` on both (it has no on-disk cache, so its cold and warm
@@ -1017,7 +1021,7 @@ library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE` (under
 downloads one. Plain cargo copies whatever file is at that path, unchecked,
 and doesn't recopy it when the file changes, only when the path does. On a
 fresh checkout, run `cargo xtask fetch-v8` (or any xtask that builds) before
-plain cargo: it downloads the archive if it's missing and checks its recorded SHA-256
+plain cargo: under a lock on `target/rusty_v8/`, it downloads the archive if it's missing and checks its recorded SHA-256
 (`crates/xtask/src/v8_archive.rs`, which also fails when `Cargo.lock`'s `v8`
 version moves off the pin), and replaces a file that doesn't match after
 `cargo clean -p v8`, so the next build recopies and relinks. Before running V8

@@ -89,6 +89,14 @@ fn stub_name(index: u32) -> String {
     format!("stub_{index:04}")
 }
 
+/// Whether `name` is one of the `count` stub packages' names, which a link
+/// of the same name would collide with.
+pub(crate) fn is_stub_name(name: &str, count: u32) -> bool {
+    name.strip_prefix("stub_")
+        .and_then(|digits| digits.parse::<u32>().ok())
+        .is_some_and(|index| index < count && stub_name(index) == name)
+}
+
 /// Writes the project of the workload `workload` into
 /// `<work_dir>/projects/<workload>`, after removing anything already there.
 ///

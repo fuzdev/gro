@@ -48,11 +48,12 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output, Stdio};
+use std::process::{Command, Output, Stdio};
 
 use gro_bench::record::GitState;
 
 use crate::cmd::{StepResult, run};
+use crate::error::XtaskError;
 
 /// Which build of the snapshot `fgro` to make: the plain one, or a
 /// measurement build with one more feature, which release never carries.
@@ -130,7 +131,7 @@ pub fn build(
     target_dir: &Path,
     release: bool,
     measurement: Measurement,
-) -> Result<SnapshotBuild, ExitCode> {
+) -> Result<SnapshotBuild, XtaskError> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
     let dir = target_dir.join("gro_snapshot").join(profile);
@@ -160,8 +161,7 @@ pub fn build(
         )?;
         // the outputs are rewritten on every run and differ each time, so the stamp records when it ran
         fs::write(&stamp, b"").map_err(|error| {
-            eprintln!("[xtask] failed to write {}: {error}", stamp.display());
-            ExitCode::FAILURE
+            XtaskError::Failed(format!("failed to write {}: {error}", stamp.display()))
         })?;
     }
 
@@ -192,8 +192,7 @@ pub fn build(
             .join("gro_snapshot")
             .join(format!("{profile}-{feature}"));
         fs::create_dir_all(&dir).map_err(|error| {
-            eprintln!("[xtask] failed to create {}: {error}", dir.display());
-            ExitCode::FAILURE
+            XtaskError::Failed(format!("failed to create {}: {error}", dir.display()))
         })?;
         dir.join("fgro")
     } else {
@@ -201,12 +200,11 @@ pub fn build(
     };
     let _ = fs::remove_file(&linked);
     fs::hard_link(&built, &linked).map_err(|error| {
-        eprintln!(
-            "[xtask] failed to link {} to {}: {error}",
+        XtaskError::Failed(format!(
+            "failed to link {} to {}: {error}",
             built.display(),
             linked.display()
-        );
-        ExitCode::FAILURE
+        ))
     })?;
     println!("\n[xtask] built {}", linked.display());
     Ok(SnapshotBuild {
@@ -324,10 +322,7 @@ const BUDGET_SUITE: &str = "crates/gro_bench/suites/baseline/suite.json";
 /// bind only a release build, the one that ships; a debug build is checked
 /// on its snapshot alone, which is the same either way, and says so.
 fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
-    let failed = |message: String| {
-        eprintln!("[xtask] budget check failed: {message}");
-        ExitCode::FAILURE
-    };
+    let failed = |message: String| XtaskError::Failed(format!("budget check failed: {message}"));
     let suite = gro_bench::suite::Suite::load(&root.join(BUDGET_SUITE))
         .map_err(|error| failed(error.to_string()))?;
     let Some(budget) = suite.budgets.get("fgro") else {
@@ -384,19 +379,17 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
     // a residual source must vanish with it, or the check proves nothing
     let residual = binary.with_file_name("residual.rs");
     let probe_source = registry_source(&residual).ok_or_else(|| {
-        eprintln!(
-            "[xtask] no residual source path in {} to check the hiding with",
+        XtaskError::Failed(format!(
+            "no residual source path in {} to check the hiding with",
             residual.display()
-        );
-        ExitCode::FAILURE
+        ))
     })?;
     if !probe_source.starts_with(&registry) {
-        eprintln!(
-            "[xtask] {} isn't under {}, the registry sources this check hides",
+        return Err(XtaskError::Failed(format!(
+            "{} isn't under {}, the registry sources this check hides",
             probe_source.display(),
             registry.display()
-        );
-        return Err(ExitCode::FAILURE);
+        )));
     }
 
     // the mechanism first, so a machine without it fails as such, not as a fixture failure
@@ -405,15 +398,14 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
         .arg(&gro_js)
         .output();
     if !probe.as_ref().is_ok_and(|output| output.status.success()) {
-        eprintln!(
-            "[xtask] the off-build-tree check needs unprivileged user and mount namespaces \
+        return Err(XtaskError::Failed(format!(
+            "the off-build-tree check needs unprivileged user and mount namespaces \
              (`unshare -rm` with a tmpfs mount), and they're unavailable here: {}",
             probe.map_or_else(
                 |error| error.to_string(),
                 |output| String::from_utf8_lossy(&output.stderr).trim().to_owned()
             )
-        );
-        return Err(ExitCode::FAILURE);
+        )));
     }
 
     println!(
@@ -449,14 +441,11 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
             println!("[xtask] both runs succeeded with the same output");
             Ok(())
         }
-        (seen, hidden) => {
-            eprintln!(
-                "[xtask] the off-build-tree check failed\n  seeing the build tree: {}\n  hidden: {}",
-                describe(&seen),
-                describe(&hidden)
-            );
-            Err(ExitCode::FAILURE)
-        }
+        (seen, hidden) => Err(XtaskError::Failed(format!(
+            "the off-build-tree check failed\n  seeing the build tree: {}\n  hidden: {}",
+            describe(&seen),
+            describe(&hidden)
+        ))),
     }
 }
 

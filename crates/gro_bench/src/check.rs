@@ -13,8 +13,7 @@ use crate::suite::Stdout;
 ///
 /// Returns why `stdout` isn't of that shape, for the run's error.
 pub fn stdout_value(check: Stdout, stdout: &[u8]) -> Result<Value, String> {
-    let parsed: Value = serde_json::from_slice(stdout)
-        .map_err(|error| format!("its stdout isn't one JSON value ({error})"))?;
+    let parsed = parse_deep(stdout)?;
     match check {
         Stdout::Json => Ok(parsed),
         Stdout::Envelope => {
@@ -31,6 +30,77 @@ pub fn stdout_value(check: Stdout, stdout: &[u8]) -> Result<Value, String> {
                 .ok_or_else(|| "its envelope has no `value`".to_owned())
         }
     }
+}
+
+/// The deepest nesting of arrays and objects a stdout may hold: eval's
+/// serializer refuses a value past 1000, and its envelope adds one, so
+/// this leaves room while keeping the parse's recursion bounded.
+pub const MAX_DEPTH: usize = 2048;
+
+/// The stack the parse runs on, ample for [`MAX_DEPTH`] levels of
+/// `serde_json`'s recursion in a debug build.
+const PARSE_STACK: usize = 64 << 20;
+
+/// Parses `stdout` as one JSON value nested at most [`MAX_DEPTH`] deep,
+/// past `serde_json`'s default limit of 128, on a thread with a stack sized
+/// for it; the depth is checked first, by a scan, so the recursion stays
+/// bounded whatever the bytes.
+fn parse_deep(stdout: &[u8]) -> Result<Value, String> {
+    let depth = nesting_depth(stdout);
+    if depth > MAX_DEPTH {
+        return Err(format!(
+            "its stdout nests {depth} deep, past the {MAX_DEPTH} the check reads"
+        ));
+    }
+    let parse = move || {
+        let mut deserializer = serde_json::Deserializer::from_slice(stdout);
+        deserializer.disable_recursion_limit();
+        let value = <Value as serde::Deserialize>::deserialize(&mut deserializer)?;
+        deserializer.end()?;
+        Ok::<Value, serde_json::Error>(value)
+    };
+    let parsed = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("gro_bench_parse".to_owned())
+            .stack_size(PARSE_STACK)
+            .spawn_scoped(scope, parse)
+            .map(|parsing| {
+                parsing
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+    })
+    .map_err(|error| format!("its stdout couldn't be parsed: no thread ({error})"))?;
+    parsed.map_err(|error| format!("its stdout isn't one JSON value ({error})"))
+}
+
+/// The deepest nesting of arrays and objects in `bytes` read as JSON,
+/// brackets inside strings skipped; a malformed text gets some count, which
+/// the parse then refuses.
+fn nesting_depth(bytes: &[u8]) -> usize {
+    let (mut depth, mut deepest) = (0_usize, 0_usize);
+    let (mut in_string, mut escaped) = (false, false);
+    for &byte in bytes {
+        if in_string {
+            match byte {
+                _ if escaped => escaped = false,
+                b'\\' => escaped = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
 }
 
 /// Where two values first differ, and what each holds there.
@@ -145,6 +215,27 @@ mod tests {
         assert!(stdout_value(Stdout::Envelope, br#"{"ok": true}"#).is_err());
         assert!(stdout_value(Stdout::Json, b"{} {}").is_err());
         assert!(stdout_value(Stdout::Json, b"").is_err());
+    }
+
+    #[test]
+    fn reads_a_value_nested_past_serde_json_s_default_limit() {
+        let nested = |depth: usize| "[".repeat(depth) + &"]".repeat(depth);
+        // as deep as eval's serializer writes, inside its envelope
+        let envelope = format!(r#"{{"ok": true, "value": {}}}"#, nested(1000));
+        let value = stdout_value(Stdout::Envelope, envelope.as_bytes()).unwrap();
+        let mut depth = 0;
+        let mut at = &value;
+        while let Some(inner) = at.as_array().and_then(|array| array.first()) {
+            depth += 1;
+            at = inner;
+        }
+        assert_eq!(depth, 999, "the innermost array is empty");
+        // brackets in strings aren't nesting
+        let text = format!(r#"["{}"]"#, "[{".repeat(5000));
+        assert!(stdout_value(Stdout::Json, text.as_bytes()).is_ok());
+        let error = stdout_value(Stdout::Json, nested(MAX_DEPTH + 1).as_bytes()).unwrap_err();
+        assert!(error.contains("nests 2049 deep"), "{error}");
+        assert!(stdout_value(Stdout::Json, nested(MAX_DEPTH).as_bytes()).is_ok());
     }
 
     #[test]

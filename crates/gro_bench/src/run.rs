@@ -48,6 +48,12 @@
 //! context names, failing the run on the first one crossed; a phases run,
 //! whose `fgro` is a measurement build, checks none.
 //!
+//! A run holds an exclusive lock on its work directory throughout
+//! ([`lock`](crate::lock)), refusing to start while another run holds it,
+//! since both would rewrite the same copies and sample files. Every process
+//! it spawns has the suite's deadline ([`Suite::timeout`]): one past it is
+//! killed and reaped, and the run fails ([`watchdog`](crate::watchdog)).
+//!
 //! Every sample is a fresh process, timed from just before its spawn to just
 //! after its exit is reaped, with stdout and stderr on the null device, and
 //! stdin on its runtime's `stdin` file, opened before the timed span, or the
@@ -85,13 +91,14 @@ use crate::budget::check_budgets;
 use crate::collection::list_paths;
 use crate::error::BenchError;
 use crate::git::read_corpora_tree;
+use crate::lock::{LockError, Wait, lock_dir};
 use crate::phases::PHASES_FILE_ENV;
 use crate::record::{
-    CheckoutState, GitState, Machine, MachineQuiet, Mode, RECORD_VERSION, RowRecord, RunRecord,
-    SuiteId,
+    CheckoutState, GitState, Machine, MachineQuiet, RECORD_VERSION, RowRecord, RunRecord, SuiteId,
 };
 use crate::schedule::schedule;
 use crate::suite::{FileArg, Suite};
+use crate::watchdog::Watchdog;
 
 pub(crate) use command::display_command;
 pub use command::find_program;
@@ -109,7 +116,8 @@ pub struct RunContext {
     /// `target/bench/`, which is trusted like the rest of `target/` (a
     /// symlink already in it is followed), since anyone who can write there
     /// can already change build output. A phases or counter run also writes
-    /// each sample's file here, under `phases/` or `counters/`.
+    /// each sample's file here, under `phases/` or `counters/`. The run
+    /// holds its `lock` file throughout.
     pub work_dir: PathBuf,
     /// What each sample measures beside wall time.
     pub measure: Measure,
@@ -139,7 +147,19 @@ pub enum Measure {
 /// during the run.
 pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, BenchError> {
     suite.validate()?;
-    let sampler = sampler(suite, &context)?;
+    // held to the end, so no other run rewrites the copies or sample files
+    let _lock = lock_dir(&context.work_dir, Wait::Refuse).map_err(|error| match error {
+        LockError::Held { holder, .. } => BenchError::WorkDirLocked {
+            dir: context.work_dir.clone(),
+            holder,
+        },
+        LockError::Io { path, source } => BenchError::Write { path, source },
+    })?;
+    let watchdog = Watchdog::start(suite.timeout()).map_err(|source| BenchError::Spawn {
+        command: "the watchdog thread".to_owned(),
+        source,
+    })?;
+    let sampler = sampler(suite, &context.measure, &context.work_dir, &watchdog)?;
     let corpora = suite
         .corpora
         .as_ref()
@@ -210,15 +230,10 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
         let (args, mut env) = row_args(runtime, workload, script, &mut resolve)?;
         let (program, stdin) = program_of[runtime.name.as_str()];
-        let phases = match (&context.measure, &sampler) {
-            (Measure::Phases { runtimes }, Sampler::Phases { file })
-                if runtimes.contains(&runtime.name) =>
-            {
-                env.insert(PHASES_FILE_ENV.to_owned(), file.display().to_string());
-                true
-            }
-            _ => false,
-        };
+        let phases_file = sampler.phases_file(&runtime.name);
+        if let Some(file) = phases_file {
+            env.insert(PHASES_FILE_ENV.to_owned(), file.display().to_string());
+        }
         rows.push(RowCommand {
             runtime: runtime.name.clone(),
             workload: workload.name.clone(),
@@ -228,7 +243,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             warmup: workload.warmup,
             stdin: stdin.clone(),
             stdout: runtime.stdout,
-            phases,
+            phases: phases_file.is_some(),
         });
     }
     artifacts.extend(copies.files.iter().cloned());
@@ -256,7 +271,8 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             .zip(&programs)
             .map(|(runtime, program)| {
                 let hash = &before[&program.path];
-                scope.spawn(move || probe(runtime, program, dir, hash))
+                let watchdog = &watchdog;
+                scope.spawn(move || probe(runtime, program, dir, hash, watchdog))
             })
             .collect();
         probes
@@ -282,26 +298,27 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         })
         .transpose()?;
     // a measurement build isn't the size that ships
-    if !matches!(context.measure, Measure::Phases { .. }) {
+    if !matches!(sampler, Sampler::Phases { .. }) {
         check_budgets(suite, &runtimes, snapshot_bytes)?;
     }
 
-    check_rows(suite, &rows, dir)?;
+    check_rows(suite, &rows, dir, &watchdog)?;
 
     // the noise row: the first row again, measured as a row of its own
     let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
     let warmups: Vec<usize> = commands.iter().map(|row| row.warmup as usize).collect();
     for index in schedule(&warmups) {
-        run_once(commands[index], dir, &Sampler::Wall)?;
+        run_once(commands[index], dir, &Sampler::Wall, &watchdog)?;
     }
     let sample_count = suite.samples.get() as usize;
     let mut samples: Vec<Vec<Sample>> = vec![Vec::with_capacity(sample_count); commands.len()];
     for index in schedule(&vec![sample_count; commands.len()]) {
-        samples[index].push(run_once(commands[index], dir, &sampler)?);
+        samples[index].push(run_once(commands[index], dir, &sampler, &watchdog)?);
     }
     // only a wall run's spawner is the harness alone ([`RunRecord`])
-    let rss_floor_kib = if context.measure == Measure::Wall {
-        rss_floor(dir, &sampler)?
+    let wall = matches!(sampler, Sampler::Wall);
+    let rss_floor_kib = if wall {
+        rss_floor(dir, &sampler, &watchdog)?
     } else {
         None
     };
@@ -350,11 +367,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
                     .collect::<Option<Vec<u64>>>()
                     .map(metric),
                 phases: phase_metrics(row, samples)?,
-                peak_rss_kib: if context.measure == Measure::Wall {
-                    rss_metric(samples)
-                } else {
-                    None
-                },
+                peak_rss_kib: if wall { rss_metric(samples) } else { None },
             })
         })
         .collect::<Result<_, BenchError>>()?;
@@ -362,15 +375,8 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
 
     Ok(RunRecord {
         record_version: RECORD_VERSION,
-        mode: match context.measure {
-            Measure::Wall => Mode::Wall,
-            Measure::Phases { .. } => Mode::Phases,
-            Measure::Counters => Mode::Counters,
-        },
-        counters: match &sampler {
-            Sampler::Counters { perf, .. } => Some(perf.tool.clone()),
-            Sampler::Wall | Sampler::Phases { .. } => None,
-        },
+        mode: sampler.mode(),
+        counters: sampler.counter_tool(),
         suite: SuiteId {
             name: suite.name.clone(),
             version: suite.version,

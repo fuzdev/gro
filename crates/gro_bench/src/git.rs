@@ -49,13 +49,8 @@ impl GitState {
 /// canonical, or `None` when it's in none or git can't say.
 pub fn checkout_root(path: &Path) -> Option<PathBuf> {
     let dir = if path.is_dir() { path } else { path.parent()? };
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(Stdio::null())
+    // quiet: outside a checkout is an answer here, not a failure
+    let output = read_command(dir, &["rev-parse", "--show-toplevel"])
         .stderr(Stdio::null())
         .output()
         .ok()?;
@@ -208,15 +203,7 @@ pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, BenchError> {
 /// when it can't run or exits unsuccessfully.
 pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, BenchError> {
     let command = git_command(root, args);
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        // a local `git replace` would change the objects behind a matching id
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
-        // a read never writes the index: the checkout may be another's, in use
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(Stdio::null())
+    let output = read_command(root, args)
         .stderr(Stdio::inherit())
         .output()
         .map_err(|source| BenchError::Spawn {
@@ -230,6 +217,22 @@ pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, BenchErr
         });
     }
     Ok(output.stdout)
+}
+
+/// A `git` read of the checkout at `root`, stdin on the null device, set up
+/// so the read is of the objects and writes nothing.
+fn read_command(root: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        // a local `git replace` would change the objects behind a matching id
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        // a read never writes the index: the checkout may be another's, in use
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::null());
+    command
 }
 
 /// The command line `git` and `git_output` name in their errors.

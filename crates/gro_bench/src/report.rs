@@ -8,8 +8,11 @@
 //! before that (`attested`, the quiet machine's, so never the previous
 //! itself), row by row:
 //!
-//! - wall medians, a move flagged `!` when it's past the noise floor, the
-//!   larger of the two records' A/A noise rows ([`NoiseRecord`](crate::record::NoiseRecord));
+//! - wall medians, a move flagged `!` when it's past the noise floor: the
+//!   larger of the two records' A/A noise rows ([`NoiseRecord`](crate::record::NoiseRecord)),
+//!   or, when larger, the two rows' MADs added over the smaller median, the
+//!   bound a prices table calls noise ([`prices`](crate::prices)), since one
+//!   A/A draw can land near 0;
 //! - instruction medians when both records counted them, a move flagged `!`
 //!   past [`INSTRUCTIONS_FLAG`];
 //! - the latest record's phase medians when it has them, each beside the
@@ -19,6 +22,9 @@
 //!   whose peak sits within
 //!   [`RSS_FLOOR_MARGIN`] of the run's floor marked as not the runtime's.
 //!
+//! A move is measured the same either way, as a [`ratio_deviation`]: a 2%
+//! rise and a 2% drop are flagged alike.
+//!
 //! A line it can't read (not JSON, a version newer than this harness, a shape
 //! that doesn't parse) is named and skipped, never fatal; a line of an older
 //! version reads as a wall run with what it lacks left empty.
@@ -27,6 +33,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::record::{MachineQuiet, Metric, Mode, RECORD_VERSION, RowRecord, RunRecord};
+use crate::stats::ratio_deviation;
 
 /// The instruction move a report flags, as a ratio: the perf rule's 2%.
 pub const INSTRUCTIONS_FLAG: f64 = 0.02;
@@ -52,10 +59,37 @@ pub fn near_rss_floor(peak: &Metric, floor: Option<u64>) -> bool {
     floor.is_some_and(|floor| least as f64 <= floor as f64 * RSS_FLOOR_MARGIN)
 }
 
+/// Kibibytes in megabytes (10^6), for printing.
+pub(crate) fn kib_to_mb(kib: f64) -> f64 {
+    kib * 1024.0 / 1e6
+}
+
+/// A peak memory row's two cells in MB, as the summary and the report
+/// print them: the median, `*` after it when the row sits near the `floor`
+/// ([`near_rss_floor`]), and the largest peak.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "peaks in KiB are far below 2^52"
+)]
+pub(crate) fn memory_cells(peak: &Metric, floor: Option<u64>) -> (String, String) {
+    (
+        format!(
+            "{:>9.1}{}",
+            kib_to_mb(peak.stats.median),
+            if near_rss_floor(peak, floor) {
+                "*"
+            } else {
+                " "
+            }
+        ),
+        format!("{:>10.1}", kib_to_mb(peak.max() as f64)),
+    )
+}
+
 /// Renders the report of the history `text`, one record per line.
 pub fn report(text: &str) -> String {
     let mut out = String::new();
-    let mut series: BTreeMap<(String, u32, &'static str), Vec<RunRecord>> = BTreeMap::new();
+    let mut series: BTreeMap<(String, u32, Mode), Vec<RunRecord>> = BTreeMap::new();
     let mut skipped = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let number = index + 1;
@@ -64,11 +98,7 @@ pub fn report(text: &str) -> String {
         }
         match read_line(line) {
             Ok(record) => {
-                let key = (
-                    record.suite.name.clone(),
-                    record.suite.version,
-                    mode_name(record.mode),
-                );
+                let key = (record.suite.name.clone(), record.suite.version, record.mode);
                 series.entry(key).or_default().push(record);
             }
             Err(why) => skipped.push(format!("line {number}: {why}")),
@@ -78,7 +108,7 @@ pub fn report(text: &str) -> String {
         out.push_str("no records to report\n");
     }
     for ((name, version, mode), records) in &series {
-        write_series(&mut out, name, *version, mode, records);
+        write_series(&mut out, name, *version, *mode, records);
     }
     if !skipped.is_empty() {
         out.push_str("\nskipped, unreadable here:\n");
@@ -106,17 +136,9 @@ fn read_line(line: &str) -> Result<RunRecord, String> {
         .map_err(|error| format!("record version {version} doesn't read as a record ({error})"))
 }
 
-const fn mode_name(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Wall => "wall",
-        Mode::Phases => "phases",
-        Mode::Counters => "counters",
-    }
-}
-
 /// Writes one series: its latest record against the previous and the last
 /// attested one before it.
-fn write_series(out: &mut String, name: &str, version: u32, mode: &str, records: &[RunRecord]) {
+fn write_series(out: &mut String, name: &str, version: u32, mode: Mode, records: &[RunRecord]) {
     let Some((latest, earlier)) = records.split_last() else {
         return;
     };
@@ -187,7 +209,7 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: &str, records:
     }
     let _ = writeln!(
         out,
-        "  (wall medians; `!` marks a move past the noise floor, the larger noise row of the two records)"
+        "  (wall medians; `!` marks a move past the noise floor, the larger noise row of the two records or the two rows' MADs added)"
     );
     if latest.rows.iter().any(|row| row.instructions.is_some()) {
         write_instructions(out, latest, previous, width);
@@ -207,7 +229,7 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: &str, records:
     reason = "peaks in KiB are far below 2^52"
 )]
 fn write_memory(out: &mut String, latest: &RunRecord, previous: Option<&RunRecord>, width: usize) {
-    let mb = |kib: f64| kib * 1024.0 / 1e6;
+    let mb = kib_to_mb;
     let _ = writeln!(
         out,
         "  {:<width$} {:<16} {:>10} {:>10} {:>10} {:>9}",
@@ -221,18 +243,12 @@ fn write_memory(out: &mut String, latest: &RunRecord, previous: Option<&RunRecor
             .and_then(|previous| find_row(previous, row))
             .and_then(|other| other.peak_rss_kib.as_ref())
             .map(|other| other.stats.median);
+        let (median, max) = memory_cells(peak, latest.rss_floor_kib);
         let _ = writeln!(
             out,
-            "  {:<width$} {:<16} {:>9.1}{} {:>10.1} {:>10} {:>9}",
+            "  {:<width$} {:<16} {median} {max} {:>10} {:>9}",
             row.runtime,
             row.workload,
-            mb(peak.stats.median),
-            if near_rss_floor(peak, latest.rss_floor_kib) {
-                "*"
-            } else {
-                " "
-            },
-            mb(peak.max() as f64),
             other.map_or_else(|| "-".to_owned(), |other| format!("{:.1}", mb(other))),
             other.map_or_else(
                 || "-".to_owned(),
@@ -268,8 +284,8 @@ fn describe(record: &RunRecord) -> String {
 }
 
 /// The row's median in `other` and the latest's move against it, flagged
-/// past the two records' noise floor: `-` when `other` is absent or lacks
-/// the row.
+/// past the noise floor ([`wall_floor`]): `-` when `other` is absent or
+/// lacks the row.
 fn compare_wall(
     latest: &RunRecord,
     row: &RowRecord,
@@ -279,10 +295,7 @@ fn compare_wall(
     else {
         return ("-".to_owned(), "-".to_owned());
     };
-    let floor = latest
-        .noise
-        .median_deviation
-        .max(other.noise.median_deviation);
+    let floor = wall_floor(latest, row, other, other_row);
     (
         format!("{:.3}", other_row.wall_ns.stats.median / 1e6),
         format_move(
@@ -293,19 +306,40 @@ fn compare_wall(
     )
 }
 
+/// The ratio deviation a wall move must pass to be flagged: the larger of
+/// the two records' A/A noise rows, or of the two rows' MADs added over the
+/// smaller median, so a row whose own spread is wider than one A/A draw
+/// isn't flagged for it.
+fn wall_floor(
+    latest: &RunRecord,
+    row: &RowRecord,
+    other: &RunRecord,
+    other_row: &RowRecord,
+) -> f64 {
+    let (a, b) = (&row.wall_ns.stats, &other_row.wall_ns.stats);
+    let least = a.median.min(b.median);
+    let spread = if least > 0.0 {
+        (a.mad + b.mad) / least
+    } else {
+        0.0
+    };
+    latest
+        .noise
+        .median_deviation
+        .max(other.noise.median_deviation)
+        .max(spread)
+}
+
 /// The row of `record` with `row`'s runtime and workload.
 fn find_row<'a>(record: &'a RunRecord, row: &RowRecord) -> Option<&'a RowRecord> {
-    record
-        .rows
-        .iter()
-        .find(|other| other.runtime == row.runtime && other.workload == row.workload)
+    record.row(&row.runtime, &row.workload)
 }
 
 /// `latest` over `other` as a ratio, `!` appended when it moved by more than
-/// `flag` either way.
+/// `flag` either way, as a [`ratio_deviation`].
 fn format_move(latest: f64, other: f64, flag: f64) -> String {
     let ratio = latest / other;
-    let moved = (ratio - 1.0).abs() > flag;
+    let moved = ratio_deviation(latest, other) > flag;
     format!("{ratio:.3}x{}", if moved { "!" } else { " " })
 }
 
@@ -546,6 +580,34 @@ mod tests {
         .map(|record| record.to_line())
         .concat();
         assert!(super::report(&lines).contains("1.030x!"));
+    }
+
+    #[test]
+    fn a_rise_and_a_drop_of_one_size_are_flagged_alike() {
+        // within 2% either way
+        assert_eq!(format_move(1.0, 1.0198, INSTRUCTIONS_FLAG), "0.981x ");
+        assert_eq!(format_move(1.0198, 1.0, INSTRUCTIONS_FLAG), "1.020x ");
+        // past it either way: the drop's `|ratio - 1|` is under 2% (1.9992%)
+        assert_eq!(format_move(1.0, 1.0204, INSTRUCTIONS_FLAG), "0.980x!");
+        assert_eq!(format_move(1.0204, 1.0, INSTRUCTIONS_FLAG), "1.020x!");
+    }
+
+    #[test]
+    fn a_wall_move_within_the_rows_mads_is_not_flagged() {
+        let mut previous = record("a", MachineQuiet::Unchecked, 10_000_000, None);
+        let mut latest = record("b", MachineQuiet::Unchecked, 10_300_000, None);
+        // the A/A draws landed close, but each row spreads 2% sample to sample
+        for (record, wall) in [(&mut previous, 10_000_000), (&mut latest, 10_300_000)] {
+            record.noise.median_deviation = 0.001;
+            record.rows[0].wall_ns = metric(vec![wall - 200_000, wall, wall + 200_000]);
+        }
+        let lines = [&previous, &latest].map(RunRecord::to_line).concat();
+        let report = report(&lines);
+        assert!(report.contains("1.030x "), "{report}");
+        // a move past the MADs is flagged
+        latest.rows[0].wall_ns = metric(vec![10_400_000, 10_600_000, 10_800_000]);
+        let lines = [&previous, &latest].map(RunRecord::to_line).concat();
+        assert!(super::report(&lines).contains("1.060x!"));
     }
 
     #[test]

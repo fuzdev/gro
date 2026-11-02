@@ -1,25 +1,27 @@
-//! Running the programs a step names: the exit code a failed step returns,
-//! and the helpers every step prints and spawns with.
+//! Running the programs a step names: the result a step returns, and the
+//! helpers every step prints and spawns with.
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Command, Stdio};
 
-/// A failed step: the exit code `cargo xtask` returns.
-pub type StepResult = Result<(), ExitCode>;
+use crate::error::XtaskError;
+
+/// A step's result: a failure is what `cargo xtask` prints and exits with.
+pub type StepResult = Result<(), XtaskError>;
 
 /// Cargo's target directory, as `cargo metadata` reports it, so a
 /// `CARGO_TARGET_DIR` or `build.target-dir` setting is honored. The V8
 /// archive's path doesn't depend on it: `.cargo/config.toml` names it relative
 /// to the checkout.
-pub fn target_dir(root: &Path) -> Result<PathBuf, ExitCode> {
+pub fn target_dir(root: &Path) -> Result<PathBuf, XtaskError> {
     let output = Command::new("cargo")
         .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
         .current_dir(root)
         .output()
-        .map_err(|error| {
-            eprintln!("[xtask] failed to run cargo metadata: {error}");
-            ExitCode::FAILURE
+        .map_err(|source| XtaskError::Spawn {
+            display: "cargo metadata".to_owned(),
+            source,
         })?;
     let target_dir = output
         .status
@@ -28,12 +30,11 @@ pub fn target_dir(root: &Path) -> Result<PathBuf, ExitCode> {
         .flatten()
         .and_then(|metadata| metadata["target_directory"].as_str().map(PathBuf::from));
     target_dir.ok_or_else(|| {
-        eprintln!(
-            "[xtask] cargo metadata reported no target directory ({}): {}",
+        XtaskError::Failed(format!(
+            "cargo metadata reported no target directory ({}): {}",
             output.status,
             String::from_utf8_lossy(&output.stderr).trim()
-        );
-        ExitCode::FAILURE
+        ))
     })
 }
 
@@ -43,7 +44,8 @@ pub fn run(root: &Path, env: &[(&str, &str)], program: &str, args: &[&str]) -> S
 }
 
 /// Runs `program` from `root`, printing the command (with `display` as the
-/// program's name) first, and maps a failure to its exit code.
+/// program's name) first, failing with [`XtaskError::StepFailed`] when it
+/// exits unsuccessfully.
 pub fn run_program(
     root: &Path,
     env: &[(&str, &str)],
@@ -75,25 +77,22 @@ pub fn run_program_to(
         .current_dir(root)
         .stdout(stdout)
         .status()
-        .map_err(|error| {
-            eprintln!("[xtask] failed to run {display}: {error}");
-            ExitCode::FAILURE
+        .map_err(|source| XtaskError::Spawn {
+            display: display.to_owned(),
+            source,
         })?;
     if status.success() {
         return Ok(());
     }
-    eprintln!("[xtask] {display} failed ({status})");
-    // a signal-terminated step has no code
-    let code = status
-        .code()
-        .and_then(|code| u8::try_from(code).ok())
-        .unwrap_or(1);
-    Err(ExitCode::from(code))
+    Err(XtaskError::StepFailed {
+        display: display.to_owned(),
+        status,
+    })
 }
 
-pub fn io_failure(path: &Path, error: &io::Error) -> ExitCode {
-    eprintln!("[xtask] failed to read {}: {error}", path.display());
-    ExitCode::FAILURE
+/// A failed read of `path`.
+pub fn io_failure(path: &Path, error: &io::Error) -> XtaskError {
+    XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
 }
 
 /// `path` relative to `root`, for printing and for commands run from `root`.

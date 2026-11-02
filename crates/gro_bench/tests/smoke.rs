@@ -3,11 +3,20 @@
 //! minimal sample count. It measures nothing worth keeping and writes no
 //! history.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gro_bench::record::{GitState, Machine, MachineQuiet};
 use gro_bench::run::{Measure, RunContext, find_program, run};
 use gro_bench::suite::Suite;
+
+/// A directory unique to the process, removed on drop.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 #[test]
 fn smoke_suite_runs_under_installed_runtimes() {
@@ -20,6 +29,8 @@ fn smoke_suite_runs_under_installed_runtimes() {
         eprintln!("no runtime of the smoke suite is installed, nothing to run");
         return;
     }
+    let work =
+        Scratch(std::env::temp_dir().join(format!("gro_bench_smoke_work_{}", std::process::id())));
     let context = RunContext {
         git: GitState {
             sha: "0".repeat(40),
@@ -27,8 +38,8 @@ fn smoke_suite_runs_under_installed_runtimes() {
         },
         machine: Machine::detect(),
         machine_quiet: MachineQuiet::Unchecked,
-        // the smoke suite names no collection, so nothing is written here
-        work_dir: std::env::temp_dir().join("gro_bench_smoke_work"),
+        // the run's lock and nothing else: the smoke suite names no collection
+        work_dir: work.0.clone(),
         measure: Measure::Wall,
         snapshot: None,
     };

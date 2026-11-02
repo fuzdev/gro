@@ -56,6 +56,9 @@
 //! whose stdout values must be equal on every workload, and its `gate` names
 //! the rows judged against an incumbent; every other row is reported only.
 //!
+//! Every process a run spawns has a deadline, the suite's `timeout_ms` or
+//! two minutes: one still running past it is killed, and the run fails.
+//!
 //! Everything runtime-specific (a flag, a variable, a shim file) sits in the
 //! runtime's entry and counts against that runtime; workload scripts are web
 //! standards only, run unmodified by every runtime.
@@ -63,8 +66,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -116,7 +120,18 @@ pub struct Suite {
     /// and the run prints what each costs ([`Prices`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prices: Option<Prices>,
+    /// How long any one process of the run may take, in milliseconds,
+    /// before it's killed and the run fails: every sample, warmup,
+    /// correctness run, and probe. Absent, [`DEFAULT_TIMEOUT_MS`]. Left out
+    /// of the config hash, since a deadline changes nothing a run measures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<NonZeroU64>,
 }
+
+/// The deadline on each process when a suite gives no `timeout_ms`: two
+/// minutes, far past any startup a suite times, so only a hung process
+/// reaches it.
+pub const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 
 /// A runtime's size limits, each in bytes; a run whose runtime crosses one
 /// fails before its samples, naming the budget, the size, and the limit.
@@ -354,6 +369,12 @@ const fn default_weight() -> u32 {
 }
 
 impl Suite {
+    /// The deadline on each process of the run: `timeout_ms`, or
+    /// [`DEFAULT_TIMEOUT_MS`].
+    pub fn timeout(&self) -> Duration {
+        Duration::from_millis(self.timeout_ms.map_or(DEFAULT_TIMEOUT_MS, NonZeroU64::get))
+    }
+
     /// Reads and validates the suite file at `path`.
     ///
     /// # Errors
@@ -482,6 +503,12 @@ impl Suite {
                 if !is_package_name(name) {
                     return invalid(format!(
                         "links `{name}`, which isn't a package name (`a` or `@scope/a`)"
+                    ));
+                }
+                if crate::project::is_stub_name(name, project.stub_packages) {
+                    return invalid(format!(
+                        "links `{name}`, which is one of the {} stub packages its `node_modules` gets",
+                        project.stub_packages
                     ));
                 }
             }
@@ -618,9 +645,10 @@ impl Suite {
     ///
     /// Never: a suite always serializes.
     pub fn config_hash(&self) -> String {
-        // a size limit changes nothing a run measures
+        // a size limit or a deadline changes nothing a run measures
         let measured = Self {
             budgets: BTreeMap::new(),
+            timeout_ms: None,
             ..self.clone()
         };
         #[expect(
@@ -1028,6 +1056,10 @@ mod tests {
                 r#"{"name": "w", "script": "p/z.ts", "collection": "c", "project": {"dir": "p"}}"#,
                 "both",
             ),
+            (
+                r#"{"name": "w", "script": "p/z.ts", "project": {"dir": "p", "stub_packages": 3, "links": {"stub_0002": "x"}}}"#,
+                "stub packages",
+            ),
         ] {
             assert!(
                 matches!(parse(&suite(workload)), Err(BenchError::SuiteInvalid(ref message)) if message.contains(says)),
@@ -1192,5 +1224,11 @@ mod tests {
         let mut c = a.clone();
         c.samples = NonZeroU32::new(6).unwrap();
         assert_ne!(a.config_hash(), c.config_hash());
+        // a deadline measures nothing
+        let mut d = a.clone();
+        d.timeout_ms = NonZeroU64::new(5);
+        assert_eq!(a.config_hash(), d.config_hash());
+        assert_eq!(d.timeout(), Duration::from_millis(5));
+        assert_eq!(a.timeout(), Duration::from_millis(DEFAULT_TIMEOUT_MS));
     }
 }

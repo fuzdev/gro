@@ -90,12 +90,7 @@ fn default_row<'a>(
     prices: &Prices,
     workload: &str,
 ) -> Option<&'a RowRecord> {
-    let is_default = |row: &&RowRecord| row.runtime == prices.default;
-    record
-        .rows
-        .iter()
-        .filter(is_default)
-        .find(|row| row.workload == workload)
+    record.row(&prices.default, workload)
 }
 
 /// A price and its share of the default's median, `~` marking noise.

@@ -36,6 +36,7 @@ use std::process::{Command, Stdio};
 use crate::error::BenchError;
 use crate::record::CounterTool;
 use crate::run::find_program;
+use crate::watchdog::Watchdog;
 
 /// The events always counted, as `perf stat -e` takes them.
 ///
@@ -68,19 +69,23 @@ pub struct Perf {
     pub path: PathBuf,
     /// What the record names, the events counted among it.
     pub tool: CounterTool,
+    /// Whether it counts [`KERNEL_EVENT`], which `tool`'s events then name.
+    kernel: bool,
 }
 
 impl Perf {
     /// Finds `perf` on `PATH` and checks it counts [`EVENTS`] in full, and
     /// [`KERNEL_EVENT`] beside them when it can (else the events counted
     /// leave it out),
-    /// writing its probe's output to `out`.
+    /// writing its probe's output to `out`, each command killed past
+    /// `watchdog`'s deadline.
     ///
     /// # Errors
     ///
     /// Fails with [`BenchError::Counters`] saying why when perf is missing,
-    /// prints no version, or can't count every event for a whole run.
-    pub fn find(out: &Path) -> Result<Self, BenchError> {
+    /// prints no version, or can't count every event for a whole run, or
+    /// with [`BenchError::TimedOut`] when a command hangs.
+    pub fn find(out: &Path, watchdog: &Watchdog) -> Result<Self, BenchError> {
         let dir = Path::new("/");
         let path = find_program("perf", dir).ok_or_else(|| {
             BenchError::Counters(
@@ -89,11 +94,13 @@ impl Perf {
                     .to_owned(),
             )
         })?;
-        let version = Command::new(&path)
+        let mut version = Command::new(&path);
+        version
             .arg("--version")
             .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let version = watched_output(version, watchdog)?
             .ok()
             .filter(|output| output.status.success())
             .and_then(|output| {
@@ -110,11 +117,13 @@ impl Perf {
             BenchError::Counters("`true` isn't on PATH, to probe perf with".to_owned())
         })?;
         let with_kernel = Self::with_events(&path, &version, true);
-        if with_kernel.probe(out, &probe).is_ok() {
-            return Ok(with_kernel);
+        match with_kernel.probe(out, &probe, watchdog) {
+            Ok(()) => return Ok(with_kernel),
+            Err(error @ BenchError::TimedOut { .. }) => return Err(error),
+            Err(_) => {}
         }
         let user = Self::with_events(&path, &version, false);
-        user.probe(out, &probe)?;
+        user.probe(out, &probe, watchdog)?;
         Ok(user)
     }
 
@@ -130,23 +139,24 @@ impl Perf {
                 version: version.to_owned(),
                 events,
             },
+            kernel,
         }
     }
 
     /// Whether this perf counts [`KERNEL_EVENT`].
-    pub fn counts_kernel(&self) -> bool {
-        self.tool.events.iter().any(|event| event == KERNEL_EVENT)
+    pub const fn counts_kernel(&self) -> bool {
+        self.kernel
     }
 
     /// Runs `probe` (`true`) under this perf and reads its counts.
-    fn probe(&self, out: &Path, probe: &Path) -> Result<(), BenchError> {
+    fn probe(&self, out: &Path, probe: &Path, watchdog: &Watchdog) -> Result<(), BenchError> {
         let perf = self;
         let mut command = perf.command(out, probe, &[]);
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
-        let output = command.output().map_err(|source| BenchError::Spawn {
+        let output = watched_output(command, watchdog)?.map_err(|source| BenchError::Spawn {
             command: format!("{} stat", perf.path.display()),
             source,
         })?;
@@ -189,6 +199,37 @@ impl Perf {
         })?;
         parse_counts(&text, self.counts_kernel()).map_err(BenchError::Counters)
     }
+}
+
+/// Runs `command` to its end, its piped output collected, killed past
+/// `watchdog`'s deadline: the inner result is the spawn's or the wait's.
+///
+/// # Errors
+///
+/// Fails with [`BenchError::TimedOut`] when it ran past the deadline.
+fn watched_output(
+    mut command: Command,
+    watchdog: &Watchdog,
+) -> Result<std::io::Result<std::process::Output>, BenchError> {
+    // its own group, so a kill reaches whatever holds its pipes
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return Ok(Err(error)),
+    };
+    let watch = watchdog.watch_group(child.id());
+    let output = child.wait_with_output();
+    if watch.disarm() {
+        return Err(BenchError::TimedOut {
+            command: crate::run::display_command(
+                Path::new(command.get_program()),
+                &command.get_args().collect::<Vec<_>>(),
+            ),
+            timeout_ms: watchdog.timeout().as_millis(),
+        });
+    }
+    Ok(output)
 }
 
 /// Parses `perf stat -x ,` output: per event, a line of the value, its unit,

@@ -19,10 +19,14 @@
 //!   with an A/A noise row, and refuses a run whose artifacts changed
 //! - [`budget`]: the suite's size budgets, checked against the sizes measured
 //! - [`schedule`]: the interleaved order of a run's samples
+//! - [`watchdog`]: the deadline on each process a run spawns
+//! - [`lock`]: the exclusive lock a run holds on its work directory
 //! - [`stats`]: MAD-cleaned statistics
 //! - [`git`]: the git reads behind the record: each checkout's state
 //! - [`record`]: the run record, one JSON line per run in an append-only
 //!   history
+//! - [`summary`]: what a run prints after its samples: the summary, the
+//!   gate table, and an A/B's table
 //! - [`report`]: a reading of the history, each row's latest record against
 //!   its previous and its last attested one
 //!
@@ -35,6 +39,7 @@ pub mod collection;
 pub mod counters;
 pub mod error;
 pub mod git;
+pub mod lock;
 pub mod phases;
 pub mod prices;
 pub mod project;
@@ -44,3 +49,5 @@ pub mod run;
 pub mod schedule;
 pub mod stats;
 pub mod suite;
+pub mod summary;
+pub mod watchdog;

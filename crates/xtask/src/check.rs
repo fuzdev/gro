@@ -4,9 +4,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use crate::cmd::{StepResult, io_failure, relative, run, run_program, target_dir};
+use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement};
 use crate::v8_archive;
 
@@ -15,29 +15,22 @@ const TSC: &str = "node_modules/.bin/tsc";
 
 /// Ensures the pinned V8 archive is in place and verified, and that the next
 /// build rewrites any library copy missing from the target directory.
-pub fn fetch_v8(root: &Path) -> StepResult {
-    let path = v8_archive::ensure(root).map_err(|error| {
-        eprintln!("[xtask] {error}");
-        ExitCode::FAILURE
-    })?;
+/// Returns cargo's target directory, which it reads to heal.
+pub fn fetch_v8(root: &Path) -> Result<PathBuf, XtaskError> {
+    let path = v8_archive::ensure(root)?;
     println!(
         "[xtask] the V8 archive is verified: {}",
         relative(root, &path)
     );
     let target_dir = target_dir(root)?;
-    v8_archive::heal_missing_copies(root, &target_dir).map_err(|error| {
-        eprintln!("[xtask] {error}");
-        ExitCode::FAILURE
-    })
+    v8_archive::heal_missing_copies(root, &target_dir)?;
+    Ok(target_dir)
 }
 
 /// Checks the V8 library copy the last build of `profile` left under
 /// `target_dir` against the pin, before anything runs V8 code.
 pub fn verify_linked_step(target_dir: &Path, profile: &str) -> StepResult {
-    v8_archive::verify_linked(target_dir, profile).map_err(|error| {
-        eprintln!("[xtask] {error}");
-        ExitCode::FAILURE
-    })?;
+    v8_archive::verify_linked(target_dir, profile)?;
     println!("[xtask] the V8 library copy matches the pinned archive");
     Ok(())
 }
@@ -51,7 +44,7 @@ pub fn check(root: &Path) -> StepResult {
 /// The Rust half of [`check`]: the V8 archive, the Rust gates, and the
 /// snapshot build with its verification.
 pub fn check_rust(root: &Path) -> StepResult {
-    fetch_v8(root)?;
+    let target_dir = fetch_v8(root)?;
     run(root, &[], "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,
@@ -88,7 +81,6 @@ pub fn check_rust(root: &Path) -> StepResult {
         ],
     )?;
     // the first build step; check the V8 library copy before the tests run V8 code
-    let target_dir = target_dir(root)?;
     verify_linked_step(&target_dir, "debug")?;
     run(
         root,

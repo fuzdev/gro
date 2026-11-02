@@ -247,6 +247,28 @@ pub fn off(_default: EvalDefault) -> bool {
 mod tests {
     use super::*;
 
+    /// The bench's prices suite prices every default: a variant runtime
+    /// named for each, turning it off by [`PRICES_OFF_ENV`].
+    #[test]
+    fn the_prices_suite_has_a_variant_for_every_default() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../gro_bench/suites/prices/suite.json");
+        let suite = gro_bench::suite::Suite::load(&path).unwrap();
+        for default in EvalDefault::ALL {
+            let variant = suite
+                .runtimes
+                .iter()
+                .find(|runtime| runtime.name == default.name());
+            assert_eq!(
+                variant
+                    .and_then(|runtime| runtime.env.get(PRICES_OFF_ENV))
+                    .map(String::as_str),
+                Some(default.name()),
+                "{default:?}"
+            );
+        }
+    }
+
     #[test]
     fn parse_reads_a_comma_separated_list() {
         assert_eq!(parse(""), Ok(Vec::new()));

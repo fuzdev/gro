@@ -300,6 +300,14 @@ pub const fn finish() {}
 mod tests {
     use super::*;
 
+    /// The harness reads the file by its own copies of the contract, since
+    /// it's independent of the runtime crates.
+    #[test]
+    fn the_harness_reads_the_file_this_writes() {
+        assert_eq!(PHASES_FILE_ENV, gro_bench::phases::PHASES_FILE_ENV);
+        assert_eq!(PHASES_HEADER, gro_bench::phases::PHASES_HEADER);
+    }
+
     #[cfg(feature = "phases")]
     #[test]
     fn marks_are_measured_from_the_start_in_order() {
