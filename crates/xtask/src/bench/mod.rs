@@ -1,5 +1,51 @@
 //! `cargo xtask bench`: run a measurement suite and append its record to the
 //! history, or report on the history, or run an A/B against a base revision.
+//!
+//! `cargo xtask bench <suite.json>` runs the suite with `gro_bench` and
+//! appends the record to [`HISTORY`] (`--history` writes elsewhere, relative
+//! to the current directory); its copies of collections and projects go
+//! under [`BENCH_DIR`]. When a runtime is `fgro` (named so, or with a program
+//! named so), it first builds the release snapshot `fgro` (as
+//! `build --release`, cached when nothing changed) and refuses the run unless
+//! that program is the binary just built, so a stale, debug, or snapshot-less
+//! build is never timed; the release build is refused when its `--version`
+//! names a measurement build. After the summary it prints each `fgro` row's
+//! median against its gate row (warm rows against `node_compile_cache`, cold
+//! ones against `node`, `deno` beside), or, for a suite with its own `gate`,
+//! each of the gate's runtimes against its incumbent: a report that fails
+//! nothing. `--samples N` replaces the suite's sample count (even), which
+//! the record's config hash then carries. `--attest-quiet` records that the
+//! machine was quieted by hand.
+//!
+//! The record's `mode` says what each sample measured beside wall time; the
+//! flags don't combine:
+//!
+//! - `--phases` builds `fgro` with its `phases` feature too
+//!   (`<target>/gro_snapshot/release-phases/fgro`), runs it in place of each
+//!   `fgro` runtime, and records each sample's phase durations
+//!   (`gro_bench::phases`)
+//! - `--counters` runs each sample under `perf stat` and records its
+//!   instructions and cycles (`gro_bench::counters`), refusing when perf
+//!   can't count them in full
+//!
+//! A suite with `prices` builds `fgro` with its `prices` feature
+//! (`<target>/gro_snapshot/release-prices/fgro`), refuses it unless its
+//! `--version` says `, prices`, runs it in place of every runtime (each must
+//! be `fgro`), and prints the price table (`gro_bench::prices`); it takes
+//! `--counters`, not `--phases` or `--base`. The record carries the size of
+//! the release build's snapshot, which a suite's `budgets` can limit with the
+//! executable's sizes: a run over one fails before its samples.
+//!
+//! `--counters --base <rev>` is the A/B for the perf rule ([`base`]): it
+//! builds the release snapshot `fgro` at `rev` in a clone outside the
+//! checkout, runs each `fgro` runtime beside a copy on that build
+//! (`<name>_base`), interleaved, with every other runtime left out, and
+//! prints each row's instruction, cycle, and wall medians against the base's,
+//! flagging an instruction move past 2%. It records nothing.
+//!
+//! `cargo xtask bench report` reads the history (`--history` too) and prints,
+//! per suite version and mode, each row's latest record against the one
+//! before it and the last attested one (`gro_bench::report`).
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;

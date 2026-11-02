@@ -16,7 +16,9 @@ argh.workspace = true
 gro_runtime = { path = "../gro_runtime" }
 thiserror.workspace = true
 
-# eval's first step, closing the descriptors the process inherited
+# eval's steps before the box: closing the descriptors the process inherited,
+# clearing its environment, lowering the default thread stack, and capping
+# `RLIMIT_DATA`
 [target.'cfg(target_os = "linux")'.dependencies]
 gro_sys = { path = "../gro_sys" }
 

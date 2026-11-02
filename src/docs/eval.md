@@ -344,6 +344,8 @@ A usage error prints to stderr with no envelope.
   that code generation from strings is off for an uncaught `EvalError`
   (V8 throws one natively for nothing else),
   how to link a package for a read outside the box, and the build command for a build with no snapshot.
+  A resolve or load failure carries its fix inside `message`, after `. Fix:`, with `hint` `null`,
+  so a caller finds a fix in `hint` when it's set and otherwise in the message.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
   `access` is `null` only in the out-of-memory envelopes, prepared before the run,
@@ -367,7 +369,7 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, or V8 ran out of memory with the heap not at fault |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
 | `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
-| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
+| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a symlink loop, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
 
 ## The graph
 

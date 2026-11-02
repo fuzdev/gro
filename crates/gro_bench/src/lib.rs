@@ -32,6 +32,33 @@
 //!
 //! `cargo xtask bench <suite.json>` runs a suite and appends its record;
 //! `cargo xtask bench report` reads the history.
+//!
+//! The suites, under `crates/gro_bench/suites/`:
+//!
+//! - `baseline`: Node (also with its compile cache on), Deno, Bun, and
+//!   `fgro` on startup scripts and on `fuz_util`'s TS module graph, cold and
+//!   warm (`fgro` has no on-disk cache, so its cold and warm graph rows run
+//!   the same command). The graph is `fuz_util`'s collection in a sibling
+//!   `corpora` checkout, pinned by tree id. Its workload weights are
+//!   provisional, and its file holds `fgro`'s size budgets, which
+//!   `cargo xtask build --verify` also checks.
+//! - `eval`: `fgro eval --driver -` against `deno run` with the flags,
+//!   pinned environment, and stdin wrapper zap's eval passed Deno before
+//!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`), each with zap's own
+//!   driver read from a sibling zap checkout (the suite holds no zap code),
+//!   on a committed fixture project over zap's recipes (gated) and on a
+//!   sibling `fuz_forge` checkout's config in place (reported only); beside
+//!   them, reported only, `deno info`, the graph pass zap runs before each
+//!   eval. Warm rows only, as zap runs Deno with its cache warm. In a phases
+//!   run, `prepass` plus `confine` approximate the box's own cost.
+//! - `prices`: the priced build as `fgro` with every default on and as one
+//!   variant per default turned off, on the eval fixture and a config that
+//!   declares nothing (`tiny/`), with zap's driver and equal values
+//!   (`parity`); see [`prices`].
+//! - `memory`: a data module just under the loader's module cap, generated
+//!   into the copy at run time (a project's `generate`), evaluated by
+//!   `fgro eval` jitless and with `--jit`, Deno beside; run it under a memory
+//!   limit (`systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0`).
 
 pub mod budget;
 pub mod check;

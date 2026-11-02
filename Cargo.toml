@@ -27,9 +27,11 @@ deno_webidl = "0.259.0"
 # V8's entropy source, the operating system's random source
 getrandom = "0.4.3"
 # the kernel box `fgro eval` confines its process to (Linux): Landlock's
-# filesystem, network, and scope rules, and a seccomp-bpf denylist, with libc's
-# open flags for the box's roots and its syscall numbers and socket constants
-# for the filter, and the raw system calls of gro_sys
+# filesystem, network, and scope rules, and seccomp-bpf filters (a tripwire
+# list of calls that kill the process, and an allowlist failing every other
+# call with `ENOSYS`), with libc's open flags for the box's roots and its
+# syscall numbers and socket constants for the filters, and the raw system
+# calls of gro_sys
 landlock = "0.4.7"
 libc = "0.2.190"
 seccompiler = "0.5.0"
@@ -105,15 +107,14 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# What the measurement harness builds and profiles: `release` plus what a
-# profiler needs, symbols and line tables, for `perf report` and `perf
-# annotate`. Line tables rather than full debuginfo keep the link output small.
-# Neither setting is meant to change codegen, so a `profiling` binary measures
-# the code `release` ships. A custom profile rather than Cargo's built-in
-# `bench` because `bench` shares `target/release/` with `release`; this one
-# builds into `target/profiling/`, so a profiled binary and the shipped one
-# never overwrite each other. `cargo bench` uses Cargo's built-in `bench` profile
-# (inheriting `release`).
+# For profiling by hand (`perf record`, `perf report`, `perf annotate`):
+# `release` plus what a profiler needs, symbols and line tables. Line tables
+# rather than full debuginfo keep the link output small. Neither setting is
+# meant to change codegen, so a `profiling` binary runs the code `release`
+# ships. A custom profile rather than Cargo's built-in `bench` because `bench`
+# shares `target/release/` with `release`; this one builds into
+# `target/profiling/`, so a profiled binary and the shipped one never overwrite
+# each other.
 [profile.profiling]
 inherits = "release"
 debug = "line-tables-only"

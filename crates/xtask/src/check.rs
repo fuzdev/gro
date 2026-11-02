@@ -1,5 +1,23 @@
 //! The checks of the repo: the Rust gates, the V8 archive they start from, and
 //! the JS/TS under `crates/`.
+//!
+//! `cargo xtask check` runs these steps in order, printing each command first
+//! and stopping at the first failure with that step's exit code;
+//! `check-rust` runs 1 to 3 (CI's rust job), `check-js` only 4 (CI's Node
+//! job, which has no V8 build):
+//!
+//! 1. the V8 archive, as `fetch-v8`
+//! 2. the Rust gates: `cargo fmt`, `cargo clippy` (again with the `phases`
+//!    and `prices` features on `gro_runtime` and `gro_cli`), `cargo test`
+//!    (again for `gro_runtime`'s unit tests with the features), and
+//!    `cargo doc`, with warnings denied; after clippy, the first build, the
+//!    V8 library copy it left is checked before the tests run V8 code
+//! 3. the snapshot build, as `build --verify`
+//! 4. the JS/TS under `crates/`, which `gro check`'s typecheck and format
+//!    don't reach: `tsc` over each `crates/*/js/tsconfig.json`, then
+//!    `gro format --check` over every `.ts`, `.mts`, and `.js` file under
+//!    `crates/` (it says so when there are none)
+//! 5. `gro check`
 
 use std::fs;
 use std::io;

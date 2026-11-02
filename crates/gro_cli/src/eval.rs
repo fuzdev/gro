@@ -56,12 +56,32 @@ pub fn eval(args: EvalInvocation) -> u8 {
     code
 }
 
-/// `eval`'s path up to and including the box, on the main thread: closes
-/// the descriptors the process inherited, clears its environment
-/// but `TZ`, reads the working directory and, when asked, the driver from
-/// stdin, resolves the entry and computes the box on a thread of its own,
-/// refuses a build with no snapshot, and confines the process, returning the
-/// pre-pass and the confinement.
+/// `eval`'s path up to and including the box, on the main thread, returning
+/// the pre-pass and the confinement. This is the authoritative order; the
+/// process must keep one thread until the box is up, since Landlock and
+/// seccomp bind only the calling thread and the box refuses with more than
+/// one alive:
+///
+/// 1. [`close_inherited`]: every descriptor above stderr the process
+///    inherited, first, before anything opens one, since the box gates only
+///    new opens
+/// 2. `phases::open`: a phases build's file, opened before the box
+/// 3. [`clear_env`]: the environment but `TZ`, so no library eval starts
+///    reads a variable (a phases or priced build has read its own by now)
+/// 4. [`limit_memory`]: the default thread stack lowered
+///    (`set_default_thread_stack`), then `RLIMIT_DATA` capped, before any
+///    thread starts, so every thread and allocation after is under it
+/// 5. stdout duplicated for the out-of-memory backstop, the working
+///    directory read, and with `--driver -` the driver read from stdin
+/// 6. `gro_runtime::eval::prepass` on a sized thread of its own, joined:
+///    the entry resolved and the box's roots computed
+/// 7. a build with no snapshot refused, the same on every host
+/// 8. the process confined (`Prepass::confine`), on this thread, by then
+///    the only one
+///
+/// A failure of steps 1, 3, or 4 is `environment`, the first reported
+/// alone. [`eval`] then starts the engine on a second sized thread, so every
+/// thread V8 and tokio start comes after the box.
 ///
 /// # Errors
 ///

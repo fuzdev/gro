@@ -510,580 +510,144 @@ args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
-collides with the Node `gro` on `PATH`. The README introduces the runtime in
-one plain paragraph and links out. [src/docs/runtime.md](src/docs/runtime.md)
-is the hub: an index of the runtime docs under its status block, then the
-thesis, why, the security model, the design (runtime-generic, written for
-`run` and `eval`), open questions, gro's workflow on the runtime (tasks, gen,
-`gro check`, the unconfined phases), and the roadmap.
-The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
-reference for the built binary (what loads, the globals, errors, exit codes),
-[src/docs/eval.md](src/docs/eval.md) the reference for `fgro eval` (the driver,
-determinism, the limits, the serializer, the envelope and its error kinds,
-the graph dump),
-[src/docs/resolver.md](src/docs/resolver.md) the resolver's rules and
-departures from Node, [src/docs/typescript.md](src/docs/typescript.md) the
-type-strip rules, and [src/docs/comparison.md](src/docs/comparison.md) the
-comparison with Node, Deno, and Bun, and [src/docs/glossary.md](src/docs/glossary.md)
-defines the terms once (runtime.md's terms list summarizes the core ones).
-A new runtime doc joins runtime.md's index, and a new term joins the glossary.
+collides with the Node `gro` on `PATH`.
 
-- `gro_runtime` - the JS host, a minimal web-standards runtime on V8: a
-  deno_core `JsRuntime` with `deno_webidl` and `deno_web`, gro's bootstrap
-  extension (installs the pure web globals, removes `Deno` and `__bootstrap`;
-  its `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
-  or the build fails), and the strict resolver as a pure module (`resolver/`,
-  no deno_core types; it reads only through a `SourceTree` trait and returns
-  a record of the URL, the file's identity, the root the module is inside and
-  its origin, and the `package.json` files it consulted): relative and
-  absolute specifiers with mandatory extensions, and
-  bare specifiers through a package's `"exports"` (Node's algorithm, with the
-  conditions `gro`, `import`, `default` matched in the package's key order),
-  found by self-reference or in `node_modules` up from the importer's real
-  path. A module's origin is a function of its real path over the graph's
-  admitted roots (`Roots`: the entry's project root and each package root a
-  bare import resolved into, innermost by component winning, none with a
-  `node_modules` segment below it), which the loader owns and passes into
-  `resolve`; the loader refuses a root admitted around a module already
-  recorded in an outer one (`RootConflict`), so a record's root is the one
-  its path is inside, and it resolves each import from its importer's
-  recorded root (`resolve_from`), walking no path; `import.meta.resolve`
-  admits nothing. The loader keeps the run's `Graph` (`loader/graph.rs`):
-  with `Recording::Off`, what `fgro run` uses, only the roots and each URL's
-  root and file, the minimum loading needs; with `Recording::Full`, what
-  `fgro eval` uses, also each
-  import edge and how it was reached, each loaded module's format and the
-  blake3 of the bytes read, the union of the `package.json` files consulted
-  (the entry's included), each read once per run through a
-  `loader::reads::RecordingTree` (later reads served the first's bytes, a
-  file of another identity at the path refused, every served read passing
-  the inner tree's `SourceTree::check_read` first, which the loader's box
-  check overrides, a no-op by default, the bytes' blake3 kept in
-  `Graph::reads`, the entry's from the pre-pass), each path a resolution
-  went on past finding absent (`SourceTree::note_absent`: a missing
-  `package.json` on a walk up, a missing `node_modules/<name>` on the
-  search; a no-op by default, so `Off` does no work for it), and
-  each failure as data (resolve or load, with
-  its reason as an enum, never parsed from a message), kept per site in the
-  order each first happened. The file loaded is the file resolved: the lookup takes its
-  `FileId` (device, inode, and birth time, by `symlink_metadata` on the real
-  path, so a last component swapped for a symlink is refused), the loader
-  records it per URL (the first record stands; a re-resolve changes nothing),
-  and `resolver::read_checked` opens the path with `O_NONBLOCK` (so a FIFO
-  swapped in can't block), refuses an open file with another identity, and
-  reads from that open file; `SourceTree::read` checks a `package.json` the
-  same way. Not caught (accepted): a directory swapped between `canonicalize`
-  and the identity read, and a file remade where the filesystem records no
-  birth time or within the same tick of its clock as the original's birth,
-  which falls back to device and inode, numbers ext4 reuses. Deliberate departures from Node: origin
-  containment (a relative or absolute specifier resolves only inside its
-  importer's root, never into `node_modules` below it or into another
-  admitted root nested in it, and `"exports"` targets and self-references
-  stay inside their package, all checked on the real path; an entry inside
-  `node_modules` runs as its package, and one in no package is refused), the
-  `node_modules` search is bounded by the project root, found first (the
-  first `package.json` outside `node_modules` that isn't a type marker, whose
-  keys are all `"type"` or `"sideEffects"`, failing closed, so npm and yarn
-  workspaces aren't supported), and a module with no project root gets no
-  bare imports except a self-reference, which resolves through its own
-  package's `"exports"` and stays inside its package; a world-writable
-  directory (the other-write bit) ends every walk up, with no
-  `package.json` or `node_modules` in it read,
-  and a package found through one (its `node_modules`, `@scope`, root, a
-  linked root's real holders, or a linked `node_modules`'s or `@scope`'s
-  real parent) is refused (`SourceTree::is_world_writable`); a package with
-  no `"exports"` is refused (no `main`), a `.js`
-  file needs `"type": "module"` with no format sniffing, and `.ts` inside
-  `node_modules` is stripped. `.js`/`.mjs` load as written and `.ts`/`.mts`
-  load stripped of their types in process by tsv (`tsv_ts`, a git dependency
-  pinned by rev; the loader in `loader/` blanks types so positions never
-  move, and refuses TypeScript with runtime semantics, such as an `enum`, with
-  its position and a fix); schemes, `#` imports, CommonJS, `.cts`, `.tsx`,
-  declaration files, and Svelte modules (vite-plugin-svelte's rule: `.svelte.`
-  then any segments then `.js` or `.ts`) are refused with the reason, and a
-  fix where there is one.
-  V8's process-wide setup is `engine::init_engine` (`EngineOptions`: V8's
-  entropy drawn from `getrandom`, always, an optional ICU default locale,
-  and two V8 flags set before V8 starts, `jit` (a `confine::Jit`, `Off`
-  setting `--jitless`) and `disallow_code_generation_from_strings`, the JIT
-  on and code generation allowed for `fgro run`), once
-  per process before the first runtime, and it takes the process's
-  `confine::Confinement`: `Confined`, made only by
-  `confine::Prepared::confine`, or `Unconfined`, which `fgro run`,
-  `make-snapshot`, and the unit tests name. `confine` (Linux only; elsewhere
-  it refuses) checks `/proc/self/status` reads `Threads: 1` (rereading while
-  a joined thread finishes exiting) and then, on that one thread, installs
-  the box: `no_new_privs`, Landlock (the `landlock` crate, ABI 6 required,
-  `HardRequirement` and full enforcement checked: read files and directories
-  beneath the box's roots only, by the handles the pre-pass opened, every
-  other filesystem right ABI 6 knows handled and so denied, TCP bind and
-  connect denied, the signal and
-  abstract unix socket scopes; below ABI 6, without Landlock, or with it
-  off, it refuses naming the kernel's ABI, with no weaker mode), then two
-  `seccompiler` filters with no thread sync: first one killing the process
-  on `KILLED_CALLS` (exec, ptrace, `process_vm_readv` and `process_vm_writev`, bpf,
-  perf_event_open, userfaultfd, kexec, io_uring, the module calls), a
-  tripwire, then the allowlist, which fails every call it doesn't allow
-  with `ENOSYS` (what a call the kernel lacks returns, so glibc and std fall
-  back, and a host making a call the list doesn't name degrades where its
-  libc has a fallback, and otherwise fails with `ENOSYS`):
-  `ALLOWED_CALLS` (the calls a syscall census saw after the box goes up,
-  then siblings, each sibling with its reason: `getrandom`, the
-  `epoll` waits, `fstat` and `newfstatat`, `rt_sigreturn` and
-  `restart_syscall`, `tgkill`, the clock fallbacks; `sched_get*` with any
-  pid, since glibc passes a thread id), and some calls only by their
-  arguments: `prctl` in `KEPT_PRCTLS` (`PR_SET_NAME`, `PR_SET_VMA`),
-  `fcntl` in `KEPT_FCNTLS` (the descriptor and status flags and
-  `F_DUPFD_CLOEXEC`; no locks, leases, or notices), `ioctl` in
-  `KEPT_IOCTLS` (`FIONBIO`, `FIOCLEX`, `FIONCLEX`, `FIONREAD`, `TCGETS`,
-  `TIOCGWINSZ`), `socketpair` as `KEPT_SOCKETPAIR` (a unix stream pair, for
-  tokio; a datagram pair could `sendto` a socket file by path, which
-  Landlock below ABI 9 doesn't gate), `faccessat2` only with the mode
-  `KEPT_ACCESS_MODE` (`F_OK`, which glibc's `realpath` asks of a directory
-  before a `.`, `..`, or trailing slash; `faccessat`, its fallback, refused),
-  `clone` only as a thread
-  (`CLONE_THREAD` set, no flag in `CLONE_NAMESPACES`: no fork, no
-  namespace); ints compare at 32 bits; and the `MAPPING_CALLS` (`mmap`,
-  `mprotect`, `pkey_mprotect`) by the JIT the box is installed for
-  (`Prepared::confine(confine::Jit)`): any `prot` with `Jit::On`, and
-  jitless only with `PROT_EXEC` clear, so once the box is up a jitless
-  process makes no mapping executable (`mremap` can still move, copy, or
-  grow the code mapped before it; a library `dlopen`ed after the box fails
-  on any architecture when its file is outside the roots, or, jitless, by
-  its code's `PROT_EXEC`);
-  `Confined` records the `Jit`, `init_engine` refuses a confined engine
-  whose `jit` disagrees (`EngineError::JitConflict`), and eval's
-  `Prepass::confine` (by value, so the box goes up once, handing back the
-  eval with the roots it admits) reads it from `EvalOptions::jit`, the
-  `Jit` `engine_options` takes too, so `fgro eval` takes it from `--jit`.
-  `clone3` isn't allowed (its flags are in memory, past a filter), so
-  glibc falls back to `clone`; the
-  filter compares exact numbers, so x32 calls fail too; `seccomp` isn't
-  allowed, so nothing is added after it. The aarch64 list follows its call
-  table (`readlinkat`, no `epoll_wait`) and is unverified on a host. A
-  change to the allowlist reruns the census
-  ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist));
-  an architecture `seccompiler` can't target is
-  `ConfineError::SeccompArch`; `ConfineError::is_host_unsupported` splits
-  eval's `environment` from `internal`. A confined engine's entropy callback
-  aborts with a message when `getrandom` fails, rather than let V8 fall
-  back to the clock (`/dev/urandom` is outside the box);
-  it returns an `Engine` token naming both, which `run_main` and
-  `snapshot::make_snapshot` require, so no runtime starts
-  on an engine nobody chose or before the process is confined or named
-  unconfined (V8's workers start with the engine); `eval::eval` takes an
-  `engine::ConfinedEngine` instead, made only by `init_confined_engine`
-  from a `Confined`, so no embedder can evaluate outside the box; each runtime's own choices are
-  `RuntimeOptions`, the console's included (`ConsoleOptions`: which stream
-  each level writes to and whether each is colored, read when the run
-  starts, never in the snapshot). The crate reads no environment variable (but
-  the `phases` feature's file and the `prices` feature's switches, below);
-  `fgro` decides color. Its dependencies do (deno_core's diagnostics and
-  import graph file, ICU's locale), which `fgro eval` clears.
-  It starts from a startup snapshot when the embedder passes one
-  (`snapshot.rs`; built in its own process from the same extension list, with
-  the lazy scripts it didn't load embedded beside it as `residual.rs`), else
-  from source, reading `deno_web`'s JS from the build tree; the per-run
-  steps run after startup either way. `bootstrap::extensions` drops every
-  lazy and synthetic ES module the extensions declare (`deno_web`'s
-  `locks.js` and `webtransport.js`): deno_core falls back to a lazy ES module
-  of the exact name when the loader refuses an import, and dispatches a
-  synthetic one before asking the loader, so either would load into user
-  code past the resolver's refusal of `ext:`. `eval/` is `fgro eval`'s
-  protocol in two steps: `eval::prepass` resolves the entry
-  (`resolver::resolve_entry_with_bound`, which also says how the project
-  root was found, `EntryBound`), refuses one inside `node_modules` or with no
-  project root as a usage `resolve`, and computes the read roots
-  (`confine::Prepared::for_project`: the project root and the link closure,
-  each `node_modules` entry and `@scope` entry whose real path is a
-  directory outside the roots so far, holding none, holding a `package.json`
-  that is a file (not a symlink), and held by no world-writable directory
-  (the resolver's `SourceTree::is_world_writable`), followed through each
-  new root's `node_modules` to a fixed point, directory structure only, each
-  root opened as it's found, `O_PATH` with `O_DIRECTORY` and `O_NOFOLLOW`,
-  and kept only when the kernel names the handle by the root's path, so the
-  box goes up on the directories found); then `eval::eval` (which always
-  returns an `Envelope`) runs it, the loader's `Rules::box_roots` checking
-  every module and `package.json` read against those roots first (a graph
-  can reach past them, through a link the closure doesn't follow, in a
-  nested `node_modules` or a subdirectory's own, or drops, to a directory
-  holding the project or another package's, or a `package.json` symlinked
-  out, so a refusal is recorded as the loader's breach and fails
-  the eval as `internal`, naming the path, the box, and the fix).
-  `eval::eval` refuses a build with no startup snapshot, whose
-  runtime would read `deno_web`'s JS from the build tree, as `internal`
-  (`eval::no_snapshot_error`, which `fgro eval` returns after its pre-pass
-  and before the box, so the refusal is the same on every host). The engine
-  `eval::engine_options` gives (jitless unless `--jit`, code generation from
-  strings off, locale `en-US`, checked against the engine's token), the
-  console to stderr uncolored, the stdin driver evaluated first as a side
-  module at the synthetic URL `gro:driver`, then the entry, then
-  `driver.default(namespace)` or the export, the strict host serializer
-  (`eval/serialize.rs`: an iterative walk over V8 values in Rust, on a
-  stack of its own, in batches each in its own handle scope, inside V8's
-  `DisallowJavascriptExecutionScope`, reading property descriptors so no
-  getter or `toJSON` runs, refusing non-plain objects, cycles, lone
-  surrogates, and nesting past 1000 with the JS path), the drain, and the
-  driver's optional `after_drain`; with `EvalOptions::graph` (`--graph`),
-  `eval::dump_graph` (`eval/dump.rs`, `graph_version` 1) writes the run's
-  `Graph` as the envelope's last field, `graph`: path ids relative to the
-  project's real directory (`project:` under it, `linked:` outside it with
-  `..`, `%`, `?`, and `#` percent-encoded, a module's query and fragment
-  appended), each module's blake3 and origin, each consulted file's blake3
-  and role, the absent paths, every array sorted, and absolute paths (P,
-  the box's roots, each id's path) only in `local`; `null` when the run
-  reached no graph or it names a path no id can (not UTF-8, or a module
-  URL with no path), and in the out-of-memory backstop's prepared
-  envelope, which never carries one, and in an envelope past its cap; a consulted file with no read kept,
-  a host bug, fails the eval as `internal`; without the flag the envelope doesn't move; the error kind comes from the phase that
-  failed plus the first static failure the graph recorded, never from a
-  message. Eval's runtime starts from the same snapshot as `run`'s and is
-  made eval's per run (`Mode::Eval`, never frozen into the snapshot): the
-  bootstrap's start reads `op_gro_deny` and installs `determinism: deny`
-  (`js/bootstrap.js`'s `deny`: the clock, randomness, and machine reads and
-  `AbortSignal.timeout` throw a refusal naming the operation and reason,
-  each replaced where it lives; `WeakRef`, `FinalizationRegistry`, and
-  `console.time*` inert; the four timer globals, `Blob`, `File`, and the
-  object-URL functions deleted, since a `File` keeps the clock and a blob
-  part a random id in their own state) before the driver;
-  the op middleware `bootstrap::refuse_ops` gives each op in
-  `REFUSED_OPS` (the timer, clock, memory, and blob ops, `op_eval_context`,
-  `op_compile_function`, `op_import_sync*`) the slow-only
-  `op_gro_refused`'s implementation, and a test pins every registered op
-  name (`crates/gro_runtime/tests/op_names.txt`); the isolate refuses
-  `Atomics.wait` and caps V8's heap, array-buffer memory bounded by the
-  process's cap below instead
-  (`eval/limits.rs`: the near-heap-limit callback stops the run and raises the cap once, and an out-of-memory
-  handler, the one process static besides the engine's, writes one of two
-  prepared envelopes through a handle opened before the run and exits 1:
-  `heap` when V8 reports its heap out of memory and the callback found the
-  heap full, else `memory`); the process's memory is capped apart
-  (`eval::MEMORY_LIMIT`, `RLIMIT_DATA`, which `fgro eval` sets): a failed
-  array-buffer allocation also runs the callback, which reads the heap's
-  use as V8 calls it (`gro_v8::HeapReader`, since V8 gives the callback no
-  isolate) and records `memory` under three quarters
-  of the cap, `heap` above it; a `memory` stop whose heap reads full at the
-  run's end, one large object let in by the raised cap, becomes `heap`
-  (`Stopped::check_heap`); a
-  watchdog thread stops the run at `--timeout`, and the serializer checks
-  for a stop once per batch; byte caps bound what sits outside the heap: a
-  module's source at `resolver::MAX_MODULE_SIZE` (16 MiB, the loader's
-  bounded `read_checked`, so `fgro run`'s too; eval's `link`) and the
-  envelope at `eval::MAX_ENVELOPE_SIZE` (64 MiB: the serializer stops once
-  its output would pass it, cutting a key past 64 UTF-16 units in a
-  path, and `eval::eval` counts the envelope of every run it starts, a failure's included,
-  without writing it: a value's past the cap is replaced with a small
-  `serialize` failure whose `access` and `graph` are `null`, and a
-  failure's keeps its kind, its `access` and `graph` dropped, then its
-  text fields cut to 64 KiB each if it's still past; an uncaught error's
-  report, each cause's and aggregated error's included, and the loader's
-  specifiers are copied out of the heap under no cap of their own, bounded
-  by the process's); a time zone other than UTC (by
-  `new Date(0).toString()` alone, which only UTC and the aliases that display
-  as it write as `UTC_EPOCH`; no `Intl` object is built unless to name a
-  refused zone, since V8's first `DateTimeFormat` builds its locale set)
-  fails as `environment` before the driver; `heap`, `memory`, and `timeout` come from the stop
-  recorded, never a message, and an `error.hint` names `--jit` or that
-  code generation is off. The loader's `Rules` carry eval's refusals: every `import()`
-  before anything resolves (the entry graph's listed in the envelope's
-  `access.dynamic`), and every import from the driver ("a stdin driver is
-  import-free"), each recorded as its own `FailureReason`. `deno_core::scope!` and the `v8`
-  scope macros hide `unsafe` inside dependency macros, outside the
-  `unsafe_code` lint; eval uses them to open handle scopes on the runtime.
-  `gro_runtime`'s tests import
-  every `ext:` specifier the build knows (deno_core's own, and every module
-  and script the extensions declare) statically, by `import()`, and by
-  `import.meta.resolve`, and expect the refusal
-- `gro_cli` - the `fgro` binary: `fgro run <file>` runs an ES module (JS or
-  TypeScript) from disk and takes only the entry file, with no script
-  arguments yet (exit `0` success, `1` a run that fails, `2` a usage error,
-  including an entry that doesn't resolve; the full table is in
-  [src/docs/run.md](src/docs/run.md)); console output is colored per stream,
-  only on a terminal, unless `FORCE_COLOR` decides it or `NO_COLOR`,
-  `NODE_DISABLE_COLORS`, or `CLAUDECODE` set non-empty, or `TERM=dumb`, turns it off
-  (the order is in [src/docs/run.md](src/docs/run.md)). `fgro eval <module>
-  [--driver -] [--export NAME] [--jit] [--timeout MS] [--graph]` prints one envelope on stdout and
-  exits by the same table (`2` only for a usage error or an entry that
-  doesn't resolve or that no project owns); it reads stdin for the driver and no environment
-  variable ([src/docs/eval.md](src/docs/eval.md)), and first closes every
-  file descriptor above stderr the process inherited
-  (`gro_sys::close_inherited_fds`), which the box, gating only new opens,
-  wouldn't reach, then, after a phases build opens its file, clears its
-  environment but `TZ` (`gro_sys::clear_env_except`), so no library it runs
-  reads a variable, then caps its data segment at
-  `gro_runtime::eval::MEMORY_LIMIT`, soft and hard, before the pre-pass
-  thread (`gro_sys::limit_data`, keeping a parent's lower limit, soft or
-  hard; the box refuses `setrlimit` and `prlimit64` after), its default
-  thread stack lowered first to `gro_runtime::eval::DEFAULT_THREAD_STACK`
-  (`gro_sys::set_default_thread_stack`, which never raises it), since glibc
-  sizes V8's platform workers by the inherited `RLIMIT_STACK` and the cap
-  counts their stacks,
-  failing as `environment` when any can't. Every
-  command but `eval` runs on one thread with a 32 MiB stack of its own
-  (`gro_runtime::STACK_SIZE`, tsv's `STACK_SIZE`), keeping a debug build inside
-  the 16 MiB its strip is sized for (a release build needs 2 MiB); a module
-  past tsv's depth limits is a load error, not an abort. `eval` runs on the
-  main thread, which reads stdin, the working directory, and the
-  out-of-memory handle, runs `eval::prepass` on a sized thread it joins,
-  confines the process alone, then starts the engine and evaluates on a
-  second sized thread, so every thread V8 and tokio start comes after the
-  confinement. Confined eval runs only from a snapshot build, so
-  `tests/eval/`'s tests that evaluate are ignored in a plain `cargo test`
-  and run from `cargo xtask build --verify`, beside `tests/confine.rs`
-  (no libtest harness, whose threads would refuse the box: each case
-  confines a child of its own and reports what it could reach); on a kernel
-  whose Landlock is below ABI 6 they fail, naming its ABI.
-  `gro_runtime::run_main` documents the requirement for any embedder.
-  The `phases` feature (`gro_cli`'s, enabling `gro_runtime`'s), which
-  release and snapshot builds never enable, records a timestamp at each
-  phase boundary of `run` and `eval` (`gro_runtime::phases`: the entry,
-  `prepass`, `confine`, `engine`, `runtime`, `bootstrap` (where eval
-  installs `deny`), `guards`, `driver`, `load`, `evaluate`, `serialize`,
-  `drain`, `teardown`, `envelope`, `write`, `exit`) and writes them at exit
-  to the file `GRO_PHASES_FILE` names, opened before eval's box; without
-  the feature each call is an empty `const fn`, and nothing reads the
-  variable. The `prices` feature (`gro_cli`'s, enabling `gro_runtime`'s),
-  which release and snapshot builds never enable either, reads
-  `GRO_PRICES_OFF`, a comma-separated list of eval's defaults to turn off
-  (`gro_runtime::prices::EvalDefault`: `close_fds`, `clear_env`, `data_limit`, `landlock`, `seccomp`,
-  `box_rule`, `deny`, `refuse_ops`, `codegen`, `locale`, `heap_cap`,
-  `heap_watch`, `watchdog`, `utc_check`, `recording`, `envelope_cap`; the
-  JIT's switch is `--jit`), refusing an unknown name as a usage error; a
-  priced build with a default off is for timing only, and its
-  `--version` ends `, prices`. The box's setup (the link closure, each
-  root's handle) runs whatever the switches say, so it is unpriced; it
-  falls within the `prepass` phase. `fgro --version` names the git commit it was built from (with `-dirty`, or
-  `unknown` for a plain `cargo build`), the V8 version, and whether a snapshot
-  is embedded. Its `snapshot` feature embeds a startup snapshot read from
-  `GRO_SNAPSHOT_DIR`, and only that feature reads `GRO_COMMIT`;
-  a plain `cargo build` builds it without one, so it runs only from its build
-  tree
-- `gro_sys` - raw system calls the safe std API lacks, kept in one crate so
-  every crate but it and `gro_v8` stays free of `unsafe` (Linux only, `libc`
-  its one dependency): `close_inherited_fds` closes every descriptor above stderr
-  (`close_range`, or listing `/proc/self/fd` when the kernel has none, before
-  5.9, or a parent's seccomp filter refuses it with `EPERM`), safe
-  with a documented precondition, that nothing in the process owns one, so
-  it runs first on the main thread, and it refuses with more than one
-  thread alive. `clear_env_except` clears the environment by `clearenv`,
-  then sets the named variables again, safe with a documented
-  precondition, that nothing holds a pointer into the environment, and
-  refusing with more than one thread alive. `limit_data` sets
-  `RLIMIT_DATA` soft and hard to a cap, or to a lower limit already set,
-  soft or hard, and `data_limit` reads it. `thread_count` reads
-  `/proc/self/status`'s `Threads:` once (the box's check rereads it while a
-  joined thread finishes exiting). `set_default_thread_stack`
-  lowers the stack of a thread started without a size of its own, never
-  raising it (`pthread_setattr_default_np` and
-  `pthread_getattr_default_np`, declared in gro_sys since the `libc` crate
-  lacks them; glibc only, a no-op elsewhere), and `default_thread_stack`
-  reads it. Its tests close descriptors, clear the
-  environment, cap memory, and interrupt a guarding process only in a child
-  process (`tests/close.rs`, `tests/env.rs`, `tests/data.rs`,
-  `tests/signal.rs`, no libtest harness; `tests/data.rs`
-  also lowers the default thread stack, its cases glibc's only). Its `testing` feature, which only
-  `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
-  it touches no memory), so the box's tests reach Landlock's signal scope
-  past seccomp's refusal of `kill`, and `map_anonymous` and
-  `protect_anonymous` (`mmap`, or `mmap` then `mprotect`, of an anonymous
-  page with a given `prot`, then `munmap`; safe: no memory is exposed),
-  which reach the jitless box's refusal of `PROT_EXEC`. `exit_now` ends the
-  process by `_exit`, running no teardown, for eval's out-of-memory
-  backstop, whose V8 workers are still live. `wait_child` reaps a
-  child by `wait4`, returning its exit status and `ru_maxrss`, for the
-  bench's peak memory, `kill_process_group` sends a group `SIGKILL` by id,
-  for the bench's watchdog, and `guard_group` with
-  `kill_guarded_groups_on_signal` (a `SIGINT`, `SIGTERM`, and `SIGHUP`
-  handler, async-signal-safe: `kill` over a fixed array of atomic group ids,
-  then the signal raised again under its default action) kills the groups
-  the bench spawned when a signal ends it
-- `gro_v8` - the V8 boundary: the calls into V8 that rusty_v8 exposes only
-  as `unsafe`, each behind a safe API, so `gro_runtime` stays free of
-  `unsafe`; its one dependency is `v8`, pinned to the exact version and
-  features `deno_core` re-exports as `deno_core::v8`, so both name one crate
-  and V8 builds once (a `deno_core` upgrade moves the pin with it).
-  `HeapReader` reads an isolate's heap use from a near-heap-limit callback,
-  which V8 calls with no isolate, through the isolate's raw pointer, and
-  only while a token in the isolate's slots, dropped before V8 frees it,
-  is alive
-- `gro_bench` - the measurement harness, independent of the runtime crates
-  (it uses `gro_sys` for `wait4`, `kill`, and the signal handler):
-  `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
-  processes, interleaved, with an A/A noise row, and appends one JSON line per
-  run to `crates/gro_bench/history.jsonl`. A run holds an exclusive `flock`
-  on its work directory (`target/bench/`), refusing to start while another
-  holds it, and kills any process past the suite's `timeout_ms` (two minutes
-  by default), failing the run: every process it spawns, timed samples
-  included, leads a process group of its own, killed whole, so a hung
-  `perf stat` workload or a pipe-holding grandchild goes with it, and a
-  Ctrl-C, hangup, or `SIGTERM` of the run kills every group it's waiting
-  on (a `SIGKILL` of the run, or a signal between a spawn and its guard,
-  still orphans them). The baseline suite
-  (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
-  on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
-  and warm, and `fgro` on both (it has no on-disk cache, so its cold and warm
-  graph rows run the same command); its workload weights are provisional. The
-  graph is fuz_util's collection in a sibling `corpora` checkout
-  (`fuzdev/corpora`), pinned by tree id. A workload that names a `collection`
-  runs from a fresh copy of it, written from the pinned tree's objects into
-  the gitignored `target/bench/`, with the workload's script at the copy's
-  root so its relative imports stay inside the collection; the command still
-  runs from the suite's directory. A workload that names a `project` (a
-  committed directory holding its script) runs from a fresh copy of it under
-  `target/bench/projects/`, with a generated `node_modules` of stub packages
-  (each only a `package.json`) and symlinks to sibling checkouts the suite
-  names, a missing checkout, or a link outside any git checkout, failing the
-  run. The record carries the git state (commit, dirty flag, and a blake3 of
-  the changes, untracked files included, ignored ones not) of each linked
-  checkout and of a checkout holding a script outside the suite's, read again
-  after the samples, a move discarding the run like an artifact's. A runtime
-  can read a file on
-  stdin (`stdin`, hashed like a file argument, opened fresh before each
-  timed span) and say what its stdout holds (`stdout`: an eval `envelope`
-  with `ok: true`, or `json`); every row first runs once, untimed, and the
-  run fails unless it exits 0 with that stdout, and unless the values of the
-  suite's `parity` runtimes are equal on each workload. A suite naming
-  `fgro` gets the release snapshot build: the bench builds it first and
-  refuses any other binary, then prints each `fgro` row against its gate row
-  (warm rows against `node_compile_cache`, cold ones against `node`, `deno`
-  beside), or, when the suite has a `gate`, the gate's runtimes against its
-  incumbent, gated on the workloads it names, with every other row reported
-  only; the table is a report either way. The eval suite
-  (`crates/gro_bench/suites/eval/`) times `fgro eval --driver -` against
-  `deno run` with the flags, pinned environment (`TZ`, `LC_ALL`,
-  `NO_COLOR`), and stdin wrapper zap's eval passed it before moving to
-  `fgro`, plus `DENO_NO_UPDATE_CHECK`, which zap didn't set, so no update check runs in a
-  sample, each with zap's own driver read from a sibling zap checkout
-  (`builder_fgro.js` and `builder.js`; the suite holds no zap code), on a
-  committed fixture project (`fixture/`, a config written for the bench over
-  zap's recipes, gated; its `node_modules` is stubs plus a link to the zap
-  checkout) and on a sibling fuz_forge checkout's `zap.forge2.ts` in place
-  (reported only); beside them, reported only, `deno info` (the graph pass
-  zap runs before each eval); in a `--phases` run, `prepass` plus
-  `confine` approximate the box's own cost (`prepass` also holds argument
-  parsing, the descriptor close, and the stdin read). Its
-  rows are warm only, as zap runs Deno with its cache warm, which the
-  warmups fill. The rows run from the suite's directory: both runtimes get
-  absolute paths, and Deno resolves bare imports from the importing module,
-  so the working directory changes neither's output. Record a suite on a
-  quiet machine with
-  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
-  (or `suites/eval/suite.json`),
-  after `cargo xtask build --release`, so the bench's own build is a cache hit
-  and doesn't load the machine just before timing. A run's `mode` (record
-  version 6) says what each sample measured beside wall time: `--phases`
-  runs a `phases` build of `fgro` (`<target>/gro_snapshot/release-phases/`)
-  in place of each `fgro` runtime and records each sample's phase durations
-  per row, from `start` (spawn to the entry, by the wall clocks on both
-  sides) through each mark to `reap` (the last mark to the reaped exit), so
-  they sum to the wall time; `--counters` runs each sample under
-  `perf stat -e instructions:u,cycles:u` (stdin opened fresh per sample) and
-  records the counts, refusing when perf is missing or an event isn't
-  counted for the whole run (multiplexed). `--samples N` replaces the
-  suite's count; a counter run also counts `instructions:k`, the kernel's
-  share, apart, where perf may (`perf_event_paranoid` at 1 or below; else
-  it counts user space alone and says so). A wall run records each sample's peak memory (record
-  version 7: `wait4`'s `ru_maxrss`, which reads at least its spawner's own
-  peak, so the run also records `rss_floor_kib`, the largest of a trivial
-  program's run as the samples are, after them; a row within 25% of it is
-  marked as not the runtime's own); a counter run, whose spawner is `perf`,
-  and a phases run record none. A suite's `budgets` limit a runtime's
-  executable (`bytes`, `gzip_bytes`) and the release snapshot's size
-  (`snapshot_bytes`, recorded beside it): a run over one fails before its
-  samples (exit `2`), naming the budget, the size, and the limit; a phases
-  run checks none. The baseline suite's file holds `fgro`'s budgets, which
-  `cargo xtask build --verify` also checks (the executable's in a release
-  build only). The prices suite (`crates/gro_bench/suites/prices/`, its
-  `prices` naming the default) runs the priced build as `fgro` with every
-  default on and as one variant per default turned off, interleaved, on
-  the eval fixture and a config that declares nothing (`tiny/`), all with
-  zap's driver and equal values (`parity`), and prints each default's
-  price, the default's median less the variant's: wall time in a wall run,
-  user and kernel instructions under `--counters`, a price within the two
-  rows' MADs added marked as noise. The memory suite
-  (`crates/gro_bench/suites/memory/`) evaluates a data module just under
-  the loader's 16 MiB module cap, generated into the copy at run time
-  (a project's `generate`), with `fgro eval` jitless and with `--jit`,
-  and with Deno beside; run it under a memory limit
-  (`systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0`).
-  **The perf rule**: a change to `gro_runtime` or `gro_cli`
-  runs
-  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
-  (and the eval suite) before commit: it builds the release `fgro` at that
-  revision in a clone outside the checkout (`--base-dir`, default
-  `$XDG_CACHE_HOME/gro/bench_base`, locked for the A/B), from a cleared
-  environment so the revision's own toolchain pin builds it (its
-  `rustc --version` checked against the pin and printed beside the
-  checkout's), runs each `fgro` row beside its base
-  copy interleaved, prints each row's instruction, cycle, and wall medians
-  against the base's, flags an instruction move past 2% (which needs a
-  written reason in review), and records nothing.
-  `cargo xtask bench report` prints, per suite version and mode, each row's
-  latest record against the previous and the last attested one, wall moves
-  flagged past the noise floor and instruction moves past 2%, with phase
-  medians when recorded; it names and skips a line it can't read
+[src/docs/runtime.md](src/docs/runtime.md) is the hub; its index lists the
+runtime docs. A new runtime doc joins the index, and a new term joins
+[src/docs/glossary.md](src/docs/glossary.md). What `fgro run` and `fgro eval`
+do, their errors and exit codes, the resolver's rules, the type strip, and the
+box live there and in each crate's module docs; this section holds what an
+agent editing `crates/` needs beside them.
+
+Crates:
+
+- `gro_runtime` - the JS host: a deno_core `JsRuntime` with `deno_webidl`,
+  `deno_web`, and gro's bootstrap extension; the resolver, the loader, the
+  engine, the box (`confine/`), and `fgro eval`'s protocol (`eval/`). Start
+  at its `lib.rs`
+- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
+  maps the commands to their docs
+- `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
+  environment, `RLIMIT_DATA`, the default thread stack, `wait4`, process
+  groups), each behind a safe API; Linux only
+- `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
+  behind a safe API (`HeapReader`); `v8` is pinned to the exact version
+  `deno_core` re-exports, so a `deno_core` upgrade moves the pin with it
+- `gro_bench` - the measurement harness, independent of the runtime crates;
+  its `lib.rs` lists its modules and suites
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
-  `check-rust` (the Rust half alone, which CI's rust job runs), `check-js`
-  (the JS/TS step alone, which CI's Node job runs), `bench`
+  `check-rust`, `check-js`, `bench`; its `main.rs` has the commands and exit
+  codes
+
+Invariants that live in the code:
+
+- **`unsafe`** only in `gro_sys` and `gro_v8`. Every crate takes the workspace
+  lints with `unsafe_code` forbidden; those two re-declare the whole table
+  with it at `deny` (Cargo replaces a crate's table whole), and an xtask unit
+  test (`crates/xtask/src/lints.rs`) checks each equals the workspace's but
+  that and `clippy::undocumented_unsafe_blocks`. Each `unsafe` block is
+  allowed by its function's `#[expect]` and explained by a `// SAFETY:`
+  comment. `deno_core::scope!` and the `v8` scope macros hide `unsafe` inside
+  dependency macros, outside the lint; eval uses them for handle scopes.
+- `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
+  or the build fails.
+- The resolver (`resolver/`) is a pure module: no deno_core types, reading
+  only through the `SourceTree` trait. The loader owns the admitted roots
+  (`Roots`) and passes them into `resolve`. Failures are enums
+  (`FailureReason`, `ResolveErrorKind`), never parsed from a message; eval's
+  error kind comes from the step that failed and the graph's record.
+- Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
+  `Unconfined` named by `fgro run`, `make-snapshot`, and unit tests;
+  `engine::init_engine` takes either and returns an `Engine`, which
+  `run_main` and `make_snapshot` require, and `init_confined_engine` takes a
+  `Confined` and returns the `ConfinedEngine` `eval::eval` requires. No
+  runtime starts before the process is confined or named unconfined; a
+  confined engine whose JIT disagrees with the box's is
+  `EngineError::JitConflict`.
+- One thread until the box: `fgro eval` keeps its process single-threaded
+  until it's confined, and the step order (close descriptors, the phases
+  file, clear the environment but `TZ`, the default thread stack then
+  `RLIMIT_DATA`, then the pre-pass thread, confine on the main thread, then
+  the engine thread) is written once, in `confine_eval`'s doc in
+  `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
+  sized `gro_runtime::STACK_SIZE`.
+- `bootstrap::extensions` drops every lazy and synthetic ES module the
+  extensions declare: deno_core falls back to a lazy ES module of the exact
+  name when the loader refuses an import, and dispatches a synthetic one
+  before asking the loader, so either would load into user code past the
+  resolver's refusal of `ext:`. `gro_runtime`'s tests import every `ext:`
+  specifier the build knows and expect the refusal.
+- `bootstrap::REFUSED_OPS` lists the ops eval refuses; a test pins every
+  registered op name in `crates/gro_runtime/tests/op_names.txt`, so a
+  `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed.
+- `gro_runtime` reads no environment variable but the `phases` feature's
+  `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
+  decides color and passes it in. The `phases` and `prices` features (on
+  `gro_cli`, enabling `gro_runtime`'s) are never enabled in release or
+  snapshot builds; without them nothing reads the variables.
+- A change to the seccomp allowlist reruns the census
+  ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
+
+**Tests.** Confined eval runs only from a snapshot build, so
+`crates/gro_cli/tests/eval/`'s tests that evaluate are ignored in a plain `cargo test` and run from
+`cargo xtask build --verify`, beside `tests/confine.rs` (no libtest harness,
+whose threads would refuse the box). They need Landlock ABI 6 and fail below
+it, naming the kernel's ABI. `gro_sys`'s tests that close descriptors, clear
+the environment, cap memory, or signal run in a child process, harness off.
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
-library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE` (under
-`target/rusty_v8/`, named by version), so the `v8` build script never
-downloads one. Plain cargo copies whatever file is at that path, unchecked,
-and doesn't recopy it when the file changes, only when the path does. On a
-fresh checkout, run `cargo xtask fetch-v8` (or any xtask that builds) before
-plain cargo: under a lock on `target/rusty_v8/`, it downloads the archive if it's missing and checks its recorded SHA-256
-(`crates/xtask/src/v8_archive.rs`, which also fails when `Cargo.lock`'s `v8`
-version moves off the pin), and replaces a file that doesn't match after
-`cargo clean -p v8`, so the next build recopies and relinks. Before running V8
-code, the xtask's builds also check the library copy the `v8` build script
-last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`, shared by its
-build units), a stale-copy check that names the remedy. When a profile's copy
-is missing though `v8`'s build script output is present (a CI cache restores
-`build/`, `deps/`, and `.fingerprint/` without `gn_out/`), the fetch step cleans
-that profile's `v8` outputs so the build reruns the script. The pin protects the
-download's integrity; local writes to the target directory are out of scope,
-since anyone who can write there can alter any build output already. A plain
-cargo build against a bad file, fixed by hand before any xtask runs, goes
-undetected until a newer `v8` verifies `RUSTY_V8_ARCHIVE_SHA256` itself. CI
-runs the fetch first, as the first step of `check-rust`.
+library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
+`v8` build script never downloads one. Plain cargo copies whatever file is at
+that path, unchecked, and doesn't recopy it when the file changes. On a fresh
+checkout run `cargo xtask fetch-v8` (or any xtask that builds) before plain
+cargo; it verifies the pinned SHA-256 (`crates/xtask/src/v8_archive.rs`).
+`.cargo/config.toml` also links with `-z pack-relative-relocs`; `RUSTFLAGS`
+or `CARGO_ENCODED_RUSTFLAGS` in the environment replaces its flags and drops
+it.
 
-**Compact relocations.** `.cargo/config.toml` links every
-`x86_64-unknown-linux-gnu` build with `-z pack-relative-relocs` (`DT_RELR`):
-the PIE keeps address randomization while its relocations shrink from about
-1.6 MB to about 18 KB, which also trims startup. The binary then needs glibc
-2.36 or later (`GLIBC_ABI_DT_RELR`), under the release's 2.39 floor.
-`RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment replaces the
-config's flags, so a build with one set drops it.
+**Commands.** The toolchain is pinned in `rust-toolchain.toml`.
 
-**Snapshot builds.** `cargo xtask build [--release]` makes the `fgro` that
-starts from a snapshot and runs off its build tree, in two stages: the plain
-`fgro` writes `snapshot.bin` and `residual.rs` with its internal
-`make-snapshot` subcommand, then `fgro` is rebuilt with the `snapshot`
-feature and `GRO_COMMIT`, the checkout's `HEAD` with `-dirty` when the tree
-differs (untracked files count, the bench history doesn't), read just before
-that build and embedded with `option_env!` for `--version`; the result is
-`<target>/gro_snapshot/<profile>/fgro` (`<target>` is
-cargo's target directory, as `cargo metadata` reports it). `--verify` adds
-clippy over the feature's code, the integration tests against that build, and
-a run of a fixture with the cargo registry's sources and gro's own extension
-sources hidden (tmpfs mounts under `unshare -rm`, which needs unprivileged user
-namespaces and fails when they're unavailable).
+- `cargo xtask check` - the one local gate: `check-rust` (the V8 archive;
+  `cargo fmt`, `clippy`, `test`, and `doc` with warnings denied, `clippy`
+  and `test` again with the `phases` and `prices` features; then
+  `build --verify`), `check-js` (the JS/TS under `crates/`, which
+  `gro check` doesn't reach), then `gro check`. CI runs `check-rust` and
+  `check-js` as its own jobs, so the gate list lives in the xtask only
+  (`crates/xtask/src/check.rs`)
+- `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in
+  two stages, at `<target>/gro_snapshot/<profile>/fgro`; `--verify` adds
+  clippy over the `snapshot` feature, the integration tests against that
+  build, the size budgets, and a run with the build tree hidden
+  (`unshare -rm`, which needs unprivileged user namespaces). A plain
+  `cargo build` makes an `fgro` with no snapshot that runs only from its
+  build tree and can't `eval`
 
-`cargo xtask check` is the one local command for both halves: `check-rust`
-(the V8 archive, the Rust gates `cargo fmt`, `clippy`, `test`, and `doc` with
-warnings denied, then `build --verify`), `check-js` (the JS/TS under
-`crates/`, which `gro check`'s typecheck and format don't reach), then
-`gro check`. CI runs the first two as its own jobs, so the gate list lives in
-the xtask only. The toolchain is pinned
-in `rust-toolchain.toml`, and every crate takes the workspace lints, `unsafe`
-forbidden, but `gro_sys`, whose system calls need it, and `gro_v8`, the V8
-boundary, whose calls rusty_v8 exposes only as `unsafe`: each re-declares the
-whole table with `unsafe_code` at `deny` (Cargo replaces a crate's table
-whole; an xtask unit test, `crates/xtask/src/lints.rs`, checks each equals the
-workspace's but that and `clippy::undocumented_unsafe_blocks`), each
-`unsafe` block allowed by its function's `#[expect]` and explained by a
-`// SAFETY:` comment (`clippy::undocumented_unsafe_blocks`).
+**Benchmarks.** `gro_bench` times runtimes × workloads in fresh processes,
+interleaved, with an A/A noise row, and appends one JSON line per run to
+`crates/gro_bench/history.jsonl`. Suites live in `crates/gro_bench/suites/`
+(`baseline`, `eval`, `prices`, `memory`; described in gro_bench's `lib.rs`).
+Flags and exit codes are in `crates/xtask/src/bench/mod.rs` and
+`crates/xtask/src/main.rs`.
+
+- `cargo xtask bench <suite.json>` - a wall run; `--counters` counts
+  instructions and cycles under `perf stat`, `--phases` records per-phase
+  durations from a `phases` build; `--samples N` overrides the count
+- a suite's `budgets` cap `fgro`'s executable and snapshot sizes; a run over
+  one fails before sampling (exit `2`)
+- `cargo xtask bench report` - each row's latest record against the previous
+  and the last attested one
+- Record a suite on a quiet machine, after `cargo xtask build --release` (so
+  the bench's own build is a cache hit):
+  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
+  (or `suites/eval/suite.json`)
+
+**The perf rule.** A change to `gro_runtime` or `gro_cli` runs
+`cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
+and the same for `crates/gro_bench/suites/eval/suite.json` before commit. It
+builds the release `fgro` at that revision in a clone outside the checkout,
+runs each `fgro` row beside the base copy interleaved, prints instruction,
+cycle, and wall medians against the base's, and records nothing. An
+instruction move past 2% needs a written reason in review.
 
 ## Implementation reference
 

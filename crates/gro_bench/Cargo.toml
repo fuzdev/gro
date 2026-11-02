@@ -15,7 +15,8 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror.workspace = true
 
-# each sample's peak memory, read as it's reaped (`wait4`)
+# each sample's peak memory, read as it's reaped (`wait4`), and the watchdog's
+# process-group kills and signal handler
 [target.'cfg(target_os = "linux")'.dependencies]
 gro_sys = { path = "../gro_sys" }
 
