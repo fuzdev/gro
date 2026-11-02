@@ -294,6 +294,7 @@ mod tests {
 
     use super::{EngineError, EngineOptions, init_engine};
     use crate::confine::{BoxRoots, Confined, Confinement, Jit};
+    use crate::resolver::test_tree::TestDir;
     use crate::{RuntimeOptions, STACK_SIZE, run_main};
 
     /// How many times V8 has asked [`fill_entropy`](super::fill_entropy) in
@@ -306,18 +307,16 @@ mod tests {
     #[test]
     fn v8_draws_its_entropy_from_the_source() {
         let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-        let dir = std::env::temp_dir().join(format!("gro_runtime_{}_entropy", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let entry: PathBuf = dir.join("main.mjs");
+        let dir = TestDir::in_system_temp("entropy");
+        let entry: PathBuf = dir.path().join("main.mjs");
         std::fs::write(&entry, "Math.random();\n").unwrap();
-        let cwd = dir.clone();
+        let cwd = dir.path().to_owned();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
             .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
             .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
         assert!(result.is_ok(), "{result:?}");
         assert!(ENTROPY_CALLS.load(Ordering::Relaxed) > 0);
         // the default sets no flag

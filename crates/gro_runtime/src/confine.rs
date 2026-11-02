@@ -1062,26 +1062,29 @@ mod tests {
     use std::os::unix::fs::PermissionsExt as _;
 
     use super::{BoxRoots, ConfineError, Jit, Prepared};
+    use crate::resolver::test_tree::TestDir;
 
-    /// A fresh directory under the system's temporary directory, removed on
-    /// drop, its path canonical. Every directory it makes has the mode
-    /// `0o755`, whatever the umask, so none is world-writable unless a test
-    /// makes it so.
-    struct Scratch(PathBuf);
+    /// A fresh directory under the system's temporary directory (see
+    /// [`TestDir`]). Every directory it makes has the mode `0o755`, whatever
+    /// the umask, so none is world-writable unless a test makes it so.
+    struct Scratch(TestDir);
 
     impl Scratch {
         fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("gro_runtime_confine_{}_{name}", std::process::id()));
-            std::fs::create_dir_all(&dir).unwrap();
-            set_mode(&dir, 0o755);
-            Self(dir.canonicalize().unwrap())
+            let dir = TestDir::in_system_temp(&format!("confine_{name}"));
+            set_mode(dir.path(), 0o755);
+            Self(dir)
+        }
+
+        /// The directory's canonical path.
+        fn path(&self) -> &Path {
+            self.0.path()
         }
 
         fn dir(&self, path: &str) -> PathBuf {
-            let dir = self.0.join(path);
+            let dir = self.path().join(path);
             std::fs::create_dir_all(&dir).unwrap();
-            let mut made = self.0.clone();
+            let mut made = self.path().to_owned();
             for component in Path::new(path).components() {
                 made.push(component);
                 set_mode(&made, 0o755);
@@ -1090,17 +1093,11 @@ mod tests {
         }
 
         fn file(&self, path: &str) {
-            std::fs::write(self.0.join(path), "{}").unwrap();
+            std::fs::write(self.path().join(path), "{}").unwrap();
         }
 
         fn link(&self, target: &Path, at: &str) {
-            std::os::unix::fs::symlink(target, self.0.join(at)).unwrap();
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
+            std::os::unix::fs::symlink(target, self.path().join(at)).unwrap();
         }
     }
 
@@ -1154,13 +1151,13 @@ mod tests {
             scratch.file(&format!("{dir}/package.json"));
         }
         scratch.link(
-            &scratch.0.join("w/tool/package.json"),
+            &scratch.path().join("w/tool/package.json"),
             "w/linked_json/package.json",
         );
         for dir in [&shared, &open] {
             set_mode(dir, 0o777);
         }
-        std::fs::write(scratch.0.join("w/file.txt"), "").unwrap();
+        std::fs::write(scratch.path().join("w/file.txt"), "").unwrap();
         scratch.dir("w/project/node_modules/@fuzdev");
         scratch.dir("w/project/node_modules/installed");
         scratch.dir("w/project/node_modules/@scope/installed");
@@ -1170,9 +1167,15 @@ mod tests {
         scratch.link(&scoped, "w/project/node_modules/@scope/linked");
         scratch.link(&hidden, "w/project/node_modules/.bin");
         scratch.link(&hidden, "w/project/node_modules/@fuzdev/.hidden");
-        scratch.link(&scratch.0.join("absent"), "w/project/node_modules/dangling");
-        scratch.link(&scratch.0.join("w/file.txt"), "w/project/node_modules/file");
-        scratch.link(&scratch.0.join("w"), "w/project/node_modules/ancestor");
+        scratch.link(
+            &scratch.path().join("absent"),
+            "w/project/node_modules/dangling",
+        );
+        scratch.link(
+            &scratch.path().join("w/file.txt"),
+            "w/project/node_modules/file",
+        );
+        scratch.link(&scratch.path().join("w"), "w/project/node_modules/ancestor");
         scratch.link(Path::new("/"), "w/project/node_modules/root");
         scratch.link(&planted, "w/project/node_modules/planted");
         scratch.link(&open, "w/project/node_modules/open");
@@ -1206,12 +1209,12 @@ mod tests {
         }
         set_mode(&open, 0o777);
         scratch.link(&store, "w/project/node_modules");
-        scratch.link(&scratch.0.join("w/a"), "w/open/store/a");
+        scratch.link(&scratch.path().join("w/a"), "w/open/store/a");
         scratch.link(&scope, "w/plain/node_modules/@s");
-        scratch.link(&scratch.0.join("w/b"), "w/open/scope/b");
-        scratch.link(&scratch.0.join("w/c"), "w/plain/node_modules/c");
+        scratch.link(&scratch.path().join("w/b"), "w/open/scope/b");
+        scratch.link(&scratch.path().join("w/c"), "w/plain/node_modules/c");
         assert_eq!(closure(&project), [project]);
-        assert_eq!(closure(&plain), [plain, scratch.0.join("w/c")]);
+        assert_eq!(closure(&plain), [plain, scratch.path().join("w/c")]);
     }
 
     /// An entry that isn't a symlink is a root when the directory holding it
@@ -1324,10 +1327,10 @@ mod tests {
         let scratch = Scratch::new("unpinned");
         let project = scratch.dir("real/project");
         scratch.link(&project, "linked");
-        scratch.link(&scratch.0.join("real"), "alias");
-        assert!(Prepared::for_project(scratch.0.join("linked")).is_err());
-        assert!(Prepared::for_project(scratch.0.join("alias/project")).is_err());
-        assert!(Prepared::for_project(scratch.0.join("absent")).is_err());
+        scratch.link(&scratch.path().join("real"), "alias");
+        assert!(Prepared::for_project(scratch.path().join("linked")).is_err());
+        assert!(Prepared::for_project(scratch.path().join("alias/project")).is_err());
+        assert!(Prepared::for_project(scratch.path().join("absent")).is_err());
         assert!(Prepared::for_project(project).is_ok());
     }
 
@@ -1339,7 +1342,11 @@ mod tests {
         let prepared = Prepared::for_project(project.clone()).unwrap();
         assert_eq!(prepared.roots().as_slice(), std::slice::from_ref(&project));
         assert!(prepared.roots().holds(&project.join("a/b.ts")));
-        assert!(!prepared.roots().holds(&scratch.0.join("projectile/b.ts")));
+        assert!(
+            !prepared
+                .roots()
+                .holds(&scratch.path().join("projectile/b.ts"))
+        );
     }
 
     #[test]
@@ -2049,7 +2056,7 @@ mod tests {
         let (stop, wait) = std::sync::mpsc::channel::<()>();
         let other = std::thread::spawn(move || wait.recv());
         let scratch = Scratch::new("threads");
-        let prepared = Prepared::for_project(scratch.0.clone()).unwrap();
+        let prepared = Prepared::for_project(scratch.path().to_owned()).unwrap();
         match prepared.confine(Jit::Off) {
             Err(ConfineError::Threads { count }) => assert!(count >= 2, "{count}"),
             other => panic!("expected a refusal by the thread count, got {other:?}"),

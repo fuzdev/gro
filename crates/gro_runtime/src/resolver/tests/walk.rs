@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{MODULE, from_entry, package, packages, roots};
-use crate::resolver::test_tree::MemoryTree;
+use crate::resolver::test_tree::{MemoryTree, TestDir};
 use crate::resolver::{
     ConsultedFile, DiskTree, Entry, EntryBound, FileId, FileRole, MAX_PACKAGE_JSON_SIZE,
     PackageSearchBound, ResolveErrorKind, SourceTree, resolve, resolve_entry,
@@ -179,7 +179,8 @@ fn the_scope_is_read_once() {
 #[test]
 fn a_special_file_package_json_is_refused() {
     use std::os::unix::fs::PermissionsExt as _;
-    let root = std::env::temp_dir().join(format!("gro_resolver_fifo_{}", std::process::id()));
+    let test_dir = TestDir::in_system_temp("resolver_fifo");
+    let root = test_dir.path();
     std::fs::create_dir_all(root.join("node_modules/fifo")).unwrap();
     std::fs::create_dir_all(root.join("sub")).unwrap();
     // pinned, since a world-writable one would end the walks
@@ -200,17 +201,14 @@ fn a_special_file_package_json_is_refused() {
             .expect("coreutils `mkfifo` is required for the special file test");
         assert!(status.success(), "mkfifo {fifo}");
     }
-    let real_root = root.canonicalize().unwrap();
-    let importer = Url::from_file_path(real_root.join("main.mjs")).unwrap();
+    let importer = Url::from_file_path(root.join("main.mjs")).unwrap();
     let from = |specifier| from_entry(&DiskTree, specifier, &importer);
     let package = from("fifo");
     let scope = from("./sub/a.js");
-    // removed before any assertion, so a failure leaves no FIFO behind
-    std::fs::remove_dir_all(&root).unwrap();
     let package = package.unwrap_err().kind;
     let scope = scope.unwrap_err().kind;
     let invalid = |path: &str| ResolveErrorKind::InvalidPackageJson {
-        path: real_root.join(path),
+        path: root.join(path),
         reason: "it is not a regular file (a FIFO, a socket, or a device)".to_owned(),
     };
     assert_eq!(package, invalid("node_modules/fifo/package.json"));
@@ -221,7 +219,7 @@ fn a_special_file_package_json_is_refused() {
             "{}/node_modules/fifo/package.json is not a valid package.json: it is not a \
              regular file (a FIFO, a socket, or a device). Fix: correct it, or reinstall the \
              package",
-            real_root.display()
+            root.display()
         )
     );
 }
@@ -839,14 +837,13 @@ fn a_mode_failure_on_the_walk_for_the_bound_fails() {
 #[test]
 fn world_writable_is_the_other_write_bit() {
     use std::os::unix::fs::PermissionsExt as _;
-    let dir = std::env::temp_dir().join(format!("gro_resolver_mode_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let test_dir = TestDir::in_system_temp("resolver_mode");
+    let dir = test_dir.path();
     let modes = [0o755, 0o775, 0o770, 0o757, 0o777, 0o1777, 0o1775, 0o702];
     let writable = modes.map(|mode| {
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
-        DiskTree.is_world_writable(&dir).unwrap()
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).unwrap();
+        DiskTree.is_world_writable(dir).unwrap()
     });
-    std::fs::remove_dir(&dir).unwrap();
     assert_eq!(
         writable,
         [false, false, false, true, true, true, false, true]

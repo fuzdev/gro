@@ -4,7 +4,7 @@ use std::path::Path;
 use url::Url;
 
 use super::{from_entry, importer, packages, tree};
-use crate::resolver::test_tree::disk_test_dir;
+use crate::resolver::test_tree::TestDir;
 use crate::resolver::{DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, SourceTree, resolve_entry};
 
 /// A resolution carries the identity of the file it found, its real
@@ -53,9 +53,8 @@ fn a_read_refuses_another_file() {
 #[test]
 fn a_disk_read_refuses_a_replaced_file() {
     use std::os::unix::fs::MetadataExt as _;
-    let dir = disk_test_dir("resolver_id");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.canonicalize().unwrap().join("package.json");
+    let dir = TestDir::on_disk("resolver_id");
+    let path = dir.path().join("package.json");
     std::fs::write(&path, "{}").unwrap();
     let metadata = std::fs::metadata(&path).unwrap();
     let entry = DiskTree.lookup(&path).unwrap();
@@ -69,12 +68,10 @@ fn a_disk_read_refuses_a_replaced_file() {
     };
     let before = DiskTree.read(&path, id);
     // made before the rename, so it can't reuse the replaced file's inode
-    let replacement = dir.join("replacement.json");
+    let replacement = dir.path().join("replacement.json");
     std::fs::write(&replacement, "{}").unwrap();
     std::fs::rename(&replacement, &path).unwrap();
     let after = DiskTree.read(&path, id);
-    // removed before any assertion, so a failure leaves nothing behind
-    std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(
         entry,
         Some(Entry::File {
@@ -94,9 +91,8 @@ fn a_disk_read_refuses_a_replaced_file() {
 /// one remade on a freed inode number has, is refused.
 #[test]
 fn a_disk_read_refuses_another_birth_time() {
-    let dir = disk_test_dir("resolver_born");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.canonicalize().unwrap().join("package.json");
+    let dir = TestDir::on_disk("resolver_born");
+    let path = dir.path().join("package.json");
     std::fs::write(&path, "{}").unwrap();
     let id = match DiskTree.lookup(&path).unwrap() {
         Some(Entry::File { id, .. }) => Some(id),
@@ -110,8 +106,6 @@ fn a_disk_read_refuses_another_birth_time() {
     });
     let same = id.map(|id| DiskTree.read(&path, id));
     let other = remade.map(|remade| DiskTree.read(&path, remade));
-    // removed before any assertion, so a failure leaves nothing behind
-    std::fs::remove_dir_all(&dir).unwrap();
     assert!(
         id.is_some_and(|id| id.born.is_some()),
         "this filesystem records birth times"
@@ -122,8 +116,8 @@ fn a_disk_read_refuses_another_birth_time() {
 
 #[test]
 fn disk_reads_are_bounded() {
-    let path =
-        std::env::temp_dir().join(format!("gro_resolver_bounded_{}.json", std::process::id()));
+    let dir = TestDir::in_system_temp("resolver_bounded");
+    let path = dir.path().join("package.json");
     let file = std::fs::File::create(&path).unwrap();
     // sparse, so nothing is written; refused before any allocation of
     // its size, which would abort the process
@@ -134,7 +128,6 @@ fn disk_reads_are_bounded() {
     let too_large = DiskTree.read(&path, id).unwrap_err().kind();
     file.set_len(MAX_PACKAGE_JSON_SIZE).unwrap();
     let at_most = DiskTree.read(&path, id).map(|bytes| bytes.len() as u64);
-    std::fs::remove_file(&path).unwrap();
     assert_eq!(huge, io::ErrorKind::FileTooLarge);
     assert_eq!(too_large, io::ErrorKind::FileTooLarge);
     assert_eq!(at_most.unwrap(), MAX_PACKAGE_JSON_SIZE);

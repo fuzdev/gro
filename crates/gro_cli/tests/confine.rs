@@ -27,6 +27,8 @@
     )
 )]
 
+mod support;
+
 fn main() {
     #[cfg(all(feature = "snapshot", target_os = "linux"))]
     confined::main();
@@ -46,6 +48,8 @@ mod confined {
     use gro_runtime::engine::init_confined_engine;
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
+
+    use super::support::Scratch;
 
     /// The snapshot the binary under test embeds, as `fgro` embeds it.
     mod embedded {
@@ -119,20 +123,16 @@ mod confined {
     }
 
     /// The scratch directory: a project, with a module, and a file outside it.
-    fn scratch() -> PathBuf {
-        let dir =
-            Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("confine_{}", std::process::id()));
-        for (file, content) in [
-            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
-            ("project/main.js", "export default {box: 'held'};\n"),
-            ("project/truncated.txt", "kept\n"),
-            ("outside/secret.txt", "outside\n"),
-        ] {
-            let path = dir.join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-        dir.canonicalize().unwrap()
+    fn scratch() -> Scratch {
+        Scratch::new(
+            "box",
+            &[
+                ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+                ("project/main.js", "export default {box: 'held'};\n"),
+                ("project/truncated.txt", "kept\n"),
+                ("outside/secret.txt", "outside\n"),
+            ],
+        )
     }
 
     /// The file the reads case tries to create in `/tmp`, named by the
@@ -149,7 +149,7 @@ mod confined {
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
                 .args(["child", case])
-                .arg(&scratch)
+                .arg(&scratch.0)
                 // eval refuses any other time zone, and ICU reads the host's
                 .env("TZ", "UTC")
                 // a priced build's switches, read only with its feature
@@ -177,8 +177,7 @@ mod confined {
             }
         }
         // a file a breached box created in `/tmp`
-        let _ = std::fs::remove_file(tmp_file(&scratch));
-        std::fs::remove_dir_all(&scratch).unwrap();
+        let _ = std::fs::remove_file(tmp_file(&scratch.0));
         assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 

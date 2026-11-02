@@ -7,8 +7,11 @@
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
 
-use std::path::Path;
-use std::process::{Command, Output, Stdio};
+mod support;
+
+use std::process::{Command, Output};
+
+use support::{fgro_command, spawn};
 
 /// The variable naming the defaults to turn off, `gro_runtime::prices`'s.
 const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
@@ -21,20 +24,21 @@ fn fgro(args: &[&str], off: Option<&str>) -> Output {
 
 /// Runs `fgro` as [`fgro`] does, with `env` set over its defaults.
 fn fgro_in(args: &[&str], off: Option<&str>, env: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
+    let mut command = fgro_command(args);
     command
-        .args(args)
-        // eval refuses any other time zone
-        .env("TZ", "UTC")
         .env_remove("LC_ALL")
         .envs(env.iter().copied())
-        .env_remove(PRICES_OFF_ENV)
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval"))
-        .stdin(Stdio::null());
+        .current_dir(support::fixtures("eval"));
+    spawn(with_switches(command, off), b"")
+}
+
+/// `command` with `off` as the switches when given, and none otherwise.
+fn with_switches(mut command: Command, off: Option<&str>) -> Command {
+    command.env_remove(PRICES_OFF_ENV);
     if let Some(off) = off {
         command.env(PRICES_OFF_ENV, off);
     }
-    command.output().unwrap()
+    command
 }
 
 fn version(off: Option<&str>) -> String {
@@ -165,39 +169,36 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
     // the box: a package linked from a subdirectory's `node_modules`, which
     // the box's link closure doesn't follow, is refused by the loader's own
     // rule, then, with that off, by Landlock, and loads with both off
-    let base = std::env::temp_dir().join(format!("fgro_prices_box_{}", std::process::id()));
-    let project = base.join("p");
-    let outside = base.join("outside/pkg");
-    std::fs::create_dir_all(project.join("sub/node_modules")).unwrap();
-    std::fs::create_dir_all(&outside).unwrap();
-    // not world-writable, which would end the walks up and refuse the package
-    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::write(
-        project.join("package.json"),
-        r#"{"name": "p", "type": "module"}"#,
+    let scratch = support::Scratch::in_system_temp(
+        "box",
+        &[
+            ("p/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "p/sub/main.js",
+                "import value from 'pkg';\nexport default value;\n",
+            ),
+            (
+                "outside/pkg/package.json",
+                r#"{"name": "pkg", "type": "module", "exports": "./index.js"}"#,
+            ),
+            ("outside/pkg/index.js", "export default 'outside';\n"),
+        ],
+    );
+    let project = scratch.0.join("p");
+    let outside = scratch.0.join("outside/pkg");
+    // not world-writable, as the scratch's own aren't, which would end the
+    // walks up and refuse the package
+    std::fs::create_dir(project.join("sub/node_modules")).unwrap();
+    std::fs::set_permissions(
+        project.join("sub/node_modules"),
+        std::fs::Permissions::from_mode(0o755),
     )
     .unwrap();
-    std::fs::write(
-        project.join("sub/main.js"),
-        "import value from 'pkg';\nexport default value;\n",
-    )
-    .unwrap();
-    std::fs::write(
-        outside.join("package.json"),
-        r#"{"name": "pkg", "type": "module", "exports": "./index.js"}"#,
-    )
-    .unwrap();
-    std::fs::write(outside.join("index.js"), "export default 'outside';\n").unwrap();
     std::os::unix::fs::symlink(&outside, project.join("sub/node_modules/pkg")).unwrap();
     let outside_kind = |off: &str| {
-        let output = Command::new(env!("CARGO_BIN_EXE_fgro"))
-            .args(["eval", "sub/main.js"])
-            .env("TZ", "UTC")
-            .env(PRICES_OFF_ENV, off)
-            .current_dir(&project)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let mut command = fgro_command(&["eval", "sub/main.js"]);
+        command.current_dir(&project);
+        let output = spawn(with_switches(command, Some(off)), b"");
         let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         if envelope["ok"] == true {
             envelope["value"].clone()
@@ -210,7 +211,6 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         outside_kind("box_rule"),
         outside_kind("box_rule,landlock"),
     ];
-    std::fs::remove_dir_all(&base).unwrap();
     // the loader's rule names the breach; Landlock's refused read fails the
     // resolution, which reads the package's `package.json`
     assert_eq!(kinds, ["internal", "resolve", "outside"]);

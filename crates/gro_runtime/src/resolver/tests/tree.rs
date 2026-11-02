@@ -4,7 +4,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::resolver::test_tree::{MemoryTree, disk_test_dir};
+use crate::resolver::test_tree::{MemoryTree, TestDir};
 use crate::resolver::{DiskTree, Entry, SourceTree};
 
 /// What a lookup found, with no file identity, which differs by tree.
@@ -52,9 +52,8 @@ fn the_memory_tree_finds_what_the_disk_does() {
         links: links.into_iter().collect(),
         ..MemoryTree::default()
     };
-    let dir = disk_test_dir("tree_faithful");
-    // a run that crashed with this pid would leave its links behind
-    let _ = std::fs::remove_dir_all(&dir);
+    let test_dir = TestDir::on_disk("tree_faithful");
+    let dir = test_dir.path();
     for file in files {
         let path = dir.join(file.trim_start_matches('/'));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -65,7 +64,6 @@ fn the_memory_tree_finds_what_the_disk_does() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(target, path).unwrap();
     }
-    let base = dir.canonicalize().unwrap();
     let probes = [
         "/t/p/node_modules/foo",
         "/t/p/node_modules/foo/package.json",
@@ -97,15 +95,13 @@ fn the_memory_tree_finds_what_the_disk_does() {
         .iter()
         .map(|probe| {
             let on_disk = found(
-                DiskTree.lookup(&base.join(probe.trim_start_matches('/'))),
-                &base,
+                DiskTree.lookup(&dir.join(probe.trim_start_matches('/'))),
+                dir,
             );
             let in_memory = found(memory.lookup(Path::new(probe)), Path::new("/"));
             (*probe, on_disk, in_memory)
         })
         .collect();
-    // removed before any assertion, so a failure leaves nothing behind
-    std::fs::remove_dir_all(&dir).unwrap();
     for (probe, on_disk, in_memory) in results {
         assert_eq!(in_memory, on_disk, "{probe}");
     }

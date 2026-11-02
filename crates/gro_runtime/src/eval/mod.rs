@@ -1335,6 +1335,7 @@ mod tests {
     use super::*;
     use crate::loader::graph::{Position, Recording};
     use crate::loader::strip::StripFailure;
+    use crate::resolver::test_tree::TestDir;
     use crate::resolver::{FileId, Origin, Resolution, ResolveErrorKind, Roots};
 
     /// A graph of `/p/main.js` with `failures` recorded, each at its own
@@ -1694,7 +1695,8 @@ mod tests {
     /// the walk from a directory in it with no `package.json` stops there.
     #[test]
     fn the_prepass_refuses_an_entry_no_project_owns() {
-        let dir = std::env::temp_dir().join(format!("gro_runtime_eval_{}_c1", std::process::id()));
+        let test_dir = TestDir::in_system_temp("eval_c1");
+        let dir = test_dir.path();
         let files = [
             ("project/package.json", r#"{"name": "p", "type": "module"}"#),
             ("project/main.mjs", ""),
@@ -1710,7 +1712,6 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, content).unwrap();
         }
-        let dir = dir.canonicalize().unwrap();
         let project = dir.join("project");
 
         let resolved = prepass(options(Path::new("main.mjs"), &project)).unwrap();
@@ -1741,7 +1742,6 @@ mod tests {
                 project.join(entry).canonicalize().unwrap()
             );
         }
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A graph with a consulted file the run didn't record reading is an

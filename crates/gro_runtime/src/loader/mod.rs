@@ -656,7 +656,7 @@ mod tests {
     use super::strip::StripFailure;
     use super::*;
     use crate::confine::BoxRoots;
-    use crate::resolver::test_tree::{MemoryTree, disk_test_dir};
+    use crate::resolver::test_tree::{MemoryTree, TestDir};
     use crate::resolver::{ConsultedFile, FileRole, ResolveErrorKind};
 
     /// A project at `/p` with `bar` installed and `lnk` linked to a checkout
@@ -863,30 +863,33 @@ mod tests {
         assert!(error.contains("was never resolved"), "{error}");
     }
 
-    /// Files on disk in a fresh directory (see [`disk_test_dir`]), removed on
-    /// drop, under a named `package.json`, so the project root is the
-    /// directory itself. Every directory is `0o755`, so a umask of 0 can't
-    /// make one world-writable.
-    struct DiskFixtures(PathBuf);
+    /// Files on disk in a fresh directory (see [`TestDir`]), under a named
+    /// `package.json`, so the project root is the directory itself. Every
+    /// directory is `0o755`, so a umask of 0 can't make one world-writable.
+    struct DiskFixtures(TestDir);
 
     impl DiskFixtures {
         fn new(name: &str, files: &[(&str, &str)]) -> Self {
             use std::os::unix::fs::PermissionsExt as _;
-            let dir = disk_test_dir(&format!("loader_{name}"));
-            std::fs::create_dir_all(&dir).unwrap();
+            let dir = TestDir::on_disk(&format!("loader_{name}"));
             let package_json = [("package.json", r#"{"name": "fixture", "type": "module"}"#)];
             for (file, content) in files.iter().chain(&package_json) {
-                let path = dir.join(file);
+                let path = dir.path().join(file);
                 let parent = path.parent().unwrap();
                 std::fs::create_dir_all(parent).unwrap();
                 std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
                 std::fs::write(path, content).unwrap();
             }
-            Self(dir.canonicalize().unwrap())
+            Self(dir)
+        }
+
+        /// The directory's canonical path.
+        fn dir(&self) -> &Path {
+            self.0.path()
         }
 
         fn path(&self, file: &str) -> PathBuf {
-            self.0.join(file)
+            self.dir().join(file)
         }
 
         fn url(&self, file: &str) -> Url {
@@ -901,7 +904,7 @@ mod tests {
         /// A loader for the graph of `entry`, recording as `recording` says.
         fn loader_recording(&self, entry: &str, recording: Recording) -> Loader {
             let (entry, roots) =
-                resolver::resolve_entry(&DiskTree, Path::new(entry), &self.0).unwrap();
+                resolver::resolve_entry(&DiskTree, Path::new(entry), self.dir()).unwrap();
             Loader::new(&entry, roots, recording)
         }
 
@@ -921,12 +924,6 @@ mod tests {
             let link = self.path(&format!("{file}.link"));
             std::os::unix::fs::symlink(target, &link).unwrap();
             std::fs::rename(link, self.path(file)).unwrap();
-        }
-    }
-
-    impl Drop for DiskFixtures {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
         }
     }
 
@@ -1021,12 +1018,12 @@ mod tests {
         assert_eq!(load_disk(&unboxed, &url).as_deref(), Ok(SOURCE));
         assert_eq!(unboxed.breach(), None);
         let inside = fixtures.loader("main.js").with_rules(Rules {
-            box_roots: Some(BoxRoots::for_test(vec![fixtures.0.clone()])),
+            box_roots: Some(BoxRoots::for_test(vec![fixtures.dir().to_owned()])),
             ..Rules::default()
         });
         assert_eq!(load_disk(&inside, &url).as_deref(), Ok(SOURCE));
         assert_eq!(inside.breach(), None);
-        let elsewhere = fixtures.0.with_file_name("elsewhere");
+        let elsewhere = fixtures.dir().with_file_name("elsewhere");
         let outside = fixtures.loader("main.js").with_rules(Rules {
             box_roots: Some(BoxRoots::for_test(vec![elsewhere])),
             ..Rules::default()

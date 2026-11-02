@@ -7,69 +7,20 @@
     clippy::expect_used,
     reason = "a test's setup fails by panicking"
 )]
-#![expect(clippy::panic, reason = "a hung child fails its test by panicking")]
+
+mod support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant};
 
-/// How long a child may run before it's killed and its test fails, generous
-/// for a debug build on a loaded machine.
-const DEADLINE: Duration = Duration::from_secs(60);
+use support::{COLOR_VARS, Scratch, fgro_command, spawn};
 
 fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/run")
+    support::fixtures("run")
 }
 
-/// The fixtures directory as a `file:` URL prefix, as error positions name it,
-/// percent-encoded as the runtime's URLs are.
 fn fixtures_url() -> String {
-    url::Url::from_file_path(fixtures().canonicalize().unwrap())
-        .unwrap()
-        .into()
-}
-
-/// Runs `command` with stdout and stderr piped, killing it at the deadline so
-/// a run that never ends fails its test instead of hanging the suite. The
-/// fixtures print little, well under a pipe's buffer, so polling can't
-/// deadlock on a full pipe.
-fn output_within_deadline(command: &mut Command) -> Output {
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let start = Instant::now();
-    while child.try_wait().unwrap().is_none() {
-        if start.elapsed() > DEADLINE {
-            child.kill().unwrap();
-            let output = child.wait_with_output().unwrap();
-            panic!("killed after {DEADLINE:?}: {command:?}\n{output:?}");
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    child.wait_with_output().unwrap()
-}
-
-/// The variables the host's color decision reads, all of them, so a test sets
-/// what it needs and the harness's own environment (Claude Code's
-/// `CLAUDECODE`, a CI's `FORCE_COLOR`) doesn't leak in.
-const COLOR_VARS: [&str; 5] = [
-    "FORCE_COLOR",
-    "NO_COLOR",
-    "NODE_DISABLE_COLORS",
-    "CLAUDECODE",
-    "TERM",
-];
-
-/// A command for `fgro` with every color variable cleared.
-fn fgro_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
-    for name in COLOR_VARS {
-        command.env_remove(name);
-    }
-    command
+    support::fixtures_url("run")
 }
 
 /// Runs `fgro` with `args` from the fixtures directory, with stdout and stderr
@@ -81,12 +32,9 @@ fn fgro(args: &[&str]) -> Output {
 
 /// [`fgro`] with `env` set.
 fn fgro_with_env(args: &[&str], env: &[(&str, &str)]) -> Output {
-    output_within_deadline(
-        fgro_command()
-            .args(args)
-            .envs(env.iter().copied())
-            .current_dir(fixtures()),
-    )
+    let mut command = fgro_command(args);
+    command.envs(env.iter().copied()).current_dir(fixtures());
+    spawn(command, b"")
 }
 
 struct Run {
@@ -391,8 +339,8 @@ const EXT_SPECIFIERS: [&str; 4] = [
 fn an_ext_specifier_is_refused_to_a_static_import() {
     for (i, specifier) in EXT_SPECIFIERS.iter().enumerate() {
         let source = format!("import * as m from {specifier:?};\nconsole.log('loaded', m);\n");
-        let fixtures = TempFixtures::new(&format!("ext_static_{i}"), &[("main.js", &source)]);
-        let run = fixtures.run("main.js");
+        let fixtures = temp_fixtures(&format!("ext_static_{i}"), &[("main.js", &source)]);
+        let run = run_in(&fixtures, "main.js");
         assert_eq!(run.code, 1, "{specifier}: {}{}", run.stdout, run.stderr);
         assert_eq!(run.stdout, "", "{specifier}");
         assert!(
@@ -425,8 +373,8 @@ fn an_ext_specifier_is_refused_to_import_and_import_meta_resolve() {
 }}
 "
     );
-    let fixtures = TempFixtures::new("ext_dynamic", &[("main.js", &source)]);
-    let run = fixtures.run("main.js");
+    let fixtures = temp_fixtures("ext_dynamic", &[("main.js", &source)]);
+    let run = run_in(&fixtures, "main.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
     let expected: String = EXT_SPECIFIERS
         .iter()
@@ -442,93 +390,57 @@ fn an_ext_specifier_is_refused_to_import_and_import_meta_resolve() {
     assert_eq!(run.stdout, expected);
 }
 
-/// A directory of its own for `files`, so sources that must not pass the
-/// format check (a parse error) or that it skips (`.tsx`, `.cts`) live
-/// outside the fixtures. Removed on drop.
-struct TempFixtures(PathBuf);
-
-impl TempFixtures {
-    /// The files, under a `package.json` with `"type": "module"` unless they
-    /// have their own.
-    fn new(name: &str, files: &[(&str, &str)]) -> Self {
-        let fixtures = Self::without_package_json(name, files);
-        let package_json = fixtures.0.join("package.json");
-        if !package_json.exists() {
-            std::fs::write(package_json, "{\"type\": \"module\"}\n").unwrap();
-        }
-        fixtures
+/// A directory of its own for `files` (see [`Scratch`]), so sources that
+/// must not pass the format check (a parse error) or that it skips (`.tsx`,
+/// `.cts`) live outside the fixtures, under the system's temporary
+/// directory, which ends every walk up from them; the files under a
+/// `package.json` with `"type": "module"` unless they have their own.
+fn temp_fixtures(name: &str, files: &[(&str, &str)]) -> Scratch {
+    let fixtures = Scratch::in_system_temp(name, files);
+    let package_json = fixtures.0.join("package.json");
+    if !package_json.exists() {
+        std::fs::write(package_json, "{\"type\": \"module\"}\n").unwrap();
     }
-
-    /// The files alone, each at its relative path. Every directory's mode
-    /// is set to `0o755`, so a umask of 0 can't make one world-writable,
-    /// which would end every walk up from the files at it.
-    fn without_package_json(name: &str, files: &[(&str, &str)]) -> Self {
-        use std::os::unix::fs::PermissionsExt as _;
-        let dir = std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        for (file, content) in files {
-            let path = dir.join(file);
-            for parent in path.ancestors().skip(1) {
-                if parent == dir {
-                    break;
-                }
-                std::fs::create_dir_all(parent).unwrap();
-                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
-            }
-            std::fs::write(path, content).unwrap();
-        }
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        Self(dir.canonicalize().unwrap())
-    }
-
-    /// Sets the mode of the directory at `path`, relative to the fixtures.
-    fn set_mode(&self, path: &str, mode: u32) {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(self.0.join(path), std::fs::Permissions::from_mode(mode)).unwrap();
-    }
-
-    /// The first world-writable directory at or above the fixtures, where
-    /// every walk up from them stops (`/tmp` is one), if any.
-    ///
-    /// # Panics
-    ///
-    /// Panics when a `package.json` is above the fixtures and below that
-    /// directory, since the walks from the fixtures would read it, and the
-    /// tests that expect them to find none would fail misleadingly.
-    fn world_writable_ancestor(&self) -> Option<PathBuf> {
-        use std::os::unix::fs::PermissionsExt as _;
-        for dir in self.0.ancestors() {
-            if std::fs::metadata(dir).unwrap().permissions().mode() & 0o002 != 0 {
-                return Some(dir.to_owned());
-            }
-            let package_json = dir.join("package.json");
-            assert!(
-                dir == self.0 || !package_json.exists(),
-                "TMPDIR is under a project: {} is above the temp dir, and the walks from the \
-                 fixtures read it. Set TMPDIR outside one",
-                package_json.display()
-            );
-        }
-        None
-    }
-
-    fn run(&self, file: &str) -> Run {
-        let output =
-            output_within_deadline(fgro_command().args(["run", file]).current_dir(&self.0));
-        Run {
-            code: output
-                .status
-                .code()
-                .expect("the run exits, not killed by a signal"),
-            stdout: String::from_utf8(output.stdout).unwrap(),
-            stderr: String::from_utf8(output.stderr).unwrap(),
-        }
-    }
+    fixtures
 }
 
-impl Drop for TempFixtures {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+/// The first world-writable directory at or above `fixtures`, where every
+/// walk up from them stops (`/tmp` is one), if any.
+///
+/// # Panics
+///
+/// Panics when a `package.json` is above the fixtures and below that
+/// directory, since the walks from the fixtures would read it, and the
+/// tests that expect them to find none would fail misleadingly.
+fn world_writable_ancestor(fixtures: &Scratch) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt as _;
+    for dir in fixtures.0.ancestors() {
+        if std::fs::metadata(dir).unwrap().permissions().mode() & 0o002 != 0 {
+            return Some(dir.to_owned());
+        }
+        let package_json = dir.join("package.json");
+        assert!(
+            dir == fixtures.0 || !package_json.exists(),
+            "TMPDIR is under a project: {} is above the temp dir, and the walks from the \
+             fixtures read it. Set TMPDIR outside one",
+            package_json.display()
+        );
+    }
+    None
+}
+
+/// Runs `file` in `fixtures`.
+fn run_in(fixtures: &Scratch, file: &str) -> Run {
+    let mut command = fgro_command(&["run", file]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    Run {
+        code: output
+            .status
+            .code()
+            .expect("the run exits, not killed by a signal"),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
     }
 }
 
@@ -555,7 +467,7 @@ const again = await import('./a.js');
 const {b} = await import('./b.js');
 console.log(ready, again.a, b);
 ";
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "renamed_over",
         &[
             ("main.js", main),
@@ -566,8 +478,7 @@ console.log(ready, again.a, b);
             ),
         ],
     );
-    let mut child = fgro_command()
-        .args(["run", "main.js"])
+    let mut child = fgro_command(&["run", "main.js"])
         .current_dir(&fixtures.0)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -600,7 +511,7 @@ console.log(ready, again.a, b);
 
 #[test]
 fn a_typescript_parse_error_has_its_position() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "parse_error",
         &[
             ("parse_error.ts", "const a = 1;\nconst b: = 2;\n"),
@@ -609,7 +520,7 @@ fn a_typescript_parse_error_has_its_position() {
     );
     let url = format!("file://{}", fixtures.0.display());
     for entry in ["parse_error.ts", "import_parse_error.js"] {
-        let run = fixtures.run(entry);
+        let run = run_in(&fixtures, entry);
         assert_eq!(run.code, 1, "{entry}");
         assert!(
             run.stderr
@@ -633,7 +544,7 @@ fn a_typescript_parse_error_has_its_position() {
 /// has it.
 #[test]
 fn type_only_imports_drop_and_inline_type_specifiers_keep_the_import() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "type_imports",
         &[
             (
@@ -658,11 +569,11 @@ fn type_only_imports_drop_and_inline_type_specifiers_keep_the_import() {
             ),
         ],
     );
-    let run = fixtures.run("keeps.ts");
+    let run = run_in(&fixtures, "keeps.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "side effect\nkept 1\n");
 
-    let run = fixtures.run("keeps_missing.ts");
+    let run = run_in(&fixtures, "keeps_missing.ts");
     assert_eq!(run.code, 1, "{}", run.stdout);
     assert!(run.stdout.is_empty(), "{}", run.stdout);
     assert!(
@@ -673,7 +584,7 @@ fn type_only_imports_drop_and_inline_type_specifiers_keep_the_import() {
         run.stderr
     );
 
-    let run = fixtures.run("drops.ts");
+    let run = run_in(&fixtures, "drops.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "dropped\n");
 }
@@ -699,7 +610,7 @@ fn chained_operators(n: usize) -> String {
 fn typescript_past_tsv_depth_limits_fails_to_load() {
     let nested = nested_parens(255);
     let chained = chained_operators(7000);
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "deep_limit",
         &[
             ("deep.ts", &nested),
@@ -709,7 +620,7 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
         ],
     );
     let url = format!("file://{}", fixtures.0.display());
-    let run = fixtures.run("deep.ts");
+    let run = run_in(&fixtures, "deep.ts");
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert!(run.stdout.is_empty());
     assert_eq!(
@@ -719,7 +630,7 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
              levels\n    at {url}/deep.ts:1:266\n"
         )
     );
-    let run = fixtures.run("chain.ts");
+    let run = run_in(&fixtures, "chain.ts");
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert!(run.stdout.is_empty());
     // the column is where tsv's weighted count trips, so only the file is pinned
@@ -733,7 +644,7 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
     );
     assert_eq!(run.stderr.lines().count(), 2, "{}", run.stderr);
     for (file, out) in [("deep.js", "ok 1\n"), ("chain.js", "ok 7001\n")] {
-        let run = fixtures.run(file);
+        let run = run_in(&fixtures, file);
         assert_eq!(run.code, 0, "{file}: {}", run.stderr);
         assert_eq!(run.stdout, out, "{file}");
     }
@@ -754,15 +665,15 @@ fn a_module_past_its_byte_cap_fails_to_load() {
     };
     let at = padded("console.log('at the cap');", cap);
     let over = padded("console.log() 'over';", cap + 1);
-    let fixtures = TempFixtures::new("module_cap", &[("at.js", &at), ("over.js", &over)]);
-    let run = fixtures.run("at.js");
+    let fixtures = temp_fixtures("module_cap", &[("at.js", &at), ("over.js", &over)]);
+    let run = run_in(&fixtures, "at.js");
     assert_eq!(
         (run.code, run.stdout.as_str()),
         (0, "at the cap\n"),
         "{}",
         run.stderr
     );
-    let run = fixtures.run("over.js");
+    let run = run_in(&fixtures, "over.js");
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert!(run.stdout.is_empty());
     let url = format!("file://{}/over.js", fixtures.0.display());
@@ -783,7 +694,7 @@ fn deep_typescript_within_the_limits_runs_as_the_same_js_does() {
     // the deepest parens the nesting limit admits, the statement taking a level
     let nested = nested_parens(254);
     let chained = chained_operators(5000);
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "deep",
         &[
             ("deep.ts", &nested),
@@ -793,8 +704,8 @@ fn deep_typescript_within_the_limits_runs_as_the_same_js_does() {
         ],
     );
     for (name, out) in [("deep", "ok 1\n"), ("chain", "ok 5001\n")] {
-        let ts = fixtures.run(&format!("{name}.ts"));
-        let js = fixtures.run(&format!("{name}.js"));
+        let ts = run_in(&fixtures, &format!("{name}.ts"));
+        let js = run_in(&fixtures, &format!("{name}.js"));
         assert_eq!(ts.code, 0, "{name}: {}", ts.stderr);
         assert_eq!(js.code, 0, "{name}: {}", js.stderr);
         assert_eq!(ts.stdout, out, "{name}");
@@ -849,10 +760,10 @@ fn unloadable_typescript_is_refused_by_kind() {
         .map(|&(file, _)| (file, "export {};\n"))
         .collect();
     files.push(("main.js", &main));
-    let fixtures = TempFixtures::new("refused", &files);
+    let fixtures = temp_fixtures("refused", &files);
 
     for (file, reason) in refused {
-        let run = fixtures.run(file);
+        let run = run_in(&fixtures, file);
         assert_eq!(run.code, 2, "{file}: {}", run.stderr);
         assert!(
             run.stderr
@@ -862,7 +773,7 @@ fn unloadable_typescript_is_refused_by_kind() {
         );
         assert!(run.stderr.contains(reason), "{file}: {}", run.stderr);
     }
-    let run = fixtures.run("main.js");
+    let run = run_in(&fixtures, "main.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
     let lines: Vec<&str> = run.stdout.lines().collect();
     assert_eq!(lines.len(), refused.len(), "{}", run.stdout);
@@ -977,7 +888,7 @@ fn a_directory_named_like_a_module_is_refused() {
 #[test]
 fn packages_resolve_through_their_exports() {
     let nested = "node_modules/.deno/nested@1.0.0/node_modules";
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "packages",
         &[
             (
@@ -1073,7 +984,7 @@ fn packages_resolve_through_their_exports() {
         root.join("node_modules/lonely"),
     )
     .unwrap();
-    let run = fixtures.run("main.js");
+    let run = run_in(&fixtures, "main.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(
         run.stdout,
@@ -1081,7 +992,7 @@ fn packages_resolve_through_their_exports() {
          nested, its dependency beside it\nself-reference\npast a marker, gro condition\n"
     );
     // from the symlink's path, the search would reach the project's node_modules/dep
-    let run = fixtures.run("lonely.js");
+    let run = run_in(&fixtures, "lonely.js");
     assert_eq!(run.code, 1);
     let root = root.display();
     assert_eq!(
@@ -1100,7 +1011,7 @@ fn packages_resolve_through_their_exports() {
 
 #[test]
 fn package_refusals_name_the_reason_and_a_fix() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "package_refusals",
         &[
             (
@@ -1122,7 +1033,7 @@ fn package_refusals_name_the_reason_and_a_fix() {
         ],
     );
     let root = fixtures.0.display();
-    let run = fixtures.run("main_only.js");
+    let run = run_in(&fixtures, "main_only.js");
     assert_eq!(run.code, 1);
     assert_eq!(
         run.stderr,
@@ -1133,7 +1044,7 @@ fn package_refusals_name_the_reason_and_a_fix() {
              build, vendor an ESM bundle of it into the project, or run it under Node\n"
         )
     );
-    let run = fixtures.run("commonjs.js");
+    let run = run_in(&fixtures, "commonjs.js");
     assert_eq!(run.code, 1);
     assert_eq!(
         run.stderr,
@@ -1150,7 +1061,7 @@ fn package_refusals_name_the_reason_and_a_fix() {
 /// `ELOOP`.
 #[test]
 fn a_symlink_loop_is_named() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "symlink_loop",
         &[
             (
@@ -1167,7 +1078,7 @@ fn a_symlink_loop_is_named() {
         root.join("node_modules/looped"),
     )
     .unwrap();
-    let run = fixtures.run("main.js");
+    let run = run_in(&fixtures, "main.js");
     assert_eq!(run.code, 1);
     let root = root.display();
     assert_eq!(
@@ -1185,7 +1096,7 @@ fn a_symlink_loop_is_named() {
 /// would guess from the code; `.mjs` needs no `package.json`.
 #[test]
 fn a_js_module_needs_type_module() {
-    let fixtures = TempFixtures::without_package_json(
+    let fixtures = Scratch::in_system_temp(
         "no_package_json",
         &[
             ("a.js", "console.log('a');\n"),
@@ -1195,8 +1106,8 @@ fn a_js_module_needs_type_module() {
         ],
     );
     // where a temp dir is under `/tmp`, the search stops there
-    let stopped_at = fixtures.world_writable_ancestor();
-    let run = fixtures.run("a.js");
+    let stopped_at = world_writable_ancestor(&fixtures);
+    let run = run_in(&fixtures, "a.js");
     assert_eq!(run.code, 2);
     let reason = stopped_at.map_or_else(
         || {
@@ -1222,7 +1133,7 @@ fn a_js_module_needs_type_module() {
             fixtures.0.display()
         )
     );
-    let run = fixtures.run("commonjs/c.js");
+    let run = run_in(&fixtures, "commonjs/c.js");
     assert_eq!(run.code, 2);
     assert!(
         run.stderr.contains(&format!(
@@ -1232,7 +1143,7 @@ fn a_js_module_needs_type_module() {
         "{}",
         run.stderr
     );
-    let run = fixtures.run("b.mjs");
+    let run = run_in(&fixtures, "b.mjs");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "b\n");
 }
@@ -1244,7 +1155,7 @@ fn a_js_module_needs_type_module() {
 /// in it still runs, with relative imports only.
 #[test]
 fn a_world_writable_directory_ends_every_walk() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "world_writable",
         &[
             (
@@ -1275,15 +1186,15 @@ fn a_world_writable_directory_ends_every_walk() {
              the project root, with the package installed in the node_modules beside it\n"
         )
     };
-    let run = fixtures.run("shared/loose/main.ts");
+    let run = run_in(&fixtures, "shared/loose/main.ts");
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
     assert_eq!(run.stderr, no_project_root("foo", "main.ts"));
-    let run = fixtures.run("shared/loose/self.ts");
+    let run = run_in(&fixtures, "shared/loose/self.ts");
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
     assert_eq!(run.stderr, no_project_root("shared/evil.ts", "self.ts"));
-    let run = fixtures.run("shared/direct.ts");
+    let run = run_in(&fixtures, "shared/direct.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "relative\n");
 }
@@ -1293,7 +1204,7 @@ fn a_world_writable_directory_ends_every_walk() {
 /// above it is sound.
 #[test]
 fn a_world_writable_node_modules_is_refused() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "world_writable_node_modules",
         &[
             ("package.json", r#"{"name": "proj", "type": "module"}"#),
@@ -1303,7 +1214,7 @@ fn a_world_writable_node_modules_is_refused() {
         ],
     );
     fixtures.set_mode("node_modules", 0o777);
-    let run = fixtures.run("main.ts");
+    let run = run_in(&fixtures, "main.ts");
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
     let root = fixtures.0.display();
@@ -1325,7 +1236,7 @@ fn a_world_writable_node_modules_is_refused() {
 /// self-reference symlinked out of its package is refused too.
 #[test]
 fn imports_stay_inside_their_root() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "containment",
         &[
             ("package.json", r#"{"name": "proj", "type": "module"}"#),
@@ -1389,7 +1300,7 @@ fn imports_stay_inside_their_root() {
     .unwrap();
     let root = root.display();
     let refused = |file: &str, stderr: String| {
-        let run = fixtures.run(file);
+        let run = run_in(&fixtures, file);
         assert_eq!(run.code, 1, "{file}: {}", run.stderr);
         assert_eq!(run.stdout, "", "{file}");
         assert_eq!(run.stderr, stderr, "{file}");
@@ -1447,11 +1358,11 @@ fn imports_stay_inside_their_root() {
     refused("self_out.ts", out("node_modules/foo/self.mjs"));
     // `import.meta.resolve` admits nothing: admitting `lnk` around the file the project
     // already holds would be a conflict
-    let run = fixtures.run("meta_resolve_admits_nothing.ts");
+    let run = run_in(&fixtures, "meta_resolve_admits_nothing.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, format!("x\nfile://{root}/packages/lnk/x.ts\n"));
     // so what it returns for an installed package is a path into node_modules
-    let run = fixtures.run("meta_resolve.ts");
+    let run = run_in(&fixtures, "meta_resolve.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(
         run.stdout,
@@ -1468,7 +1379,7 @@ fn imports_stay_inside_their_root() {
 /// relative imports stay inside that package.
 #[test]
 fn an_entry_inside_node_modules_runs_as_its_package() {
-    let fixtures = TempFixtures::new(
+    let fixtures = temp_fixtures(
         "entry_in_node_modules",
         &[
             ("package.json", r#"{"name": "proj", "type": "module"}"#),
@@ -1486,10 +1397,10 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
             ("node_modules/.bin/real.mjs", "console.log('real');\n"),
         ],
     );
-    let run = fixtures.run("node_modules/foo/cli.mjs");
+    let run = run_in(&fixtures, "node_modules/foo/cli.mjs");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "own\n");
-    let run = fixtures.run("node_modules/foo/up.mjs");
+    let run = run_in(&fixtures, "node_modules/foo/up.mjs");
     assert_eq!(run.code, 1);
     let root = fixtures.0.display();
     assert_eq!(
@@ -1502,7 +1413,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
         )
     );
     // a file in node_modules but in no package has no origin: a usage error
-    let run = fixtures.run("node_modules/.bin/real.mjs");
+    let run = run_in(&fixtures, "node_modules/.bin/real.mjs");
     assert_eq!(run.code, 2);
     assert_eq!(run.stdout, "");
     assert_eq!(
@@ -1520,7 +1431,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
 /// specifier other than a self-reference is refused.
 #[test]
 fn a_node_modules_above_a_package_less_dir_is_never_searched() {
-    let fixtures = TempFixtures::without_package_json(
+    let fixtures = Scratch::in_system_temp(
         "planted_above",
         &[
             ("node_modules/foo/package.json", r#"{"exports": "./i.mjs"}"#),
@@ -1529,8 +1440,8 @@ fn a_node_modules_above_a_package_less_dir_is_never_searched() {
         ],
     );
     // where a temp dir is under `/tmp`, the search stops there
-    let stopped_at = fixtures.world_writable_ancestor();
-    let run = fixtures.run("x/zap.ts");
+    let stopped_at = world_writable_ancestor(&fixtures);
+    let run = run_in(&fixtures, "x/zap.ts");
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
     let root = fixtures.0.display();
@@ -1632,12 +1543,11 @@ fn non_utf8_argument_is_a_usage_error() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
-    let output = output_within_deadline(
-        fgro_command()
-            .arg("run")
-            .arg(OsStr::from_bytes(b"\xff.js"))
-            .current_dir(fixtures()),
-    );
+    let mut command = fgro_command(&["run"]);
+    command
+        .arg(OsStr::from_bytes(b"\xff.js"))
+        .current_dir(fixtures());
+    let output = spawn(command, b"");
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("not valid UTF-8"));
 }
@@ -1666,33 +1576,26 @@ fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
             .output()
             .expect("util-linux `script` is required for the terminal color tests");
     });
-    let output = output_within_deadline(&mut script);
+    let output = spawn(script, b"");
     assert!(output.status.success(), "{output:?}");
     String::from_utf8(output.stdout).unwrap()
-}
-
-/// A file for one stream's output, unique to the calling test.
-#[cfg(target_os = "linux")]
-fn stream_file(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("fgro_run_test_{}_{name}", std::process::id()))
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn color_is_decided_per_stream() {
+    let scratch = Scratch::new("streams", &[]);
     // stdout on the terminal, stderr to a file
-    let stderr_file = stream_file("stderr");
+    let stderr_file = scratch.0.join("stderr");
     let terminal = run_on_terminal(&[], &format!("2>'{}'", stderr_file.display()));
     let stderr = std::fs::read_to_string(&stderr_file).unwrap();
-    std::fs::remove_file(&stderr_file).unwrap();
     assert!(terminal.contains("log \x1b["), "{terminal:?}");
     assert_eq!(stderr, "warn\nerror Map(1) { \"k\" => 1 }\n");
 
     // stderr on the terminal, stdout to a file
-    let stdout_file = stream_file("stdout");
+    let stdout_file = scratch.0.join("stdout");
     let terminal = run_on_terminal(&[], &format!(">'{}'", stdout_file.display()));
     let stdout = std::fs::read_to_string(&stdout_file).unwrap();
-    std::fs::remove_file(&stdout_file).unwrap();
     assert!(terminal.contains("error Map(1) { \x1b["), "{terminal:?}");
     assert_eq!(stdout, "log 1 { a: [ 1, \"two\" ] }\ninfo\n");
 }

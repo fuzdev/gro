@@ -2,18 +2,19 @@
 //! on the process's stdout and stderr, and the engine's process-wide options.
 //!
 //! Each case runs in a child, this test binary run again with [`CASE`] naming
-//! the case and the filter selecting only [`child`]; the parent reads its
-//! exit status and output.
+//! the case and the filter selecting only [`child`] by its full path,
+//! [`CHILD_TEST`]; the parent reads its exit status and output.
 
-// clippy's test allowance covers `#[test]` functions, not their helpers
-#![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
-
-use std::path::Path;
 use std::process::{Command, Output};
 
-use gro_runtime::confine::Confinement;
-use gro_runtime::engine::{Engine, EngineError, EngineOptions, init_engine};
-use gro_runtime::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
+use crate::confine::Confinement;
+use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
+use crate::resolver::test_tree::TestDir;
+use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
+
+/// The full path of [`child`] in the test binary, which libtest's `--exact`
+/// filter matches.
+const CHILD_TEST: &str = "process_tests::child";
 
 /// The variable naming the case a child runs.
 const CASE: &str = "GRO_RUNTIME_TEST_CASE";
@@ -35,19 +36,16 @@ const LOCALE: &str = "fr_CA";
 /// Runs `source` as an `.mjs` entry in a fresh directory on `engine`, on a
 /// thread reserving [`STACK_SIZE`] as `run_main` requires.
 fn run_source(engine: Engine, name: &str, source: &str, options: RuntimeOptions) {
-    let dir =
-        std::env::temp_dir().join(format!("gro_runtime_process_{}_{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let entry = dir.join("main.mjs");
+    let dir = TestDir::in_system_temp(&format!("process_{name}"));
+    let entry = dir.path().join("main.mjs");
     std::fs::write(&entry, source).unwrap();
-    let cwd = dir.clone();
+    let cwd = dir.path().to_owned();
     let result = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || run_main(engine, &options, &entry, &cwd))
         .unwrap()
         .join()
         .unwrap();
-    std::fs::remove_dir_all(Path::new(&dir)).unwrap();
     result.unwrap();
 }
 
@@ -122,7 +120,7 @@ for (const locale of locales) {
 /// output.
 fn run_child(case: &str) -> Output {
     let output = Command::new(std::env::current_exe().unwrap())
-        .args(["child", "--exact", "--nocapture", "--quiet"])
+        .args([CHILD_TEST, "--exact", "--nocapture", "--quiet"])
         .env(CASE, case)
         .output()
         .unwrap();

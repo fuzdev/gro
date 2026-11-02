@@ -64,6 +64,8 @@ pub mod eval;
 mod loader;
 pub mod phases;
 pub mod prices;
+#[cfg(test)]
+mod process_tests;
 pub mod resolver;
 pub mod snapshot;
 
@@ -422,6 +424,7 @@ mod tests {
 
     use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
+    use crate::resolver::test_tree::TestDir;
 
     use super::{
         Graph, Recording, RunError, RuntimeOptions, STACK_SIZE, bootstrap, run_main, run_recorded,
@@ -478,19 +481,16 @@ mod tests {
     /// reserving [`STACK_SIZE`] as `run_main` requires.
     fn run_source(name: &str, source: &str) -> Result<(), RunError> {
         let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-        let dir = std::env::temp_dir().join(format!("gro_runtime_{}_{name}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let entry: PathBuf = dir.join("main.mjs");
+        let dir = TestDir::in_system_temp(name);
+        let entry: PathBuf = dir.path().join("main.mjs");
         std::fs::write(&entry, source).unwrap();
-        let cwd = dir.clone();
-        let result = std::thread::Builder::new()
+        let cwd = dir.path().to_owned();
+        std::thread::Builder::new()
             .stack_size(STACK_SIZE)
             .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
-            .unwrap();
-        std::fs::remove_dir_all(Path::new(&dir)).unwrap();
-        result
+            .unwrap()
     }
 
     /// The refusal the resolver gives every `ext:` specifier.
@@ -587,18 +587,15 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         use std::os::unix::fs::PermissionsExt as _;
 
         let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("gro_runtime_{}_unreadable", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let unreadable = dir.join("unreadable.mjs");
+        let dir = TestDir::in_system_temp("unreadable");
+        let unreadable = dir.path().join("unreadable.mjs");
         std::fs::write(&unreadable, "export default 1;\n").unwrap();
         std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
         // a user the mode doesn't bind, root, reads it anyway
         if std::fs::read(&unreadable).is_ok() {
-            std::fs::remove_dir_all(&dir).unwrap();
             return;
         }
-        let entry = dir.join("main.mjs");
+        let entry = dir.path().join("main.mjs");
         std::fs::write(
             &entry,
             "try {
@@ -612,14 +609,13 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
 ",
         )
         .unwrap();
-        let cwd = dir.clone();
+        let cwd = dir.path().to_owned();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
             .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
             .unwrap()
             .join()
             .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
         assert!(result.is_ok(), "{result:?}");
     }
 
@@ -632,12 +628,9 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         entry: &str,
         recording: Recording,
     ) -> (Result<(), RunError>, Option<Graph>, PathBuf) {
-        use crate::resolver::test_tree::disk_test_dir;
-
         let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-        let dir = disk_test_dir(name);
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.canonicalize().unwrap();
+        let test_dir = TestDir::on_disk(name);
+        let dir = test_dir.path().to_owned();
         for (file, content) in files {
             std::fs::write(dir.join(file), content).unwrap();
         }
@@ -651,7 +644,6 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
             .unwrap()
             .join()
             .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
         (result, graph, dir)
     }
 
@@ -669,14 +661,11 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
 
         use crate::loader::Loader;
         use crate::resolver::DiskTree;
-        use crate::resolver::test_tree::disk_test_dir;
-
         init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-        let dir = disk_test_dir(name);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("main.mjs"), "").unwrap();
-        let cwd = dir.clone();
-        let result = std::thread::Builder::new()
+        let dir = TestDir::on_disk(name);
+        std::fs::write(dir.path().join("main.mjs"), "").unwrap();
+        let cwd = dir.path().to_owned();
+        std::thread::Builder::new()
             .stack_size(STACK_SIZE)
             .spawn(move || {
                 let (entry, roots) =
@@ -692,9 +681,7 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
             })
             .unwrap()
             .join()
-            .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        result
+            .unwrap()
     }
 
     const EVAL: super::Mode = super::Mode::Eval;

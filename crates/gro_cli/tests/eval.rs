@@ -9,57 +9,37 @@
     clippy::expect_used,
     reason = "a test's setup fails by panicking"
 )]
-#![expect(clippy::panic, reason = "a hung child fails its test by panicking")]
 
-use std::io::{Read, Write as _};
+mod support;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
-/// How long a child may run before it's killed and its test fails, generous
-/// for a debug build on a loaded machine.
-const DEADLINE: Duration = Duration::from_secs(60);
+use support::{DEADLINE, Scratch, fgro_command, wrapped_fgro_command};
 
-/// The most resident memory a child may reach, in KiB, before it's killed
-/// and its test fails: 1.5 GiB, twice the most a heap test's child reaches,
-/// so a cap that stops holding fails its test rather than taking the
-/// machine's memory.
-const MAX_RSS_KIB: u64 = 3 << 19;
+/// Held by every test whose child takes much of the machine's memory (a heap
+/// filled to the cap, an array buffer of a gibibyte, the process's memory
+/// cap reached), so no two such children run at once, across tests as
+/// within one: the binary's tests run in parallel, beside whatever else
+/// loads the machine.
+static MEMORY_HEAVY: Mutex<()> = Mutex::new(());
 
-/// Held by every test while its child fills a heap to the cap, so no two
-/// such children, each holding a full heap and keeping V8's collector busy,
-/// run at once, across tests as within one: the binary's tests run in
-/// parallel, beside whatever else loads the machine.
-static HEAP_CAP: Mutex<()> = Mutex::new(());
-
-/// Takes [`HEAP_CAP`], whatever test last panicked holding it.
-fn heap_cap_turn() -> MutexGuard<'static, ()> {
-    HEAP_CAP.lock().unwrap_or_else(PoisonError::into_inner)
+/// Takes [`MEMORY_HEAVY`], whatever test last panicked holding it.
+fn memory_heavy_turn() -> MutexGuard<'static, ()> {
+    MEMORY_HEAVY.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The variables `fgro run` decides color from, all cleared, so a test sets
-/// what it needs; eval reads none of them.
-const COLOR_VARS: [&str; 5] = [
-    "FORCE_COLOR",
-    "NO_COLOR",
-    "NODE_DISABLE_COLORS",
-    "CLAUDECODE",
-    "TERM",
-];
-
 fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval")
+    support::fixtures("eval")
 }
 
 /// The fixtures directory as a `file:` URL prefix.
 fn fixtures_url() -> String {
-    url::Url::from_file_path(fixtures().canonicalize().unwrap())
-        .unwrap()
-        .into()
+    support::fixtures_url("eval")
 }
 
 /// An eval's exit code, its envelope parsed from stdout, and its stderr.
@@ -117,31 +97,28 @@ struct Output {
 /// set, `TZ=UTC` unless `env` sets it, and every color variable cleared
 /// otherwise.
 fn spawn_eval(args: &[&str], driver: Option<&str>, env: &[(&str, &str)]) -> Output {
-    spawn_command("eval", args, driver, env)
+    spawn(command("eval", args, env), driver)
 }
 
-/// [`spawn_eval`] with another subcommand of eval's arguments.
-fn spawn_command(
-    subcommand: &str,
-    args: &[&str],
-    driver: Option<&str>,
-    env: &[(&str, &str)],
-) -> Output {
-    spawn(command(subcommand, args, env), driver)
-}
-
-/// The command [`spawn_command`] runs, for a test to change before
-/// [`spawn`] runs it.
+/// The command [`spawn_eval`] runs for `subcommand`, for a test to change
+/// before [`spawn`] runs it.
 fn command(subcommand: &str, args: &[&str], env: &[(&str, &str)]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_fgro"));
-    for name in COLOR_VARS {
-        command.env_remove(name);
-    }
+    in_fixtures(fgro_command(&[&[subcommand], args].concat()), env)
+}
+
+/// [`command`] for `eval`, run by `wrapper` (see
+/// [`support::wrapped_fgro_command`]).
+fn wrapped_command(wrapper: Command, args: &[&str]) -> Command {
+    in_fixtures(
+        wrapped_fgro_command(wrapper, &[&["eval"], args].concat()),
+        &[],
+    )
+}
+
+/// `command` with `env` set, run from the fixtures directory with its
+/// standard streams piped.
+fn in_fixtures(mut command: Command, env: &[(&str, &str)]) -> Command {
     command
-        .arg(subcommand)
-        .args(args)
-        // eval refuses any other time zone, and ICU reads the host's
-        .env("TZ", "UTC")
         .envs(env.iter().copied())
         .current_dir(fixtures())
         .stdin(Stdio::piped())
@@ -150,66 +127,18 @@ fn command(subcommand: &str, args: &[&str], env: &[(&str, &str)]) -> Command {
     command
 }
 
-/// Runs `command`, `driver`'s file piped to stdin when given.
-fn spawn(mut command: Command, driver: Option<&str>) -> Output {
-    let mut child = command.spawn().unwrap();
-    {
-        // a driver is far smaller than a pipe's buffer, so this can't block
-        let mut stdin = child.stdin.take().unwrap();
-        if let Some(driver) = driver {
-            let source = std::fs::read(fixtures().join("drivers").join(driver)).unwrap();
-            stdin.write_all(&source).unwrap();
-        }
-    }
-    // read while the child runs, so an envelope larger than a pipe's buffer
-    // can't block it
-    let stdout = drain(child.stdout.take().unwrap());
-    let stderr = drain(child.stderr.take().unwrap());
-    let start = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            break status;
-        }
-        let rss = peak_rss_kib(child.id());
-        if start.elapsed() > DEADLINE || rss > MAX_RSS_KIB {
-            child.kill().unwrap();
-            child.wait().unwrap();
-            let (stdout, stderr) = (stdout.join().unwrap(), stderr.join().unwrap());
-            panic!(
-                "killed after {:?} at {rss} KiB resident: {command:?}\n{stdout}\n{stderr}",
-                start.elapsed()
-            );
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    };
-    let stdout = stdout.join().unwrap();
-    let stderr = stderr.join().unwrap();
+/// Runs `command` (see [`support::spawn`]), `driver`'s file piped to stdin
+/// when given.
+fn spawn(command: Command, driver: Option<&str>) -> Output {
+    let stdin = driver.map_or_else(Vec::new, |driver| {
+        std::fs::read(fixtures().join("drivers").join(driver)).unwrap()
+    });
+    let output = support::spawn(command, &stdin);
     Output {
-        code: status.code().expect("the eval exits, not killed"),
-        stdout,
-        stderr,
+        code: output.status.code().expect("the eval exits, not killed"),
+        stdout: String::from_utf8(output.stdout).unwrap(),
+        stderr: String::from_utf8(output.stderr).unwrap(),
     }
-}
-
-/// The most resident memory the process `pid` has reached, in KiB, as
-/// Linux reports it (`VmHWM`), or 0 when it can't be read.
-fn peak_rss_kib(pid: u32) -> u64 {
-    std::fs::read_to_string(format!("/proc/{pid}/status"))
-        .ok()
-        .and_then(|status| {
-            let line = status.lines().find(|line| line.starts_with("VmHWM:"))?;
-            line.split_whitespace().nth(1)?.parse().ok()
-        })
-        .unwrap_or(0)
-}
-
-/// Reads `pipe` to its end on a thread of its own, as UTF-8.
-fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<String> {
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        pipe.read_to_end(&mut bytes).unwrap();
-        String::from_utf8(bytes).unwrap()
-    })
 }
 
 /// [`spawn_eval`], its envelope parsed.
@@ -436,33 +365,6 @@ fn an_entry_that_does_not_resolve_is_a_resolve_exiting_2() {
     assert!(run.message().contains("no such file"), "{}", run.message());
 }
 
-/// Files written under a fresh directory in the target's temporary
-/// directory, which no world-writable directory holds, removed on drop.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str, files: &[(&str, &str)]) -> Self {
-        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("eval_{}_{name}", std::process::id()));
-        for (file, content) in files {
-            let path = dir.join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-        Self(dir.canonicalize().unwrap())
-    }
-
-    fn path(&self, file: &str) -> String {
-        self.0.join(file).display().to_string()
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 /// Eval evaluates a project's own module: one inside `node_modules`, or one
 /// with no project root above it, is refused as a `resolve` exiting 2,
 /// named by its canonical path. The system's temporary directory is
@@ -490,12 +392,9 @@ fn an_entry_no_project_owns_is_a_resolve_exiting_2() {
         run.message()
     );
 
-    let loose = std::env::temp_dir().join(format!("gro_cli_eval_{}_loose", std::process::id()));
-    std::fs::create_dir_all(&loose).unwrap();
-    std::fs::write(loose.join("main.mjs"), "export default 1;\n").unwrap();
-    let entry = loose.join("main.mjs").display().to_string();
+    let loose = Scratch::in_system_temp("loose", &[("main.mjs", "export default 1;\n")]);
+    let entry = loose.path("main.mjs");
     let run = eval(&[&entry]);
-    std::fs::remove_dir_all(&loose).unwrap();
     run.assert_failed("resolve", 2);
     assert!(
         run.message().contains("it has no project root"),
@@ -530,7 +429,7 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 #[test]
 fn every_task_of_a_confined_eval_is_boxed() {
-    use std::io::BufRead as _;
+    use std::io::{BufRead as _, Write as _};
 
     let mut command = command(
         "eval",
@@ -582,23 +481,17 @@ fn every_task_of_a_confined_eval_is_boxed() {
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 #[test]
 fn an_inherited_descriptor_is_closed() {
-    use std::io::BufRead as _;
+    use std::io::{BufRead as _, Write as _};
 
     let scratch = Scratch::new("inherited", &[("outside/secret.txt", "outside\n")]);
     let outside = scratch.0.join("outside/secret.txt");
     // bash leaves the descriptor open across its exec of fgro, as a shell
     // that leaks one into every command does
-    let mut command = Command::new("bash");
-    command
-        .args(["-c", r#"exec 7<"$1"; shift; exec "$@""#, "bash"])
-        .arg(&outside)
-        .arg(env!("CARGO_BIN_EXE_fgro"))
-        .args(["eval", "value.js", "--driver", "-", "--timeout", "60000"])
-        .env("TZ", "UTC")
-        .current_dir(fixtures())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+    let mut bash = Command::new("bash");
+    bash.args(["-c", r#"exec 7<"$1"; shift; exec "$@""#, "bash"])
+        .arg(&outside);
+    let mut command = wrapped_command(bash, &["value.js", "--driver", "-", "--timeout", "60000"]);
+    command.stdout(Stdio::null());
     let mut child = command.spawn().unwrap();
     child
         .stdin
@@ -1348,11 +1241,8 @@ fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
     let etc = scratch.0.join("etc");
     std::fs::remove_file(etc.join("localtime")).unwrap();
     std::os::unix::fs::symlink("/usr/share/zoneinfo/Asia/Tokyo", etc.join("localtime")).unwrap();
-    let mut command = Command::new("unshare");
-    for name in COLOR_VARS {
-        command.env_remove(name);
-    }
-    command
+    let mut unshare = Command::new("unshare");
+    unshare
         .args([
             "-rm",
             "sh",
@@ -1360,14 +1250,9 @@ fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
             r#"mount -t overlay overlay -o "lowerdir=$1:/etc" /etc && shift && exec "$@""#,
             "sh",
         ])
-        .arg(&etc)
-        .arg(env!("CARGO_BIN_EXE_fgro"))
-        .args(["eval", "value.js"])
-        .env_remove("TZ")
-        .current_dir(fixtures())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .arg(&etc);
+    let mut command = wrapped_command(unshare, &["value.js"]);
+    command.env_remove("TZ");
     let run = parse(spawn(command, None));
     run.assert_failed("environment", 1);
     assert_eq!(run.message(), refused("Asia/Tokyo"));
@@ -1536,7 +1421,7 @@ const HEAP_BACKSTOP: &str = "the eval's heap reached its cap of 512 MiB with not
 /// with the run's envelope; under the JIT, which doesn't act on the stop,
 /// and in one builtin call, which nothing stops, the out-of-memory backstop
 /// writes its prepared `heap` envelope, with no `access`, and exits 1.
-/// Run one after another, holding [`HEAP_CAP`], so no two children hold
+/// Run one after another, holding [`MEMORY_HEAVY`], so no two children hold
 /// their heaps at once.
 #[test]
 #[cfg_attr(
@@ -1544,7 +1429,7 @@ const HEAP_BACKSTOP: &str = "the eval's heap reached its cap of 512 MiB with not
     ignore = "a confined eval needs a snapshot build"
 )]
 fn the_heap_cap_fails_the_eval_as_heap() {
-    let _turn = heap_cap_turn();
+    let _turn = memory_heavy_turn();
     let run = eval(&["heap_grow.js"]);
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_STOPPED);
@@ -1588,7 +1473,7 @@ const HEAP_STRINGS_RUNS: usize = 8;
     ignore = "a confined eval needs a snapshot build"
 )]
 fn a_heap_stop_is_heap_however_the_heap_reads_after() {
-    let _turn = heap_cap_turn();
+    let _turn = memory_heavy_turn();
     let strings = std::iter::repeat_n(&["heap_strings.js"][..], HEAP_STRINGS_RUNS);
     for args in strings.chain([&["heap_map.js", "--jit"][..]]) {
         let run = eval(args);
@@ -1610,6 +1495,7 @@ fn a_heap_stop_is_heap_however_the_heap_reads_after() {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn array_buffer_memory_sits_outside_the_heap_cap() {
+    let _turn = memory_heavy_turn();
     eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
 }
 
@@ -1635,6 +1521,7 @@ const MEMORY_BACKSTOP: &str = "the eval ran out of memory outside the heap's cap
     ignore = "a confined eval needs a snapshot build"
 )]
 fn the_memory_cap_fails_the_eval_as_memory() {
+    let _turn = memory_heavy_turn();
     for args in [
         &["memory_external.js"][..],
         &["memory_external.js", "--jit"],
@@ -1648,20 +1535,9 @@ fn the_memory_cap_fails_the_eval_as_memory() {
     // runs `fgro`: 256 MiB, under the heap's cap and above what the runtime
     // takes to start
     let limit = (256_u64 << 20).to_string();
-    let mut command = Command::new("prlimit");
-    for name in COLOR_VARS {
-        command.env_remove(name);
-    }
-    command
-        .arg(format!("--data={limit}:{limit}"))
-        .arg(env!("CARGO_BIN_EXE_fgro"))
-        .args(["eval", "heap_grow.js"])
-        .env("TZ", "UTC")
-        .current_dir(fixtures())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let run = parse(spawn(command, None));
+    let mut prlimit = Command::new("prlimit");
+    prlimit.arg(format!("--data={limit}:{limit}"));
+    let run = parse(spawn(wrapped_command(prlimit, &["heap_grow.js"]), None));
     run.assert_failed("memory", 1);
     assert_eq!(run.message(), MEMORY_BACKSTOP);
     assert_eq!(run.envelope["access"], Value::Null);
@@ -1683,21 +1559,14 @@ fn the_memory_cap_fails_the_eval_as_memory() {
 fn a_large_inherited_stack_limit_still_evaluates() {
     for stack in [(4_u64 << 30).to_string(), "unlimited".to_owned()] {
         for jit in [false, true] {
-            let mut command = Command::new("prlimit");
-            for name in COLOR_VARS {
-                command.env_remove(name);
-            }
-            command
-                .arg(format!("--stack={stack}:{stack}"))
-                .arg(env!("CARGO_BIN_EXE_fgro"))
-                .args(["eval", "value.js"])
-                .args(jit.then_some("--jit"))
-                .env("TZ", "UTC")
-                .current_dir(fixtures())
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            let run = parse(spawn(command, None));
+            let mut prlimit = Command::new("prlimit");
+            prlimit.arg(format!("--stack={stack}:{stack}"));
+            let args: &[&str] = if jit {
+                &["value.js", "--jit"]
+            } else {
+                &["value.js"]
+            };
+            let run = parse(spawn(wrapped_command(prlimit, args), None));
             assert!(
                 run.code == 0 && run.envelope["ok"] == true,
                 "stack {stack}, jit {jit}: exit {}\n{}\n{}",
@@ -2201,7 +2070,7 @@ fn the_graph_dump_of_refused_and_failed_runs() {
     );
 
     let run = {
-        let _turn = heap_cap_turn();
+        let _turn = memory_heavy_turn();
         eval(&["heap_builtin.js", "--graph"])
     };
     run.assert_failed("heap", 1);
