@@ -129,12 +129,13 @@ pub(super) fn entry_id(entry: &Resolution) -> String {
 ///
 /// Returns the envelope of a failed eval, a `resolve`, when the entry
 /// doesn't resolve, is inside `node_modules`, or has no project root (each
-/// a [`PrepassError::Usage`] but a resolution's failure of the host), and
-/// an `internal` when the project's directory can't be opened as the one
+/// a [`PrepassError::Usage`]), an `internal` when the resolution failed on
+/// the host's side (a read that failed or changed, a symlink loop), and an
+/// `internal` when the project's directory can't be opened as the one
 /// resolved ([`confine::Prepared::for_project`]).
 pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
-    let refused = |options: &EvalOptions, message: String| {
-        let mut failure = EvalError::new(ErrorKind::Resolve, message);
+    let refused = |options: &EvalOptions, kind: ErrorKind, message: String| {
+        let mut failure = EvalError::new(kind, message);
         failure.specifier = Some(options.entry.display().to_string());
         failure.importer = Some(options.cwd.display().to_string());
         failure
@@ -148,12 +149,16 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
     let (entry, roots, bound) = match resolved {
         Ok(resolved) => resolved,
         Err(error) => {
-            let envelope = Box::new(failed(&options, refused(&options, error.to_string())));
-            return Err(if error.kind.is_refusal() {
-                PrepassError::Usage(envelope)
+            // a read that failed or changed, a breach, or a host bug, as an import's are
+            let (kind, wrap): (_, fn(Box<Envelope>) -> PrepassError) = if error.kind.is_refusal() {
+                (ErrorKind::Resolve, PrepassError::Usage)
             } else {
-                PrepassError::Failed(envelope)
-            });
+                (ErrorKind::Internal, PrepassError::Failed)
+            };
+            return Err(wrap(Box::new(failed(
+                &options,
+                refused(&options, kind, error.to_string()),
+            ))));
         }
     };
     let project = roots.project().dir.clone();
@@ -176,7 +181,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
         )),
     };
     if let Some(message) = refusal {
-        let failure = refused(&options, message);
+        let failure = refused(&options, ErrorKind::Resolve, message);
         return Err(PrepassError::Usage(Box::new(failed_at(
             &options, &entry, failure,
         ))));
@@ -288,5 +293,26 @@ mod tests {
                 project.join(entry).canonicalize().unwrap()
             );
         }
+    }
+    /// An entry the host fails to read, a symlink loop here, is an
+    /// `internal` failure, not a refusal the command line must fix, as the
+    /// same failure on an import is.
+    #[test]
+    fn an_entry_the_host_fails_to_read_is_internal() {
+        let test_dir = TestDir::in_system_temp("eval_loop");
+        let project = test_dir.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("package.json"),
+            r#"{"name": "p", "type": "module"}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("b.mjs", project.join("a.mjs")).unwrap();
+        std::os::unix::fs::symlink("a.mjs", project.join("b.mjs")).unwrap();
+
+        let failed = prepass(options(Path::new("a.mjs"), &project)).unwrap_err();
+        assert!(matches!(failed, PrepassError::Failed(_)));
+        let error = failed.envelope().result.as_ref().unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Internal, "{}", error.message);
     }
 }

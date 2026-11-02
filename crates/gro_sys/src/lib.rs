@@ -620,9 +620,13 @@ pub fn kill_process(pid: u32) -> io::Result<()> {
 ///
 /// Returns the call's error: `ESRCH` when no process is in the group,
 /// `EPERM` when none may be signaled, or `EINVAL` for an id past `pid_t` or
-/// not above 0.
+/// not above 1.
 #[cfg(target_os = "linux")]
 pub fn kill_process_group(pgid: u32) -> io::Result<()> {
+    // group 1 would be `kill(-1)`, every process the caller may signal
+    if pgid <= 1 {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
     kill(-positive_pid(pgid)?)
 }
 

@@ -324,6 +324,7 @@ impl ResolveErrorKind {
                 | Self::ReadChanged(_)
                 | Self::ReadOutsideBox(_)
                 | Self::ImporterOutsideRoots
+                | Self::InvalidUrl(UrlFault::ImporterNoLocalPath)
         )
     }
 }
@@ -693,9 +694,8 @@ impl fmt::Display for ResolveErrorKind {
             ),
             Self::ReadOutsideBox(path) => write!(
                 f,
-                "failed to read {}: {}",
+                "failed to read {}: it lies outside the box's roots, so it isn't read",
                 path.display(),
-                ReadRefusal::OutsideBox(path.clone())
             ),
         }
     }
