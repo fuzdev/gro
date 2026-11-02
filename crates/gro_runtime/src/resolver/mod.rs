@@ -230,16 +230,37 @@ pub fn resolve(
         importer: importer.to_string(),
         kind,
     };
-    let importer_path = importer.to_file_path().map_err(|()| {
-        error(ResolveErrorKind::InvalidUrl(
-            "the importer names no local path".to_owned(),
-        ))
-    })?;
+    let importer_path = importer_path(importer).map_err(error)?;
     let importer_root = roots.containing(&importer_path).ok_or_else(|| {
         error(ResolveErrorKind::InvalidUrl(
             "the importer is inside no admitted root".to_owned(),
         ))
     })?;
+    resolve_from(tree, specifier, importer, importer_root, roots)
+}
+
+/// Resolves `specifier` as [`resolve`] does, from the importer's root.
+///
+/// `importer_root` must be the root [`Roots::containing`] finds for the
+/// importer's path: a caller that recorded the importer's root when it
+/// resolved it passes that, skipping the walk.
+///
+/// # Errors
+///
+/// Returns a [`ResolveError`] when the specifier names no loadable module
+/// inside its root; its kind says why.
+pub fn resolve_from(
+    tree: &impl SourceTree,
+    specifier: &str,
+    importer: &Url,
+    importer_root: &Root,
+    roots: &Roots,
+) -> Result<Resolution, ResolveError> {
+    let error = |kind| ResolveError {
+        specifier: specifier.to_owned(),
+        importer: importer.to_string(),
+        kind,
+    };
     let mut consulted = Consulted::default();
     match parse_specifier(specifier, importer).map_err(error)? {
         Request::Url(url) => {
@@ -271,6 +292,8 @@ pub fn resolve(
             to_resolution(found, &url, importer_root.clone(), consulted).map_err(error)
         }
         Request::Package(specifier) => {
+            // only a bare specifier walks from the importer's path
+            let importer_path = importer_path(importer).map_err(error)?;
             let package = resolve_package(
                 tree,
                 specifier,
@@ -470,15 +493,20 @@ fn entry_roots(
     Ok((roots, root, EntryBound::InNodeModules))
 }
 
+/// The real path of the module at `importer`.
+fn importer_path(importer: &Url) -> Result<PathBuf, ResolveErrorKind> {
+    importer
+        .to_file_path()
+        .map_err(|()| ResolveErrorKind::InvalidUrl("the importer names no local path".to_owned()))
+}
+
 /// Whether `path`, as written, has a `node_modules` segment past what it
 /// shares with the root at `root`, its importer's.
 fn written_into_node_modules(path: &Path, root: &Path) -> bool {
-    let shared = path
-        .components()
-        .zip(root.components())
-        .take_while(|(a, b)| a == b)
-        .count();
-    in_node_modules(&path.components().skip(shared).collect::<PathBuf>())
+    let mut root = root.components();
+    path.components()
+        .skip_while(|component| root.next() == Some(*component))
+        .any(|component| component.as_os_str() == "node_modules")
 }
 
 /// Checks that the real path `path` is inside the root at `dir`: under it,

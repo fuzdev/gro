@@ -511,14 +511,24 @@ fn resolve_into(
         )
     })?;
     // every importer was resolved here first, the entry by `Loader::new`
-    if !graph.records.contains_key(&importer) {
+    let Some(importer_record) = graph.records.get(&importer) else {
         return Err((
             reason(recording, || FailureError::UnknownImporter),
             ModuleLoaderError::type_error(format!(
                 "cannot resolve '{specifier}': the importer '{referrer}' was never resolved"
             )),
         ));
-    }
+    };
+    // the record's root is the one its path is inside: admitting a root
+    // around a recorded module is a conflict, so none moves it
+    let importer_root = &importer_record.root;
+    debug_assert_eq!(
+        importer
+            .to_file_path()
+            .ok()
+            .and_then(|path| graph.roots.containing(&path)),
+        Some(importer_root),
+    );
     let refused = |error: ResolveError| {
         let message = error.to_string();
         (
@@ -528,9 +538,9 @@ fn resolve_into(
     };
     let resolved = if graph.is_full() {
         let tree = RecordingTree::new(tree, &mut graph.reads);
-        resolver::resolve(&tree, specifier, &importer, &graph.roots)
+        resolver::resolve_from(&tree, specifier, &importer, importer_root, &graph.roots)
     } else {
-        resolver::resolve(tree, specifier, &importer, &graph.roots)
+        resolver::resolve_from(tree, specifier, &importer, importer_root, &graph.roots)
     };
     let mut resolution = resolved.map_err(refused)?;
     // read whether or not the root is admitted
@@ -745,6 +755,64 @@ mod tests {
                 .resolve_reached(&tree, "lnk/x.ts", MAIN, STATIC)
                 .is_err()
         );
+    }
+
+    /// Each record's root is the one its path is inside, which the loader
+    /// relies on to resolve from the importer's record without walking its
+    /// path: across project, installed, in-tree linked, and out-of-tree
+    /// linked roots, their modules' own imports, and a query.
+    #[test]
+    fn a_record_s_root_is_the_one_its_path_is_inside() {
+        let tree = MemoryTree {
+            files: BTreeMap::from([
+                ("/p/package.json", r#"{"name": "proj", "type": "module"}"#),
+                ("/p/main.ts", ""),
+                ("/p/a.ts", ""),
+                (
+                    "/p/packages/lnk/package.json",
+                    r#"{"name": "lnk", "type": "module", "exports": {"./x.ts": "./x.ts"}}"#,
+                ),
+                ("/p/packages/lnk/x.ts", ""),
+                ("/p/packages/lnk/y.ts", ""),
+                (
+                    "/p/node_modules/bar/package.json",
+                    r#"{"exports": "./i.mjs"}"#,
+                ),
+                ("/p/node_modules/bar/i.mjs", ""),
+                ("/p/node_modules/bar/sub/j.mjs", ""),
+                (
+                    "/q/far/package.json",
+                    r#"{"name": "far", "type": "module", "exports": "./f.ts"}"#,
+                ),
+                ("/q/far/f.ts", ""),
+                ("/q/far/g.ts", ""),
+            ]),
+            links: BTreeMap::from([
+                ("/p/node_modules/lnk", "/p/packages/lnk"),
+                ("/p/node_modules/far", "/q/far"),
+            ]),
+            ..MemoryTree::default()
+        };
+        let loader = new_loader(&tree);
+        for (specifier, referrer) in [
+            ("./a.ts?v=1", MAIN),
+            ("bar", MAIN),
+            ("./sub/j.mjs", "file:///p/node_modules/bar/i.mjs"),
+            ("lnk/x.ts", MAIN),
+            ("./y.ts", "file:///p/packages/lnk/x.ts"),
+            ("far", MAIN),
+            ("./g.ts", "file:///q/far/f.ts"),
+        ] {
+            loader
+                .resolve_reached(&tree, specifier, referrer, STATIC)
+                .unwrap_or_else(|error| panic!("{specifier} from {referrer}: {error}"));
+        }
+        let (roots, records) = state(&loader);
+        assert_eq!(records.len(), 8);
+        for (url, record) in &records {
+            let path = url.to_file_path().unwrap();
+            assert_eq!(roots.containing(&path), Some(&record.root), "{url}");
+        }
     }
 
     /// `deno_core` can resolve a specifier twice: the same URL inside the

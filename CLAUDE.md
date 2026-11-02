@@ -545,7 +545,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   bare import resolved into, innermost by component winning, none with a
   `node_modules` segment below it), which the loader owns and passes into
   `resolve`; the loader refuses a root admitted around a module already
-  recorded in an outer one (`RootConflict`), and `import.meta.resolve`
+  recorded in an outer one (`RootConflict`), so a record's root is the one
+  its path is inside, and it resolves each import from its importer's
+  recorded root (`resolve_from`), walking no path; `import.meta.resolve`
   admits nothing. The loader keeps the run's `Graph` (`loader/graph.rs`):
   with `Recording::Off`, what `fgro run` uses, only the roots and each URL's
   root and file, the minimum loading needs; with `Recording::Full`, what

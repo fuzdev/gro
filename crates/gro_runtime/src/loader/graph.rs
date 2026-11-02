@@ -94,8 +94,9 @@ pub struct Graph {
     /// The recorded URLs by their real path, which `Path`'s ordering
     /// compares by component, so the paths under a directory are one range.
     /// A path has more than one URL when specifiers differ in their query or
-    /// fragment.
-    paths: BTreeMap<PathBuf, Vec<Url>>,
+    /// fragment. Built at the first admission that can conflict, so a graph
+    /// whose new roots are all outside every admitted one never builds it.
+    paths: Option<BTreeMap<PathBuf, Vec<Url>>>,
 }
 
 /// What a URL resolved to.
@@ -266,7 +267,7 @@ impl Graph {
             consulted: BTreeSet::new(),
             reads: Reads::default(),
             failures: BTreeMap::new(),
-            paths: BTreeMap::new(),
+            paths: None,
         };
         graph.consult(entry.files_consulted.iter().cloned());
         graph.record(&entry.url, Record::new(entry));
@@ -304,7 +305,10 @@ impl Graph {
                 recorded: Box::new(recorded.clone()),
                 admitted: Box::new(admitted.clone()),
             };
+        // a module recorded inside a root holds no `node_modules` segment
+        // below it, so only a new root some admitted root contains can hold one
         if self.roots.get(&root.dir).is_none()
+            && self.roots.containing(&root.dir).is_some()
             && let Some((path, recorded)) =
                 self.recorded_under(&root.dir).find(|(path, recorded)| {
                     // one nested in the recorded root would now hold the module
@@ -323,7 +327,9 @@ impl Graph {
             // the first record stands
             return Ok(());
         }
-        self.roots.admit(record.root.clone());
+        if self.roots.get(&root.dir).is_none() {
+            self.roots.admit(record.root.clone());
+        }
         self.record(&resolution.url, record);
         Ok(())
     }
@@ -397,25 +403,44 @@ impl Graph {
         }
     }
 
-    /// Records `url` as `record`, by its path too.
+    /// Records `url` as `record`, by its path too once the paths are indexed.
     fn record(&mut self, url: &Url, record: Record) {
-        if let Ok(path) = url.to_file_path() {
-            self.paths.entry(path).or_default().push(url.clone());
+        if let Some(paths) = &mut self.paths {
+            index_path(paths, url);
         }
         self.records.insert(url.clone(), record);
     }
 
     /// Every recorded real path under the directory `dir`, its own included,
-    /// in path order, with the root of each of its records.
-    fn recorded_under<'a>(&'a self, dir: &'a Path) -> impl Iterator<Item = (&'a Path, &'a Root)> {
-        self.paths
+    /// in path order, with the root of each of its records, indexing the
+    /// paths first if they aren't yet.
+    fn recorded_under<'a>(
+        &'a mut self,
+        dir: &'a Path,
+    ) -> impl Iterator<Item = (&'a Path, &'a Root)> {
+        let records = &self.records;
+        let paths = self.paths.get_or_insert_with(|| {
+            let mut paths = BTreeMap::new();
+            for url in records.keys() {
+                index_path(&mut paths, url);
+            }
+            paths
+        });
+        paths
             .range::<Path, _>((Bound::Included(dir), Bound::Unbounded))
             .take_while(move |(path, _)| path.starts_with(dir))
             .flat_map(|(path, urls)| {
                 urls.iter()
-                    .filter_map(|url| self.records.get(url))
+                    .filter_map(|url| records.get(url))
                     .map(move |record| (path.as_path(), &record.root))
             })
+    }
+}
+
+/// Adds `url` to `paths` by its real path, if it names one.
+fn index_path(paths: &mut BTreeMap<PathBuf, Vec<Url>>, url: &Url) {
+    if let Ok(path) = url.to_file_path() {
+        paths.entry(path).or_default().push(url.clone());
     }
 }
 
@@ -567,6 +592,91 @@ mod tests {
             conflict_path(graph.admit(&resolution("/a/b/i.ts", &b))),
             Some(PathBuf::from("/a/b/c/y.ts"))
         );
+    }
+
+    /// A new root no admitted root contains can't hold a recorded module,
+    /// so it skips the scan without building the paths index; one that a
+    /// root contains builds it, and records made after are indexed too.
+    #[test]
+    fn only_a_contained_root_scans_and_the_index_keeps_up() {
+        let mut graph = project_graph(&["/a/x.ts", "/a/c/x.ts"]);
+        let installed = package("/a/node_modules/n", "n");
+        graph
+            .admit(&resolution("/a/node_modules/n/i.mjs", &installed))
+            .unwrap();
+        graph
+            .admit(&resolution("/q/l/i.ts", &package("/q/l", "l")))
+            .unwrap();
+        assert!(graph.paths.is_none());
+        // a root the project contains scans, building the index
+        graph
+            .admit(&resolution("/a/b/i.ts", &package("/a/b", "b")))
+            .unwrap();
+        assert!(graph.paths.is_some());
+        // a module recorded after the index is built is found by a later scan
+        let project = graph.roots.project().clone();
+        graph.admit(&resolution("/a/d/x.ts", &project)).unwrap();
+        assert_eq!(
+            conflict_path(graph.admit(&resolution("/a/d/i.ts", &package("/a/d", "d")))),
+            Some(PathBuf::from("/a/d/x.ts"))
+        );
+        // and one recorded before it
+        assert_eq!(
+            conflict_path(graph.admit(&resolution("/a/c/i.ts", &package("/a/c", "c")))),
+            Some(PathBuf::from("/a/c/x.ts"))
+        );
+    }
+
+    /// The scan's gate is sound: over every set of admitted roots drawn from
+    /// a small tree, a new root that would hold a module validly recorded in
+    /// an outer root is always inside some admitted root.
+    #[test]
+    fn a_root_that_skips_the_scan_conflicts_with_nothing() {
+        const DIRS: [&str; 8] = [
+            "/a/b",
+            "/a/b/c",
+            "/a/bc",
+            "/a/node_modules/n",
+            "/a/node_modules/n/node_modules/m",
+            "/a/b/node_modules/n",
+            "/a/b/node_modules/n/d",
+            "/q",
+        ];
+        let candidates: Vec<Root> = DIRS.iter().map(|dir| package(dir, "x")).collect();
+        let paths: Vec<PathBuf> = std::iter::once("/a")
+            .chain(DIRS)
+            .flat_map(|dir| [format!("{dir}/x.ts"), format!("{dir}/node_modules/z/x.ts")])
+            .map(PathBuf::from)
+            .collect();
+        for subset in 0..1_u32 << DIRS.len() {
+            let mut roots = Roots::new(PathBuf::from("/a"));
+            for (index, root) in candidates.iter().enumerate() {
+                if subset & (1 << index) != 0 {
+                    roots.admit(root.clone());
+                }
+            }
+            for path in &paths {
+                // a module is recorded only inside the root that contains it
+                let Some(recorded) = roots.containing(path) else {
+                    continue;
+                };
+                for new in candidates
+                    .iter()
+                    .filter(|new| roots.get(&new.dir).is_none())
+                {
+                    let conflicts = new.dir != recorded.dir
+                        && new.dir.starts_with(&recorded.dir)
+                        && new.contains(path);
+                    assert!(
+                        !conflicts || roots.containing(&new.dir).is_some(),
+                        "{} would hold {} from {}, skipping the scan",
+                        new.dir.display(),
+                        path.display(),
+                        recorded.dir.display(),
+                    );
+                }
+            }
+        }
     }
 
     fn consulted(path: &str, role: FileRole) -> ConsultedFile {

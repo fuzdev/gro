@@ -7,6 +7,7 @@ use super::{from_entry, roots};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
     ConsultedFile, FileRole, Origin, ResolveErrorKind, Root, Roots, resolve, resolve_entry,
+    written_into_node_modules,
 };
 
 /// A project at `/p` with `bar` and `foo` installed, `foo` with a
@@ -591,6 +592,89 @@ fn a_path_is_inside_its_innermost_root() {
     let mut roots = Roots::new(PathBuf::from("/p"));
     roots.admit(package_root("/p", "p", None, true));
     assert_eq!(roots.iter().count(), 1);
+}
+
+/// The root nested in a root's directory that holds a path is the innermost
+/// one strictly below that directory, by path component, the project's
+/// included when it is nested in a package's.
+#[test]
+fn an_inner_root_is_the_innermost_strictly_below() {
+    let mut roots = Roots::new(PathBuf::from("/p"));
+    roots.admit(package_root("/p/packages/a", "a", None, true));
+    roots.admit(package_root("/p/packages/a/b", "b", None, true));
+    roots.admit(package_root("/p/packages/ab", "ab", None, true));
+    let inner = |dir: &str, path: &str| {
+        roots
+            .inner(Path::new(dir), Path::new(path))
+            .map(|root| root.dir.to_str().unwrap().to_owned())
+    };
+    assert_eq!(inner("/p", "/p/x.ts"), None);
+    assert_eq!(
+        inner("/p", "/p/packages/a/x.ts").as_deref(),
+        Some("/p/packages/a")
+    );
+    assert_eq!(
+        inner("/p", "/p/packages/a/b/c/x.ts").as_deref(),
+        Some("/p/packages/a/b")
+    );
+    assert_eq!(
+        inner("/p/packages/a", "/p/packages/a/b/x.ts").as_deref(),
+        Some("/p/packages/a/b")
+    );
+    // the directory itself is no inner root
+    assert_eq!(inner("/p/packages/a", "/p/packages/a/x.ts"), None);
+    // by component: `ab` is beside `a`, not inside it, and follows `a/b` in order
+    assert_eq!(inner("/p/packages/a/b", "/p/packages/a/b/x.ts"), None);
+    assert_eq!(inner("/p", "/p/packages/abc/x.ts"), None);
+    // a path outside the directory has none
+    assert_eq!(inner("/p/packages/a", "/q/x.ts"), None);
+    // no package admitted
+    let roots = Roots::new(PathBuf::from("/p"));
+    assert!(
+        roots
+            .inner(Path::new("/p"), Path::new("/p/a/b/x.ts"))
+            .is_none()
+    );
+    // the project nested in a linked package's directory
+    let mut roots = Roots::new(PathBuf::from("/w/proj"));
+    roots.admit(package_root("/w", "w", None, true));
+    assert_eq!(
+        roots
+            .inner(Path::new("/w"), Path::new("/w/proj/x.ts"))
+            .map(|root| &root.origin),
+        Some(&Origin::Project)
+    );
+    assert!(roots.inner(Path::new("/w"), Path::new("/w/x.ts")).is_none());
+}
+
+/// A path as written reaches into `node_modules` only by a segment past
+/// what it shares with the root: the root's own segments, and those of a
+/// sibling it shares a prefix with, don't count.
+#[test]
+fn a_written_path_reaches_into_node_modules_past_the_root() {
+    let written =
+        |path: &str, root: &str| written_into_node_modules(Path::new(path), Path::new(root));
+    assert!(!written("/p/a.ts", "/p"));
+    assert!(written("/p/node_modules/bar/i.mjs", "/p"));
+    assert!(written("/p/sub/node_modules/bar/i.mjs", "/p"));
+    // the root's own segment
+    assert!(!written("/p/node_modules/foo/i.mjs", "/p/node_modules/foo"));
+    assert!(written(
+        "/p/node_modules/foo/node_modules/baz/i.mjs",
+        "/p/node_modules/foo"
+    ));
+    // a sibling package: the shared `node_modules` is the root's
+    assert!(!written("/p/node_modules/bar/i.mjs", "/p/node_modules/foo"));
+    // leaving the root for one past it
+    assert!(written("/q/node_modules/z/i.mjs", "/p"));
+    // by component, not by string prefix
+    assert!(written(
+        "/p/node_modules_x/node_modules/z.mjs",
+        "/p/node_modules_x/y"
+    ));
+    assert!(!written("/p/node_modules_x/a.mjs", "/p"));
+    // a path above the root
+    assert!(!written("/p", "/p/a"));
 }
 
 /// An `"exports"` target under a symlinked directory is checked on its real

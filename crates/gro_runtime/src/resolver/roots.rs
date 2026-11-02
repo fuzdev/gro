@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
 use super::walk::in_node_modules;
@@ -134,8 +135,20 @@ impl Roots {
     /// The innermost admitted root strictly inside `dir` that holds `path`,
     /// a real path inside the root at `dir`.
     pub(super) fn inner(&self, dir: &Path, path: &Path) -> Option<&Root> {
+        // the packages under `dir` are one range in component order, usually empty
+        let nested_package = self
+            .packages
+            .range::<Path, _>((Bound::Excluded(dir), Bound::Unbounded))
+            .next()
+            .is_some_and(|(package_dir, _)| package_dir.starts_with(dir));
+        let nested_project = || self.project.dir != dir && self.project.dir.starts_with(dir);
+        if !nested_package && !nested_project() {
+            return None;
+        }
+        // the ancestors strictly below `dir`, one per component below it
+        let depth = path.strip_prefix(dir).ok()?.components().count();
         path.ancestors()
-            .take_while(|ancestor| *ancestor != dir && ancestor.starts_with(dir))
+            .take(depth)
             .find_map(|ancestor| self.get(ancestor))
     }
 
