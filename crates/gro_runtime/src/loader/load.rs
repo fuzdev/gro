@@ -1,0 +1,105 @@
+//! Reading a resolved module: the bytes, its format, and its types stripped.
+
+use std::io;
+use std::path::Path;
+
+use deno_core::error::ModuleLoaderError;
+use deno_core::{ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
+
+use super::graph::{FailureError, LoadFailure, Loaded, Recording};
+use super::strip::strip_module;
+use super::{Refused, reason};
+use crate::resolver::{self, FileId, MAX_MODULE_SIZE, ModuleFormat};
+
+/// Reads the module at `specifier`, a URL the resolver produced for the file
+/// `file_id` names, once `check` allows its path, stripping a TypeScript
+/// module's types, and returns it with, when `recording` is full, what was
+/// read: its format and the hash of the bytes read.
+pub(super) fn load(
+    specifier: &ModuleSpecifier,
+    requested: &RequestedModuleType,
+    file_id: FileId,
+    recording: Recording,
+    check: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(ModuleSource, Option<Loaded>), Refused> {
+    let refused = |failure, error| (reason(recording, || FailureError::Load(failure)), error);
+    // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
+    if *requested != RequestedModuleType::None {
+        return Err(refused(
+            LoadFailure::ImportAttributes,
+            ModuleLoaderError::type_error(format!(
+                "cannot load {specifier}: import attributes are not supported yet"
+            )),
+        ));
+    }
+    let path = specifier.to_file_path().map_err(|()| {
+        refused(
+            LoadFailure::NotAFile,
+            ModuleLoaderError::type_error(format!("cannot load {specifier}: not a local file")),
+        )
+    })?;
+    // the resolver read the same table, so a refusal here means the URL skipped it
+    let format = resolver::module_format(&path).map_err(|kind| {
+        let error = ModuleLoaderError::type_error(format!("cannot load {specifier}: {kind}"));
+        refused(LoadFailure::Format(kind), error)
+    })?;
+    let io_error = |error: io::Error| {
+        refused(
+            LoadFailure::Read(error.kind()),
+            ModuleLoaderError::type_error(format!("cannot load {specifier}: {error}")),
+        )
+    };
+    check(&path).map_err(io_error)?;
+    // read from the file checked, never the path again, which can change in
+    // between, and never past the cap, so a huge file or a FIFO isn't read whole
+    let read = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
+        if error.kind() != io::ErrorKind::FileTooLarge {
+            return io_error(error);
+        }
+        refused(
+            LoadFailure::TooLarge,
+            ModuleLoaderError::type_error(format!(
+                "cannot load {specifier}: the module is larger than {} MiB, the cap on a \
+                 module's source",
+                MAX_MODULE_SIZE >> 20
+            )),
+        )
+    })?;
+    let Some(code) = read else {
+        return Err(refused(
+            LoadFailure::IdentityMismatch,
+            ModuleLoaderError::type_error(format!(
+                "cannot load {specifier}: the file at its path is not the one resolved, so it \
+                 isn't loaded"
+            )),
+        ));
+    };
+    // the bytes read, which V8 runs as is or stripped
+    let loaded = recording.is_full().then(|| Loaded {
+        format,
+        hash: blake3::hash(&code),
+    });
+    let code = match format {
+        ModuleFormat::JavaScript => ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
+        ModuleFormat::TypeScript => {
+            // invalid UTF-8 reads as U+FFFD, as V8 decodes a JS module's bytes
+            let source = String::from_utf8(code)
+                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+            // `deno_core` rethrows every load failure to JS as a `TypeError`
+            // (`js_class_and_message_to_exception`), so no other class is given
+            let code = strip_module(source, specifier).map_err(|refusal| {
+                let error = ModuleLoaderError::type_error(refusal.message);
+                let failure = LoadFailure::Strip {
+                    failure: refusal.failure,
+                    at: refusal.at,
+                };
+                refused(failure, error)
+            })?;
+            ModuleSourceCode::String(code.into())
+        }
+    };
+    Ok((
+        ModuleSource::new(ModuleType::JavaScript, code, specifier, None),
+        loaded,
+    ))
+}
