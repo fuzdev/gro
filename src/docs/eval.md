@@ -3,11 +3,10 @@
 > `fgro eval <module>` as built today: a module evaluated to JSON data,
 > the driver contract, the serializer's rules, the envelope, and the exit codes
 
-> **status**: built in part; the reference for the current binary
-> ([install](runtime.md#install) says how to install a release).
+> **status**: built; the reference for the current binary
+> ([install](runtime.md#install) says how to install a release,
+> and the [roadmap](runtime.md#roadmap) what comes later, like determinism modes beyond `deny`).
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
-> Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
-> the heap, memory, and time limits, the byte caps, the box its process runs in (Linux only), and the graph dump.
 
 ## Usage
 
@@ -23,9 +22,10 @@ fgro eval <module> --graph              # add the module graph the run loaded to
 The module is a `.js`, `.mjs`, `.ts`, or `.mts` file, relative to the working directory or absolute.
 `--export` and `--driver` don't combine: a driver is handed the whole namespace.
 `--driver` takes only `-`.
-Every setting is a flag, and past the dynamic loader no environment variable configures eval or a library it runs:
-before it starts any thread, eval clears its environment but `TZ` ([the box](#the-box)).
-It runs only with the time zone UTC (below), which ICU takes from the host's `TZ`, so run it with `TZ=UTC`.
+Every setting is a flag.
+The one environment variable eval keeps is `TZ`, which must name UTC (below), so run it with `TZ=UTC`;
+before it starts any thread it clears every other, so nothing it runs reads one ([the box](#the-box)),
+though the dynamic loader reads its own first, at exec.
 It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build with its startup snapshot embedded ([the box](#the-box)).
 
 ## The engine
@@ -47,40 +47,33 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
 - **The heap is capped at 512 MiB**, a provisional cap until it's measured against real configs.
   Near it, the run is stopped and fails as `heap`.
   What a stop can't interrupt (one long builtin call, or allocation under the JIT)
-  runs out of memory instead: the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
-  V8 prints its last garbage collections to stderr first.
-  The cap counts V8's heap only. Outside it are the bytes behind an `ArrayBuffer`, `SharedArrayBuffer`, or typed array,
-  a module's source and the envelope's own bytes, held by the byte caps below
-  (a module's parse, and the copies made while a large string is serialized, are a small multiple of them),
-  and an uncaught error's report (its message and stack, each cause's, and each error an `AggregateError` holds, up to 256 errors)
-  and each specifier the loader records, copied out of the heap, each copy bounded only by the heap's cap.
-- **The process's memory is capped at 2 GiB**: before it starts any thread, eval sets its data segment's limit
-  (`RLIMIT_DATA`: what `malloc` and anonymous mappings take, the heap's pages and every thread's stack included,
-  and with `--jit` the code range V8 reserves for compiled code),
-  soft and hard alike, so nothing it runs can raise it, and the box then refuses the calls that would.
-  First it lowers the stack of a thread started without a size of its own (V8's workers) to 8 MiB,
-  which glibc would otherwise take from the stack limit (`RLIMIT_STACK`) eval inherited,
-  so a caller's large stack limit doesn't spend the cap on stacks; a smaller default
-  (under a smaller stack limit, or glibc's own under an unlimited one) stands.
-  The cap is about twice the most the largest legal runs take (a module at the source cap, a run stopped at the heap's cap,
-  a value just under the envelope's cap, each with `--jit`, which takes the most), so a config never meets it.
-  A lower limit the caller set, soft or hard, stands; a caller wanting a lower bound sets one on the process.
-  Past the cap, an allocation fails:
-  - an array buffer's stops the run, which fails as `memory`
-    (V8 collects all it can before giving up on one, calling the same callback it calls near the heap's cap,
-    and the heap the callback reads tells them apart: well below its cap here, nearly all of it at a heap stop;
-    a run holding more than three quarters of the heap's cap when it happens fails as `heap`);
-  - V8's own, on the run's thread, runs out of memory, and the process writes a prepared `memory` envelope,
-    whose `access` is `null`, and exits 1 (a prepared `heap` envelope when V8 reports its heap at fault
-    and the callback found the heap near its cap, which a heap stopped past three quarters of its cap
-    by a caller's lower limit is too, so that can read as `heap`);
-  - V8's on one of its own threads (a garbage collection's or a compile's), or a Rust allocation (the serializer's output, an error's report),
-    aborts the process with no envelope, a message on stderr, and a signal's exit:
-    V8 calls no embedder handler without a thread's isolate, and Rust's allocation failure handler isn't settable on stable Rust;
-  - growing a resizable `ArrayBuffer` (`resize`) throws a `RangeError` the run can catch, and the run goes on.
+  runs out of memory instead: V8 prints its last garbage collections to stderr,
+  and the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
+  The cap counts V8's heap only.
+  The bytes behind array buffers and typed arrays fall under the process's cap, next;
+  a module's source and the envelope fall under the byte caps below;
+  and the host's copies of an uncaught error's report (up to 256 errors from causes and an `AggregateError`)
+  and of the loader's specifiers are each bounded by the heap's size.
+- **The process's memory is capped at 2 GiB**, by its data segment's limit (`RLIMIT_DATA`),
+  set soft and hard before any thread starts, so nothing it runs can raise it, and the box refuses the calls that would.
+  The cap counts what `malloc` and anonymous mappings take:
+  the heap's pages, every thread's stack, and with `--jit` the code range V8 reserves.
+  V8's worker threads get an 8 MiB stack, or a smaller default that stands,
+  so a large stack limit (`RLIMIT_STACK`) inherited from the caller doesn't spend the cap.
+  The cap is about twice what the largest legal runs take (a module at the source cap, a run stopped at the heap's cap, or a value just under the envelope's cap, each with `--jit`), so a config never meets it.
+  A lower limit the caller set, soft or hard, stands.
+  Past the cap, what happens depends on which allocation fails:
+  - an array buffer's: the run is stopped and fails as `memory`,
+    or as `heap` when the run holds more than three quarters of the heap's cap at that moment
+  - V8's own, on the run's thread: the process writes a prepared `memory` envelope, whose `access` is `null`, and exits 1,
+    or a prepared `heap` envelope when V8 reports its heap at fault and the heap is near its cap
+  - V8's on one of its own threads (a garbage collection's or a compile's),
+    or a Rust allocation (the serializer's output, an error's report):
+    the process aborts with no envelope, a message on stderr, and a signal's exit
+  - growing a resizable `ArrayBuffer` (`resize`): a `RangeError` the run can catch, and the run goes on
 
   A caller's limit too low for the engine to start (with `--jit`, one under the code range V8 reserves)
-  aborts the process the same way, with no envelope, before the out-of-memory handler is installed.
+  aborts the process the same way, with no envelope.
   A caller treats a missing envelope as a failure.
 - **A module's source is capped at 16 MiB**, as [run](run.md)'s is:
   a larger module is refused as it's read, before any of it is parsed or stripped, and fails as `link`,
@@ -204,15 +197,12 @@ The walls, in order:
   the event loop's `epoll` and `eventfd2` calls, `getrandom`, the process's and thread's ids,
   and reading scheduling and CPU affinity (another process's included, which tells only whether it exists and how it's scheduled).
   Some pass only with the arguments the runtime uses:
-  `prctl` only to name a thread or a mapping;
-  `fcntl` only to read and set a descriptor's flags and to duplicate it close-on-exec
-  (so no advisory lock, lease, or change notice);
-  `ioctl` only to set and clear non-blocking and close-on-exec, read the bytes waiting, and read a terminal's settings and size;
-  `socketpair` only as a unix stream pair
-  (a datagram pair could send to a unix socket file outside the box by its path, which Landlock below ABI 9 doesn't gate);
-  `faccessat2` only to ask whether a path exists (`F_OK`), which `statx` tells already,
-  as glibc's `realpath` asks of a directory before a `.` or `..` component or a trailing slash, in a link's target, say
-  (`faccessat`, its fallback, isn't allowed: every kernel the box runs on has `faccessat2`);
+  `prctl` to name a thread or a mapping;
+  `fcntl` to read and set a descriptor's flags and duplicate it close-on-exec (no locks, leases, or change notices);
+  `ioctl` for non-blocking and close-on-exec, the bytes waiting, and a terminal's settings and size;
+  `socketpair` as a unix stream pair only
+  (a datagram pair could send to a socket file outside the box, which Landlock below ABI 9 doesn't gate);
+  `faccessat2` only to ask whether a path exists (`F_OK`, as glibc's `realpath` does), which `statx` tells already;
   and `clone` only to start a thread, with no namespace flag, so no process is forked and no namespace made.
   When the JIT is off, no mapping can be made executable:
   `mmap`, `mprotect`, and `pkey_mprotect` with `PROT_EXEC` fail with `ENOSYS`,
@@ -225,10 +215,9 @@ The walls, in order:
   (which Landlock at ABI 6 doesn't gate), `kill`, file watches, System V IPC and POSIX message queues,
   resource limits (`getrlimit`, `setrlimit`, and `prlimit64`, so the memory cap set before the box stays) and priorities,
   namespaces, keys, and further seccomp filters fail with `ENOSYS`.
-  `ENOSYS` is what a call the kernel lacks returns, so a library falls back where it can,
-  and a host whose libc makes a call the list doesn't name degrades where the libc has a fallback,
-  and otherwise fails with `ENOSYS`.
-  An x32 call fails the same way, since the filter compares exact call numbers.
+  `ENOSYS` is what a call the kernel lacks returns, so glibc and Rust's std fall back where they can,
+  and a host whose libc makes a call the list doesn't name degrades the same way or fails with `ENOSYS`.
+  An x32 call fails too, since the filter compares exact call numbers.
   The list is built for x86_64 and aarch64, and has been checked on x86_64 only.
 
 The reads the runtime makes at startup outside the roots (the CPU and cgroup files, `/proc/self/maps`) fail and fall back quietly.

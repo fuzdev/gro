@@ -192,7 +192,7 @@ the comparison is what a run can reach, where Bun has nothing to compare.
 
 ## By axis
 
-Gro's cells start with one of these words:
+Gro's cells for a feature start with one of these words:
 **built** is in `fgro` today, **designed** is in the public [design](runtime.md#design) but not built,
 **planned** is a [roadmap](runtime.md#roadmap) milestone with no public design yet,
 **later** is wanted but not scheduled, and **no** is declined by design.
@@ -223,11 +223,10 @@ Gro's cells start with one of these words:
 | import maps                          | no, `imports` only          | yes                                                                        | no                   | no, deferred                                         |
 | remote `https:` imports              | no                          | yes: default hosts (deno.land, jsr.io, esm.sh, jsdelivr, GitHub raw) without a flag, other hosts under `--allow-import`      | no                   | no                                                   |
 | `npm:` and `jsr:` specifiers         | no                          | yes                                                                        | no; its equivalent is auto-install, a bare specifier with a version suffix (`zod@3.0.0`) fetched when no `node_modules` exists | no |
-| package source                       | `node_modules`              | its cache, or `node_modules`                                               | `node_modules`       | `node_modules`, walked by `exports` only             |
-| search bound                         | the filesystem root         | the filesystem root                                                        | the filesystem root  | built: the project's `package.json`, found before any `node_modules` and failing closed; a file with no project gets no bare imports except a self-reference, which resolves through its own package's `"exports"` and stays inside its package, and a world-writable directory ends the walk |
+| package source                       | `node_modules`              | its cache, or `node_modules`                                               | `node_modules`       | built: `node_modules`, walked by `exports` only      |
+| search bound                         | the filesystem root         | the filesystem root                                                        | the filesystem root  | built: the project's `package.json`, found before any `node_modules`, failing closed; a world-writable directory ends the walk ([resolver](resolver.md)) |
 | relative imports stay inside their project or package | no                | no                                                                         | no                   | built: never out of the importer's root, into `node_modules` below it, or into another package's root, checked on the real path; a package's `exports` targets too |
 | format of a `.js` file               | `package.json` `type`, else sniffed | `package.json` `type`, else an ES module, never sniffed           | `package.json` `type`, else sniffed | built: `package.json` `type`, else refused |
-| a dependency's reach is attributable | no                          | no                                                                         | no                   | designed: by the import chain, for host modules       |
 
 ### TypeScript
 
@@ -250,9 +249,10 @@ Gro's cells start with one of these words:
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
 | opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch |
 | unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain; the run, for authority globals |
+| a dependency's reach is attributable | no                                       | no                                                                  | —       | designed: by the import chain, for host modules                                             |
 | how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, authority globals declared, the policy file authorizes; flags for one run |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
-| prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | never (designed)                                                                            |
+| prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |
 | network scoping                 | not covered in 24; `--allow-net` since 25          | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
 | child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux)                                       |
 | kernel backstop                 | none                                               | none                                                                | none    | built for `fgro eval`: Landlock and seccomp (Linux); designed for every run                 |
@@ -273,10 +273,10 @@ Gro's cells start with one of these words:
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
 | `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
 | `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
-| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | the conformance target, graded by its WPT subset under a full grant set |
+| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the conformance target, graded by its WPT subset under a full grant set |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
-| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later                                           |
+| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as a declared grant                      |
 | HTTP server                                | `node:http`             | `Deno.serve`                | `Bun.serve`             | planned, at the Node exit                       |
 | WebAssembly                                | yes                     | yes                         | yes                     | built: the JS API; `.wasm` imports designed     |
 

@@ -37,7 +37,7 @@ Its code reaches only what it imports or is handed,
 the way a function reaches only the bindings in scope,
 plus any global the policy file accepts,
 so what a run can reach is a static fact about its import graph and its policy,
-reviewed like a lockfile, and code that stays within its own project has nothing to declare.
+reviewed like a lockfile, and code that only reads and writes its own project's files has nothing to declare.
 Runs can be hermetic too, with clock and randomness fixed or denied,
 so what a run depends on is known and it replays and caches by construction.
 It's built for code you didn't write, like your dependencies and your agents.
@@ -199,7 +199,7 @@ they're shown that way in the policy diff, with credentials passed to the one pr
 Security-first runtimes earned a reputation for friction,
 with flags on every run, prompts mid-execution, and `-A` as the habit that follows.
 Gro is designed to have none of those (none of it is built yet, and today a run has no authority to widen).
-A normal run in a project has no flags, and code that stays within the project has nothing to declare,
+A normal run in a project has no flags, and code that only reads and writes the project's files has nothing to declare,
 and the one moment worth a human's attention, when the graph newly reaches the network,
 a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt.
 The costs are elsewhere, and stated plainly:
@@ -241,7 +241,7 @@ The runtime prioritizes, in order:
    measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance, to the WinterTC minimum common API,
    graded by its WPT subset under a full grant set
-3. developer control and ergonomics, with no prompts, nothing to declare for code that stays within its project,
+3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads and writes its project's files,
    and a way to widen beside every default (`-A`, the globals grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed
 4. speed, startup first, since short-lived invocations dominate an agent-driven loop,
