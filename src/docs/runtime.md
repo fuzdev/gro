@@ -417,7 +417,7 @@ so they're set per run kind rather than granted.
 ## Compared to Deno, Node, and Bun
 
 [comparison](comparison.md) has the full account,
-with the design differences from Deno in prose, what moving a script from Deno changes,
+with the design differences from Deno in prose, [what moving a script from Deno changes](comparison.md#moving-a-script-from-deno),
 notes on Node and Bun, and the same ground as tables by axis, with the bench's measured startup and size.
 The ingredients are mostly shared.
 The difference that makes gro a new runtime rather than a set of Deno flags
@@ -432,19 +432,6 @@ where Deno's equivalents are flags that hold for the runs that pass them.
 The rest, like the kernel backstop, no prompts, and deterministic runs,
 are defaults Deno could adopt without breaking anyone, and gro turns them on;
 Deno's end of life in October 2027 is why they're unlikely to land there ([Why](#why)).
-
-Day to day, coming from Deno, as designed:
-
-- a run in a project takes no permission flags, and a widening is a policy diff at lockfile cadence;
-  a one-off run takes Deno's `--allow-*` flags for that run
-- a missing grant fails the run before any code runs, naming the fix,
-  never a prompt or an error a `try/catch` can swallow mid-run
-- `Deno.*` calls become host module imports, so Deno code is ported, not run unchanged
-- dependencies come from `node_modules`, installed by npm, never `npm:`, `jsr:`, or `https:` specifiers,
-  and a package without `exports`, or one that's CommonJS, is refused (built)
-- `fetch` is absent until declared, and the host's `net` import is the narrow way to it
-- startup is faster on every row of the [bench](comparison.md#measured) (built),
-  and the binary has no formatter, linter, test runner, or `compile`
 
 ## What the design opens up
 

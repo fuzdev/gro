@@ -16,6 +16,15 @@ without required deps.
 > SvelteKit frontends,
 > Node libraries with [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging),
 > and Node servers.
+> It inspects `package.json` and the filesystem when `gro dev` or `gro build` creates the plugins,
+> not on every task:
+>
+> - always [`gro_plugin_gen`](plugin.md)
+> - `@sveltejs/kit` in dependencies or devDependencies (not peer deps) →
+>   [`gro_plugin_sveltekit_app`](gro_plugin_sveltekit_app.md)
+> - that plus `@sveltejs/package` and the `src/lib/` directory →
+>   [`gro_plugin_sveltekit_library`](gro_plugin_sveltekit_library.md#detection)
+> - `server/server.ts` in the lib directory → `gro_plugin_server`
 
 See [`src/lib/gro_config.ts`](/src/lib/gro_config.ts) for the config types and implementation.
 
@@ -155,10 +164,13 @@ The motivation is to streamline package publishing by supplementing
 By default `package_json.exports` uses subpath wildcard patterns to include everything from `src/lib/`
 except for some ignored files like tests and markdown.
 Every `internal/` directory is blocked at any depth by a null exports entry
-(`"./internal/*": null`, one per outermost internal directory),
+(`"./internal/*": null`, `"./domain/internal/*": null`, Node's explicit-exclusion form;
+an exports key allows one `*`, so there's one key per outermost internal directory,
+whose `*` covers anything nested below),
 so internal modules ship in dist for public modules to import
 but can't be imported by consumers,
 and internal files don't count toward which wildcard patterns are emitted.
+`svelte-docinfo` honors the same signal, excluding `internal/` from analysis at any depth by default.
 You can provide your own `map_package_json` hook to
 mutate and return the `package_json`, return a new one,
 or return `null` to opt out of transforming it completely.

@@ -74,11 +74,8 @@ and the [SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging#options
 ## exports
 
 When this plugin is active, `gro sync` auto-generates `package.json` `"exports"`
-using wildcard subpath patterns for `.js`, `.ts`, `.svelte`, `.json`, and `.css` files in `src/lib/`.
-Every `internal/` directory is blocked from consumer imports at any depth by a null
-exports entry (`"./internal/*": null`, one per outermost internal directory)
-while its files still ship in `dist/`,
-and internal files don't count toward which wildcard patterns are emitted.
-Customize via [`map_package_json` in the config](config.md#map_package_json).
+using wildcard subpath patterns for `.js`, `.ts`, `.svelte`, `.json`, and `.css` files in `src/lib/`,
+with every `internal/` directory blocked from consumer imports.
+[`map_package_json` in the config](config.md#map_package_json) has the rules and customizes it.
 
 For the full publishing workflow, see [publish.md](publish.md).

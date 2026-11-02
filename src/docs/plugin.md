@@ -13,6 +13,8 @@ Each step of Gro's build processes - `gro dev` for development and `gro build` f
 runs a method of each plugin, batched together as `setup -> adapt -> teardown`,
 with some behavioral inconsistencies:
 
+- `gro dev` passes plugins `{dev: true, watch: true}` (`watch: false` with `--no-watch`),
+  and `gro build` passes `{dev: false, watch: false}`
 - `adapt` only runs during production aka `gro build`
 - `teardown` does not run for `gro dev` in the default `watch` mode,
   but it does run with `gro dev --no-watch`

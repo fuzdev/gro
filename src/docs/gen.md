@@ -28,6 +28,7 @@ More flexibility is available when needed including multiple custom output files
 and [a plugin](/src/lib/gro_plugin_gen.ts).
 By default it runs during development with `gro dev`.
 `gro build` runs it too (`--no-gen` opts out),
+`gro sync` runs it after updating `package.json`,
 and `gro check` verifies it with `gro gen --check`.
 
 Normally you'll want to commit generated files to git,

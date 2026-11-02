@@ -41,16 +41,10 @@ while a plain `cargo build` runs only from its build tree.
 - Relative and absolute specifiers with their full extension,
   and bare specifiers through a package's `"exports"` in `node_modules`,
   searched from the importer up to its project root ([resolver](resolver.md)).
-  Every module stays inside its root, checked on its real path:
-  a relative or absolute specifier resolves only inside the importer's
-  (the entry's project root, or a package's real directory),
-  never into `node_modules` below it or into a package admitted inside it,
-  and a package's `"exports"` targets and self-references stay inside the package.
-  Each refusal names the path, the root, and a fix,
-  and so does a file reached both by a relative path and by its package's name, in either order.
-  An entry inside `node_modules` runs as the package it's in.
-  A module with no project root above it gets no bare imports but a self-reference,
-  and any other is refused with the fix ([resolver](resolver.md#departures-from-node)).
+  Every module stays inside its project's or package's root, checked on its real path,
+  and each refusal names the path, the root, and a fix
+  ([resolver](resolver.md#departures-from-node) has the rules,
+  and [roots and origins](resolver.md#roots-and-origins) an entry inside `node_modules`).
   A module's `import.meta.url` is its real path, after symlinks.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.

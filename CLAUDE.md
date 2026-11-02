@@ -32,134 +32,34 @@ Key responsibilities:
 
 ### Task runner
 
-[Full documentation: src/docs/task.md](src/docs/task.md)
+[src/docs/task.md](src/docs/task.md) owns the behavior: resolution, listing,
+`Args`, `TaskContext`, `invoke_task` and its types, args forwarding, `gro run`,
+errors and exit codes. Where it lives:
 
-Tasks are TypeScript modules with `.task.ts` suffix that export a `task` object
-with a `run` function. Builtins run by name and project tasks by path, with no
-search, and each gets a context with args, config, logger, timings, and
-utilities.
-
-Resolution (`invoke_task.ts`, `resolve_task`; the CLI's forms in `invoke_cli`):
-
-- `gro foo` runs only the builtin `foo`; a name never means a project task, so
-  nothing shadows a builtin, and an unknown name errors with the builtin list
-  and the hint `gro task src/lib/foo.task.ts` (one stat says whether it exists)
-- `gro task <path>` runs a task file: relative to the cwd (the project root) or
-  absolute, `./` optional, `.task.ts`/`.task.js` required, a regular file; the
-  task is displayed and keyed by its normalized root-relative path; a flag
-  before the path is an error (it would take the path as its value)
-- An input containing `/` or ending in a task suffix is a path, anything else a
-  builtin name; `invoke_task` takes either by the same rule
-- Listing is explicit: `gro` prints the builtins and usage from the generated
-  `GRO_BUILTIN_TASK_SUMMARIES` (importing no task module), `gro task` lists the
-  project's tasks under `src/`, `gro task some/dir/` lists that directory
-- A path without `gro task` errors with the hint, and the removed `gro/` prefix
-  errors naming the plain builtin; a path without a task suffix
-  (`gro src/x/update`, `gro task src/x/update`) is hinted by what exists
-  (`to_task_path_hint`: `update.task.ts`/`.task.js` to run, the directory to
-  list, or nothing; a forwarded `-- gro <path>` names only the task file)
-
-Key features:
-
-- Lazy loading - only imports the invoked task and its dependencies
-- fuz_schema schemas - optional `Args` property for validation, types, and
-  auto-generated `--help`
-- Composition - use the `invoke_task` helper (a builtin name or a task path) or
-  direct imports
-- Args forwarding - CLI args like `gro dev -- vite --port 3000` forward to
-  external commands verbatim (`to_forwarded_argv`, never parsed and
-  reserialized)
-  - Multiple sections: `gro check -- eslint --cache -- tsc --pretty`
-  - A task's own flag (`lint`'s `--max-warnings 0`, `tsc`'s `--noEmit`,
-    configured `svelte-package` options) is dropped when the forwarded text
-    names it (`has_forwarded_flag`); the text follows Gro's args, except
-    `--noEmit` goes last (`tsc --build` must be first)
-  - Implicit forwarding (`gro test -- --watch`) reads only the first section,
-    unless it starts with `gro` or the tool's own name, and only for the task
-    the CLI invoked
-  - A literal `--` can't be forwarded, except to `gro run`'s script:
-    `gro run <path> ...rest` passes everything after the path verbatim, and a
-    flag before the path other than `--help` is an error; like `node`, it
-    prints no timings and the CLI exits with the script's code, or `128` plus a
-    signal's number (a `TaskError`'s `exit_code`, 1–255, read from the
-    CLI-invoked task's failure in `invoke.ts`)
-  - Special case for nested Gro tasks: `gro check -- gro test --coverage`
-    forwards parsed args to test, and `-- gro task src/lib/x.task.ts --a` to a
-    project task by its normalized path; `-- gro <path>` and `-- gro gro/x`
-    error with the CLI's hints
-  - Forwarded args override direct args: `gro test --a 1 -- gro test --a 2`
-    results in `{a: 2}`
-  - `invoke_task` automatically forwards CLI args to invoked tasks
-- Error handling - `TaskError` suppresses stack trace, `SilentError` exits
-  silently; `is_task_error` / `is_silent_error` (`task.ts`) match subclasses
-  and other copies of Gro, where `instanceof` misses
-
-Task composition patterns:
-
-- `invoke_task('test', args)` or `invoke_task('src/lib/x.task.ts', args)` -
-  better logging, auto-forwards args (recommended)
-- Typed names and args - `InvokeTask` checks a literal against `TaskRegistry`
-  (`task_registry.ts`) and args against the input type of the task module's
-  exported `Args` schema; builtins come from the generated `GroBuiltinTasks`
-  (`gro_builtin_tasks.gen.ts`), a project's own tasks, keyed by root-relative
-  path, from a genfile exporting `gen_task_registry` (augments `ProjectTasks`);
-  a literal task path not in the registry, or a name widened to `string`, takes
-  loose `Args`
+- Resolution - `resolve_task` in `invoke_task.ts`; the CLI's forms in
+  `invoke_cli`. A name means only a builtin, a path only a file; an input with
+  `/` or a task suffix is a path (`invoke_task` takes either by the same rule)
+- Hints for a path without `gro task` or without a task suffix -
+  `to_task_path_hint` (`internal/task_hints.ts`)
+- Listing - `gro` prints the builtins from the generated
+  `GRO_BUILTIN_TASK_SUMMARIES` (importing no task module); `gro task` imports
+  the project's tasks under `src/` to read their summaries
+- Args forwarding - `to_forwarded_argv` (verbatim, never parsed and
+  reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
+  own) in `args.ts`
+- Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
+  (how `gro run` passes on its script's code) from the CLI-invoked task's
+  failure
+- Errors - `TaskError` suppresses the stack, `SilentError` exits silently;
+  `is_task_error` / `is_silent_error` (`task.ts`) match subclasses and other
+  copies of Gro, where `instanceof` misses
+- Typed `invoke_task` - `InvokeTask` checks literals against `TaskRegistry`
+  (`task_registry.ts`); builtins from the generated `GroBuiltinTasks`
+  (`gro_builtin_tasks.gen.ts`), project tasks from a genfile exporting
+  `gen_task_registry` (augments `ProjectTasks`)
   ([docs](src/docs/task.md#types-for-invoke_task))
-- Direct import - `import {task} from './test.task.ts'; await task.run(ctx)` -
-  faster, tight coupling
-
-Task context:
-
-```typescript
-interface TaskContext<TArgs = object> {
-	args: TArgs;
-	config: GroConfig;
-	svelte_config: Promise<ParsedSvelteConfig>;
-	graph: ModuleGraph; // the project's module graph, loaded on first use
-	watcher: Watcher; // a plain file watch, loaded on first use
-	log: Logger;
-	timings: Timings;
-	invoke_task: InvokeTask;
-}
-```
-
-Example task:
-
-```typescript
-import type {Task} from '@fuzdev/gro';
-import * as s from '@fuzdev/fuz_schema/schema.ts';
-import {meta} from '@fuzdev/fuz_schema/meta.ts';
-
-export const Args = s.object({
-	name: s.with_default(meta(s.string, {description: 'who to greet'}), 'world'),
-});
-export type Args = s.Infer<typeof Args>;
-
-export const task: Task<Args> = {
-	summary: 'greets someone',
-	Args,
-	run: async ({args, log}) => {
-		log.info(`Hello, ${args.name}!`);
-	},
-};
-```
-
-Run with: `gro task src/lib/mytask.task.ts` or
-`gro task src/lib/mytask.task.ts --name Alice`
-
-Wrapping a builtin is composition, not an override: a project task calls the
-builtin by name, and the project's script points at the wrapper's path.
-
-```typescript
-export const task: Task = {
-	run: async ({invoke_task, args}) => {
-		await setupCustomEnvironment();
-		await invoke_task('test', args); // always the builtin
-		await teardownCustomEnvironment();
-	},
-};
-```
+- Wrapping a builtin is composition: a project task calls it by name and the
+  `package.json` script points at the wrapper's path; nothing shadows a builtin
 
 ### Node loader
 
@@ -217,202 +117,46 @@ global Gro in a project that doesn't install it.
 
 ### Code generation
 
-[Full documentation: src/docs/gen.md](src/docs/gen.md)
+[src/docs/gen.md](src/docs/gen.md) owns the behavior: naming, return values,
+`GenContext`, `inputs`, when gen runs, and `gro gen --check`. Where it lives:
 
-Convention-based codegen system where files containing `.gen.` in their name
-export a `gen` function or config object. The `gro gen` task finds these files,
-runs them, and writes output to the filesystem.
-
-Naming convention:
-
-- `foo.gen.ts` → outputs `foo.ts`
-- `foo.gen.html.ts` → outputs `foo.html`
-- Multiple extensions stripped: `.gen.` is removed, last `.ts` dropped
-- Custom output via `{content: '...', filename: 'custom.ts'}`
-- Can return array for multiple output files
-
-Return values:
-
-- String: default filename, auto-formatted with tsv
-- Object: `{content, filename?, format?}` for control
-- Array: multiple files from one genfile
-- `null`: no-op
-
-Inputs: in `gro dev`, genfiles regenerate when they or their imports change.
-The static `inputs` property declares the other files they read:
-
-- `'all'` - regenerate on any change the dev watch reports
-- `{patterns: ['*.json'], files: ['src/lib/template.html']}` - gitignore patterns
-  anchored at the project root (matched by tsv's `IgnoreStack`, files inside the
-  root only) and exact paths (anywhere); only changes under `watch.dir` (default
-  `src/`) trigger
-
-When it runs:
-
-- `gro gen` - manual trigger
-- `gro dev` - watch mode, throttled queue via `gro_plugin_gen`
-- `gro build` - runs gen once before building (`--no-gen` skips)
-- `gro sync` - before syncing package.json
-- `gro gen --check` - verify no drift (used by `gro check` and CI)
-
-Gen context:
-
-```typescript
-interface GenContext {
-	config: GroConfig;
-	svelte_config: Promise<ParsedSvelteConfig>;
-	log: Logger;
-	timings: Timings;
-	invoke_task: InvokeTask;
-	origin_id: PathId; // Same as import.meta.url in path form
-	origin_path: string; // origin_id relative to root dir
-}
-```
-
-Example genfile:
-
-```typescript
-import type {Gen} from '@fuzdev/gro';
-
-export const gen: Gen = async () => {
-	const routes = await findRoutes();
-	return `export const ROUTES = ${JSON.stringify(routes)};`;
-};
-
-// Multiple outputs:
-export const gen: Gen = async () => [
-	{content: 'export const foo = 1;', filename: 'foo.ts'},
-	{content: '{"version": 1}', filename: 'data.json'},
-];
-
-// With inputs:
-export const gen: GenConfig = {
-	generate: () => 'generated content',
-	inputs: {
-		patterns: ['*.json'],
-		files: ['src/lib/template.html'],
-	},
-};
-```
+- Task and runner - `gen.task.ts`, `run_gen.ts`, `gen.ts`
+- `inputs` - `gen_helpers.ts`, patterns matched by tsv's `IgnoreStack`; input
+  paths in `input_path.ts`
+- Dev regeneration - `gro_plugin_gen`, a throttled queue over the task
+  context's `graph`
 
 ### Plugin system
 
-[Full documentation: src/docs/plugin.md](src/docs/plugin.md)
+[src/docs/plugin.md](src/docs/plugin.md) owns the lifecycle
+(`setup` → `adapt` → `teardown`), the `Plugin` and `PluginContext` interfaces,
+and error handling; `plugin.ts` implements them. Builtin plugins:
 
-Plugins customize `gro dev` and `gro build` workflows with three lifecycle
-hooks: `setup`, `adapt`, and `teardown`. They're objects with a `name` and
-optional async functions for each phase.
-
-Lifecycle:
-
-- `setup` - runs first in both dev and build
-- `adapt` - runs second, build only (for SvelteKit adapters)
-- `teardown` - runs last, build only or dev with `--no-watch`
-
-Dev vs build:
-
-- `gro dev` - creates plugins with `{dev: true, watch: true}`, runs setup, keeps
-  process alive
-- `gro dev --no-watch` - runs setup → teardown, exits
-- `gro build` - creates plugins with `{dev: false, watch: false}`, runs setup →
-  adapt → teardown
-
-Plugin interface:
-
-```typescript
-interface Plugin<TPluginContext extends PluginContext = PluginContext> {
-	name: string;
-	setup?: (ctx: TPluginContext) => void | Promise<void>;
-	adapt?: (ctx: TPluginContext) => void | Promise<void>;
-	teardown?: (ctx: TPluginContext) => void | Promise<void>;
-}
-
-interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
-	dev: boolean;
-	watch: boolean;
-}
-```
-
-Builtin plugins:
-
-- `gro_plugin_gen` - watches files, queues genfiles when they, their imports, or their inputs
+- `gro_plugin_gen` - reruns genfiles when they, their imports, or their inputs
   change
-- `gro_plugin_sveltekit_app` - runs `vite dev` or `vite build` for SvelteKit
-  frontends ([docs](src/docs/gro_plugin_sveltekit_app.md))
-- `gro_plugin_sveltekit_library` - runs `svelte-package` to publish from
-  `src/lib/`, then rewrites relative `.ts`→`.js` import specifiers in the
-  emitted `.d.ts`/`.svelte` ([docs](src/docs/gro_plugin_sveltekit_library.md))
-- `gro_plugin_server` - runs Node servers with auto-restart on changes
-- `gro_plugin_deno_server` - runs a Deno server beside the Vite dev server, unbundled
+- `gro_plugin_sveltekit_app` - `vite dev` / `vite build`
+  ([docs](src/docs/gro_plugin_sveltekit_app.md))
+- `gro_plugin_sveltekit_library` - `svelte-package`, then `.ts`→`.js`
+  specifier rewrites in the emitted `.d.ts`/`.svelte`
+  ([docs](src/docs/gro_plugin_sveltekit_library.md))
+- `gro_plugin_server` - Node servers with auto-restart on changes
+- `gro_plugin_deno_server` - a Deno server beside the Vite dev server,
+  unbundled
 
 ### Configuration
 
-[Full documentation: src/docs/config.md](src/docs/config.md)
+[src/docs/config.md](src/docs/config.md) owns `gro.config.ts`, `GroConfig`
+and `CreateGroConfig`, the default config's project detection, and each option
+(`map_package_json` and the `internal/` null-exports rule, `search_filters`,
+`watch`, `build_cache_config`). Where it lives:
 
-Optional `gro.config.ts` at project root exports `CreateGroConfig` function or
-config object. If absent, uses default config from
-`src/lib/gro.config.default.ts`.
-
-Default config behavior: Auto-detects project type from `package.json` and the
-filesystem, deferred until plugins are created:
-
-- `@sveltejs/kit` in package.json deps or dev deps (not peer deps) → enables
-  `gro_plugin_sveltekit_app`
-- `@sveltejs/kit` and `@sveltejs/package` in deps or dev deps, plus the lib
-  directory → enables `gro_plugin_sveltekit_library`
-- `server/server.ts` in the lib directory → enables `gro_plugin_server`
-- Always enables `gro_plugin_gen`
-
-Config interface:
-
-```typescript
-interface GroConfig {
-	plugins: PluginsCreateConfig; // Function returning array of plugins
-	map_package_json: PackageJsonMapper | null; // Hook for package.json automations
-	search_filters: Array<PathFilter>; // Exclude patterns for discovery
-	js_cli: string; // Node-compatible CLI (default: 'node')
-	pm_cli: string; // npm-compatible CLI (default: 'npm')
-	build_cache_config_hash: string; // hash of `build_cache_config`, which normalization drops
-	watch: WatchOptions; // what `graph` and `watcher` watch (default: `src/`, no filter)
-}
-```
-
-map_package_json: Runs during `gro sync` to auto-generate `"exports"` field in
-package.json using wildcard patterns for files in `src/lib/`. Return `null`
-to opt out. Every `internal/` directory is blocked at any depth by a null
-exports entry (`"./internal/*": null`, `"./domain/internal/*": null` — Node's
-explicit-exclusion form; exports keys allow one `*`, hence one key per
-outermost internal directory, whose `*` covers anything nested below), so
-internal modules ship in dist for public modules to import
-but can't be imported by consumers (the `internal/` convention;
-`svelte-docinfo` honors the same signal in discovery and excludes
-`internal/` from analysis at any depth by default), and internal files
-don't count toward which wildcard patterns are emitted.
-
-Example config:
-
-```typescript
-import type {CreateGroConfig} from '@fuzdev/gro';
-
-const config: CreateGroConfig = async (base_config) => {
-	// Extend default plugins
-	const base_plugins = base_config.plugins;
-	base_config.plugins = async (ctx) => {
-		const plugins = await base_plugins(ctx);
-		return [...plugins, myCustomPlugin()];
-	};
-
-	// Customize package.json automation
-	base_config.map_package_json = (pkg) => {
-		pkg.exports = {'.': './dist/index.js'};
-		return pkg;
-	};
-
-	return base_config;
-};
-
-export default config;
-```
+- Types and loading - `gro_config.ts` (`load_gro_config` hashes
+  `build_cache_config` and drops the raw value)
+- Default config - `gro.config.default.ts`; detection is deferred until `dev`
+  or `build` creates plugins (`has_sveltekit_app` / `has_sveltekit_library` in
+  `sveltekit_helpers.ts`, `has_server` in `gro_plugin_server.ts`)
+- Exports automation - `package_json_sync` in `package_json.ts`, run by
+  `gro sync`
 
 ## File conventions
 
@@ -432,36 +176,13 @@ searched directory under `~/.cache/` still searches):
 
 ## Builtin tasks
 
-[Complete list: src/docs/tasks.md](src/docs/tasks.md)
-
-- Development: `dev`, `test`, `gen`, `format`, `lint`, `typecheck`
-- Production: `build`, `check`, `publish`, `deploy`, `release`
-- Utilities: `clean`, `sync`, `run`, `changeset`, `commit`, `reinstall`,
-  `upgrade`
-
-Key tasks:
-
-- `dev` - start dev server with watch mode (SvelteKit + Vite via plugins)
-  ([docs](src/docs/dev.md))
-- `test` - run Vitest tests matching `.test.` pattern ([docs](src/docs/test.md))
-- `gen` - run code generation ([docs](src/docs/gen.md))
-- `build` - production build with intelligent caching (runs plugin lifecycle:
-  setup → adapt → teardown) ([docs](src/docs/build.md))
-  - Build caching - skips expensive rebuilds using git commit + optional config
-    hash + Gro and Node versions + a hash of `node_modules/.package-lock.json`
-    ([docs](src/docs/build.md#build-caching))
-  - Conservative correctness: dirty workspace forces rebuild and cleans outputs
-  - Outputs validated via parallel hashing
-    ([implementation](src/lib/build_cache.ts))
-  - Cache survives manual `build/` deletion (stored in `.gro/`)
-  - Force rebuild: `gro build --force_build`
-- `check` - run all checks (test, gen --check, format --check, lint, typecheck)
-- `sync` - run gen, update package.json exports, optionally install packages
-- `publish` - version with Changesets, publish to npm, push to git
-  ([docs](src/docs/publish.md))
-- `deploy` - build and force push to git branch (default: `deploy`)
-  ([docs](src/docs/deploy.md))
-- `run` - execute TypeScript file with Gro's loader
+[Complete list: src/docs/tasks.md](src/docs/tasks.md), generated from the task
+files' summaries. Docs per task: [dev](src/docs/dev.md),
+[test](src/docs/test.md), [gen](src/docs/gen.md), [build](src/docs/build.md)
+(sync, gen, the build cache and its key, post-build verification),
+[publish](src/docs/publish.md), [deploy](src/docs/deploy.md); `run` in
+[task.md](src/docs/task.md#gro-run). The build cache is `build_cache.ts` and
+`build_cache_dependencies.ts`, stored in `.gro/build.json`.
 
 ## Architecture patterns and design
 
