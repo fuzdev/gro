@@ -24,6 +24,7 @@ The runtime's docs:
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
 - [glossary](glossary.md) - the terms these docs use, each defined once
+- installing a release - [install](#install), below
 - building it - the README's [Develop](../../README.md#develop) section
 
 Gro is becoming its own JS runtime, a Rust binary that embeds V8,
@@ -529,3 +530,33 @@ Future (unknown order):
 Maybe later or never:
 
 - a custom V8 build
+
+## Install
+
+Each release of `fgro` is a GitHub Release on an `fgro-v<version>` tag,
+with the binary's notes in [crates/CHANGELOG.md](../../crates/CHANGELOG.md).
+Its asset is a bare binary for Linux x86_64, `fgro-linux-x64-gnu`,
+built on Ubuntu 24.04, so it needs glibc 2.39 or later (not Debian 12 or Ubuntu 22.04),
+beside a `SHA512SUMS` file, each with a provenance attestation;
+`fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)).
+Download both files and check them:
+
+```bash
+gh release download fgro-v<version> -R fuzdev/gro   # or both files from the Release page
+gh attestation verify fgro-linux-x64-gnu -R fuzdev/gro \
+  --signer-workflow fuzdev/gro/.github/workflows/release.yml
+sha512sum -c SHA512SUMS
+```
+
+Install it to a path you update deliberately, since a caller that pins the binary
+records the hash of that file.
+zap takes the binary by absolute path on every command that evaluates a config,
+from `ZAP_FGRO` or `--fgro` (under `sudo`, which resets the environment, only `--fgro`),
+and records its pin with `zap lock`, which hashes that binary (blake3)
+and writes the hash to the project's `zap.lock`:
+
+```bash
+install -D -m 755 fgro-linux-x64-gnu ~/.zap/bin/fgro
+export ZAP_FGRO="$HOME/.zap/bin/fgro"   # bash / zsh; in fish: set -gx ZAP_FGRO ~/.zap/bin/fgro
+zap lock   # in the zap project's directory
+```

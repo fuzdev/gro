@@ -3,8 +3,9 @@
 > `fgro run <file>` as built today: what it loads, what the global scope holds,
 > how a run fails, and the exit codes
 
-> **status**: built; the reference for the current binary, which has no release yet.
-> The README's [Develop](../../README.md#develop) section says how to build it,
+> **status**: built; the reference for the current binary.
+> [Install](runtime.md#install) says how to install a release,
+> the README's [Develop](../../README.md#develop) section how to build it,
 > and [runtime](runtime.md) has the design it grows into.
 
 ## Usage

@@ -3,7 +3,8 @@
 > `fgro eval <module>` as built today: a module evaluated to JSON data,
 > the driver contract, the serializer's rules, the envelope, and the exit codes
 
-> **status**: built in part; the reference for the current binary, which has no release yet.
+> **status**: built in part; the reference for the current binary
+> ([install](runtime.md#install) says how to install a release).
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 > Built today are the protocol, the serializer, the engine's settings, `determinism: deny`,
 > the heap, memory, and time limits, the byte caps, the box its process runs in (Linux only), and the graph dump.

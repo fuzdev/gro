@@ -1,0 +1,329 @@
+# Releases `fgro`, the Rust runtime binary in crates/, as a GitHub Release
+# asset. The binary has its own version line, the Cargo workspace version, and
+# its own tags, `fgro-v<version>`, apart from the npm package's `v*` tags.
+#
+# Two jobs, so the job that runs build scripts and tests never holds a write
+# token:
+#
+# - `build` (read-only) refuses a tag that isn't `fgro-v` + the workspace
+#   version, builds the release `fgro` with its startup snapshot from fixed
+#   neutral paths, runs the snapshot build's checks (`--verify`), checks that
+#   no builder path outside the neutral prefix is in the binary, and uploads
+#   the bare binary as the `fgro-linux-x64-gnu` artifact, its SHA-512 a job
+#   output. It restores no cache, so nothing an earlier run wrote reaches the
+#   released binary.
+# - `release` downloads the artifact, checks it against the build job's
+#   SHA-512, writes `SHA512SUMS`, attests every asset, and creates the Release
+#   with crates/CHANGELOG.md's section for the version as its notes. It holds
+#   the workflow's only write permissions and runs in the `release`
+#   environment, whose reviewers approve it.
+#
+# A manual run (`workflow_dispatch`) is a rehearsal: the build job runs in
+# full, its checks included, and skips only the tag check, saying so; the
+# release job runs only on a tag push.
+#
+# Linux x86_64 only. The runner image sets the glibc floor: `ubuntu-24.04` has
+# glibc 2.39, so the binary doesn't run on Debian 12 or Ubuntu 22.04, which the
+# Release notes state. No npm token is used anywhere: this publishes nothing to
+# npm.
+
+name: release
+
+on:
+  push:
+    tags: ['fgro-v*']
+  workflow_dispatch:
+
+# Each job declares what it needs.
+permissions: {}
+
+# Never cancel a release mid-run; queue instead.
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  build:
+    # Pinned, not ubuntu-latest: the image's glibc is the binary's floor.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      sha512: ${{ steps.stage.outputs.sha512 }}
+    # An explicit `shell: bash` runs every step with `-eo pipefail`, so a
+    # failing command inside a pipeline fails its step.
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The neutral prefix the build runs under: the source tree at
+      # `$BUILD_ROOT/gro` and cargo's home, with the registry and git sources,
+      # at `$BUILD_ROOT/cargo`. Every path the build writes into the binary
+      # starts here or at `/rustc/`, and the leak check below admits no other
+      # builder path.
+      BUILD_ROOT: /build
+
+    steps:
+      # persist-credentials: false keeps the GITHUB_TOKEN out of .git/config (no
+      # step here pushes via git).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The runner's preinstalled rustup installs the toolchain and components
+      # pinned in rust-toolchain.toml; any rustup 1.28+ reads it with no
+      # arguments, so skip self-updating it.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+
+      # The build runs from neutral paths, not the checkout under the runner's
+      # home. `--remap-path-prefix` rewrites the paths rustc writes, like panic
+      # locations, but not paths a crate takes from `env!("CARGO_MANIFEST_DIR")`
+      # (deno_core's `include_js_files!` for deno_web and deno_webidl, and
+      # gro_runtime's snapshot builder), which the binary keeps. So the tree is
+      # copied, `.git` and all, to `$BUILD_ROOT/gro` (checkout's `path` can't
+      # leave the workspace), and cargo's home moves to `$BUILD_ROOT/cargo`,
+      # fresh, so no config or source from the runner image's ~/.cargo reaches
+      # the build. With both there, no remap is needed: std's paths are already
+      # `/rustc/<hash>`. Every later step runs in the copy.
+      - name: Move to the neutral paths
+        run: |
+          if [ -e "$BUILD_ROOT" ]; then
+            echo "::error::$BUILD_ROOT already exists on this runner"
+            exit 1
+          fi
+          sudo install -d -o "$(id -u)" -g "$(id -g)" -m 755 "$BUILD_ROOT"
+          cp -a "$GITHUB_WORKSPACE" "$BUILD_ROOT/gro"
+          mkdir "$BUILD_ROOT/cargo"
+          echo "CARGO_HOME=$BUILD_ROOT/cargo" >> "$GITHUB_ENV"
+
+      # Every crate shares the workspace version, which `fgro --version` prints.
+      # A manual run has no tag to check, and says so.
+      - name: Refuse a tag that isn't the workspace version
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: |
+          version=$(cargo metadata --locked --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "gro_cli") | .version')
+          if [ -z "$version" ]; then
+            echo "::error::no gro_cli version in Cargo.toml"
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" != push ]; then
+            echo "::notice::a $GITHUB_EVENT_NAME run on $GITHUB_REF has no tag: the tag check is skipped, not passed (workspace version $version)"
+          elif [ "$GITHUB_REF_NAME" != "fgro-v$version" ]; then
+            echo "::error::the tag '$GITHUB_REF_NAME' isn't 'fgro-v' + the workspace version '$version' in Cargo.toml"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # The pinned V8 archive, downloaded and its SHA-256 verified.
+      - name: Fetch V8
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: cargo xtask fetch-v8
+
+      # The release build with its startup snapshot, then its checks: the size
+      # budgets, clippy over the snapshot feature, the integration tests against
+      # the snapshot build, and a run with the build tree's sources hidden in a
+      # private user and mount namespace, which the runner's AppArmor policy
+      # forbids by default.
+      - name: Build and verify
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          cargo xtask build --release --verify
+
+      # The binary names this version and the built commit, with a clean tree.
+      - name: Check the version line
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: |
+          line=$(target/gro_snapshot/release/fgro --version)
+          echo "$line"
+          case "$line" in
+            "fgro $VERSION (commit $GITHUB_SHA, "*", snapshot)") ;;
+            *)
+              echo "::error::expected 'fgro $VERSION (commit $GITHUB_SHA, …, snapshot)'"
+              exit 1
+              ;;
+          esac
+
+      # No builder path outside the neutral prefix is in the binary: no home
+      # directory, cargo or rustup home, or the runner's workspace, temp, or
+      # tool cache. Each occurrence of a denied root is found by byte offset,
+      # so paths stored back to back, with no separator, are each seen; one is
+      # excused only where it's part of the prefix itself (never on this
+      # runner, where the prefix holds none of them).
+      #
+      # The prefix itself stays in the binary: in the dependencies' panic
+      # locations under `cargo/registry/src/` and `cargo/git/checkouts/`, which
+      # a remap could rewrite, and in paths from `env!("CARGO_MANIFEST_DIR")`,
+      # which it can't, under `gro/crates/gro_runtime` and deno_web's and
+      # deno_webidl's registry sources, from the snapshot builder code the
+      # shipped binary carries (`fgro make-snapshot`). They name the build
+      # layout, nothing of the builder; leaving that code out of the shipped
+      # binary would drop the second kind.
+      - name: Check for builder paths
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: |
+          export LC_ALL=C
+          binary=target/gro_snapshot/release/fgro
+          prefix="$BUILD_ROOT/"
+          roots=(/home/ /Users/ /root/ /.cargo/ /.rustup/)
+          for dir in "$HOME" "$GITHUB_WORKSPACE" "$RUNNER_TEMP" "$RUNNER_TOOL_CACHE"; do
+            dir=${dir%/}
+            if [ -n "$dir" ]; then roots+=("$dir/"); fi
+          done
+          # the prefix must be there, so a scan that read nothing fails
+          if ! grep -qaF -- "$prefix" "$binary"; then
+            echo "::error::the binary holds no path under $prefix: the build didn't run from it, or the scan failed"
+            exit 1
+          fi
+          leaks=$(
+            {
+              { grep -aobF -- "$prefix" "$binary" || true; } | awk -F: '{ print "P\t" $1 }'
+              for root in "${roots[@]}"; do
+                { grep -aobF -- "$root" "$binary" || true; } | awk -F: -v root="$root" '{ print "R\t" $1 "\t" root }'
+              done
+            } | awk -F '\t' -v prefix="$prefix" '
+              $1 == "P" { in_prefix[$2] = 1; next }
+              {
+                offset = $2; root = $3; excused = 0
+                for (k = 1; k + length(root) - 1 <= length(prefix); k++) {
+                  if (substr(prefix, k, length(root)) == root && (offset - k + 1) in in_prefix) {
+                    excused = 1
+                    break
+                  }
+                }
+                if (!excused) print offset "\t" root
+              }
+            ' | sort -n -u
+          )
+          escaped=$(printf '%s' "$prefix" | sed 's/[][\\.*^$+?(){}|]/\\&/g')
+          echo "paths under $prefix in the binary, by their first two components:"
+          grep -aoE -- "$escaped[A-Za-z0-9._-]+/[A-Za-z0-9._-]+" "$binary" | sort | uniq -c || true
+          if [ -n "$leaks" ]; then
+            echo "::error::the binary contains builder paths outside $prefix"
+            head -n 10 <<<"$leaks" | while IFS=$'\t' read -r offset root; do
+              printf '%s at byte %s: ' "$root" "$offset"
+              { tail -c "+$((offset + 1))" "$binary" || true; } | head -c 160 | tr -c '[:print:]' '?'
+              echo
+            done
+            exit 1
+          fi
+
+      - name: Stage the asset
+        id: stage
+        working-directory: ${{ env.BUILD_ROOT }}/gro
+        run: |
+          mkdir -p "$RUNNER_TEMP/asset"
+          cp target/gro_snapshot/release/fgro "$RUNNER_TEMP/asset/fgro-linux-x64-gnu"
+          sha512=$(sha512sum "$RUNNER_TEMP/asset/fgro-linux-x64-gnu" | cut -d ' ' -f 1)
+          echo "sha512=$sha512" >> "$GITHUB_OUTPUT"
+          echo "$sha512  fgro-linux-x64-gnu"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fgro-linux-x64-gnu
+          path: ${{ runner.temp }}/asset/fgro-linux-x64-gnu
+          if-no-files-found: error
+
+  release:
+    needs: build
+    # A tag push only: a manual run stops after the build job.
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The `release` environment is configured in the repo settings, with the
+    # maintainer as its required reviewer and deployments limited to `fgro-v*`
+    # tags. Without that configuration GitHub creates it on first use,
+    # unprotected.
+    environment: release
+    permissions:
+      contents: write # gh release create with its assets
+      id-token: write # attest-build-provenance (Sigstore certificate)
+      attestations: write # attest-build-provenance (store the attestation)
+
+    steps:
+      # Only the changelog, for the notes. persist-credentials: false keeps the
+      # GITHUB_TOKEN out of .git/config (gh reads GH_TOKEN, not git config).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          sparse-checkout: crates/CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fgro-linux-x64-gnu
+          path: ${{ runner.temp }}/assets
+
+      # The download must be the file the build job hashed, before anything
+      # attests it. Then sha512sum's format, so `sha512sum -c SHA512SUMS`
+      # checks a download.
+      - name: Check the digest and write SHA512SUMS
+        working-directory: ${{ runner.temp }}/assets
+        env:
+          BUILT_SHA512: ${{ needs.build.outputs.sha512 }}
+        run: |
+          downloaded=$(sha512sum fgro-linux-x64-gnu | cut -d ' ' -f 1)
+          if [ -z "$BUILT_SHA512" ] || [ "$downloaded" != "$BUILT_SHA512" ]; then
+            echo "::error::the downloaded binary's SHA-512 '$downloaded' isn't the build job's '$BUILT_SHA512'"
+            exit 1
+          fi
+          sha512sum fgro-linux-x64-gnu > SHA512SUMS
+          cat SHA512SUMS
+
+      # The changelog's `## <version>` section, which must exist and say
+      # something, then the platform and the install steps.
+      - name: Release notes
+        run: |
+          version=${GITHUB_REF_NAME#fgro-v}
+          notes="$RUNNER_TEMP/release_notes.md"
+          awk -v heading="## $version" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' crates/CHANGELOG.md | sed -e '/./,$!d' > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error::crates/CHANGELOG.md has no '## $version' section, or it's empty"
+            exit 1
+          fi
+          {
+            echo
+            echo "Linux x86_64 only, built on Ubuntu 24.04, so it needs glibc 2.39 or later (not Debian 12 or Ubuntu 22.04)."
+            echo "To verify and install it, see [install](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/src/docs/runtime.md#install)."
+          } >> "$notes"
+          cat "$notes"
+
+      # A provenance attestation over every asset, the binary and SHA512SUMS,
+      # so a download of either verifies with
+      # `gh attestation verify <file> -R fuzdev/gro`. Ahead of the Release, so a
+      # failed attestation fails before anything is public. No storage record:
+      # that needs the `artifact-metadata: write` permission, and the
+      # attestation alone is what `gh attestation verify` reads.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/assets/*
+          create-storage-record: false
+
+      # The assets go up in the same call, so the Release never appears without
+      # them. --verify-tag refuses a tag the remote doesn't hold. An existing
+      # Release fails the step rather than having its assets replaced: a
+      # rebuilt binary has other bytes, and a pin records the first's hash. A
+      # version with a pre-release part (`0.2.0-rc.1`) is marked a pre-release.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=${GITHUB_REF_NAME#fgro-v}
+          prerelease=()
+          case "$version" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/assets/fgro-linux-x64-gnu" "$RUNNER_TEMP/assets/SHA512SUMS" \
+            --verify-tag --title "fgro $version" \
+            --notes-file "$RUNNER_TEMP/release_notes.md" \
+            "${prerelease[@]}"
