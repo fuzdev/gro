@@ -308,3 +308,49 @@ test('parse export-all re-exports', () => {
 		'./type_ns.ts'
 	]);
 });
+
+test('parse type-position imports only when types are kept', () => {
+	const source = `
+      import type {A} from './type_static.ts';
+      type B = typeof import('./type_query.ts');
+      type C = import('./type_ref.ts').C;
+      type D = import("./type_generic.ts").D<string>;
+      let e: Array<import('./type_nested.ts').E>;
+      const f = await import('./dynamic.ts');
+    `;
+	expect(parse_imports('a.ts', source)).toEqual(['./dynamic.ts']);
+	expect(parse_imports('a.ts', source, false)).toEqual([
+		'./type_static.ts',
+		'./type_query.ts',
+		'./type_ref.ts',
+		'./type_generic.ts',
+		'./type_nested.ts',
+		'./dynamic.ts'
+	]);
+});
+
+test('parse static imports skipping only all-inline-type specifier lists', () => {
+	const source = `
+      import {type a, type b} from './all_inline_types.ts';
+      import {type c, d} from './mixed.ts';
+      import e, {type f} from './default_and_type.ts';
+      import * as g from './namespace.ts';
+      import {} from './empty.ts';
+      import './side_effect.ts';
+    `;
+	expect(parse_imports('a.ts', source)).toEqual([
+		'./mixed.ts',
+		'./default_and_type.ts',
+		'./namespace.ts',
+		'./empty.ts',
+		'./side_effect.ts'
+	]);
+	expect(parse_imports('a.ts', source, false)).toEqual([
+		'./all_inline_types.ts',
+		'./mixed.ts',
+		'./default_and_type.ts',
+		'./namespace.ts',
+		'./empty.ts',
+		'./side_effect.ts'
+	]);
+});

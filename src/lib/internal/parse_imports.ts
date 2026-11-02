@@ -1,4 +1,4 @@
-import { parseSync, Visitor, type Expression, type ImportDeclaration } from 'oxc-parser';
+import { parseSync, Visitor, type Expression, type VisitorObject } from 'oxc-parser';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
@@ -18,6 +18,16 @@ const to_import_expression_value = (source: Expression): string | null => {
 	return null;
 };
 
+/**
+ * Collects the import specifiers of a JS, TS, or Svelte module: static imports, dynamic imports
+ * with a single-string source, and re-exports, each group in source order.
+ *
+ * @param id - the module's path, which picks the parser
+ * @param contents - the module's source
+ * @param ignore_types - skip type-only imports and re-exports; when false, type-position
+ *   imports (`typeof import('./x')`, `import('./t').X`) are collected too
+ * @returns the specifiers, decoded, duplicates kept
+ */
 export const parse_imports = (
 	id: PathId,
 	contents: string,
@@ -29,47 +39,52 @@ export const parse_imports = (
 	const parse_from = (s: string): void => {
 		const parsed = parseSync(is_svelte ? id + '.ts' : id, s, {});
 
-		// Process static imports
-		for (const static_import of parsed.module.staticImports) {
-			// Get the module source node
-			const import_decl = parsed.program.body.find(
-				(node) => node.type === 'ImportDeclaration' && node.start === static_import.start
-			) as ImportDeclaration | undefined;
-
-			if (!import_decl?.source) continue;
+		// Process static imports, one pass over the top-level statements
+		for (const node of parsed.program.body) {
+			if (node.type !== 'ImportDeclaration') continue;
 
 			// the parser's decoded value, exact for every escape
-			const value = import_decl.source.value;
+			const value = node.source.value;
 
 			if (!value) continue;
 
 			// Skip type-only imports if ignore_types is true
 			if (ignore_types) {
 				// Handle import type {...} (type-only imports)
-				if (import_decl.importKind === 'type') {
+				if (node.importKind === 'type') {
 					continue;
 				}
 
-				// Handle inline type imports ({type foo})
-				if (static_import.entries.length > 0) {
-					// If all imports are type imports, skip this import
-					const has_non_type_specifier = static_import.entries.some((entry) => !entry.isType);
-					if (!has_non_type_specifier) {
-						continue;
-					}
+				// Handle inline type imports ({type foo}), skipped when every specifier is one
+				if (
+					node.specifiers.length > 0 &&
+					node.specifiers.every((s) => s.type === 'ImportSpecifier' && s.importKind === 'type')
+				) {
+					continue;
 				}
 			}
 
 			specifiers.push(value);
 		}
 
-		// Process dynamic imports anywhere in the module, from the parser's decoded values
-		new Visitor({
+		// Process dynamic imports anywhere in the module, from the parser's decoded values,
+		// and when types are kept, type-position imports (`typeof import('./x')`, `import('./t').X`)
+		const visitor: VisitorObject = {
 			ImportExpression: (node) => {
 				const value = to_import_expression_value(node.source);
 				if (value) specifiers.push(value);
 			}
-		}).visit(parsed.program);
+		};
+		if (!ignore_types) {
+			visitor.TSImportType = (node) => {
+				const { argument } = node;
+				if (argument.type === 'TSLiteralType' && argument.literal.type === 'Literal') {
+					const { value } = argument.literal;
+					if (typeof value === 'string' && value) specifiers.push(value);
+				}
+			};
+		}
+		new Visitor(visitor).visit(parsed.program);
 
 		// Process re-exports, `export {x} from` and `export * from`
 		for (const node of parsed.program.body) {
