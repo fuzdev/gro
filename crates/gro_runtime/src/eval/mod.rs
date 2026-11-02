@@ -2,7 +2,7 @@
 //! [`Envelope`] that reports the value or the kind of failure.
 //!
 //! An eval runs in two steps, so that its process can be confined between
-//! them ([`crate::confine`]): [`prepass`] resolves the entry and computes the
+//! them ([`crate::confine`]): [`prepass()`] resolves the entry and computes the
 //! box's roots, before any runtime exists, and [`eval`] runs the rest on an
 //! engine started after the box.
 //!

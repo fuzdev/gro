@@ -33,7 +33,7 @@ pub struct Envelope {
     /// What the run tried to reach and was refused; unset only in the
     /// envelope the out-of-memory backstop writes, prepared before the run
     /// and written without it, and in one whose text would pass
-    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE): a value's,
+    /// [`MAX_ENVELOPE_SIZE`]: a value's,
     /// replaced by a small failure, or a failure's, which drops it.
     pub access: Option<Access>,
     /// The module graph, when the caller asked for it.
@@ -52,7 +52,7 @@ pub enum GraphField {
     /// module URL with no path ([`super::DumpError`]). A graph the host
     /// failed to record fails the eval as `internal`, and is `null` too, as
     /// is one in an envelope that would pass
-    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE), which drops it.
+    /// [`MAX_ENVELOPE_SIZE`], which drops it.
     Unavailable,
     /// The graph, from the run as far as it got.
     Dumped(Box<GraphDump>),
@@ -139,7 +139,7 @@ pub enum ErrorKind {
     ExportMissing,
     /// The value isn't JSON data by the host serializer's rules, or the
     /// envelope holding it would pass
-    /// [`MAX_ENVELOPE_SIZE`](super::MAX_ENVELOPE_SIZE). A failure past the
+    /// [`MAX_ENVELOPE_SIZE`]. A failure past the
     /// cap keeps its kind.
     Serialize,
     /// After the value was serialized, the event loop's remaining work

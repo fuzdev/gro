@@ -159,7 +159,7 @@ async fn run_phases(
 
 /// Refuses a time zone other than [`TIME_ZONE`] on the started runtime,
 /// before any user code runs: anything whose epoch isn't [`UTC_EPOCH`]
-/// under [`LOCALE`], which only `UTC` and its aliases that display as it
+/// under [`LOCALE`](super::LOCALE), which only `UTC` and its aliases that display as it
 /// write. ICU takes the zone from the host's `TZ`, which eval itself doesn't
 /// read.
 ///

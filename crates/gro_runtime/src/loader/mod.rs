@@ -4,14 +4,14 @@
 //!
 //! Static imports, `import()`, and `import.meta.resolve` all reach
 //! `resolver::resolve_from`, from the importer's recorded root. The entry module is resolved before the runtime
-//! starts ([`resolver::resolve_entry`]), so its URL arrives here already
+//! starts ([`resolver::resolve_entry`](crate::resolver::resolve_entry)), so its URL arrives here already
 //! final, with the roots its graph starts with.
 //!
-//! The loader owns the graph's [`Roots`] and the [`Root`](resolver::Root) each
+//! The loader owns the graph's [`Roots`] and the [`Root`](crate::resolver::Root) each
 //! URL resolved inside, and passes the roots into every resolution. A bare
 //! specifier's package root is admitted when it resolves. Admitting a root
 //! around a module already recorded inside an outer one is an error naming
-//! both ([`ResolveErrorKind::RootConflict`](resolver::ResolveErrorKind::RootConflict)),
+//! both ([`ResolveErrorKind::RootConflict`](crate::resolver::ResolveErrorKind::RootConflict)),
 //! since otherwise the import order would decide the module's origin;
 //! resolving a URL again inside the same root changes nothing.
 //! `import.meta.resolve` runs the same resolution and admits and records
@@ -19,7 +19,7 @@
 //! specifier: an installed package's file is then a path into `node_modules`,
 //! refused.
 //!
-//! The loader also records each URL's [`FileId`], the device and inode
+//! The loader also records each URL's [`FileId`](crate::resolver::FileId), the device and inode
 //! numbers and birth time the resolver took when it looked the file up, and
 //! reads a module only from a file it opened and found to have that identity:
 //! it opens the path without blocking, compares the open file's identity with
@@ -55,7 +55,7 @@
 //!
 //! With [`Rules::box_roots`] set, as eval sets them, every read the loader
 //! makes, a module's or a `package.json`'s, one served from an earlier
-//! read's bytes ([`RecordingTree`]) included, is checked first: its real path
+//! read's bytes ([`RecordingTree`](reads::RecordingTree)) included, is checked first: its real path
 //! must lie under one of the box's roots, the directories the run's process
 //! is confined to (`confine`), or it isn't read. The box is the project and
 //! the link closure found from its `node_modules` before the run, and a graph
@@ -72,7 +72,7 @@
 //! reason is built, and the files a resolution reports consulting are
 //! dropped unread. With it full ([`Recording`]),
 //! the graph is the whole record of what resolved and loaded: each URL's
-//! record, which a load completes with the module's [`ModuleFormat`] and the
+//! record, which a load completes with the module's [`ModuleFormat`](crate::resolver::ModuleFormat) and the
 //! BLAKE3 hash of the bytes read from the checked file, before any strip:
 //! the bytes V8's source was made from, run as read for JS and stripped for
 //! TypeScript; each import that resolved as an edge, by importer, specifier,
@@ -81,7 +81,7 @@
 //! resolution consulted, the entry's and `import.meta.resolve`'s included;
 //! and each failed resolution or load by its site, with the reason as data
 //! built where the message is, never parsed from it. Recording in full,
-//! resolutions also read through a [`RecordingTree`]:
+//! resolutions also read through a [`RecordingTree`](reads::RecordingTree):
 //! each metadata file is read once per run, its later reads served the
 //! first's bytes, a file of another identity at its path refused, and its
 //! hash kept, and every path a resolution went on past finding absent is
@@ -153,7 +153,7 @@ const DRIVER_IMPORT_FREE: &str = "a stdin driver is import-free";
 /// A failed resolution or load: the reason as data, built only when the
 /// graph records failures, and the error `deno_core` rethrows to JS. The
 /// reason is boxed, since it holds a
-/// [`ResolveErrorKind`](resolver::ResolveErrorKind), and a failure is the
+/// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure is the
 /// rare path.
 type Refused = (Option<Box<FailureError>>, ModuleLoaderError);
 
