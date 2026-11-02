@@ -149,7 +149,7 @@ const WATCHDOG_STACK_SIZE: usize = 128 << 10;
 /// (0 is none).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum Stop {
+pub(super) enum Stop {
     /// The heap reached its cap.
     Heap = 1,
     /// An allocation outside the heap failed, the process's memory taken:
@@ -179,7 +179,7 @@ impl Stop {
 /// walk, and the out-of-memory backstop, which also reads whether the
 /// callback found the heap full at all, first or not.
 #[derive(Debug, Clone, Default)]
-pub struct Stopped(Arc<StopState>);
+pub(super) struct Stopped(Arc<StopState>);
 
 /// What [`Stopped`] shares.
 #[derive(Debug, Default)]
@@ -214,7 +214,7 @@ impl Stopped {
     /// heap that reached its cap holds ([`heap_full`]): the near-heap-limit
     /// callback ran for one large object the heap couldn't fit, before it
     /// was made, which the raised cap then let in.
-    pub fn check_heap(&self, used_heap: usize) {
+    pub(super) fn check_heap(&self, used_heap: usize) {
         if heap_full(used_heap)
             && self
                 .0
@@ -238,7 +238,7 @@ impl Stopped {
     }
 
     /// The stop recorded, if any.
-    pub fn get(&self) -> Option<Stop> {
+    pub(super) fn get(&self) -> Option<Stop> {
         Stop::from_u8(self.0.first.load(Ordering::SeqCst))
     }
 }
@@ -270,7 +270,7 @@ const HEAP_FULL: usize = HEAP_LIMIT / 4 * 3;
 
 /// Installs the heap's near-limit callback and the out-of-memory backstop
 /// on `runtime`, whose heap was built capped at [`HEAP_LIMIT`].
-pub fn watch_heap(runtime: &mut JsRuntime, stopped: Stopped) {
+pub(super) fn watch_heap(runtime: &mut JsRuntime, stopped: Stopped) {
     let handle = runtime.v8_isolate().thread_safe_handle();
     let heap = HeapReader::new(runtime.v8_isolate());
     let mut raised = false;
@@ -309,12 +309,12 @@ struct Backstop {
 /// The envelopes the out-of-memory backstop chooses between, each one line
 /// with its newline, prepared before the run.
 #[derive(Debug)]
-pub struct BackstopEnvelopes {
+pub(super) struct BackstopEnvelopes {
     /// Written when the heap is at fault: V8 reports its heap out of
     /// memory, and the near-heap-limit callback found the heap full.
-    pub heap: String,
+    pub(super) heap: String,
     /// Written otherwise: the process reached its [`MEMORY_LIMIT`].
-    pub memory: String,
+    pub(super) memory: String,
 }
 
 /// The backstop's state, a process static because V8's out-of-memory
@@ -332,7 +332,7 @@ static BACKSTOP_WRITTEN: AtomicBool = AtomicBool::new(false);
 /// `std::io::stdout()`'s lock, which another thread may hold when V8 runs
 /// out of memory, chosen by what V8 reports and by `stopped`, the run's
 /// stops. Returns false when the process set one already.
-pub fn set_backstop(out: Arc<File>, envelopes: BackstopEnvelopes, stopped: Stopped) -> bool {
+pub(super) fn set_backstop(out: Arc<File>, envelopes: BackstopEnvelopes, stopped: Stopped) -> bool {
     let BackstopEnvelopes { heap, memory } = envelopes;
     BACKSTOP
         .set(Backstop {
@@ -384,7 +384,7 @@ extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::Oom
 /// execution at the deadline, recording [`Stop::Timeout`], unless it's
 /// dropped first. Dropping it stops the thread and waits for it.
 #[derive(Debug)]
-pub struct Watchdog {
+pub(super) struct Watchdog {
     /// Dropped to wake the thread before the deadline.
     cancel: Option<mpsc::Sender<()>>,
     /// The thread.
@@ -397,7 +397,7 @@ impl Watchdog {
     /// # Errors
     ///
     /// Returns the error when the thread can't be spawned.
-    pub fn start(
+    pub(super) fn start(
         runtime: &mut JsRuntime,
         timeout: Duration,
         stopped: Stopped,
@@ -428,6 +428,16 @@ impl Drop for Watchdog {
             // the thread can't panic
             let _ = thread.join();
         }
+    }
+}
+
+/// `bytes` as a person reads a cap: whole MiB when it is some, else bytes.
+pub(super) fn format_size(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    if bytes >= MIB && bytes.is_multiple_of(MIB) {
+        format!("{} MiB", bytes / MIB)
+    } else {
+        format!("{bytes} bytes")
     }
 }
 
@@ -462,6 +472,41 @@ mod tests {
         timed_out.set(Stop::Timeout);
         timed_out.check_heap(HEAP_LIMIT);
         assert_eq!(timed_out.get(), Some(Stop::Timeout));
+    }
+
+    /// A reader reads its isolate's heap while the isolate lives, a second
+    /// reader of the same isolate sharing its token, and neither reads once
+    /// the runtime, and its isolate, is dropped. `gro_v8`'s own test, here
+    /// so V8 links into one fewer test binary.
+    #[test]
+    fn a_reader_reads_while_its_isolate_lives_and_not_after() {
+        std::thread::Builder::new()
+            .stack_size(crate::STACK_SIZE)
+            .spawn(|| {
+                crate::engine::init_engine(
+                    crate::confine::Confinement::Unconfined,
+                    &crate::engine::EngineOptions::default(),
+                )
+                .unwrap();
+                let tokio = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let mut runtime = {
+                    let _entered = tokio.enter();
+                    JsRuntime::new(deno_core::RuntimeOptions::default())
+                };
+                let reader = HeapReader::new(runtime.v8_isolate());
+                let second = HeapReader::new(runtime.v8_isolate());
+                assert!(reader.used_heap_size().is_some_and(|used| used > 0));
+                assert_eq!(second.used_heap_size(), reader.used_heap_size());
+                drop(runtime);
+                assert_eq!(reader.used_heap_size(), None);
+                assert_eq!(second.used_heap_size(), None);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

@@ -5,9 +5,10 @@
 //! `src/docs/typescript.md`'s; this covers how the loader holds them.
 //!
 //! Static imports, `import()`, and `import.meta.resolve` all reach
-//! `resolver::resolve_from`, from the importer's recorded root. The entry module is resolved before the runtime
-//! starts ([`resolver::resolve_entry`](crate::resolver::resolve_entry)), so its URL arrives here already
-//! final, with the roots its graph starts with.
+//! `resolver::resolve_from`, from the importer's recorded root. The entry
+//! module is resolved before the runtime starts
+//! ([`resolver::resolve_entry`](crate::resolver::resolve_entry)), so its URL
+//! arrives here already final, with the roots its graph starts with.
 //!
 //! The loader owns the graph's [`Roots`], the [`Root`](crate::resolver::Root)
 //! each URL resolved inside, and its [`FileId`](crate::resolver::FileId),
@@ -28,8 +29,8 @@
 //! `import()`, before anything is resolved, and every import from the
 //! driver, a module whose source the host provides and that resolves to
 //! itself, as the root of its own load, and to nothing else. Both are
-//! recorded as failures of their own ([`FailureError::DriverImport`],
-//! [`FailureError::DynamicImport`]). The default rules refuse nothing more.
+//! recorded as failures of their own ([`FailureReason::DriverImport`],
+//! [`FailureReason::DynamicImport`]). The default rules refuse nothing more.
 //!
 //! With [`Rules::box_roots`] set, as eval sets them, every read the loader
 //! makes, a module's or a `package.json`'s, is checked against the box first
@@ -43,8 +44,9 @@
 //!
 //! The loader keeps the run's [`Graph`], recording as [`Recording`] says
 //! (the graph's module doc lists the record, each loaded module's
-//! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in full, resolutions
-//! read through a [`RecordingTree`](reads::RecordingTree). Recording changes
+//! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in
+//! full, resolutions read through a [`RecordingTree`](reads::RecordingTree).
+//! Recording changes
 //! nothing JS sees but that tree's refusal of a file changed mid-run: every
 //! error keeps its message and class. `deno_core` resolves every import of a
 //! graph `import()` loads as dynamic ([`Reach`]), not only the call's own.
@@ -70,11 +72,10 @@ use url::Url;
 use crate::confine::BoxRoots;
 use crate::resolver::{DiskTree, Resolution, Roots, SourceTree};
 use boxed::{BoxCheck, Boxed};
-use graph::{Failure, FailureError, Graph, LoadFailure, Reach, Reached, Recording};
+use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Recording};
 use load::load;
 use reads::Reads;
 use resolve::resolve_into;
-use strip::Position;
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
 /// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
@@ -124,16 +125,18 @@ struct Refused {
     /// Why, boxed, since it can hold a
     /// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure
     /// is the rare path.
-    failure: Box<FailureError>,
+    reason: Box<FailureReason>,
     /// The error JS sees.
     error: ModuleLoaderError,
 }
 
 impl Refused {
-    /// A refusal for `failure`, reaching JS as a `TypeError` with `message`.
-    fn new(failure: FailureError, message: String) -> Self {
+    /// A refusal for `reason`, reaching JS as a `TypeError` with `message`:
+    /// `deno_core` rethrows every load failure to JS as a `TypeError`
+    /// (`js_class_and_message_to_exception`), so no other class is given.
+    fn new(reason: FailureReason, message: String) -> Self {
         Self {
-            failure: Box::new(failure),
+            reason: Box::new(reason),
             error: ModuleLoaderError::type_error(message),
         }
     }
@@ -178,21 +181,25 @@ impl Loader {
         }
     }
 
-    /// Refuses `specifier`, reached from `referrer` as `reached`, for a
-    /// rule of this loader's, recording `error` as the failure.
-    fn refuse(
+    /// Records `refused` as the failure of `specifier`, reached from
+    /// `referrer` as `reached`, at `at` in its importer when `deno_core`
+    /// says, and returns the error JS sees.
+    fn record_refused(
         &self,
         specifier: &str,
-        referrer: &str,
+        referrer: Option<&str>,
         reached: Reached,
-        error: FailureError,
-        message: String,
+        at: Option<Position>,
+        refused: Refused,
     ) -> ModuleLoaderError {
-        let failure = Failure { at: None, error };
+        let failure = Failure {
+            at,
+            reason: *refused.reason,
+        };
         self.graph
             .borrow_mut()
-            .fail(specifier, Some(referrer), reached, failure);
-        ModuleLoaderError::type_error(message)
+            .fail(specifier, referrer, reached, failure);
+        refused.error
     }
 
     /// Refuses an import or `import.meta.resolve` reached from the driver,
@@ -215,16 +222,14 @@ impl Loader {
         } else {
             "import"
         };
-        Err(self.refuse(
-            specifier,
-            referrer,
-            reached,
-            FailureError::DriverImport,
+        let refused = Refused::new(
+            FailureReason::DriverImport,
             format!(
                 "cannot {verb} '{specifier}' from the driver: {DRIVER_IMPORT_FREE}, so it can \
                  neither import nor resolve a module"
             ),
-        ))
+        );
+        Err(self.record_refused(specifier, Some(referrer), reached, None, refused))
     }
 
     /// The first path a read was refused at for lying outside
@@ -276,15 +281,16 @@ impl Loader {
         referrer: &str,
         reached: Reached,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        let mut graph = self.graph.borrow_mut();
-        resolve_into(&mut graph, tree, specifier, referrer, reached).map_err(|refused| {
-            // `deno_core` gives no position to a resolution
-            let failure = Failure {
-                at: None,
-                error: *refused.failure,
-            };
-            graph.fail(specifier, Some(referrer), reached, failure);
-            refused.error
+        let resolved = resolve_into(
+            &mut self.graph.borrow_mut(),
+            tree,
+            specifier,
+            referrer,
+            reached,
+        );
+        // `deno_core` gives no position to a resolution
+        resolved.map_err(|refused| {
+            self.record_refused(specifier, Some(referrer), reached, None, refused)
         })
     }
 
@@ -308,7 +314,7 @@ impl Loader {
         let result = file_id.map_or_else(
             || {
                 Err(Refused::new(
-                    FailureError::Load(LoadFailure::NeverResolved),
+                    FailureReason::Load(LoadFailure::NeverResolved),
                     format!("cannot load {specifier}: it was never resolved"),
                 ))
             },
@@ -332,17 +338,13 @@ impl Loader {
                         column: u32::try_from(referrer.column_number).ok()?,
                     })
                 });
-                let failure = Failure {
-                    at,
-                    error: *refused.failure,
-                };
-                self.graph.borrow_mut().fail(
+                Err(self.record_refused(
                     specifier.as_str(),
                     referrer.map(|referrer| referrer.specifier.as_str()),
                     Reached::Import(reach),
-                    failure,
-                );
-                Err(refused.error)
+                    at,
+                    refused,
+                ))
             }
         }
     }
@@ -376,16 +378,14 @@ impl ModuleLoader for Loader {
         let reached = Reached::Import(reach);
         self.refuse_from_driver(specifier, referrer, reached)?;
         if reach == Reach::Dynamic && self.refuse_dynamic_import {
-            return Err(self.refuse(
-                specifier,
-                referrer,
-                reached,
-                FailureError::DynamicImport,
+            let refused = Refused::new(
+                FailureReason::DynamicImport,
                 format!(
                     "cannot import '{specifier}' from {referrer}: import() is refused in eval, \
                      whatever it names. Fix: import the module with a static import"
                 ),
-            ));
+            );
+            return Err(self.record_refused(specifier, Some(referrer), reached, None, refused));
         }
         self.resolve_on_disk(specifier, referrer, reached)
     }

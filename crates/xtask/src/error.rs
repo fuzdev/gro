@@ -13,9 +13,6 @@ use crate::v8_archive::ArchiveError;
 /// Why a step failed.
 #[derive(Debug, thiserror::Error)]
 pub enum XtaskError {
-    /// A command line the step refuses, such as flags that don't combine.
-    #[error("bench: {0}")]
-    BenchUsage(String),
     /// A bench run failed, by the harness's taxonomy.
     #[error("bench failed: {0}")]
     Bench(BenchError),
@@ -37,21 +34,74 @@ pub enum XtaskError {
     #[error(transparent)]
     BuildFailed(Box<Self>),
     /// Anything else the caller must change before re-running: unchanged, it
-    /// fails the same way.
-    #[error("{0}")]
-    Input(String),
+    /// fails the same way. Prefixed by the stage that refused it.
+    #[error("{}{message}", .stage.prefix())]
+    Input {
+        /// Where it was refused.
+        stage: BenchStage,
+        /// What must change.
+        message: String,
+    },
     /// Anything else, such as a failed read or write.
     #[error("{0}")]
     Failed(String),
 }
 
+/// Where an [`XtaskError::Input`] was refused, which its message's prefix
+/// names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BenchStage {
+    /// The bench's command line: flags that don't combine, or a flag's
+    /// value (`bench: `).
+    Usage,
+    /// A bench run, past its command line (`bench failed: `).
+    Run,
+    /// `bench report` (`bench report: `).
+    Report,
+}
+
+impl BenchStage {
+    /// The prefix a message refused here takes.
+    const fn prefix(self) -> &'static str {
+        match self {
+            Self::Usage => "bench: ",
+            Self::Run => "bench failed: ",
+            Self::Report => "bench report: ",
+        }
+    }
+}
+
 impl XtaskError {
+    /// A bench command line refused with `message`.
+    pub fn bench_usage(message: impl Into<String>) -> Self {
+        Self::Input {
+            stage: BenchStage::Usage,
+            message: message.into(),
+        }
+    }
+
+    /// A bench run's input refused with `message`.
+    pub fn bench_input(message: impl Into<String>) -> Self {
+        Self::Input {
+            stage: BenchStage::Run,
+            message: message.into(),
+        }
+    }
+
+    /// `bench report`'s input refused with `message`.
+    pub fn report_input(message: impl Into<String>) -> Self {
+        Self::Input {
+            stage: BenchStage::Report,
+            message: message.into(),
+        }
+    }
+
     /// The exit code the xtask returns: a failed step's own code (1 when a
     /// signal ended it), `2` ([`EXIT_INPUT`]) when the caller must change
     /// something first, else 1.
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::BenchUsage(_) | Self::BuildFailed(_) | Self::Input(_) => EXIT_INPUT,
+            Self::BuildFailed(_) | Self::Input { .. } => EXIT_INPUT,
             Self::Bench(error) if error.is_input_error() => EXIT_INPUT,
             Self::StepFailed { status, .. } => status
                 .code()
@@ -120,9 +170,9 @@ mod tests {
             source: io::Error::other("test"),
         };
         assert_eq!(spawn.in_bench_build().exit_code(), 1);
-        assert_eq!(
-            XtaskError::BenchUsage("x".to_owned()).to_string(),
-            "bench: x"
-        );
+        assert_eq!(XtaskError::bench_usage("x").to_string(), "bench: x");
+        assert_eq!(XtaskError::bench_input("x").to_string(), "bench failed: x");
+        assert_eq!(XtaskError::report_input("x").to_string(), "bench report: x");
+        assert_eq!(XtaskError::bench_input("x").exit_code(), EXIT_INPUT);
     }
 }

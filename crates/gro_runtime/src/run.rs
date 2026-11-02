@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::engine::Engine;
 use crate::loader::Loader;
-use crate::loader::graph::{Graph, Recording};
+use crate::loader::graph::Recording;
 use crate::phases::{self, Phase};
 use crate::report::uncaught;
 use crate::resolver::{self, DiskTree, ResolveError};
@@ -80,7 +80,16 @@ pub fn run_main(
     entry: &Path,
     cwd: &Path,
 ) -> Result<(), RunError> {
-    run_recorded(engine, options, entry, cwd, Recording::Off).0
+    let (entry, loader) = resolve_main(options, entry, cwd, Recording::Off)?;
+    let result = run_loaded(
+        engine,
+        options.snapshot,
+        options.console,
+        &entry,
+        Rc::clone(&loader),
+    );
+    phases::mark(Phase::Teardown);
+    result
 }
 
 /// Runs as [`run_main`] does, and returns the run's result with the graph its
@@ -88,30 +97,47 @@ pub fn run_main(
 /// loaded with its format and hash, the imports between them, the files
 /// consulted, and the failures. The graph is unset only when the entry
 /// didn't resolve.
+#[cfg(test)]
 fn run_recorded(
     engine: Engine,
     options: &RuntimeOptions,
     entry: &Path,
     cwd: &Path,
     recording: Recording,
-) -> (Result<(), RunError>, Option<Graph>) {
+) -> (Result<(), RunError>, Option<crate::loader::graph::Graph>) {
+    let (entry, loader) = match resolve_main(options, entry, cwd, recording) {
+        Ok(resolved) => resolved,
+        Err(error) => return (Err(error), None),
+    };
+    let result = run_loaded(
+        engine,
+        options.snapshot,
+        options.console,
+        &entry,
+        Rc::clone(&loader),
+    );
+    phases::mark(Phase::Teardown);
+    // the runtime, and its share of the loader, is gone once the run ends
+    (result, Some(loader.take_graph()))
+}
+
+/// Resolves the entry at `entry` from `cwd`, returning its URL and the
+/// loader of its graph, recording as `recording` says.
+fn resolve_main(
+    options: &RuntimeOptions,
+    entry: &Path,
+    cwd: &Path,
+    recording: Recording,
+) -> Result<(Url, Rc<Loader>), RunError> {
     // nothing to grant yet; destructured so a new field can't go unread
     let RuntimeOptions {
         grants: Grants {},
-        snapshot,
-        console,
+        snapshot: _,
+        console: _,
     } = options;
-
-    let (entry, roots) = match resolver::resolve_entry(&DiskTree, entry, cwd) {
-        Ok(resolved) => resolved,
-        Err(error) => return (Err(error.into()), None),
-    };
+    let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
     let loader = Rc::new(Loader::new(&entry, roots, recording));
-    let result = run_loaded(engine, *snapshot, *console, &entry.url, Rc::clone(&loader));
-    phases::mark(Phase::Teardown);
-    // the runtime, and its share of the loader, is gone once the run ends
-    let graph = loader.take_graph();
-    (result, Some(graph))
+    Ok((entry.url, loader))
 }
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime

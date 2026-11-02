@@ -50,7 +50,7 @@ fn a_run_records_its_graph() {
 
     use url::Url;
 
-    use crate::loader::graph::{Edge, Failure, FailureError, FailureSite, Loaded, Reach, Reached};
+    use crate::loader::graph::{Edge, Failure, FailureReason, FailureSite, Loaded, Reach, Reached};
     use crate::resolver::{ConsultedFile, FileRole, ModuleFormat, ResolveErrorKind};
 
     const MAIN: &str = "import {a} from './a.ts';
@@ -132,7 +132,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
             graph.failures()[&site].as_slice(),
             [Failure {
                 at: None,
-                error: FailureError::Resolve(ResolveErrorKind::NotFound { .. }),
+                reason: FailureReason::Resolve(ResolveErrorKind::NotFound { .. }),
             }]
         ),
         "{:?}",
@@ -167,7 +167,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
 /// the entry doesn't resolve.
 #[test]
 fn a_failed_run_still_records_its_graph() {
-    use crate::loader::graph::{FailureError, LoadFailure};
+    use crate::loader::graph::{FailureReason, LoadFailure};
 
     let files = [("main.ts", "enum E { A }\n")];
     let name = "failed_run_records_its_graph";
@@ -182,7 +182,7 @@ fn a_failed_run_still_records_its_graph() {
     assert!(matches!(
         failures.as_slice(),
         [crate::loader::graph::Failure {
-            error: FailureError::Load(LoadFailure::Strip { .. }),
+            reason: FailureReason::Load(LoadFailure::Strip { .. }),
             ..
         }]
     ));
@@ -199,8 +199,8 @@ fn a_failed_run_still_records_its_graph() {
 fn a_load_failure_is_recorded_by_its_reach() {
     use url::Url;
 
-    use crate::loader::graph::{Failure, FailureError, FailureSite, LoadFailure, Reach, Reached};
-    use crate::loader::strip::Position;
+    use crate::loader::graph::Position;
+    use crate::loader::graph::{Failure, FailureReason, FailureSite, LoadFailure, Reach, Reached};
 
     const MAIN: &str = "try {
 \tawait import('./e.ts');
@@ -249,7 +249,7 @@ await import('./s.js');
         failures[&sites[1]].as_slice(),
         [Failure {
             at: Some(Position { line: 1, column: 8 }),
-            error: FailureError::Load(LoadFailure::Strip { .. }),
+            reason: FailureReason::Load(LoadFailure::Strip { .. }),
         }]
     ));
     let failures = static_graph.unwrap().failures().clone();
@@ -270,7 +270,7 @@ await import('./s.js');
 /// never loaded or resolved again.
 #[test]
 fn a_run_records_at_most_one_static_failure() {
-    use crate::loader::graph::{FailureError, LoadFailure, Reach, Reached};
+    use crate::loader::graph::{FailureReason, LoadFailure, Reach, Reached};
 
     let files = [
         PACKAGE_JSON,
@@ -294,7 +294,7 @@ fn a_run_records_at_most_one_static_failure() {
     };
     assert_eq!(site.reached, Reached::Import(Reach::Static));
     assert!(matches!(
-        failure.error,
-        FailureError::Load(LoadFailure::Strip { .. })
+        failure.reason,
+        FailureReason::Load(LoadFailure::Strip { .. })
     ));
 }

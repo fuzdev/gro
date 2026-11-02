@@ -5,7 +5,10 @@ use std::io::{self, Write};
 use serde::Serialize;
 
 use super::dump::GraphDump;
-use super::{MAX_ENVELOPE_SIZE, serialize};
+use super::limits::format_size;
+use super::{DEFAULT_EXPORT, EvalOptions, MAX_ENVELOPE_SIZE};
+use crate::loader::graph::{FailureReason, Graph};
+use crate::resolver::Resolution;
 
 /// The envelope's protocol version, its first field. It moves with any change
 /// to the envelope that a reader must know about: its shape, or a value a
@@ -127,7 +130,7 @@ pub struct Entry {
 
 /// The kind of failure, the contract a reader branches on.
 ///
-/// A kind is derived from the phase that failed and the failures the
+/// A kind is derived from the step that failed and the failures the
 /// loader recorded, never from a message, and a failure past the
 /// envelope's cap keeps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -243,6 +246,47 @@ pub struct DynamicImport {
 }
 
 impl Envelope {
+    /// The envelope of an eval of `options` that failed with `error` before
+    /// its entry resolved, such as when the driver couldn't be read: the
+    /// entry as given.
+    pub fn failed(options: &EvalOptions, error: EvalError) -> Self {
+        Self {
+            runtime: options.runtime.clone(),
+            entry: Entry {
+                id: options.entry.to_string_lossy().into_owned(),
+                export: options.driver.is_none().then(|| {
+                    options
+                        .export
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_EXPORT.to_owned())
+                }),
+                driver_blake3: options
+                    .driver
+                    .as_ref()
+                    .map(|driver| blake3::hash(driver).to_hex().to_string()),
+            },
+            result: Err(error),
+            access: Some(Access::default()),
+            graph: if options.graph {
+                GraphField::Unavailable
+            } else {
+                GraphField::Omitted
+            },
+        }
+    }
+
+    /// The envelope of an eval of `options` failed with `error` once its
+    /// entry resolved to `entry`, named by its canonical path.
+    pub(super) fn failed_resolved(
+        options: &EvalOptions,
+        entry: &Resolution,
+        error: EvalError,
+    ) -> Self {
+        let mut envelope = Self::failed(options, error);
+        envelope.entry.id = entry_id(entry);
+        envelope
+    }
+
     /// Whether there is a value.
     pub const fn is_ok(&self) -> bool {
         self.result.is_ok()
@@ -316,6 +360,37 @@ impl Envelope {
     }
 }
 
+/// The entry's canonical path, as the envelope names it.
+pub(super) fn entry_id(entry: &Resolution) -> String {
+    entry.url.to_file_path().map_or_else(
+        |()| entry.url.to_string(),
+        |path| path.to_string_lossy().into_owned(),
+    )
+}
+
+/// The run's [`Access`]: every `import()` `graph` refused, in specifier
+/// order, then importer order, one entry per specifier and importer; the
+/// driver's are recorded as driver imports, not listed. Read on every run,
+/// a success's included.
+pub(super) fn access(graph: &Graph) -> Access {
+    let dynamic = graph
+        .failures()
+        .iter()
+        .filter(|(_, failures)| {
+            failures
+                .iter()
+                .any(|failure| failure.reason == FailureReason::DynamicImport)
+        })
+        .filter_map(|(site, _)| {
+            Some(DynamicImport {
+                specifier: site.specifier.clone(),
+                importer: site.importer.clone()?,
+            })
+        })
+        .collect();
+    Access { dynamic }
+}
+
 /// Writes `text` to `out` as it is.
 fn raw(out: &mut impl Write, text: &str) -> serde_json::Result<()> {
     out.write_all(text.as_bytes())
@@ -351,8 +426,8 @@ const _: () = assert!(5 * 6 * (MAX_TEXT_KEPT + 32) < MAX_ENVELOPE_SIZE / 32);
 
 /// Brings `envelope`, when its text would pass `max` bytes, back under
 /// it as far as dropping and cutting can, which at `fgro`'s sizes always
-/// does ([`MAX_TEXT_KEPT`]). A value is replaced with a small `serialize` failure naming the
-/// size. A failure keeps its kind: its `access` and graph are dropped
+/// does ([`MAX_TEXT_KEPT`]). A value is replaced with a small `serialize`
+/// failure naming the size. A failure keeps its kind: its `access` and graph are dropped
 /// (`null`, as in the out-of-memory backstop's envelope), and if it's still
 /// past `max`, each of its text fields longer than `kept` bytes is cut to
 /// them, at a character boundary, and named by its length (`aaa… (70000
@@ -374,7 +449,7 @@ pub(super) fn cap_envelope(envelope: &mut Envelope, max: usize, kept: usize) {
                 "the envelope would be {size} bytes, past {}, the envelope's cap, so the \
                  value isn't written; write less data, and keep error messages and import \
                  specifiers short",
-                serialize::format_size(max as u64)
+                format_size(max as u64)
             ),
         ));
     }

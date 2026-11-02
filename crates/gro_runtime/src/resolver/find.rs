@@ -77,11 +77,8 @@ pub(super) fn find_module(
                     package_json: scope.path,
                 });
             }
-            Walk::Ended => return Err(ResolveErrorKind::NoTypeScope { stopped_at: None }),
-            Walk::Stopped(stopped_at) => {
-                return Err(ResolveErrorKind::NoTypeScope {
-                    stopped_at: Some(stopped_at),
-                });
+            Walk::NotFound { stopped_at } => {
+                return Err(ResolveErrorKind::NoTypeScope { stopped_at });
             }
         }
     }

@@ -92,7 +92,8 @@
 //!   argument it names is missing, a program is a script, a workload or
 //!   version probe exits unsuccessfully, prints no version, or runs past the
 //!   suite's `timeout_ms` (two minutes by default), another run holds the
-//!   work directory (`target/bench/`), the suite's
+//!   work directory (`target/bench/`) or another A/B the `--base` build's
+//!   directory, the suite's
 //!   corpora checkout isn't at its pinned tree or has local changes, a
 //!   collection a workload names isn't in the pinned tree or holds a
 //!   symlink, a submodule, or a name that isn't UTF-8, a workload's entry
@@ -103,8 +104,9 @@
 //!   runtime's `stdout` says) or breaks the suite's `parity`, `--history` is
 //!   empty, names a directory, or names no file in an existing directory, or
 //!   the `fgro` it names isn't the release snapshot build (or that build's
-//!   compile, or a measurement build's, failed), a size crosses its budget, perf can't
-//!   count, the flags don't combine, or
+//!   compile, a measurement build's, or the `--base` revision's, failed), a
+//!   phases run's program isn't a phases build, a size crosses its budget,
+//!   perf can't count, the flags don't combine, or
 //!   `--base` names no commit, or the history `report` reads is missing
 //! - `1`: anything else, such as an artifact or a linked checkout changing
 //!   mid-run, a failed read or write, or a failed fetch of the V8 archive or

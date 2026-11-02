@@ -37,7 +37,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use gro_bench::lock::{DirLock, LockError, Wait, lock_dir};
+use gro_bench::lock::{DirLock, LockError, LockIoError, try_lock_dir};
 
 use crate::cmd::run;
 use crate::error::XtaskError;
@@ -168,15 +168,15 @@ pub type BaseLock = DirLock;
 /// another's refusal to name. A lock another process holds is refused,
 /// naming the id it wrote.
 pub fn lock(dir: &Path) -> Result<BaseLock, XtaskError> {
-    lock_dir(dir, Wait::Refuse).map_err(|error| match error {
-        LockError::Held { path, holder } => XtaskError::Input(format!(
+    try_lock_dir(dir).map_err(|error| match error {
+        LockError::Held { path, holder } => XtaskError::bench_input(format!(
             "the base dir {} is in use by process {} (it holds {}); wait for it, \
              or pass another --base-dir",
             dir.display(),
             holder.as_deref().unwrap_or("unknown"),
             path.display()
         )),
-        LockError::Io { source, .. } => XtaskError::Failed(format!(
+        LockError::Io(LockIoError { source, .. }) => XtaskError::Failed(format!(
             "failed to lock the base dir {}: {source}",
             dir.display()
         )),
@@ -187,7 +187,7 @@ pub fn lock(dir: &Path) -> Result<BaseLock, XtaskError> {
 pub fn base_dir(given: Option<PathBuf>) -> Result<PathBuf, XtaskError> {
     if let Some(dir) = given {
         return std::path::absolute(&dir).map_err(|error| {
-            XtaskError::Input(format!("invalid --base-dir {}: {error}", dir.display()))
+            XtaskError::bench_usage(format!("invalid --base-dir {}: {error}", dir.display()))
         });
     }
     let cache = std::env::var_os("XDG_CACHE_HOME")
@@ -195,7 +195,7 @@ pub fn base_dir(given: Option<PathBuf>) -> Result<PathBuf, XtaskError> {
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
         .ok_or_else(|| {
-            XtaskError::Input("neither XDG_CACHE_HOME nor HOME is set; pass --base-dir".to_owned())
+            XtaskError::bench_usage("neither XDG_CACHE_HOME nor HOME is set; pass --base-dir")
         })?;
     Ok(cache.join("gro").join("bench_base"))
 }
@@ -214,7 +214,7 @@ pub fn resolve(root: &Path, rev: &str) -> Result<String, XtaskError> {
         })?;
     let sha = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if !output.status.success() || sha.is_empty() {
-        return Err(XtaskError::Input(format!(
+        return Err(XtaskError::bench_usage(format!(
             "--base {rev} names no commit in {}",
             root.display()
         )));
@@ -284,9 +284,10 @@ pub fn build(
         .status()
         .map_err(|error| failed("run cargo", &error))?;
     if !status.success() {
-        return Err(XtaskError::Failed(format!(
-            "the base build at {sha} failed ({status})"
-        )));
+        // the revision's own compile: unchanged, it fails the same way
+        return Err(XtaskError::BuildFailed(Box::new(XtaskError::Failed(
+            format!("the base build at {sha} failed ({status})"),
+        ))));
     }
     let built = src.join("target/gro_snapshot/release/fgro");
     let copy = dir.join("bin").join(sha).join("fgro");

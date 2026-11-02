@@ -4,7 +4,7 @@ use deno_core::ModuleSpecifier;
 use url::Url;
 
 use super::Refused;
-use super::graph::{FailureError, Graph, Reached};
+use super::graph::{FailureReason, Graph, Reached};
 use crate::resolver::{ResolveError, SourceTree};
 
 /// Resolves `specifier`, imported by the module at `referrer`, into `graph`,
@@ -18,7 +18,7 @@ pub(super) fn resolve_into(
 ) -> Result<ModuleSpecifier, Refused> {
     let importer = Url::parse(referrer).map_err(|error| {
         Refused::new(
-            FailureError::UnknownImporter,
+            FailureReason::UnknownImporter,
             format!(
                 "cannot resolve '{specifier}': the importer '{referrer}' is not a URL: {error}"
             ),
@@ -26,12 +26,12 @@ pub(super) fn resolve_into(
     })?;
     let refused = |error: ResolveError| {
         let message = error.to_string();
-        Refused::new(FailureError::Resolve(error.kind), message)
+        Refused::new(FailureReason::Resolve(error.kind), message)
     };
     // every importer was resolved here first, the entry by `Loader::new`
     let Some(resolved) = graph.resolve(tree, specifier, &importer) else {
         return Err(Refused::new(
-            FailureError::UnknownImporter,
+            FailureReason::UnknownImporter,
             format!("cannot resolve '{specifier}': the importer '{referrer}' was never resolved"),
         ));
     };

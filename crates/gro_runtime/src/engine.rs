@@ -40,6 +40,7 @@
 //! `include_icu_data` feature, which this crate doesn't enable, so no data
 //! load comes after the locale is set.
 
+use std::io::Write as _;
 use std::sync::OnceLock;
 
 use deno_core::v8;
@@ -48,21 +49,31 @@ use crate::confine::{Confined, Confinement, Jit};
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
 /// the JIT on, code generation from strings allowed, and ICU's own locale.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineOptions {
     /// The ICU default locale every runtime's `Intl` starts from, such as
     /// `en-US`. `None` keeps ICU's own default, which it takes from the
     /// host (`LC_ALL`, then `LC_MESSAGES`, then `LANG`).
     pub locale: Option<&'static str>,
-    /// V8's `--jitless`: JS runs in the interpreter alone, with no code
-    /// compiled at run time, and `WebAssembly` is absent from every global
-    /// scope, since it needs the compilers. In a confined process it must
-    /// agree with the box's [`Jit`].
-    pub jitless: bool,
+    /// Whether V8's JIT runs. [`Jit::Off`] is V8's `--jitless`: JS runs in
+    /// the interpreter alone, with no code compiled at run time, and
+    /// `WebAssembly` is absent from every global scope, since it needs the
+    /// compilers. In a confined process it must agree with the box's.
+    pub jit: Jit,
     /// V8's `--disallow-code-generation-from-strings`: `eval`, the
     /// `Function` constructors (async and generator ones included), and a
     /// string passed to `setTimeout` or `setInterval` throw an `EvalError`.
     pub disallow_code_generation_from_strings: bool,
+}
+
+impl Default for EngineOptions {
+    fn default() -> Self {
+        Self {
+            locale: None,
+            jit: Jit::On,
+            disallow_code_generation_from_strings: false,
+        }
+    }
 }
 
 impl EngineOptions {
@@ -70,7 +81,7 @@ impl EngineOptions {
     /// set none.
     fn v8_flags(&self) -> String {
         let mut flags = Vec::new();
-        if self.jitless {
+        if self.jit == Jit::Off {
             flags.push("--jitless");
         }
         if self.disallow_code_generation_from_strings {
@@ -85,7 +96,7 @@ impl EngineOptions {
 pub enum EngineError {
     /// The engine was set up already, with other options.
     #[error("the engine is already set up with other options: {0:?}")]
-    Conflict(EngineOptions),
+    OptionsConflict(EngineOptions),
     /// The engine was set up already, in a process confined otherwise.
     #[error("the engine is already set up, {}", match .set_up {
         SetUpConfinement::Confined => "confined to another box",
@@ -224,7 +235,7 @@ pub fn init_confined_engine(
 ///
 /// Returns [`EngineError::JitConflict`], before anything is set up, when
 /// `confinement` is a box installed for another JIT than `options` make;
-/// [`EngineError::Conflict`] when the engine was set up already with
+/// [`EngineError::OptionsConflict`] when the engine was set up already with
 /// options other than `options`; and [`EngineError::ConfinementConflict`]
 /// when it was set up confined otherwise.
 ///
@@ -236,7 +247,7 @@ pub fn init_engine(
     options: &EngineOptions,
 ) -> Result<Engine, EngineError> {
     if let Confinement::Confined(confined) = &confinement
-        && confined.jit() != Jit::from_jitless(options.jitless)
+        && confined.jit() != options.jit
     {
         return Err(EngineError::JitConflict {
             box_jit: confined.jit(),
@@ -263,7 +274,7 @@ pub fn init_engine(
         return Ok(Engine(applied));
     };
     if &applied.options != options {
-        Err(EngineError::Conflict(applied.options.clone()))
+        Err(EngineError::OptionsConflict(applied.options.clone()))
     } else if applied.confinement != confinement {
         Err(EngineError::ConfinementConflict {
             set_up: SetUpConfinement::of(&applied.confinement),
@@ -306,7 +317,9 @@ fn fill_entropy_or_abort(buffer: &mut [u8]) -> bool {
     if fill_entropy(buffer) {
         return true;
     }
-    eprintln!(
+    // written ignoring errors: a closed stderr must not panic before the abort
+    let _ = writeln!(
+        std::io::stderr(),
         "error: the operating system's random source failed, and in a confined process V8's \
          only other source is the clock, so the process stops"
     );
@@ -358,7 +371,7 @@ mod tests {
         };
         assert!(matches!(
             init_engine(Confinement::Unconfined, &other),
-            Err(EngineError::Conflict(options)) if options == EngineOptions::default()
+            Err(EngineError::OptionsConflict(options)) if options == EngineOptions::default()
         ));
     }
 
@@ -367,10 +380,10 @@ mod tests {
     /// has: the check reads no state.
     #[test]
     fn a_box_for_another_jit_is_refused() {
-        for (box_jit, jitless) in [(Jit::Off, false), (Jit::On, true)] {
+        for (box_jit, jit) in [(Jit::Off, Jit::On), (Jit::On, Jit::Off)] {
             let confined = Confined::for_test(BoxRoots::for_test(Vec::new()), box_jit);
             let options = EngineOptions {
-                jitless,
+                jit,
                 ..EngineOptions::default()
             };
             let error = init_engine(Confinement::Confined(confined), &options).unwrap_err();
@@ -379,7 +392,5 @@ mod tests {
                 "{error:?}"
             );
         }
-        assert_eq!(Jit::from_jitless(true), Jit::Off);
-        assert_eq!(Jit::from_jitless(false), Jit::On);
     }
 }

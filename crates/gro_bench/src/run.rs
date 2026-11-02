@@ -91,7 +91,7 @@ use crate::budget::check_budgets;
 use crate::collection::list_paths;
 use crate::error::BenchError;
 use crate::git::read_corpora_tree;
-use crate::lock::{LockError, Wait, lock_dir};
+use crate::lock::{LockError, LockIoError, try_lock_dir};
 use crate::phases::PHASES_FILE_ENV;
 use crate::record::{
     CheckoutState, GitState, Machine, MachineQuiet, RECORD_VERSION, RowRecord, RunRecord, SuiteId,
@@ -148,12 +148,12 @@ pub enum Measure {
 pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, BenchError> {
     suite.validate()?;
     // held to the end, so no other run rewrites the copies or sample files
-    let _lock = lock_dir(&context.work_dir, Wait::Refuse).map_err(|error| match error {
+    let _lock = try_lock_dir(&context.work_dir).map_err(|error| match error {
         LockError::Held { holder, .. } => BenchError::WorkDirLocked {
             dir: context.work_dir.clone(),
             holder,
         },
-        LockError::Io { path, source } => BenchError::Write { path, source },
+        LockError::Io(LockIoError { path, source }) => BenchError::Write { path, source },
     })?;
     let watchdog = Watchdog::start(suite.timeout()).map_err(|source| BenchError::Spawn {
         command: "the watchdog thread".to_owned(),

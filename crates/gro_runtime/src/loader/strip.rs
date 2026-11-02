@@ -7,30 +7,7 @@ use std::borrow::Cow;
 use tsv_ts::{ErrorKind, ErrorReport, Goal, StripError, UnsupportedKind};
 use url::Url;
 
-/// A position in a module's source: a 1-based line and column.
-///
-/// A strip's column counts UTF-16 units, as V8's frames do; an importer's is
-/// `deno_core`'s (see [`Failure::at`](super::graph::Failure::at)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Position {
-    /// The line, 1-based.
-    pub line: u32,
-    /// The column, 1-based.
-    pub column: u32,
-}
-
-/// Why a strip was refused, as the record of a failed load says it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StripFailure {
-    /// The source doesn't parse as a TypeScript module.
-    Parse,
-    /// The source nests or chains past tsv's depth limits.
-    TooDeep,
-    /// TypeScript with runtime semantics, which blanking can't erase.
-    Unsupported(UnsupportedKind),
-    /// A failure a later tsv adds.
-    Other,
-}
+use super::graph::{Position, StripFailure};
 
 /// A refused strip: why, where in the source, and the message the load fails
 /// with.

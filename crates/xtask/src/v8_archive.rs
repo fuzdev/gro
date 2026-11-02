@@ -53,7 +53,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use gro_bench::lock::{LockError, Wait, lock_dir};
+use gro_bench::lock::{LockIoError, lock_dir_blocking};
 
 /// The `v8` crate version the archive belongs to.
 pub const VERSION: &str = "150.4.0";
@@ -182,10 +182,8 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
     // `target/rusty_v8/`, above each version's directory, whose files an A/B
     // links into its clone
     let dir = root.join("target/rusty_v8");
-    let _lock = lock_dir(&dir, Wait::Block).map_err(|error| match error {
-        LockError::Io { path, source } => ArchiveError::Io { path, source },
-        held @ LockError::Held { .. } => ArchiveError::Command(held.to_string()),
-    })?;
+    let _lock = lock_dir_blocking(&dir)
+        .map_err(|LockIoError { path, source }| ArchiveError::Io { path, source })?;
     if path.is_file() {
         let hash = sha256(&path)?;
         if hash == SHA256 {

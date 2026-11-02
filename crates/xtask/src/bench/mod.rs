@@ -73,7 +73,7 @@ impl BenchPlan {
     /// Parses the flags, refusing those that don't combine; `vars` are the
     /// names of the environment's variables, which an A/B checks.
     fn parse(args: Bench, vars: impl IntoIterator<Item = String>) -> Result<Self, XtaskError> {
-        let usage = |message: &str| Err(XtaskError::BenchUsage(message.to_owned()));
+        let usage = |message: &str| Err(XtaskError::bench_usage(message));
         if args.suite == Path::new(REPORT) {
             if args.attest_quiet
                 || args.phases
@@ -135,7 +135,7 @@ impl RunKind {
             return Ok(self);
         }
         if let Some(runtime) = suite.runtimes.iter().find(|runtime| !is_fgro(runtime)) {
-            return Err(XtaskError::BenchUsage(format!(
+            return Err(XtaskError::bench_usage(format!(
                 "a prices suite prices fgro's defaults, and its runtime `{}` isn't fgro",
                 runtime.name
             )));
@@ -144,9 +144,8 @@ impl RunKind {
             Self::Record(Recorded::Wall) => Ok(Self::Prices { counters: false }),
             Self::Record(Recorded::Counters) => Ok(Self::Prices { counters: true }),
             Self::Record(Recorded::Phases) | Self::Ab { .. } | Self::Prices { .. } => {
-                Err(XtaskError::BenchUsage(
-                    "a prices suite runs the priced build, which --phases and --base would replace"
-                        .to_owned(),
+                Err(XtaskError::bench_usage(
+                    "a prices suite runs the priced build, which --phases and --base would replace",
                 ))
             }
         }
@@ -172,7 +171,7 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         } => (suite, history, attest_quiet, samples, kind),
     };
     let history = history_path(root, history)
-        .map_err(|error| XtaskError::Input(format!("bench failed: invalid --history: {error}")))?;
+        .map_err(|error| XtaskError::bench_input(format!("invalid --history: {error}")))?;
     let suite_dir = suite_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -180,7 +179,7 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
     let mut suite = Suite::load(&suite_path)?;
     if let Some(samples) = samples {
         let Some(samples) = NonZeroU32::new(samples) else {
-            return Err(XtaskError::BenchUsage("--samples is at least 2".to_owned()));
+            return Err(XtaskError::bench_usage("--samples is at least 2"));
         };
         suite.samples = samples;
         suite.validate()?;
@@ -203,7 +202,7 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         RunKind::Prices { counters } => {
             // a prices suite's runtimes are all fgro, so the release was built
             let Some(release) = &release else {
-                return Err(XtaskError::Input("a prices suite runs no fgro".to_owned()));
+                return Err(XtaskError::bench_input("a prices suite runs no fgro"));
             };
             measurement_build(root, release, Measurement::Prices, &fgro_names, &mut suite)?;
             if *counters {
@@ -214,8 +213,8 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         }
         RunKind::Record(Recorded::Phases) => {
             let Some(release) = &release else {
-                return Err(XtaskError::BenchUsage(
-                    "--phases times fgro's phases, and the suite runs no fgro".to_owned(),
+                return Err(XtaskError::bench_usage(
+                    "--phases times fgro's phases, and the suite runs no fgro",
                 ));
             };
             measurement_build(root, release, Measurement::Phases, &fgro_names, &mut suite)?;
@@ -227,8 +226,8 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
     let base = match kind {
         RunKind::Ab { rev, dir } => {
             if fgro_names.is_empty() {
-                return Err(XtaskError::BenchUsage(
-                    "--base compares fgro builds, and the suite runs no fgro".to_owned(),
+                return Err(XtaskError::bench_usage(
+                    "--base compares fgro builds, and the suite runs no fgro",
                 ));
             }
             let sha = base::resolve(root, &rev)?;
@@ -385,12 +384,9 @@ struct BaseRun {
 /// Prints the report on the history (`--history`, or the default).
 fn bench_report(root: &Path, history: Option<PathBuf>) -> StepResult {
     let history = history_path(root, history)
-        .map_err(|error| XtaskError::Input(format!("bench report: invalid --history: {error}")))?;
+        .map_err(|error| XtaskError::report_input(format!("invalid --history: {error}")))?;
     let text = fs::read_to_string(&history).map_err(|error| {
-        XtaskError::Input(format!(
-            "bench report: can't read {}: {error}",
-            history.display()
-        ))
+        XtaskError::report_input(format!("cannot read {}: {error}", history.display()))
     })?;
     println!("[xtask] the history {}", history.display());
     print!("{}", gro_bench::report::report(&text));
@@ -464,8 +460,8 @@ fn version_line(built: &Path) -> Result<String, XtaskError> {
         })?;
     let line = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if !output.status.success() {
-        return Err(XtaskError::Input(format!(
-            "bench failed: {} doesn't run ({}): {line}",
+        return Err(XtaskError::bench_input(format!(
+            "{} doesn't run ({}): {line}",
             built.display(),
             output.status,
         )));
@@ -479,8 +475,8 @@ fn version_line(built: &Path) -> Result<String, XtaskError> {
 fn refuse_measurement_build(built: &Path) -> StepResult {
     let line = version_line(built)?;
     if line.contains(PHASES_MARKER) || line.contains(PRICES_MARKER) {
-        return Err(XtaskError::Input(format!(
-            "bench failed: the release build {} is a measurement build: {line}",
+        return Err(XtaskError::bench_input(format!(
+            "the release build {} is a measurement build: {line}",
             built.display(),
         )));
     }
@@ -493,8 +489,8 @@ fn refuse_measurement_build(built: &Path) -> StepResult {
 fn require_marker(built: &Path, marker: &str) -> StepResult {
     let line = version_line(built)?;
     if !line.contains(marker) {
-        return Err(XtaskError::Input(format!(
-            "bench failed: {} isn't the measurement build it was built as (no `{marker}`): {line}",
+        return Err(XtaskError::bench_input(format!(
+            "{} isn't the measurement build it was built as (no `{marker}`): {line}",
             built.display(),
         )));
     }

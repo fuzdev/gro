@@ -178,12 +178,13 @@ pub(super) fn read_package_json(
 pub(super) enum Walk<T> {
     /// It found what it walked for.
     Found(T),
-    /// It reached the filesystem's root, or the end its rule sets, without
-    /// finding it.
-    Ended,
-    /// It stopped at this world-writable directory without finding it,
-    /// reading nothing in it.
-    Stopped(PathBuf),
+    /// It ended without finding it.
+    NotFound {
+        /// The world-writable directory it stopped at, reading nothing in
+        /// it; unset when it reached the filesystem's root, or the end its
+        /// rule sets.
+        stopped_at: Option<PathBuf>,
+    },
 }
 
 impl<T> Walk<T> {
@@ -191,7 +192,7 @@ impl<T> Walk<T> {
     pub(super) const fn found(&self) -> Option<&T> {
         match self {
             Self::Found(found) => Some(found),
-            Self::Ended | Self::Stopped(_) => None,
+            Self::NotFound { .. } => None,
         }
     }
 }
@@ -219,14 +220,16 @@ pub(super) fn package_scope(
             break;
         }
         if is_world_writable(tree, dir)? {
-            return Ok(Walk::Stopped(dir.to_owned()));
+            return Ok(Walk::NotFound {
+                stopped_at: Some(dir.to_owned()),
+            });
         }
         if let Some(package_json) = read_package_json(tree, dir, FileRole::PackageScope, consulted)?
         {
             return Ok(Walk::Found(package_json));
         }
     }
-    Ok(Walk::Ended)
+    Ok(Walk::NotFound { stopped_at: None })
 }
 
 /// The project root above `dir`, which bounds its `node_modules` search: the
@@ -243,7 +246,9 @@ pub(super) fn find_bound(
     for dir in dir.ancestors() {
         // checked inside node_modules too, since the search looks there
         if is_world_writable(tree, dir)? {
-            return Ok(Walk::Stopped(dir.to_owned()));
+            return Ok(Walk::NotFound {
+                stopped_at: Some(dir.to_owned()),
+            });
         }
         if in_node_modules(dir) {
             continue;
@@ -262,7 +267,7 @@ pub(super) fn find_bound(
             return Ok(Walk::Found((dir.to_owned(), package_json)));
         }
     }
-    Ok(Walk::Ended)
+    Ok(Walk::NotFound { stopped_at: None })
 }
 
 /// Whether `path` has a `node_modules` component.

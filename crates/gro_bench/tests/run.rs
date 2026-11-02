@@ -290,7 +290,7 @@ fn a_hung_process_times_out() {
 #[test]
 fn a_held_work_dir_is_refused() {
     let dir = scratch("locked", &[("a.sh", "true\n")]);
-    let held = gro_bench::lock::lock_dir(&dir.join("work"), gro_bench::lock::Wait::Refuse).unwrap();
+    let held = gro_bench::lock::try_lock_dir(&dir.join("work")).unwrap();
     let suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
     let error = run_in(&dir, &suite).unwrap_err();
     drop(held);
@@ -927,9 +927,11 @@ fn a_phases_run_of_a_plain_build_fails() {
     };
     let unknown = run(&suite, &dir, context);
     assert!(
-        matches!(&result, Err(BenchError::Phases(message)) if message.contains("isn't a phases build")),
+        matches!(&result, Err(BenchError::NotPhasesBuild { command }) if command.contains("plain.sh")),
         "{result:?}"
     );
+    // a build to change before re-running: input
+    assert!(result.is_err_and(|error| error.is_input_error()));
     assert!(
         matches!(&unknown, Err(BenchError::SuiteInvalid(message)) if message.contains("`nope`")),
         "{unknown:?}"

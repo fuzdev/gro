@@ -6,9 +6,8 @@ use std::io::Read as _;
 use std::os::fd::AsFd as _;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
-use gro_runtime::confine::{BoxRoots, Confined, Jit};
+use gro_runtime::confine::{BoxRoots, Confined};
 use gro_runtime::engine::init_confined_engine;
 use gro_runtime::eval::{
     Envelope, ErrorKind, EvalError, EvalOptions, Prepass, PrepassError, RuntimeInfo,
@@ -16,7 +15,7 @@ use gro_runtime::eval::{
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::prices::{self, EvalDefault};
 
-use crate::cli::{DRIVER_STDIN, EvalArgs};
+use crate::cli::{EvalInvocation, EvalValue};
 use crate::harden::{clear_env, close_inherited, limit_memory};
 use crate::print::{stderr_line, stdout_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
@@ -26,15 +25,15 @@ use crate::{EXIT_FAILURE, EXIT_PANIC, EXIT_USAGE};
 
 /// Runs `fgro eval` on the main thread: [`confine_eval`], then evaluates on
 /// eval's engine on another thread, and prints the envelope to stdout,
-/// returning the exit code. A usage error prints to stderr with no envelope.
-pub fn eval(args: EvalArgs) -> u8 {
+/// returning the exit code. The flags were checked as they were parsed.
+pub fn eval(args: EvalInvocation) -> u8 {
     let (prepass, confined) = match confine_eval(args) {
         Ok(confined) => confined,
         Err(code) => return code,
     };
     let unstarted = prepass.failed(EvalError::new(
         ErrorKind::Internal,
-        "could not start the thread that evaluates",
+        "failed to start the thread that evaluates",
     ));
     // every thread the engine starts comes after the box, spawned from here
     let evaluated = on_sized_thread("fgro", move || {
@@ -57,8 +56,8 @@ pub fn eval(args: EvalArgs) -> u8 {
     code
 }
 
-/// `eval`'s path up to and including the box, on the main thread: checks the
-/// flags, closes the descriptors the process inherited, clears its environment
+/// `eval`'s path up to and including the box, on the main thread: closes
+/// the descriptors the process inherited, clears its environment
 /// but `TZ`, reads the working directory and, when asked, the driver from
 /// stdin, resolves the entry and computes the box on a thread of its own,
 /// refuses a build with no snapshot, and confines the process, returning the
@@ -66,42 +65,20 @@ pub fn eval(args: EvalArgs) -> u8 {
 ///
 /// # Errors
 ///
-/// Returns the exit code of a failure, after printing it: a usage error to
-/// stderr with no envelope, any other as its envelope on stdout.
-fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
-    let EvalArgs {
+/// Returns the exit code of a failure, after printing its envelope on
+/// stdout.
+fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u8> {
+    let EvalInvocation {
         module,
-        driver,
-        export,
+        value,
         jit,
         timeout,
         graph,
     } = args;
-    let timeout = match timeout {
-        None => gro_runtime::eval::DEFAULT_TIMEOUT,
-        Some(0) => {
-            stderr_line("error: --timeout takes a number of milliseconds of at least 1");
-            return Err(EXIT_USAGE);
-        }
-        Some(ms) => Duration::from_millis(ms),
+    let (stdin_driver, export) = match value {
+        EvalValue::StdinDriver => (true, None),
+        EvalValue::Export(export) => (false, export),
     };
-    match (driver.as_deref(), &export) {
-        (Some(DRIVER_STDIN) | None, None) | (None, Some(_)) => {}
-        (Some(DRIVER_STDIN), Some(_)) => {
-            stderr_line(
-                "error: --export reads an export with no driver; a driver is handed the whole \
-                 namespace",
-            );
-            return Err(EXIT_USAGE);
-        }
-        (Some(path), _) => {
-            stderr_line(format_args!(
-                "error: --driver takes `-`, to read the driver from stdin, not {path:?}: a \
-                 driver from a file isn't supported yet"
-            ));
-            return Err(EXIT_USAGE);
-        }
-    }
     // first, before the process opens anything: a descriptor it inherited
     // would reach past the box, which gates only new opens
     let closed = unless_off(EvalDefault::CloseFds, close_inherited);
@@ -119,7 +96,7 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
         cwd: PathBuf::new(),
         export,
         driver: None,
-        jit: if jit { Jit::On } else { Jit::Off },
+        jit,
         snapshot: STARTUP_SNAPSHOT,
         runtime: RuntimeInfo::new(env!("CARGO_PKG_VERSION"), COMMIT),
         timeout,
@@ -135,20 +112,23 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     };
     // reported in the order the steps ran, the first failure alone
     for (result, step) in [
-        (closed, "cannot close the descriptors the eval inherited"),
-        (cleared, "cannot clear the environment the eval inherited"),
-        (limited, "cannot cap the eval's memory"),
+        (closed, "failed to close the descriptors the eval inherited"),
+        (
+            cleared,
+            "failed to clear the environment the eval inherited",
+        ),
+        (limited, "failed to cap the eval's memory"),
     ] {
         if let Err(error) = result {
             let error = EvalError::new(ErrorKind::Environment, format!("{step}: {error}"));
-            return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+            return Err(write_envelope(&Envelope::failed(&options, error)));
         }
     }
     // read here, before the box, not in the runtime, which takes them as inputs
     let mut read = || -> Result<(), String> {
         options.cwd = std::env::current_dir()
             .map_err(|error| format!("failed to read the working directory: {error}"))?;
-        if driver.is_some() {
+        if stdin_driver {
             let mut source = Vec::new();
             std::io::stdin()
                 .read_to_end(&mut source)
@@ -159,13 +139,13 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     };
     if let Err(message) = read() {
         let error = EvalError::new(ErrorKind::Internal, message);
-        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+        return Err(write_envelope(&Envelope::failed(&options, error)));
     }
-    let unstarted = gro_runtime::eval::failed(
+    let unstarted = Envelope::failed(
         &options,
         EvalError::new(
             ErrorKind::Internal,
-            "could not start the thread that resolves the eval",
+            "failed to start the thread that resolves the eval",
         ),
     );
     let prepass = match on_sized_thread("fgro-prepass", || gro_runtime::eval::prepass(options)) {
@@ -221,9 +201,10 @@ fn write_envelope(envelope: &Envelope) -> u8 {
     write_envelope_failed(envelope, EXIT_FAILURE)
 }
 
-/// Writes `envelope` to stdout, one line, returning 0 for a value, `failed`
-/// for a failure, or [`EXIT_FAILURE`] when it can't be written.
-fn write_envelope_failed(envelope: &Envelope, failed: u8) -> u8 {
+/// Writes `envelope` to stdout, one line, returning 0 for a value,
+/// `failure_code` for a failure, or [`EXIT_FAILURE`] when it can't be
+/// written.
+fn write_envelope_failed(envelope: &Envelope, failure_code: u8) -> u8 {
     let written = envelope
         .to_json()
         .map_err(|error| error.to_string())
@@ -232,5 +213,9 @@ fn write_envelope_failed(envelope: &Envelope, failed: u8) -> u8 {
         stderr_line(format_args!("error: failed to write the envelope: {error}"));
         return EXIT_FAILURE;
     }
-    if envelope.result.is_ok() { 0 } else { failed }
+    if envelope.result.is_ok() {
+        0
+    } else {
+        failure_code
+    }
 }

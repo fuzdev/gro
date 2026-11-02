@@ -183,17 +183,63 @@ pub fn dump_graph(
     box_roots: &[PathBuf],
 ) -> Result<GraphDump, DumpError> {
     let project = &graph.roots().project().dir;
-    let mut paths = BTreeMap::new();
-    let mut path_id = |path: &Path| -> Result<String, DumpError> {
-        let id = to_path_id(path, project)?;
-        paths.insert(id.clone(), to_utf8(path)?.to_owned());
-        Ok(id)
+    let mut ids = Ids {
+        project,
+        paths: BTreeMap::new(),
     };
-    let mut module_id = |url: &Url| -> Result<String, DumpError> {
+    let roots = vec![ids.module_id(entry)?];
+    let modules = dump_modules(graph, &mut ids)?;
+    let consulted = dump_consulted(graph, &mut ids)?;
+    let mut absent = graph
+        .reads()
+        .absent()
+        .iter()
+        .map(|path| ids.path_id(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    absent.sort();
+    absent.dedup();
+    let box_roots = box_roots
+        .iter()
+        .map(|root| to_utf8(root).map(str::to_owned))
+        .collect::<Result<_, _>>()?;
+    Ok(GraphDump {
+        graph_version: GRAPH_VERSION,
+        roots,
+        modules,
+        consulted,
+        absent,
+        local: DumpLocal {
+            project: to_utf8(project)?.to_owned(),
+            box_roots,
+            paths: ids.paths,
+        },
+    })
+}
+
+/// The ids a dump names its paths and modules by, and each id's absolute
+/// path, kept as each is named.
+struct Ids<'a> {
+    /// The project's real directory, which ids are relative to.
+    project: &'a Path,
+    /// Each id's absolute path, [`DumpLocal::paths`].
+    paths: BTreeMap<String, String>,
+}
+
+impl Ids<'_> {
+    /// The id of the absolute path `path`, kept with its path.
+    fn path_id(&mut self, path: &Path) -> Result<String, DumpError> {
+        let id = to_path_id(path, self.project)?;
+        self.paths.insert(id.clone(), to_utf8(path)?.to_owned());
+        Ok(id)
+    }
+
+    /// The id of the module at `url`: its path's, then its query and
+    /// fragment.
+    fn module_id(&mut self, url: &Url) -> Result<String, DumpError> {
         let path = url
             .to_file_path()
             .map_err(|()| DumpError::NotAPath(url.clone()))?;
-        let mut id = path_id(&path)?;
+        let mut id = self.path_id(&path)?;
         if let Some(query) = url.query() {
             id.push('?');
             id.push_str(query);
@@ -203,13 +249,16 @@ pub fn dump_graph(
             id.push_str(fragment);
         }
         Ok(id)
-    };
-    let roots = vec![module_id(entry)?];
+    }
+}
+
+/// Every module `graph` recorded, with its imports, in id order.
+fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, DumpError> {
     let mut imports: BTreeMap<&Url, Vec<DumpImport>> = BTreeMap::new();
     for (edge, resolved) in graph.edges() {
         imports.entry(&edge.importer).or_default().push(DumpImport {
             specifier: edge.specifier.clone(),
-            resolved: module_id(resolved)?,
+            resolved: ids.module_id(resolved)?,
             reach: match edge.reach {
                 Reach::Static => DumpReach::Static,
                 Reach::Dynamic => DumpReach::Dynamic,
@@ -223,7 +272,7 @@ pub fn dump_graph(
             (&a.specifier, a.reach, &a.resolved).cmp(&(&b.specifier, b.reach, &b.resolved))
         });
         modules.push(DumpModule {
-            id: module_id(url)?,
+            id: ids.module_id(url)?,
             blake3: record.loaded.map(|loaded| loaded.hash.to_hex().to_string()),
             origin: match &record.root.origin {
                 Origin::Project => DumpOrigin::Project,
@@ -251,6 +300,12 @@ pub fn dump_graph(
         imports.keys().collect::<Vec<_>>()
     );
     modules.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(modules)
+}
+
+/// Every file `graph` consulted, with the hash of its one read, in id
+/// order, then role order.
+fn dump_consulted(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpConsulted>, DumpError> {
     let mut consulted = Vec::with_capacity(graph.consulted().len());
     for file in graph.consulted() {
         let hash = graph
@@ -258,7 +313,7 @@ pub fn dump_graph(
             .hash(&file.path)
             .ok_or_else(|| DumpError::Unread(file.path.clone()))?;
         consulted.push(DumpConsulted {
-            id: path_id(&file.path)?,
+            id: ids.path_id(&file.path)?,
             blake3: hash.to_hex().to_string(),
             role: match file.role {
                 FileRole::Exports => DumpRole::Exports,
@@ -269,30 +324,7 @@ pub fn dump_graph(
         });
     }
     consulted.sort_by(|a, b| (&a.id, a.role).cmp(&(&b.id, b.role)));
-    let mut absent = graph
-        .reads()
-        .absent()
-        .iter()
-        .map(|path| path_id(path))
-        .collect::<Result<Vec<_>, _>>()?;
-    absent.sort();
-    absent.dedup();
-    let box_roots = box_roots
-        .iter()
-        .map(|root| to_utf8(root).map(str::to_owned))
-        .collect::<Result<_, _>>()?;
-    Ok(GraphDump {
-        graph_version: GRAPH_VERSION,
-        roots,
-        modules,
-        consulted,
-        absent,
-        local: DumpLocal {
-            project: to_utf8(project)?.to_owned(),
-            box_roots,
-            paths,
-        },
-    })
+    Ok(consulted)
 }
 
 /// `path` as UTF-8.

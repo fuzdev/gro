@@ -134,7 +134,7 @@ pub const REFUSED_OPS: [&str; 17] = [
 /// The op middleware of an eval runtime: an op in [`REFUSED_OPS`] gets
 /// [`op_gro_refused`]'s implementation, keeping its name, and every other
 /// op is kept as is.
-pub fn refuse_ops(op: OpDecl) -> OpDecl {
+fn refuse_ops(op: OpDecl) -> OpDecl {
     if REFUSED_OPS.contains(&op.name) {
         op.with_implementation_from(&op_gro_refused())
     } else {

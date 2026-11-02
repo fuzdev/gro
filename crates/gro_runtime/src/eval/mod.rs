@@ -29,7 +29,7 @@
 //! made eval's per run, never in the snapshot: the bootstrap's `deny`
 //! (`js/bootstrap.js`) before the driver or any module runs, and beneath it
 //! the op middleware's refusals (`bootstrap::REFUSED_OPS`). An error's kind
-//! comes from the phase that failed and, for a load, from the failure the
+//! comes from the step that failed and, for a load, from the failure the
 //! loader recorded for the graph's static load, never from a message.
 
 mod dump;
@@ -56,19 +56,18 @@ pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
     GraphField, RuntimeInfo, TSV_REV,
 };
-use self::envelope::{MAX_TEXT_KEPT, cap_envelope};
-use self::failure::{access, breach_error, stop_error, unread_error};
-pub use self::failure::{failed, no_snapshot_error};
-use self::limits::Stopped;
+use self::envelope::{MAX_TEXT_KEPT, access, cap_envelope};
+pub use self::failure::no_snapshot_error;
+use self::failure::{breach_error, stop_error, unread_error};
 pub use self::limits::{
     DEFAULT_THREAD_STACK, DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE, MEMORY_LIMIT,
 };
-use self::prepass::failed_at;
+use self::limits::{Stopped, format_size};
 pub use self::prepass::{Prepass, PrepassError, prepass};
 use self::run::evaluate;
-use self::serialize::format_size;
 use crate::confine::{BoxRoots, Jit};
 use crate::engine::{ConfinedEngine, EngineOptions};
+use crate::loader::graph::Recording;
 use crate::loader::{Loader, Rules};
 use crate::phases;
 use crate::prices::{self, EvalDefault};
@@ -108,7 +107,7 @@ pub const UTC_EPOCH: &str = "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Univ
 pub fn engine_options(jit: Jit) -> EngineOptions {
     EngineOptions {
         locale: (!prices::off(EvalDefault::Locale)).then_some(LOCALE),
-        jitless: jit == Jit::Off,
+        jit,
         disallow_code_generation_from_strings: !prices::off(EvalDefault::Codegen),
     }
 }
@@ -162,44 +161,20 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
         entry,
         roots,
         reads,
-        confinement: box_roots,
+        box_roots,
     } = prepass;
     let options = &options;
-    let driver_url = Url::parse(DRIVER_SPECIFIER).ok();
-    let mut envelope = failed_at(
+    let mut envelope = Envelope::failed_resolved(
         options,
         &entry,
         EvalError::new(ErrorKind::Internal, "not evaluated"),
     );
-    if engine.confined().roots() != &box_roots {
-        envelope.result = Err(EvalError::new(
-            ErrorKind::Internal,
-            "the process is confined to another box than this eval's",
-        ));
-        return envelope;
-    }
-    if options.snapshot.is_none() {
-        envelope.result = Err(no_snapshot_error());
-        return envelope;
-    }
-    let engine = engine.engine();
-    let expected = engine_options(options.jit);
-    if engine.options() != &expected {
-        envelope.result = Err(EvalError::new(
-            ErrorKind::Internal,
-            format!(
-                "the engine is set up with {:?}, not eval's {expected:?}",
-                engine.options()
-            ),
-        ));
-        return envelope;
-    }
-    let Some(driver_url) = driver_url else {
-        envelope.result = Err(EvalError::new(
-            ErrorKind::Internal,
-            format!("the driver's URL {DRIVER_SPECIFIER} doesn't parse"),
-        ));
-        return envelope;
+    let driver_url = match check_preconditions(engine, options, &box_roots) {
+        Ok(driver_url) => driver_url,
+        Err(error) => {
+            envelope.result = Err(*error);
+            return envelope;
+        }
     };
     let stopped = Stopped::default();
     if let Some(out) = &options.backstop
@@ -266,14 +241,50 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
     envelope
 }
 
+/// Checks what an eval needs before it starts, returning the driver's URL:
+/// a process confined to the eval's own box, a startup snapshot, and an
+/// engine set up with [`engine_options`].
+fn check_preconditions(
+    engine: ConfinedEngine,
+    options: &EvalOptions,
+    box_roots: &BoxRoots,
+) -> Result<Url, Box<EvalError>> {
+    if engine.confined().roots() != box_roots {
+        return Err(Box::new(EvalError::new(
+            ErrorKind::Internal,
+            "the process is confined to another box than this eval's",
+        )));
+    }
+    if options.snapshot.is_none() {
+        return Err(Box::new(no_snapshot_error()));
+    }
+    let engine = engine.engine();
+    let expected = engine_options(options.jit);
+    if engine.options() != &expected {
+        return Err(Box::new(EvalError::new(
+            ErrorKind::Internal,
+            format!(
+                "the engine is set up with {:?}, not eval's {expected:?}",
+                engine.options()
+            ),
+        )));
+    }
+    Url::parse(DRIVER_SPECIFIER).map_err(|_| {
+        Box::new(EvalError::new(
+            ErrorKind::Internal,
+            format!("the driver's URL {DRIVER_SPECIFIER} doesn't parse"),
+        ))
+    })
+}
+
 /// How much the loader records of the graph: all of it, which the
 /// envelope's `access` and a failure's kind read, unless a priced build
 /// turns it off.
-fn recording() -> crate::loader::graph::Recording {
+fn recording() -> Recording {
     if prices::off(EvalDefault::Recording) {
-        crate::loader::graph::Recording::Off
+        Recording::Off
     } else {
-        crate::loader::graph::Recording::Full
+        Recording::Full
     }
 }
 
@@ -342,11 +353,11 @@ mod tests {
             engine_options(Jit::Off),
             EngineOptions {
                 locale: Some("en-US"),
-                jitless: true,
+                jit: Jit::Off,
                 disallow_code_generation_from_strings: true,
             }
         );
-        assert!(!engine_options(Jit::On).jitless);
+        assert_eq!(engine_options(Jit::On).jit, Jit::On);
         assert!(engine_options(Jit::On).disallow_code_generation_from_strings);
     }
 }

@@ -32,6 +32,18 @@ pub enum CliError {
     /// Neither `--version` nor a subcommand was given.
     #[error("a subcommand is required\nRun fgro --help for more information.")]
     NoCommand,
+    /// `eval --timeout 0`.
+    #[error("--timeout takes a number of milliseconds of at least 1")]
+    TimeoutZero,
+    /// `eval --driver - --export`.
+    #[error("--export reads an export with no driver; a driver is handed the whole namespace")]
+    DriverWithExport,
+    /// `eval --driver` with a path rather than `-`.
+    #[error(
+        "--driver takes `-`, to read the driver from stdin, not {0:?}: a driver from a file \
+         isn't supported yet"
+    )]
+    DriverPath(String),
     /// `make-snapshot` without exactly one argument.
     #[error("usage: fgro {} <dir>", MAKE_SNAPSHOT)]
     SnapshotUsage,
@@ -54,13 +66,13 @@ pub enum CliError {
     #[error(transparent)]
     Engine(#[from] EngineError),
     /// The working directory couldn't be read.
-    #[error("cannot read the working directory: {0}")]
+    #[error("failed to read the working directory: {0}")]
     Cwd(#[source] std::io::Error),
     /// `fgro run`'s module failed.
     #[error(transparent)]
     Run(#[from] RunError),
     /// Output couldn't be written to stdout (a closed pipe, a full disk).
-    #[error("cannot write to stdout: {0}")]
+    #[error("failed to write to stdout: {0}")]
     Stdout(#[source] std::io::Error),
 }
 
@@ -75,6 +87,9 @@ impl CliError {
             | Self::Parse(_)
             | Self::VersionWithCommand
             | Self::NoCommand
+            | Self::TimeoutZero
+            | Self::DriverWithExport
+            | Self::DriverPath(_)
             | Self::SnapshotUsage
             | Self::SnapshotFlag => EXIT_USAGE,
             Self::Run(RunError::Entry(error)) if error.kind.is_refusal() => EXIT_USAGE,

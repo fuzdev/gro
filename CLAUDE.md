@@ -604,8 +604,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   fix where there is one.
   V8's process-wide setup is `engine::init_engine` (`EngineOptions`: V8's
   entropy drawn from `getrandom`, always, an optional ICU default locale,
-  and two V8 flags set before V8 starts, `jitless` and
-  `disallow_code_generation_from_strings`, both off for `fgro run`), once
+  and two V8 flags set before V8 starts, `jit` (a `confine::Jit`, `Off`
+  setting `--jitless`) and `disallow_code_generation_from_strings`, the JIT
+  on and code generation allowed for `fgro run`), once
   per process before the first runtime, and it takes the process's
   `confine::Confinement`: `Confined`, made only by
   `confine::Prepared::confine`, or `Unconfined`, which `fgro run`,
@@ -651,7 +652,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   on any architecture when its file is outside the roots, or, jitless, by
   its code's `PROT_EXEC`);
   `Confined` records the `Jit`, `init_engine` refuses a confined engine
-  whose `jitless` disagrees (`EngineError::JitConflict`), and eval's
+  whose `jit` disagrees (`EngineError::JitConflict`), and eval's
   `Prepass::confine` (by value, so the box goes up once, handing back the
   eval with the roots it admits) reads it from `EvalOptions::jit`, the
   `Jit` `engine_options` takes too, so `fgro eval` takes it from `--jit`.
@@ -786,7 +787,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   code generation is off. The loader's `Rules` carry eval's refusals: every `import()`
   before anything resolves (the entry graph's listed in the envelope's
   `access.dynamic`), and every import from the driver ("a stdin driver is
-  import-free"), each recorded as its own `FailureError`. `deno_core::scope!` and the `v8`
+  import-free"), each recorded as its own `FailureReason`. `deno_core::scope!` and the `v8`
   scope macros hide `unsafe` inside dependency macros, outside the
   `unsafe_code` lint; eval uses them to open handle scopes on the runtime.
   `gro_runtime`'s tests import

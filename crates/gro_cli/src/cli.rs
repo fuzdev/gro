@@ -3,8 +3,10 @@
 //! [`parse`], which reads them once into an [`Invocation`].
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use argh::{EarlyExit, FromArgs};
+use gro_runtime::confine::Jit;
 
 use crate::error::CliError;
 
@@ -67,11 +69,74 @@ pub struct EvalArgs {
 /// The `--driver` value that reads the driver from stdin, the only one so far.
 pub const DRIVER_STDIN: &str = "-";
 
+/// `fgro eval`'s arguments, checked.
+pub struct EvalInvocation {
+    /// The module to evaluate: relative to the working directory, or
+    /// absolute.
+    pub module: PathBuf,
+    /// Where the value comes from.
+    pub value: EvalValue,
+    /// Whether V8's JIT is on.
+    pub jit: Jit,
+    /// How long the eval may run, at least a millisecond.
+    pub timeout: Duration,
+    /// Whether the envelope carries the module graph.
+    pub graph: bool,
+}
+
+/// Where an eval's value comes from.
+pub enum EvalValue {
+    /// A driver read from stdin (`--driver -`), handed the namespace.
+    StdinDriver,
+    /// The export named, `default` when unset.
+    Export(Option<String>),
+}
+
+impl EvalInvocation {
+    /// The checked form of `args`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the usage error: a `--timeout` of 0, `--export` with a
+    /// driver, or a `--driver` other than [`DRIVER_STDIN`], checked in that
+    /// order.
+    fn check(args: EvalArgs) -> Result<Self, CliError> {
+        let EvalArgs {
+            module,
+            driver,
+            export,
+            jit,
+            timeout,
+            graph,
+        } = args;
+        let timeout = match timeout {
+            None => gro_runtime::eval::DEFAULT_TIMEOUT,
+            Some(0) => return Err(CliError::TimeoutZero),
+            Some(ms) => Duration::from_millis(ms),
+        };
+        let value = match (driver, export) {
+            (None, export) => EvalValue::Export(export),
+            (Some(driver), None) if driver == DRIVER_STDIN => EvalValue::StdinDriver,
+            (Some(driver), Some(_)) if driver == DRIVER_STDIN => {
+                return Err(CliError::DriverWithExport);
+            }
+            (Some(path), _) => return Err(CliError::DriverPath(path)),
+        };
+        Ok(Self {
+            module,
+            value,
+            jit: if jit { Jit::On } else { Jit::Off },
+            timeout,
+            graph,
+        })
+    }
+}
+
 /// What the arguments ask for, parsed once.
 pub enum Invocation {
     /// `fgro eval`, which confines its process and so runs on the main
     /// thread.
-    Eval(EvalArgs),
+    Eval(EvalInvocation),
     /// Every other command, run on a thread with a stated stack.
     Sized(Task),
 }
@@ -96,7 +161,8 @@ pub enum Task {
 ///
 /// # Errors
 ///
-/// Returns the usage error the arguments make.
+/// Returns the usage error the arguments make, eval's checked flags
+/// included ([`EvalInvocation::check`]).
 pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
     if args.first() == Some(&MAKE_SNAPSHOT) {
         // no flags, so `--help` can't become a directory's name
@@ -128,7 +194,7 @@ pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
         Ok(Args {
             version: false,
             command: Some(Command::Eval(args)),
-        }) => Ok(Invocation::Eval(args)),
+        }) => EvalInvocation::check(args).map(Invocation::Eval),
         Err(EarlyExit {
             output,
             status: Ok(()),
@@ -137,5 +203,23 @@ pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
             output,
             status: Err(()),
         }) => Err(CliError::Parse(output)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Invocation, Task, parse};
+
+    /// `--timeout`'s help names the default eval takes.
+    #[test]
+    fn the_timeout_s_help_names_the_default() {
+        let Ok(Invocation::Sized(Task::Help(help))) = parse(&["eval", "--help"]) else {
+            panic!("eval --help prints its help");
+        };
+        let default = format!(
+            "(default: {})",
+            gro_runtime::eval::DEFAULT_TIMEOUT.as_millis()
+        );
+        assert!(help.contains(&default), "{help}");
     }
 }

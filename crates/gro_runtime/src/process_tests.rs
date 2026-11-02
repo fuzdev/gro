@@ -96,7 +96,7 @@ fn child() {
             );
             assert!(matches!(
                 init_engine(Confinement::Unconfined, &EngineOptions::default()),
-                Err(EngineError::Conflict(applied)) if applied == options
+                Err(EngineError::OptionsConflict(applied)) if applied == options
             ));
             run_source(
                 engine,

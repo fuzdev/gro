@@ -13,16 +13,6 @@ pub fn close_inherited() -> std::io::Result<()> {
     gro_sys::close_inherited_fds()
 }
 
-/// No box to escape elsewhere: eval refuses before it would start.
-#[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the same signature as Linux's, which can fail"
-)]
-pub const fn close_inherited() -> std::io::Result<()> {
-    Ok(())
-}
-
 /// The variables eval keeps from its environment: `TZ` alone, which ICU
 /// reads for the time zone eval then checks is UTC.
 #[cfg(target_os = "linux")]
@@ -37,16 +27,6 @@ const KEPT_ENV: &[&str] = &["TZ"];
 #[cfg(target_os = "linux")]
 pub fn clear_env() -> std::io::Result<()> {
     gro_sys::clear_env_except(KEPT_ENV)
-}
-
-/// No box elsewhere: eval refuses before it would start.
-#[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the same signature as Linux's, which can fail"
-)]
-pub const fn clear_env() -> std::io::Result<()> {
-    Ok(())
 }
 
 /// Lowers the stack of a thread started without a size of its own (V8's
@@ -64,12 +44,29 @@ pub fn limit_memory() -> std::io::Result<()> {
     gro_sys::limit_data(gro_runtime::eval::MEMORY_LIMIT).map(drop)
 }
 
-/// No box elsewhere: eval refuses before it would start.
+#[cfg(not(target_os = "linux"))]
+pub use elsewhere::{clear_env, close_inherited, limit_memory};
+
+/// Each step elsewhere, a no-op with Linux's signature: there is no box to
+/// escape, and eval refuses before it would start.
 #[cfg(not(target_os = "linux"))]
 #[expect(
     clippy::unnecessary_wraps,
-    reason = "the same signature as Linux's, which can fail"
+    reason = "the same signatures as Linux's, which can fail"
 )]
-pub const fn limit_memory() -> std::io::Result<()> {
-    Ok(())
+mod elsewhere {
+    /// Closes nothing.
+    pub const fn close_inherited() -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// Clears nothing.
+    pub const fn clear_env() -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// Caps nothing.
+    pub const fn limit_memory() -> std::io::Result<()> {
+        Ok(())
+    }
 }

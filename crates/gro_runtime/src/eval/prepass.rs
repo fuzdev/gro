@@ -1,9 +1,10 @@
-//! The eval's pre-pass: the entry resolved and the box's roots computed, reading the disk
-//! and starting no runtime.
+//! The eval's pre-pass: the entry resolved and the box's roots computed,
+//! reading the disk and starting no runtime.
 
 use std::path::Path;
 
-use super::{Envelope, ErrorKind, EvalError, EvalOptions, failed};
+use super::envelope::entry_id;
+use super::{Envelope, ErrorKind, EvalError, EvalOptions};
 use crate::confine;
 use crate::loader::reads::{Reads, RecordingTree};
 use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
@@ -25,15 +26,17 @@ pub struct Prepass<B = confine::Prepared> {
     /// What the entry's resolution read and found absent, its graph's
     /// first reads.
     pub(super) reads: Reads,
-    /// The box: the project's real directory and the link closure below it.
-    pub(super) confinement: B,
+    /// The box's roots: the project's real directory and the link closure
+    /// below it.
+    pub(super) box_roots: B,
 }
 
 impl Prepass {
-    /// The box the eval's process is to be confined to, before the engine
-    /// starts.
-    pub const fn confinement(&self) -> &confine::Prepared {
-        &self.confinement
+    /// The roots of the box the eval's process is to be confined to,
+    /// before the engine starts.
+    #[cfg(test)]
+    const fn box_roots(&self) -> &confine::Prepared {
+        &self.box_roots
     }
 
     /// Confines the process to the eval's box ([`confine::Prepared::confine`]),
@@ -53,7 +56,7 @@ impl Prepass {
             entry,
             roots,
             reads,
-            confinement,
+            box_roots,
         } = self;
         let jit = options.jit;
         let boxed = Prepass {
@@ -61,9 +64,9 @@ impl Prepass {
             entry,
             roots,
             reads,
-            confinement: confinement.roots().clone(),
+            box_roots: box_roots.roots().clone(),
         };
-        match confinement.confine(jit) {
+        match box_roots.confine(jit) {
             Ok(confined) => Ok((boxed, confined)),
             Err(error) => Err(Box::new(boxed.failed(confine_error(&error)))),
         }
@@ -80,7 +83,7 @@ impl<B> Prepass<B> {
     /// The envelope of this eval failed with `error` before it ran: the
     /// entry by its canonical path.
     pub fn failed(&self, error: EvalError) -> Envelope {
-        failed_at(&self.options, &self.entry, error)
+        Envelope::failed_resolved(&self.options, &self.entry, error)
     }
 }
 
@@ -103,22 +106,6 @@ impl PrepassError {
             Self::Usage(envelope) | Self::Failed(envelope) => envelope,
         }
     }
-}
-
-/// The envelope of an eval of `options` failed with `error`, its entry
-/// `entry` named by its canonical path.
-pub(super) fn failed_at(options: &EvalOptions, entry: &Resolution, error: EvalError) -> Envelope {
-    let mut envelope = failed(options, error);
-    envelope.entry.id = entry_id(entry);
-    envelope
-}
-
-/// The entry's canonical path, as the envelope names it.
-pub(super) fn entry_id(entry: &Resolution) -> String {
-    entry.url.to_file_path().map_or_else(
-        |()| entry.url.to_string(),
-        |path| path.to_string_lossy().into_owned(),
-    )
 }
 
 /// Resolves the entry of `options` and computes the box its eval runs in,
@@ -155,7 +142,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
             } else {
                 (ErrorKind::Internal, PrepassError::Failed)
             };
-            return Err(wrap(Box::new(failed(
+            return Err(wrap(Box::new(Envelope::failed(
                 &options,
                 refused(&options, kind, error.to_string()),
             ))));
@@ -182,18 +169,18 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
     };
     if let Some(message) = refusal {
         let failure = refused(&options, ErrorKind::Resolve, message);
-        return Err(PrepassError::Usage(Box::new(failed_at(
+        return Err(PrepassError::Usage(Box::new(Envelope::failed_resolved(
             &options, &entry, failure,
         ))));
     }
-    let confinement = match confine::Prepared::for_project(project) {
-        Ok(confinement) => confinement,
+    let box_roots = match confine::Prepared::for_project(project) {
+        Ok(box_roots) => box_roots,
         Err(error) => {
             let failure = EvalError::new(
                 ErrorKind::Internal,
                 format!("failed to open the project's directory for the box: {error}"),
             );
-            return Err(PrepassError::Failed(Box::new(failed_at(
+            return Err(PrepassError::Failed(Box::new(Envelope::failed_resolved(
                 &options, &entry, failure,
             ))));
         }
@@ -203,7 +190,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
         entry,
         roots,
         reads,
-        confinement,
+        box_roots,
     })
 }
 
@@ -266,7 +253,7 @@ mod tests {
 
         let resolved = prepass(options(Path::new("main.mjs"), &project)).unwrap();
         assert_eq!(
-            resolved.confinement().roots().as_slice(),
+            resolved.box_roots().roots().as_slice(),
             std::slice::from_ref(&project)
         );
         assert_eq!(

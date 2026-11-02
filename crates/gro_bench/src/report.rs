@@ -271,7 +271,7 @@ fn write_memory(out: &mut String, latest: &RunRecord, previous: Option<&RunRecor
 /// noise.
 fn describe(record: &RunRecord) -> String {
     format!(
-        "{} {}{} {}, noise {:.2}%",
+        "{} {}{} {}, noise {}",
         format_date(record.started_unix_s),
         record.git.sha.get(..8).unwrap_or(&record.git.sha),
         if record.git.dirty { "-dirty" } else { "" },
@@ -279,7 +279,10 @@ fn describe(record: &RunRecord) -> String {
             MachineQuiet::Attested => "attested",
             MachineQuiet::Unchecked => "unchecked",
         },
-        record.noise.median_deviation * 100.0
+        record.noise.wall_deviation().map_or_else(
+            || "-".to_owned(),
+            |deviation| format!("{:.2}%", deviation * 100.0)
+        )
     )
 }
 
@@ -307,9 +310,10 @@ fn compare_wall(
 }
 
 /// The ratio deviation a wall move must pass to be flagged: the larger of
-/// the two records' A/A noise rows, or of the two rows' MADs added over the
-/// smaller median, so a row whose own spread is wider than one A/A draw
-/// isn't flagged for it.
+/// the two records' A/A noise rows, each where usable
+/// ([`NoiseRecord::wall_deviation`](crate::record::NoiseRecord::wall_deviation)),
+/// or of the two rows' MADs added over the smaller median, so a row whose
+/// own spread is wider than one A/A draw isn't flagged for it.
 fn wall_floor(
     latest: &RunRecord,
     row: &RowRecord,
@@ -323,11 +327,10 @@ fn wall_floor(
     } else {
         0.0
     };
-    latest
-        .noise
-        .median_deviation
-        .max(other.noise.median_deviation)
-        .max(spread)
+    [latest.noise.wall_deviation(), other.noise.wall_deviation()]
+        .into_iter()
+        .flatten()
+        .fold(spread, f64::max)
 }
 
 /// The row of `record` with `row`'s runtime and workload.
@@ -608,6 +611,31 @@ mod tests {
         latest.rows[0].wall_ns = metric(vec![10_400_000, 10_600_000, 10_800_000]);
         let lines = [&previous, &latest].map(RunRecord::to_line).concat();
         assert!(super::report(&lines).contains("1.060x!"));
+    }
+
+    /// An A/A row with a zero median, whose deviation is `f64::MAX`, is no
+    /// noise row: it neither disables flagging nor prints as a percent.
+    #[test]
+    fn an_unusable_noise_row_is_left_out() {
+        let mut previous = record("a", MachineQuiet::Unchecked, 10_000_000, None);
+        let mut latest = record("b", MachineQuiet::Unchecked, 10_600_000, None);
+        for record in [&mut previous, &mut latest] {
+            record.noise.median_deviation = f64::MAX;
+        }
+        let lines = [&previous, &latest].map(RunRecord::to_line).concat();
+        let report = report(&lines);
+        assert!(report.contains("1.060x!"), "{report}");
+        assert!(
+            describe(&latest).ends_with(", noise -"),
+            "{}",
+            describe(&latest)
+        );
+        latest.noise.median_deviation = 0.001;
+        assert!(
+            describe(&latest).ends_with(", noise 0.10%"),
+            "{}",
+            describe(&latest)
+        );
     }
 
     #[test]

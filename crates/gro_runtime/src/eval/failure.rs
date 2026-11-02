@@ -1,19 +1,16 @@
-//! How an eval fails: the phase that failed, its kind and hint, and the errors the host
-//! itself raises.
+//! How an eval fails: the step that failed, its kind and hint, and the
+//! errors the host itself raises.
 
 use std::path::Path;
 
 use deno_core::error::{CoreError, CoreErrorKind, JsError};
 
-use super::limits::Stop;
-use super::serialize::format_size;
-use super::{
-    Access, DEFAULT_EXPORT, DynamicImport, Entry, Envelope, ErrorKind, EvalError, EvalOptions,
-    GraphField, HEAP_LIMIT, MEMORY_LIMIT,
-};
+use super::dump::DumpError;
+use super::limits::{Stop, format_size};
+use super::{ErrorKind, EvalError, EvalOptions, HEAP_LIMIT, MEMORY_LIMIT};
 use crate::confine::Jit;
 use crate::loader::graph::{
-    Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
+    Failure, FailureReason, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
 use crate::report::{report, report_js};
 
@@ -25,9 +22,8 @@ pub(super) fn unread_error(path: &Path) -> EvalError {
     EvalError::new(
         ErrorKind::Internal,
         format!(
-            "the eval's graph names {} as consulted with no read of it recorded, a bug in \
-             fgro, so no graph is written",
-            path.display()
+            "{}, a bug in fgro, so no graph is written",
+            DumpError::Unread(path.to_owned())
         ),
     )
 }
@@ -97,8 +93,9 @@ pub(super) fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
 /// The error of a confined eval with no startup snapshot, an `internal`.
 ///
 /// Started from source, its runtime would read its extensions' JS from the
-/// build tree, outside the box. [`eval`](super::eval) refuses one, and a caller that
-/// confines refuses one with this before it confines, whatever the host.
+/// build tree, outside the box. [`eval`](super::eval) refuses one, and a
+/// caller that confines refuses one with this before it confines, whatever
+/// the host.
 pub fn no_snapshot_error() -> EvalError {
     let mut error = EvalError::new(
         ErrorKind::Internal,
@@ -127,37 +124,9 @@ const CODE_GENERATION_HINT: &str = "eval turns code generation from strings off,
 const TIMEOUT_HINT: &str = "eval runs jitless unless asked, in V8's interpreter alone: \
                             --jit runs compute-heavy code faster, or pass a longer --timeout";
 
-/// The envelope of an eval of `options` that failed with `error` before it
-/// started, such as when the driver couldn't be read: the entry as given.
-pub fn failed(options: &EvalOptions, error: EvalError) -> Envelope {
-    Envelope {
-        runtime: options.runtime.clone(),
-        entry: Entry {
-            id: options.entry.to_string_lossy().into_owned(),
-            export: options.driver.is_none().then(|| {
-                options
-                    .export
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_EXPORT.to_owned())
-            }),
-            driver_blake3: options
-                .driver
-                .as_ref()
-                .map(|driver| blake3::hash(driver).to_hex().to_string()),
-        },
-        result: Err(error),
-        access: Some(Access::default()),
-        graph: if options.graph {
-            GraphField::Unavailable
-        } else {
-            GraphField::Omitted
-        },
-    }
-}
-
-/// The phase of an eval, which decides a failure's kind.
+/// The step of an eval, which decides a failure's kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Phase {
+pub(super) enum Step {
     /// Starting the runtime.
     Start,
     /// Loading and linking the driver.
@@ -185,16 +154,16 @@ pub(super) enum Phase {
     Internal,
 }
 
-/// A failed phase: which, the message, and where when the serializer says.
+/// A failed step: which, the message, and where when the serializer says.
 #[derive(Debug)]
 pub(super) struct Failed {
-    /// The phase that failed.
-    pub(super) phase: Phase,
+    /// The step that failed.
+    pub(super) step: Step,
     /// What failed.
     pub(super) message: String,
     /// The JS path the serializer refused.
     pub(super) at: Option<String>,
-    /// The uncaught JS error, when one failed the phase.
+    /// The uncaught JS error, when one failed the step.
     pub(super) thrown: Option<Thrown>,
 }
 
@@ -208,26 +177,26 @@ pub(super) struct Thrown {
 }
 
 impl Failed {
-    pub(super) fn new(phase: Phase, message: impl Into<String>) -> Self {
+    pub(super) fn new(step: Step, message: impl Into<String>) -> Self {
         Self {
-            phase,
+            step,
             message: message.into(),
             at: None,
             thrown: None,
         }
     }
 
-    /// The failure in `phase` that `error` reports.
-    pub(super) fn core(phase: Phase, error: &CoreError) -> Self {
+    /// The failure in `step` that `error` reports.
+    pub(super) fn core(step: Step, error: &CoreError) -> Self {
         match &*error.0 {
-            CoreErrorKind::Js(error) => Self::js(phase, error),
-            _ => Self::new(phase, report(error)),
+            CoreErrorKind::Js(error) => Self::js(step, error),
+            _ => Self::new(step, report(error)),
         }
     }
 
-    /// The failure in `phase` of the uncaught JS `error`.
-    pub(super) fn js(phase: Phase, error: &JsError) -> Self {
-        let mut failed = Self::new(phase, report_js(error));
+    /// The failure in `step` of the uncaught JS `error`.
+    pub(super) fn js(step: Step, error: &JsError) -> Self {
+        let mut failed = Self::new(step, report_js(error));
         failed.thrown = Some(Thrown {
             name: error.name.clone(),
             message: error.message.clone(),
@@ -235,20 +204,20 @@ impl Failed {
         failed
     }
 
-    /// The envelope's error: the kind from the phase and, for a load, the
+    /// The envelope's error: the kind from the step and, for a load, the
     /// first failure of the static load in `graph`, with a hint when the
     /// uncaught error has one in an eval with the JIT as `jit` says.
     pub(super) fn into_error(self, graph: &Graph, jit: Jit) -> EvalError {
-        let kind = match self.phase {
-            Phase::Start | Phase::Internal => ErrorKind::Internal,
-            Phase::DriverLoad | Phase::Load => {
+        let kind = match self.step {
+            Step::Start | Step::Internal => ErrorKind::Internal,
+            Step::DriverLoad | Step::Load => {
                 return load_error(self.message, first_static_failure(graph));
             }
-            Phase::DriverEvaluate | Phase::Evaluate | Phase::Call => ErrorKind::ModuleThrew,
-            Phase::DriverExports | Phase::Export => ErrorKind::ExportMissing,
-            Phase::Serialize => ErrorKind::Serialize,
-            Phase::Drain => ErrorKind::LateRejection,
-            Phase::Environment => ErrorKind::Environment,
+            Step::DriverEvaluate | Step::Evaluate | Step::Call => ErrorKind::ModuleThrew,
+            Step::DriverExports | Step::Export => ErrorKind::ExportMissing,
+            Step::Serialize => ErrorKind::Serialize,
+            Step::Drain => ErrorKind::LateRejection,
+            Step::Environment => ErrorKind::Environment,
         };
         let mut error = EvalError::new(kind, self.message);
         error.at = self.at;
@@ -295,8 +264,8 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
     let Some((site, failure)) = failure else {
         return EvalError::new(ErrorKind::Link, message);
     };
-    let kind = match &failure.error {
-        FailureError::Load(
+    let kind = match &failure.reason {
+        FailureReason::Load(
             LoadFailure::NeverResolved
             | LoadFailure::IdentityMismatch
             | LoadFailure::Read(_)
@@ -304,19 +273,19 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
             | LoadFailure::NotAFile
             | LoadFailure::Format(_),
         )
-        | FailureError::UnknownImporter
+        | FailureReason::UnknownImporter
         // never static: an `import()` is refused before it loads anything
-        | FailureError::DynamicImport => ErrorKind::Internal,
+        | FailureReason::DynamicImport => ErrorKind::Internal,
         // a read that failed or changed, a breach, or a host bug, as the entry's are
-        FailureError::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
-        FailureError::Resolve(_) | FailureError::DriverImport => ErrorKind::Resolve,
-        FailureError::Load(
+        FailureReason::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
+        FailureReason::Resolve(_) | FailureReason::DriverImport => ErrorKind::Resolve,
+        FailureReason::Load(
             LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
         ) => ErrorKind::Link,
     };
-    let at = match &failure.error {
+    let at = match &failure.reason {
         // a position in the module stripped
-        FailureError::Load(LoadFailure::Strip { at: Some(at), .. }) => {
+        FailureReason::Load(LoadFailure::Strip { at: Some(at), .. }) => {
             Some(format!("{}:{}:{}", site.specifier, at.line, at.column))
         }
         // the import's position in its importer
@@ -333,28 +302,6 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
     error
 }
 
-/// Every `import()` the graph refused, in specifier order, then importer
-/// order, one entry per specifier and importer; the driver's are recorded as
-/// driver imports, not listed.
-pub(super) fn access(graph: &Graph) -> Access {
-    let dynamic = graph
-        .failures()
-        .iter()
-        .filter(|(_, failures)| {
-            failures
-                .iter()
-                .any(|failure| failure.error == FailureError::DynamicImport)
-        })
-        .filter_map(|(site, _)| {
-            Some(DynamicImport {
-                specifier: site.specifier.clone(),
-                importer: site.importer.clone()?,
-            })
-        })
-        .collect();
-    Access { dynamic }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io;
@@ -362,15 +309,17 @@ mod tests {
 
     use url::Url;
 
+    use super::super::DynamicImport;
+    use super::super::envelope::access;
     use super::*;
     use crate::loader::graph::Recording;
-    use crate::loader::strip::{Position, StripFailure};
+    use crate::loader::graph::{Position, StripFailure};
     use crate::resolver::ResolveErrorKind;
     use crate::resolver::{FileId, Origin, Resolution, Root, Roots};
 
     /// A graph of `/p/main.js` with `failures` recorded, each at its own
     /// site and reached as given.
-    fn graph(failures: &[(&str, Reached, FailureError)]) -> Graph {
+    fn graph(failures: &[(&str, Reached, FailureReason)]) -> Graph {
         let entry = Resolution {
             url: Url::parse("file:///p/main.js").unwrap(),
             file_id: FileId {
@@ -388,7 +337,7 @@ mod tests {
         for (specifier, reached, error) in failures {
             let failure = Failure {
                 at: Some(Position { line: 2, column: 8 }),
-                error: error.clone(),
+                reason: error.clone(),
             };
             graph.fail(specifier, Some("file:///p/main.js"), *reached, failure);
         }
@@ -398,8 +347,8 @@ mod tests {
     const STATIC: Reached = Reached::Import(Reach::Static);
     const DYNAMIC: Reached = Reached::Import(Reach::Dynamic);
 
-    fn load_kind(error: FailureError) -> ErrorKind {
-        Failed::new(Phase::Load, "failed")
+    fn load_kind(error: FailureReason) -> ErrorKind {
+        Failed::new(Step::Load, "failed")
             .into_error(&graph(&[("./x.js", STATIC, error)]), Jit::Off)
             .kind
     }
@@ -413,53 +362,56 @@ mod tests {
     fn a_load_failure_takes_its_kind_from_the_recorded_failure() {
         let not_found = ResolveErrorKind::NotFound { ts_sibling: None };
         for (error, kind) in [
-            (FailureError::Resolve(not_found.clone()), ErrorKind::Resolve),
-            (FailureError::DriverImport, ErrorKind::Resolve),
             (
-                FailureError::Resolve(ResolveErrorKind::ImporterOutsideRoots),
+                FailureReason::Resolve(not_found.clone()),
+                ErrorKind::Resolve,
+            ),
+            (FailureReason::DriverImport, ErrorKind::Resolve),
+            (
+                FailureReason::Resolve(ResolveErrorKind::ImporterOutsideRoots),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Resolve(ResolveErrorKind::ReadChanged("/p/package.json".into())),
+                FailureReason::Resolve(ResolveErrorKind::ReadChanged("/p/package.json".into())),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::Strip {
+                FailureReason::Load(LoadFailure::Strip {
                     failure: StripFailure::Parse,
                     at: None,
                 }),
                 ErrorKind::Link,
             ),
             (
-                FailureError::Load(LoadFailure::ImportAttributes),
+                FailureReason::Load(LoadFailure::ImportAttributes),
                 ErrorKind::Link,
             ),
-            (FailureError::Load(LoadFailure::TooLarge), ErrorKind::Link),
+            (FailureReason::Load(LoadFailure::TooLarge), ErrorKind::Link),
             (
-                FailureError::Load(LoadFailure::IdentityMismatch),
+                FailureReason::Load(LoadFailure::IdentityMismatch),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::Read(io::ErrorKind::PermissionDenied)),
+                FailureReason::Load(LoadFailure::Read(io::ErrorKind::PermissionDenied)),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::OutsideBox),
+                FailureReason::Load(LoadFailure::OutsideBox),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::NeverResolved),
+                FailureReason::Load(LoadFailure::NeverResolved),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::NotAFile),
+                FailureReason::Load(LoadFailure::NotAFile),
                 ErrorKind::Internal,
             ),
             (
-                FailureError::Load(LoadFailure::Format(not_found)),
+                FailureReason::Load(LoadFailure::Format(not_found)),
                 ErrorKind::Internal,
             ),
-            (FailureError::UnknownImporter, ErrorKind::Internal),
+            (FailureReason::UnknownImporter, ErrorKind::Internal),
         ] {
             assert_eq!(load_kind(error.clone()), kind, "{error:?}");
         }
@@ -470,17 +422,17 @@ mod tests {
     /// site and position are reported.
     #[test]
     fn a_load_with_no_static_failure_is_link() {
-        let dynamic = graph(&[("./y.js", DYNAMIC, FailureError::DynamicImport)]);
-        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic, Jit::Off);
+        let dynamic = graph(&[("./y.js", DYNAMIC, FailureReason::DynamicImport)]);
+        let error = Failed::new(Step::Load, "SyntaxError").into_error(&dynamic, Jit::Off);
         assert_eq!(
             (error.kind, error.specifier, error.importer, error.at),
             (ErrorKind::Link, None, None, None)
         );
-        let error = Failed::new(Phase::DriverLoad, "refused").into_error(
+        let error = Failed::new(Step::DriverLoad, "refused").into_error(
             &graph(&[(
                 "./x.js",
                 STATIC,
-                FailureError::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
+                FailureReason::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
             )]),
             Jit::Off,
         );
@@ -491,24 +443,24 @@ mod tests {
     }
 
     #[test]
-    fn every_other_phase_has_its_kind() {
+    fn every_other_step_has_its_kind() {
         let graph = graph(&[]);
-        for (phase, kind) in [
-            (Phase::Start, ErrorKind::Internal),
-            (Phase::Internal, ErrorKind::Internal),
-            (Phase::DriverEvaluate, ErrorKind::ModuleThrew),
-            (Phase::Evaluate, ErrorKind::ModuleThrew),
-            (Phase::Call, ErrorKind::ModuleThrew),
-            (Phase::DriverExports, ErrorKind::ExportMissing),
-            (Phase::Export, ErrorKind::ExportMissing),
-            (Phase::Serialize, ErrorKind::Serialize),
-            (Phase::Drain, ErrorKind::LateRejection),
-            (Phase::Environment, ErrorKind::Environment),
+        for (step, kind) in [
+            (Step::Start, ErrorKind::Internal),
+            (Step::Internal, ErrorKind::Internal),
+            (Step::DriverEvaluate, ErrorKind::ModuleThrew),
+            (Step::Evaluate, ErrorKind::ModuleThrew),
+            (Step::Call, ErrorKind::ModuleThrew),
+            (Step::DriverExports, ErrorKind::ExportMissing),
+            (Step::Export, ErrorKind::ExportMissing),
+            (Step::Serialize, ErrorKind::Serialize),
+            (Step::Drain, ErrorKind::LateRejection),
+            (Step::Environment, ErrorKind::Environment),
         ] {
             assert_eq!(
-                Failed::new(phase, "x").into_error(&graph, Jit::Off).kind,
+                Failed::new(step, "x").into_error(&graph, Jit::Off).kind,
                 kind,
-                "{phase:?}"
+                "{step:?}"
             );
         }
     }
@@ -518,9 +470,9 @@ mod tests {
     #[test]
     fn access_lists_the_refused_dynamic_imports() {
         let graph = graph(&[
-            ("./b.js", DYNAMIC, FailureError::DynamicImport),
-            ("./a.js", DYNAMIC, FailureError::DynamicImport),
-            ("./c.js", STATIC, FailureError::DriverImport),
+            ("./b.js", DYNAMIC, FailureReason::DynamicImport),
+            ("./a.js", DYNAMIC, FailureReason::DynamicImport),
+            ("./c.js", STATIC, FailureReason::DriverImport),
         ]);
         let importer = "file:///p/main.js".to_owned();
         assert_eq!(
@@ -546,8 +498,8 @@ mod tests {
         assert_eq!(error.kind, ErrorKind::Internal);
         assert_eq!(
             error.message,
-            "the eval's graph names /p/package.json as consulted with no read of it recorded, a \
-             bug in fgro, so no graph is written"
+            "the graph names /p/package.json as consulted with no read of it recorded, a bug in \
+             fgro, so no graph is written"
         );
     }
 

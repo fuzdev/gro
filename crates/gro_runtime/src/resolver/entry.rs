@@ -123,13 +123,7 @@ pub(super) fn entry_roots(
     let (Some(&first), Some(&last)) = (segments.first(), segments.last()) else {
         let (project_dir, bound) = match find_bound(tree, dir, None, consulted)? {
             Walk::Found((bound_dir, _)) => (bound_dir, EntryBound::Found),
-            Walk::Ended => (dir.to_owned(), EntryBound::Unbounded { stopped_at: None }),
-            Walk::Stopped(stopped_at) => (
-                dir.to_owned(),
-                EntryBound::Unbounded {
-                    stopped_at: Some(stopped_at),
-                },
-            ),
+            Walk::NotFound { stopped_at } => (dir.to_owned(), EntryBound::Unbounded { stopped_at }),
         };
         let roots = Roots::new(project_dir);
         let root = roots.project().clone();

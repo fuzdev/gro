@@ -3,8 +3,8 @@
 
 use std::collections::BTreeSet;
 
+use super::super::graph::StripFailure;
 use super::super::graph::{Edge, FailureSite, Loaded};
-use super::super::strip::StripFailure;
 use super::*;
 use crate::resolver::{ConsultedFile, FileRole, ReadRefusal, ResolveErrorKind};
 
@@ -230,8 +230,8 @@ fn a_consulted_file_of_another_identity_is_refused_in_one_run() {
             .failures()
             .values()
             .flatten()
-            .any(|failure| failure.error
-                == FailureError::Resolve(ResolveErrorKind::ReadChanged(changed.clone()))),
+            .any(|failure| failure.reason
+                == FailureReason::Resolve(ResolveErrorKind::ReadChanged(changed.clone()))),
         "{:?}",
         graph(&loader).failures()
     );
@@ -324,8 +324,8 @@ fn a_refused_resolution_is_recorded_once_per_site() {
         assert_eq!(failure.at, None);
         assert!(
             matches!(
-                failure.error,
-                FailureError::Resolve(ResolveErrorKind::NotFound { .. })
+                failure.reason,
+                FailureReason::Resolve(ResolveErrorKind::NotFound { .. })
             ),
             "{failure:?}"
         );
@@ -353,8 +353,8 @@ fn a_root_conflict_and_an_unknown_importer_are_recorded() {
     let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 3, "{failures:?}");
     assert!(matches!(
-        only(&failures[&site("lnk/x.ts", Some(MAIN), Reached::Import(Reach::Static))]).error,
-        FailureError::Resolve(ResolveErrorKind::RootConflict { .. })
+        only(&failures[&site("lnk/x.ts", Some(MAIN), Reached::Import(Reach::Static))]).reason,
+        FailureReason::Resolve(ResolveErrorKind::RootConflict { .. })
     ));
     assert_eq!(
         only(
@@ -364,12 +364,12 @@ fn a_root_conflict_and_an_unknown_importer_are_recorded() {
                 Reached::Import(Reach::Static)
             )]
         )
-        .error,
-        FailureError::UnknownImporter
+        .reason,
+        FailureReason::UnknownImporter
     );
     assert_eq!(
-        only(&failures[&site("./x.ts", Some("not a url"), Reached::MetaResolve)]).error,
-        FailureError::UnknownImporter
+        only(&failures[&site("./x.ts", Some("not a url"), Reached::MetaResolve)]).reason,
+        FailureReason::UnknownImporter
     );
     // the conflict admitted nothing, so no edge for it
     assert_eq!(
@@ -564,7 +564,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
         *only(&failures[&site(enum_ts.as_str(), Some(main.as_str()), static_)]),
         Failure {
             at,
-            error: FailureError::Load(LoadFailure::Strip {
+            reason: FailureReason::Load(LoadFailure::Strip {
                 failure: StripFailure::Unsupported(tsv_ts::UnsupportedKind::Enum),
                 at: Some(Position { line: 2, column: 3 }),
             }),
@@ -574,19 +574,19 @@ fn a_refused_load_is_recorded_with_its_reason() {
         *only(&failures[&site(a.as_str(), None, dynamic)]),
         Failure {
             at: None,
-            error: FailureError::Load(LoadFailure::IdentityMismatch),
+            reason: FailureReason::Load(LoadFailure::IdentityMismatch),
         }
     );
     assert_eq!(
         *only(&failures[&site(b.as_str(), Some(main.as_str()), static_)]),
         Failure {
             at,
-            error: FailureError::Load(LoadFailure::ImportAttributes),
+            reason: FailureReason::Load(LoadFailure::ImportAttributes),
         }
     );
     assert_eq!(
-        only(&failures[&site(never.as_str(), None, static_)]).error,
-        FailureError::Load(LoadFailure::NeverResolved)
+        only(&failures[&site(never.as_str(), None, static_)]).reason,
+        FailureReason::Load(LoadFailure::NeverResolved)
     );
     // no record was loaded
     assert!(
@@ -610,8 +610,8 @@ fn a_failed_read_is_recorded_by_its_kind() {
     load_disk(&loader, &a).unwrap_err();
     assert_eq!(
         only(&graph(&loader).failures()[&site(a.as_str(), None, Reached::Import(Reach::Static))])
-            .error,
-        FailureError::Load(LoadFailure::Read(io::ErrorKind::NotFound))
+            .reason,
+        FailureReason::Load(LoadFailure::Read(io::ErrorKind::NotFound))
     );
 }
 
@@ -646,7 +646,7 @@ fn a_site_keeps_each_distinct_failure() {
     assert_eq!(failures.len(), 1, "{failures:?}");
     let failure = |reason| Failure {
         at: None,
-        error: FailureError::Load(reason),
+        reason: FailureReason::Load(reason),
     };
     assert_eq!(
         failures[&site(a.as_str(), None, Reached::Import(Reach::Dynamic))],

@@ -3,11 +3,10 @@
 use std::io;
 use std::path::Path;
 
-use deno_core::error::ModuleLoaderError;
 use deno_core::{ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
 
 use super::Refused;
-use super::graph::{FailureError, LoadFailure, Loaded, Recording};
+use super::graph::{FailureReason, LoadFailure, Loaded, Recording};
 use super::strip::strip_module;
 use crate::resolver::{self, FileId, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
 
@@ -22,39 +21,31 @@ pub(super) fn load(
     recording: Recording,
     check: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(ModuleSource, Option<Loaded>), Refused> {
-    let refused = |failure, error: ModuleLoaderError| Refused {
-        failure: Box::new(FailureError::Load(failure)),
-        error,
-    };
+    let refused = |failure, message| Refused::new(FailureReason::Load(failure), message);
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
     if *requested != RequestedModuleType::None {
         return Err(refused(
             LoadFailure::ImportAttributes,
-            ModuleLoaderError::type_error(format!(
-                "cannot load {specifier}: import attributes are not supported yet"
-            )),
+            format!("cannot load {specifier}: import attributes are not supported yet"),
         ));
     }
     let path = specifier.to_file_path().map_err(|()| {
         refused(
             LoadFailure::NotAFile,
-            ModuleLoaderError::type_error(format!("cannot load {specifier}: not a local file")),
+            format!("cannot load {specifier}: not a local file"),
         )
     })?;
     // the resolver read the same table, so a refusal here means the URL skipped it
     let format = resolver::module_format(&path).map_err(|kind| {
-        let error = ModuleLoaderError::type_error(format!("cannot load {specifier}: {kind}"));
-        refused(LoadFailure::Format(kind), error)
+        let message = format!("cannot load {specifier}: {kind}");
+        refused(LoadFailure::Format(kind), message)
     })?;
     let io_error = |error: io::Error| {
         let failure = match ReadRefusal::of(&error) {
             Some(ReadRefusal::OutsideBox(_)) => LoadFailure::OutsideBox,
             Some(ReadRefusal::Changed) | None => LoadFailure::Read(error.kind()),
         };
-        refused(
-            failure,
-            ModuleLoaderError::type_error(format!("cannot load {specifier}: {error}")),
-        )
+        refused(failure, format!("cannot load {specifier}: {error}"))
     };
     check(&path).map_err(io_error)?;
     // read from the file checked, never the path again, which can change in
@@ -65,20 +56,20 @@ pub(super) fn load(
         }
         refused(
             LoadFailure::TooLarge,
-            ModuleLoaderError::type_error(format!(
+            format!(
                 "cannot load {specifier}: the module is larger than {} MiB, the cap on a \
                  module's source",
                 MAX_MODULE_SIZE >> 20
-            )),
+            ),
         )
     })?;
     let Some(code) = read else {
         return Err(refused(
             LoadFailure::IdentityMismatch,
-            ModuleLoaderError::type_error(format!(
+            format!(
                 "cannot load {specifier}: the file at its path is not the one resolved, so it \
                  isn't loaded"
-            )),
+            ),
         ));
     };
     // the bytes read, which V8 runs as is or stripped
@@ -92,15 +83,12 @@ pub(super) fn load(
             // invalid UTF-8 reads as U+FFFD, as V8 decodes a JS module's bytes
             let source = String::from_utf8(code)
                 .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-            // `deno_core` rethrows every load failure to JS as a `TypeError`
-            // (`js_class_and_message_to_exception`), so no other class is given
             let code = strip_module(source, specifier).map_err(|refusal| {
-                let error = ModuleLoaderError::type_error(refusal.message);
                 let failure = LoadFailure::Strip {
                     failure: refusal.failure,
                     at: refusal.at,
                 };
-                refused(failure, error)
+                refused(failure, refusal.message)
             })?;
             ModuleSourceCode::String(code.into())
         }

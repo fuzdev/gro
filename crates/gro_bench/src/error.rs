@@ -134,7 +134,7 @@ pub enum BenchError {
         entry: PathBuf,
     },
     /// A link of a workload's project names a checkout that doesn't exist,
-    /// isn't a directory, or can't be read, saying which.
+    /// isn't a directory, or cannot be read, saying which.
     #[error(
         "the workload `{workload}` links `{package}` to {}, which {}",
         path.display(),
@@ -208,6 +208,10 @@ pub enum BenchError {
     /// as the format or run backward, saying which.
     #[error("phases mode: {0}")]
     Phases(String),
+    /// A phases run's sample wrote no phases file, so its program isn't a
+    /// phases build.
+    #[error("phases mode: `{command}` wrote no phases file, so it isn't a phases build")]
+    NotPhasesBuild { command: String },
     /// A runtime's size crossed one of the suite's budgets for it.
     #[error(
         "the runtime `{runtime}` is over its `{budget}` budget: {current} bytes, past the limit of {limit}"
@@ -232,7 +236,7 @@ fn link_problem(error: &io::Error) -> String {
     match error.kind() {
         io::ErrorKind::NotFound => "doesn't exist".to_owned(),
         io::ErrorKind::NotADirectory => "isn't a directory".to_owned(),
-        _ => format!("can't be read ({error})"),
+        _ => format!("cannot be read ({error})"),
     }
 }
 
@@ -243,7 +247,8 @@ impl BenchError {
     /// entry colliding with a collection's file, a project's missing or
     /// unversioned link or unsupported entry, a failed correctness run,
     /// values that break the suite's parity, counters the machine can't
-    /// give, a size over its budget, a process past its deadline, or a work
+    /// give, a phases run's program that isn't a phases build, a size over
+    /// its budget, a process past its deadline, or a work
     /// directory another run holds), so the caller must change
     /// something before re-running: unchanged, it fails the same way.
     pub const fn is_input_error(&self) -> bool {
@@ -270,6 +275,7 @@ impl BenchError {
                 | Self::CheckFailed { .. }
                 | Self::ParityMismatch { .. }
                 | Self::Counters(_)
+                | Self::NotPhasesBuild { .. }
                 | Self::BudgetExceeded { .. }
         )
     }

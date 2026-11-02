@@ -86,19 +86,49 @@ pub(super) fn resolve_package(
     // the bound first, so no node_modules is consulted outside the project
     let (bound_dir, bound_package_json) = match find_bound(tree, importer_dir, scope, consulted)? {
         Walk::Found(bound) => bound,
-        Walk::Ended => {
+        Walk::NotFound { stopped_at } => {
             return Err(ResolveErrorKind::NoProjectRoot {
                 dir: importer_dir.to_owned(),
-                stopped_at: None,
-            });
-        }
-        Walk::Stopped(stopped_at) => {
-            return Err(ResolveErrorKind::NoProjectRoot {
-                dir: importer_dir.to_owned(),
-                stopped_at: Some(stopped_at),
+                stopped_at,
             });
         }
     };
+    let (node_modules, package_dir, root) =
+        find_in_node_modules(tree, name, importer_dir, &bound_dir, bound_package_json)?;
+    check_holders(tree, name, importer_dir, &bound_dir, &node_modules, &root)?;
+    let package_json = read_package_json(tree, &root, FileRole::Exports, consulted)?
+        .ok_or(ResolveErrorKind::NoPackageJson(package_dir))?;
+    let exports = package_json
+        .exports()
+        .ok_or_else(|| ResolveErrorKind::NoExports(package_json.path.clone()))?;
+    let url = resolve_exports(&root, &package_json.path, exports, &subpath)?;
+    // one directory under two names keeps its first admission's origin
+    let origin = roots.get(&root).map_or_else(
+        || Origin::Package {
+            name: name.to_owned(),
+            version: package_json.string("version").map(str::to_owned),
+            linked: !in_node_modules(&root),
+        },
+        |admitted| admitted.origin.clone(),
+    );
+    Ok(Package {
+        url,
+        root: Root { dir: root, origin },
+        scope_dir: None,
+    })
+}
+
+/// Finds the package `name` in the `node_modules` of each directory from
+/// `importer_dir` up to the project root `bound_dir`, whose `package.json` is
+/// `bound_package_json`, the first that is a directory winning: its
+/// `node_modules`, its directory as found, and its real root.
+fn find_in_node_modules(
+    tree: &impl SourceTree,
+    name: &str,
+    importer_dir: &Path,
+    bound_dir: &Path,
+    bound_package_json: PathBuf,
+) -> Result<(PathBuf, PathBuf, PathBuf), ResolveErrorKind> {
     let mut found = None;
     for dir in importer_dir.ancestors() {
         let node_modules = dir.join("node_modules");
@@ -112,9 +142,22 @@ pub(super) fn resolve_package(
             break;
         }
     }
-    let Some((node_modules, package_dir, root)) = found else {
-        return Err(package_not_found(tree, name, bound_dir, bound_package_json));
-    };
+    found.ok_or_else(|| package_not_found(tree, name, bound_dir.to_owned(), bound_package_json))
+}
+
+/// Refuses the package `name`, found at its real root `root` through
+/// `node_modules`, when a directory holding it is world-writable: that
+/// `node_modules`, its scope's directory, the root, and the real
+/// directories holding a linked one. `importer_dir`'s directories up to the
+/// project root `bound_dir` were checked by the walk to it.
+fn check_holders(
+    tree: &impl SourceTree,
+    name: &str,
+    importer_dir: &Path,
+    bound_dir: &Path,
+    node_modules: &Path,
+    root: &Path,
+) -> Result<(), ResolveErrorKind> {
     // nothing in a world-writable directory is read: not the node_modules the
     // package is found in, its scope's directory, or its root, nor, for a
     // linked root, the real directories holding it (where pnpm's and Deno's
@@ -130,14 +173,14 @@ pub(super) fn resolve_package(
     // segments, a store's layout (`<store>/<name>`, `<store>/@scope/<name>`),
     // and no further: every ancestor would reach `/tmp`, refusing any package
     // linked from a checkout under it, since it is world-writable
-    let real_node_modules = match lookup(tree, &node_modules)? {
+    let real_node_modules = match lookup(tree, node_modules)? {
         Some(Entry::Dir(path)) => path,
-        _ => node_modules.clone(),
+        _ => node_modules.to_owned(),
     };
     // find_bound checked these
     let walked: Vec<&Path> = importer_dir
         .ancestors()
-        .take_while(|dir| dir.starts_with(&bound_dir))
+        .take_while(|dir| dir.starts_with(bound_dir))
         .collect();
     let between = root
         .ancestors()
@@ -165,12 +208,12 @@ pub(super) fn resolve_package(
         .filter_map(|dir| dir.parent())
         .filter(|dir| *dir != real_node_modules && !walked.contains(dir));
     let mut checked: Vec<&Path> = Vec::new();
-    for dir in [Some(node_modules.as_path()), scope_dir.as_deref()]
+    for dir in [Some(node_modules), scope_dir.as_deref()]
         .into_iter()
         .flatten()
         .chain(linked_holders)
         .chain(holders)
-        .chain([root.as_path()])
+        .chain([root])
     {
         if checked.contains(&dir) {
             continue;
@@ -183,26 +226,7 @@ pub(super) fn resolve_package(
             });
         }
     }
-    let package_json = read_package_json(tree, &root, FileRole::Exports, consulted)?
-        .ok_or(ResolveErrorKind::NoPackageJson(package_dir))?;
-    let exports = package_json
-        .exports()
-        .ok_or_else(|| ResolveErrorKind::NoExports(package_json.path.clone()))?;
-    let url = resolve_exports(&root, &package_json.path, exports, &subpath)?;
-    // one directory under two names keeps its first admission's origin
-    let origin = roots.get(&root).map_or_else(
-        || Origin::Package {
-            name: name.to_owned(),
-            version: package_json.string("version").map(str::to_owned),
-            linked: !in_node_modules(&root),
-        },
-        |admitted| admitted.origin.clone(),
-    );
-    Ok(Package {
-        url,
-        root: Root { dir: root, origin },
-        scope_dir: None,
-    })
+    Ok(())
 }
 
 /// The error for a package the search didn't find up to the project root at

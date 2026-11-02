@@ -222,10 +222,9 @@ pub(super) fn run_once(
         (Some(file), Some(spawn_unix_ns), Some(reap_unix_ns)) => {
             let text = fs::read_to_string(file).map_err(|source| {
                 if source.kind() == io::ErrorKind::NotFound {
-                    BenchError::Phases(format!(
-                        "`{}` wrote no phases file, so it isn't a phases build",
-                        row.display()
-                    ))
+                    BenchError::NotPhasesBuild {
+                        command: row.display(),
+                    }
                 } else {
                     BenchError::Read {
                         path: file.clone(),

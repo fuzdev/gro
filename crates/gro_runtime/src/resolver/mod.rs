@@ -11,9 +11,8 @@
 //! `package.json` files read to get there. The module loader is a thin
 //! adapter over it, so static imports, `import()`, `import.meta.resolve`, and
 //! the entry module ([`resolve_entry`]) all resolve the same way. The caller
-//! owns the graph's [`Roots`] and passes them into [`resolve`], or into
-//! `resolve_from` with the importer's root it recorded; neither admits
-//! anything.
+//! owns the graph's [`Roots`] and passes them into `resolve_from` with the
+//! importer's root it recorded, which admits nothing.
 //!
 //! Details the published doc leaves to the code:
 //!
@@ -105,23 +104,15 @@ pub struct Resolution {
     pub files_consulted: Vec<ConsultedFile>,
 }
 
-/// Resolves `specifier`, imported by the module at `importer`, a real path's
-/// URL inside one of `roots`, the roots its graph has admitted. The
-/// importer's root is the one its path is inside ([`Roots::containing`]).
-///
-/// A relative or absolute specifier resolves only inside the importer's
-/// root, never into a `node_modules` segment below it, by its real path or
-/// as written, and never into another admitted root nested in it. A bare
-/// one's real path stays inside its package's real root, and a
-/// self-reference's inside its package's directory and the importer's root
-/// both. The result names the root it is inside, which a caller admits for
-/// a package; nothing is admitted here.
+/// Resolves as `resolve_from` does, the importer's root found as the one
+/// its path is inside ([`Roots::containing`]).
 ///
 /// # Errors
 ///
-/// Returns a [`ResolveError`] when the specifier names no loadable module
-/// inside its root; its kind says why.
-pub fn resolve(
+/// As `resolve_from`, and [`ResolveErrorKind::ImporterOutsideRoots`] when
+/// the importer is inside none of `roots`.
+#[cfg(test)]
+pub(crate) fn resolve(
     tree: &impl SourceTree,
     specifier: &str,
     importer: &Url,
@@ -139,12 +130,22 @@ pub fn resolve(
     resolve_from(tree, specifier, importer, importer_root, roots)
 }
 
-/// Resolves `specifier` as [`resolve`] does, from the importer's root.
+/// Resolves `specifier`, imported by the module at `importer`, a real path's
+/// URL inside `importer_root`, one of `roots`, the roots its graph has
+/// admitted.
+///
+/// A relative or absolute specifier resolves only inside the importer's
+/// root, never into a `node_modules` segment below it, by its real path or
+/// as written, and never into another admitted root nested in it. A bare
+/// one's real path stays inside its package's real root, and a
+/// self-reference's inside its package's directory and the importer's root
+/// both. The result names the root it is inside, which a caller admits for
+/// a package; nothing is admitted here.
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
-/// importer's path, since it decides containment: a caller that recorded the
-/// importer's root when it resolved it passes that, skipping the walk. A debug
-/// build checks it.
+/// importer's path, since it decides containment: a caller that recorded
+/// the importer's root when it resolved it passes that, skipping the walk.
+/// A debug build checks it.
 ///
 /// # Errors
 ///

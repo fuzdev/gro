@@ -1,5 +1,5 @@
-//! The eval's run: the runtime started over the loader, the driver loaded, the entry's
-//! graph evaluated, and the value serialized and drained.
+//! The eval's run: the runtime started over the loader, the driver loaded,
+//! the entry's graph evaluated, and the value serialized and drained.
 
 use std::pin::Pin;
 use std::rc::Rc;
@@ -9,7 +9,7 @@ use deno_core::error::{CoreError, JsError};
 use deno_core::{FastStaticString, JsRuntime, PollEventLoopOptions, ascii_str, v8};
 use url::Url;
 
-use super::failure::{Failed, Phase};
+use super::failure::{Failed, Step};
 use super::limits::{self, Stop, Stopped, Watchdog};
 use super::{
     AFTER_DRAIN, DEFAULT_EXPORT, EvalOptions, MAX_ENVELOPE_SIZE, TIME_ZONE, UTC_EPOCH, serialize,
@@ -35,8 +35,8 @@ struct Driver {
     after_drain: Option<v8::Global<v8::Function>>,
 }
 
-/// Runs the eval's phases on a runtime over `loader`, returning the value
-/// as JSON text, or the phase that failed.
+/// Runs the eval's steps on a runtime over `loader`, returning the value
+/// as JSON text, or the step that failed.
 pub(super) fn evaluate(
     options: &EvalOptions,
     entry: &Url,
@@ -48,15 +48,12 @@ pub(super) fn evaluate(
         .enable_all()
         .build()
         .map_err(|error| {
-            Failed::new(
-                Phase::Start,
-                format!("failed to start the runtime: {error}"),
-            )
+            Failed::new(Step::Start, format!("failed to start the runtime: {error}"))
         })?;
     tokio_runtime.block_on(async {
         let mut runtime = start_runtime(options.snapshot, CONSOLE, loader, Mode::Eval)
-            .map_err(|message| Failed::new(Phase::Start, message))?;
-        let result = run_phases(&mut runtime, options, entry, driver_url, stopped).await;
+            .map_err(|message| Failed::new(Step::Start, message))?;
+        let result = run_steps(&mut runtime, options, entry, driver_url, stopped).await;
         // the near-heap-limit callback decides from the heap it reads; a
         // `memory` stop is read again for one large object the raised cap
         // let in after it
@@ -68,14 +65,14 @@ pub(super) fn evaluate(
     })
 }
 
-/// Runs the eval's phases on `runtime`, from the heap's watch and the
+/// Runs the eval's steps on `runtime`, from the heap's watch and the
 /// timeout's watchdog to the drain, returning the value as JSON text, or the
-/// phase that failed.
+/// step that failed.
 #[expect(
     clippy::future_not_send,
     reason = "a runtime stays on its thread, driven by a current-thread tokio runtime"
 )]
-async fn run_phases(
+async fn run_steps(
     runtime: &mut JsRuntime,
     options: &EvalOptions,
     entry: &Url,
@@ -92,7 +89,7 @@ async fn run_phases(
         Some(
             Watchdog::start(runtime, options.timeout, stopped.clone()).map_err(|error| {
                 Failed::new(
-                    Phase::Start,
+                    Step::Start,
                     format!("failed to start the timeout's watchdog: {error}"),
                 )
             })?,
@@ -113,26 +110,26 @@ async fn run_phases(
     let id = runtime
         .load_main_es_module(entry)
         .await
-        .map_err(|error| Failed::core(Phase::Load, &error))?;
+        .map_err(|error| Failed::core(Step::Load, &error))?;
     phases::mark(phases::Phase::Load);
     let evaluation = runtime.mod_evaluate(id);
     settle(runtime, evaluation)
         .await
-        .map_err(|unsettled| unsettled.failed(Phase::Evaluate, "the module's evaluation"))?;
+        .map_err(|unsettled| unsettled.failed(Step::Evaluate, "the module's evaluation"))?;
     let namespace = runtime
         .get_module_namespace(id)
-        .map_err(|error| Failed::core(Phase::Internal, &error))?;
+        .map_err(|error| Failed::core(Step::Internal, &error))?;
     let value = if let Some(driver) = &driver {
         let namespace = to_value(runtime, &namespace);
         let call = runtime.call_with_args(&driver.default, &[namespace]);
         settle(runtime, call)
             .await
-            .map_err(|unsettled| unsettled.failed(Phase::Call, "the driver's call"))?
+            .map_err(|unsettled| unsettled.failed(Step::Call, "the driver's call"))?
     } else {
         let name = options.export.as_deref().unwrap_or(DEFAULT_EXPORT);
-        read_export(runtime, &namespace, name, Phase::Evaluate)?.ok_or_else(|| {
+        read_export(runtime, &namespace, name, Step::Evaluate)?.ok_or_else(|| {
             Failed::new(
-                Phase::Export,
+                Step::Export,
                 format!("the module has no export named `{name}` to evaluate"),
             )
         })?
@@ -143,7 +140,7 @@ async fn run_phases(
     runtime
         .run_event_loop(PollEventLoopOptions::default())
         .await
-        .map_err(|error| Failed::core(Phase::Drain, &error))?;
+        .map_err(|error| Failed::core(Step::Drain, &error))?;
     if let Some(after_drain) = driver
         .as_ref()
         .and_then(|driver| driver.after_drain.as_ref())
@@ -151,7 +148,7 @@ async fn run_phases(
         let call = runtime.call(after_drain);
         settle(runtime, call)
             .await
-            .map_err(|unsettled| unsettled.failed(Phase::Drain, "the driver's after_drain"))?;
+            .map_err(|unsettled| unsettled.failed(Step::Drain, "the driver's after_drain"))?;
     }
     phases::mark(phases::Phase::Drain);
     Ok(json)
@@ -193,7 +190,7 @@ fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
         format!("this process's is {zone}")
     };
     Err(Failed::new(
-        Phase::Environment,
+        Step::Environment,
         format!(
             "eval runs only in the time zone {TIME_ZONE}, so dates read and format the same \
              everywhere, and {found}: run fgro with TZ=UTC in its environment"
@@ -206,7 +203,7 @@ fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
 fn read_script(runtime: &mut JsRuntime, source: FastStaticString) -> Result<String, Failed> {
     let read = runtime
         .execute_script("ext:gro/time_zone.js", source)
-        .map_err(|error| Failed::new(Phase::Internal, report_js(&error)))?;
+        .map_err(|error| Failed::new(Step::Internal, report_js(&error)))?;
     deno_core::scope!(scope, runtime);
     Ok(v8::Local::new(scope, read).to_rust_string_lossy(scope))
 }
@@ -222,16 +219,16 @@ async fn load_driver(runtime: &mut JsRuntime, url: &Url, source: &[u8]) -> Resul
     let id = runtime
         .load_side_es_module_from_code(url, source)
         .await
-        .map_err(|error| Failed::core(Phase::DriverLoad, &error))?;
+        .map_err(|error| Failed::core(Step::DriverLoad, &error))?;
     let evaluation = runtime.mod_evaluate(id);
     settle(runtime, evaluation)
         .await
-        .map_err(|unsettled| unsettled.failed(Phase::DriverEvaluate, "the driver's evaluation"))?;
+        .map_err(|unsettled| unsettled.failed(Step::DriverEvaluate, "the driver's evaluation"))?;
     let namespace = runtime
         .get_module_namespace(id)
-        .map_err(|error| Failed::core(Phase::Internal, &error))?;
+        .map_err(|error| Failed::core(Step::Internal, &error))?;
     let function = |runtime: &mut JsRuntime, name: &str| {
-        let Some(value) = read_export(runtime, &namespace, name, Phase::DriverEvaluate)? else {
+        let Some(value) = read_export(runtime, &namespace, name, Step::DriverEvaluate)? else {
             return Ok(None);
         };
         deno_core::scope!(scope, runtime);
@@ -241,7 +238,7 @@ async fn load_driver(runtime: &mut JsRuntime, url: &Url, source: &[u8]) -> Resul
         }
         let function = value.try_cast::<v8::Function>().map_err(|_| {
             Failed::new(
-                Phase::DriverExports,
+                Step::DriverExports,
                 format!("the driver's `{name}` export is not a function"),
             )
         })?;
@@ -249,7 +246,7 @@ async fn load_driver(runtime: &mut JsRuntime, url: &Url, source: &[u8]) -> Resul
     };
     let default = function(runtime, DEFAULT_EXPORT)?.ok_or_else(|| {
         Failed::new(
-            Phase::DriverExports,
+            Step::DriverExports,
             "the driver has no `default` export function to call with the module's namespace",
         )
     })?;
@@ -269,17 +266,22 @@ fn to_value(runtime: &mut JsRuntime, namespace: &v8::Global<v8::Object>) -> v8::
 
 /// The export `name` of the module `namespace`, or `None` when it has no
 /// such export. Reading a binding still uninitialized throws, a failure in
-/// `phase`.
+/// `step`.
 fn read_export(
     runtime: &mut JsRuntime,
     namespace: &v8::Global<v8::Object>,
     name: &str,
-    phase: Phase,
+    step: Step,
 ) -> Result<Option<v8::Global<v8::Value>>, Failed> {
     deno_core::scope!(scope, runtime);
     v8::tc_scope!(let scope, scope);
     let namespace = v8::Local::new(scope, namespace);
-    let internal = || Failed::new(Phase::Internal, format!("can't read the export `{name}`"));
+    let internal = || {
+        Failed::new(
+            Step::Internal,
+            format!("failed to read the export `{name}`"),
+        )
+    };
     let key = v8::String::new(scope, name).ok_or_else(internal)?;
     // a namespace's own properties are its exports, read without running JS
     let has = namespace.has_own_property(scope, key.into());
@@ -293,7 +295,7 @@ fn read_export(
     }
     Err(scope.exception().map_or_else(internal, |exception| {
         let error = JsError::from_v8_exception(scope, exception);
-        Failed::js(phase, &error)
+        Failed::js(step, &error)
     }))
 }
 
@@ -308,10 +310,10 @@ fn serialize_value(
     let value = v8::Local::new(scope, value);
     serialize::to_json(scope, value, &|| stopped.get().is_some(), MAX_ENVELOPE_SIZE).map_err(
         |error| Failed {
-            phase: if error.is_internal() {
-                Phase::Internal
+            step: if error.is_internal() {
+                Step::Internal
             } else {
-                Phase::Serialize
+                Step::Serialize
             },
             message: error.to_string(),
             at: Some(error.at),
@@ -330,12 +332,12 @@ enum Unsettled {
 }
 
 impl Unsettled {
-    /// The failure in `phase`, `what` naming what never settled.
-    fn failed(self, phase: Phase, what: &str) -> Failed {
+    /// The failure in `step`, `what` naming what never settled.
+    fn failed(self, step: Step, what: &str) -> Failed {
         match self {
-            Self::Failed(error) => Failed::core(phase, &error),
+            Self::Failed(error) => Failed::core(step, &error),
             Self::Pending => Failed::new(
-                phase,
+                step,
                 format!("{what} never settled: it awaits a promise nothing is left to settle"),
             ),
         }

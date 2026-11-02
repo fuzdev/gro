@@ -23,7 +23,7 @@
 //!   of the kind it looked for ([`Reads::absent`]), since a resolution that
 //!   succeeds depends on them staying absent.
 //! - **Failures**: each resolution or load that failed, by where it was
-//!   reached from, with the reason as data ([`FailureError`]), never parsed
+//!   reached from, with the reason as data ([`FailureReason`]), never parsed
 //!   from a message. A site keeps each distinct failure once, in the order
 //!   each first happened.
 
@@ -32,10 +32,10 @@ use std::io;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
+use tsv_ts::UnsupportedKind;
 use url::Url;
 
 use super::reads::{Reads, RecordingTree};
-use super::strip::{Position, StripFailure};
 use crate::resolver::{
     self, ConsultedFile, FileId, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root,
     Roots, SourceTree,
@@ -167,12 +167,12 @@ pub struct Failure {
     /// non-ASCII text in the importer the line and column can both be wrong.
     pub at: Option<Position>,
     /// Why it failed.
-    pub error: FailureError,
+    pub reason: FailureReason,
 }
 
 /// Why a resolution or load failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FailureError {
+pub enum FailureReason {
     /// The resolver refused the specifier, or admitting its root conflicted
     /// with a module already recorded ([`ResolveErrorKind::RootConflict`]).
     Resolve(ResolveErrorKind),
@@ -224,6 +224,31 @@ pub enum LoadFailure {
         /// Where in the module's source.
         at: Option<Position>,
     },
+}
+
+/// A position in a module's source: a 1-based line and column.
+///
+/// A strip's column counts UTF-16 units, as V8's frames do; an importer's is
+/// `deno_core`'s (see [`Failure::at`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    /// The line, 1-based.
+    pub line: u32,
+    /// The column, 1-based.
+    pub column: u32,
+}
+
+/// Why a strip was refused, as the record of a failed load says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StripFailure {
+    /// The source doesn't parse as a TypeScript module.
+    Parse,
+    /// The source nests or chains past tsv's depth limits.
+    TooDeep,
+    /// TypeScript with runtime semantics, which blanking can't erase.
+    Unsupported(UnsupportedKind),
+    /// A failure a later tsv adds.
+    Other,
 }
 
 impl Record {
@@ -279,8 +304,7 @@ impl Graph {
     /// loaded is served from `deno_core`'s module map, never read again.
     /// Resolved again inside another root, it is a conflict.
     pub fn admit(&mut self, resolution: &Resolution) -> Result<(), ResolveErrorKind> {
-        let record = Record::new(resolution);
-        let root = &record.root;
+        let root = &resolution.root;
         let conflict =
             |path: PathBuf, recorded: &Root, admitted: &Root| ResolveErrorKind::RootConflict {
                 path,
@@ -310,9 +334,10 @@ impl Graph {
             return Ok(());
         }
         if self.roots.get(&root.dir).is_none() {
-            self.roots.admit(record.root.clone());
+            self.roots.admit(root.clone());
         }
-        self.record(&resolution.url, record);
+        // built only now, so a URL already recorded clones nothing
+        self.record(&resolution.url, Record::new(resolution));
         Ok(())
     }
 
@@ -799,14 +824,14 @@ mod tests {
         // a URL never recorded gets no load
         graph.load(&Url::from_file_path("/a/y.ts").unwrap(), first);
         assert_eq!(graph.records.len(), 2);
-        let failure = |error| Failure { at: None, error };
+        let failure = |reason| Failure { at: None, reason };
         let dynamic = Reached::Import(Reach::Dynamic);
         let main = main.as_str();
         for error in [
-            FailureError::UnknownImporter,
-            FailureError::Load(LoadFailure::NeverResolved),
+            FailureReason::UnknownImporter,
+            FailureReason::Load(LoadFailure::NeverResolved),
             // equal to one already there
-            FailureError::UnknownImporter,
+            FailureReason::UnknownImporter,
         ] {
             graph.fail("./y.ts", Some(main), dynamic, failure(error));
         }
@@ -815,7 +840,7 @@ mod tests {
             "./y.ts",
             Some(main),
             Reached::MetaResolve,
-            failure(FailureError::Load(LoadFailure::NotAFile)),
+            failure(FailureReason::Load(LoadFailure::NotAFile)),
         );
         let site = |reached| FailureSite {
             specifier: "./y.ts".to_owned(),
@@ -828,13 +853,13 @@ mod tests {
                 (
                     site(dynamic),
                     vec![
-                        failure(FailureError::UnknownImporter),
-                        failure(FailureError::Load(LoadFailure::NeverResolved)),
+                        failure(FailureReason::UnknownImporter),
+                        failure(FailureReason::Load(LoadFailure::NeverResolved)),
                     ]
                 ),
                 (
                     site(Reached::MetaResolve),
-                    vec![failure(FailureError::Load(LoadFailure::NotAFile))]
+                    vec![failure(FailureReason::Load(LoadFailure::NotAFile))]
                 ),
             ])
         );
@@ -876,7 +901,7 @@ mod tests {
             Reached::Import(Reach::Static),
             Failure {
                 at: None,
-                error: FailureError::UnknownImporter,
+                reason: FailureReason::UnknownImporter,
             },
         );
         assert_eq!(graph.records.len(), 2);

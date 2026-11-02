@@ -57,7 +57,7 @@ pub fn run_on_sized_stack(task: &Task) -> u8 {
         Joined::Panicked => EXIT_PANIC,
         Joined::Unstarted(error) => {
             stderr_line(format_args!(
-                "warning: could not start the fgro thread ({error}); running on the \
+                "warning: failed to start the fgro thread ({error}); running on the \
                  inherited stack"
             ));
             run(task)

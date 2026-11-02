@@ -34,26 +34,34 @@ pub fn ab_table(record: &RunRecord, base_suffix: &str) -> (String, usize) {
         let Some(base) = record.row(&format!("{}{base_suffix}", row.runtime), &row.workload) else {
             continue;
         };
-        let median =
-            |metric: Option<&Metric>| metric.map_or(f64::NAN, |metric| metric.stats.median);
-        let instructions = median(row.instructions.as_ref());
-        let base_instructions = median(base.instructions.as_ref());
-        let ratio = instructions / base_instructions;
+        let median = |metric: Option<&Metric>| metric.map(|metric| metric.stats.median);
+        let both = |head: Option<&Metric>, base: Option<&Metric>| median(head).zip(median(base));
+        let instructions = both(row.instructions.as_ref(), base.instructions.as_ref());
         // either way alike, as the report measures a move
-        let moved = ratio_deviation(instructions, base_instructions) > INSTRUCTIONS_FLAG;
+        let moved = instructions
+            .is_some_and(|(head, base)| ratio_deviation(head, base) > INSTRUCTIONS_FLAG);
         if moved {
             flagged += 1;
         }
+        // `-` for a count a row lacks, never `NaN`
+        let count =
+            |value: Option<f64>| value.map_or_else(|| "-".to_owned(), |v| format!("{v:.0}"));
+        let ratio = |pair: Option<(f64, f64)>| {
+            pair.map_or_else(
+                || "-".to_owned(),
+                |(head, base)| format!("{:.4}x", head / base),
+            )
+        };
         let _ = writeln!(
             out,
-            "{:<width$} {:<16} {:>14.0} {:>14.0} {:>8.4}x{} {:>8.4}x {:>8.4}x",
+            "{:<width$} {:<16} {:>14} {:>14} {:>9}{} {:>9} {:>8.4}x",
             row.runtime,
             row.workload,
-            instructions,
-            base_instructions,
-            ratio,
+            count(instructions.map(|(head, _)| head)),
+            count(median(base.instructions.as_ref())),
+            ratio(instructions),
             if moved { "!" } else { " " },
-            median(row.cycles.as_ref()) / median(base.cycles.as_ref()),
+            ratio(both(row.cycles.as_ref(), base.cycles.as_ref())),
             row.wall_ns.stats.median / base.wall_ns.stats.median,
         );
     }
@@ -74,6 +82,17 @@ pub fn ab_table(record: &RunRecord, base_suffix: &str) -> (String, usize) {
 /// and sizes, and the noise row.
 pub fn summary(record: &RunRecord) -> String {
     let mut out = String::new();
+    write_wall(&mut out, record);
+    write_counts(&mut out, record);
+    write_phases(&mut out, record);
+    write_memory(&mut out, record);
+    write_sizes(&mut out, record);
+    write_noise(&mut out, record);
+    out
+}
+
+/// Writes each row's wall-time statistics.
+fn write_wall(out: &mut String, record: &RunRecord) {
     let width = runtime_width(record);
     let _ = writeln!(
         out,
@@ -95,86 +114,108 @@ pub fn summary(record: &RunRecord) -> String {
             stats.n,
         );
     }
-    if record.rows.iter().any(|row| row.instructions.is_some()) {
+}
+
+/// Writes each row's counter medians, when the run counted.
+fn write_counts(out: &mut String, record: &RunRecord) {
+    if !record.rows.iter().any(|row| row.instructions.is_some()) {
+        return;
+    }
+    let width = runtime_width(record);
+    let _ = writeln!(
+        out,
+        "\n{:<width$} {:<16} {:>14} {:>9} {:>14} {:>14} {:>14}",
+        "runtime", "workload", "instructions", "cv", "min", "cycles", "kernel instr"
+    );
+    for row in &record.rows {
+        let (Some(instructions), Some(cycles)) = (&row.instructions, &row.cycles) else {
+            continue;
+        };
         let _ = writeln!(
             out,
-            "\n{:<width$} {:<16} {:>14} {:>9} {:>14} {:>14} {:>14}",
-            "runtime", "workload", "instructions", "cv", "min", "cycles", "kernel instr"
-        );
-        for row in &record.rows {
-            let (Some(instructions), Some(cycles)) = (&row.instructions, &row.cycles) else {
-                continue;
-            };
-            let _ = writeln!(
-                out,
-                "{:<width$} {:<16} {:>14.0} {:>8.3}% {:>14.0} {:>14.0} {:>14}",
-                row.runtime,
-                row.workload,
-                instructions.stats.median,
-                instructions.stats.cv * 100.0,
-                instructions.stats.min,
-                cycles.stats.median,
-                row.kernel_instructions
-                    .as_ref()
-                    .map_or_else(|| "-".to_owned(), |k| format!("{:.0}", k.stats.median)),
-            );
-        }
-        let _ = writeln!(
-            out,
-            "(medians under perf stat, user space but the kernel's instructions; the wall times above include perf's startup)"
+            "{:<width$} {:<16} {:>14.0} {:>8.3}% {:>14.0} {:>14.0} {:>14}",
+            row.runtime,
+            row.workload,
+            instructions.stats.median,
+            instructions.stats.cv * 100.0,
+            instructions.stats.min,
+            cycles.stats.median,
+            row.kernel_instructions
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), |k| format!("{:.0}", k.stats.median)),
         );
     }
-    if record.rows.iter().any(|row| !row.phases.is_empty()) {
-        let _ = writeln!(
-            out,
-            "\nphase medians in ms (start: spawn to entry; reap: the last mark to the reaped exit)"
-        );
-        for row in record.rows.iter().filter(|row| !row.phases.is_empty()) {
-            let phases: Vec<String> = row
-                .phases
-                .iter()
-                .map(|phase| format!("{} {:.3}", phase.name, phase.ns.stats.median / 1e6))
-                .collect();
-            let _ = writeln!(
-                out,
-                "{} {}: {}",
-                row.runtime,
-                row.workload,
-                phases.join(", ")
-            );
-        }
+    let _ = writeln!(
+        out,
+        "(medians under perf stat, user space but the kernel's instructions; the wall times above include perf's startup)"
+    );
+}
+
+/// Writes each row's phase medians, when the run timed phases.
+fn write_phases(out: &mut String, record: &RunRecord) {
+    if !record.rows.iter().any(|row| !row.phases.is_empty()) {
+        return;
     }
-    if record.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
+    let _ = writeln!(
+        out,
+        "\nphase medians in ms (start: spawn to entry; reap: the last mark to the reaped exit)"
+    );
+    for row in record.rows.iter().filter(|row| !row.phases.is_empty()) {
+        let phases: Vec<String> = row
+            .phases
+            .iter()
+            .map(|phase| format!("{} {:.3}", phase.name, phase.ns.stats.median / 1e6))
+            .collect();
         let _ = writeln!(
             out,
-            "\n{:<width$} {:<16} {:>10} {:>10}",
-            "runtime", "workload", "peak MB", "max MB"
-        );
-        for row in &record.rows {
-            let Some(peak) = &row.peak_rss_kib else {
-                continue;
-            };
-            let (median, max) = memory_cells(peak, record.rss_floor_kib);
-            let _ = writeln!(
-                out,
-                "{:<width$} {:<16} {median} {max}",
-                row.runtime, row.workload,
-            );
-        }
-        #[expect(
-            clippy::cast_precision_loss,
-            reason = "peaks in KiB are far below 2^52"
-        )]
-        let floor = record.rss_floor_kib.map_or_else(
-            || "-".to_owned(),
-            |kib| format!("{:.1} MB", kib_to_mb(kib as f64)),
-        );
-        let _ = writeln!(
-            out,
-            "(peak resident memory per process, median and max, as reaped; the floor every sample reads at least is {floor}, and `*` marks a row within {:.0}% of it, so not the runtime's own)",
-            (RSS_FLOOR_MARGIN - 1.0) * 100.0
+            "{} {}: {}",
+            row.runtime,
+            row.workload,
+            phases.join(", ")
         );
     }
+}
+
+/// Writes each row's peak memory, when the run read it.
+fn write_memory(out: &mut String, record: &RunRecord) {
+    if !record.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
+        return;
+    }
+    let width = runtime_width(record);
+    let _ = writeln!(
+        out,
+        "\n{:<width$} {:<16} {:>10} {:>10}",
+        "runtime", "workload", "peak MB", "max MB"
+    );
+    for row in &record.rows {
+        let Some(peak) = &row.peak_rss_kib else {
+            continue;
+        };
+        let (median, max) = memory_cells(peak, record.rss_floor_kib);
+        let _ = writeln!(
+            out,
+            "{:<width$} {:<16} {median} {max}",
+            row.runtime, row.workload,
+        );
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "peaks in KiB are far below 2^52"
+    )]
+    let floor = record.rss_floor_kib.map_or_else(
+        || "-".to_owned(),
+        |kib| format!("{:.1} MB", kib_to_mb(kib as f64)),
+    );
+    let _ = writeln!(
+        out,
+        "(peak resident memory per process, median and max, as reaped; the floor every sample reads at least is {floor}, and `*` marks a row within {:.0}% of it, so not the runtime's own)",
+        (RSS_FLOOR_MARGIN - 1.0) * 100.0
+    );
+}
+
+/// Writes each runtime's version and sizes, and the snapshot's.
+fn write_sizes(out: &mut String, record: &RunRecord) {
+    let width = runtime_width(record);
     // the version column fits the longest line, fgro's with its full commit
     let version_width = record
         .runtimes
@@ -199,6 +240,10 @@ pub fn summary(record: &RunRecord) -> String {
     if let Some(bytes) = record.snapshot_bytes {
         let _ = writeln!(out, "fgro's startup snapshot: {:.1} MB", mb(bytes));
     }
+}
+
+/// Writes how far the A/A noise row's medians sit apart.
+fn write_noise(out: &mut String, record: &RunRecord) {
     let noise = &record.noise;
     let _ = writeln!(
         out,
@@ -213,7 +258,6 @@ pub fn summary(record: &RunRecord) -> String {
                 deviation * 100.0
             )),
     );
-    out
 }
 
 /// The gate table, report only: nothing fails on it.
@@ -524,6 +568,26 @@ mod tests {
     #[test]
     fn the_ab_table_is_pinned_and_counts_its_flags() {
         assert_eq!(ab_table(&counted_record(), "_base"), (AB.to_owned(), 1));
+    }
+
+    /// A row lacking counts prints `-` where they'd go, never `NaN`, and
+    /// isn't flagged.
+    #[test]
+    fn an_ab_row_lacking_counts_prints_a_dash() {
+        let mut record = counted_record();
+        record.rows[2].instructions = None;
+        record.rows[2].cycles = None;
+        let (table, flagged) = ab_table(&record, "_base");
+        assert_eq!(flagged, 1);
+        assert!(!table.contains("NaN"), "{table}");
+        let cold = table
+            .lines()
+            .find(|line| line.starts_with("fgro      cold"))
+            .unwrap();
+        assert_eq!(
+            cold,
+            "fgro      cold                          -        2010005         -          -   1.0000x"
+        );
     }
 
     const SUMMARY: &str = r"

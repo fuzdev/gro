@@ -298,6 +298,15 @@ pub struct NoiseRecord {
     pub instructions_median_deviation: Option<f64>,
 }
 
+impl NoiseRecord {
+    /// The wall medians' deviation, unless it is unusable: [`f64::MAX`],
+    /// what [`ratio_deviation`](crate::stats::ratio_deviation) gives when
+    /// one median is 0, which says nothing of the noise.
+    pub fn wall_deviation(&self) -> Option<f64> {
+        (self.median_deviation < f64::MAX).then_some(self.median_deviation)
+    }
+}
+
 impl RunRecord {
     /// The row of `runtime` on `workload`, when the run has it.
     pub fn row(&self, runtime: &str, workload: &str) -> Option<&RowRecord> {

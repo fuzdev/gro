@@ -13,7 +13,8 @@
 //! - `null`, `true`, `false`, and strings, escaped as `JSON.stringify`
 //!   escapes them
 //! - finite numbers, as JS's `Number::toString` writes them (V8's own), so
-//!   `-0` is `0`
+//!   `-0` is `0`; a safe integer is written by the walk itself, digit for
+//!   digit what V8 writes, and any other number by V8
 //! - an array whose prototype is `Array.prototype`: every index from `0` to
 //!   its length; an array's other properties are left out, as
 //!   `JSON.stringify` leaves them
@@ -67,28 +68,30 @@ use std::num::NonZeroI32;
 
 use deno_core::v8;
 
+use super::limits::format_size;
+
 /// How many arrays and objects deep a value may nest, the root counting as
 /// one.
-pub const MAX_DEPTH: usize = 1000;
+pub(super) const MAX_DEPTH: usize = 1000;
 
 /// The most UTF-16 units of a key that a path shows: a longer key is cut
 /// to them, then named by its length, so a path is at most [`MAX_DEPTH`]
 /// segments of a few hundred bytes each.
-pub const MAX_KEY_SHOWN: usize = 64;
+pub(super) const MAX_KEY_SHOWN: usize = 64;
 
 /// A value that didn't serialize: where, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SerializeError {
+pub(super) struct SerializeError {
     /// The JS path to the value refused, `$` for the root, each key longer
     /// than [`MAX_KEY_SHOWN`] cut.
-    pub at: String,
+    pub(super) at: String,
     /// Why it was refused.
-    pub reason: Reason,
+    pub(super) reason: Reason,
 }
 
 /// Why a value didn't serialize.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Reason {
+pub(super) enum Reason {
     /// An enumerable accessor property, whose getter isn't run.
     Accessor,
     /// `undefined` where a value must be: the root, or an array's item.
@@ -131,7 +134,7 @@ pub enum Reason {
 
 /// What makes an object not plain, which a refusal names.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NonPlain {
+pub(super) enum NonPlain {
     /// An exotic or host object that no prototype makes plain, by the name
     /// of its kind ([`exotic_kind`]): a `Map`, a `Proxy`, a typed array.
     Exotic(&'static str),
@@ -167,7 +170,7 @@ impl fmt::Display for NonPlain {
 
 impl SerializeError {
     /// Whether the host failed, rather than the value.
-    pub const fn is_internal(&self) -> bool {
+    pub(super) const fn is_internal(&self) -> bool {
         matches!(self.reason, Reason::Refused)
     }
 }
@@ -251,7 +254,7 @@ const BATCH: usize = 1024;
 ///
 /// Returns where and why `value` isn't JSON data, where the walk was when
 /// `stopped` said so, or where the JSON passed `max` bytes.
-pub fn to_json(
+pub(super) fn to_json(
     scope: &mut v8::PinScope<'_, '_>,
     value: v8::Local<'_, v8::Value>,
     stopped: &dyn Fn() -> bool,
@@ -282,6 +285,7 @@ pub fn to_json(
         object_prototype: v8::Global::new(scope, object_prototype),
         array_prototype: v8::Global::new(scope, array_prototype),
         value_key: v8::Global::new(scope, value_key),
+        units: Vec::new(),
     };
     walker.visit(scope, value)?;
     while !walker.frames.is_empty() {
@@ -300,11 +304,14 @@ pub fn to_json(
 enum Segment {
     /// An array's index.
     Index(u32),
-    /// An object's key, as much as a path shows.
+    /// An object's key, as much as a path shows, held inline, so a member
+    /// costs no allocation for its segment.
     Key {
         /// Its first [`MAX_KEY_SHOWN`] UTF-16 code units at most, one fewer
-        /// when the cut would split a surrogate pair.
-        head: Vec<u16>,
+        /// when the cut would split a surrogate pair, in `head[..shown]`.
+        head: [u16; MAX_KEY_SHOWN],
+        /// How many units of `head` are the key's.
+        shown: usize,
         /// Its length in UTF-16 code units.
         length: usize,
     },
@@ -318,8 +325,11 @@ impl Segment {
         if end < units.len() && (0xd800..0xdc00).contains(&units[end - 1]) {
             end -= 1;
         }
+        let mut head = [0; MAX_KEY_SHOWN];
+        head[..end].copy_from_slice(&units[..end]);
         Self::Key {
-            head: units[..end].to_vec(),
+            head,
+            shown: end,
             length: units.len(),
         }
     }
@@ -371,6 +381,9 @@ struct Walker {
     array_prototype: v8::Global<v8::Value>,
     /// `"value"`, the key of a data descriptor's value.
     value_key: v8::Global<v8::String>,
+    /// The UTF-16 units of the string or key being written, reused across
+    /// them, so a string costs no allocation of its own.
+    units: Vec<u16>,
 }
 
 impl Walker {
@@ -384,15 +397,19 @@ impl Walker {
                     at.push_str(&index.to_string());
                     at.push(']');
                 }
-                Segment::Key { head, length } if head.len() < *length => {
-                    let mut cut = String::from_utf16_lossy(head);
+                Segment::Key {
+                    head,
+                    shown,
+                    length,
+                } if shown < length => {
+                    let mut cut = String::from_utf16_lossy(&head[..*shown]);
                     cut.push('…');
                     at.push('[');
                     push_json_string(&mut at, &cut);
                     let _ = write!(at, " ({length} units)]");
                 }
-                Segment::Key { head, .. } => {
-                    let key = String::from_utf16_lossy(head);
+                Segment::Key { head, shown, .. } => {
+                    let key = String::from_utf16_lossy(&head[..*shown]);
                     if is_identifier(&key) {
                         at.push('.');
                         at.push_str(&key);
@@ -520,8 +537,8 @@ impl Walker {
             return Ok(());
         }
         self.check_string(key)?;
-        let units = read_string(scope, key);
-        self.path.push(Segment::key(&units));
+        read_string(scope, key, &mut self.units);
+        self.path.push(Segment::key(&self.units));
         let Some(item) = item.map_err(|reason| self.error(reason))? else {
             // deleted since the keys were read, which no JS here can do
             return Err(self.error(Reason::Refused));
@@ -532,7 +549,7 @@ impl Walker {
             }
             frame.wrote = true;
         }
-        push_utf16_json_string(&mut self.out, &units, self.max)
+        push_utf16_json_string(&mut self.out, &self.units, self.max)
             .map_err(|stop| self.string_error(stop, true))?;
         self.out.push(':');
         if !self.visit(scope, item)? {
@@ -572,21 +589,31 @@ impl Walker {
         } else if value.is_false() {
             self.out.push_str("false");
         } else if value.is_number() {
-            // `ToString` of a primitive number, which runs no JS
-            let text = value
-                .to_string(scope)
-                .ok_or_else(|| self.error(Reason::Refused))?;
-            let text = String::from_utf16_lossy(&read_string(scope, text));
-            if value.cast::<v8::Number>().value().is_finite() {
-                self.out.push_str(&text);
+            let number = value.cast::<v8::Number>().value();
+            if let Some(integer) = safe_integer(number) {
+                // what `Number::toString` writes for it, digit for digit
+                let _ = write!(self.out, "{integer}");
             } else {
-                return Err(self.error(Reason::NonFinite(text)));
+                // `ToString` of a primitive number, which runs no JS
+                let text = value
+                    .to_string(scope)
+                    .ok_or_else(|| self.error(Reason::Refused))?;
+                read_string(scope, text, &mut self.units);
+                if !number.is_finite() {
+                    let text = String::from_utf16_lossy(&self.units);
+                    return Err(self.error(Reason::NonFinite(text)));
+                }
+                // a number's text is ASCII
+                self.out.extend(
+                    char::decode_utf16(self.units.iter().copied())
+                        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)),
+                );
             }
         } else if value.is_string() {
             let string = value.cast();
             self.check_string(string)?;
-            let text = read_string(scope, string);
-            push_utf16_json_string(&mut self.out, &text, self.max)
+            read_string(scope, string, &mut self.units);
+            push_utf16_json_string(&mut self.out, &self.units, self.max)
                 .map_err(|stop| self.string_error(stop, false))?;
         } else if value.is_undefined() {
             return Err(self.error(Reason::Undefined));
@@ -649,8 +676,8 @@ impl Walker {
                 .is_some_and(|prototype| prototype.is_null() || self.object_prototype == prototype);
             if !plain {
                 // read from the object's map, running no JS
-                let name =
-                    String::from_utf16_lossy(&read_string(scope, object.get_constructor_name()));
+                read_string(scope, object.get_constructor_name(), &mut self.units);
+                let name = String::from_utf16_lossy(&self.units);
                 let constructor = (name != "Object").then_some(name);
                 return Err(self.error(Reason::NonPlain(NonPlain::Prototype { constructor })));
             }
@@ -758,11 +785,40 @@ fn exotic_kind(value: v8::Local<'_, v8::Value>) -> Option<&'static str> {
         .map(|(_, kind)| *kind)
 }
 
-/// The UTF-16 code units of `string`.
-fn read_string(scope: &v8::PinScope<'_, '_>, string: v8::Local<'_, v8::String>) -> Vec<u16> {
-    let mut units = vec![0; string.length()];
-    string.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
-    units
+/// Reads the UTF-16 code units of `string` into `units`, replacing what it
+/// held.
+fn read_string(
+    scope: &v8::PinScope<'_, '_>,
+    string: v8::Local<'_, v8::String>,
+    units: &mut Vec<u16>,
+) {
+    units.clear();
+    units.resize(string.length(), 0);
+    string.write_v2(scope, 0, units, v8::WriteFlags::empty());
+}
+
+/// The largest integer below which every integer is a double, `2^53`.
+const SAFE_INTEGER_BOUND: f64 = 9_007_199_254_740_992.0;
+
+/// `number` as an integer when it is a safe one, `-0` as `0`, else `None`.
+///
+/// `Number::toString` writes a safe integer as its decimal digits, which
+/// is what Rust writes for it: the spec takes the fewest significant
+/// digits whose value rounds to the number, and below `2^53` doubles are
+/// at most 1 apart, so a value with fewer significant digits than the
+/// integer's own differs from it by at least 1 and is another double.
+/// Above the bound, V8 writes the shortest digits padded with zeros
+/// (`2**60` is `1152921504606847000`), so those take V8's conversion.
+fn safe_integer(number: f64) -> Option<i64> {
+    if number.abs() < SAFE_INTEGER_BOUND && number.fract() == 0.0 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "an integer below 2^53 in magnitude converts exactly"
+        )]
+        Some(number as i64)
+    } else {
+        None
+    }
 }
 
 /// Whether `key` reads as an identifier in a path (`$.key`), else it's
@@ -811,16 +867,6 @@ fn push_utf16_json_string(out: &mut String, units: &[u16], max: usize) -> Result
     }
     out.push('"');
     Ok(())
-}
-
-/// `bytes` as a person reads a cap: whole MiB when it is some, else bytes.
-pub(super) fn format_size(bytes: u64) -> String {
-    const MIB: u64 = 1024 * 1024;
-    if bytes >= MIB && bytes.is_multiple_of(MIB) {
-        format!("{} MiB", bytes / MIB)
-    } else {
-        format!("{bytes} bytes")
-    }
 }
 
 /// Appends `c` as it's written inside a JSON string.

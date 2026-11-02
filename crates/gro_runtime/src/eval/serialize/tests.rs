@@ -130,6 +130,46 @@ fn data_is_written_as_json_stringify_writes_it() {
     });
 }
 
+/// Numbers in each form `Number::toString` takes, written as V8 writes
+/// them: safe integers by the walk itself, at and past the bound by V8,
+/// exponents from `1e21` up and below `1e-6`, `-0` as `0`, and the
+/// subnormals.
+#[test]
+fn numbers_are_written_as_v8_writes_them() {
+    on_eval_stack(|| {
+        let mut realm = Realm::new();
+        for expression in [
+            "-0",
+            "0",
+            "-1",
+            "4294967296",
+            "2 ** 53 - 1",
+            "-(2 ** 53 - 1)",
+            "2 ** 53",
+            "-(2 ** 53)",
+            "2 ** 53 + 2",
+            "2 ** 60",
+            "1e20",
+            "1e21",
+            "-1e21",
+            "123456789012345680000",
+            "999999999999999999999",
+            "1e-6",
+            "1e-7",
+            "-1e-7",
+            "123e-20",
+            "0.5",
+            "5e-324",
+            "-5e-324",
+            "2.2250738585072014e-308",
+            "1.7976931348623157e308",
+            "[0, -0, 1, -1, 2 ** 53, 1e21, 1e-7, 5e-324]",
+        ] {
+            realm.assert_as_stringify(expression);
+        }
+    });
+}
+
 #[test]
 fn what_is_not_data_is_refused_with_its_path() {
     on_eval_stack(|| {

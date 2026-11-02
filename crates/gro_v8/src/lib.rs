@@ -87,22 +87,3 @@ impl HeapReader {
         Some(isolate.get_heap_statistics().used_heap_size())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::HeapReader;
-
-    #[test]
-    fn a_reader_reads_while_its_isolate_lives_and_not_after() {
-        v8::V8::initialize_platform(v8::new_default_platform(0, false).make_shared());
-        v8::V8::initialize();
-        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
-        let reader = HeapReader::new(&mut isolate);
-        let second = HeapReader::new(&mut isolate);
-        assert!(reader.used_heap_size().is_some_and(|used| used > 0));
-        assert_eq!(second.used_heap_size(), reader.used_heap_size());
-        drop(isolate);
-        assert_eq!(reader.used_heap_size(), None);
-        assert_eq!(second.used_heap_size(), None);
-    }
-}

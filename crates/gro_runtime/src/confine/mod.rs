@@ -26,21 +26,21 @@
 //!
 //! 1. **`no_new_privs`**: nothing the process executes can gain privileges.
 //! 2. **Landlock**, at ABI 6 (Linux 6.12) or later, with every rule
-//!    enforced in full, or the confinement fails. The filesystem: of every access right ABI 6
-//!    knows, only reading files and listing directories, and only beneath
-//!    the box's roots, named by the handles opened when each was found, so
-//!    nothing is written or executed anywhere and nothing
-//!    outside the roots is read (`/proc` and `/dev` included). The network:
-//!    binding and connecting TCP sockets refused. The scopes: no signal to a
-//!    process outside the box, and no connection to an abstract unix socket
-//!    outside it. A kernel without Landlock, or with it below ABI 6, is
-//!    refused, naming what is missing and the kernel's ABI.
+//!    enforced in full, or the confinement fails. The filesystem: of every
+//!    access right ABI 6 knows, only reading files and listing directories,
+//!    and only beneath the box's roots, named by the handles opened when
+//!    each was found, so nothing is written or executed anywhere and
+//!    nothing outside the roots is read (`/proc` and `/dev` included). The
+//!    network: binding and connecting TCP sockets refused. The scopes: no
+//!    signal to a process outside the box, and no connection to an abstract
+//!    unix socket outside it. A kernel without Landlock, or with it below
+//!    ABI 6, is refused, naming what is missing and the kernel's ABI.
 //! 3. **seccomp**, two filters on the calling thread (no thread sync, since
 //!    it is the process's only thread). The first kills the process on the
 //!    calls no part of the runtime makes and code that escaped the engine
 //!    would (`KILLED_CALLS`: `execve` and `execveat`, `ptrace`, the
-//!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`, `userfaultfd`,
-//!    the `kexec` calls, the `io_uring` calls, whose operations bypass
+//!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`,
+//!    `userfaultfd`, the `kexec` calls, the `io_uring` calls, whose operations bypass
 //!    seccomp, and the kernel module calls). The second is an allowlist:
 //!    the calls the runtime makes after the box goes up, and their named
 //!    siblings (`ALLOWED_CALLS`), pass; `prctl`, `fcntl`, `ioctl`,
@@ -218,9 +218,9 @@ impl Prepared {
 /// for: off, no mapping made or changed after the box goes up by `mmap`,
 /// `mprotect`, or `pkey_mprotect` may be executable.
 ///
-/// The engine takes the same choice as a flag (`EngineOptions::jitless`),
-/// and a confined engine whose flag disagrees with its box's [`Jit`] is
-/// refused before it starts (`engine::init_engine`).
+/// The engine takes the same choice (`EngineOptions::jit`), and a confined
+/// engine whose choice disagrees with its box's is refused before it starts
+/// (`engine::init_engine`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Jit {
     /// Jitless: JS runs in V8's interpreter alone, and the box refuses
@@ -229,13 +229,6 @@ pub enum Jit {
     /// The JIT on: its compiled code needs executable mappings, which the
     /// box allows.
     On,
-}
-
-impl Jit {
-    /// The JIT as an engine's `jitless` flag says.
-    pub const fn from_jitless(jitless: bool) -> Self {
-        if jitless { Self::Off } else { Self::On }
-    }
 }
 
 /// The process confined to its box, from the thread that installed it.
@@ -362,8 +355,9 @@ impl ConfineError {
     }
 }
 
-/// The Landlock ABI the box requires, for its scope walls: [`LANDLOCK_ABI`](landlock::LANDLOCK_ABI)'s
-/// number, for the messages, which every platform builds.
+/// The Landlock ABI the box requires, for its scope walls:
+/// [`LANDLOCK_ABI`](landlock::LANDLOCK_ABI)'s number, for the messages,
+/// which every platform builds.
 const REQUIRED_LANDLOCK_ABI: u32 = 6;
 
 /// Installs the box `prepared`, for an engine whose JIT is `jit`, on the

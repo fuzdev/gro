@@ -1552,7 +1552,7 @@ fn a_closed_stdout_fails_the_write_without_a_panic() {
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert_eq!(output.status.code(), Some(1), "{args:?}: {stderr}");
         assert!(
-            stderr.starts_with("error: cannot write to stdout: "),
+            stderr.starts_with("error: failed to write to stdout: "),
             "{args:?}: {stderr}"
         );
         assert_eq!(stderr.lines().count(), 1, "{args:?}: {stderr}");
