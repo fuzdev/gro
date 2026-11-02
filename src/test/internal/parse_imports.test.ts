@@ -316,6 +316,7 @@ test('parse type-position imports only when types are kept', () => {
       type C = import('./type_ref.ts').C;
       type D = import("./type_generic.ts").D<string>;
       let e: Array<import('./type_nested.ts').E>;
+      type Z = import('').Z;
       const f = await import('./dynamic.ts');
     `;
 	expect(parse_imports('a.ts', source)).toEqual(['./dynamic.ts']);

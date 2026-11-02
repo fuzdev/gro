@@ -19,8 +19,9 @@ const to_import_expression_value = (source: Expression): string | null => {
 };
 
 /**
- * Collects the import specifiers of a JS, TS, or Svelte module: static imports, dynamic imports
- * with a single-string source, and re-exports, each group in source order.
+ * Collects the import specifiers of a JS, TS, or Svelte module: static imports, dynamic and
+ * (when types are kept) type-position imports with a single-string source, and re-exports, each
+ * group in source order.
  *
  * @param id - the module's path, which picks the parser
  * @param contents - the module's source
