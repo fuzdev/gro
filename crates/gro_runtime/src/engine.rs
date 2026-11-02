@@ -87,10 +87,13 @@ pub enum EngineError {
     #[error("the engine is already set up with other options: {0:?}")]
     Conflict(EngineOptions),
     /// The engine was set up already, in a process confined otherwise.
-    #[error("the engine is already set up, {}", if *.confined { "confined to another box" } else { "unconfined" })]
+    #[error("the engine is already set up, {}", match .set_up {
+        SetUpConfinement::Confined => "confined to another box",
+        SetUpConfinement::Unconfined => "unconfined",
+    })]
     ConfinementConflict {
-        /// Whether it was set up confined.
-        confined: bool,
+        /// How it was set up.
+        set_up: SetUpConfinement,
     },
     /// The process's box was installed for one JIT choice and the options
     /// make the other: a jitless box would fail the JIT's executable
@@ -104,6 +107,27 @@ pub enum EngineError {
         /// The JIT the box was installed for.
         box_jit: Jit,
     },
+}
+
+/// How an engine already set up was confined, which an
+/// [`EngineError::ConfinementConflict`] names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetUpConfinement {
+    /// In a confined process, inside a box other than the one asked for, or
+    /// where an unconfined engine was asked for.
+    Confined,
+    /// Unconfined, where a confined engine was asked for.
+    Unconfined,
+}
+
+impl SetUpConfinement {
+    /// How `confinement` confines an engine.
+    const fn of(confinement: &Confinement) -> Self {
+        match confinement {
+            Confinement::Confined(_) => Self::Confined,
+            Confinement::Unconfined => Self::Unconfined,
+        }
+    }
 }
 
 /// What the engine was set up with.
@@ -183,7 +207,9 @@ pub fn init_confined_engine(
     match engine.confinement() {
         Confinement::Confined(confined) => Ok(ConfinedEngine { engine, confined }),
         // `init_engine` returns only an engine confined as asked
-        Confinement::Unconfined => Err(EngineError::ConfinementConflict { confined: false }),
+        Confinement::Unconfined => Err(EngineError::ConfinementConflict {
+            set_up: SetUpConfinement::Unconfined,
+        }),
     }
 }
 
@@ -240,7 +266,7 @@ pub fn init_engine(
         Err(EngineError::Conflict(applied.options.clone()))
     } else if applied.confinement != confinement {
         Err(EngineError::ConfinementConflict {
-            confined: matches!(applied.confinement, Confinement::Confined(_)),
+            set_up: SetUpConfinement::of(&applied.confinement),
         })
     } else {
         Ok(Engine(applied))

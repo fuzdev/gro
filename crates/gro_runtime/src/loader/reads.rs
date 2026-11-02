@@ -12,8 +12,10 @@
 //! hash describes the bytes every resolution in the run parsed, even when
 //! the file is rewritten in place meanwhile. A read
 //! served from the record passes the inner tree's check first
-//! ([`SourceTree::check_read`]), as one that reaches the tree does, so a
-//! record seeded before a rule existed serves nothing the rule refuses.
+//! ([`SourceTree::check_read`]), and one that reaches the tree passes it
+//! there, at the start of the inner tree's own `read`, so each read is
+//! checked once, and a record seeded before a rule existed serves nothing
+//! the rule refuses.
 //!
 //! Only a graph recording in full uses it: off, a resolution reads the tree
 //! directly, hashing and keeping nothing.
@@ -104,11 +106,12 @@ impl<T: SourceTree> SourceTree for RecordingTree<'_, T> {
     }
 
     fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
-        // a read served from the record passes the inner tree's check, as
-        // one that reaches it does, however the record was seeded
-        self.tree.check_read(path)?;
         let mut reads = self.reads.borrow_mut();
         if let Some(read) = reads.files.get(path) {
+            // a read served from the record passes the inner tree's check, as
+            // one that reaches it does in its own `read`, however the record
+            // was seeded
+            self.tree.check_read(path)?;
             if read.id != id {
                 return Err(ReadRefusal::Changed.into());
             }
@@ -206,10 +209,12 @@ mod tests {
         );
     }
 
-    /// A tree that refuses every read once `refusing` is set.
+    /// A tree that refuses every read once `refusing` is set, counting its
+    /// checks.
     struct Gated {
         tree: MemoryTree,
         refusing: Cell<bool>,
+        checks: Cell<usize>,
     }
 
     impl SourceTree for Gated {
@@ -227,6 +232,7 @@ mod tests {
         }
 
         fn check_read(&self, path: &Path) -> io::Result<()> {
+            self.checks.set(self.checks.get() + 1);
             if self.refusing.get() {
                 return Err(io::Error::other(format!("{} is refused", path.display())));
             }
@@ -235,8 +241,8 @@ mod tests {
     }
 
     /// A read served from the record passes the inner tree's check as one
-    /// that reaches it does: a file read before the check refused it isn't
-    /// served after.
+    /// that reaches it does, each read checked once: a file read before the
+    /// check refused it isn't served after.
     #[test]
     fn a_read_served_from_the_record_is_checked() {
         let gated = Gated {
@@ -245,12 +251,17 @@ mod tests {
                 ..MemoryTree::default()
             },
             refusing: Cell::new(false),
+            checks: Cell::new(0),
         };
         let path = Path::new("/p/package.json");
         let id = gated.tree.id("/p/package.json").unwrap();
         let mut reads = Reads::default();
         let tree = RecordingTree::new(&gated, &mut reads);
         assert_eq!(tree.read(path, id).unwrap(), b"{}");
+        // checked by the inner tree's own read, not again before it
+        assert_eq!(gated.checks.get(), 1);
+        assert_eq!(tree.read(path, id).unwrap(), b"{}");
+        assert_eq!(gated.checks.get(), 2);
         gated.refusing.set(true);
         let error = tree.read(path, id).unwrap_err();
         assert_eq!(error.to_string(), "/p/package.json is refused");

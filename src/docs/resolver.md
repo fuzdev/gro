@@ -126,7 +126,10 @@ Where it departs, it departs on purpose, and always toward failing closed:
   and not its `node_modules`.
   A package the search finds through one is refused, naming the directory and the fix (remove its other-write bit):
   the `node_modules` it is installed in, its scope's directory (`@scope`), or its own root,
-  and, for a linked package (as pnpm's and Deno's stores install them), the real directories holding it,
+  and, for a linked package (as pnpm's and Deno's stores install them), the real directories holding it
+  (each one up to the real `node_modules` it was found through or the importer's own directories,
+  or, when its real path passes neither, only as many as its name has segments: the store directory holding it,
+  and for a scoped name its `@scope` too, so a checkout linked from under `/tmp` isn't refused for `/tmp` itself),
   or, for a linked `node_modules` or `@scope`, its real parent,
   since any user can plant or replace a package there.
   Module files are outside the rule: one in a world-writable directory still loads
@@ -152,3 +155,9 @@ Where it departs, it departs on purpose, and always toward failing closed:
   or `svelte` until the Svelte compiler is in.
 - **A pattern's match can't hide a `..` behind a tab or a line break** (`.\t.`), which URL parsing drops,
   where Node substitutes it unchecked and loads what it names outside the package.
+- **A pattern's match can't make an empty segment the target doesn't have:**
+  a `/` at its edge beside a `/` in the target, as a subpath ending in `/` makes
+  (`pkg/x/` through `"./*": "./lib/*/index.js"` is `lib/x//index.js`), or an empty segment inside it,
+  is refused naming the pattern and the match,
+  where Node substitutes it, with a deprecation warning for the trailing `/` (DEP0155), and loads what it names.
+  A target's own empty segment (`./lib//a.js`) still loads, as in Node.

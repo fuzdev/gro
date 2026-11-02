@@ -27,8 +27,12 @@ url.workspace = true
 # the thread count the box checks
 gro_sys = { path = "../gro_sys" }
 landlock.workspace = true
-libc.workspace = true
 seccompiler.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# the OS's `ELOOP` and `O_NONBLOCK` for the resolver's reads, and on Linux the
+# box's constants
+libc.workspace = true
 
 [dev-dependencies]
 # the measurement harness, which keeps its own copies of the phases file's

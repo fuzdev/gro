@@ -1,97 +1,53 @@
 //! The `deno_core` module loader: a thin adapter over [`crate::resolver`] that
 //! reads the resolved modules from disk, stripping TypeScript's types in
-//! process.
+//! process ([`strip`]). The rules it applies are `src/docs/resolver.md`'s (a
+//! file loaded is the file resolved, origins, root conflicts) and
+//! `src/docs/typescript.md`'s; this covers how the loader holds them.
 //!
 //! Static imports, `import()`, and `import.meta.resolve` all reach
 //! `resolver::resolve_from`, from the importer's recorded root. The entry module is resolved before the runtime
 //! starts ([`resolver::resolve_entry`](crate::resolver::resolve_entry)), so its URL arrives here already
 //! final, with the roots its graph starts with.
 //!
-//! The loader owns the graph's [`Roots`] and the [`Root`](crate::resolver::Root) each
-//! URL resolved inside, and passes the roots into every resolution. A bare
-//! specifier's package root is admitted when it resolves. Admitting a root
-//! around a module already recorded inside an outer one is an error naming
-//! both ([`ResolveErrorKind::RootConflict`](crate::resolver::ResolveErrorKind::RootConflict)),
-//! since otherwise the import order would decide the module's origin;
-//! resolving a URL again inside the same root changes nothing.
-//! `import.meta.resolve` runs the same resolution and admits and records
-//! nothing, so importing the URL it returns resolves it again, as an absolute
-//! specifier: an installed package's file is then a path into `node_modules`,
-//! refused.
+//! The loader owns the graph's [`Roots`], the [`Root`](crate::resolver::Root)
+//! each URL resolved inside, and its [`FileId`](crate::resolver::FileId),
+//! and passes the roots into every resolution. A bare specifier's package
+//! root is admitted when it resolves, and one admitted around a module
+//! already recorded inside an outer one is refused
+//! ([`ResolveErrorKind::RootConflict`](crate::resolver::ResolveErrorKind::RootConflict)).
+//! `import.meta.resolve` admits and records nothing. A module is read only
+//! from a file opened without blocking and found to have its recorded
+//! identity, never from the path again; the first resolution's record
+//! stands, and a URL already loaded is served from `deno_core`'s module map.
 //!
-//! The loader also records each URL's [`FileId`](crate::resolver::FileId), the device and inode
-//! numbers and birth time the resolver took when it looked the file up, and
-//! reads a module only from a file it opened and found to have that identity:
-//! it opens the path without blocking, compares the open file's identity with
-//! the record, and reads the source from that same open file, never from the
-//! path again. The first resolution's record stands: resolving the URL again
-//! changes nothing, and a URL already loaded is served from `deno_core`'s
-//! module map. A file, or a directory on its path, swapped between resolving
-//! and loading is refused, a FIFO among them, except a file remade where the
-//! filesystem records no birth time, or within the same tick of its clock as
-//! the original's birth: the identity then falls back to the device and
-//! inode numbers, which ext4 reuses for a file made after one is removed.
-//! What it can't see is a swap inside the resolver's own lookup, between
-//! canonicalizing the path and reading its identity; the lookup reads that
-//! identity without following symlinks, so a last component swapped for a
-//! symlink there is refused, but a swapped directory above it isn't caught.
-//!
-//! A TypeScript module is stripped by `tsv_ts`, which blanks every type-only
-//! range rather than rewriting the code, so every surviving character keeps
-//! its line and column and V8's positions are the source's without a
-//! sourcemap. TypeScript with runtime semantics (an `enum`, a parameter
-//! property) is refused, not transformed: the load fails naming the construct,
-//! a fix, and its position, in the `at <url>:<line>:<column>` form V8's frames
-//! print. Like every load failure, it reaches JS as a `TypeError`, which
-//! `import()` can catch: `deno_core` rethrows each as one, whatever its class.
+//! Every load failure, a strip's refusal included, reaches JS as a
+//! `TypeError`, which `import()` can catch: `deno_core` rethrows each as one,
+//! whatever its class.
 //!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the
 //! driver, a module whose source the host provides and that resolves to
 //! itself, as the root of its own load, and to nothing else. Both are
 //! recorded as failures of their own ([`FailureError::DriverImport`],
-//! [`FailureError::DynamicImport`]), and reach JS as a `TypeError`. The
-//! default rules refuse nothing more.
+//! [`FailureError::DynamicImport`]). The default rules refuse nothing more.
 //!
 //! With [`Rules::box_roots`] set, as eval sets them, every read the loader
-//! makes, a module's or a `package.json`'s, one served from an earlier
-//! read's bytes ([`RecordingTree`](reads::RecordingTree)) included, is checked first: its real path
-//! must lie under one of the box's roots, the directories the run's process
-//! is confined to (`confine`), or it isn't read. The box is the project and
-//! the link closure found from its `node_modules` before the run, and a graph
-//! can reach past it: the resolver follows a link the closure doesn't (one
-//! in a nested `node_modules`, or in a subdirectory's own) or drops (one to
-//! a directory holding the project or another package's directory), and
-//! reads a `package.json` symlinked out of the box at its real path. A refused read
-//! is recorded once ([`Loader::breach`]) for the caller to fail the run on,
+//! makes, a module's or a `package.json`'s, is checked against the box first
+//! (`boxed.rs`), one served from an earlier read's bytes
+//! ([`RecordingTree`](reads::RecordingTree)) included. A refused read is
+//! recorded once ([`Loader::breach`]) for the caller to fail the run on,
 //! whatever the run did with the error, and, recording in full, as the
 //! failure of its resolution or load
 //! ([`ResolveErrorKind::ReadOutsideBox`](crate::resolver::ResolveErrorKind::ReadOutsideBox),
 //! [`LoadFailure::OutsideBox`]).
 //!
-//! The loader keeps the run's [`Graph`]. With recording off, what a plain
-//! run uses, it keeps only what loading needs, the roots and each URL's root
-//! and file, and does no work for anything else: no hash or edge is built,
-//! a failure's reason, built with its message, is dropped unrecorded, and
-//! the files a resolution reports consulting are dropped unread. With it
-//! full ([`Recording`]), the graph is the whole record of what resolved and loaded: each URL's
-//! record, which a load completes with the module's [`ModuleFormat`](crate::resolver::ModuleFormat) and the
-//! BLAKE3 hash of the bytes read from the checked file, before any strip:
-//! the bytes V8's source was made from, run as read for JS and stripped for
-//! TypeScript; each import that resolved as an edge, by importer, specifier,
-//! and [`Reach`] (`deno_core` resolves every import of a graph `import()`
-//! loads as dynamic, not only the call's own); every metadata file a
-//! resolution consulted, the entry's and `import.meta.resolve`'s included;
-//! and each failed resolution or load by its site, with the reason as data
-//! built where the message is, never parsed from it. Recording in full,
-//! resolutions also read through a [`RecordingTree`](reads::RecordingTree):
-//! each metadata file is read once per run, its later reads served the
-//! first's bytes, a file of another identity at its path refused, and its
-//! hash kept, and every path a resolution went on past finding absent is
-//! recorded. Recording changes nothing JS sees but that refusal: every
-//! error keeps its message and class.
-//! `import.meta.resolve` adds no edge, since it loads nothing, but its
-//! consulted files and failures are recorded.
+//! The loader keeps the run's [`Graph`], recording as [`Recording`] says
+//! (the graph's module doc lists the record, each loaded module's
+//! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in full, resolutions
+//! read through a [`RecordingTree`](reads::RecordingTree). Recording changes
+//! nothing JS sees but that tree's refusal of a file changed mid-run: every
+//! error keeps its message and class. `deno_core` resolves every import of a
+//! graph `import()` loads as dynamic ([`Reach`]), not only the call's own.
 
 mod boxed;
 pub mod graph;

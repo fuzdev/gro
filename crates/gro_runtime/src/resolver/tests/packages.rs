@@ -190,9 +190,9 @@ fn package_messages() {
     assert_eq!(
         message("t/dot_star/.?"),
         "the part of the subpath the pattern './dot_star/*' matches, '.?', has a '.', '..', \
-         or 'node_modules' segment, percent-encoded or not, or takes the target out of the \
-         package's directory, and a pattern never substitutes those. Fix: import the module \
-         by its plain subpath"
+         or 'node_modules' segment, percent-encoded or not, makes an empty segment in the \
+         target, or takes the target out of the package's directory, and a pattern never \
+         substitutes those. Fix: import the module by its plain subpath"
     );
     assert_eq!(
         message("no_exports"),

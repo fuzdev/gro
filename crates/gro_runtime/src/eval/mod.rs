@@ -1,118 +1,36 @@
 //! `fgro eval`: one module evaluated to JSON data, written into one
 //! [`Envelope`] that reports the value or the kind of failure.
 //!
+//! The protocol, its determinism, limits, serializer, envelope, and error
+//! kinds are `src/docs/eval.md`'s; this covers how the code holds them.
+//!
 //! An eval runs in two steps, so that its process can be confined between
 //! them ([`crate::confine`]): [`prepass()`] resolves the entry and computes the
 //! box's roots, before any runtime exists, and [`eval`] runs the rest on an
-//! engine started after the box.
+//! engine started after the box. [`eval`] takes a [`ConfinedEngine`], which
+//! only a process held in its box has, checks it against
+//! [`engine_options`] and against the eval's box, and refuses a build with no
+//! startup snapshot as `internal` before the runtime starts. Eval reads no
+//! environment variable.
 //!
-//! The protocol, in order:
-//!
-//! 1. The entry resolves, as `fgro run`'s does; a failure is a `resolve`. It
-//!    must be a project's module: one inside `node_modules`, or one with no
-//!    project root above it (no `package.json` outside `node_modules` that
-//!    isn't a type marker, up to the filesystem's root or a world-writable
-//!    directory), is refused as a `resolve` the caller must fix. The project
-//!    root is the box's first root, and the link closure below it the rest
-//!    (`confine`); every module and `package.json` the run reads must lie
-//!    under one of them, or it isn't read and the eval fails as `internal`.
-//!    A graph can reach past them: the resolver follows a link the closure
-//!    doesn't (one in a nested `node_modules`, or in a subdirectory's own)
-//!    or drops (one to a directory holding the project or another package's
-//!    directory), and reads a `package.json` symlinked out of the box at its
-//!    real path.
-//! 2. With a driver (its source from stdin), the driver loads and evaluates
-//!    first, so it holds the realm's primordials before any of the config's
-//!    code can patch them. It's a module with a synthetic URL
-//!    ([`DRIVER_SPECIFIER`]) that the loader resolves to nothing: every
-//!    import and `import.meta.resolve` in it is refused ("a stdin driver is
-//!    import-free").
-//! 3. The entry's graph loads and evaluates. Every `import()` in the run is
-//!    refused before anything is resolved, whatever it names, and each in
-//!    the entry's graph is listed in the envelope's `access.dynamic`.
-//! 4. With a driver, its `default` export is called with the entry's module
-//!    namespace and awaited; without one, the namespace's export
-//!    ([`DEFAULT_EXPORT`] unless the caller names another) is the value.
-//! 5. The value is serialized by the strict host serializer
-//!    (the rules in `serialize.rs`), which runs no JS.
-//! 6. The event loop drains: whatever work is still pending runs, and an
-//!    uncaught error or unhandled rejection in it fails the eval as a
-//!    `late_rejection`, with no value.
-//! 7. With a driver that exports [`AFTER_DRAIN`], the host calls it, and a
-//!    throw is a `late_rejection` too: it lets a driver fail a run whose
-//!    code made a call into it too late, after the value was taken, even when
-//!    that code caught the driver's error.
-//!
-//! With [`EvalOptions::graph`], the envelope also carries the run's module
-//! graph ([`GraphDump`], [`dump_graph`]), built after the run from the
-//! loader's record, whatever the outcome: only an envelope with a value
-//! describes a run a caller may cache on. With no graph to dump (the entry
-//! didn't resolve, or the box didn't go up) it is `null`. Without the
-//! option, the envelope has no `graph` field and nothing is kept for one.
-//!
-//! In a confined process, eval starts only from a startup snapshot: from
-//! source, the runtime would read its extensions' JS from the build tree,
-//! outside the box, so a build with none is refused as `internal` before the
-//! runtime starts.
-//!
-//! The engine eval runs on is [`engine_options`]'s: jitless unless the
-//! caller turns the JIT on (and with it `WebAssembly`), code generation from
-//! strings off in both modes, and the locale [`LOCALE`]. [`eval`] takes a
-//! [`ConfinedEngine`], which only a process held in its box has, and checks
-//! it against them and against the eval's box. The console writes every level to stderr,
-//! uncolored, leaving stdout to the envelope. Eval reads no environment
-//! variable.
+//! The driver is a module at the synthetic URL [`DRIVER_SPECIFIER`], which
+//! the loader resolves to nothing; with none, the namespace's
+//! [`DEFAULT_EXPORT`] (unless the caller names another) is the value, and a
+//! driver's [`AFTER_DRAIN`] runs after the drain. The engine is jitless
+//! unless the caller turns the JIT on, with code generation from strings
+//! off and the locale [`LOCALE`]; the time zone must be [`TIME_ZONE`]
+//! ([`UTC_EPOCH`]). The limits are `limits.rs`'s: [`HEAP_LIMIT`],
+//! [`DEFAULT_TIMEOUT`], [`MEMORY_LIMIT`], [`MAX_ENVELOPE_SIZE`], and each
+//! module's [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE). With
+//! [`EvalOptions::graph`], the envelope carries the run's graph
+//! ([`GraphDump`], [`dump_graph`]); without it, nothing is kept for one.
 //!
 //! Each eval's runtime starts from the same snapshot as `fgro run`'s and is
-//! then made eval's, per run:
-//!
-//! - **`determinism: deny`**, installed by the bootstrap's start before the
-//!   driver or any module runs (`js/bootstrap.js`'s `deny`): `Math.random`,
-//!   `performance`'s `now`, `mark`, `measure`, `toJSON`, and `timeOrigin`,
-//!   every `Temporal.Now` function, `Date()`, `new Date()`, and `Date.now`,
-//!   `Intl.DateTimeFormat`'s `format` and `formatToParts` given no date,
-//!   `AbortSignal.timeout`, and `Atomics.waitAsync` with a finite timeout
-//!   throw an `Error` naming the operation and the reason; `WeakRef` and
-//!   `FinalizationRegistry` are inert stand-ins, and `console.time`,
-//!   `timeLog`, and `timeEnd` print nothing. Each is replaced where it
-//!   lives, keeping its property's attributes, so no global or member user
-//!   code can name leads to the original.
-//! - **No timers and no blobs**: `setTimeout`, `setInterval`,
-//!   `clearTimeout`, and `clearInterval` are deleted, and so are `Blob`,
-//!   `File`, `URL.createObjectURL`, and `URL.revokeObjectURL` (a `File`
-//!   keeps the clock in its own state, and a blob part a random id);
-//!   beneath them the op middleware refuses the timer ops, the clock and
-//!   memory ops, the blob ops, and the ops that compile code or import past
-//!   the loader (`bootstrap::REFUSED_OPS`); `Atomics.wait` is refused on
-//!   the isolate. Late work is promise jobs.
-//! - **The time zone is checked**: ICU takes it from the host's `TZ`, the
-//!   one variable `fgro eval` keeps, so a zone other than UTC fails the eval
-//!   as `environment` before the driver or module runs.
-//! - **The limits** (`limits.rs`): the heap capped at [`HEAP_LIMIT`], with
-//!   an out-of-memory backstop, and a timeout ([`DEFAULT_TIMEOUT`] unless the
-//!   caller sets one), each failing the eval as `heap` or `timeout`; the
-//!   process's data segment, which `fgro eval` caps at [`MEMORY_LIMIT`]
-//!   before it starts a thread, the backstop failing V8 running out of
-//!   memory below the heap's cap as `memory`; the
-//!   envelope capped at [`MAX_ENVELOPE_SIZE`], whatever takes it past (a
-//!   value's replaced by a small `serialize` failure, a failure keeping its
-//!   kind with its `access` and graph dropped and its long text cut); and
-//!   each module's source at
-//!   [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE), failing it as
-//!   `link`.
-//!
-//! A failure can carry a hint, apart from its message: `WebAssembly` not
-//! defined in a jitless eval, or a timeout in one, names `--jit`; an
-//! uncaught `EvalError`, which V8 throws only when code generation from
-//! strings is refused, says it's off.
-//!
-//! An error's kind comes from the phase that failed and, for a load, from
-//! the failure the loader recorded for the graph's static load, never from a
-//! message: a resolution's failure is `resolve`, a load's or none at all is
-//! `link` (a syntax error, a missing export binding, a strip refusal), and
-//! `internal` is a failure of the host: a host bug, a file changed on disk,
-//! a read outside the box refused, or a build with no snapshot that a
-//! confined eval refuses.
+//! made eval's per run, never in the snapshot: the bootstrap's `deny`
+//! (`js/bootstrap.js`) before the driver or any module runs, and beneath it
+//! the op middleware's refusals (`bootstrap::REFUSED_OPS`). An error's kind
+//! comes from the phase that failed and, for a load, from the failure the
+//! loader recorded for the graph's static load, never from a message.
 
 mod dump;
 mod envelope;

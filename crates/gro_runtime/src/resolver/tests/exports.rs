@@ -36,6 +36,11 @@ fn exports_resolve_as_node_does() {
             Err(&["NoMatchingCondition", "\"node\", \"require\""]),
         ),
         ("t/numeric", Err(&["InvalidPackageJson", "numeric"])),
+        // Node refuses a non-integer number's canonical string too
+        (
+            "t/numeric_fraction",
+            Err(&["InvalidPackageJson", "numeric"]),
+        ),
         // a two-star key never matches
         ("t/two/a/b", Err(&["NotExported"])),
         ("t/array_invalid_first", Ok(format!("{t}/d.js"))),
@@ -84,6 +89,17 @@ fn exports_resolve_as_node_does() {
         ("t/src/s.ts", Ok(format!("{t}/src/s.ts"))),
         ("t/null_pattern/x", Err(&["NotExported"])),
         ("t/trailing/a.js", Err(&["NotExported"])),
+        ("t/nested/x", Ok(format!("{t}/lib/x/x.js"))),
+        // Node loads lib/x//x.js, deprecating a pattern match of a trailing `/`
+        ("t/nested/x/", Err(&["InvalidSubpath", "x/"])),
+        // Node loads lib//x/x.js
+        ("t/nested//x", Err(&["InvalidSubpath", "/x"])),
+        // a backslash is a `/` to URL parsing; Node loads lib/x//x.js
+        ("t/nested/x\\", Err(&["InvalidSubpath"])),
+        // a match's edge `/` beside no `/` in the target makes no empty segment
+        ("t/pre/x", Ok(format!("{t}/lib/x.js"))),
+        // the target's own empty segment stays, as in Node
+        ("t/gap/a", Ok(format!("{t}/lib/a.js"))),
         ("t/", Err(&["NotExported"])),
         ("t/lib/", Err(&["NotExported"])),
         ("t/pattern/", Err(&["NotExported"])),
@@ -288,4 +304,30 @@ fn segments() {
     assert!(is_array_index("0") && is_array_index("12"));
     assert!(!is_array_index("01") && !is_array_index("-1") && !is_array_index("4294967295"));
     assert!(!is_array_index("") && !is_array_index("a1"));
+    // Node counts the canonical string of any number in range, an integer or not
+    for key in ["1.5", "0.5", "4294967294", "1e-7", "1.5e-7", "0.000001"] {
+        assert!(is_array_index(key), "{key}");
+    }
+    // not canonical, negative, or out of range: a plain condition name to Node
+    for key in [
+        "1.50",
+        "-0",
+        "-1",
+        ".5",
+        "1e5",
+        "1E5",
+        "+1",
+        "1.",
+        "0x10",
+        " 1",
+        "inf",
+        "Infinity",
+        "NaN",
+        "1e21",
+        "1e+21",
+        "0.0000001",
+        "4294967295.5",
+    ] {
+        assert!(!is_array_index(key), "{key}");
+    }
 }

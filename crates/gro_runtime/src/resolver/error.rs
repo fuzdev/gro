@@ -69,7 +69,9 @@ pub enum ResolveErrorKind {
     },
     /// A package the search found through a world-writable directory: the
     /// `node_modules` it is in, its scope's directory, its own root, for a
-    /// linked package the real directories holding it, or for a linked
+    /// linked package the real directories holding it (up to the real
+    /// `node_modules` it was found through or the importer's directories,
+    /// else as many as its name has segments), or for a linked
     /// `node_modules` or scope directory its real parent. Any user can plant
     /// or replace a package there, so nothing of the package is read.
     WorldWritablePackage {
@@ -122,8 +124,9 @@ pub enum ResolveErrorKind {
         reason: TargetFault,
     },
     /// The part of the subpath a pattern's `*` matched has a `.`, `..`, or
-    /// `node_modules` segment, or substituted into the target, it leaves
-    /// the package's directory.
+    /// `node_modules` segment, or substituted into the target, it makes an
+    /// empty segment the target doesn't have (as a subpath ending in `/`
+    /// does before a `/` in the target) or leaves the package's directory.
     InvalidSubpath {
         /// The `"exports"` pattern that matched.
         key: String,
@@ -487,9 +490,9 @@ impl fmt::Display for ResolveErrorKind {
             Self::InvalidSubpath { key, matched } => write!(
                 f,
                 "the part of the subpath the pattern '{key}' matches, '{matched}', has a '.', \
-                 '..', or 'node_modules' segment, percent-encoded or not, or takes the target \
-                 out of the package's directory, and a pattern never substitutes those. Fix: \
-                 import the module by its plain subpath"
+                 '..', or 'node_modules' segment, percent-encoded or not, makes an empty \
+                 segment in the target, or takes the target out of the package's directory, and \
+                 a pattern never substitutes those. Fix: import the module by its plain subpath"
             ),
             Self::Target { path, error } => {
                 let path = path.display();

@@ -1,10 +1,12 @@
-//! The roots a module graph has admitted, and the origin a module takes from its root.
+//! The roots a module graph has admitted, the origin a module takes from its
+//! root, and the containment check that keeps a module inside its root.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
+use super::error::ResolveErrorKind;
 use super::walk::in_node_modules;
 
 /// Where a resolved module comes from, the input a grant decision reads.
@@ -181,4 +183,44 @@ impl Roots {
             self.packages.insert(root.dir.clone(), root);
         }
     }
+}
+
+/// Whether `path`, as written, has a `node_modules` segment past what it
+/// shares with the root at `root`, its importer's.
+pub(super) fn written_into_node_modules(path: &Path, root: &Path) -> bool {
+    let mut root = root.components();
+    path.components()
+        .skip_while(|component| root.next() == Some(*component))
+        .any(|component| component.as_os_str() == "node_modules")
+}
+
+/// Checks that the real path `path` is inside the root at `dir`: under it,
+/// with no `node_modules` segment below it, and in no admitted root nested
+/// in it. `package` names the root's package when it is an installed one.
+pub(super) fn contain(
+    path: &Path,
+    dir: &Path,
+    package: Option<&str>,
+    roots: &Roots,
+) -> Result<(), ResolveErrorKind> {
+    let Ok(below) = path.strip_prefix(dir) else {
+        return Err(ResolveErrorKind::OutsideRoot {
+            path: path.to_owned(),
+            root: dir.to_owned(),
+            package: package.map(Box::from),
+        });
+    };
+    if in_node_modules(below) {
+        return Err(ResolveErrorKind::IntoNodeModules {
+            path: path.to_owned(),
+            root: dir.to_owned(),
+        });
+    }
+    if let Some(inner) = roots.inner(dir, path) {
+        return Err(ResolveErrorKind::IntoPackageRoot {
+            path: path.to_owned(),
+            root: Box::new(inner.clone()),
+        });
+    }
+    Ok(())
 }

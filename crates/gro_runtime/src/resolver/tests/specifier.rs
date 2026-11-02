@@ -334,6 +334,27 @@ fn entry() {
         entry("lib%2Fc.js").unwrap_err().kind,
         ResolveErrorKind::NotFound { ts_sibling: None }
     );
+    // a trailing `/`, as an import's URL keeps it, or a last `.` or `..`, which
+    // leaves one, names a directory, never the file normalizing would reach
+    for path in [
+        "a.js/",
+        "/p/a.js/",
+        "a.js/.",
+        "lib/c.js/x/..",
+        "a.js//",
+        ".",
+        "",
+    ] {
+        assert_eq!(
+            entry(path).unwrap_err().kind,
+            ResolveErrorKind::NoExtension { suggestion: None },
+            "{path:?}"
+        );
+    }
+    assert_eq!(
+        kind("./a.js/"),
+        ResolveErrorKind::NoExtension { suggestion: None }
+    );
 }
 
 #[test]

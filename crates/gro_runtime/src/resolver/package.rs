@@ -126,7 +126,10 @@ pub(super) fn resolve_package(
     // already checked: the real node_modules it was found through (pnpm's and
     // Deno's stores there), or the importer's directories up to the project
     // root (a dependency's store entry beside its importer's included); one
-    // reaching neither is held by as many directories as its name has segments
+    // reaching neither is held by as many directories as its name has
+    // segments, a store's layout (`<store>/<name>`, `<store>/@scope/<name>`),
+    // and no further: every ancestor would reach `/tmp`, refusing any package
+    // linked from a checkout under it, since it is world-writable
     let real_node_modules = match lookup(tree, &node_modules)? {
         Some(Entry::Dir(path)) => path,
         _ => node_modules.clone(),

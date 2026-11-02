@@ -18,63 +18,14 @@ pub const MAX_MODULE_SIZE: u64 = MAX_PACKAGE_JSON_SIZE;
 // gro_cli's tests state it as a literal, which keeps V8 out of their binaries
 const _: () = assert!(MAX_MODULE_SIZE == 16 << 20);
 
-/// `ELOOP`, the OS error a path through a symlink loop fails with: 40 on
-/// Linux and Android outside the MIPS and SPARC architectures, which number
-/// it differently, and 62 on macOS, iOS, and the BSDs. Elsewhere it isn't
-/// known, and a symlink loop reports as the plain I/O error.
-// TODO: `io::ErrorKind::FilesystemLoop` once it's stable, in place of the table
-pub(super) const ELOOP: Option<i32> = if cfg!(all(
-    any(target_os = "linux", target_os = "android"),
-    not(any(
-        target_arch = "mips",
-        target_arch = "mips64",
-        target_arch = "mips32r6",
-        target_arch = "mips64r6",
-        target_arch = "sparc",
-        target_arch = "sparc64"
-    ))
-)) {
-    Some(40)
-} else if cfg!(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-)) {
-    Some(62)
-} else {
-    None
-};
-
-/// `O_NONBLOCK`, the open flag that makes opening a FIFO return at once
-/// instead of waiting for a writer; it changes nothing about reading a
-/// regular file. `None` where it isn't known, and files open blocking.
-const O_NONBLOCK: Option<i32> = if cfg!(all(
-    any(target_os = "linux", target_os = "android"),
-    not(any(
-        target_arch = "mips",
-        target_arch = "mips64",
-        target_arch = "mips32r6",
-        target_arch = "mips64r6",
-        target_arch = "sparc",
-        target_arch = "sparc64"
-    ))
-)) {
-    Some(0o4000)
-} else if cfg!(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-)) {
-    Some(4)
-} else {
-    None
-};
+/// `ELOOP`, the OS error a path through a symlink loop fails with, where
+/// it's known (Unix); elsewhere a symlink loop reports as the plain I/O error.
+// TODO: `io::ErrorKind::FilesystemLoop` once it's stable
+#[cfg(unix)]
+pub(super) const ELOOP: Option<i32> = Some(libc::ELOOP);
+/// `ELOOP`, unknown off Unix.
+#[cfg(not(unix))]
+pub(super) const ELOOP: Option<i32> = None;
 
 /// A read a [`SourceTree`] refused on purpose, rather than failed to make.
 ///
@@ -294,8 +245,9 @@ pub struct FileId {
 /// since it was looked up. The path is followed as any open follows it, so a
 /// symlink put in its place opens its target, which has another identity.
 ///
-/// The open doesn't block ([`O_NONBLOCK`]), so a FIFO put in the file's
-/// place is refused by its identity rather than waiting for a writer.
+/// On Unix the open doesn't block (`O_NONBLOCK`), so a FIFO put in the
+/// file's place is refused by its identity rather than waiting for a writer;
+/// the flag changes nothing about reading a regular file.
 ///
 /// # Errors
 ///
@@ -310,9 +262,7 @@ pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Opt
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
-    if let Some(flag) = O_NONBLOCK {
-        options.custom_flags(flag);
-    }
+    options.custom_flags(libc::O_NONBLOCK);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
     if FileId::of(&metadata)? != id {

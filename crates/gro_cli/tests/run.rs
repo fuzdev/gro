@@ -127,14 +127,20 @@ fn host_internals_are_not_visible() {
 /// Every global name user code sees, pinned in `global_names.txt`, one a line,
 /// sorted: a `deno_core` or V8 upgrade that adds a global (V8's flags have
 /// brought `Temporal` and `DisposableStack`) fails here rather than widening
-/// the surface silently. To accept a change deliberately, write the fixture's
-/// output over the file, from the fixtures directory:
-/// `../../../../../target/debug/fgro run global_names.js > global_names.txt`.
+/// the surface silently. To accept a change deliberately, rerun it with
+/// `UPDATE_FIXTURES=1`, which writes the fixture's output over the file
+/// instead of asserting:
+/// `UPDATE_FIXTURES=1 cargo test -p gro_cli --test run the_global_names_are_pinned`.
 #[test]
 fn the_global_names_are_pinned() {
     let run = run("global_names.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
-    let expected = std::fs::read_to_string(fixtures().join("global_names.txt")).unwrap();
+    let path = fixtures().join("global_names.txt");
+    if std::env::var_os("UPDATE_FIXTURES").is_some_and(|value| value == "1") {
+        std::fs::write(&path, &run.stdout).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).unwrap();
     let names = |text: &str| -> std::collections::BTreeSet<String> {
         text.lines().map(str::to_owned).collect()
     };

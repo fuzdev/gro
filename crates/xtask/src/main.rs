@@ -119,6 +119,8 @@ mod bench;
 mod check;
 mod cmd;
 mod error;
+#[cfg(test)]
+mod lints;
 mod snapshot;
 mod v8_archive;
 

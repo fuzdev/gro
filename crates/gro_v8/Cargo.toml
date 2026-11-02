@@ -13,8 +13,8 @@ v8.workspace = true
 # The workspace's lint table, re-declared whole (Cargo replaces the table, so a
 # partial override would drop the rest), with `unsafe_code` at `deny` instead
 # of `forbid`, so each `unsafe` block can carry its own `#[expect]`, and every
-# `unsafe` block required to say why it's sound. Diff against the workspace's
-# `[workspace.lints]` when either changes.
+# `unsafe` block required to say why it's sound. xtask's `lints` test checks
+# it equals the workspace's `[workspace.lints]` but those two.
 [lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"

@@ -65,11 +65,11 @@ fn the_console_writes_to_stderr_uncolored() {
 /// `global_names_jitless.txt`, and with `--jit` in `global_names.txt`, which
 /// adds only `WebAssembly`. Each is `fgro run`'s list, `run/global_names.txt`,
 /// without the timers, `Blob`, and `File`, which eval deletes (and jitless,
-/// without `WebAssembly`). To
-/// accept a change deliberately, write the fixture's value over the file,
-/// one name a line, from the fixtures directory:
-/// `TZ=UTC ../../../../../target/debug/fgro eval global_names.js | python3 -c "import json, sys; print('\\n'.join(json.load(sys.stdin)['value']))" > global_names_jitless.txt`,
-/// and with `--jit` into `global_names.txt`.
+/// without `WebAssembly`). To accept a change deliberately, rerun it with
+/// `UPDATE_FIXTURES=1`, which writes both values over their files, one name
+/// a line, instead of comparing them, then checks the two lists against
+/// each other and `run`'s: `UPDATE_FIXTURES=1 cargo xtask build --verify`
+/// (update `run`'s list first).
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -87,17 +87,27 @@ fn the_global_names_are_pinned() {
             .collect();
         lines(&names)
     };
-    let jitless = std::fs::read_to_string(fixtures().join("global_names_jitless.txt")).unwrap();
-    assert_eq!(
+    let (jitless_path, jit_path) = (
+        fixtures().join("global_names_jitless.txt"),
+        fixtures().join("global_names.txt"),
+    );
+    let (seen_jitless, seen_jit) = (
         names(&["global_names.js"]),
-        jitless,
+        names(&["global_names.js", "--jit"]),
+    );
+    if std::env::var_os("UPDATE_FIXTURES").is_some_and(|value| value == "1") {
+        std::fs::write(&jitless_path, &seen_jitless).unwrap();
+        std::fs::write(&jit_path, &seen_jit).unwrap();
+    }
+    let jitless = std::fs::read_to_string(&jitless_path).unwrap();
+    assert_eq!(
+        seen_jitless, jitless,
         "the global names differ from tests/fixtures/eval/global_names_jitless.txt; update it \
          only if the change is deliberate (see this test's doc)"
     );
-    let jit = std::fs::read_to_string(fixtures().join("global_names.txt")).unwrap();
+    let jit = std::fs::read_to_string(&jit_path).unwrap();
     assert_eq!(
-        names(&["global_names.js", "--jit"]),
-        jit,
+        seen_jit, jit,
         "the global names differ from tests/fixtures/eval/global_names.txt; update it only if \
          the change is deliberate (see this test's doc)"
     );

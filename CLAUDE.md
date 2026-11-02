@@ -1069,7 +1069,8 @@ in `rust-toolchain.toml`, and every crate takes the workspace lints, `unsafe`
 forbidden, but `gro_sys`, whose system calls need it, and `gro_v8`, the V8
 boundary, whose calls rusty_v8 exposes only as `unsafe`: each re-declares the
 whole table with `unsafe_code` at `deny` (Cargo replaces a crate's table
-whole, so diff it against the workspace's when either changes), each
+whole; an xtask unit test, `crates/xtask/src/lints.rs`, checks each equals the
+workspace's but that and `clippy::undocumented_unsafe_blocks`), each
 `unsafe` block allowed by its function's `#[expect]` and explained by a
 `// SAFETY:` comment (`clippy::undocumented_unsafe_blocks`).
 

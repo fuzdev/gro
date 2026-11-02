@@ -228,13 +228,33 @@ fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target,
     }
 }
 
-/// Whether `key` is an array index, which a conditional object can't have.
-/// Node's check also counts the canonical form of a non-integer number
-/// (`1.5`); only integers count here.
+/// Whether `key` is an array index as Node's resolver counts one, which a
+/// conditional object can't have: the canonical string of a number (what
+/// `String(Number(key))` gives back unchanged) from 0 up to, not including,
+/// `0xFFFF_FFFF`. Node counts a non-integer (`1.5`, `1e-7`) too, past the
+/// spec's integer array indices, so such a key is refused as invalid
+/// package config, as in Node.
 pub(super) fn is_array_index(key: &str) -> bool {
-    (key == "0" || (!key.starts_with('0') && !key.is_empty()))
-        && key.bytes().all(|byte| byte.is_ascii_digit())
-        && key.parse::<u64>().is_ok_and(|index| index < 0xFFFF_FFFF)
+    // a canonical number string parses the same in Rust as in JS; any other
+    // string's canonical form differs from it, whatever each parses it to
+    let Ok(number) = key.parse::<f64>() else {
+        return false;
+    };
+    (0.0..f64::from(0xFFFF_FFFF_u32)).contains(&number) && js_number_string(number) == key
+}
+
+/// JS's `Number.prototype.toString` of `number`, a finite number from 0 up
+/// to `0xFFFF_FFFF`: `0` for either zero, positional digits from `1e-6` up,
+/// and below that the shortest digits in exponent form (`1.5e-7`), which
+/// Rust's `{:e}` writes as JS does.
+fn js_number_string(number: f64) -> String {
+    if number == 0.0 {
+        "0".to_owned()
+    } else if number < 1e-6 {
+        format!("{number:e}")
+    } else {
+        format!("{number}")
+    }
 }
 
 /// Resolves a string target, refusing one that could leave the package:
@@ -279,11 +299,24 @@ fn resolve_target_string(
         .root
         .join(&target.replace('*', matched))
         .map_err(|error| ResolveErrorKind::InvalidUrl(UrlFault::Join(error)))?;
-    // the target alone stayed inside, so the match is what left (`.?` after a `.*`)
-    if !inside(&url) {
+    // the target alone stayed inside, so the match is what left (`.?` after a `.*`);
+    // and an empty segment the target doesn't have is the match's, a `/` at
+    // its edge beside one in the target (`x/` into `*/index.js`, as a subpath
+    // with a trailing `/` makes, which Node deprecates) or a `//` in it
+    if !inside(&url) || empty_segments(&url) > empty_segments(&unsubstituted) {
         return Err(invalid_subpath());
     }
     Ok(url)
+}
+
+/// How many empty segments `url`'s path has before its last, as URL parsing
+/// leaves them (a `\` read as `/`, tabs and line breaks removed). An empty
+/// last segment, a trailing `/`, is left to the file lookup, which refuses
+/// it as a directory.
+fn empty_segments(url: &Url) -> usize {
+    let mut segments: Vec<&str> = url.path().split('/').skip(1).collect();
+    segments.pop();
+    segments.iter().filter(|segment| segment.is_empty()).count()
 }
 
 /// Whether `path` has a `.`, `..`, or `node_modules` segment (any case),

@@ -12,11 +12,10 @@ use std::collections::BTreeMap;
 
 use url::Url;
 
+use crate::resolver::entry::entry_roots;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::walk::Consulted;
-use crate::resolver::{
-    Resolution, ResolveError, ResolveErrorKind, Roots, SourceTree, entry_roots, resolve,
-};
+use crate::resolver::{Resolution, ResolveError, ResolveErrorKind, Roots, SourceTree, resolve};
 
 pub(super) const MODULE: &str = r#"{"type": "module"}"#;
 
@@ -147,6 +146,7 @@ pub(super) fn packages() -> MemoryTree {
                     "./blocked": {"gro": null, "default": "./d.js"},
                     "./unmatched": {"node": "./d.js", "require": "./d.js"},
                     "./numeric": {"0": "./d.js", "default": "./d.js"},
+                    "./numeric_fraction": {"gro": {"1.5": "./b.js", "default": "./d.js"}},
                     "./two/*/*": "./lib/*/*.js",
                     "./array_invalid_first": ["x.js", "./d.js"],
                     "./array_missing_first": ["./missing.js", "./d.js"],
@@ -169,6 +169,9 @@ pub(super) fn packages() -> MemoryTree {
                     "./pattern/*": "./lib/*",
                     "./null_pattern/*": null,
                     "./trailing/": "./lib/",
+                    "./nested/*": "./lib/*/x.js",
+                    "./pre*": "./lib*.js",
+                    "./gap/*": "./lib//*.js",
                     "./tab": "./.\t./escape.js",
                     "./query_up": "./..?x",
                     "./fragment_up": "./..#x",
