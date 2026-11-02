@@ -825,7 +825,7 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   confines the process alone, then starts the engine and evaluates on a
   second sized thread, so every thread V8 and tokio start comes after the
   confinement. Confined eval runs only from a snapshot build, so
-  `tests/eval.rs`'s tests that evaluate are ignored in a plain `cargo test`
+  `tests/eval/`'s tests that evaluate are ignored in a plain `cargo test`
   and run from `cargo xtask build --verify`, beside `tests/confine.rs`
   (no libtest harness, whose threads would refuse the box: each case
   confines a child of its own and reports what it could reach); on a kernel
