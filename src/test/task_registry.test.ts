@@ -101,6 +101,21 @@ describe('task_registry_find', () => {
 		assert.deepEqual(to_names(entries), ['src/lib/a.task.ts']);
 	});
 
+	test('finds tasks in a directory outside the root under a dot-directory', async () => {
+		const tmp = create_project([
+			'project/src/lib/a.task.ts',
+			'.cache/other/src/b.task.ts',
+			'.cache/other/src/.hidden/c.task.ts',
+			'.cache/other/src/node_modules/d.task.ts'
+		]);
+		const root = join(tmp, 'project');
+		const entries = await task_registry_find(join(tmp, '.cache/other/src'), search_filters, root);
+		assert.deepEqual(
+			entries.map((e) => e.id),
+			[join(tmp, '.cache/other/src/b.task.ts')]
+		);
+	});
+
 	test('filters relative to the root, whichever directory it searches', async () => {
 		const dir = create_project(['src/lib/a.task.ts', 'src/lib/fixtures/b.task.ts']);
 		const filters = [(p: string) => !p.startsWith('src/lib/fixtures')];

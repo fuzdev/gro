@@ -326,6 +326,32 @@ test('find_genfiles finds gen modules in a project under a dot-directory', async
 	}
 });
 
+test('find_genfiles finds gen modules outside the root under a dot-directory', async () => {
+	const tmp = mkdtempSync(join(tmpdir(), 'gro_gen_'));
+	try {
+		const root = join(tmp, 'project');
+		const other = join(tmp, '.cache/other');
+		mkdirSync(root, { recursive: true });
+		for (const file of ['src/lib/a.gen.ts', 'src/.hidden/b.gen.ts']) {
+			mkdirSync(dirname(join(other, file)), { recursive: true });
+			writeFileSync(join(other, file), 'export const gen = () => "";\n');
+		}
+		const result = await find_genfiles(
+			[join(other, 'src')],
+			[root],
+			create_empty_gro_config(),
+			undefined,
+			root
+		);
+		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
+		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
+			join(other, 'src/lib/a.gen.ts')
+		]);
+	} finally {
+		rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
 test('find_genfiles filters relative to the root, whichever directory it searches', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'gro_gen_'));
 	try {

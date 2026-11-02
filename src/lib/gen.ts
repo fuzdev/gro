@@ -371,7 +371,7 @@ export const find_genfiles = async (
 		resolved_input_paths,
 		async (id) =>
 			await fs_search(id, {
-				filter: to_search_filters_relative(config.search_filters, root),
+				filter: to_search_filters_relative(config.search_filters, root, id),
 				file_filter: is_gen_path
 			})
 	);

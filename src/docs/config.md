@@ -212,7 +212,11 @@ The Gro config option `search_filters` allows customizing
 how Gro searches for tasks, genfiles, and files to format on the filesystem.
 Directories and files are included if they pass all of these filters,
 each given the path relative to the project root, like `src/lib/foo.ts`,
-whichever directory a search starts in, or its absolute id outside the root.
+whichever directory a search starts in.
+Outside the root, a path is relative to the directory searched
+(or a glob's leading literal directory, for `gro format`),
+so `gro task ~/.cache/other/src` still finds its tasks,
+and any other path is given as its absolute id.
 
 By default, it uses the `SEARCH_EXCLUDER_DEFAULT` to exclude
 dot-prefixed directories, node_modules,

@@ -70,7 +70,8 @@ export interface TaskRegistryEntry {
  * Finds the task files under `dir`, named by their paths relative to `root`,
  * the names `invoke_task` and `gro task` give them, sorted by name.
  * @param dir - the directory to search
- * @param search_filters - the filters each file and directory must pass, given paths relative to `root`
+ * @param search_filters - the filters each file and directory must pass, given paths relative to `root`,
+ * or to `dir` for the paths outside `root`
  * @param root - the project root the names and filtered paths are relative to, defaults to the cwd
  */
 export const task_registry_find = async (
@@ -79,7 +80,7 @@ export const task_registry_find = async (
 	root: PathId = process.cwd()
 ): Promise<Array<TaskRegistryEntry>> => {
 	const found = await fs_search(dir, {
-		filter: to_search_filters_relative(search_filters, root),
+		filter: to_search_filters_relative(search_filters, root, dir),
 		file_filter: is_task_path
 	});
 	return found

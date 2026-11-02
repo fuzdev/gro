@@ -111,20 +111,28 @@ export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path
  * so each filter tests the path relative to `root` rather than the absolute id,
  * the same path whichever directory a search starts in,
  * and a project under a `.`-prefixed directory like `~/.cache/` still finds its files.
- * A path outside `root` is tested as its absolute id.
+ * A path outside `root` but under `search_dir` is tested relative to `search_dir`,
+ * so a search of a directory outside the project, like `~/.cache/other/src`, finds its files too,
+ * and any other path is tested as its absolute id.
  * @param search_filters - the filters each file and directory must pass, usually `config.search_filters`
  * @param root - the project root the paths are relative to, usually `paths.root`
+ * @param search_dir - the directory being searched, the base for the paths outside `root`
  * @returns filters for `fs_search`, which passes them absolute ids
  */
 export const to_search_filters_relative = (
 	search_filters: PathFilter | Array<PathFilter> | null | undefined,
-	root: string
+	root: string,
+	search_dir?: string
 ): Array<PathFilter> => {
 	if (!search_filters) return [];
 	const filters = Array.isArray(search_filters) ? search_filters : [search_filters];
-	const prefix = ensure_end(resolve(root), '/');
-	return filters.map(
-		(filter) => (id, is_directory) =>
-			filter(id.startsWith(prefix) ? id.slice(prefix.length) : id, is_directory)
-	);
+	const root_prefix = ensure_end(resolve(root), '/');
+	const dir_prefix = search_dir === undefined ? null : ensure_end(resolve(search_dir), '/');
+	const to_path = (id: string): string =>
+		id.startsWith(root_prefix)
+			? id.slice(root_prefix.length)
+			: dir_prefix !== null && id.startsWith(dir_prefix)
+				? id.slice(dir_prefix.length)
+				: id;
+	return filters.map((filter) => (id, is_directory) => filter(to_path(id), is_directory));
 };

@@ -82,6 +82,36 @@ describe('to_search_filters_relative', () => {
 		expect(anchored[0]!('/a/cc/src/x.ts', false)).toBe(true);
 	});
 
+	test('tests a path outside the root relative to a search dir outside the root', () => {
+		const [filter] = to_search_filters_relative(
+			(p) => !SEARCH_EXCLUDER_DEFAULT.test(p),
+			'/a/c',
+			'/x/.cache/other/src'
+		);
+		expect(filter!('/x/.cache/other/src/lib/x.ts', false)).toBe(true);
+		expect(filter!('/x/.cache/other/src/.hidden', true)).toBe(false);
+		expect(filter!('/x/.cache/other/src/node_modules', true)).toBe(false);
+		expect(filter!('/a/c/src/x.ts', false)).toBe(true);
+		expect(filter!('/a/c/.hidden', true)).toBe(false);
+		expect(filter!('/x/.cache/elsewhere/x.ts', false)).toBe(false); // outside both, absolute
+	});
+
+	test('tests a path under the root relative to the root, even searching above it', () => {
+		const received: Array<string> = [];
+		const [filter] = to_search_filters_relative(
+			(p) => {
+				received.push(p);
+				return true;
+			},
+			'/a/c',
+			'/a'
+		);
+		filter!('/a/c/src/x.ts', false);
+		filter!('/a/d/x.ts', false);
+		filter!('/b/x.ts', false);
+		expect(received).toEqual(['src/x.ts', 'd/x.ts', '/b/x.ts']);
+	});
+
 	test('passes the exact relative or absolute path to the filter', () => {
 		const received: Array<string> = [];
 		const [filter] = to_search_filters_relative((p) => {

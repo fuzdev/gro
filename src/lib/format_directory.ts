@@ -61,8 +61,10 @@ export interface FormatDirectoryResult {
  * traversal don't pull in the formatter (which loads the `tsv` native addon).
  *
  * @param check - when `true`, reports unformatted files instead of writing them
- * @param filter - directory filters (e.g. `config.search_filters`) to skip, tested relative to the project root;
- * also prunes `patterns` results so an explicit glob can't reach `node_modules`
+ * @param filter - directory filters (e.g. `config.search_filters`) to skip, tested relative to the project root,
+ * or outside it to the searched directory or a glob's leading literal directory; also prunes `patterns`
+ * results, so a glob within the root can't reach `node_modules`, while a glob whose literal base is
+ * outside the root (`../other/node_modules/x/*.js`) is taken as given
  * @param patterns - globs to format instead of sweeping `dir`, relative to the cwd or absolute
  * @param root - the project root `filter` tests paths relative to, and where the ignore files are read
  */
@@ -75,9 +77,7 @@ export const format_directory = async (
 	root: string = paths.root
 ): Promise<FormatDirectoryResult> => {
 	const collected = patterns?.length
-		? globSync(patterns, to_glob_options(filter, root))
-				.filter((p) => FORMATTABLE_MATCHER.test(p))
-				.map((p) => (isAbsolute(p) ? p : resolve(p)))
+		? collect_glob_files(patterns, filter, root)
 		: await collect_source_files(dir, filter, root);
 
 	const ignored = read_format_ignore(root);
@@ -152,23 +152,59 @@ export const read_format_ignore = (root: string): Set<string> => {
 /**
  * Builds `globSync` options that prune the same paths `filter` would exclude,
  * testing each path relative to the project root like the sweep,
- * and never pruning the root or the directories above it that an absolute
- * or `../` pattern walks through.
+ * or, outside the root, relative to `base_dir`,
+ * and never pruning the root, a `base_dir` outside it, or the directories above them
+ * that an absolute or `../` pattern walks through.
+ * Node's glob calls `exclude` with each directory's path, relative to the cwd or absolute
+ * like the pattern, and with each entry's bare name under a `**`,
+ * so a name is tested as itself, never resolved against a cwd that may be elsewhere.
  */
 const to_glob_options = (
 	filter: PathFilter | Array<PathFilter> | undefined,
-	root: string
+	root: string,
+	base_dir: string
 ): { exclude: (path: string) => boolean } => {
-	const filters = to_search_filters_relative(filter, root);
+	const filters = to_search_filters_relative(filter, root, base_dir);
 	if (!filters.length) return { exclude: () => false };
 	const root_dir = ensure_end(resolve(root), '/');
+	const base = ensure_end(resolve(base_dir), '/');
+	const base_outside_root = !base.startsWith(root_dir);
 	return {
 		exclude: (path) => {
+			if (!path.includes('/')) return filters.some((f) => !f(path, false));
 			const id = resolve(path);
-			if (root_dir.startsWith(ensure_end(id, '/'))) return false;
+			const dir = ensure_end(id, '/');
+			if (root_dir.startsWith(dir) || (base_outside_root && base.startsWith(dir))) return false;
 			return filters.some((f) => !f(id, false));
 		}
 	};
+};
+
+const GLOB_MAGIC_MATCHER = /[*?[\]{}()!]/;
+
+/**
+ * The directory a glob pattern searches, its leading segments before the first with glob syntax.
+ */
+const to_glob_base_dir = (pattern: string): string => {
+	const segments = pattern.split('/');
+	segments.pop(); // the last segment names files, magic or not
+	const magic_index = segments.findIndex((segment) => GLOB_MAGIC_MATCHER.test(segment));
+	const base = (magic_index === -1 ? segments : segments.slice(0, magic_index)).join('/');
+	return resolve(base || (pattern.startsWith('/') ? '/' : '.'));
+};
+
+const collect_glob_files = (
+	patterns: Array<string>,
+	filter: PathFilter | Array<PathFilter> | undefined,
+	root: string
+): Array<string> => {
+	const file_ids: Set<string> = new Set();
+	for (const pattern of patterns) {
+		for (const p of globSync(pattern, to_glob_options(filter, root, to_glob_base_dir(pattern)))) {
+			if (FORMATTABLE_MATCHER.test(p)) file_ids.add(isAbsolute(p) ? p : resolve(p));
+		}
+	}
+	return Array.from(file_ids);
 };
 
 const collect_source_files = async (
@@ -177,7 +213,7 @@ const collect_source_files = async (
 	root: string
 ): Promise<Array<string>> => {
 	const found = await fs_search(dir, {
-		filter: to_search_filters_relative(filter, root),
+		filter: to_search_filters_relative(filter, root, dir),
 		file_filter: (path) => FORMATTABLE_MATCHER.test(path)
 	});
 	const file_ids = found.map((f) => f.id);

@@ -108,6 +108,42 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 	}
 });
 
+test('format_directory finds files outside the root under a dot-directory, swept or globbed', async () => {
+	const dir = join(root, 'project');
+	const other = join(root, '.cache/other');
+	mkdirSync(join(dir, 'src/lib'), { recursive: true });
+	mkdirSync(join(other, 'src/.hidden'), { recursive: true });
+	mkdirSync(join(other, 'src/lib'), { recursive: true });
+	writeFileSync(join(other, 'src/lib/a.ts'), 'const  a=1\n');
+	writeFileSync(join(other, 'src/.hidden/b.ts'), 'const  b=1\n');
+	const { search_filters } = create_empty_gro_config();
+	const swept = await format_directory(
+		create_mock_logger(),
+		join(other, 'src'),
+		true,
+		search_filters,
+		undefined,
+		dir
+	);
+	expect(swept.formatted).toEqual([join(other, 'src/lib/a.ts')]);
+	const format = (patterns: Array<string>) =>
+		format_directory(create_mock_logger(), join(dir, 'src'), true, search_filters, patterns, dir);
+	const cwd = process.cwd();
+	try {
+		// from a cwd under a dot-directory outside both, which an entry's bare name never resolves to
+		const elsewhere = join(root, '.elsewhere');
+		mkdirSync(elsewhere);
+		process.chdir(elsewhere);
+		const absolute = await format([join(other, 'src/**/*.ts')]);
+		expect(absolute.formatted).toEqual([join(other, 'src/lib/a.ts')]);
+		process.chdir(dir);
+		const relative = await format(['../.cache/other/src/**/*.ts']);
+		expect(relative.formatted).toEqual([join(other, 'src/lib/a.ts')]);
+	} finally {
+		process.chdir(cwd);
+	}
+});
+
 test('format_directory filters relative to the root, whichever directory it sweeps', async () => {
 	mkdirSync(join(root, 'src/lib/fixtures'), { recursive: true });
 	writeFileSync(join(root, 'src/lib/a.ts'), 'const  a=1\n');

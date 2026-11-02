@@ -421,7 +421,8 @@ export default config;
 - Vite config: `vite.config.*` at project root - the Svelte config is read through it
 
 Exclusions (configurable via `search_filters`, which test paths relative to
-the project root, so a project under `~/.cache/` still searches):
+the project root, or outside it to the searched directory, so a project or a
+searched directory under `~/.cache/` still searches):
 
 - Dot-prefixed directories (`.git`, `.svelte-kit`, `.gro`)
 - `node_modules/`
