@@ -46,7 +46,8 @@ errors and exit codes. Where it lives:
   the project's tasks under `src/` to read their summaries
 - Args forwarding - `to_forwarded_argv` (verbatim, never parsed and
   reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
-  own) in `args.ts`
+  own) in `args.ts`; CLI-forwarded args override args passed to
+  `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`)
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
@@ -125,6 +126,9 @@ global Gro in a project that doesn't install it.
   paths in `input_path.ts`
 - Dev regeneration - `gro_plugin_gen`, a throttled queue over the task
   context's `graph`
+- After editing a genfile, a task's `summary`, or anything a genfile reads, run
+  `gro gen`; `gro check` fails on drift (`gro gen --check`). `gro build` and
+  `gro sync` run gen too (`--no-gen` skips).
 
 ### Plugin system
 
@@ -150,8 +154,9 @@ and `CreateGroConfig`, the default config's project detection, and each option
 (`map_package_json` and the `internal/` null-exports rule, `search_filters`,
 `watch`, `build_cache_config`). Where it lives:
 
-- Types and loading - `gro_config.ts` (`load_gro_config` hashes
-  `build_cache_config` and drops the raw value)
+- Types and loading - `gro_config.ts` (`cook_gro_config` hashes
+  `build_cache_config` and drops the raw value; `load_gro_config` loads and
+  cooks)
 - Default config - `gro.config.default.ts`; detection is deferred until `dev`
   or `build` creates plugins (`has_sveltekit_app` / `has_sveltekit_library` in
   `sveltekit_helpers.ts`, `has_server` in `gro_plugin_server.ts`)
@@ -183,6 +188,10 @@ files' summaries. Docs per task: [dev](src/docs/dev.md),
 [publish](src/docs/publish.md), [deploy](src/docs/deploy.md); `run` in
 [task.md](src/docs/task.md#gro-run). The build cache is `build_cache.ts` and
 `build_cache_dependencies.ts`, stored in `.gro/build.json`.
+
+`gro build` with a dirty workspace skips the cache and deletes outputs first;
+`--force_build` ignores the cache; after building, it fails if the build
+changed tracked files (`--allow_dirty` skips that check).
 
 ## Architecture patterns and design
 

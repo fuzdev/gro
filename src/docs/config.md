@@ -24,7 +24,7 @@ without required deps.
 >   [`gro_plugin_sveltekit_app`](gro_plugin_sveltekit_app.md)
 > - that plus `@sveltejs/package` and the `src/lib/` directory →
 >   [`gro_plugin_sveltekit_library`](gro_plugin_sveltekit_library.md#detection)
-> - `server/server.ts` in the lib directory → `gro_plugin_server`
+> - `server/server.ts` in the `src/lib/` directory → `gro_plugin_server`
 
 See [`src/lib/gro_config.ts`](/src/lib/gro_config.ts) for the config types and implementation.
 
@@ -250,7 +250,7 @@ a directory it rejects is still watched, and each path below it is filtered on i
 
 > ⚠️ support is currently partial, help is welcome
 
-The CLI to use that's compatible with `node`.
+The CLI to use that's compatible with `node`. Defaults to `'node'`.
 
 ## `pm_cli`
 

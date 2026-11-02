@@ -90,7 +90,7 @@ for a path without a task suffix, like `gro src/lib/foo`,
 the error names what's there: `src/lib/foo.task.ts` or `.task.js` to run,
 the directory to list, or nothing.
 `gro task src/lib/foo` listing no tasks beside `src/lib/foo.task.ts` hints running it.
-The removed `gro/` prefix, like `gro gro/check`, is an error naming the plain builtin.
+A `gro/` prefix, like `gro gro/check`, is an error naming the plain builtin.
 Flags go after the path: `gro task --a src/lib/foo.task.ts` is an error,
 since `--a` would take the path as its value.
 

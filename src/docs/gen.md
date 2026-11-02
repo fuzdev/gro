@@ -252,6 +252,9 @@ and `src/data/thing.json`:
 }
 ```
 
+Returning `null` writes nothing, and nested arrays flatten. Each output is formatted with tsv
+unless its object sets `format: false`.
+
 ### inputs
 
 In `gro dev`, a gen file reruns when it or any module it imports changes.

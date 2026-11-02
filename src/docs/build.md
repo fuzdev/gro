@@ -26,7 +26,7 @@ gro build -- vite --config my-config.js
 ### sync, install, and gen
 
 By default, `gro build` runs `gro sync` before building
-(`svelte-kit sync`, `package.json` exports, and an install unless `--no-install`),
+(an install unless `--no-install`, `svelte-kit sync`, and `package.json` exports),
 then `gro gen`:
 
 ```bash
