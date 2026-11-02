@@ -105,17 +105,28 @@ export const to_spawn_result = (code = 0): SpawnResult =>
 	({ kind: 'exited', ok: code === 0, code }) as SpawnResult;
 
 /**
- * Mocks `spawn` for a successful deploy, with `fail` returning a failed result
- * for the commands it matches; `git diff --cached --quiet` exits 1, so the build has changes to commit.
+ * Mocks `spawn` and `spawn_out` for a successful deploy, with `fail` returning a failed result
+ * for the commands it matches; `git diff --cached --quiet` exits 1, so the build has changes to commit,
+ * and `git ls-files` prints `ignored_paths` NUL-separated, the files the deploy clone ignores.
  */
 export const mock_spawn_results = async (
-	fail?: (command: string, args: ReadonlyArray<string>) => boolean
+	fail?: (command: string, args: ReadonlyArray<string>) => boolean,
+	ignored_paths: ReadonlyArray<string> = []
 ) => {
-	const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+	const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 	vi.mocked(spawn).mockImplementation(async (command, args = []) => {
 		if (fail?.(command, args)) return to_spawn_result(1);
 		if (command === 'git' && args[0] === 'diff') return to_spawn_result(1);
 		return to_spawn_result(0);
+	});
+	vi.mocked(spawn_out).mockImplementation(async (command, args = []) => {
+		if (fail?.(command, args))
+			return { result: to_spawn_result(1), stdout: '', stderr: 'fatal: boom\n' };
+		const stdout =
+			command === 'git' && args[0] === 'ls-files'
+				? ignored_paths.map((p) => p + '\0').join('')
+				: '';
+		return { result: to_spawn_result(0), stdout, stderr: '' };
 	});
 };
 

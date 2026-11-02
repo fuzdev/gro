@@ -32,7 +32,8 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn()
+	spawn: vi.fn(),
+	spawn_out: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -116,7 +117,7 @@ describe('deploy_task integration scenarios', () => {
 			});
 
 			// Should commit and push deployment
-			expect(spawn).toHaveBeenCalledWith('git', ['add', '.', '-f'], expect.anything());
+			expect(spawn).toHaveBeenCalledWith('git', ['add', '.'], expect.anything());
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'deployment'], expect.anything());
 			expect(spawn).toHaveBeenCalledWith(
 				'git',

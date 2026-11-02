@@ -32,7 +32,8 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn()
+	spawn: vi.fn(),
+	spawn_out: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({

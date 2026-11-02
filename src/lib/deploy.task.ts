@@ -1,4 +1,4 @@
-import { spawn } from '@fuzdev/fuz_util/process.ts';
+import { spawn, spawn_out } from '@fuzdev/fuz_util/process.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
@@ -329,9 +329,32 @@ export const task: Task<Args> = {
 			`Deploy failed in a bad state: built but not pushed: \`${step}\` failed` +
 			` in ${print_path(resolved_deploy_dir)} - see the output above,` +
 			` resolve the failure, then deploy again`;
-		const add_result = await spawn('git', ['add', '.', '-f'], target_spawn_options);
+		// no `-f`: the deploy dir is its own clone, so only its own ignore rules apply -
+		// a `.gitignore` the build emits and the user's global excludes - and they're respected
+		const add_result = await spawn('git', ['add', '.'], target_spawn_options);
 		if (!add_result.ok) {
 			throw new TaskError(bad_state_message('git add'));
+		}
+		// fail loud on what the add skipped: without `--directory`, files in ignored directories
+		// are listed one by one, and `-z` keeps names unquoted
+		const ignored = await spawn_out(
+			'git',
+			['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+			target_spawn_options
+		);
+		if (!ignored.result.ok) {
+			if (ignored.stderr) log.error(ignored.stderr.trimEnd());
+			throw new TaskError(bad_state_message('git ls-files --others --ignored'));
+		}
+		const ignored_paths = ignored.stdout?.split('\0').filter(Boolean) ?? [];
+		if (ignored_paths.length) {
+			log.warn(
+				st('yellow', 'not deploying files the deploy clone ignores') +
+					' (a `.gitignore` in the build output or your global git excludes):\n' +
+					ignored_paths.map((p) => '  ' + p).join('\n') +
+					'\nto deploy them, remove the matching rule' +
+					` - \`git check-ignore -v <path>\` in ${print_path(resolved_deploy_dir)} names it`
+			);
 		}
 		// `git diff --cached --quiet` exits 0 with nothing staged and 1 with changes,
 		// so a redeploy of an identical build commits nothing and still pushes

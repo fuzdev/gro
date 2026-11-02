@@ -165,7 +165,9 @@ export const task: Task<Args> = {
 				const token = load_from_env('SECRET_GITHUB_API_TOKEN');
 				if (!token) {
 					log.warn(
-						'the env var SECRET_GITHUB_API_TOKEN was not found, so API calls will be unauthorized'
+						'the env var SECRET_GITHUB_API_TOKEN was not found in the env or `.env`,' +
+							' so API calls will be unauthorized - set it for one run with' +
+							' `SECRET_GITHUB_API_TOKEN=$(gh auth token) gro publish`'
 					);
 				}
 				await update_changelog(parsed_repo_url.owner, parsed_repo_url.repo, changelog, token, log);

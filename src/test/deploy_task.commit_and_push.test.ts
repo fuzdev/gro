@@ -34,7 +34,8 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn()
+	spawn: vi.fn(),
+	spawn_out: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -74,7 +75,7 @@ describe('deploy_task commit and push', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(spawn).toHaveBeenCalledWith('git', ['add', '.', '-f'], {
+			expect(spawn).toHaveBeenCalledWith('git', ['add', '.'], {
 				cwd: resolve('.gro/deploy')
 			});
 		});
@@ -91,7 +92,7 @@ describe('deploy_task commit and push', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(spawn).toHaveBeenCalledWith('git', ['add', '.', '-f'], {
+			expect(spawn).toHaveBeenCalledWith('git', ['add', '.'], {
 				cwd: resolve('custom/deploy')
 			});
 		});
@@ -340,6 +341,66 @@ describe('deploy_task commit and push', () => {
 			const ctx = create_mock_deploy_task_context({ dry: false });
 			await expect(deploy_task.run(ctx)).rejects.toThrow('`git diff --cached --quiet` failed');
 			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
+		});
+
+		test('a failed git ls-files fails the deploy without committing', async () => {
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'ls-files');
+			expect(error.message).toContain('`git ls-files --others --ignored` failed');
+			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
+		});
+
+		test('a failed git ls-files logs its stderr, which spawn_out captured', async () => {
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			vi.mocked(fs_exists).mockResolvedValue(true);
+			await mock_spawn_results((cmd, args) => cmd === 'git' && args[0] === 'ls-files');
+			const ctx = create_mock_deploy_task_context({ dry: false });
+			await expect(deploy_task.run(ctx)).rejects.toThrow(TaskError);
+			expect(ctx.log.error).toHaveBeenCalledWith('fatal: boom');
+		});
+	});
+
+	describe('ignored files', () => {
+		test('lists what the add skipped after the add, from the deploy dir', async () => {
+			const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const ctx = create_mock_deploy_task_context({ dry: false });
+
+			await deploy_task.run(ctx);
+
+			expect(spawn_out).toHaveBeenCalledWith(
+				'git',
+				['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
+				{ cwd: resolve('.gro/deploy') }
+			);
+			const add_order =
+				spawn.mock.invocationCallOrder[
+					spawn.mock.calls.findIndex((call) => call[0] === 'git' && call[1]?.[0] === 'add')
+				]!;
+			expect(spawn_out.mock.invocationCallOrder[0]).toBeGreaterThan(add_order);
+		});
+
+		test('warns with each ignored file and still deploys', async () => {
+			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			vi.mocked(fs_exists).mockResolvedValue(true);
+			await mock_spawn_results(undefined, ['assets/app.js.map', 'sp ace/ü.map']);
+			const ctx = create_mock_deploy_task_context({ dry: false });
+
+			await deploy_task.run(ctx);
+
+			expect(ctx.log.warn).toHaveBeenCalledTimes(1);
+			const message = String(vi.mocked(ctx.log.warn).mock.calls[0]![0]);
+			expect(message).toContain('not deploying files the deploy clone ignores');
+			expect(message).toContain('\n  assets/app.js.map\n  sp ace/ü.map\n');
+			expect(message).toContain('git check-ignore -v <path>');
+			expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('deployed'));
+		});
+
+		test('does not warn when nothing is ignored', async () => {
+			const ctx = create_mock_deploy_task_context({ dry: false });
+
+			await deploy_task.run(ctx);
+
+			expect(ctx.log.warn).not.toHaveBeenCalled();
 		});
 	});
 

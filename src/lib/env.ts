@@ -57,10 +57,11 @@ export const to_default_env_files = (dev: boolean): Array<string> => {
 
 /**
  * Loads a single env value without merging it into `process.env`.
- * By default searches process.env, then a local `.env` if one exists, then `../.env` if it exists.
+ * Searches `process.env`, then each of `paths` that exists, by default only the cwd's `.env` -
+ * never a parent directory's, so one directory's `.env` isn't a secret channel to every repo under it.
  * Empty strings are semantically the same as `undefined` for more ergonomic fallbacks.
  */
-export const load_from_env = (key: string, paths = ['.env', '../.env']): string | undefined => {
+export const load_from_env = (key: string, paths = ['.env']): string | undefined => {
 	let v = process.env[key];
 	if (v) return v;
 	for (const path of paths) {

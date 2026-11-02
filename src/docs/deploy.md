@@ -14,6 +14,8 @@ branch as disposable, able to be deleted or squashed or whatever whenever.
 Internally, `gro deploy` builds the target branch in a local clone at `.gro/deploy/`
 (`--deploy_dir`), so the target branch is never checked out in your repo;
 the cwd checks out and pulls `--source`, and must be clean.
+The deploy clone respects its own ignore rules: a `.gitignore` in the build output and your global git excludes.
+Files they match are not deployed, and `gro deploy` warns with the list.
 
 ```bash
 gro deploy # prepare build/ and commit it to the `deploy` branch, then push to go live

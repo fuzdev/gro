@@ -32,7 +32,8 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 });
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn()
+	spawn: vi.fn(),
+	spawn_out: vi.fn()
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -89,7 +90,7 @@ describe('deploy_task dry mode', () => {
 			expect(cp).toHaveBeenCalled();
 
 			// Should NOT commit or push
-			expect(spawn).not.toHaveBeenCalledWith('git', ['add', '.', '-f'], expect.anything());
+			expect(spawn).not.toHaveBeenCalledWith('git', ['add', '.'], expect.anything());
 			expect(spawn).not.toHaveBeenCalledWith(
 				'git',
 				['commit', '-m', 'deployment'],
@@ -152,7 +153,7 @@ describe('deploy_task dry mode', () => {
 			expect(result).toBeUndefined();
 
 			// Should NOT proceed to commit/push
-			expect(spawn).not.toHaveBeenCalledWith('git', ['add', '.', '-f'], expect.anything());
+			expect(spawn).not.toHaveBeenCalledWith('git', ['add', '.'], expect.anything());
 		});
 	});
 
@@ -315,7 +316,7 @@ describe('deploy_task dry mode', () => {
 			await deploy_task.run(ctx);
 
 			// Should commit and push
-			expect(spawn).toHaveBeenCalledWith('git', ['add', '.', '-f'], {
+			expect(spawn).toHaveBeenCalledWith('git', ['add', '.'], {
 				cwd: resolve('.gro/deploy')
 			});
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'deployment'], {

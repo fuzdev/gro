@@ -103,9 +103,11 @@ and Gro makes some different choices for usability.
 Gro calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
 which is a [GitHub token](https://github.com/settings/tokens)
 (with "public access" for public repos, no options selected)
-in either `process.env`, a project-local `.env`, or the parent directory at `../.env`
+in either `process.env` or a project-local `.env`
 (currently optional to read public repos, but it's recommended regardless,
 and you'll need to select options to support private repos).
+A parent directory's `.env` is not read.
+To use the GitHub CLI's login for one run: `SECRET_GITHUB_API_TOKEN=$(gh auth token) gro publish`
 
 You'll get a warning if the token is unavailable, but for light usage you won't hit rate limts.
 
