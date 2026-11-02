@@ -78,7 +78,7 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 			const { filer, filter_dependents } = await load();
 			const disknode = filer.get_by_id(id);
 			if (!disknode) return new Set();
-			return filter_dependents(disknode, filer.get_by_id, filter, undefined, undefined, log);
+			return filter_dependents(disknode, filer.get_by_id, filter, log);
 		},
 		watch: async (on_change: FileChangeCallback) => {
 			const { filer } = await load();

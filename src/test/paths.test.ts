@@ -7,7 +7,6 @@ import {
 	gro_paths,
 	is_gro_id,
 	to_root_path,
-	path_id_to_base_path,
 	base_path_to_path_id,
 	to_search_filters_relative,
 	to_gro_package_dir
@@ -46,12 +45,6 @@ describe('to_root_path', () => {
 		expect(to_root_path(resolve('foo/bar'))).toBe('foo/bar');
 		expect(to_root_path(resolve('./'))).toBe('./');
 		expect(to_root_path(resolve('./'))).toBe('./');
-	});
-});
-
-describe('path_id_to_base_path', () => {
-	test('basic behavior', () => {
-		expect(path_id_to_base_path(resolve('src/foo/bar/baz.ts'))).toBe('foo/bar/baz.ts');
 	});
 });
 

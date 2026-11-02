@@ -1,4 +1,3 @@
-import { styleText as st } from 'node:util';
 import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
 import { is_task_path, is_task_path_input, TASK_VERB, TaskError, to_task_path } from './task.ts';
@@ -419,14 +418,3 @@ export const to_forwarded_args_by_command = (
 	}
 	return forwarded_args_by_command;
 };
-
-/**
- * Formats a command and its args for the log line that announces running it.
- * @param serialized_args - the command followed by its args
- */
-export const print_command_args = (serialized_args: Array<string>): string =>
-	st('gray', '[') +
-	st('magenta', 'running command') +
-	st('gray', ']') +
-	' ' +
-	serialized_args.join(' ');

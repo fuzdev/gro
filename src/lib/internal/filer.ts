@@ -88,8 +88,6 @@ export class Filer {
 			id,
 			contents: null,
 			external: this.#is_external(id), // TODO maybe filter externals by default? the user needs to configure the filer then
-			ctime: null,
-			mtime: null,
 			content_hash: null,
 			dependents: new Map(),
 			dependencies: new Map()
@@ -254,39 +252,31 @@ export class Filer {
 	async #update(id: PathId): Promise<Disknode | null> {
 		const file = this.get_or_create(id);
 
-		let stats: Awaited<ReturnType<typeof stat>> | null = null;
 		let new_bytes: Buffer | null = null; // TODO need to lazily load contents, probably turn `Disknode` into a class
 
 		try {
-			stats = await stat(id);
+			const stats = await stat(id);
 			// only a regular file is read: a directory (`import '../../'`) or a special file
 			// like a FIFO, which a read would block on, is a contentless node like a missing file
 			if (stats.isFile()) new_bytes = await readFile(id);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			// treat the file as deleted or inaccessible for common error codes;
+			// treat the file as deleted or inaccessible for common error codes, with no contents;
 			// `ENOTDIR` is a dependency specifier naming a path through a file (`import '../x.ts/y'`),
 			// and `EISDIR` a file replaced by a directory between the stat and the read
 			if (
-				code === 'ENOENT' ||
-				code === 'EACCES' ||
-				code === 'EPERM' ||
-				code === 'EISDIR' ||
-				code === 'ENOTDIR'
+				code !== 'ENOENT' &&
+				code !== 'EACCES' &&
+				code !== 'EPERM' &&
+				code !== 'EISDIR' &&
+				code !== 'ENOTDIR'
 			) {
-				// the file doesn't exist, is inaccessible, or is not a file,
-				// so a read failing after the stat leaves no times either
-				stats = null;
-			} else {
 				throw error;
 			}
 		}
 
 		// hash the raw bytes, since decoding collapses invalid UTF-8 in binary files to U+FFFD
 		const new_hash = new_bytes !== null ? hash_blake3(new_bytes) : null;
-
-		file.ctime = stats?.ctimeMs ?? null;
-		file.mtime = stats?.mtimeMs ?? null;
 
 		// Use hash comparison for change detection (content-based, not mtime-based)
 		if (file.content_hash === new_hash) {
@@ -487,10 +477,10 @@ export const filter_dependents = (
 	disknode: Disknode,
 	get_by_id: (id: PathId) => Disknode | undefined,
 	filter?: FileFilter,
-	results: Set<PathId> = new Set(),
-	searched: Set<PathId> = new Set(),
 	log?: Logger
 ): Set<PathId> => {
+	const results: Set<PathId> = new Set();
+	const searched: Set<PathId> = new Set();
 	// Use iterative approach to avoid stack overflow on deep dependency trees
 	const stack = [disknode];
 

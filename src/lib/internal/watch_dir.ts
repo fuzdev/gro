@@ -1,5 +1,4 @@
 import { watch, type ChokidarOptions, type FSWatcher, type Matcher } from 'chokidar';
-import { relative } from 'node:path';
 import { create_deferred, type Deferred } from '@fuzdev/fuz_util/async.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
@@ -27,11 +26,6 @@ export interface WatchDirOptions {
 	filter?: PathFilter | null | undefined;
 	chokidar?: ChokidarOptions;
 	/**
-	 * When `false`, returns the `path` relative to `dir`.
-	 * @default true
-	 */
-	absolute?: boolean;
-	/**
 	 * Pattern to ignore files, merged into `chokidar.ignored` if also provided.
 	 * - `undefined` (default) ignores files matching `.tmp.` pattern
 	 * - `null` sets no default ignore pattern
@@ -52,7 +46,6 @@ export const watch_dir = ({
 	dir,
 	on_change,
 	filter,
-	absolute = true,
 	chokidar,
 	ignored = TMP_FILE_PATTERN,
 	on_error
@@ -66,32 +59,27 @@ export const watch_dir = ({
 			initing = create_deferred();
 			watcher = watch(dir, resolve_chokidar_options(chokidar, ignored));
 			watcher.on('add', (path) => {
-				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, false)) return;
-				on_change({ type: 'add', path: final_path, is_directory: false });
+				if (filter && !filter(path, false)) return;
+				on_change({ type: 'add', path, is_directory: false });
 			});
 			watcher.on('addDir', (path) => {
-				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, true)) return;
-				on_change({ type: 'add', path: final_path, is_directory: true });
+				if (filter && !filter(path, true)) return;
+				on_change({ type: 'add', path, is_directory: true });
 			});
 			watcher.on('change', (path, s) => {
 				// never stats, which could throw in a listener for a path already gone;
 				// chokidar reports `change` for files, with stats when it has them
 				const is_directory = s?.isDirectory() ?? false;
-				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, is_directory)) return;
-				on_change({ type: 'update', path: final_path, is_directory });
+				if (filter && !filter(path, is_directory)) return;
+				on_change({ type: 'update', path, is_directory });
 			});
 			watcher.on('unlink', (path) => {
-				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, false)) return;
-				on_change({ type: 'delete', path: final_path, is_directory: false });
+				if (filter && !filter(path, false)) return;
+				on_change({ type: 'delete', path, is_directory: false });
 			});
 			watcher.on('unlinkDir', (path) => {
-				const final_path = absolute ? path : relative(dir, path);
-				if (filter && !filter(final_path, true)) return;
-				on_change({ type: 'delete', path: final_path, is_directory: true });
+				if (filter && !filter(path, true)) return;
+				on_change({ type: 'delete', path, is_directory: true });
 			});
 			if (on_error) watcher.on('error', on_error);
 			// wait until ready

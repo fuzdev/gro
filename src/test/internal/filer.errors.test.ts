@@ -17,8 +17,6 @@ const create_test_disknode = (id: string, contents: string | null = null): Diskn
 	id,
 	contents,
 	external: false,
-	ctime: 1,
-	mtime: 1,
 	content_hash: null,
 	dependents: new Map(),
 	dependencies: new Map()
@@ -443,8 +441,6 @@ test.skipIf(process.getuid?.() === 0)(
 			const file = filer.get_by_id(file_path);
 			assert.ok(file);
 			assert.equal(file.contents, null);
-			assert.equal(file.ctime, null);
-			assert.equal(file.mtime, null);
 
 			await filer.close();
 		} finally {
@@ -592,40 +588,6 @@ test('an external dependency through a file is a contentless node, not an init f
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
-});
-
-test('handles same mtime but different contents', async () => {
-	let on_change_callback: ((change: any) => void) | null = null as any;
-
-	const mock_watch_dir = vi.fn((options) => {
-		on_change_callback = options.on_change;
-		const mock_watcher: WatchNodeFs = {
-			init: vi.fn(async () => {
-				options.on_change({ type: 'add', path: '/test/file.ts', is_directory: false });
-			}),
-			close: vi.fn(async () => {})
-		};
-		return mock_watcher;
-	});
-
-	const filer = new Filer({ watch_dir: mock_watch_dir });
-	await filer.init();
-
-	const file_before = filer.get_by_id('/test/file.ts');
-	assert.ok(file_before);
-	const mtime_before = file_before.mtime;
-
-	// Simulate update with same mtime
-	assert.ok(on_change_callback);
-	on_change_callback({ type: 'update', path: '/test/file.ts', is_directory: false });
-
-	// Wait for queue processing
-	await new Promise((resolve) => setTimeout(resolve, 10));
-
-	const file_after = filer.get_by_id('/test/file.ts');
-	assert.ok(file_after);
-	// mtime should be tracked
-	assert.equal(file_after.mtime, mtime_before);
 });
 
 test('handles parse_imports throwing error', async () => {

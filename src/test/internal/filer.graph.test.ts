@@ -13,8 +13,6 @@ const create_test_disknode = (id: string, contents: string | null = null): Diskn
 	id,
 	contents,
 	external: false,
-	ctime: 1,
-	mtime: 1,
 	content_hash: null,
 	dependents: new Map(),
 	dependencies: new Map()

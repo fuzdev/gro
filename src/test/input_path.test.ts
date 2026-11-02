@@ -209,20 +209,6 @@ test('resolve_input_files', async () => {
 	];
 	expect(result).toEqual({
 		resolved_input_files,
-		resolved_input_files_by_root_dir: new Map([
-			[
-				process.cwd(),
-				[
-					{ id: 'fake/test1.ext.ts', input_path: a.input_path, resolved_input_path: a },
-					{ id: 'fake/test2.ext.ts', input_path: b.input_path, resolved_input_path: b },
-					{ id: 'fake/test3/a.ts', input_path: c.input_path, resolved_input_path: c },
-					{ id: 'fake/test3/b.ts', input_path: c.input_path, resolved_input_path: c },
-					{ id: 'fake/test3/c.ts', input_path: d.input_path, resolved_input_path: d },
-					{ id: 'fake2/test.ext.ts', input_path: f.input_path, resolved_input_path: f },
-					{ id: 'fake3/test.ext.ts', input_path: h.input_path, resolved_input_path: h }
-				]
-			]
-		]),
 		input_directories_with_no_files: [e.input_path]
 	});
 });

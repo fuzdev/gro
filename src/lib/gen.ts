@@ -305,7 +305,6 @@ export const write_gen_results = async (
 
 export interface FoundGenfiles {
 	resolved_input_files: Array<ResolvedInputFile>;
-	resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
 	resolved_input_paths: Array<ResolvedInputPath>;
 }
 
@@ -321,7 +320,6 @@ export type FindGenfilesFailure =
 			type: 'input_directories_with_no_files';
 			input_directories_with_no_files: Array<InputPath>;
 			resolved_input_files: Array<ResolvedInputFile>;
-			resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
 			resolved_input_paths: Array<ResolvedInputPath>;
 			reasons: Array<string>;
 	  };
@@ -363,11 +361,7 @@ export const find_genfiles = async (
 
 	// Find all of the files for any directories.
 	const timing_to_fs_search = timings?.start('find files');
-	const {
-		resolved_input_files,
-		resolved_input_files_by_root_dir,
-		input_directories_with_no_files
-	} = await resolve_input_files(
+	const { resolved_input_files, input_directories_with_no_files } = await resolve_input_files(
 		resolved_input_paths,
 		async (id) =>
 			await fs_search(id, {
@@ -384,7 +378,6 @@ export const find_genfiles = async (
 			type: 'input_directories_with_no_files',
 			input_directories_with_no_files,
 			resolved_input_files,
-			resolved_input_files_by_root_dir,
 			resolved_input_paths,
 			reasons: input_directories_with_no_files.map((input_path) =>
 				st('red', `Input directory contains no matching files: ${print_path(input_path)}`)
@@ -396,7 +389,6 @@ export const find_genfiles = async (
 		ok: true,
 		value: {
 			resolved_input_files,
-			resolved_input_files_by_root_dir,
 			resolved_input_paths
 		}
 	};

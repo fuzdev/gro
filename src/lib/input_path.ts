@@ -91,7 +91,6 @@ export interface ResolvedInputFile {
 
 export interface ResolvedInputPaths {
 	resolved_input_paths: Array<ResolvedInputPath>;
-	possible_paths_by_input_path: Map<InputPath, Array<PossiblePath>>;
 	unmapped_input_paths: Array<InputPath>;
 }
 
@@ -106,14 +105,12 @@ export const resolve_input_paths = async (
 	extensions: Array<string>
 ): Promise<ResolvedInputPaths> => {
 	const resolved_input_paths: Array<ResolvedInputPath> = [];
-	const possible_paths_by_input_path: Map<InputPath, Array<PossiblePath>> = new Map();
 	const unmapped_input_paths: Array<InputPath> = [];
 	for (const input_path of input_paths) {
 		let found_file: [PathInfo, PossiblePath] | null = null;
 		let found_dirs: Array<[PathInfo, PossiblePath]> | null = null;
 
 		const possible_paths = await get_possible_paths(input_path, root_dirs, extensions);
-		possible_paths_by_input_path.set(input_path, possible_paths);
 
 		// Find the first existing file path or fallback to the first directory path.
 		for (const possible_path of possible_paths) {
@@ -151,16 +148,11 @@ export const resolve_input_paths = async (
 			unmapped_input_paths.push(input_path);
 		}
 	}
-	return {
-		resolved_input_paths,
-		possible_paths_by_input_path,
-		unmapped_input_paths
-	};
+	return { resolved_input_paths, unmapped_input_paths };
 };
 
 export interface ResolvedInputFiles {
 	resolved_input_files: Array<ResolvedInputFile>;
-	resolved_input_files_by_root_dir: Map<PathId, Array<ResolvedInputFile>>;
 	input_directories_with_no_files: Array<InputPath>;
 }
 
@@ -224,15 +216,6 @@ export const resolve_input_files = async (
 	}
 	return {
 		resolved_input_files,
-		resolved_input_files_by_root_dir: resolved_input_files.reduce((map, resolved_input_file) => {
-			const { root_dir } = resolved_input_file.resolved_input_path;
-			if (map.has(root_dir)) {
-				map.get(root_dir)!.push(resolved_input_file);
-			} else {
-				map.set(root_dir, [resolved_input_file]);
-			}
-			return map;
-		}, new Map<PathId, Array<ResolvedInputFile>>()),
 		input_directories_with_no_files: remaining.map((r) => r.input_path)
 	};
 };

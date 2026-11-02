@@ -15,8 +15,6 @@ export interface Disknode {
 	 * Is the source file outside of the `root_dir` or excluded by `watch_dir_options.filter`?
 	 */
 	external: boolean;
-	ctime: number | null;
-	mtime: number | null;
 	/**
 	 * BLAKE3 hash of the file's raw bytes, so binary files compare exactly.
 	 * `null` iff `contents` is `null`.

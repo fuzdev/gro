@@ -11,9 +11,9 @@ import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { fileURLToPath, type URL } from 'node:url';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { styleText as st } from 'node:util';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
-import { print_command_args } from './args.ts';
 
 // TODO maybe upstream to fuz_util?
 
@@ -95,3 +95,14 @@ export const resolve_cli = async (
 
 export const to_cli_name = (cli: string | Cli): string =>
 	typeof cli === 'string' ? cli : cli.name;
+
+/**
+ * Formats a command and its args for the log line that announces running it.
+ * @param serialized_args - the command followed by its args
+ */
+export const print_command_args = (serialized_args: Array<string>): string =>
+	st('gray', '[') +
+	st('magenta', 'running command') +
+	st('gray', ']') +
+	' ' +
+	serialized_args.join(' ');
