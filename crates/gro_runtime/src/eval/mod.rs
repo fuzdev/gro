@@ -54,7 +54,7 @@ pub use self::dump::{
 };
 pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
-    GraphField, RuntimeInfo, TSV_REV,
+    GraphField, RuntimeInfo, TSV_REV, TSV_VERSION,
 };
 use self::envelope::{MAX_TEXT_KEPT, access, cap_envelope};
 pub use self::failure::no_snapshot_error;

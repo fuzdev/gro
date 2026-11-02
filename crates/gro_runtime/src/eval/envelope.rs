@@ -19,9 +19,13 @@ pub const EVAL_PROTOCOL: u32 = 2;
 /// which a test checks.
 pub const DENO_CORE_VERSION: &str = "0.412.0";
 
-/// The tsv commit the type strip is built from, as `Cargo.lock` pins it,
-/// which a test checks.
-pub const TSV_REV: &str = "509ba615d1c381548a987a71b60717216d55f839";
+/// The tsv commit the type strip is built from: the one the `tsv_ts` release
+/// at [`TSV_VERSION`] was published from (its crate's `.cargo_vcs_info.json`).
+pub const TSV_REV: &str = "522a2f0db56f8f9d90aeb5f2cc4d01aa9c7541dc";
+
+/// The `tsv_ts` version the type strip is built from, as `Cargo.lock` pins it,
+/// which a test checks; [`TSV_REV`] moves with it.
+pub const TSV_VERSION: &str = "0.8.0";
 
 /// What `fgro eval` wrote: the runtime and entry, the value or the error, and
 /// what the run tried to reach and was refused.
@@ -638,10 +642,39 @@ mod tests {
             package("deno_core")
         );
         assert!(
-            package("tsv_ts").contains(&format!("?rev={TSV_REV}#{TSV_REV}\"")),
+            package("tsv_ts").contains(&format!("version = \"{TSV_VERSION}\"\n")),
             "{}",
             package("tsv_ts")
         );
+    }
+
+    /// `TSV_REV` is the commit the resolved `tsv_ts` was published from, as
+    /// its registry source's `.cargo_vcs_info.json` records it, so a bump that
+    /// moves `TSV_VERSION` and forgets the commit fails here.
+    #[test]
+    fn the_reported_tsv_rev_is_the_published_commit() {
+        let output = std::process::Command::new(env!("CARGO"))
+            .args(["metadata", "--format-version", "1", "--locked", "--offline"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let manifest = metadata["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|package| package["name"] == "tsv_ts")
+            .and_then(|package| package["manifest_path"].as_str())
+            .unwrap();
+        let vcs_info = std::path::Path::new(manifest).with_file_name(".cargo_vcs_info.json");
+        let vcs_info: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&vcs_info).unwrap()).unwrap();
+        assert_eq!(vcs_info["git"]["sha1"], TSV_REV);
     }
 }
 

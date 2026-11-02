@@ -1843,8 +1843,9 @@ dependencies = [
 
 [[package]]
 name = "tsv_lang"
-version = "0.7.1"
-source = "git+https://github.com/fuzdev/tsv?rev=509ba615d1c381548a987a71b60717216d55f839#509ba615d1c381548a987a71b60717216d55f839"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7d0526a2f3ec93bd68f6bb0288a5d8333e1553296a9b1f061692ad4e0feed1a"
 dependencies = [
  "smallvec",
  "unicode-ident",
@@ -1854,8 +1855,9 @@ dependencies = [
 
 [[package]]
 name = "tsv_ts"
-version = "0.7.1"
-source = "git+https://github.com/fuzdev/tsv?rev=509ba615d1c381548a987a71b60717216d55f839#509ba615d1c381548a987a71b60717216d55f839"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac9810ac881f3f5a0e0e7bf2cd5a7255eabefcbf57d507315e0225a1c3a962c0"
 dependencies = [
  "bumpalo",
  "smallvec",

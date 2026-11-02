@@ -42,12 +42,11 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 socket2 = "0.6.5"
 thiserror = "2"
 tokio = { version = "1", features = ["rt"] }
-# TypeScript's type strip, in process; pinned to a tsv `main` commit past
-# v0.7.1 for the parser's depth limits (input past them is a parse error, not a
-# stack overflow), the `STACK_SIZE` they're sized for, and the arena-free
-# strip. Without default features: the strip needs none of tsv's wire-JSON
-# layer (its `json` feature)
-tsv_ts = { git = "https://github.com/fuzdev/tsv", rev = "509ba615d1c381548a987a71b60717216d55f839", default-features = false }
+# TypeScript's type strip, in process. Its parser's depth limits make input
+# past them a parse error, not a stack overflow, on a thread of its
+# `STACK_SIZE`. Without default features: the strip needs none of tsv's
+# wire-JSON layer (its `json` feature)
+tsv_ts = { version = "0.8.0", default-features = false }
 url = "2.5"
 # the V8 binding itself, for gro_v8's calls `deno_core` doesn't wrap; pinned to
 # the exact version `deno_core` re-exports as `deno_core::v8`, with the features

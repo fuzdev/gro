@@ -561,7 +561,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
         Failure {
             at,
             reason: FailureReason::Load(LoadFailure::Strip {
-                failure: StripFailure::Unsupported(tsv_ts::UnsupportedKind::Enum),
+                failure: StripFailure::Unsupported(tsv_ts::UnsupportedConstruct::Enum),
                 at: Some(Position { line: 2, column: 3 }),
             }),
         }

@@ -2,9 +2,7 @@
 //! fails the load with: its reason and position as data, and its message.
 //! Free of `deno_core` types.
 
-use std::borrow::Cow;
-
-use tsv_ts::{ErrorKind, ErrorReport, Goal, StripError, UnsupportedKind};
+use tsv_ts::{ErrorKind, ErrorReport, Goal, StripError, UnsupportedConstruct};
 use url::Url;
 
 use super::graph::{Position, StripFailure};
@@ -26,28 +24,22 @@ pub struct StripRefusal {
 /// Strips the types from `source`, the TypeScript module at `url`, returning
 /// the JS, or the refusal the load fails with.
 ///
-/// Source with nothing type-only comes back as the same `String`, uncopied.
-///
 /// The strip recurses with the source's nesting, on the caller's stack, which
 /// must hold tsv's contract (`tsv_ts::STACK_SIZE`; see `run_main`). Input
 /// past tsv's depth limits fails the load rather than overflowing it.
-pub fn strip_module(source: String, url: &Url) -> Result<String, StripRefusal> {
+pub fn strip_module(source: &str, url: &Url) -> Result<String, StripRefusal> {
     // a module goal only: V8 evaluates every module as one, so no script retry
-    let stripped = match tsv_ts::strip_with_goal(&source, Goal::Module) {
-        Ok(stripped) => match stripped.code {
-            Cow::Borrowed(_) => None,
-            Cow::Owned(code) => Some(code),
-        },
-        Err(error) => return Err(strip_refusal(&error, &source, url)),
-    };
-    Ok(stripped.unwrap_or(source))
+    match tsv_ts::strip_with_goal(source, Goal::Module) {
+        Ok(stripped) => Ok(stripped.code),
+        Err(error) => Err(strip_refusal(&error, url)),
+    }
 }
 
-/// The refusal of a failed strip. Its message is the summary (a parse
-/// error's says it's one, and a depth limit's that it's a limit), a fix for
+/// The refusal of a failed strip. Its message is tsv's (a parse error's
+/// says it's one, and a depth limit's that it's a limit), a fix for
 /// a refusal, and the position as a V8 frame prints it (1-based line and
 /// UTF-16 column).
-fn strip_refusal(error: &StripError, source: &str, url: &Url) -> StripRefusal {
+fn strip_refusal(error: &StripError, url: &Url) -> StripRefusal {
     const PARSE_PREFIX: &str = "cannot parse the TypeScript: ";
     const STRIP_PREFIX: &str = "cannot strip the TypeScript: ";
     let (failure, prefix, fix) = match error {
@@ -56,23 +48,25 @@ fn strip_refusal(error: &StripError, source: &str, url: &Url) -> StripRefusal {
             (StripFailure::TooDeep, STRIP_PREFIX, None)
         }
         StripError::Parse(_) => (StripFailure::Parse, PARSE_PREFIX, None),
-        // the summary is the construct's own `cannot strip ...`
-        StripError::Unsupported { kind, .. } => (StripFailure::Unsupported(*kind), "", fix(*kind)),
+        // the message is the construct's own `cannot strip ...`
+        StripError::Unsupported { construct, .. } => {
+            (StripFailure::Unsupported(*construct), "", fix(*construct))
+        }
         // a failure a later tsv adds, until it gets an arm: tsv's own report
-        // of it, never `StripError::message`'s caret frame, which no other load
+        // of it, never the caret frame its `{:#}` adds, which no other load
         // error prints
         _ => (StripFailure::Other, STRIP_PREFIX, None),
     };
     // no report, so no `at` line: a source past the 4 GiB cap, or a later
     // failure tsv reports nothing for, printed by its one-line `Display`
-    let Some(ErrorReport { summary, start, .. }) = error.report(source) else {
+    let Some(ErrorReport { message, start, .. }) = error.to_report() else {
         return StripRefusal {
             failure,
             at: None,
             message: format!("{prefix}{error}"),
         };
     };
-    let mut message = format!("{prefix}{summary}");
+    let mut message = format!("{prefix}{message}");
     if let Some(Fix { how, erasable }) = fix {
         message.push_str(". Fix: ");
         message.push_str(how);
@@ -103,21 +97,21 @@ struct Fix {
 
 /// The fix for a refused construct, if gro knows one: a construct a later tsv
 /// refuses has none until it gets an arm.
-const fn fix(kind: UnsupportedKind) -> Option<Fix> {
-    let (how, erasable) = match kind {
-        UnsupportedKind::Enum => (
+const fn fix(construct: UnsupportedConstruct) -> Option<Fix> {
+    let (how, erasable) = match construct {
+        UnsupportedConstruct::Enum => (
             "use a union of literal types, or an object with 'as const'",
             true,
         ),
-        UnsupportedKind::ValueNamespace => ("use the module itself, or a plain object", true),
-        UnsupportedKind::ParameterProperty => (
+        UnsupportedConstruct::ValueNamespace => ("use the module itself, or a plain object", true),
+        UnsupportedConstruct::ParameterProperty => (
             "declare the field in the class body and assign it in the constructor",
             true,
         ),
-        UnsupportedKind::ImportEquals => ("use an import declaration", true),
-        UnsupportedKind::ExportEquals => ("use 'export default'", true),
-        UnsupportedKind::TypeAssertion => ("write the assertion as 'x as T'", false),
-        UnsupportedKind::AssertionGrouping => {
+        UnsupportedConstruct::ImportEquals => ("use an import declaration", true),
+        UnsupportedConstruct::ExportEquals => ("use 'export default'", true),
+        UnsupportedConstruct::TypeAssertion => ("write the assertion as 'x as T'", false),
+        UnsupportedConstruct::AssertionGrouping => {
             ("wrap the assertion in parentheses: '(x as T)'", false)
         }
         _ => return None,
@@ -136,7 +130,7 @@ mod tests {
     }
 
     fn strip(source: &str) -> Result<String, String> {
-        strip_module(source.to_owned(), &url()).map_err(|refusal| refusal.message)
+        strip_module(source, &url()).map_err(|refusal| refusal.message)
     }
 
     #[test]
@@ -148,11 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn source_with_nothing_to_strip_is_not_copied() {
-        let source = "export const a = 1;\n".to_owned();
-        let pointer = source.as_ptr();
-        let code = strip_module(source, &url()).unwrap();
-        assert_eq!(code.as_ptr(), pointer);
+    fn source_with_nothing_to_strip_comes_back_unchanged() {
+        assert_eq!(
+            strip("export const a = 1;\n").unwrap(),
+            "export const a = 1;\n"
+        );
     }
 
     #[test]
@@ -194,7 +188,7 @@ mod tests {
             tsv_ts::run_with_stack(|| (strip(&nested), strip(&chained))).unwrap();
         assert_eq!(
             nested.unwrap_err(),
-            "cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 levels\n    \
+            "cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 wire levels\n    \
              at file:///p/a.ts:1:266"
         );
         let message = message.unwrap_err();
@@ -238,7 +232,7 @@ mod tests {
     #[test]
     fn the_goal_is_a_module() {
         // `with` is a sloppy script's; a module refuses it
-        let refusal = strip_module("with (a) {}".to_owned(), &url()).unwrap_err();
+        let refusal = strip_module("with (a) {}", &url()).unwrap_err();
         assert_eq!(refusal.failure, StripFailure::Parse, "{}", refusal.message);
     }
 }

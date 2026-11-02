@@ -127,4 +127,4 @@ A panic exits 101 in a debug build; a release build aborts.
 naming the failure on stderr; a stderr that can't be written is ignored.
 A TypeScript module nested or chained past tsv's depth limits fails to load, exit 1, with a
 message naming the limit (`cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256
-levels`), where the same JS, under V8's far deeper limit, may run.
+wire levels`), where the same JS, under V8's far deeper limit, may run.

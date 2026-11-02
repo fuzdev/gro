@@ -85,7 +85,7 @@ pub(super) fn load(
             // invalid UTF-8 reads as U+FFFD, as V8 decodes a JS module's bytes
             let source = String::from_utf8(code)
                 .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-            let code = strip_module(source, specifier).map_err(|refusal| {
+            let code = strip_module(&source, specifier).map_err(|refusal| {
                 let failure = LoadFailure::Strip {
                     failure: refusal.failure,
                     at: refusal.at,

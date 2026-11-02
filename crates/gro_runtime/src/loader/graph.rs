@@ -32,7 +32,7 @@ use std::io;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 
-use tsv_ts::UnsupportedKind;
+use tsv_ts::UnsupportedConstruct;
 use url::Url;
 
 use super::reads::{Reads, RecordingTree};
@@ -246,7 +246,7 @@ pub enum StripFailure {
     /// The source nests or chains past tsv's depth limits.
     TooDeep,
     /// TypeScript with runtime semantics, which blanking can't erase.
-    Unsupported(UnsupportedKind),
+    Unsupported(UnsupportedConstruct),
     /// A failure a later tsv adds.
     Other,
 }

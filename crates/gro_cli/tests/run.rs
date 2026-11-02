@@ -611,7 +611,7 @@ fn typescript_past_tsv_depth_limits_fails_to_load() {
         run.stderr,
         format!(
             "error: cannot strip the TypeScript: Nesting exceeds tsv's depth limit of 256 \
-             levels\n    at {url}/deep.ts:1:266\n"
+             wire levels\n    at {url}/deep.ts:1:266\n"
         )
     );
     let run = run_in(&fixtures, "chain.ts");
