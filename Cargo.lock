@@ -799,6 +799,7 @@ dependencies = [
  "gro_sys",
  "serde_json",
  "socket2",
+ "thiserror",
  "url",
 ]
 

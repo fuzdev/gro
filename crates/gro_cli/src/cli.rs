@@ -1,12 +1,12 @@
 //! The command line's shape: the argh types for `fgro`'s flags and
-//! subcommands, the internal `make-snapshot` name argh never sees, and the
-//! exit code of argh's early exits.
+//! subcommands, the internal `make-snapshot` name argh never sees, and
+//! [`parse`], which reads them once into an [`Invocation`].
 
 use std::path::PathBuf;
 
 use argh::{EarlyExit, FromArgs};
 
-use crate::EXIT_USAGE;
+use crate::error::CliError;
 
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
@@ -67,15 +67,75 @@ pub struct EvalArgs {
 /// The `--driver` value that reads the driver from stdin, the only one so far.
 pub const DRIVER_STDIN: &str = "-";
 
-/// The exit code of argh's early exit, `--help` or a usage error, printed:
-/// argh's `from_env` exits `1` on a usage error, so its result is mapped by
-/// hand.
-pub fn early_exit(EarlyExit { output, status }: EarlyExit) -> u8 {
-    if status.is_ok() {
-        println!("{}", output.trim_end());
-        0
-    } else {
-        eprintln!("{}", output.trim_end());
-        EXIT_USAGE
+/// What the arguments ask for, parsed once.
+pub enum Invocation {
+    /// `fgro eval`, which confines its process and so runs on the main
+    /// thread.
+    Eval(EvalArgs),
+    /// Every other command, run on a thread with a stated stack.
+    Sized(Task),
+}
+
+/// A command that runs on a thread with a stated stack.
+pub enum Task {
+    /// `--version`.
+    Version,
+    /// `--help`, of `fgro` or a subcommand: argh's text, for stdout.
+    Help(String),
+    /// `make-snapshot <dir>`.
+    MakeSnapshot(PathBuf),
+    /// `run <file>`.
+    Run(PathBuf),
+}
+
+/// Parses `args` (the program name excluded): `make-snapshot` by hand, so
+/// it stays out of `--help`, and everything else by argh, whose early exits
+/// are mapped by hand, since its `from_env` exits `1` on a usage error.
+/// `eval` is decided from what argh parses, not the first argument, so every
+/// spelling it accepts (`fgro -- eval`) runs on the main thread.
+///
+/// # Errors
+///
+/// Returns the usage error the arguments make.
+pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
+    if args.first() == Some(&MAKE_SNAPSHOT) {
+        // no flags, so `--help` can't become a directory's name
+        let [_, dir] = args else {
+            return Err(CliError::SnapshotUsage);
+        };
+        if dir.starts_with('-') {
+            return Err(CliError::SnapshotFlag);
+        }
+        return Ok(Invocation::Sized(Task::MakeSnapshot(PathBuf::from(dir))));
+    }
+    match Args::from_args(&["fgro"], args) {
+        Ok(Args {
+            version: true,
+            command: None,
+        }) => Ok(Invocation::Sized(Task::Version)),
+        Ok(Args {
+            version: true,
+            command: Some(_),
+        }) => Err(CliError::VersionWithCommand),
+        Ok(Args {
+            version: false,
+            command: None,
+        }) => Err(CliError::NoCommand),
+        Ok(Args {
+            version: false,
+            command: Some(Command::Run(RunArgs { file })),
+        }) => Ok(Invocation::Sized(Task::Run(file))),
+        Ok(Args {
+            version: false,
+            command: Some(Command::Eval(args)),
+        }) => Ok(Invocation::Eval(args)),
+        Err(EarlyExit {
+            output,
+            status: Ok(()),
+        }) => Ok(Invocation::Sized(Task::Help(output))),
+        Err(EarlyExit {
+            output,
+            status: Err(()),
+        }) => Err(CliError::Parse(output)),
     }
 }

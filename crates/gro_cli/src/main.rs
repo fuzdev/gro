@@ -93,22 +93,24 @@
 
 mod cli;
 mod color;
+mod error;
 mod eval;
 mod harden;
+mod print;
 mod run;
 mod snapshot;
 mod thread;
 mod version;
 
 use std::ffi::OsString;
-use std::path::Path;
 use std::process::ExitCode;
 
-use argh::FromArgs as _;
 use gro_runtime::phases;
 use gro_runtime::prices;
 
-use crate::cli::{Args, Command, MAKE_SNAPSHOT, RunArgs, early_exit};
+use crate::cli::{Invocation, Task};
+use crate::error::CliError;
+use crate::print::stdout_line;
 use crate::snapshot::make_snapshot;
 use crate::thread::run_on_sized_stack;
 
@@ -132,160 +134,145 @@ fn main() -> ExitCode {
 
 /// [`main`]'s work, returning the exit code.
 fn main_code() -> u8 {
-    // a priced build's switches, refused before anything runs when one is
-    // unknown; nothing without the `prices` feature
-    if let Err(message) = prices::start() {
-        eprintln!("error: {message}");
-        return EXIT_USAGE;
+    match invocation() {
+        // eval's process must keep one thread until it is confined, so it
+        // runs here and starts its own
+        Ok(Invocation::Eval(args)) => eval::eval(args),
+        Ok(Invocation::Sized(task)) => run_on_sized_stack(&task),
+        Err(error) => error.report(),
     }
-    let args: Result<Vec<String>, OsString> = std::env::args_os()
+}
+
+/// Reads the process's arguments into an [`Invocation`], after a priced
+/// build's switches, refused before anything runs when one is unknown
+/// (nothing without the `prices` feature).
+///
+/// # Errors
+///
+/// Returns a usage error: an unknown switch, an argument that isn't UTF-8,
+/// or one [`cli::parse`] refuses.
+fn invocation() -> Result<Invocation, CliError> {
+    prices::start()?;
+    let args = std::env::args_os()
         .skip(1)
         .map(OsString::into_string)
-        .collect();
-    let args = match args {
-        Ok(args) => args,
-        Err(arg) => {
-            eprintln!(
-                "error: an argument is not valid UTF-8: {}",
-                arg.to_string_lossy()
-            );
-            return EXIT_USAGE;
-        }
-    };
+        .collect::<Result<Vec<String>, OsString>>()
+        .map_err(CliError::NotUtf8)?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    // eval's process must keep one thread until it is confined, so it runs
-    // here and starts its own
-    if runs_on_main_thread(&args) {
-        return run(&args);
-    }
-    run_on_sized_stack(&args)
+    cli::parse(&args)
 }
 
-/// Whether `args` parse as `fgro eval`, which confines its process and so
-/// runs on the main thread: decided from what argh parses, not the first
-/// argument, so every spelling it accepts (`fgro -- eval`) runs there.
-fn runs_on_main_thread(args: &[&str]) -> bool {
-    args.first() != Some(&MAKE_SNAPSHOT)
-        && matches!(
-            Args::from_args(&["fgro"], args),
-            Ok(Args {
-                version: false,
-                command: Some(Command::Eval(_)),
-            })
-        )
-}
-
-/// Runs `fgro` with `args` (the program name excluded), returning the exit code.
-fn run(args: &[&str]) -> u8 {
-    if args.first() == Some(&MAKE_SNAPSHOT) {
-        // no flags, so `--help` can't become a directory's name
-        let [_, dir] = args else {
-            eprintln!("usage: fgro {MAKE_SNAPSHOT} <dir>");
-            return EXIT_USAGE;
-        };
-        if dir.starts_with('-') {
-            eprintln!("usage: fgro {MAKE_SNAPSHOT} <dir> (it takes no flags)");
-            return EXIT_USAGE;
-        }
-        return make_snapshot(Path::new(dir)).map_or_else(
-            |error| {
-                eprintln!("error: {error}");
-                EXIT_FAILURE
-            },
-            |()| 0,
-        );
-    }
-    match Args::from_args(&["fgro"], args) {
-        Ok(Args {
-            version: true,
-            command: None,
-        }) => {
-            println!("{}", version::version_line());
-            0
-        }
-        Ok(Args {
-            version: true,
-            command: Some(_),
-        }) => {
-            eprintln!("error: --version takes no subcommand");
-            EXIT_USAGE
-        }
-        Ok(Args {
-            version: false,
-            command: None,
-        }) => {
-            eprintln!("error: a subcommand is required\nRun fgro --help for more information.");
-            EXIT_USAGE
-        }
-        Ok(Args {
-            version: false,
-            command: Some(Command::Run(RunArgs { file })),
-        }) => run::run_module(&file),
-        Ok(Args {
-            version: false,
-            command: Some(Command::Eval(args)),
-        }) => eval::eval(args),
-        Err(early) => early_exit(early),
-    }
+/// Runs `task`, returning the exit code and printing a failure to stderr.
+fn run(task: &Task) -> u8 {
+    let result = match task {
+        Task::Version => stdout_line(version::version_line()).map_err(CliError::Stdout),
+        Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
+        Task::MakeSnapshot(dir) => make_snapshot(dir),
+        Task::Run(file) => run::run_module(file),
+    };
+    result.map_or_else(|error| error.report(), |()| 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The exit code of `fgro` with `args`, eval's run as it would be: only
+    /// eval's usage errors, which return before it touches the process.
+    fn code(args: &[&str]) -> u8 {
+        match cli::parse(args) {
+            Ok(Invocation::Eval(args)) => eval::eval(args),
+            Ok(Invocation::Sized(task)) => run(&task),
+            Err(error) => error.report(),
+        }
+    }
+
     #[test]
     fn help_exits_0() {
-        assert_eq!(run(&["--help"]), 0);
-        assert_eq!(run(&["--version"]), 0);
-        assert_eq!(run(&["run", "--help"]), 0);
-        assert_eq!(run(&["eval", "--help"]), 0);
+        assert_eq!(code(&["--help"]), 0);
+        assert_eq!(code(&["--version"]), 0);
+        assert_eq!(code(&["run", "--help"]), 0);
+        assert_eq!(code(&["eval", "--help"]), 0);
     }
 
     /// Every spelling argh parses as `eval` runs on the main thread, `--`
     /// before the subcommand included, and nothing else does.
     #[test]
     fn eval_alone_runs_on_the_main_thread() {
+        let on_main = |args| matches!(cli::parse(args), Ok(Invocation::Eval(_)));
         for args in [
             &["eval", "a.js"][..],
             &["--", "eval", "a.js"],
             &["eval", "--jit", "a.js"],
         ] {
-            assert!(runs_on_main_thread(args), "{args:?}");
+            assert!(on_main(args), "{args:?}");
         }
         for args in [
             &["run", "a.js"][..],
             &["--version"],
             &["eval"],
+            &["eval", "--help"],
             &["--version", "eval", "a.js"],
             &["make-snapshot", "eval"],
             &[],
         ] {
-            assert!(!runs_on_main_thread(args), "{args:?}");
+            assert!(!on_main(args), "{args:?}");
         }
     }
 
     #[test]
     fn usage_error_exits_2() {
-        assert_eq!(run(&[]), EXIT_USAGE);
-        assert_eq!(run(&["--unknown"]), EXIT_USAGE);
-        assert_eq!(run(&["positional"]), EXIT_USAGE);
-        assert_eq!(run(&["run"]), EXIT_USAGE);
-        assert_eq!(run(&["run", "a.js", "b.js"]), EXIT_USAGE);
-        assert_eq!(run(&["--version", "run", "a.js"]), EXIT_USAGE);
-        assert_eq!(run(&["make-snapshot"]), EXIT_USAGE);
-        assert_eq!(run(&["make-snapshot", "a", "b"]), EXIT_USAGE);
-        assert_eq!(run(&["make-snapshot", "--help"]), EXIT_USAGE);
-        assert_eq!(run(&["make-snapshot", "-x"]), EXIT_USAGE);
-        assert_eq!(run(&["eval"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "b.js"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "--driver", "d.js"]), EXIT_USAGE);
+        assert_eq!(code(&[]), EXIT_USAGE);
+        assert_eq!(code(&["--unknown"]), EXIT_USAGE);
+        assert_eq!(code(&["positional"]), EXIT_USAGE);
+        assert_eq!(code(&["run"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "a.js", "b.js"]), EXIT_USAGE);
+        assert_eq!(code(&["--version", "run", "a.js"]), EXIT_USAGE);
+        assert_eq!(code(&["make-snapshot"]), EXIT_USAGE);
+        assert_eq!(code(&["make-snapshot", "a", "b"]), EXIT_USAGE);
+        assert_eq!(code(&["make-snapshot", "--help"]), EXIT_USAGE);
+        assert_eq!(code(&["make-snapshot", "-x"]), EXIT_USAGE);
+        assert_eq!(code(&["eval"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "b.js"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "--driver", "d.js"]), EXIT_USAGE);
         assert_eq!(
-            run(&["eval", "a.js", "--driver", "-", "--export", "x"]),
+            code(&["eval", "a.js", "--driver", "-", "--export", "x"]),
             EXIT_USAGE
         );
-        assert_eq!(run(&["eval", "a.js", "--timeout", "0"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
-        assert_eq!(run(&["eval", "a.js", "--unknown"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "--timeout", "0"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "--timeout", "-1"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "--timeout", "1s"]), EXIT_USAGE);
+        assert_eq!(code(&["eval", "a.js", "--unknown"]), EXIT_USAGE);
+    }
+
+    /// The messages the parse's usage errors print, labeled or as written.
+    #[test]
+    fn usage_errors_print_their_messages() {
+        let message = |args| {
+            let error = cli::parse(args).err().unwrap_or_else(|| panic!("{args:?}"));
+            (error.to_string(), error.exit_code())
+        };
+        assert_eq!(
+            message(&["make-snapshot"]),
+            ("usage: fgro make-snapshot <dir>".to_owned(), EXIT_USAGE)
+        );
+        assert_eq!(
+            message(&["make-snapshot", "-x"]),
+            (
+                "usage: fgro make-snapshot <dir> (it takes no flags)".to_owned(),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
+            message(&["--version", "run", "a.js"]),
+            ("--version takes no subcommand".to_owned(), EXIT_USAGE)
+        );
+        assert_eq!(
+            message(&[]),
+            (
+                "a subcommand is required\nRun fgro --help for more information.".to_owned(),
+                EXIT_USAGE
+            )
+        );
     }
 }

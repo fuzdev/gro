@@ -1530,6 +1530,31 @@ fn version_names_the_commit_v8_and_the_snapshot() {
     assert!(line.ends_with(expected), "{line}");
 }
 
+/// `--version` and `--help` into a pipe whose reader has closed fail as a
+/// write, exit `1` with an error on stderr, never a panic: Rust ignores
+/// `SIGPIPE`, so the write returns `EPIPE`.
+#[test]
+fn a_closed_stdout_fails_the_write_without_a_panic() {
+    for args in [&["--version"][..], &["--help"], &["run", "--help"]] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let mut command = fgro_command(args);
+        command
+            .current_dir(fixtures())
+            .stdin(Stdio::null())
+            .stdout(writer)
+            .stderr(Stdio::piped());
+        let output = command.output().unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {stderr}");
+        assert!(
+            stderr.starts_with("error: cannot write to stdout: "),
+            "{args:?}: {stderr}"
+        );
+        assert_eq!(stderr.lines().count(), 1, "{args:?}: {stderr}");
+    }
+}
+
 #[test]
 fn usage_errors_exit_2() {
     for args in [&[][..], &["run"], &["--unknown"], &["run", "a.js", "b.js"]] {

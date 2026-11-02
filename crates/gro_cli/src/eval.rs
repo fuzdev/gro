@@ -2,7 +2,7 @@
 //! thread of its own, and the envelope written to stdout.
 
 use std::fs::File;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::os::fd::AsFd as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use gro_runtime::prices::{self, EvalDefault};
 
 use crate::cli::{DRIVER_STDIN, EvalArgs};
 use crate::harden::{clear_env, close_inherited, limit_memory};
+use crate::print::{stderr_line, stdout_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::thread::{Joined, on_sized_thread};
 use crate::version::COMMIT;
@@ -79,7 +80,7 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     let timeout = match timeout {
         None => gro_runtime::eval::DEFAULT_TIMEOUT,
         Some(0) => {
-            eprintln!("error: --timeout takes a number of milliseconds of at least 1");
+            stderr_line("error: --timeout takes a number of milliseconds of at least 1");
             return Err(EXIT_USAGE);
         }
         Some(ms) => Duration::from_millis(ms),
@@ -87,44 +88,32 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     match (driver.as_deref(), &export) {
         (Some(DRIVER_STDIN) | None, None) | (None, Some(_)) => {}
         (Some(DRIVER_STDIN), Some(_)) => {
-            eprintln!(
+            stderr_line(
                 "error: --export reads an export with no driver; a driver is handed the whole \
-                 namespace"
+                 namespace",
             );
             return Err(EXIT_USAGE);
         }
         (Some(path), _) => {
-            eprintln!(
+            stderr_line(format_args!(
                 "error: --driver takes `-`, to read the driver from stdin, not {path:?}: a \
                  driver from a file isn't supported yet"
-            );
+            ));
             return Err(EXIT_USAGE);
         }
     }
     // first, before the process opens anything: a descriptor it inherited
     // would reach past the box, which gates only new opens
-    let closed = if prices::off(EvalDefault::CloseFds) {
-        Ok(())
-    } else {
-        close_inherited()
-    };
+    let closed = unless_off(EvalDefault::CloseFds, close_inherited);
     // the phases file, under the `phases` feature, opens before the box
     phases::open();
     // then the environment goes but `TZ`, so no library eval starts reads a
     // variable; a phases or priced build has read its own by now
-    let cleared = if prices::off(EvalDefault::ClearEnv) {
-        Ok(())
-    } else {
-        clear_env()
-    };
+    let cleared = unless_off(EvalDefault::ClearEnv, clear_env);
     // then the process's memory is capped, before the pre-pass thread, so
     // every thread and allocation after is under it, the default thread
     // stack lowered first, so no inherited stack limit sizes the engine's
-    let limited = if prices::off(EvalDefault::DataLimit) {
-        Ok(())
-    } else {
-        limit_memory()
-    };
+    let limited = unless_off(EvalDefault::DataLimit, limit_memory);
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -144,26 +133,16 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
             .map(|fd| Arc::new(File::from(fd))),
         graph,
     };
-    if let Err(error) = closed {
-        let error = EvalError::new(
-            ErrorKind::Environment,
-            format!("cannot close the descriptors the eval inherited: {error}"),
-        );
-        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
-    }
-    if let Err(error) = cleared {
-        let error = EvalError::new(
-            ErrorKind::Environment,
-            format!("cannot clear the environment the eval inherited: {error}"),
-        );
-        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
-    }
-    if let Err(error) = limited {
-        let error = EvalError::new(
-            ErrorKind::Environment,
-            format!("cannot cap the eval's memory: {error}"),
-        );
-        return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+    // reported in the order the steps ran, the first failure alone
+    for (result, step) in [
+        (closed, "cannot close the descriptors the eval inherited"),
+        (cleared, "cannot clear the environment the eval inherited"),
+        (limited, "cannot cap the eval's memory"),
+    ] {
+        if let Err(error) = result {
+            let error = EvalError::new(ErrorKind::Environment, format!("{step}: {error}"));
+            return Err(write_envelope(&gro_runtime::eval::failed(&options, error)));
+        }
     }
     // read here, before the box, not in the runtime, which takes them as inputs
     let mut read = || -> Result<(), String> {
@@ -221,6 +200,12 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     }
 }
 
+/// Runs `step`, one of eval's hardening steps, unless a priced build turns
+/// `default` off (never without the `prices` feature).
+fn unless_off(default: EvalDefault, step: fn() -> std::io::Result<()>) -> std::io::Result<()> {
+    if prices::off(default) { Ok(()) } else { step() }
+}
+
 /// `envelope`, its error's message followed by `error`, why a thread didn't
 /// start.
 fn with_error(mut envelope: Envelope, error: &std::io::Error) -> Envelope {
@@ -239,19 +224,12 @@ fn write_envelope(envelope: &Envelope) -> u8 {
 /// Writes `envelope` to stdout, one line, returning 0 for a value, `failed`
 /// for a failure, or [`EXIT_FAILURE`] when it can't be written.
 fn write_envelope_failed(envelope: &Envelope, failed: u8) -> u8 {
-    // written and flushed by hand: `println!` panics when stdout fails (a
-    // closed pipe, a full disk)
     let written = envelope
         .to_json()
         .map_err(|error| error.to_string())
-        .and_then(|json| {
-            let mut stdout = std::io::stdout().lock();
-            writeln!(stdout, "{json}")
-                .and_then(|()| stdout.flush())
-                .map_err(|error| error.to_string())
-        });
+        .and_then(|json| stdout_line(json).map_err(|error| error.to_string()));
     if let Err(error) = written {
-        eprintln!("error: failed to write the envelope: {error}");
+        stderr_line(format_args!("error: failed to write the envelope: {error}"));
         return EXIT_FAILURE;
     }
     if envelope.result.is_ok() { 0 } else { failed }

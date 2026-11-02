@@ -81,6 +81,7 @@ pub fn console_options() -> ConsoleOptions {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+    #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
 
     use super::{ColorEnv, color_env};
@@ -158,6 +159,9 @@ mod tests {
         }
     }
 
+    // a value that isn't UTF-8 is built from bytes, which only Unix's
+    // `OsString` takes
+    #[cfg(unix)]
     #[test]
     fn a_value_that_is_not_utf_8_is_set_and_matches_nothing() {
         let invalid = || OsString::from_vec(vec![0xff]);
