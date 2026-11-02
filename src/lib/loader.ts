@@ -46,7 +46,7 @@ gro run foo.ts
 Direct usage without register, the args `spawn_with_loader_args` in `gro_helpers.ts` builds:
 
 ```bash
-node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.js", pathToFileURL("./"));' --experimental-import-meta-resolve --experimental-strip-types foo.ts
+node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.js", pathToFileURL("./"));' --experimental-import-meta-resolve foo.ts
 ```
 
 */

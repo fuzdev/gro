@@ -2,7 +2,12 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { env_var_has_visibility, type EnvVarDeclarations, type EnvVisibility } from './env.ts';
+import {
+	env_var_has_visibility,
+	type EnvVarDeclarations,
+	type EnvVisibility,
+	type LoadEnvOptions
+} from './env.ts';
 
 /**
  * Matches the SvelteKit env var modules, capturing the visibility.
@@ -65,7 +70,10 @@ export const load_sveltekit_env_declarations = async (
 	return variables;
 };
 
-export interface RenderSveltekitShimAppEnvVarsOptions {
+/**
+ * The `LoadEnvOptions` are rendered into the module, which loads the env when it runs.
+ */
+export interface RenderSveltekitShimAppEnvVarsOptions extends LoadEnvOptions {
 	visibility: EnvVisibility;
 	/**
 	 * The declarations from `load_sveltekit_env_declarations`, `null` if the project has none.
@@ -80,10 +88,6 @@ export interface RenderSveltekitShimAppEnvVarsOptions {
 	 * @default `'@fuzdev/gro/env.js'`
 	 */
 	env_module_specifier?: string;
-	dev: boolean;
-	env_dir?: string;
-	env_files?: Array<string>;
-	ambient_env?: Record<string, string | undefined>;
 }
 
 /**
@@ -110,10 +114,8 @@ export const render_sveltekit_shim_app_env_vars = ({
 	const names = Object.entries(variables)
 		.filter(([, config]) => env_var_has_visibility(config, visibility))
 		.map(([name]) => name);
-	// `JSON.stringify(undefined)` is `undefined`, not a string, so absent args are spelled out
-	const load_env_args = [dev, env_dir, env_files, ambient_env]
-		.map((arg) => (arg === undefined ? 'undefined' : JSON.stringify(arg)))
-		.join(', ');
+	// absent options drop out, so `load_env` applies its own defaults when the module runs
+	const load_env_options = JSON.stringify({ dev, env_dir, env_files, ambient_env });
 	// the module's own bindings are prefixed so no declared var name can collide with them
 	return `${header}
 import {variables as __gro_variables} from ${JSON.stringify(entry_specifier)};
@@ -125,7 +127,7 @@ import {
 const __gro_env = __gro_resolve_env_vars(
 	__gro_variables,
 	${JSON.stringify(visibility)},
-	__gro_load_env(${load_env_args})
+	__gro_load_env(${load_env_options})
 );
 
 ${names.map((name) => `export const ${name} = __gro_env.${name};`).join('\n')}

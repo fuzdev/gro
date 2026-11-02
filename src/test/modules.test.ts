@@ -77,8 +77,6 @@ test('load_module imports a path with URL syntax as written, without the loader'
 		const result = spawnSync(
 			process.execPath,
 			[
-				'--experimental-strip-types',
-				'--disable-warning=ExperimentalWarning',
 				'--input-type=module',
 				'-e',
 				`const {load_module} = await import(${JSON.stringify(pathToFileURL(resolve('src/lib/modules.ts')).href)});

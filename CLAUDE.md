@@ -170,8 +170,7 @@ files without compilation step. Registered via `gro run foo.ts` or
 
 Capabilities:
 
-- TypeScript files (`.ts`) via Node's experimental type stripping
-  (`--experimental-strip-types`)
+- TypeScript files (`.ts`) via Node's type stripping
 - Svelte components (`.svelte`) with SSR compilation using `compile()`
 - Svelte runes in JS and TypeScript modules (`.svelte.ts`, and `.svelte.` as an infix
   like `.svelte.test.ts`, vite-plugin-svelte's rule) using `compileModule()`
@@ -342,6 +341,7 @@ Builtin plugins:
   `src/lib/`, then rewrites relative `.ts`→`.js` import specifiers in the
   emitted `.d.ts`/`.svelte` ([docs](src/docs/gro_plugin_sveltekit_library.md))
 - `gro_plugin_server` - runs Node servers with auto-restart on changes
+- `gro_plugin_deno_server` - runs a Deno server beside the Vite dev server, unbundled
 
 ### Configuration
 
@@ -370,6 +370,7 @@ interface GroConfig {
 	search_filters: Array<PathFilter>; // Exclude patterns for discovery
 	js_cli: string; // Node-compatible CLI (default: 'node')
 	pm_cli: string; // npm-compatible CLI (default: 'npm')
+	build_cache_config_hash: string; // hash of `build_cache_config`, which normalization drops
 	watch: WatchOptions; // what `graph` and `watcher` watch (default: `src/`, no filter)
 }
 ```
@@ -653,7 +654,7 @@ Core systems (src/lib/):
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
 - Plugins: `plugin.ts`, `gro_plugin_*.ts` (gen, sveltekit_app,
-  sveltekit_library, server)
+  sveltekit_library, server, deno_server)
 - Config: `gro_config.ts`, `gro.config.default.ts`
 - Loader: `loader.ts`, `register.ts`
 

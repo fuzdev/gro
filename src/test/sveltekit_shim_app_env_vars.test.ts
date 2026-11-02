@@ -81,8 +81,22 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 			dev: true
 		});
 		expect(source).toContain('export const A = __gro_env.A;');
-		expect(source).toContain('__gro_load_env(true, undefined, undefined, undefined)');
+		expect(source).toContain('__gro_load_env({"dev":true})');
 		expect(source).not.toContain('export const B');
+	});
+
+	test('renders the given load_env options', () => {
+		const source = render_sveltekit_shim_app_env_vars({
+			visibility: 'private',
+			variables: { A: {} },
+			entry_specifier: '/project/src/env.ts',
+			dev: false,
+			env_dir: '/project',
+			env_files: ['.env']
+		});
+		expect(source).toContain(
+			'__gro_load_env({"dev":false,"env_dir":"/project","env_files":[".env"]})'
+		);
 	});
 
 	// declared names can't collide with the module's own bindings

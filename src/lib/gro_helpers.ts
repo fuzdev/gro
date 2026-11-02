@@ -102,10 +102,7 @@ export const spawn_with_loader_args = (
 			import {pathToFileURL} from "node:url";
 			register("${loader_path}", pathToFileURL("./"));`,
 		// @sync Node options to `gro.ts`
-		'--experimental-import-meta-resolve', // for `import.meta.resolve`
-		'--experimental-strip-types',
-		'--disable-warning',
-		'ExperimentalWarning'
+		'--experimental-import-meta-resolve' // for `import.meta.resolve`
 	];
 	// In almost all cases we want the exports condition to be `"development"`. Needed for `esm-env`.
 	if (process.env.NODE_ENV !== 'production') {

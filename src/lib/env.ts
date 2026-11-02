@@ -3,21 +3,37 @@ import dotenv from 'dotenv';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 
+export interface LoadEnvOptions {
+	/**
+	 * Picks the `development` or `production` mode files for the default `env_files`.
+	 */
+	dev: boolean;
+	/**
+	 * The directory the env files are resolved against, defaults to the cwd.
+	 */
+	env_dir?: string;
+	/**
+	 * The env files to load, in order, defaults to the same files as Vite.
+	 */
+	env_files?: Array<string>;
+	/**
+	 * The env merged in last.
+	 * @default `process.env`
+	 */
+	ambient_env?: Record<string, string | undefined>;
+}
+
 /**
  * Loads every env var from the env files plus the ambient env, later sources winning,
  * so the ambient env overrides the files.
- * @param dev - picks the `development` or `production` mode files for the default `env_files`
- * @param env_dir - the directory the env files are resolved against, defaults to the cwd
- * @param env_files - the env files to load, in order, defaults to the same files as Vite
- * @param ambient_env - the env merged in last
  * @returns all loaded vars, unfiltered - `resolve_env_vars` picks out the declared ones
  */
-export const load_env = (
-	dev: boolean,
-	env_dir?: string,
+export const load_env = ({
+	dev,
+	env_dir,
 	env_files = to_default_env_files(dev),
-	ambient_env: Record<string, string | undefined> = process.env
-): Record<string, string> => {
+	ambient_env = process.env
+}: LoadEnvOptions): Record<string, string> => {
 	const env: Record<string, string> = {};
 	for (const path of env_files) {
 		const loaded = load(env_dir === undefined ? path : resolve(env_dir, path));

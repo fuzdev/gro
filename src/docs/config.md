@@ -42,27 +42,28 @@ export default config;
 The default export of a Gro config is `GroConfig | CreateGroConfig`:
 
 ```ts
-export interface CreateGroConfig {
-	(base_config: GroConfig): RawGroConfig | Promise<RawGroConfig>;
-}
+export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
 
 // The strict variant that's used internally and exposed to users in tasks and elsewhere.
 export interface GroConfig extends RawGroConfig {
 	plugins: PluginsCreateConfig;
-	map_package_json: MapPackageJson | null;
+	map_package_json: PackageJsonMapper | null;
 	search_filters: Array<PathFilter>;
 	js_cli: string;
 	pm_cli: string;
+	build_cache_config_hash: string;
 	watch: WatchOptions;
 }
 
 // The relaxed variant that users can provide. Superset of `GroConfig`.
 export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
-	map_package_json?: MapPackageJson | null;
+	map_package_json?: PackageJsonMapper | null;
 	search_filters?: PathFilter | Array<PathFilter> | null;
 	js_cli?: string;
 	pm_cli?: string;
+	build_cache_config?:
+		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	watch?: Partial<WatchOptions>;
 }
 ```
