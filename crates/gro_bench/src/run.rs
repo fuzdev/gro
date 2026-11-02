@@ -19,8 +19,9 @@
 //!    and the values of the suite's `parity` runtimes must be equal on each
 //!    workload ([`check`](crate::check));
 //! 4. runs each row's warmup processes, then its timed samples, in the
-//!    interleaved order of [`schedule`], with the first row's A/A copy as one
-//!    more row (a row is a workload and a runtime);
+//!    interleaved order of [`schedule`](crate::schedule::schedule), with the
+//!    first row's A/A copy as one more row (a row is a workload and a
+//!    runtime);
 //! 5. hashes the artifacts, lists each copy, and reads the corpora's tree
 //!    and the other checkouts' states again, and discards the run if any
 //!    changed (a copy gaining or losing a path counts), since a rebuild or an
@@ -82,24 +83,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use artifacts::{changed_artifacts, hash_artifacts, read_checkouts};
+use artifacts::{changed_during_run, hash_artifacts, list_copies, read_checkouts};
 use check::check_rows;
-use command::{Program, RowCommand, probe, resolve_program, row_args};
-use metrics::{count_metric, metric, noise_record, phase_metrics, rss_metric, wall_metric};
-use prepare::{materialize_collections, materialize_projects, resolve_file};
-use sample::{Sample, Sampler, rss_floor, run_once, sampler};
+use command::probe_runtimes;
+use metrics::{noise_record, row_records};
+use prepare::{Plan, check_corpora_pin, plan_rows};
+use sample::{Sampler, rss_floor, sample_rows, sampler};
 
 use crate::budget::check_budgets;
-use crate::collection::list_paths;
 use crate::error::BenchError;
-use crate::git::read_corpora_tree;
-use crate::lock::{LockError, LockIoError, try_lock_dir};
-use crate::phases::PHASES_FILE_ENV;
-use crate::record::{
-    CheckoutState, GitState, Machine, MachineQuiet, RECORD_VERSION, RowRecord, RunRecord, SuiteId,
-};
-use crate::schedule::schedule;
-use crate::suite::{FileArg, Suite};
+use crate::lock::{DirLock, LockError, LockIoError, try_lock_dir};
+use crate::record::{GitState, Machine, MachineQuiet, RECORD_VERSION, RunRecord, SuiteId};
+use crate::suite::Suite;
 use crate::watchdog::Watchdog;
 
 pub(crate) use command::display_command;
@@ -135,7 +130,8 @@ pub enum Measure {
     /// Nothing: each process runs as is.
     Wall,
     /// The phase timings of the runtimes named, each a phases build of fgro,
-    /// whose processes get [`PHASES_FILE_ENV`] naming the file to write.
+    /// whose processes get [`PHASES_FILE_ENV`](crate::phases::PHASES_FILE_ENV)
+    /// naming the file to write.
     Phases { runtimes: BTreeSet<String> },
     /// User-space instructions and cycles, each sample under `perf stat`.
     Counters,
@@ -151,155 +147,34 @@ pub enum Measure {
 pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, BenchError> {
     suite.validate()?;
     // held to the end, so no other run rewrites the copies or sample files
-    let _lock = try_lock_dir(&context.work_dir).map_err(|error| match error {
-        LockError::Held { holder, .. } => BenchError::WorkDirLocked {
-            dir: context.work_dir.clone(),
-            holder,
-        },
-        LockError::Io(LockIoError { path, source }) => BenchError::Write { path, source },
-    })?;
+    let _lock = lock_work_dir(&context.work_dir)?;
     let watchdog = Watchdog::start(suite.timeout()).map_err(|source| BenchError::Spawn {
         command: "the watchdog thread".to_owned(),
         source,
     })?;
     let sampler = sampler(suite, &context.measure, &context.work_dir, &watchdog)?;
-    let corpora = suite
-        .corpora
-        .as_ref()
-        .map(|pin| -> Result<_, BenchError> {
-            let path = resolve_file(dir, &pin.path)?;
-            let found = read_corpora_tree(&path)?;
-            if found != pin.tree {
-                return Err(BenchError::CorporaTree {
-                    path,
-                    pinned: pin.tree.clone(),
-                    found,
-                });
-            }
-            Ok((path, found))
-        })
-        .transpose()?;
+    let corpora = check_corpora_pin(suite, dir)?;
     let started_unix_s = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
 
-    let programs = suite
-        .runtimes
-        .iter()
-        .map(|runtime| resolve_program(runtime, dir))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let mut artifacts: BTreeSet<PathBuf> = programs
-        .iter()
-        .map(|program| program.path.clone())
-        .collect();
-    // the scripts and file arguments, by their paths as the suite writes them
-    let mut suite_files: BTreeMap<String, PathBuf> = BTreeMap::new();
-    let mut resolve = |file: &Path| -> Result<PathBuf, BenchError> {
-        let resolved = resolve_file(dir, file)?;
-        artifacts.insert(resolved.clone());
-        suite_files.insert(file.to_string_lossy().into_owned(), resolved.clone());
-        Ok(resolved)
-    };
-    // every workload's script
-    let scripts = suite
-        .workloads
-        .iter()
-        .map(|workload| Ok((workload.name.as_str(), resolve(&workload.script)?)))
-        .collect::<Result<BTreeMap<_, _>, BenchError>>()?;
-    // each runtime's stdin file, hashed like a file argument
-    let stdins = suite
-        .runtimes
-        .iter()
-        .map(|runtime| {
-            runtime
-                .stdin
-                .as_ref()
-                .map(|FileArg { file }| resolve(file))
-                .transpose()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut copies = materialize_collections(suite, corpora.as_ref(), &context.work_dir, &scripts)?;
-    materialize_projects(suite, dir, &context.work_dir, &mut copies)?;
-    let program_of: BTreeMap<&str, (&Program, &Option<PathBuf>)> = suite
-        .runtimes
-        .iter()
-        .map(|runtime| runtime.name.as_str())
-        .zip(programs.iter().zip(&stdins))
-        .collect();
-    let mut rows = Vec::new();
-    for (workload, runtime) in suite.rows() {
-        let name = workload.name.as_str();
-        let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
-        let (args, mut env) = row_args(runtime, workload, script, &mut resolve)?;
-        let (program, stdin) = program_of[runtime.name.as_str()];
-        let phases_file = sampler.phases_file(&runtime.name);
-        if let Some(file) = phases_file {
-            env.insert(PHASES_FILE_ENV.to_owned(), file.display().to_string());
-        }
-        rows.push(RowCommand {
-            runtime: runtime.name.clone(),
-            workload: workload.name.clone(),
-            program: program.clone(),
-            args,
-            env,
-            warmup: workload.warmup,
-            stdin: stdin.clone(),
-            stdout: runtime.stdout,
-            phases: phases_file.is_some(),
-        });
-    }
-    artifacts.extend(copies.files.iter().cloned());
+    let Plan {
+        programs,
+        rows,
+        copies,
+        artifacts,
+        suite_files,
+    } = plan_rows(suite, dir, &context.work_dir, corpora.as_ref(), &sampler)?;
     let before = hash_artifacts(&artifacts)?;
-    let listed = copies
-        .roots
-        .iter()
-        .map(|root| list_paths(root))
-        .collect::<Result<Vec<_>, _>>()?;
+    let listed = list_copies(&copies)?;
     let artifact_hashes: BTreeMap<String, String> = suite_files
         .into_iter()
         .map(|(file, resolved)| (file, before[&resolved].clone()))
         .collect();
     let checkouts = read_checkouts(suite, dir)?;
 
-    // one thread per runtime, since gzipping each executable takes seconds
-    let runtimes = std::thread::scope(|scope| {
-        #[expect(
-            clippy::needless_collect,
-            reason = "every thread spawns before the first join, or the probes run one at a time"
-        )]
-        let probes: Vec<_> = suite
-            .runtimes
-            .iter()
-            .zip(&programs)
-            .map(|(runtime, program)| {
-                let hash = &before[&program.path];
-                let watchdog = &watchdog;
-                scope.spawn(move || probe(runtime, program, dir, hash, watchdog))
-            })
-            .collect();
-        probes
-            .into_iter()
-            .map(|probe| {
-                probe
-                    .join()
-                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-            })
-            .collect::<Result<Vec<_>, _>>()
-    })?;
-
-    let snapshot_bytes = context
-        .snapshot
-        .as_ref()
-        .map(|path| {
-            fs::metadata(path)
-                .map(|metadata| metadata.len())
-                .map_err(|source| BenchError::Read {
-                    path: path.clone(),
-                    source,
-                })
-        })
-        .transpose()?;
+    let runtimes = probe_runtimes(&suite.runtimes, &programs, dir, &before, &watchdog)?;
+    let snapshot_bytes = snapshot_size(context.snapshot.as_deref())?;
     // a measurement build isn't the size that ships
     if !matches!(sampler, Sampler::Phases { .. }) {
         check_budgets(suite, &runtimes, snapshot_bytes)?;
@@ -307,17 +182,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
 
     check_rows(suite, &rows, dir, &watchdog)?;
 
-    // the noise row: the first row again, measured as a row of its own
-    let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
-    let warmups: Vec<usize> = commands.iter().map(|row| row.warmup as usize).collect();
-    for index in schedule(&warmups) {
-        run_once(commands[index], dir, &Sampler::Wall, &watchdog)?;
-    }
-    let sample_count = suite.samples.get() as usize;
-    let mut samples: Vec<Vec<Sample>> = vec![Vec::with_capacity(sample_count); commands.len()];
-    for index in schedule(&vec![sample_count; commands.len()]) {
-        samples[index].push(run_once(commands[index], dir, &sampler, &watchdog)?);
-    }
+    let samples = sample_rows(suite, &rows, dir, &sampler, &watchdog)?;
     // only a wall run's spawner is the harness alone ([`RunRecord`])
     let wall = matches!(sampler, Sampler::Wall);
     let rss_floor_kib = if wall {
@@ -326,54 +191,19 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         None
     };
 
-    let after = hash_artifacts(&artifacts)?;
-    let mut changed = changed_artifacts(&before, &after);
-    for (root, before) in copies.roots.iter().zip(&listed) {
-        // a path written or removed in a copy, such as a lockfile or an install
-        let after = list_paths(root)?;
-        changed.extend(before.symmetric_difference(&after).cloned());
-    }
-    if let Some((path, tree)) = &corpora {
-        // a re-pin or a local change mid-run, which the tree id wouldn't name
-        if read_corpora_tree(path).ok().as_ref() != Some(tree) {
-            changed.push(path.clone());
-        }
-    }
-    let roots: BTreeMap<&PathBuf, &CheckoutState> = checkouts
-        .values()
-        .map(|(root, state)| (root, state))
-        .collect();
-    for (root, state) in roots {
-        // a commit, a switch, or an edit mid-run in another checkout
-        if CheckoutState::read(root).ok().as_ref() != Some(state) {
-            changed.push(root.clone());
-        }
-    }
+    let changed = changed_during_run(
+        &artifacts,
+        &before,
+        &copies,
+        &listed,
+        corpora.as_ref(),
+        &checkouts,
+    )?;
     if !changed.is_empty() {
         return Err(BenchError::ArtifactsChanged { paths: changed });
     }
 
-    let rows_record: Vec<RowRecord> = rows
-        .iter()
-        .zip(&samples)
-        .map(|(row, samples)| {
-            Ok(RowRecord {
-                runtime: row.runtime.clone(),
-                workload: row.workload.clone(),
-                warmup: row.warmup,
-                wall_ns: wall_metric(samples),
-                instructions: count_metric(samples, |counts| counts.instructions),
-                cycles: count_metric(samples, |counts| counts.cycles),
-                kernel_instructions: samples
-                    .iter()
-                    .map(|sample| sample.counts.and_then(|counts| counts.kernel_instructions))
-                    .collect::<Option<Vec<u64>>>()
-                    .map(metric),
-                phases: phase_metrics(row, samples)?,
-                peak_rss_kib: if wall { rss_metric(samples) } else { None },
-            })
-        })
-        .collect::<Result<_, BenchError>>()?;
+    let rows_record = row_records(&rows, &samples, wall)?;
     let noise = noise_record(&rows_record[0], &samples[rows.len()]);
 
     Ok(RunRecord {
@@ -401,4 +231,31 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         rss_floor_kib,
         snapshot_bytes,
     })
+}
+
+/// Takes the exclusive lock on `work_dir`, refusing while another run holds
+/// it.
+fn lock_work_dir(work_dir: &Path) -> Result<DirLock, BenchError> {
+    try_lock_dir(work_dir).map_err(|error| match error {
+        LockError::Held { holder, .. } => BenchError::WorkDirLocked {
+            dir: work_dir.to_owned(),
+            holder,
+        },
+        LockError::Io(LockIoError { path, source }) => BenchError::Write { path, source },
+    })
+}
+
+/// The size of the startup snapshot at `snapshot`, when the context names
+/// one.
+fn snapshot_size(snapshot: Option<&Path>) -> Result<Option<u64>, BenchError> {
+    snapshot
+        .map(|path| {
+            fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .map_err(|source| BenchError::Read {
+                    path: path.to_owned(),
+                    source,
+                })
+        })
+        .transpose()
 }

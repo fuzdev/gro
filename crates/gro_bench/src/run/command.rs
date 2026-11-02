@@ -224,7 +224,42 @@ pub fn display_command(program: &Path, args: &[impl AsRef<OsStr>]) -> String {
     line
 }
 
-pub(super) fn probe(
+/// Probes every runtime ([`probe`]), one thread each, since gzipping each
+/// executable takes seconds; `hashes` holds each program's hash.
+pub(super) fn probe_runtimes(
+    runtimes: &[Runtime],
+    programs: &[Program],
+    dir: &Path,
+    hashes: &BTreeMap<PathBuf, String>,
+    watchdog: &Watchdog,
+) -> Result<Vec<RuntimeInfo>, BenchError> {
+    std::thread::scope(|scope| {
+        #[expect(
+            clippy::needless_collect,
+            reason = "every thread spawns before the first join, or the probes run one at a time"
+        )]
+        let probes: Vec<_> = runtimes
+            .iter()
+            .zip(programs)
+            .map(|(runtime, program)| {
+                let hash = &hashes[&program.path];
+                scope.spawn(move || probe(runtime, program, dir, hash, watchdog))
+            })
+            .collect();
+        probes
+            .into_iter()
+            .map(|probe| {
+                probe
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })
+}
+
+/// Probes `runtime`'s version (and V8 version, when it names the args) and
+/// measures its executable's size, as is and gzipped.
+fn probe(
     runtime: &Runtime,
     program: &Program,
     dir: &Path,

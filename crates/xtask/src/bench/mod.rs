@@ -53,10 +53,10 @@ use std::fs;
 use std::io;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 
 use gro_bench::error::BenchError;
-use gro_bench::record::{GitState, Machine, MachineQuiet};
+use gro_bench::record::{GitState, Machine, MachineQuiet, RunRecord};
 use gro_bench::run::{Measure, RunContext, run as run_suite};
 use gro_bench::suite::{Runtime, Suite};
 
@@ -89,11 +89,23 @@ enum BenchPlan {
         history: Option<PathBuf>,
         attest_quiet: bool,
         samples: Option<u32>,
-        kind: RunKind,
+        requested: Requested,
     },
 }
 
-/// What a run measures and what becomes of its record.
+/// The run the flags ask for, before the suite says whether it's a prices
+/// run ([`Requested::for_suite`]).
+#[derive(Debug, PartialEq, Eq)]
+enum Requested {
+    /// A run whose record is appended, measuring as `Recorded` says.
+    Record(Recorded),
+    /// `--counters --base <rev>`: each fgro row beside a build at `rev`,
+    /// built under `dir` (`--base-dir`), recording nothing.
+    Ab { rev: String, dir: Option<PathBuf> },
+}
+
+/// What a run measures and what becomes of its record: the [`Requested`]
+/// run, or a prices suite's.
 #[derive(Debug, PartialEq, Eq)]
 enum RunKind {
     /// A run whose record is appended, measuring as `Recorded` says.
@@ -102,7 +114,7 @@ enum RunKind {
     /// built under `dir` (`--base-dir`), recording nothing.
     Ab { rev: String, dir: Option<PathBuf> },
     /// A prices suite's run, under `perf stat` when `counters`; its record
-    /// is appended. Only [`RunKind::for_suite`] makes one, from the suite.
+    /// is appended.
     Prices { counters: bool },
 }
 
@@ -144,7 +156,7 @@ impl BenchPlan {
         if args.base_dir.is_some() && args.base.is_none() {
             return usage("--base-dir is where --base builds, so it needs --base");
         }
-        let kind = match args.base {
+        let requested = match args.base {
             Some(rev) => {
                 let set = base::codegen_overrides(vars);
                 if !set.is_empty() {
@@ -154,32 +166,35 @@ impl BenchPlan {
                         set.join(", ")
                     ));
                 }
-                RunKind::Ab {
+                Requested::Ab {
                     rev,
                     dir: args.base_dir,
                 }
             }
-            None if args.phases => RunKind::Record(Recorded::Phases),
-            None if args.counters => RunKind::Record(Recorded::Counters),
-            None => RunKind::Record(Recorded::Wall),
+            None if args.phases => Requested::Record(Recorded::Phases),
+            None if args.counters => Requested::Record(Recorded::Counters),
+            None => Requested::Record(Recorded::Wall),
         };
         Ok(Self::Run {
             suite: args.suite,
             history: args.history,
             attest_quiet: args.attest_quiet,
             samples: args.samples,
-            kind,
+            requested,
         })
     }
 }
 
-impl RunKind {
+impl Requested {
     /// The kind of run `suite` makes of this one: a prices suite's is
     /// [`RunKind::Prices`], every runtime of it fgro, and refuses `--phases`
     /// and `--base`, which would replace the priced build.
-    fn for_suite(self, suite: &Suite) -> Result<Self, XtaskError> {
+    fn for_suite(self, suite: &Suite) -> Result<RunKind, XtaskError> {
         if suite.prices.is_none() {
-            return Ok(self);
+            return Ok(match self {
+                Self::Record(recorded) => RunKind::Record(recorded),
+                Self::Ab { rev, dir } => RunKind::Ab { rev, dir },
+            });
         }
         if let Some(runtime) = suite.runtimes.iter().find(|runtime| !is_fgro(runtime)) {
             return Err(XtaskError::bench_usage(format!(
@@ -188,13 +203,11 @@ impl RunKind {
             )));
         }
         match self {
-            Self::Record(Recorded::Wall) => Ok(Self::Prices { counters: false }),
-            Self::Record(Recorded::Counters) => Ok(Self::Prices { counters: true }),
-            Self::Record(Recorded::Phases) | Self::Ab { .. } | Self::Prices { .. } => {
-                Err(XtaskError::bench_usage(
-                    "a prices suite runs the priced build, which --phases and --base would replace",
-                ))
-            }
+            Self::Record(Recorded::Wall) => Ok(RunKind::Prices { counters: false }),
+            Self::Record(Recorded::Counters) => Ok(RunKind::Prices { counters: true }),
+            Self::Record(Recorded::Phases) | Self::Ab { .. } => Err(XtaskError::bench_usage(
+                "a prices suite runs the priced build, which --phases and --base would replace",
+            )),
         }
     }
 }
@@ -207,15 +220,15 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         args,
         std::env::vars_os().map(|(name, _)| name.to_string_lossy().into_owned()),
     )?;
-    let (suite_path, history, attest_quiet, samples, kind) = match plan {
+    let (suite_path, history, attest_quiet, samples, requested) = match plan {
         BenchPlan::Report { history } => return bench_report(root, history),
         BenchPlan::Run {
             suite,
             history,
             attest_quiet,
             samples,
-            kind,
-        } => (suite, history, attest_quiet, samples, kind),
+            requested,
+        } => (suite, history, attest_quiet, samples, requested),
     };
     let history = history_path(root, history)
         .map_err(|error| XtaskError::bench_input(format!("invalid --history: {error}")))?;
@@ -223,15 +236,8 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut suite = Suite::load(&suite_path)?;
-    if let Some(samples) = samples {
-        let Some(samples) = NonZeroU32::new(samples) else {
-            return Err(XtaskError::bench_usage("--samples is at least 2"));
-        };
-        suite.samples = samples;
-        suite.validate()?;
-    }
-    let kind = kind.for_suite(&suite)?;
+    let mut suite = load_suite(&suite_path, samples)?;
+    let kind = requested.for_suite(&suite)?;
     let release = build_fgro(root, &suite, suite_dir)?;
     let fgro_names: BTreeSet<String> = suite
         .runtimes
@@ -243,60 +249,8 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
         .as_ref()
         // beside the release binary, as `cargo xtask build` writes it
         .map(|release| release.binary.with_file_name("snapshot.bin"));
-    let measure = match &kind {
-        RunKind::Record(Recorded::Wall) => Measure::Wall,
-        RunKind::Record(Recorded::Counters) | RunKind::Ab { .. } => Measure::Counters,
-        RunKind::Prices { counters } => {
-            // a prices suite's runtimes are all fgro, so the release was built
-            let Some(release) = &release else {
-                return Err(XtaskError::bench_input("a prices suite runs no fgro"));
-            };
-            measurement_build(root, release, Measurement::Prices, &fgro_names, &mut suite)?;
-            if *counters {
-                Measure::Counters
-            } else {
-                Measure::Wall
-            }
-        }
-        RunKind::Record(Recorded::Phases) => {
-            let Some(release) = &release else {
-                return Err(XtaskError::bench_usage(
-                    "--phases times fgro's phases, and the suite runs no fgro",
-                ));
-            };
-            measurement_build(root, release, Measurement::Phases, &fgro_names, &mut suite)?;
-            Measure::Phases {
-                runtimes: fgro_names.clone(),
-            }
-        }
-    };
-    let base = match kind {
-        RunKind::Ab { rev, dir } => {
-            if fgro_names.is_empty() {
-                return Err(XtaskError::bench_usage(
-                    "--base compares fgro builds, and the suite runs no fgro",
-                ));
-            }
-            let sha = base::resolve(root, &rev)?;
-            let dir = base::base_dir(dir)?;
-            let lock = base::lock(&dir)?;
-            let built = base::build(root, &dir, &sha, &lock)?;
-            suite = base_suite(&suite, &fgro_names, &built.binary);
-            // the toolchain the head's build ran: this process's, which
-            // `cargo xtask` started under the checkout's pin
-            let mut rustc = Command::new("rustc");
-            rustc.current_dir(root);
-            let head_rustc = base::rustc_version(rustc)?;
-            Some(BaseRun {
-                rev,
-                sha,
-                rustc: built.rustc,
-                head_rustc,
-                _lock: lock,
-            })
-        }
-        RunKind::Record(_) | RunKind::Prices { .. } => None,
-    };
+    let measure = measure_for(root, &kind, release.as_ref(), &fgro_names, &mut suite)?;
+    let base = prepare_base(root, kind, &fgro_names, &mut suite)?;
     let git = GitState::read(root, &history)?;
     let context = RunContext {
         git,
@@ -321,6 +275,104 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
     if base.is_none() {
         record.append_to(&history)?;
     }
+    print_outcome(&suite, &record, base.as_ref(), &history);
+    Ok(())
+}
+
+/// Loads the suite at `path`, with its sample count replaced by `samples`
+/// (`--samples`) and checked again when given.
+fn load_suite(path: &Path, samples: Option<u32>) -> Result<Suite, XtaskError> {
+    let mut suite = Suite::load(path)?;
+    if let Some(samples) = samples {
+        let Some(samples) = NonZeroU32::new(samples) else {
+            return Err(XtaskError::bench_usage("--samples is at least 2"));
+        };
+        suite.samples = samples;
+        suite.validate()?;
+    }
+    Ok(suite)
+}
+
+/// What `kind`'s samples measure beside wall time, after building and
+/// swapping in the measurement build a prices or phases run times.
+fn measure_for(
+    root: &Path,
+    kind: &RunKind,
+    release: Option<&Release>,
+    fgro_names: &BTreeSet<String>,
+    suite: &mut Suite,
+) -> Result<Measure, XtaskError> {
+    Ok(match kind {
+        RunKind::Record(Recorded::Wall) => Measure::Wall,
+        RunKind::Record(Recorded::Counters) | RunKind::Ab { .. } => Measure::Counters,
+        RunKind::Prices { counters } => {
+            // can't fire: `for_suite` makes a prices run only when every
+            // runtime is fgro, and a valid suite has at least one, so the
+            // release was built
+            let Some(release) = release else {
+                return Err(XtaskError::bench_input("a prices suite runs no fgro"));
+            };
+            measurement_build(root, release, Measurement::Prices, fgro_names, suite)?;
+            if *counters {
+                Measure::Counters
+            } else {
+                Measure::Wall
+            }
+        }
+        RunKind::Record(Recorded::Phases) => {
+            let Some(release) = release else {
+                return Err(XtaskError::bench_usage(
+                    "--phases times fgro's phases, and the suite runs no fgro",
+                ));
+            };
+            measurement_build(root, release, Measurement::Phases, fgro_names, suite)?;
+            Measure::Phases {
+                runtimes: fgro_names.clone(),
+            }
+        }
+    })
+}
+
+/// For an A/B, builds the base at its revision and replaces `suite` with
+/// the A/B's ([`base_suite`]), returning what it compares against; `None`
+/// for any other run.
+fn prepare_base(
+    root: &Path,
+    kind: RunKind,
+    fgro_names: &BTreeSet<String>,
+    suite: &mut Suite,
+) -> Result<Option<BaseRun>, XtaskError> {
+    let RunKind::Ab { rev, dir } = kind else {
+        return Ok(None);
+    };
+    if fgro_names.is_empty() {
+        return Err(XtaskError::bench_usage(
+            "--base compares fgro builds, and the suite runs no fgro",
+        ));
+    }
+    let sha = base::resolve(root, &rev)?;
+    let dir = base::base_dir(dir)?;
+    let lock = base::lock(&dir)?;
+    let built = base::build(root, &dir, &sha, &lock)?;
+    *suite = base_suite(suite, fgro_names, &built.binary);
+    // the toolchain the head's build ran: this process's, which
+    // `cargo xtask` started under the checkout's pin
+    let mut rustc = Command::new("rustc");
+    rustc.current_dir(root);
+    let head_rustc = base::rustc_version(rustc)?;
+    Ok(Some(BaseRun {
+        rev,
+        sha,
+        rustc: built.rustc,
+        head_rustc,
+        _lock: lock,
+    }))
+}
+
+/// Prints a finished run: the kernel-counting note when perf counted user
+/// space alone, the summary, then the A/B's table for an A/B, or else the
+/// prices or gate table and where the record went.
+fn print_outcome(suite: &Suite, record: &RunRecord, base: Option<&BaseRun>, history: &Path) {
     if let Some(tool) = &record.counters
         && !tool
             .events
@@ -331,8 +383,8 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
             "[xtask] perf can't count the kernel's instructions for this user (`perf_event_paranoid` above 1), so this run counted user space alone"
         );
     }
-    print!("{}", gro_bench::summary::summary(&record));
-    if let Some(base) = &base {
+    print!("{}", gro_bench::summary::summary(record));
+    if let Some(base) = base {
         println!(
             "\n[xtask] A/B: this checkout ({}{}) against --base {} ({}), same session, interleaved",
             record.git.sha.get(..12).unwrap_or(&record.git.sha),
@@ -344,24 +396,23 @@ pub fn bench(root: &Path, args: Bench) -> StepResult {
             "[xtask] toolchains: this checkout {}, the base {}",
             base.head_rustc, base.rustc
         );
-        let (table, flagged) = gro_bench::summary::ab_table(&record, BASE_SUFFIX);
+        let (table, flagged) = gro_bench::summary::ab_table(record, BASE_SUFFIX);
         print!("{table}");
         if flagged > 0 {
             println!("[xtask] {flagged} row(s) moved past the perf rule");
         }
         println!("[xtask] an A/B records nothing");
-        return Ok(());
+        return;
     }
     if let Some(prices) = &suite.prices {
         println!();
-        print!("{}", gro_bench::prices::table(&record, prices));
+        print!("{}", gro_bench::prices::table(record, prices));
     } else if record.mode == gro_bench::record::Mode::Wall {
-        print!("{}", gro_bench::summary::gate(&suite, &record, is_fgro));
+        print!("{}", gro_bench::summary::gate(suite, record, is_fgro));
     } else {
         println!("\n(no gate table: it reads wall times, which this mode's processes inflate)");
     }
     println!("[xtask] appended the record to {}", history.display());
-    Ok(())
 }
 
 /// Builds the snapshot `fgro` with `measurement`'s feature and runs it in
@@ -494,26 +545,43 @@ const PHASES_MARKER: &str = ", phases";
 /// The marker a priced build's `--version` line carries.
 const PRICES_MARKER: &str = ", prices";
 
-/// `built --version`'s first line, failing when it doesn't run.
+/// What a `--version` probe printed: its exit status, and its stdout and
+/// stderr, each decoded lossily and trimmed.
+struct VersionOutput {
+    status: ExitStatus,
+    stdout: String,
+    stderr: String,
+}
+
+/// Runs `command` with `--version` appended and stdin on the null device,
+/// failing only when it can't be spawned; each caller judges the output.
+fn probe_version(command: &mut Command) -> io::Result<VersionOutput> {
+    let output = command.arg("--version").stdin(Stdio::null()).output()?;
+    Ok(VersionOutput {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    })
+}
+
+/// What `built --version` prints to stdout, trimmed, failing when it doesn't
+/// run.
 fn version_line(built: &Path) -> Result<String, XtaskError> {
-    let output = Command::new(built)
-        .arg("--version")
-        .output()
-        .map_err(|error| {
-            XtaskError::Failed(format!(
-                "bench failed: {} --version: {error}",
-                built.display()
-            ))
-        })?;
-    let line = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let output = probe_version(&mut Command::new(built)).map_err(|error| {
+        XtaskError::Failed(format!(
+            "bench failed: {} --version: {error}",
+            built.display()
+        ))
+    })?;
     if !output.status.success() {
         return Err(XtaskError::bench_input(format!(
-            "{} doesn't run ({}): {line}",
+            "{} doesn't run ({}): {}",
             built.display(),
             output.status,
+            output.stdout,
         )));
     }
-    Ok(line)
+    Ok(output.stdout)
 }
 
 /// Refuses a release build that is a measurement build (phases or priced),
@@ -622,25 +690,28 @@ mod tests {
                 history: Some(PathBuf::from("h.jsonl"))
             })
         );
-        let run = |kind| BenchPlan::Run {
+        let run = |requested| BenchPlan::Run {
             suite: PathBuf::from("s.json"),
             history: None,
             attest_quiet: false,
             samples: None,
-            kind,
+            requested,
         };
-        assert_eq!(plan(&["s.json"]), Ok(run(RunKind::Record(Recorded::Wall))));
+        assert_eq!(
+            plan(&["s.json"]),
+            Ok(run(Requested::Record(Recorded::Wall)))
+        );
         assert_eq!(
             plan(&["s.json", "--phases"]),
-            Ok(run(RunKind::Record(Recorded::Phases)))
+            Ok(run(Requested::Record(Recorded::Phases)))
         );
         assert_eq!(
             plan(&["s.json", "--counters"]),
-            Ok(run(RunKind::Record(Recorded::Counters)))
+            Ok(run(Requested::Record(Recorded::Counters)))
         );
         assert_eq!(
             plan(&["s.json", "--counters", "--base", "HEAD", "--base-dir", "d"]),
-            Ok(run(RunKind::Ab {
+            Ok(run(Requested::Ab {
                 rev: "HEAD".to_owned(),
                 dir: Some(PathBuf::from("d")),
             }))
@@ -696,33 +767,65 @@ mod tests {
             .unwrap()
         };
         let prices = suite("fgro");
-        let kind = |kind: RunKind| kind.for_suite(&prices).map_err(|error| error.to_string());
+        let kind = |requested: Requested| {
+            requested
+                .for_suite(&prices)
+                .map_err(|error| error.to_string())
+        };
         assert_eq!(
-            kind(RunKind::Record(Recorded::Wall)),
+            kind(Requested::Record(Recorded::Wall)),
             Ok(RunKind::Prices { counters: false })
         );
         assert_eq!(
-            kind(RunKind::Record(Recorded::Counters)),
+            kind(Requested::Record(Recorded::Counters)),
             Ok(RunKind::Prices { counters: true })
         );
         let replaced = Err(
             "bench: a prices suite runs the priced build, which --phases and --base would replace"
                 .to_owned(),
         );
-        assert_eq!(kind(RunKind::Record(Recorded::Phases)), replaced);
+        assert_eq!(kind(Requested::Record(Recorded::Phases)), replaced);
         assert_eq!(
-            kind(RunKind::Ab {
+            kind(Requested::Ab {
                 rev: "HEAD".to_owned(),
                 dir: None
             }),
             replaced
         );
-        let error = RunKind::Record(Recorded::Wall)
+        let error = Requested::Record(Recorded::Wall)
             .for_suite(&suite("node"))
             .unwrap_err();
         assert_eq!(
             error.to_string(),
             "bench: a prices suite prices fgro's defaults, and its runtime `node` isn't fgro"
+        );
+    }
+
+    #[test]
+    fn a_suite_without_prices_runs_as_requested() {
+        let suite: Suite = serde_json::from_str(
+            r#"{"name": "s", "version": 1, "samples": 2,
+                "runtimes": [{"name": "node", "program": "node"}],
+                "workloads": [{"name": "w", "script": "w.js"}]}"#,
+        )
+        .unwrap();
+        for recorded in [Recorded::Wall, Recorded::Phases, Recorded::Counters] {
+            assert_eq!(
+                Requested::Record(recorded).for_suite(&suite).unwrap(),
+                RunKind::Record(recorded)
+            );
+        }
+        assert_eq!(
+            Requested::Ab {
+                rev: "HEAD".to_owned(),
+                dir: None
+            }
+            .for_suite(&suite)
+            .unwrap(),
+            RunKind::Ab {
+                rev: "HEAD".to_owned(),
+                dir: None
+            }
         );
     }
 

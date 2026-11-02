@@ -7,8 +7,39 @@ use crate::error::BenchError;
 use crate::record::{Metric, NoiseRecord, PhaseMetric, RowRecord};
 use crate::stats::{Stats, ratio_deviation};
 
+/// Each row's record from its samples (`samples[i]` row `i`'s; any extra
+/// entry, the noise row's, is ignored), with each
+/// sample's peak memory when `wall`, the one run whose spawner is the
+/// harness alone.
+pub(super) fn row_records(
+    rows: &[RowCommand],
+    samples: &[Vec<Sample>],
+    wall: bool,
+) -> Result<Vec<RowRecord>, BenchError> {
+    rows.iter()
+        .zip(samples)
+        .map(|(row, samples)| {
+            Ok(RowRecord {
+                runtime: row.runtime.clone(),
+                workload: row.workload.clone(),
+                warmup: row.warmup,
+                wall_ns: wall_metric(samples),
+                instructions: count_metric(samples, |counts| counts.instructions),
+                cycles: count_metric(samples, |counts| counts.cycles),
+                kernel_instructions: samples
+                    .iter()
+                    .map(|sample| sample.counts.and_then(|counts| counts.kernel_instructions))
+                    .collect::<Option<Vec<u64>>>()
+                    .map(metric),
+                phases: phase_metrics(row, samples)?,
+                peak_rss_kib: if wall { rss_metric(samples) } else { None },
+            })
+        })
+        .collect()
+}
+
 /// The peak memory of every sample, when each has one.
-pub(super) fn rss_metric(samples: &[Sample]) -> Option<Metric> {
+fn rss_metric(samples: &[Sample]) -> Option<Metric> {
     samples
         .iter()
         .map(|sample| sample.max_rss_kib)
@@ -16,12 +47,12 @@ pub(super) fn rss_metric(samples: &[Sample]) -> Option<Metric> {
         .map(metric)
 }
 
-pub(super) fn wall_metric(samples: &[Sample]) -> Metric {
+fn wall_metric(samples: &[Sample]) -> Metric {
     metric(samples.iter().map(|sample| sample.wall_ns).collect())
 }
 
 /// The metric of `samples`, which a row always has.
-pub(super) fn metric(samples: Vec<u64>) -> Metric {
+fn metric(samples: Vec<u64>) -> Metric {
     #[expect(
         clippy::expect_used,
         reason = "every row gets `samples` samples, which the suite's type keeps above 0"
@@ -31,7 +62,7 @@ pub(super) fn metric(samples: Vec<u64>) -> Metric {
 }
 
 /// One count of every sample, when each was counted.
-pub(super) fn count_metric(samples: &[Sample], count: impl Fn(&Counts) -> u64) -> Option<Metric> {
+fn count_metric(samples: &[Sample], count: impl Fn(&Counts) -> u64) -> Option<Metric> {
     samples
         .iter()
         .map(|sample| sample.counts.as_ref().map(&count))
@@ -41,10 +72,7 @@ pub(super) fn count_metric(samples: &[Sample], count: impl Fn(&Counts) -> u64) -
 
 /// Each phase's durations over `row`'s samples, which must name the same
 /// phases in the same order.
-pub(super) fn phase_metrics(
-    row: &RowCommand,
-    samples: &[Sample],
-) -> Result<Vec<PhaseMetric>, BenchError> {
+fn phase_metrics(row: &RowCommand, samples: &[Sample]) -> Result<Vec<PhaseMetric>, BenchError> {
     let Some(first) = samples.first() else {
         return Ok(Vec::new());
     };

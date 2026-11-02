@@ -35,7 +35,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use gro_bench::lock::{DirLock, LockError, LockIoError, try_lock_dir};
 
@@ -110,26 +110,21 @@ fn clean_command(program: &str, dir: &Path) -> Command {
     command
 }
 
-/// The first line `rustc --version` prints from `command`, a `rustc`
-/// command set up as the caller wants it.
+/// What `rustc --version` prints to stdout from `command`, a `rustc`
+/// command set up as the caller wants it, trimmed; failing when it exits
+/// unsuccessfully or prints nothing.
 pub fn rustc_version(mut command: Command) -> Result<String, XtaskError> {
-    let output = command
-        .arg("--version")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|source| XtaskError::Spawn {
-            display: "rustc --version".to_owned(),
-            source,
-        })?;
-    let line = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if !output.status.success() || line.is_empty() {
+    let output = super::probe_version(&mut command).map_err(|source| XtaskError::Spawn {
+        display: "rustc --version".to_owned(),
+        source,
+    })?;
+    if !output.status.success() || output.stdout.is_empty() {
         return Err(XtaskError::Failed(format!(
             "rustc --version failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
+            output.status, output.stderr
         )));
     }
-    Ok(line)
+    Ok(output.stdout)
 }
 
 /// The `channel` a `rust-toolchain.toml`'s text pins, when it names one.

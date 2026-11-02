@@ -6,9 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::prepare::resolve_file;
+use super::prepare::{Copies, resolve_file};
+use crate::collection::list_paths;
 use crate::error::BenchError;
-use crate::git::checkout_root;
+use crate::git::{checkout_root, read_corpora_tree};
 use crate::record::CheckoutState;
 use crate::suite::Suite;
 
@@ -34,7 +35,7 @@ fn hash_file(path: &Path) -> Result<String, BenchError> {
 
 /// The artifacts whose hash differs between `before` and `after`, which hash
 /// the same set of paths.
-pub(super) fn changed_artifacts(
+fn changed_artifacts(
     before: &BTreeMap<PathBuf, String>,
     after: &BTreeMap<PathBuf, String>,
 ) -> Vec<PathBuf> {
@@ -43,6 +44,49 @@ pub(super) fn changed_artifacts(
         .filter(|&(path, hash)| after.get(path) != Some(hash))
         .map(|(path, _)| path.clone())
         .collect()
+}
+
+/// The paths in each of `copies`' roots, in root order.
+pub(super) fn list_copies(copies: &Copies) -> Result<Vec<BTreeSet<PathBuf>>, BenchError> {
+    copies.roots.iter().map(|root| list_paths(root)).collect()
+}
+
+/// What changed since `before` and `listed` were read, read again after the
+/// run's samples: each artifact whose hash moved from `before`, each path a
+/// copy gained or lost against `listed`, the corpora checkout when its tree
+/// moved, and each other checkout whose state moved.
+pub(super) fn changed_during_run(
+    artifacts: &BTreeSet<PathBuf>,
+    before: &BTreeMap<PathBuf, String>,
+    copies: &Copies,
+    listed: &[BTreeSet<PathBuf>],
+    corpora: Option<&(PathBuf, String)>,
+    checkouts: &BTreeMap<String, (PathBuf, CheckoutState)>,
+) -> Result<Vec<PathBuf>, BenchError> {
+    let after = hash_artifacts(artifacts)?;
+    let mut changed = changed_artifacts(before, &after);
+    for (root, before) in copies.roots.iter().zip(listed) {
+        // a path written or removed in a copy, such as a lockfile or an install
+        let after = list_paths(root)?;
+        changed.extend(before.symmetric_difference(&after).cloned());
+    }
+    if let Some((path, tree)) = corpora {
+        // a re-pin or a local change mid-run, which the tree id wouldn't name
+        if read_corpora_tree(path).ok().as_ref() != Some(tree) {
+            changed.push(path.clone());
+        }
+    }
+    let roots: BTreeMap<&PathBuf, &CheckoutState> = checkouts
+        .values()
+        .map(|(root, state)| (root, state))
+        .collect();
+    for (root, state) in roots {
+        // a commit, a switch, or an edit mid-run in another checkout
+        if CheckoutState::read(root).ok().as_ref() != Some(state) {
+            changed.push(root.clone());
+        }
+    }
+    Ok(changed)
 }
 
 /// Reads the state of each checkout outside the suite's own (the one holding

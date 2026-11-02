@@ -13,6 +13,7 @@ use crate::counters::{Counts, Perf};
 use crate::error::BenchError;
 use crate::phases::{self, SampleSpan};
 use crate::record::{CounterTool, Mode};
+use crate::schedule::schedule;
 use crate::suite::Suite;
 use crate::watchdog::Watchdog;
 
@@ -169,9 +170,33 @@ fn unix_ns() -> u128 {
         .map_or(0, |since| since.as_nanos())
 }
 
+/// Runs every row's warmups, then its timed samples, each in the interleaved
+/// order of [`schedule`], with the first row again as the noise row,
+/// returning each row's samples and then the noise row's.
+pub(super) fn sample_rows(
+    suite: &Suite,
+    rows: &[RowCommand],
+    dir: &Path,
+    sampler: &Sampler,
+    watchdog: &Watchdog,
+) -> Result<Vec<Vec<Sample>>, BenchError> {
+    // the noise row: the first row again, measured as a row of its own
+    let commands: Vec<&RowCommand> = rows.iter().chain(rows.first()).collect();
+    let warmups: Vec<usize> = commands.iter().map(|row| row.warmup as usize).collect();
+    for index in schedule(&warmups) {
+        run_once(commands[index], dir, &Sampler::Wall, watchdog)?;
+    }
+    let sample_count = suite.samples.get() as usize;
+    let mut samples: Vec<Vec<Sample>> = vec![Vec::with_capacity(sample_count); commands.len()];
+    for index in schedule(&vec![sample_count; commands.len()]) {
+        samples[index].push(run_once(commands[index], dir, sampler, watchdog)?);
+    }
+    Ok(samples)
+}
+
 /// Runs one fresh process of `row` and times it, measuring what `sampler`
 /// says, the process killed should it pass `watchdog`'s deadline.
-pub(super) fn run_once(
+fn run_once(
     row: &RowCommand,
     dir: &Path,
     sampler: &Sampler,
