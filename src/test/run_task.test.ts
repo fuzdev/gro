@@ -150,6 +150,28 @@ test('run_task reports a failed nested `invoke_task` as a failure, not an unexpe
 	assert.notInclude(result.reason, 'Unexpected error');
 });
 
+test('run_task reports a `TaskError` subclass by its message, not as an unexpected error', async () => {
+	class SubTaskError extends TaskError {}
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: {
+				task: {
+					run: () => {
+						throw new SubTaskError('known failure');
+					}
+				}
+			}
+		},
+		{},
+		await create_mock_run_task_options()
+	);
+	assert(!result.ok);
+	assert.include(result.reason, 'known failure');
+	assert.notInclude(result.reason, 'Unexpected error');
+});
+
 test('run_task passes the graph and watcher to the task and to the tasks it invokes', async () => {
 	const graph = create_mock_module_graph();
 	const watcher = create_mock_watcher();

@@ -212,6 +212,31 @@ export class TaskError extends Error {
 export class SilentError extends Error {}
 
 /**
+ * Whether `error` is an instance of a class named `name` or of a subclass of one,
+ * by walking its prototype chain, since a task module can load a different copy
+ * of Gro's error classes, which `instanceof` misses.
+ */
+const is_error_class_named = (error: unknown, name: string): boolean => {
+	if (typeof error !== 'object' || error === null) return false;
+	for (let p = Object.getPrototypeOf(error); p !== null; p = Object.getPrototypeOf(p)) {
+		if (Object.hasOwn(p, 'constructor') && p.constructor?.name === name) return true;
+	}
+	return false;
+};
+
+/**
+ * Whether `error` is a `TaskError` or a subclass of one, from any copy of Gro.
+ */
+export const is_task_error = (error: unknown): error is TaskError =>
+	is_error_class_named(error, 'TaskError');
+
+/**
+ * Whether `error` is a `SilentError` or a subclass of one, from any copy of Gro.
+ */
+export const is_silent_error = (error: unknown): error is SilentError =>
+	is_error_class_named(error, 'SilentError');
+
+/**
  * A task file's module, which exports the `task`.
  */
 export interface TaskModule {

@@ -90,6 +90,18 @@ describe('invoke_task nested failure', () => {
 		assert.notInclude(text, 'Unexpected error');
 	});
 
+	test('a nested `TaskError` subclass is reported once, by its message, with no stack', async () => {
+		const error = await invoke_outer(
+			write_nested(`class SubTaskError extends TaskError {}
+throw new SubTaskError('inner sub boom');`)
+		);
+		assert.instanceOf(error, SilentError);
+		const text = errors.map((args) => format(...args)).join('\n');
+		assert.strictEqual(count(text, 'inner sub boom'), 1, text);
+		assert.notInclude(text, 'Unexpected error');
+		assert.notInclude(text, 'inner.task.ts:'); // no stack
+	});
+
 	test("a nested task's invalid args fail under the nested task, reported once", async () => {
 		const error = await invoke_outer(write_outer(`invoke_task('gen', {bogus: 1})`));
 		assert.instanceOf(error, SilentError);

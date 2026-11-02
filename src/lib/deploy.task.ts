@@ -23,7 +23,7 @@ import {
 	git_current_branch_name
 } from '@fuzdev/fuz_util/git.ts';
 
-import { SilentError, TaskError, type Task } from './task.ts';
+import { is_silent_error, TaskError, type Task } from './task.ts';
 import { print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
 
@@ -297,7 +297,7 @@ export const task: Task<Args> = {
 				'but',
 				st('green', 'no changes were made to git'),
 				// a `SilentError` means the build's failure is already reported above
-				...(error instanceof SilentError ? [] : [print_error(error)])
+				...(is_silent_error(error) ? [] : [print_error(error)])
 			);
 			if (dry) {
 				log.info(st('red', 'dry deploy failed'));

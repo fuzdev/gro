@@ -16,11 +16,12 @@ import {
 import { run_task } from './run_task.ts';
 import {
 	is_builtin_task_name,
+	is_silent_error,
+	is_task_error,
 	is_task_path,
 	is_task_path_input,
 	load_task,
 	SilentError,
-	TaskError,
 	to_builtin_task_id,
 	to_task_command,
 	to_task_path,
@@ -117,7 +118,7 @@ export const invoke_task = async (
 	try {
 		forwarded = to_forwarded_args(to_task_command(task.name));
 	} catch (error) {
-		if (!(error instanceof TaskError)) throw error;
+		if (!is_task_error(error)) throw error;
 		log_error_reasons(log, [error.message]);
 		throw new SilentError();
 	}
@@ -161,10 +162,8 @@ export const invoke_task = async (
 	if (!result.ok) {
 		log.info(`${st('red', '🞩')} ${st('cyan', task.name)}`);
 		log_error_reasons(log, [result.reason]);
-		// an unexpected error's stack is logged here, once, as nothing above reports it;
-		// checked by name since a task module can load a different copy of the error classes
-		const error_name = (result.error as Error | null)?.constructor?.name;
-		if (error_name !== 'TaskError' && error_name !== 'SilentError') log.error(result.error);
+		// an unexpected error's stack is logged here, once, as nothing above reports it
+		if (!is_task_error(result.error) && !is_silent_error(result.error)) log.error(result.error);
 		// reported, so the invoking task says only that this one failed and the CLI exits quietly,
 		// with the original as `cause` for a task that catches it
 		throw new SilentError(undefined, { cause: result.error });

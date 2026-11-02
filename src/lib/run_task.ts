@@ -8,7 +8,13 @@ import type { ModuleGraph, Watcher } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import { TaskError, type InvokeTaskContextOptions, type TaskModuleMeta } from './task.ts';
+import {
+	is_silent_error,
+	is_task_error,
+	TaskError,
+	type InvokeTaskContextOptions,
+	type TaskModuleMeta
+} from './task.ts';
 import { log_task_help } from './task_logging.ts';
 
 /**
@@ -106,14 +112,13 @@ export const run_task = async (
 				})
 		});
 	} catch (error) {
-		const error_name = error?.constructor?.name;
 		return {
 			ok: false,
 			reason: st(
 				'red',
-				error_name === 'TaskError'
-					? (error.message as string)
-					: error_name === 'SilentError' // already reported, like a failed nested `invoke_task`
+				is_task_error(error)
+					? error.message
+					: is_silent_error(error) // already reported, like a failed nested `invoke_task`
 						? `Task ${st('cyan', task_meta.name)} failed.`
 						: `Unexpected error running task ${st(
 								'cyan',
