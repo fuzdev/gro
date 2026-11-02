@@ -1,0 +1,3 @@
+#!/bin/sh
+echo "the build is broken on stdout"
+exit 4

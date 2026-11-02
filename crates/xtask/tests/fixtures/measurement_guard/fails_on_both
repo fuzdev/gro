@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "noise on stdout"
+echo "the build is broken on both" >&2
+exit 5

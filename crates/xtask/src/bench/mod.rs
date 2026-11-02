@@ -565,18 +565,29 @@ fn probe_version(command: &mut Command) -> io::Result<VersionOutput> {
 }
 
 /// What `built --version` prints to stdout, trimmed, failing when it can't
-/// be spawned or exits unsuccessfully, with the stderr that says why.
+/// be spawned or exits unsuccessfully, with the stderr that says why, or the
+/// stdout when stderr is empty, or neither when it printed nothing (as when
+/// killed by a signal).
 fn version_line(built: &Path) -> Result<String, XtaskError> {
     let output = probe_version(&mut Command::new(built)).map_err(|source| XtaskError::Spawn {
         display: format!("{} --version", built.display()),
         source,
     })?;
     if !output.status.success() {
+        let why = if output.stderr.is_empty() {
+            &output.stdout
+        } else {
+            &output.stderr
+        };
+        let why = if why.is_empty() {
+            String::new()
+        } else {
+            format!(": {why}")
+        };
         return Err(XtaskError::bench_input(format!(
-            "{} doesn't run ({}): {}",
+            "{} doesn't run ({}){why}",
             built.display(),
             output.status,
-            output.stderr,
         )));
     }
     Ok(output.stdout)
@@ -936,19 +947,30 @@ mod tests {
     }
 
     /// A build that exits unsuccessfully is refused with the stderr that
-    /// says why, and one that can't be spawned keeps its own exit code.
+    /// says why (or its stdout, with no stderr, or nothing, with neither),
+    /// and one that can't be spawned keeps its own exit code.
     #[test]
     fn a_build_that_doesnt_run_is_refused_with_its_stderr() {
         let fakes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/measurement_guard");
-        let Err(error) = refuse_measurement_build(&fakes.join("fails")) else {
-            panic!("a failing build passed");
-        };
-        assert_eq!(error.exit_code(), EXIT_INPUT);
-        let message = error.to_string();
-        assert!(
-            message.ends_with("(exit status: 3): the build is broken"),
-            "{message}"
-        );
+        for (build, ending) in [
+            ("fails", "(exit status: 3): the build is broken"),
+            (
+                "fails_on_stdout",
+                "(exit status: 4): the build is broken on stdout",
+            ),
+            (
+                "fails_on_both",
+                "(exit status: 5): the build is broken on both",
+            ),
+            ("killed", "(signal: 9 (SIGKILL))"),
+        ] {
+            let Err(error) = refuse_measurement_build(&fakes.join(build)) else {
+                panic!("the failing build {build} passed");
+            };
+            assert_eq!(error.exit_code(), EXIT_INPUT, "{build}");
+            let message = error.to_string();
+            assert!(message.ends_with(ending), "{build}: {message}");
+        }
         let Err(error) = refuse_measurement_build(&fakes.join("missing")) else {
             panic!("a missing build passed");
         };
