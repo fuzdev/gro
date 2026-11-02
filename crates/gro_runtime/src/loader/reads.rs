@@ -7,9 +7,10 @@
 //! passes one, and nothing says which bytes it parsed. With it, a file is
 //! read once per run: its first read's identity, bytes, and hash stand, a
 //! later read finding the same identity gets the same bytes, and one
-//! finding another identity at the path is refused, as a module's load is
-//! ([`FileId`]). So the hash describes the bytes every resolution in the
-//! run parsed, even when the file is rewritten in place meanwhile. A read
+//! finding another identity at the path is refused
+//! ([`ReadRefusal::Changed`]), as a module's load is ([`FileId`]). So the
+//! hash describes the bytes every resolution in the run parsed, even when
+//! the file is rewritten in place meanwhile. A read
 //! served from the record passes the inner tree's check first
 //! ([`SourceTree::check_read`]), as one that reaches the tree does, so a
 //! record seeded before a rule existed serves nothing the rule refuses.
@@ -23,7 +24,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::resolver::{Entry, FileId, SourceTree};
+use crate::resolver::{Entry, FileId, ReadRefusal, SourceTree};
 
 /// The metadata files a graph's resolutions read, each once, by real path,
 /// and the paths they found absent.
@@ -58,11 +59,6 @@ impl fmt::Debug for FileRead {
 }
 
 impl Reads {
-    /// What a read says when the file at a path isn't the one an earlier
-    /// read in the run found there.
-    pub const CHANGED: &str = "the file at its path is not the one an earlier resolution in this \
-                               run read, so it isn't read again";
-
     /// The BLAKE3 hash of the bytes read from the file at the real path
     /// `path`, if it was read.
     pub fn hash(&self, path: &Path) -> Option<blake3::Hash> {
@@ -114,7 +110,7 @@ impl<T: SourceTree> SourceTree for RecordingTree<'_, T> {
         let mut reads = self.reads.borrow_mut();
         if let Some(read) = reads.files.get(path) {
             if read.id != id {
-                return Err(io::Error::other(Reads::CHANGED));
+                return Err(ReadRefusal::Changed.into());
             }
             return Ok(read.bytes.clone());
         }
@@ -195,7 +191,7 @@ mod tests {
             assert_eq!(counting.reads.get(), 1);
             let other = counting.tree.id("/p/x.json").unwrap();
             let error = tree.read(path, other).unwrap_err();
-            assert_eq!(error.to_string(), Reads::CHANGED);
+            assert_eq!(ReadRefusal::of(&error), Some(&ReadRefusal::Changed));
             // the inner tree refuses a mismatched identity, and nothing is kept
             assert!(tree.read(Path::new("/p/x.json"), id).is_err());
             assert_eq!(counting.reads.get(), 2);

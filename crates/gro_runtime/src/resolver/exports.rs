@@ -6,7 +6,7 @@ use serde_json::Value;
 use url::Url;
 
 use super::CONDITIONS;
-use super::error::{ResolveErrorKind, TargetFault};
+use super::error::{ResolveErrorKind, TargetFault, UrlFault};
 
 /// What a target in `"exports"` resolved to.
 pub(super) enum Target {
@@ -44,7 +44,7 @@ pub(super) fn resolve_exports(
         reason: reason.to_owned(),
     };
     let root = Url::from_directory_path(root)
-        .map_err(|()| ResolveErrorKind::InvalidUrl("names no local path".to_owned()))?;
+        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))?;
     // a string, an array, or an object of conditions alone is the main entry
     let entries: Vec<(&str, &Value)> = match exports {
         Value::String(_) | Value::Array(_) => vec![(".", exports)],
@@ -259,7 +259,7 @@ fn resolve_target_string(
     let unsubstituted = context
         .root
         .join(target)
-        .map_err(|error| ResolveErrorKind::InvalidUrl(error.to_string()))?;
+        .map_err(|error| ResolveErrorKind::InvalidUrl(UrlFault::Join(error)))?;
     if !inside(&unsubstituted) {
         return Err(invalid(TargetFault::Outside));
     }
@@ -278,7 +278,7 @@ fn resolve_target_string(
     let url = context
         .root
         .join(&target.replace('*', matched))
-        .map_err(|error| ResolveErrorKind::InvalidUrl(error.to_string()))?;
+        .map_err(|error| ResolveErrorKind::InvalidUrl(UrlFault::Join(error)))?;
     // the target alone stayed inside, so the match is what left (`.?` after a `.*`)
     if !inside(&url) {
         return Err(invalid_subpath());

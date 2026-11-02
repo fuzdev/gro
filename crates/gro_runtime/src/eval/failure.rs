@@ -274,34 +274,38 @@ fn hint(thrown: &Thrown, jit: bool) -> Option<String> {
 /// again, and a failed driver load ends the eval before the entry's.
 fn first_static_failure(graph: &Graph) -> Option<(&FailureSite, &Failure)> {
     graph
-        .failures
+        .failures()
         .iter()
         .filter(|(site, _)| site.reached == Reached::Import(Reach::Static))
         .find_map(|(site, failures)| failures.first().map(|failure| (site, failure)))
 }
 
 /// The error of a failed load, its kind from the first static failure
-/// recorded: a resolution's is `resolve`; a load's is `link`, unless only a
-/// host bug or a file changed on disk causes it; none is `link`.
+/// recorded: a resolution's is `resolve`, unless only a host bug causes it;
+/// a load's is `link`, unless only a host bug or a file changed on disk
+/// causes it; none is `link`.
 fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> EvalError {
     let Some((site, failure)) = failure else {
         return EvalError::new(ErrorKind::Link, message);
     };
     let kind = match &failure.error {
-        FailureError::Resolve(_) | FailureError::DriverImport => ErrorKind::Resolve,
-        FailureError::Load(
-            LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
-        ) => ErrorKind::Link,
         FailureError::Load(
             LoadFailure::NeverResolved
             | LoadFailure::IdentityMismatch
             | LoadFailure::Read(_)
+            | LoadFailure::OutsideBox
             | LoadFailure::NotAFile
             | LoadFailure::Format(_),
         )
         | FailureError::UnknownImporter
         // never static: an `import()` is refused before it loads anything
         | FailureError::DynamicImport => ErrorKind::Internal,
+        // a read that failed or changed, a breach, or a host bug, as the entry's are
+        FailureError::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
+        FailureError::Resolve(_) | FailureError::DriverImport => ErrorKind::Resolve,
+        FailureError::Load(
+            LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
+        ) => ErrorKind::Link,
     };
     let at = match &failure.error {
         // a position in the module stripped
@@ -327,7 +331,7 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
 /// driver imports, not listed.
 pub(super) fn access(graph: &Graph) -> Access {
     let dynamic = graph
-        .failures
+        .failures()
         .iter()
         .filter(|(_, failures)| {
             failures
@@ -352,9 +356,10 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use crate::loader::graph::{Position, Recording};
-    use crate::loader::strip::StripFailure;
-    use crate::resolver::{FileId, Origin, Resolution, ResolveErrorKind, Roots};
+    use crate::loader::graph::Recording;
+    use crate::loader::strip::{Position, StripFailure};
+    use crate::resolver::ResolveErrorKind;
+    use crate::resolver::{FileId, Origin, Resolution, Root, Roots};
 
     /// A graph of `/p/main.js` with `failures` recorded, each at its own
     /// site and reached as given.
@@ -366,8 +371,10 @@ mod tests {
                 ino: 1,
                 born: None,
             },
-            root: PathBuf::from("/p"),
-            origin: Origin::Project,
+            root: Root {
+                dir: PathBuf::from("/p"),
+                origin: Origin::Project,
+            },
             files_consulted: Vec::new(),
         };
         let mut graph = Graph::new(&entry, Roots::new(PathBuf::from("/p")), Recording::Full);
@@ -393,13 +400,22 @@ mod tests {
     /// A load's kind comes from its static failure's variant, never its
     /// message: a resolution's is `resolve`, a strip refusal, import
     /// attributes, or a module past its byte cap `link`, and what only a
-    /// host bug or a file changed on disk causes `internal`.
+    /// host bug, a file changed on disk, a failed read, or a read outside
+    /// the box causes `internal`, a resolution's included.
     #[test]
     fn a_load_failure_takes_its_kind_from_the_recorded_failure() {
         let not_found = ResolveErrorKind::NotFound { ts_sibling: None };
         for (error, kind) in [
             (FailureError::Resolve(not_found.clone()), ErrorKind::Resolve),
             (FailureError::DriverImport, ErrorKind::Resolve),
+            (
+                FailureError::Resolve(ResolveErrorKind::ImporterOutsideRoots),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Resolve(ResolveErrorKind::ReadChanged("/p/package.json".into())),
+                ErrorKind::Internal,
+            ),
             (
                 FailureError::Load(LoadFailure::Strip {
                     failure: StripFailure::Parse,
@@ -418,6 +434,10 @@ mod tests {
             ),
             (
                 FailureError::Load(LoadFailure::Read(io::ErrorKind::PermissionDenied)),
+                ErrorKind::Internal,
+            ),
+            (
+                FailureError::Load(LoadFailure::OutsideBox),
                 ErrorKind::Internal,
             ),
             (

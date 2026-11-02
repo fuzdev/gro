@@ -9,7 +9,7 @@ use crate::resolver::{ConsultedFile, FileRole, Origin, PackageSearchBound, Resol
 fn package_origins_and_consulted_files() {
     let resolution = package("t").unwrap();
     assert_eq!(
-        resolution.origin,
+        resolution.root.origin,
         Origin::Package {
             name: "t".to_owned(),
             version: Some("2.3.4".to_owned()),
@@ -41,7 +41,7 @@ fn package_origins_and_consulted_files() {
     );
     let resolution = package("linked").unwrap();
     assert_eq!(
-        resolution.origin,
+        resolution.root.origin,
         Origin::Package {
             name: "linked".to_owned(),
             version: Some("0.1.0".to_owned()),
@@ -56,7 +56,7 @@ fn package_origins_and_consulted_files() {
     // a nested layout's real root is inside node_modules, so it isn't linked
     let resolution = package("nested").unwrap();
     assert_eq!(
-        resolution.origin,
+        resolution.root.origin,
         Origin::Package {
             name: "nested".to_owned(),
             version: Some("1.0.0".to_owned()),
@@ -65,7 +65,7 @@ fn package_origins_and_consulted_files() {
     );
     // a self-reference keeps the importer's origin
     let resolution = package("proj/self.js").unwrap();
-    assert_eq!(resolution.origin, Origin::Project);
+    assert_eq!(resolution.root.origin, Origin::Project);
     assert_eq!(
         resolution.files_consulted,
         consulted(&[

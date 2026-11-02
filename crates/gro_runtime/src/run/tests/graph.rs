@@ -93,7 +93,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
         reach,
     };
     assert_eq!(
-        graph.edges,
+        *graph.edges(),
         BTreeMap::from([
             (edge(&main, "./a.ts", Reach::Static), url("a.ts")),
             (edge(&main, "./c.js", Reach::Dynamic), url("c.js")),
@@ -102,7 +102,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
         ])
     );
     // `import.meta.resolve` loaded nothing, and the failed import nothing
-    let mut recorded: Vec<_> = graph.records.keys().cloned().collect();
+    let mut recorded: Vec<_> = graph.records().keys().cloned().collect();
     recorded.sort();
     let mut expected = vec![main.clone(), url("a.ts"), url("c.js"), url("d.js")];
     expected.sort();
@@ -117,10 +117,10 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
             format,
             hash: blake3::hash(source.as_bytes()),
         };
-        assert_eq!(graph.records[&url(file)].loaded, Some(loaded), "{file}");
+        assert_eq!(graph.records()[&url(file)].loaded, Some(loaded), "{file}");
     }
 
-    assert_eq!(graph.failures.len(), 1, "{:?}", graph.failures);
+    assert_eq!(graph.failures().len(), 1, "{:?}", graph.failures());
     let site = FailureSite {
         specifier: "./missing.js".to_owned(),
         importer: Some(main.to_string()),
@@ -128,14 +128,14 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
     };
     assert!(
         matches!(
-            graph.failures[&site].as_slice(),
+            graph.failures()[&site].as_slice(),
             [Failure {
                 at: None,
                 error: FailureError::Resolve(ResolveErrorKind::NotFound { .. }),
             }]
         ),
         "{:?}",
-        graph.failures
+        graph.failures()
     );
 
     let package_json = dir.join("package.json");
@@ -144,7 +144,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
         role,
     };
     assert_eq!(
-        graph.consulted,
+        *graph.consulted(),
         BTreeSet::from([
             consulted(FileRole::SearchBound),
             consulted(FileRole::PackageScope),
@@ -152,14 +152,14 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
     );
 
     // off, the same roots and records, with nothing else
-    assert_eq!(off.roots, graph.roots);
-    let mut off_recorded: Vec<_> = off.records.keys().cloned().collect();
+    assert_eq!(off.roots(), graph.roots());
+    let mut off_recorded: Vec<_> = off.records().keys().cloned().collect();
     off_recorded.sort();
     assert_eq!(off_recorded, expected);
-    assert!(off.records.values().all(|record| record.loaded.is_none()));
-    assert!(off.edges.is_empty());
-    assert!(off.consulted.is_empty());
-    assert!(off.failures.is_empty());
+    assert!(off.records().values().all(|record| record.loaded.is_none()));
+    assert!(off.edges().is_empty());
+    assert!(off.consulted().is_empty());
+    assert!(off.failures().is_empty());
 }
 
 /// The graph is recorded for a run that fails, and there is none when
@@ -173,7 +173,7 @@ fn a_failed_run_still_records_its_graph() {
     let (result, graph, _) = run_graph(name, &files, "main.ts", Recording::Full);
     let (missing, none, _) = run_graph(name, &files, "missing.ts", Recording::Full);
     assert!(matches!(result, Err(RunError::Uncaught(_))), "{result:?}");
-    let failures = graph.unwrap().failures;
+    let failures = graph.unwrap().failures().clone();
     assert_eq!(failures.len(), 1, "{failures:?}");
     let (site, failures) = failures.iter().next().unwrap();
     // the entry's own load names no importer
@@ -198,9 +198,8 @@ fn a_failed_run_still_records_its_graph() {
 fn a_load_failure_is_recorded_by_its_reach() {
     use url::Url;
 
-    use crate::loader::graph::{
-        Failure, FailureError, FailureSite, LoadFailure, Position, Reach, Reached,
-    };
+    use crate::loader::graph::{Failure, FailureError, FailureSite, LoadFailure, Reach, Reached};
+    use crate::loader::strip::Position;
 
     const MAIN: &str = "try {
 \tawait import('./e.ts');
@@ -226,7 +225,7 @@ await import('./s.js');
     let url = |file: &str| Url::from_file_path(dir.join(file)).unwrap().to_string();
     assert!(result.is_ok(), "{result:?}");
     assert!(failed.is_err());
-    let failures = graph.unwrap().failures;
+    let failures = graph.unwrap().failures().clone();
     let dynamic = Reached::Import(Reach::Dynamic);
     let sites: Vec<_> = failures.keys().cloned().collect();
     assert_eq!(
@@ -251,7 +250,7 @@ await import('./s.js');
             error: FailureError::Load(LoadFailure::Strip { .. }),
         }]
     ));
-    let failures = static_graph.unwrap().failures;
+    let failures = static_graph.unwrap().failures().clone();
     let sites: Vec<_> = failures.keys().cloned().collect();
     assert_eq!(
         sites,
@@ -283,7 +282,7 @@ fn a_run_records_at_most_one_static_failure() {
     ];
     let (result, graph, _) = run_graph("one_static_failure", &files, "main.js", Recording::Full);
     assert!(matches!(result, Err(RunError::Uncaught(_))), "{result:?}");
-    let failures = graph.unwrap().failures;
+    let failures = graph.unwrap().failures().clone();
     let all: Vec<_> = failures
         .iter()
         .flat_map(|(site, failures)| failures.iter().map(move |failure| (site, failure)))

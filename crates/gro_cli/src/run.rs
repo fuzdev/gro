@@ -46,7 +46,7 @@ pub fn run_module(file: &Path) -> u8 {
 
 const fn exit_code(error: &RunError) -> u8 {
     match error {
-        RunError::Entry(error) if error.kind.is_specifier_error() => EXIT_USAGE,
+        RunError::Entry(error) if error.kind.is_refusal() => EXIT_USAGE,
         _ => EXIT_FAILURE,
     }
 }

@@ -6,10 +6,10 @@ use std::path::Path;
 use deno_core::error::ModuleLoaderError;
 use deno_core::{ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
 
+use super::Refused;
 use super::graph::{FailureError, LoadFailure, Loaded, Recording};
 use super::strip::strip_module;
-use super::{Refused, reason};
-use crate::resolver::{self, FileId, MAX_MODULE_SIZE, ModuleFormat};
+use crate::resolver::{self, FileId, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
 
 /// Reads the module at `specifier`, a URL the resolver produced for the file
 /// `file_id` names, once `check` allows its path, stripping a TypeScript
@@ -22,7 +22,10 @@ pub(super) fn load(
     recording: Recording,
     check: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(ModuleSource, Option<Loaded>), Refused> {
-    let refused = |failure, error| (reason(recording, || FailureError::Load(failure)), error);
+    let refused = |failure, error: ModuleLoaderError| Refused {
+        failure: Box::new(FailureError::Load(failure)),
+        error,
+    };
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
     if *requested != RequestedModuleType::None {
         return Err(refused(
@@ -44,8 +47,12 @@ pub(super) fn load(
         refused(LoadFailure::Format(kind), error)
     })?;
     let io_error = |error: io::Error| {
+        let failure = match ReadRefusal::of(&error) {
+            Some(ReadRefusal::OutsideBox(_)) => LoadFailure::OutsideBox,
+            Some(ReadRefusal::Changed) | None => LoadFailure::Read(error.kind()),
+        };
         refused(
-            LoadFailure::Read(error.kind()),
+            failure,
             ModuleLoaderError::type_error(format!("cannot load {specifier}: {error}")),
         )
     };

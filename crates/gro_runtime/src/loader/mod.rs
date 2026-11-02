@@ -64,14 +64,17 @@
 //! a directory holding the project or another package's directory), and
 //! reads a `package.json` symlinked out of the box at its real path. A refused read
 //! is recorded once ([`Loader::breach`]) for the caller to fail the run on,
-//! whatever the run did with the error.
+//! whatever the run did with the error, and, recording in full, as the
+//! failure of its resolution or load
+//! ([`ResolveErrorKind::ReadOutsideBox`](crate::resolver::ResolveErrorKind::ReadOutsideBox),
+//! [`LoadFailure::OutsideBox`]).
 //!
 //! The loader keeps the run's [`Graph`]. With recording off, what a plain
 //! run uses, it keeps only what loading needs, the roots and each URL's root
-//! and file, and does no work for anything else: no hash, edge, or failure
-//! reason is built, and the files a resolution reports consulting are
-//! dropped unread. With it full ([`Recording`]),
-//! the graph is the whole record of what resolved and loaded: each URL's
+//! and file, and does no work for anything else: no hash or edge is built,
+//! a failure's reason, built with its message, is dropped unrecorded, and
+//! the files a resolution reports consulting are dropped unread. With it
+//! full ([`Recording`]), the graph is the whole record of what resolved and loaded: each URL's
 //! record, which a load completes with the module's [`ModuleFormat`](crate::resolver::ModuleFormat) and the
 //! BLAKE3 hash of the bytes read from the checked file, before any strip:
 //! the bytes V8's source was made from, run as read for JS and stripped for
@@ -98,8 +101,8 @@ mod resolve;
 pub mod strip;
 
 use std::cell::RefCell;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::rc::Rc;
 
 use deno_core::error::ModuleLoaderError;
 use deno_core::{
@@ -110,11 +113,12 @@ use url::Url;
 
 use crate::confine::BoxRoots;
 use crate::resolver::{DiskTree, Resolution, Roots, SourceTree};
-use boxed::Boxed;
-use graph::{Failure, FailureError, Graph, LoadFailure, Position, Reach, Reached, Recording};
+use boxed::{BoxCheck, Boxed};
+use graph::{Failure, FailureError, Graph, LoadFailure, Reach, Reached, Recording};
 use load::load;
 use reads::Reads;
 use resolve::resolve_into;
+use strip::Position;
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
 /// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
@@ -124,10 +128,12 @@ pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
     /// of its record.
     graph: RefCell<Graph>,
-    /// What it refuses beyond the resolver's rules.
-    rules: Rules,
-    /// The first read refused for lying outside [`Rules::box_roots`].
-    breach: RefCell<Option<PathBuf>>,
+    /// [`Rules::refuse_dynamic_import`].
+    refuse_dynamic_import: bool,
+    /// [`Rules::driver`].
+    driver: Option<Url>,
+    /// The box of [`Rules::box_roots`], and the first read it refused.
+    box_check: BoxCheck,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -150,20 +156,31 @@ pub struct Rules {
 /// Why an import from the driver is refused, the reason in its message.
 const DRIVER_IMPORT_FREE: &str = "a stdin driver is import-free";
 
-/// A failed resolution or load: the reason as data, built only when the
-/// graph records failures, and the error `deno_core` rethrows to JS. The
-/// reason is boxed, since it holds a
-/// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure is the
-/// rare path.
-type Refused = (Option<Box<FailureError>>, ModuleLoaderError);
+/// The referrer `deno_core` names for the root of a load it starts itself,
+/// as it resolves a side module's own URL, the driver's (an internal of
+/// `deno_core`'s, not a URL).
+const ROOT_REFERRER: &str = ".";
 
-/// The reason `reason` makes, boxed, when `recording` keeps failures; off,
-/// none is made.
-fn reason(
-    recording: Recording,
-    reason: impl FnOnce() -> FailureError,
-) -> Option<Box<FailureError>> {
-    recording.is_full().then(|| Box::new(reason()))
+/// A failed resolution or load: the reason as data, which the graph records
+/// when it records failures ([`Graph::fail`] does nothing otherwise), and
+/// the error `deno_core` rethrows to JS.
+struct Refused {
+    /// Why, boxed, since it can hold a
+    /// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure
+    /// is the rare path.
+    failure: Box<FailureError>,
+    /// The error JS sees.
+    error: ModuleLoaderError,
+}
+
+impl Refused {
+    /// A refusal for `failure`, reaching JS as a `TypeError` with `message`.
+    fn new(failure: FailureError, message: String) -> Self {
+        Self {
+            failure: Box::new(failure),
+            error: ModuleLoaderError::type_error(message),
+        }
+    }
 }
 
 impl Loader {
@@ -172,8 +189,9 @@ impl Loader {
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
-            rules: Rules::default(),
-            breach: RefCell::new(None),
+            refuse_dynamic_import: false,
+            driver: None,
+            box_check: BoxCheck::default(),
         }
     }
 
@@ -189,8 +207,19 @@ impl Loader {
     }
 
     /// The loader, refusing what `rules` says beyond the resolver's rules.
+    #[must_use]
     pub fn with_rules(self, rules: Rules) -> Self {
-        Self { rules, ..self }
+        let Rules {
+            refuse_dynamic_import,
+            driver,
+            box_roots,
+        } = rules;
+        Self {
+            refuse_dynamic_import,
+            driver,
+            box_check: BoxCheck::new(box_roots),
+            ..self
+        }
     }
 
     /// Refuses `specifier`, reached from `referrer` as `reached`, for a
@@ -203,14 +232,10 @@ impl Loader {
         error: FailureError,
         message: String,
     ) -> ModuleLoaderError {
-        let mut graph = self.graph.borrow_mut();
-        if let Some(error) = reason(graph.recording(), || error) {
-            let failure = Failure {
-                at: None,
-                error: *error,
-            };
-            graph.fail(specifier, Some(referrer), reached, failure);
-        }
+        let failure = Failure { at: None, error };
+        self.graph
+            .borrow_mut()
+            .fail(specifier, Some(referrer), reached, failure);
         ModuleLoaderError::type_error(message)
     }
 
@@ -223,7 +248,6 @@ impl Loader {
         reached: Reached,
     ) -> Result<(), ModuleLoaderError> {
         if self
-            .rules
             .driver
             .as_ref()
             .is_none_or(|driver| driver.as_str() != referrer)
@@ -249,28 +273,8 @@ impl Loader {
 
     /// The first path a read was refused at for lying outside
     /// [`Rules::box_roots`], if any.
-    pub fn breach(&self) -> Option<PathBuf> {
-        self.breach.borrow().clone()
-    }
-
-    /// Checks a read of the real path `path` against [`Rules::box_roots`],
-    /// recording the first refusal.
-    fn check_read(&self, path: &Path) -> io::Result<()> {
-        match &self.rules.box_roots {
-            Some(roots) if !roots.holds(path) => {
-                self.breach
-                    .borrow_mut()
-                    .get_or_insert_with(|| path.to_owned());
-                Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    format!(
-                        "{} lies outside the box's roots, so it isn't read",
-                        path.display()
-                    ),
-                ))
-            }
-            _ => Ok(()),
-        }
+    pub fn breach(&self) -> Option<&Path> {
+        self.box_check.breach()
     }
 
     /// Resolves as [`Loader::resolve_reached`] over the disk, each read
@@ -282,7 +286,7 @@ impl Loader {
         reached: Reached,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let tree = Boxed {
-            loader: self,
+            check: &self.box_check,
             tree: &DiskTree,
         };
         self.resolve_reached(&tree, specifier, referrer, reached)
@@ -293,8 +297,14 @@ impl Loader {
         self.graph.into_inner()
     }
 
-    /// A copy of the graph as it stands.
-    pub fn graph(&self) -> Graph {
+    /// The graph, taken from the loader when this is its last share, or a
+    /// copy of it as it stands when another share is still alive.
+    pub fn take_graph(self: Rc<Self>) -> Graph {
+        Rc::try_unwrap(self).map_or_else(|loader| loader.graph_clone(), Self::into_graph)
+    }
+
+    /// A copy of the whole graph as it stands.
+    pub fn graph_clone(&self) -> Graph {
         self.graph.borrow().clone()
     }
 
@@ -311,16 +321,14 @@ impl Loader {
         reached: Reached,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let mut graph = self.graph.borrow_mut();
-        resolve_into(&mut graph, tree, specifier, referrer, reached).map_err(|(reason, error)| {
-            if let Some(reason) = reason {
-                // `deno_core` gives no position to a resolution
-                let failure = Failure {
-                    at: None,
-                    error: *reason,
-                };
-                graph.fail(specifier, Some(referrer), reached, failure);
-            }
-            error
+        resolve_into(&mut graph, tree, specifier, referrer, reached).map_err(|refused| {
+            // `deno_core` gives no position to a resolution
+            let failure = Failure {
+                at: None,
+                error: *refused.failure,
+            };
+            graph.fail(specifier, Some(referrer), reached, failure);
+            refused.error
         })
     }
 
@@ -337,22 +345,20 @@ impl Loader {
     ) -> Result<ModuleSource, ModuleLoaderError> {
         let (file_id, recording) = {
             let graph = self.graph.borrow();
-            let file_id = graph.records.get(specifier).map(|record| record.file_id);
+            let file_id = graph.records().get(specifier).map(|record| record.file_id);
             (file_id, graph.recording())
         };
         // `deno_core` loads only what `resolve` returned, which recorded it
         let result = file_id.map_or_else(
             || {
-                Err((
-                    reason(recording, || FailureError::Load(LoadFailure::NeverResolved)),
-                    ModuleLoaderError::type_error(format!(
-                        "cannot load {specifier}: it was never resolved"
-                    )),
+                Err(Refused::new(
+                    FailureError::Load(LoadFailure::NeverResolved),
+                    format!("cannot load {specifier}: it was never resolved"),
                 ))
             },
             |file_id| {
                 load(specifier, requested, file_id, recording, |path| {
-                    self.check_read(path)
+                    self.box_check.check_read(path)
                 })
             },
         );
@@ -363,23 +369,24 @@ impl Loader {
                 }
                 Ok(source)
             }
-            Err((reason, error)) => {
-                if let Some(reason) = reason {
-                    let at = referrer.and_then(|referrer| {
-                        Some(Position {
-                            line: u32::try_from(referrer.line_number).ok()?,
-                            column: u32::try_from(referrer.column_number).ok()?,
-                        })
-                    });
-                    let failure = Failure { at, error: *reason };
-                    self.graph.borrow_mut().fail(
-                        specifier.as_str(),
-                        referrer.map(|referrer| referrer.specifier.as_str()),
-                        Reached::Import(reach),
-                        failure,
-                    );
-                }
-                Err(error)
+            Err(refused) => {
+                let at = referrer.and_then(|referrer| {
+                    Some(Position {
+                        line: u32::try_from(referrer.line_number).ok()?,
+                        column: u32::try_from(referrer.column_number).ok()?,
+                    })
+                });
+                let failure = Failure {
+                    at,
+                    error: *refused.failure,
+                };
+                self.graph.borrow_mut().fail(
+                    specifier.as_str(),
+                    referrer.map(|referrer| referrer.specifier.as_str()),
+                    Reached::Import(reach),
+                    failure,
+                );
+                Err(refused.error)
             }
         }
     }
@@ -402,17 +409,17 @@ impl ModuleLoader for Loader {
             ResolutionKind::DynamicImport => Reach::Dynamic,
         };
         // the root of the driver's own load, which `deno_core` resolves as a
-        // static import from "."
-        if let Some(driver) = &self.rules.driver
+        // static import from its root referrer
+        if let Some(driver) = &self.driver
             && reach == Reach::Static
-            && referrer == "."
+            && referrer == ROOT_REFERRER
             && specifier == driver.as_str()
         {
             return Ok(driver.clone());
         }
         let reached = Reached::Import(reach);
         self.refuse_from_driver(specifier, referrer, reached)?;
-        if reach == Reach::Dynamic && self.rules.refuse_dynamic_import {
+        if reach == Reach::Dynamic && self.refuse_dynamic_import {
             return Err(self.refuse(
                 specifier,
                 referrer,

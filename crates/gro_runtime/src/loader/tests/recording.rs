@@ -6,10 +6,10 @@ use std::collections::BTreeSet;
 use super::super::graph::{Edge, FailureSite, Loaded};
 use super::super::strip::StripFailure;
 use super::*;
-use crate::resolver::{ConsultedFile, FileRole, ResolveErrorKind};
+use crate::resolver::{ConsultedFile, FileRole, ReadRefusal, ResolveErrorKind};
 
 fn graph(loader: &Loader) -> Graph {
-    loader.graph()
+    loader.graph_clone()
 }
 
 fn url(path: &str) -> Url {
@@ -61,13 +61,13 @@ fn each_import_is_one_edge_per_reach() {
         .unwrap();
     let bar = url("/p/node_modules/bar/i.mjs");
     assert_eq!(
-        graph(&loader).edges,
+        *graph(&loader).edges(),
         BTreeMap::from([
             (edge(MAIN, "bar", Reach::Static), bar.clone()),
             (edge(MAIN, "bar", Reach::Dynamic), bar),
         ])
     );
-    assert!(graph(&loader).failures.is_empty());
+    assert!(graph(&loader).failures().is_empty());
 }
 
 /// The entry's consulted files are in the graph from the start, and every
@@ -79,7 +79,7 @@ fn the_consulted_files_are_the_union_of_every_resolution() {
     let loader = new_loader(&tree);
     let search_bound = consulted("/p/package.json", FileRole::SearchBound);
     assert_eq!(
-        graph(&loader).consulted,
+        *graph(&loader).consulted(),
         BTreeSet::from([search_bound.clone()])
     );
     // read without admitting anything
@@ -90,7 +90,7 @@ fn the_consulted_files_are_the_union_of_every_resolution() {
     let scope = consulted("/p/package.json", FileRole::PackageScope);
     let bar = consulted("/p/node_modules/bar/package.json", FileRole::Exports);
     assert_eq!(
-        graph(&loader).consulted,
+        *graph(&loader).consulted(),
         BTreeSet::from([search_bound.clone(), scope.clone(), bar.clone()])
     );
     loader.resolve_reached(&tree, "bar", MAIN, STATIC).unwrap();
@@ -103,7 +103,7 @@ fn the_consulted_files_are_the_union_of_every_resolution() {
         .unwrap_err();
     let lnk = consulted("/p/packages/lnk/package.json", FileRole::Exports);
     assert_eq!(
-        graph(&loader).consulted,
+        *graph(&loader).consulted(),
         BTreeSet::from([search_bound, scope, bar, lnk])
     );
 }
@@ -162,24 +162,24 @@ fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
     let (graph, reads) = resolve_bar_twice(Recording::Full);
     assert_eq!(reads, 2);
     assert_eq!(
-        graph.reads.hash(Path::new("/p/package.json")),
+        graph.reads().hash(Path::new("/p/package.json")),
         Some(blake3::hash(br#"{"name": "proj", "type": "module"}"#))
     );
     assert_eq!(
         graph
-            .reads
+            .reads()
             .hash(Path::new("/p/node_modules/bar/package.json")),
         Some(blake3::hash(br#"{"exports": "./i.mjs"}"#))
     );
     // every consulted file has its read's hash
     assert!(
         graph
-            .consulted
+            .consulted()
             .iter()
-            .all(|file| graph.reads.hash(&file.path).is_some())
+            .all(|file| graph.reads().hash(&file.path).is_some())
     );
     assert_eq!(
-        graph.reads.absent(),
+        graph.reads().absent(),
         &BTreeSet::from([
             PathBuf::from("/p/src/node_modules/bar"),
             PathBuf::from("/p/src/package.json"),
@@ -187,17 +187,17 @@ fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
     );
     let (off, off_reads) = resolve_bar_twice(Recording::Off);
     assert_eq!(off_reads, 4);
-    assert_eq!(off.reads.hash(Path::new("/p/package.json")), None);
-    assert!(off.reads.absent().is_empty());
+    assert_eq!(off.reads().hash(Path::new("/p/package.json")), None);
+    assert!(off.reads().absent().is_empty());
     // and a record passed in is dropped off
     let mut reads = Reads::default();
     RecordingTree::new(&tree(), &mut reads).note_absent(Path::new("/p/x"));
     let (entry, roots) =
         resolver::resolve_entry(&tree(), Path::new("/p/main.ts"), Path::new("/")).unwrap();
     let loader = Loader::new(&entry, roots.clone(), Recording::Off).with_reads(reads.clone());
-    assert!(loader.into_graph().reads.absent().is_empty());
+    assert!(loader.into_graph().reads().absent().is_empty());
     let loader = Loader::new(&entry, roots, Recording::Full).with_reads(reads);
-    assert_eq!(loader.into_graph().reads.absent().len(), 1);
+    assert_eq!(loader.into_graph().reads().absent().len(), 1);
 }
 
 /// A `package.json` swapped for another file between two resolutions
@@ -223,7 +223,18 @@ fn a_consulted_file_of_another_identity_is_refused_in_one_run() {
         .resolve_reached(&DiskTree, "./sub/b.js?again", main.as_str(), STATIC)
         .unwrap_err()
         .to_string();
-    assert!(error.contains(Reads::CHANGED), "{error}");
+    assert!(error.contains(&ReadRefusal::Changed.to_string()), "{error}");
+    let changed = fixtures.path("sub/package.json");
+    assert!(
+        graph(&loader)
+            .failures()
+            .values()
+            .flatten()
+            .any(|failure| failure.error
+                == FailureError::Resolve(ResolveErrorKind::ReadChanged(changed.clone()))),
+        "{:?}",
+        graph(&loader).failures()
+    );
     // off, the new file is read
     let loader = fixtures.loader_recording("main.ts", Recording::Off);
     loader
@@ -265,7 +276,7 @@ fn a_consulted_file_rewritten_in_place_serves_the_first_read() {
     assert_eq!(
         loader
             .into_graph()
-            .reads
+            .reads()
             .hash(&fixtures.path("sub/package.json")),
         Some(blake3::hash(MODULE.as_bytes()))
     );
@@ -291,7 +302,7 @@ fn a_refused_resolution_is_recorded_once_per_site() {
     let tree = tree();
     let loader = new_loader(&tree);
     loader.resolve_reached(&tree, "bar", MAIN, STATIC).unwrap();
-    assert!(graph(&loader).failures.is_empty());
+    assert!(graph(&loader).failures().is_empty());
     for reached in [
         Reached::Import(Reach::Static),
         Reached::Import(Reach::Dynamic),
@@ -302,7 +313,7 @@ fn a_refused_resolution_is_recorded_once_per_site() {
             .resolve_reached(&tree, "./nope.js", MAIN, reached)
             .unwrap_err();
     }
-    let failures = graph(&loader).failures;
+    let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 3, "{failures:?}");
     for reached in [
         Reached::Import(Reach::Static),
@@ -339,7 +350,7 @@ fn a_root_conflict_and_an_unknown_importer_are_recorded() {
     loader
         .resolve_reached(&tree, "./x.ts", "not a url", Reached::MetaResolve)
         .unwrap_err();
-    let failures = graph(&loader).failures;
+    let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 3, "{failures:?}");
     assert!(matches!(
         only(&failures[&site("lnk/x.ts", Some(MAIN), Reached::Import(Reach::Static))]).error,
@@ -362,7 +373,7 @@ fn a_root_conflict_and_an_unknown_importer_are_recorded() {
     );
     // the conflict admitted nothing, so no edge for it
     assert_eq!(
-        graph(&loader).edges.keys().cloned().collect::<Vec<_>>(),
+        graph(&loader).edges().keys().cloned().collect::<Vec<_>>(),
         [edge(MAIN, "./packages/lnk/x.ts", Reach::Static)]
     );
 }
@@ -390,22 +401,22 @@ fn a_load_records_its_format_and_hash() {
     load_disk(&loader, &b).unwrap();
     let graph = graph(&loader);
     assert_eq!(
-        graph.records[&a].loaded,
+        graph.records()[&a].loaded,
         Some(Loaded {
             format: ModuleFormat::TypeScript,
             hash: blake3::hash(TYPED.as_bytes()),
         })
     );
     assert_eq!(
-        graph.records[&b].loaded,
+        graph.records()[&b].loaded,
         Some(Loaded {
             format: ModuleFormat::JavaScript,
             hash: blake3::hash(SOURCE.as_bytes()),
         })
     );
     // not loaded yet
-    assert_eq!(graph.records[&main].loaded, None);
-    assert!(graph.failures.is_empty());
+    assert_eq!(graph.records()[&main].loaded, None);
+    assert!(graph.failures().is_empty());
 }
 
 /// Recording off, the loader resolves, admits, and loads as it does in
@@ -442,15 +453,20 @@ fn recording_off_records_only_roots_and_files() {
     assert_refused(load_disk(&loader, &b), &b);
     let graph = graph(&loader);
     assert!(!graph.is_full());
-    let mut recorded: Vec<_> = graph.records.keys().cloned().collect();
+    let mut recorded: Vec<_> = graph.records().keys().cloned().collect();
     recorded.sort();
     let mut expected = vec![main, a, b];
     expected.sort();
     assert_eq!(recorded, expected);
-    assert!(graph.records.values().all(|record| record.loaded.is_none()));
-    assert!(graph.edges.is_empty());
-    assert!(graph.consulted.is_empty());
-    assert!(graph.failures.is_empty());
+    assert!(
+        graph
+            .records()
+            .values()
+            .all(|record| record.loaded.is_none())
+    );
+    assert!(graph.edges().is_empty());
+    assert!(graph.consulted().is_empty());
+    assert!(graph.failures().is_empty());
 }
 
 /// Resolving a loaded URL again, after its file changed, keeps the first
@@ -465,13 +481,13 @@ fn a_re_resolve_keeps_the_loaded_record() {
         .resolve_reached(&DiskTree, "./a.ts", main.as_str(), STATIC)
         .unwrap();
     load_disk(&loader, &a).unwrap();
-    let before = graph(&loader).records[&a].clone();
+    let before = graph(&loader).records()[&a].clone();
     fixtures.replace("a.ts", "export const a = 2;\n");
     loader
         .resolve_reached(&DiskTree, "./a.ts", main.as_str(), STATIC)
         .unwrap();
-    let after = &graph(&loader).records[&a];
-    assert_eq!(*after, before);
+    let after = graph(&loader).records()[&a].clone();
+    assert_eq!(after, before);
     assert_eq!(
         after.loaded.map(|loaded| loaded.hash),
         Some(blake3::hash(TYPED.as_bytes()))
@@ -538,7 +554,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
     // a URL never resolved here
     let never = fixtures.url("package.json");
     load_disk(&loader, &never).unwrap_err();
-    let failures = graph(&loader).failures;
+    let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 4, "{failures:?}");
     let at = Some(Position {
         line: 3,
@@ -575,7 +591,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
     // no record was loaded
     assert!(
         graph(&loader)
-            .records
+            .records()
             .values()
             .all(|record| record.loaded.is_none())
     );
@@ -593,7 +609,7 @@ fn a_failed_read_is_recorded_by_its_kind() {
     std::fs::remove_file(fixtures.path("a.js")).unwrap();
     load_disk(&loader, &a).unwrap_err();
     assert_eq!(
-        only(&graph(&loader).failures[&site(a.as_str(), None, Reached::Import(Reach::Static))])
+        only(&graph(&loader).failures()[&site(a.as_str(), None, Reached::Import(Reach::Static))])
             .error,
         FailureError::Load(LoadFailure::Read(io::ErrorKind::NotFound))
     );
@@ -626,7 +642,7 @@ fn a_site_keeps_each_distinct_failure() {
             .load_reached(&a, requested, Reach::Dynamic, None)
             .unwrap_err();
     }
-    let failures = graph(&loader).failures;
+    let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 1, "{failures:?}");
     let failure = |reason| Failure {
         at: None,

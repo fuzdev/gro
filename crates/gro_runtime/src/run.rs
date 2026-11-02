@@ -110,7 +110,7 @@ fn run_recorded(
     let result = run_loaded(engine, *snapshot, *console, &entry.url, Rc::clone(&loader));
     phases::mark(Phase::Teardown);
     // the runtime, and its share of the loader, is gone once the run ends
-    let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
+    let graph = loader.take_graph();
     (result, Some(graph))
 }
 

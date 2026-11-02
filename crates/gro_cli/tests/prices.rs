@@ -212,8 +212,8 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         outside_kind("box_rule,landlock"),
     ];
     // the loader's rule names the breach; Landlock's refused read fails the
-    // resolution, which reads the package's `package.json`
-    assert_eq!(kinds, ["internal", "resolve", "outside"]);
+    // resolution, which reads the package's `package.json`, as a failed read
+    assert_eq!(kinds, ["internal", "internal", "outside"]);
     // the box gone, the eval runs the same
     assert_eq!(
         value(&fgro(&["eval", "clock.js"], Some("deny,landlock,seccomp"))),

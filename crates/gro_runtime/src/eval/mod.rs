@@ -123,7 +123,7 @@ mod run;
 mod serialize;
 
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -314,9 +314,9 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
         &stopped,
     );
     phases::mark(phases::Phase::Teardown);
-    let breach = loader.breach();
+    let breach = loader.breach().map(Path::to_owned);
     // the runtime, and its share of the loader, is gone once the eval ends
-    let graph = Rc::try_unwrap(loader).map_or_else(|loader| loader.graph(), Loader::into_graph);
+    let graph = loader.take_graph();
     envelope.access = Some(access(&graph));
     let mut unread = None;
     if let Some(box_roots) = box_roots {
@@ -401,7 +401,7 @@ fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> 
 
 /// The options of an eval of `entry` from `cwd`, with no driver.
 #[cfg(test)]
-fn options(entry: &std::path::Path, cwd: &std::path::Path) -> EvalOptions {
+fn options(entry: &Path, cwd: &Path) -> EvalOptions {
     EvalOptions {
         entry: entry.to_owned(),
         cwd: cwd.to_owned(),

@@ -526,7 +526,7 @@ fn a_package_through_a_world_writable_dir_is_refused() {
          plant or replace a package there. Fix: remove the directory's other-write bit \
          (chmod o-w), then reinstall the package"
     );
-    assert!(error.kind.is_specifier_error());
+    assert!(error.kind.is_refusal());
     // a module file below the root, in a world-writable directory, still loads
     let tree = installed(vec!["/p/node_modules/foo/dist"]);
     assert_eq!(
@@ -789,19 +789,21 @@ fn a_read_failure_names_its_path() {
         error,
         ResolveErrorKind::Io {
             path: PathBuf::from("/w/proj/dist/package.json"),
-            error: "permission denied".to_owned(),
+            kind: io::ErrorKind::PermissionDenied,
+            message: "permission denied".to_owned(),
         }
     );
     assert_eq!(
         error.to_string(),
         "failed to read /w/proj/dist/package.json: permission denied"
     );
-    assert!(!error.is_specifier_error());
+    assert!(!error.is_refusal());
     assert_eq!(
         from("file:///w/proj/scripts/x.mjs"),
         ResolveErrorKind::Io {
             path: PathBuf::from("/w/proj/scripts"),
-            error: "permission denied".to_owned(),
+            kind: io::ErrorKind::PermissionDenied,
+            message: "permission denied".to_owned(),
         }
     );
 }
@@ -826,7 +828,8 @@ fn a_mode_failure_on_the_walk_for_the_bound_fails() {
         from_entry(&tree, "@s/bar", &importer).unwrap_err().kind,
         ResolveErrorKind::Io {
             path: PathBuf::from("/p/node_modules/foo"),
-            error: "permission denied".to_owned(),
+            kind: io::ErrorKind::PermissionDenied,
+            message: "permission denied".to_owned(),
         }
     );
 }

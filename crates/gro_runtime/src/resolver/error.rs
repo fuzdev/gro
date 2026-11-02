@@ -1,10 +1,12 @@
 //! Why a specifier didn't resolve, and the message each reason carries.
 
 use std::fmt;
+use std::io;
 use std::path::PathBuf;
 
 use super::CONDITIONS;
 use super::roots::{Origin, Root};
+use super::tree::ReadRefusal;
 
 /// A specifier that didn't resolve.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -34,11 +36,13 @@ pub enum ResolveErrorKind {
     PackageImport,
     /// The empty string.
     Empty,
-    /// A relative or absolute specifier that isn't a valid URL, a `file:` URL
-    /// that names no local path, a resolved path with an encoded `/`, `\`,
-    /// or NUL in it, or an importer that names no local path or is inside
-    /// no admitted root.
-    InvalidUrl(String),
+    /// A specifier, its resolved URL, or its importer that isn't a valid
+    /// file URL.
+    InvalidUrl(UrlFault),
+    /// The importer is inside none of the roots passed in, which the
+    /// caller must have admitted it under: a bug in the caller, not the
+    /// specifier.
+    ImporterOutsideRoots,
     /// A bare specifier whose package name is malformed: it starts with `.`,
     /// holds `%` or `\`, has an empty, `.`, or `..` segment, or is a scope
     /// with no name after it.
@@ -237,9 +241,39 @@ pub enum ResolveErrorKind {
     Io {
         /// The path that failed to read.
         path: PathBuf,
-        /// The failure.
-        error: String,
+        /// The failure's kind.
+        kind: io::ErrorKind,
+        /// The failure's message, for display.
+        message: String,
     },
+    /// A file a resolution read is not, at its path, the one an earlier
+    /// resolution in the run read there ([`ReadRefusal::Changed`]).
+    ReadChanged(PathBuf),
+    /// A file a resolution read lies outside the box the reads are confined
+    /// to ([`ReadRefusal::OutsideBox`]).
+    ReadOutsideBox(PathBuf),
+}
+
+/// Why a specifier, its resolved URL, or its importer isn't a valid file
+/// URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UrlFault {
+    /// Joining the specifier to the importer, or an `"exports"` target to
+    /// its package's root, failed.
+    Join(url::ParseError),
+    /// The URL names no local path.
+    NoLocalPath,
+    /// The importer's URL names no local path.
+    ImporterNoLocalPath,
+    /// The resolved path, as the URL writes it, has an encoded `/` or `\`
+    /// (`%2F` or `%5C`), which would decode to a separator the URL never
+    /// had.
+    EncodedSeparator(String),
+    /// The resolved path, as the URL writes it, has an encoded NUL (`%00`),
+    /// which no path holds.
+    EncodedNul(String),
+    /// The entry's path, joined to the working directory, isn't absolute.
+    NotAbsolute,
 }
 
 /// The project root that bounded a `node_modules` search: the first
@@ -272,16 +306,24 @@ pub enum TargetFault {
 }
 
 impl ResolveErrorKind {
-    /// Whether the specifier must change for the import to resolve, the
-    /// common case, as opposed to a failure reading the files, a broken
-    /// symlink among them, or a file replaced while it was resolved.
-    pub const fn is_specifier_error(&self) -> bool {
-        !matches!(self, Self::Io { .. } | Self::SymlinkLoop(_))
+    /// Whether the resolver refused the import by its rules, from what the
+    /// specifier names and the files on disk hold: the specifier, the
+    /// project, or a package must change for it to resolve, the common case.
+    /// Otherwise reading the tree failed (an I/O error, a symlink loop, a
+    /// file changed or a read refused mid-run) or the caller broke an
+    /// invariant ([`ResolveErrorKind::ImporterOutsideRoots`]), which no
+    /// change to the import fixes.
+    pub const fn is_refusal(&self) -> bool {
+        !matches!(
+            self,
+            Self::Io { .. }
+                | Self::SymlinkLoop(_)
+                | Self::ReadChanged(_)
+                | Self::ReadOutsideBox(_)
+                | Self::ImporterOutsideRoots
+        )
     }
 }
-
-/// The extensions a missing-extension message suggests, in order.
-pub(super) const SUGGESTED_EXTENSIONS: [&str; 4] = ["ts", "js", "mjs", "mts"];
 
 /// What every extension message lists as loading.
 const LOADING_EXTENSIONS: &str = ".js, .mjs, .ts, and .mts modules load";
@@ -319,7 +361,11 @@ impl fmt::Display for ResolveErrorKind {
                  Fix: import the file by a relative path",
             ),
             Self::Empty => f.write_str("the specifier is empty"),
-            Self::InvalidUrl(reason) => write!(f, "not a valid file URL: {reason}"),
+            Self::InvalidUrl(fault) => write!(f, "not a valid file URL: {fault}"),
+            Self::ImporterOutsideRoots => f.write_str(
+                "the importer is inside none of the graph's admitted roots, which only a bug in \
+                 the host causes",
+            ),
             Self::InvalidPackageName => f.write_str(
                 "it is not a valid package name: a name can't start with '.' or hold '%' or '\\', \
                  and a scoped one is '@scope/name'",
@@ -633,7 +679,38 @@ impl fmt::Display for ResolveErrorKind {
                  package, reinstall it)",
                 path.display()
             ),
-            Self::Io { path, error } => write!(f, "failed to read {}: {error}", path.display()),
+            Self::Io { path, message, .. } => {
+                write!(f, "failed to read {}: {message}", path.display())
+            }
+            Self::ReadChanged(path) => write!(
+                f,
+                "failed to read {}: {}",
+                path.display(),
+                ReadRefusal::Changed
+            ),
+            Self::ReadOutsideBox(path) => write!(
+                f,
+                "failed to read {}: {}",
+                path.display(),
+                ReadRefusal::OutsideBox(path.clone())
+            ),
+        }
+    }
+}
+
+impl fmt::Display for UrlFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Join(error) => write!(f, "{error}"),
+            Self::NoLocalPath => f.write_str("names no local path"),
+            Self::ImporterNoLocalPath => f.write_str("the importer names no local path"),
+            Self::EncodedSeparator(path) => write!(
+                f,
+                "the path {path} has an encoded '/' or '\\' (%2F or %5C), which never names a \
+                 separator"
+            ),
+            Self::EncodedNul(path) => write!(f, "the path {path} has an encoded NUL (%00)"),
+            Self::NotAbsolute => f.write_str("not an absolute path"),
         }
     }
 }

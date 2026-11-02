@@ -95,7 +95,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
     let (entry, roots, bound) = match resolved {
         Ok(resolved) => resolved,
         Err(error) => {
-            let failure = refused(&options, error.to_string(), error.kind.is_specifier_error());
+            let failure = refused(&options, error.to_string(), error.kind.is_refusal());
             return Err(Box::new(failed(&options, failure)));
         }
     };

@@ -14,7 +14,7 @@ pub const MAX_PACKAGE_JSON_SIZE: u64 = 16 * 1024 * 1024;
 /// The loader refuses a larger module as it reads it, before any of it is
 /// parsed or stripped, so a module that would take the process's memory
 /// past any config's fails to load instead.
-pub const MAX_MODULE_SIZE: u64 = 16 * 1024 * 1024;
+pub const MAX_MODULE_SIZE: u64 = MAX_PACKAGE_JSON_SIZE;
 // gro_cli's tests state it as a literal, which keeps V8 out of their binaries
 const _: () = assert!(MAX_MODULE_SIZE == 16 << 20);
 
@@ -75,6 +75,45 @@ const O_NONBLOCK: Option<i32> = if cfg!(all(
 } else {
     None
 };
+
+/// A read a [`SourceTree`] refused on purpose, rather than failed to make.
+///
+/// A tree returns it as the source of an `io::Error` (by `From`), so a
+/// resolution names it by its variant ([`ReadRefusal::of`]), never by its
+/// message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReadRefusal {
+    /// The file at the path isn't the one an earlier read in the run found
+    /// there, so it isn't read again.
+    #[error(
+        "the file at its path is not the one an earlier resolution in this run read, so it \
+         isn't read again"
+    )]
+    Changed,
+    /// The path lies outside the box the reads are confined to
+    /// ([`SourceTree::check_read`]), so it isn't read.
+    #[error("{} lies outside the box's roots, so it isn't read", .0.display())]
+    OutsideBox(PathBuf),
+}
+
+impl ReadRefusal {
+    /// The refusal `error` carries, if it is one.
+    pub fn of(error: &io::Error) -> Option<&Self> {
+        error.get_ref()?.downcast_ref()
+    }
+}
+
+impl From<ReadRefusal> for io::Error {
+    /// The error a tree returns for `refusal`, whose message is the
+    /// refusal's.
+    fn from(refusal: ReadRefusal) -> Self {
+        let kind = match &refusal {
+            ReadRefusal::Changed => io::ErrorKind::Other,
+            ReadRefusal::OutsideBox(_) => io::ErrorKind::PermissionDenied,
+        };
+        Self::new(kind, refusal)
+    }
+}
 
 /// A read-only view of the files modules resolve against.
 pub trait SourceTree {

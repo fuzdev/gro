@@ -4,8 +4,8 @@ use url::Url;
 
 use super::{from_entry, importer, kind, ok, tree};
 use crate::resolver::{
-    ConsultedFile, FileRole, ModuleFormat, Origin, ResolveErrorKind, Root, Roots, module_format,
-    resolve, resolve_entry,
+    ConsultedFile, FileRole, ModuleFormat, Origin, ResolveErrorKind, Root, Roots, UrlFault,
+    module_format, resolve, resolve_entry,
 };
 
 #[test]
@@ -53,8 +53,8 @@ fn absolute() {
 #[test]
 fn record() {
     let resolution = from_entry(&tree(), "./a.js", &importer()).unwrap();
-    assert_eq!(resolution.origin, Origin::Project);
-    assert_eq!(resolution.root, Path::new("/p"));
+    assert_eq!(resolution.root.origin, Origin::Project);
+    assert_eq!(resolution.root.dir, Path::new("/p"));
     // a `.js` file's scope, read for its `"type"`
     assert_eq!(
         resolution.files_consulted,
@@ -77,8 +77,18 @@ fn record() {
         origin: origin.clone(),
     });
     let resolution = resolve(&tree(), "./a.js", &importer(), &roots).unwrap();
-    assert_eq!(resolution.origin, origin);
-    assert_eq!(resolution.root, Path::new("/p"));
+    assert_eq!(resolution.root.origin, origin);
+    assert_eq!(resolution.root.dir, Path::new("/p"));
+}
+
+/// An importer inside none of the roots passed in is the caller's bug, not
+/// a refusal of the specifier.
+#[test]
+fn an_importer_outside_the_roots_is_no_refusal() {
+    let roots = Roots::new(PathBuf::from("/q"));
+    let error = resolve(&tree(), "./a.js", &importer(), &roots).unwrap_err();
+    assert_eq!(error.kind, ResolveErrorKind::ImporterOutsideRoots);
+    assert!(!error.kind.is_refusal());
 }
 
 #[test]
@@ -170,14 +180,20 @@ fn encoded_separators_and_nul_are_refused() {
         "./..%2Fa.js",
         "./lib%2fc.js",
         "./lib%5Cc.js",
-        "./%00.js",
         "file:///p/lib%2Fc.js",
     ] {
         assert!(
-            matches!(kind(specifier), ResolveErrorKind::InvalidUrl(_)),
+            matches!(
+                kind(specifier),
+                ResolveErrorKind::InvalidUrl(UrlFault::EncodedSeparator(_))
+            ),
             "{specifier}"
         );
     }
+    assert_eq!(
+        kind("./%00.js"),
+        ResolveErrorKind::InvalidUrl(UrlFault::EncodedNul("/p/%00.js".to_owned()))
+    );
     // the query isn't part of the path
     assert_eq!(ok("./a.js?%2F"), "file:///p/a.js?%2F");
 }
@@ -298,10 +314,10 @@ fn entry() {
         entry("typed.ts").unwrap().url.as_str(),
         "file:///p/typed.ts"
     );
-    assert_eq!(entry("main.js").unwrap().origin, Origin::Project);
+    assert_eq!(entry("main.js").unwrap().root.origin, Origin::Project);
     // the entry defines the root, its project root, so outside a project is no refusal
-    assert_eq!(entry("main.js").unwrap().root, Path::new("/p"));
-    assert_eq!(entry("../abs.js").unwrap().root, Path::new("/"));
+    assert_eq!(entry("main.js").unwrap().root.dir, Path::new("/p"));
+    assert_eq!(entry("../abs.js").unwrap().root.dir, Path::new("/"));
     assert_eq!(entry("view.tsx").unwrap_err().kind, ResolveErrorKind::Jsx);
     let error = entry("missing.js").unwrap_err();
     assert_eq!(error.kind, ResolveErrorKind::NotFound { ts_sibling: None });

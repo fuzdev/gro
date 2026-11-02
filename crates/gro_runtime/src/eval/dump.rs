@@ -179,7 +179,7 @@ pub fn dump_graph(
     entry: &Url,
     box_roots: &[PathBuf],
 ) -> Result<GraphDump, DumpError> {
-    let project = &graph.roots.project().dir;
+    let project = &graph.roots().project().dir;
     let mut paths = BTreeMap::new();
     let mut path_id = |path: &Path| -> Result<String, DumpError> {
         let id = to_path_id(path, project)?;
@@ -203,7 +203,7 @@ pub fn dump_graph(
     };
     let roots = vec![module_id(entry)?];
     let mut imports: BTreeMap<&Url, Vec<DumpImport>> = BTreeMap::new();
-    for (edge, resolved) in &graph.edges {
+    for (edge, resolved) in graph.edges() {
         imports.entry(&edge.importer).or_default().push(DumpImport {
             specifier: edge.specifier.clone(),
             resolved: module_id(resolved)?,
@@ -213,8 +213,8 @@ pub fn dump_graph(
             },
         });
     }
-    let mut modules = Vec::with_capacity(graph.records.len());
-    for (url, record) in &graph.records {
+    let mut modules = Vec::with_capacity(graph.records().len());
+    for (url, record) in graph.records() {
         let mut imports = imports.remove(url).unwrap_or_default();
         imports.sort_by(|a, b| {
             (&a.specifier, a.reach, &a.resolved).cmp(&(&b.specifier, b.reach, &b.resolved))
@@ -242,10 +242,10 @@ pub fn dump_graph(
         });
     }
     modules.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut consulted = Vec::with_capacity(graph.consulted.len());
-    for file in &graph.consulted {
+    let mut consulted = Vec::with_capacity(graph.consulted().len());
+    for file in graph.consulted() {
         let hash = graph
-            .reads
+            .reads()
             .hash(&file.path)
             .ok_or_else(|| DumpError::Unread(file.path.clone()))?;
         consulted.push(DumpConsulted {
@@ -261,7 +261,7 @@ pub fn dump_graph(
     }
     consulted.sort_by(|a, b| (&a.id, a.role).cmp(&(&b.id, b.role)));
     let mut absent = graph
-        .reads
+        .reads()
         .absent()
         .iter()
         .map(|path| path_id(path))
@@ -415,10 +415,7 @@ mod tests {
         load(&mut graph, &entry.url);
         for (importer, specifier) in imports {
             let importer = Url::from_file_path(format!("{base}/{importer}")).unwrap();
-            let resolution = {
-                let recording = RecordingTree::new(&tree, &mut graph.reads);
-                resolver::resolve(&recording, specifier, &importer, &graph.roots).unwrap()
-            };
+            let resolution = graph.resolve(&tree, specifier, &importer).unwrap().unwrap();
             graph.consult(resolution.files_consulted.iter().cloned());
             graph.admit(&resolution).unwrap();
             graph.link(&importer, specifier, Reach::Static, &resolution.url);

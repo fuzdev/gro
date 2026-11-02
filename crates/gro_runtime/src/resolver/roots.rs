@@ -182,30 +182,3 @@ impl Roots {
         }
     }
 }
-
-/// A metadata file resolution read.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ConsultedFile {
-    /// Its real path.
-    pub path: PathBuf,
-    /// What it was read for.
-    pub role: FileRole,
-}
-
-/// What a consulted file was read for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FileRole {
-    /// A package's `package.json`, for its `"exports"`.
-    Exports,
-    /// The nearest `package.json` above a module, for its `"type"`, or above
-    /// an importer, for a self-reference's `"name"` and `"exports"`.
-    PackageScope,
-    /// A `package.json` on the walk for the project root that bounds the
-    /// `node_modules` search, or for the entry's project root, read to tell
-    /// a type marker, which the walk passes, from the root it ends at, which
-    /// is always read.
-    SearchBound,
-    /// The `package.json` of the package an entry inside `node_modules` is
-    /// in, for its `"version"`, its origin's.
-    Version,
-}

@@ -6,11 +6,11 @@ use url::Url;
 
 use super::error::{PackageSearchBound, ResolveErrorKind};
 use super::exports::resolve_exports;
-use super::roots::{FileRole, Origin, Root, Roots};
+use super::roots::{Origin, Root, Roots};
 use super::tree::{Entry, SourceTree};
 use super::walk::{
-    Consulted, Walk, find_bound, in_node_modules, is_world_writable, lookup, package_scope,
-    read_package_json,
+    Consulted, FileRole, Walk, find_bound, in_node_modules, is_world_writable, lookup,
+    package_scope, read_package_json,
 };
 
 /// Splits a bare specifier into its package name and its subpath (`.` or

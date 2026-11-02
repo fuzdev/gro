@@ -2,10 +2,13 @@
 
 use std::path::{Path, PathBuf};
 
-use super::error::{ResolveErrorKind, SUGGESTED_EXTENSIONS};
+use super::error::ResolveErrorKind;
 use super::format::module_format;
 use super::tree::{Entry, FileId, SourceTree};
 use super::walk::{Consulted, Walk, lookup, package_scope};
+
+/// The extensions a missing-extension message suggests, in order.
+const SUGGESTED_EXTENSIONS: [&str; 4] = ["ts", "js", "mjs", "mts"];
 
 /// Checks the extension, finds the real file, checks it with `check` (its
 /// containment) before anything about it is read, and checks that it loads: its format

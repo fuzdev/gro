@@ -26,7 +26,7 @@ fn a_read_outside_the_box_is_a_breach() {
     tree.links.insert("/p/node_modules/ext", "/q/ext");
     let resolve = |loader: &Loader, specifier: &str| {
         let boxed = Boxed {
-            loader,
+            check: &loader.box_check,
             tree: &tree,
         };
         loader.resolve_reached(&boxed, specifier, MAIN, STATIC)
@@ -42,10 +42,10 @@ fn a_read_outside_the_box_is_a_breach() {
     assert_eq!(outside.breach(), None);
     let error = resolve(&outside, "ext").unwrap_err();
     assert!(error.to_string().contains("outside the box"), "{error}");
-    assert_eq!(outside.breach(), Some(PathBuf::from("/q/ext/package.json")));
+    assert_eq!(outside.breach(), Some(Path::new("/q/ext/package.json")));
     // the first breach stands
     let _ = resolve(&outside, "ext");
-    assert_eq!(outside.breach(), Some(PathBuf::from("/q/ext/package.json")));
+    assert_eq!(outside.breach(), Some(Path::new("/q/ext/package.json")));
 }
 
 /// A `package.json` the pre-pass read before the box existed is served
@@ -72,14 +72,14 @@ fn a_read_the_prepass_kept_is_checked_against_the_box() {
             ..Rules::default()
         });
     let boxed = Boxed {
-        loader: &loader,
+        check: &loader.box_check,
         tree: &tree,
     };
     let error = loader
         .resolve_reached(&boxed, "bar", MAIN, STATIC)
         .unwrap_err();
     assert!(error.to_string().contains("outside the box"), "{error}");
-    assert_eq!(loader.breach(), Some(PathBuf::from("/q/pkg.json")));
+    assert_eq!(loader.breach(), Some(Path::new("/q/pkg.json")));
 }
 
 /// A module outside the box isn't read, and the loader records the
@@ -104,5 +104,5 @@ fn a_module_outside_the_box_is_not_read() {
     });
     let error = load_disk(&outside, &url).unwrap_err();
     assert!(error.contains("outside the box"), "{error}");
-    assert_eq!(outside.breach(), Some(fixtures.path("main.js")));
+    assert_eq!(outside.breach(), Some(fixtures.path("main.js").as_path()));
 }

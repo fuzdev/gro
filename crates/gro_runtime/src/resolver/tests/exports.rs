@@ -68,8 +68,11 @@ fn exports_resolve_as_node_does() {
         ("t/everywhere/x", Ok(format!("{t}/lib/x/x.js"))),
         // Node loads it as CommonJS
         ("t/cjs", Err(&["Target", "UnsupportedExtension(\"cjs\")"])),
-        ("t/lib/%2F..%2Fa", Err(&["InvalidUrl", "%2F"])),
-        ("t/lib/..%2Fa", Err(&["InvalidUrl", "%2F"])),
+        (
+            "t/lib/%2F..%2Fa",
+            Err(&["InvalidUrl(EncodedSeparator", "%2F"]),
+        ),
+        ("t/lib/..%2Fa", Err(&["InvalidUrl(EncodedSeparator", "%2F"])),
         ("t/lib/x/../a", Err(&["InvalidSubpath", "x/../a"])),
         ("t/lib/node_modules/q", Err(&["InvalidSubpath"])),
         ("t/lib/%6eode_modules/q", Err(&["InvalidSubpath"])),

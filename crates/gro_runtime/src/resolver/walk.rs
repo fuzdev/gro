@@ -6,8 +6,34 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::error::ResolveErrorKind;
-use super::roots::{ConsultedFile, FileRole};
-use super::tree::{ELOOP, Entry, MAX_PACKAGE_JSON_SIZE, SourceTree};
+use super::tree::{ELOOP, Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
+
+/// A metadata file resolution read.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConsultedFile {
+    /// Its real path.
+    pub path: PathBuf,
+    /// What it was read for.
+    pub role: FileRole,
+}
+
+/// What a consulted file was read for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FileRole {
+    /// A package's `package.json`, for its `"exports"`.
+    Exports,
+    /// The nearest `package.json` above a module, for its `"type"`, or above
+    /// an importer, for a self-reference's `"name"` and `"exports"`.
+    PackageScope,
+    /// A `package.json` on the walk for the project root that bounds the
+    /// `node_modules` search, or for the entry's project root, read to tell
+    /// a type marker, which the walk passes, from the root it ends at, which
+    /// is always read.
+    SearchBound,
+    /// The `package.json` of the package an entry inside `node_modules` is
+    /// in, for its `"version"`, its origin's.
+    Version,
+}
 
 /// The files a resolution read, each `(path, role)` once.
 #[derive(Debug, Default)]
@@ -70,12 +96,23 @@ pub(super) fn lookup(
         if ELOOP.is_some() && error.raw_os_error() == ELOOP {
             ResolveErrorKind::SymlinkLoop(path.to_owned())
         } else {
-            ResolveErrorKind::Io {
-                path: path.to_owned(),
-                error: error.to_string(),
-            }
+            read_error(path, &error)
         }
     })
+}
+
+/// The failure of a read at `path`: a refusal the tree made on purpose by
+/// its variant, any other by its kind and message.
+fn read_error(path: &Path, error: &io::Error) -> ResolveErrorKind {
+    match ReadRefusal::of(error) {
+        Some(ReadRefusal::Changed) => ResolveErrorKind::ReadChanged(path.to_owned()),
+        Some(ReadRefusal::OutsideBox(_)) => ResolveErrorKind::ReadOutsideBox(path.to_owned()),
+        None => ResolveErrorKind::Io {
+            path: path.to_owned(),
+            kind: error.kind(),
+            message: error.to_string(),
+        },
+    }
 }
 
 /// Reads `dir`'s `package.json`, when it has one. A leading byte order mark
@@ -116,12 +153,7 @@ pub(super) fn read_package_json(
                 MAX_PACKAGE_JSON_SIZE / (1024 * 1024)
             )));
         }
-        Err(error) => {
-            return Err(ResolveErrorKind::Io {
-                path: path.clone(),
-                error: error.to_string(),
-            });
-        }
+        Err(error) => return Err(read_error(&path, &error)),
     };
     consulted.add(&path, role);
     let json = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
@@ -171,10 +203,7 @@ pub(super) fn is_world_writable(
     dir: &Path,
 ) -> Result<bool, ResolveErrorKind> {
     tree.is_world_writable(dir)
-        .map_err(|error| ResolveErrorKind::Io {
-            path: dir.to_owned(),
-            error: error.to_string(),
-        })
+        .map_err(|error| read_error(dir, &error))
 }
 
 /// The package scope of `dir`: the nearest `package.json` at or above it,

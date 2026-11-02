@@ -146,7 +146,7 @@ fn a_relative_specifier_never_reaches_into_node_modules() {
          import it by name"
     );
     let error = from_entry(&tree, "./node_modules/bar/internal/secret.mjs", &main).unwrap_err();
-    assert!(error.kind.is_specifier_error());
+    assert!(error.kind.is_refusal());
     assert_eq!(
         error.to_string(),
         "cannot resolve './node_modules/bar/internal/secret.mjs' from file:///p/main.ts: it \
@@ -163,9 +163,9 @@ fn a_package_stays_inside_its_root() {
     let tree = contained();
     let foo = url("/p/node_modules/foo/i.mjs");
     let resolution = from_entry(&tree, "./own.mjs", &foo).unwrap();
-    assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+    assert_eq!(resolution.root.dir, Path::new("/p/node_modules/foo"));
     assert_eq!(
-        resolution.origin,
+        resolution.root.origin,
         package_root("/p/node_modules/foo", "foo", Some("1.0.0"), false).origin
     );
     // a sibling package, whose exports `../bar/` bypasses
@@ -204,12 +204,12 @@ fn a_relative_specifier_never_reaches_into_an_admitted_package() {
     // before `lnk` is admitted, the file is the project's: the loader refuses
     // the admission that would follow
     let resolution = resolve(&tree, "./packages/lnk/x.ts", &main, &roots).unwrap();
-    assert_eq!(resolution.origin, Origin::Project);
+    assert_eq!(resolution.root.origin, Origin::Project);
     let resolution = resolve(&tree, "lnk/x.ts", &main, &roots).unwrap();
     let lnk = package_root("/p/packages/lnk", "lnk", None, true);
     assert_eq!(resolution.url.as_str(), "file:///p/packages/lnk/x.ts");
-    assert_eq!(resolution.root, lnk.dir);
-    assert_eq!(resolution.origin, lnk.origin);
+    assert_eq!(resolution.root.dir, lnk.dir);
+    assert_eq!(resolution.root.origin, lnk.origin);
     roots.admit(lnk.clone());
     let error = resolve(&tree, "./packages/lnk/x.ts", &main, &roots).unwrap_err();
     assert_eq!(
@@ -228,8 +228,8 @@ fn a_relative_specifier_never_reaches_into_an_admitted_package() {
     // the package's own imports resolve inside it, with its origin
     let x = url("/p/packages/lnk/x.ts");
     let resolution = resolve(&tree, "./x.ts", &x, &roots).unwrap();
-    assert_eq!(resolution.root, Path::new("/p/packages/lnk"));
-    assert!(matches!(resolution.origin, Origin::Package { name, .. } if name == "lnk"));
+    assert_eq!(resolution.root.dir, Path::new("/p/packages/lnk"));
+    assert!(matches!(resolution.root.origin, Origin::Package { name, .. } if name == "lnk"));
     // a package never reaches into the project's root nested in its own
     let mut roots = Roots::new(PathBuf::from("/p/sub"));
     roots.admit(package_root("/p", "outer", None, true));
@@ -289,7 +289,7 @@ fn an_exports_target_stays_inside_its_package() {
     );
     // a package's root is its own, whatever the project around it holds
     let resolution = from_entry(&tree, "foo", &main).unwrap();
-    assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+    assert_eq!(resolution.root.dir, Path::new("/p/node_modules/foo"));
 }
 
 /// A self-reference resolves from the directory its `package.json` was
@@ -301,7 +301,7 @@ fn a_self_reference_stays_inside_its_scope_and_root() {
     // `src/package.json` is a symlink to `/other`'s, which used to move the root there
     let resolution = from_entry(&tree, "selfy/evil.mjs", &url("/p/src/main.ts")).unwrap();
     assert_eq!(resolution.url.as_str(), "file:///p/src/evil.mjs");
-    assert_eq!(resolution.root, Path::new("/p/src"));
+    assert_eq!(resolution.root.dir, Path::new("/p/src"));
     // a package's self-reference to a target symlinked out of it
     assert_eq!(
         from_entry(&tree, "foo/out.mjs", &url("/p/node_modules/foo/own.mjs"))
@@ -440,8 +440,8 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
     let (entry, roots) =
         resolve_entry(&tree, Path::new("node_modules/foo/i.mjs"), Path::new("/p")).unwrap();
     let foo = package_root("/p/node_modules/foo", "foo", Some("1.0.0"), false);
-    assert_eq!(entry.root, foo.dir);
-    assert_eq!(entry.origin, foo.origin);
+    assert_eq!(entry.root.dir, foo.dir);
+    assert_eq!(entry.root.origin, foo.origin);
     // its package's, read for its version, and no walk for a project root
     assert_eq!(
         entry.files_consulted,
@@ -485,7 +485,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
     )
     .unwrap();
     assert_eq!(
-        entry.root,
+        entry.root.dir,
         Path::new("/p/node_modules/.deno/q@1/node_modules/q")
     );
     assert_eq!(roots.project().dir, Path::new("/p"));
@@ -509,7 +509,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
             ResolveErrorKind::InNoPackage(PathBuf::from(real)),
             "{path}"
         );
-        assert!(error.kind.is_specifier_error());
+        assert!(error.kind.is_refusal());
         assert_eq!(
             error.to_string(),
             format!(
@@ -529,14 +529,14 @@ fn a_root_reached_under_two_names_keeps_its_first_origin() {
     let main = url("/p/main.ts");
     let mut roots = roots(&tree, &main);
     let alias = resolve(&tree, "alias", &main, &roots).unwrap();
-    assert_eq!(alias.root, Path::new("/p/node_modules/bar"));
+    assert_eq!(alias.root.dir, Path::new("/p/node_modules/bar"));
     assert_eq!(
-        alias.origin,
+        alias.root.origin,
         package_root("/p/node_modules/bar", "alias", None, false).origin
     );
     roots.admit(package_root("/p/node_modules/bar", "bar", None, false));
     assert_eq!(
-        resolve(&tree, "alias", &main, &roots).unwrap().origin,
+        resolve(&tree, "alias", &main, &roots).unwrap().root.origin,
         package_root("/p/node_modules/bar", "bar", None, false).origin
     );
     // and a package linked to the project's own directory is the project
@@ -553,7 +553,7 @@ fn a_root_reached_under_two_names_keeps_its_first_origin() {
         ..MemoryTree::default()
     };
     let resolution = resolve(&tree, "proj/main.ts", &url("/p/sub/x.ts"), &roots).unwrap();
-    assert_eq!(resolution.origin, Origin::Project);
+    assert_eq!(resolution.root.origin, Origin::Project);
 }
 
 /// A path's root is the innermost admitted one above it, by path
@@ -711,7 +711,7 @@ fn an_exports_target_under_a_linked_directory_is_checked_on_its_real_path() {
         resolution.url.as_str(),
         "file:///p/node_modules/foo/dist/i.mjs"
     );
-    assert_eq!(resolution.root, Path::new("/p/node_modules/foo"));
+    assert_eq!(resolution.root.dir, Path::new("/p/node_modules/foo"));
     assert_eq!(
         from_entry(&tree, "foo/out.mjs", &main).unwrap_err().kind,
         ResolveErrorKind::Target {
@@ -725,9 +725,9 @@ fn an_exports_target_under_a_linked_directory_is_checked_on_its_real_path() {
     );
     let resolution = from_entry(&tree, "bar", &main).unwrap();
     assert_eq!(resolution.url.as_str(), "file:///linked/bar/i.mjs");
-    assert_eq!(resolution.root, Path::new("/linked/bar"));
+    assert_eq!(resolution.root.dir, Path::new("/linked/bar"));
     assert!(matches!(
-        resolution.origin,
+        resolution.root.origin,
         Origin::Package { name, linked: true, .. } if name == "bar"
     ));
 }
@@ -794,7 +794,7 @@ fn a_root_conflict_names_both_roots() {
         }),
         admitted: Box::new(package_root("/p/packages/lnk", "lnk", None, true)),
     };
-    assert!(kind.is_specifier_error());
+    assert!(kind.is_refusal());
     assert_eq!(
         kind.to_string(),
         "/p/packages/lnk/x.ts was resolved inside the project at /p, and package 'lnk' at \

@@ -165,11 +165,13 @@ mod tests;
 mod tree;
 mod walk;
 
-pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault};
+pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault};
 pub use format::{ModuleFormat, module_format};
-pub use roots::{ConsultedFile, FileRole, Origin, Root, Roots};
+pub use roots::{Origin, Root, Roots};
 pub(crate) use tree::read_checked;
-pub use tree::{DiskTree, Entry, FileId, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, SourceTree};
+pub use tree::{
+    DiskTree, Entry, FileId, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree,
+};
 
 use std::path::{Component, Path, PathBuf};
 use url::Url;
@@ -178,6 +180,7 @@ use find::find_module;
 use package::{parse_package_name, resolve_package};
 use specifier::{Request, parse_specifier, url_to_path};
 use walk::{Consulted, Walk, find_bound, in_node_modules, read_package_json};
+pub use walk::{ConsultedFile, FileRole};
 
 /// The conditions a package's `"exports"` match, in no order of their own:
 /// the first key in the package's order that is one of these wins.
@@ -192,12 +195,10 @@ pub struct Resolution {
     /// The module file's identity when it was resolved, which the loader
     /// checks the file it opens against.
     pub file_id: FileId,
-    /// The real directory of the root the module is inside: its importer's
-    /// for a relative or absolute specifier or a self-reference, the
-    /// package's for any other bare one.
-    pub root: PathBuf,
-    /// Where the module comes from, its root's origin.
-    pub origin: Origin,
+    /// The root the module is inside, whose origin is the module's: its
+    /// importer's for a relative or absolute specifier or a self-reference,
+    /// the package's for any other bare one.
+    pub root: Root,
     /// The `package.json` files read to resolve it, at their real paths, each
     /// once per role. A relative specifier to a `.mjs` or TypeScript file
     /// reads none.
@@ -232,11 +233,9 @@ pub fn resolve(
         kind,
     };
     let importer_path = importer_path(importer).map_err(error)?;
-    let importer_root = roots.containing(&importer_path).ok_or_else(|| {
-        error(ResolveErrorKind::InvalidUrl(
-            "the importer is inside no admitted root".to_owned(),
-        ))
-    })?;
+    let importer_root = roots
+        .containing(&importer_path)
+        .ok_or_else(|| error(ResolveErrorKind::ImporterOutsideRoots))?;
     resolve_from(tree, specifier, importer, importer_root, roots)
 }
 
@@ -329,9 +328,8 @@ pub(crate) fn resolve_from(
             };
             let found = match find_module(tree, &path, None, &mut consulted, check) {
                 Ok(found) => found,
-                Err(kind @ (ResolveErrorKind::Io { .. } | ResolveErrorKind::SymlinkLoop(_))) => {
-                    return Err(error(kind));
-                }
+                // the tree's failure, not the target's
+                Err(kind) if !kind.is_refusal() => return Err(error(kind)),
                 // the error names the file, not the specifier
                 Err(kind) => {
                     return Err(error(ResolveErrorKind::Target {
@@ -415,24 +413,18 @@ pub fn resolve_entry_with_bound(
     // `join` keeps an absolute `path` as is
     let path = normalize(&cwd.join(path));
     if !path.is_absolute() {
-        return Err(error(ResolveErrorKind::InvalidUrl(
-            "not an absolute path".to_owned(),
-        )));
+        return Err(error(ResolveErrorKind::InvalidUrl(UrlFault::NotAbsolute)));
     }
     let mut consulted = Consulted::default();
     let (real_path, file_id) =
         find_module(tree, &path, Some(&specifier), &mut consulted, |_| Ok(())).map_err(error)?;
     let (roots, root, bound) = entry_roots(tree, &real_path, &mut consulted).map_err(error)?;
-    let url = Url::from_file_path(&real_path).map_err(|()| {
-        error(ResolveErrorKind::InvalidUrl(
-            "names no local path".to_owned(),
-        ))
-    })?;
+    let url = Url::from_file_path(&real_path)
+        .map_err(|()| error(ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath)))?;
     let resolution = Resolution {
         url,
         file_id,
-        root: root.dir,
-        origin: root.origin,
+        root,
         files_consulted: consulted.0,
     };
     Ok((resolution, roots, bound))
@@ -471,17 +463,26 @@ fn entry_roots(
     let project_dir: PathBuf = real_path.components().take(first).collect();
     let mut roots = Roots::new(project_dir);
     // the package's name: one segment after node_modules, or a scope and one
-    let names: Vec<&str> = real_path
+    let names: Vec<Option<&str>> = real_path
         .components()
         .skip(last + 1)
-        .map(|component| component.as_os_str().to_str().unwrap_or("%"))
+        .map(|component| component.as_os_str().to_str())
         .collect();
-    let length = if names.first().is_some_and(|name| name.starts_with('@')) {
+    let length = if names
+        .first()
+        .copied()
+        .flatten()
+        .is_some_and(|name| name.starts_with('@'))
+    {
         2
     } else {
         1
     };
-    let name = names.get(..length).map(|names| names.join("/"));
+    // a segment that isn't UTF-8 names no package
+    let name = names
+        .get(..length)
+        .and_then(|names| names.iter().copied().collect::<Option<Vec<_>>>())
+        .map(|names| names.join("/"));
     // the file itself is no package, and neither is `.bin` or `.deno`
     let Some(name) = name.filter(|name| {
         names.len() > length && parse_package_name(name).is_ok_and(|(_, subpath)| subpath == ".")
@@ -507,7 +508,7 @@ fn entry_roots(
 fn importer_path(importer: &Url) -> Result<PathBuf, ResolveErrorKind> {
     importer
         .to_file_path()
-        .map_err(|()| ResolveErrorKind::InvalidUrl("the importer names no local path".to_owned()))
+        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::ImporterNoLocalPath))
 }
 
 /// Whether `path`, as written, has a `node_modules` segment past what it
@@ -559,14 +560,13 @@ fn to_resolution(
     consulted: Consulted,
 ) -> Result<Resolution, ResolveErrorKind> {
     let mut resolved = Url::from_file_path(&real_path)
-        .map_err(|()| ResolveErrorKind::InvalidUrl("names no local path".to_owned()))?;
+        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))?;
     resolved.set_query(url.query());
     resolved.set_fragment(url.fragment());
     Ok(Resolution {
         url: resolved,
         file_id,
-        root: root.dir,
-        origin: root.origin,
+        root,
         files_consulted: consulted.0,
     })
 }

@@ -34,10 +34,11 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
-use super::reads::Reads;
-use super::strip::StripFailure;
+use super::reads::{Reads, RecordingTree};
+use super::strip::{Position, StripFailure};
 use crate::resolver::{
-    ConsultedFile, FileId, ModuleFormat, Resolution, ResolveErrorKind, Root, Roots,
+    self, ConsultedFile, FileId, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root,
+    Roots, SourceTree,
 };
 
 /// How much a graph records beyond what loading needs.
@@ -62,35 +63,25 @@ impl Recording {
 /// What a graph has resolved and loaded: the roots it admitted, the record of
 /// each URL, and, recording in full, the imports between them, the files
 /// consulted, and the failures.
+///
+/// Its fields are read through accessors and written only through its
+/// methods, which keep the paths index in step with the records.
 #[derive(Debug, Clone)]
 pub struct Graph {
     /// How much it records, fixed when it is made.
     recording: Recording,
-    /// The project's root, and every package root a bare specifier resolved
-    /// into.
-    pub roots: Roots,
-    /// What each URL resolved to, the entry's included.
-    pub records: HashMap<Url, Record>,
-    /// The URL each import resolved to, the first resolution's.
-    pub edges: BTreeMap<Edge, Url>,
-    /// Every metadata file the graph's resolutions read, at its real path,
-    /// once per role.
-    pub consulted: BTreeSet<ConsultedFile>,
-    /// Each metadata file's single read, with its hash, and the paths found
-    /// absent, the entry's resolution's among them when the caller passed
-    /// its record in ([`Graph::with_reads`]).
-    pub reads: Reads,
-    /// What failed at each site: each distinct failure once, in the order
-    /// each first happened. One equal to a failure already there is skipped,
-    /// since `deno_core` can resolve a specifier twice, but another reason
-    /// at the same site is kept: a caught `import()` with attributes and a
-    /// later plain `import()` of the same URL are one site, and the second
-    /// can be the failure that ends the run.
-    ///
-    /// A run records at most one failure reached statically: `deno_core`
-    /// stops the entry's load at its first error, and linking reuses the
-    /// specifiers it already resolved, so it resolves none again.
-    pub failures: BTreeMap<FailureSite, Vec<Failure>>,
+    /// See [`Graph::roots`].
+    roots: Roots,
+    /// See [`Graph::records`].
+    records: HashMap<Url, Record>,
+    /// See [`Graph::edges`].
+    edges: BTreeMap<Edge, Url>,
+    /// See [`Graph::consulted`].
+    consulted: BTreeSet<ConsultedFile>,
+    /// See [`Graph::reads`].
+    reads: Reads,
+    /// See [`Graph::failures`].
+    failures: BTreeMap<FailureSite, Vec<Failure>>,
     /// The recorded URLs by their real path, which `Path`'s ordering
     /// compares by component, so the paths under a directory are one range.
     /// A path has more than one URL when specifiers differ in their query or
@@ -179,18 +170,6 @@ pub struct Failure {
     pub error: FailureError,
 }
 
-/// A position in a module's source: a 1-based line and column.
-///
-/// A strip's column counts UTF-16 units, as V8's frames do; an importer's is
-/// `deno_core`'s (see [`Failure::at`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Position {
-    /// The line, 1-based.
-    pub line: u32,
-    /// The column, 1-based.
-    pub column: u32,
-}
-
 /// Why a resolution or load failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureError {
@@ -218,16 +197,22 @@ pub enum LoadFailure {
     /// The import has attributes (`with {type: 'json'}`), which aren't
     /// supported yet.
     ImportAttributes,
-    /// Its URL names no local file.
+    /// Its URL names no local file. Defense in depth: a recorded URL is a
+    /// resolved file's, so it can't happen.
     NotAFile,
-    /// Its file's name doesn't load as a module, which resolution checked
-    /// from the same table.
+    /// Its file's name doesn't load as a module. Defense in depth: a
+    /// recorded URL passed the same table when it resolved, so it can't
+    /// happen.
     Format(ResolveErrorKind),
     /// The file at its path isn't the one resolved: replaced since, or a
     /// directory on its path was.
     IdentityMismatch,
     /// Opening, inspecting, or reading the file failed.
     Read(io::ErrorKind),
+    /// The file lies outside the box the reads are confined to
+    /// ([`ReadRefusal::OutsideBox`](crate::resolver::ReadRefusal::OutsideBox)),
+    /// so it wasn't read.
+    OutsideBox,
     /// The file holds more than [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE)
     /// bytes, so it wasn't read whole.
     TooLarge,
@@ -245,10 +230,7 @@ impl Record {
     /// The record of `resolution`, not yet loaded.
     fn new(resolution: &Resolution) -> Self {
         Self {
-            root: Root {
-                dir: resolution.root.clone(),
-                origin: resolution.origin.clone(),
-            },
+            root: resolution.root.clone(),
             file_id: resolution.file_id,
             loaded: None,
         }
@@ -334,6 +316,72 @@ impl Graph {
         Ok(())
     }
 
+    /// The project's root, and every package root a bare specifier resolved
+    /// into.
+    pub const fn roots(&self) -> &Roots {
+        &self.roots
+    }
+
+    /// What each URL resolved to, the entry's included.
+    pub const fn records(&self) -> &HashMap<Url, Record> {
+        &self.records
+    }
+
+    /// The URL each import resolved to, the first resolution's, recording
+    /// in full.
+    pub const fn edges(&self) -> &BTreeMap<Edge, Url> {
+        &self.edges
+    }
+
+    /// Every metadata file the graph's resolutions read, at its real path,
+    /// once per role, recording in full.
+    pub const fn consulted(&self) -> &BTreeSet<ConsultedFile> {
+        &self.consulted
+    }
+
+    /// Each metadata file's single read, with its hash, and the paths found
+    /// absent, the entry's resolution's among them when the caller passed
+    /// its record in ([`Graph::with_reads`]), recording in full.
+    pub const fn reads(&self) -> &Reads {
+        &self.reads
+    }
+
+    /// What failed at each site, recording in full: each distinct failure
+    /// once, in the order each first happened. One equal to a failure
+    /// already there is skipped, since `deno_core` can resolve a specifier
+    /// twice, but another reason at the same site is kept: a caught
+    /// `import()` with attributes and a later plain `import()` of the same
+    /// URL are one site, and the second can be the failure that ends the
+    /// run.
+    ///
+    /// A run records at most one failure reached statically: `deno_core`
+    /// stops the entry's load at its first error, and linking reuses the
+    /// specifiers it already resolved, so it resolves none again.
+    pub const fn failures(&self) -> &BTreeMap<FailureSite, Vec<Failure>> {
+        &self.failures
+    }
+
+    /// Resolves `specifier`, imported by the recorded module at `importer`,
+    /// from the root it was recorded inside, reading `tree`, through the
+    /// graph's reads when recording in full. Admits and records nothing.
+    /// `None` when `importer` was never recorded.
+    pub(crate) fn resolve(
+        &mut self,
+        tree: &impl SourceTree,
+        specifier: &str,
+        importer: &Url,
+    ) -> Option<Result<Resolution, ResolveError>> {
+        // the record's root is the one its path is inside: admitting a root
+        // around a recorded module is a conflict, so none moves it
+        let importer_root = &self.records.get(importer)?.root;
+        Some(if self.recording.is_full() {
+            let tree = RecordingTree::new(tree, &mut self.reads);
+            resolver::resolve_from(&tree, specifier, importer, importer_root, &self.roots)
+        } else {
+            resolver::resolve_from(tree, specifier, importer, importer_root, &self.roots)
+        })
+    }
+
     /// How much the graph records.
     pub const fn recording(&self) -> Recording {
         self.recording
@@ -381,7 +429,7 @@ impl Graph {
 
     /// Records `failure` at the site of `specifier`, imported by `importer`
     /// and reached as `reached`, recording in full, unless an equal failure
-    /// is recorded there (see [`Graph::failures`]).
+    /// is recorded there (see [`Graph::failures`]); off, it does nothing.
     pub fn fail(
         &mut self,
         specifier: &str,
@@ -469,8 +517,7 @@ mod tests {
                 ino: 1,
                 born: None,
             },
-            root: root.dir.clone(),
-            origin: root.origin.clone(),
+            root: root.clone(),
             files_consulted: Vec::new(),
         }
     }

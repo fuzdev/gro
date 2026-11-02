@@ -2,6 +2,7 @@
 //! identity of the file loaded, and the graph's record by topic.
 
 use std::collections::{BTreeMap, HashMap};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use super::graph::Record;
@@ -52,7 +53,7 @@ fn new_loader(tree: &MemoryTree) -> Loader {
 
 fn state(loader: &Loader) -> (Roots, HashMap<Url, Record>) {
     let graph = loader.graph.borrow();
-    (graph.roots.clone(), graph.records.clone())
+    (graph.roots().clone(), graph.records().clone())
 }
 
 /// Files on disk in a fresh directory (see [`TestDir`]), under a named

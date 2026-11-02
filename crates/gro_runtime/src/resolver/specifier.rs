@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use url::Url;
 
-use super::error::ResolveErrorKind;
+use super::error::{ResolveErrorKind, UrlFault};
 
 /// A parsed specifier.
 pub(super) enum Request<'a> {
@@ -30,7 +30,7 @@ pub(super) fn parse_specifier<'a>(
         return importer
             .join(specifier)
             .map(Request::Url)
-            .map_err(|error| ResolveErrorKind::InvalidUrl(error.to_string()));
+            .map_err(|error| ResolveErrorKind::InvalidUrl(UrlFault::Join(error)));
     }
     if let Ok(url) = Url::parse(specifier) {
         return match url.scheme() {
@@ -56,17 +56,15 @@ pub(super) fn parse_specifier<'a>(
 pub(super) fn url_to_path(url: &Url) -> Result<PathBuf, ResolveErrorKind> {
     let encoded = url.path().to_ascii_lowercase();
     if encoded.contains("%2f") || encoded.contains("%5c") {
-        return Err(ResolveErrorKind::InvalidUrl(format!(
-            "the path {} has an encoded '/' or '\\' (%2F or %5C), which never names a separator",
-            url.path()
+        return Err(ResolveErrorKind::InvalidUrl(UrlFault::EncodedSeparator(
+            url.path().to_owned(),
         )));
     }
     if encoded.contains("%00") {
-        return Err(ResolveErrorKind::InvalidUrl(format!(
-            "the path {} has an encoded NUL (%00)",
-            url.path()
+        return Err(ResolveErrorKind::InvalidUrl(UrlFault::EncodedNul(
+            url.path().to_owned(),
         )));
     }
     url.to_file_path()
-        .map_err(|()| ResolveErrorKind::InvalidUrl("names no local path".to_owned()))
+        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))
 }
