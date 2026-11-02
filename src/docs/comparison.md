@@ -297,22 +297,25 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 
 ## Measured
 
-From the [bench](../../crates/gro_bench) (suite `baseline` v5, 2026-10-30, one quiet machine, interleaved, medians of 200 samples;
+From the [bench](../../crates/gro_bench) (suite `baseline` v5, 2026-11-01, one quiet machine, interleaved, medians of 200 samples;
 Node 24.14.1, Deno 2.8.3, Bun 1.4.3; `fgro` from its startup snapshot).
 The module graph is fuz_util's `src/lib` modules with only relative imports, loaded as TypeScript each runtime strips itself.
 Warm keeps each runtime's on-disk caches; cold turns off their transpile and compiled-code caches.
-Node's column has its compile cache on in its warm rows and off in its cold one, so it matters only for the warm graph (plain Node takes 81 ms there);
+Node's column has its compile cache on in its warm rows and off in its cold one, so it matters only for the warm graph (plain Node takes 82 ms there);
 `fgro` has no on-disk cache, so its cold and warm rows run the same command.
 
 |                              | Bun  | fgro | Node, compile cache | Deno  |
 | ---------------------------- | ---- | ---- | ------------------- | ----- |
-| empty script, ms             | 3.3  | 7.1  | 17.9                | 20.5  |
-| `console.log`, ms            | 3.4  | 7.4  | 19.3                | 20.5  |
-| one small import, ms         | 3.9  | 7.3  | 18.2                | 20.6  |
-| module graph, warm, ms       | 7.5  | 14.4 | 31.1                | 24.4  |
-| module graph, cold, ms       | 8.5  | 14.4 | 81.5                | 29.1  |
-| binary, MB                   | 89.0 | 56.3 | 122.5               | 107.9 |
-| binary, gzipped MB           | 42.0 | 20.5 | 43.6                | 43.8  |
+| empty script, ms             | 3.4  | 7.0  | 18.1                | 20.8  |
+| `console.log`, ms            | 3.5  | 7.2  | 19.3                | 20.8  |
+| one small import, ms         | 3.9  | 7.2  | 18.4                | 20.9  |
+| module graph, warm, ms       | 7.6  | 14.8 | 31.6                | 24.6  |
+| module graph, cold, ms       | 8.5  | 14.9 | 81.7                | 29.4  |
+| binary, MB                   | 89.0 | 56.9 | 122.5               | 107.9 |
+| binary, gzipped MB           | 42.0 | 20.7 | 43.6                | 43.8  |
+
+Confined eval has its own suite (`eval` v1, same day and machine): a zap config written for the bench, in a project with a couple hundred stub packages,
+takes 18.8 ms through `fgro eval` and 32.1 ms through `deno run` with the flags zap passed it before moving to `fgro`.
 
 Bun's startup is JavaScriptCore's; the V8 runtimes share an engine floor of a few milliseconds that only a custom V8 build or process reuse reaches.
 The numbers move with every milestone and are re-recorded with the suite's version named, never compared across versions.

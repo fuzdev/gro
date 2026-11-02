@@ -927,8 +927,8 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   only; the table is a report either way. The eval suite
   (`crates/gro_bench/suites/eval/`) times `fgro eval --driver -` against
   `deno run` with the flags, pinned environment (`TZ`, `LC_ALL`,
-  `NO_COLOR`), and stdin wrapper zap's eval passes it, plus
-  `DENO_NO_UPDATE_CHECK`, which zap doesn't set, so no update check runs in a
+  `NO_COLOR`), and stdin wrapper zap's eval passed it before moving to
+  `fgro`, plus `DENO_NO_UPDATE_CHECK`, which zap didn't set, so no update check runs in a
   sample, each with zap's own driver read from a sibling zap checkout
   (`builder_fgro.js` and `builder.js`; the suite holds no zap code), on a
   committed fixture project (`fixture/`, a config written for the bench over
@@ -1023,6 +1023,14 @@ since anyone who can write there can alter any build output already. A plain
 cargo build against a bad file, fixed by hand before any xtask runs, goes
 undetected until a newer `v8` verifies `RUSTY_V8_ARCHIVE_SHA256` itself. CI
 runs the fetch first, as the first step of `check-rust`.
+
+**Compact relocations.** `.cargo/config.toml` links every
+`x86_64-unknown-linux-gnu` build with `-z pack-relative-relocs` (`DT_RELR`):
+the PIE keeps address randomization while its relocations shrink from about
+1.6 MB to about 18 KB, which also trims startup. The binary then needs glibc
+2.36 or later (`GLIBC_ABI_DT_RELR`), under the release's 2.39 floor.
+`RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment replaces the
+config's flags, so a build with one set drops it.
 
 **Snapshot builds.** `cargo xtask build [--release]` makes the `fgro` that
 starts from a snapshot and runs off its build tree, in two stages: the plain

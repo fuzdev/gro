@@ -10,3 +10,12 @@ xtask = "run --locked -p xtask --"
 # guards the download, not local writes to target/. crates/xtask/src/v8_archive.rs
 # holds the pin this path must match.
 RUSTY_V8_ARCHIVE = { value = "target/rusty_v8/v150.4.0/librusty_v8_simdutf_release_x86_64-unknown-linux-gnu.a.gz", relative = true }
+
+[target.x86_64-unknown-linux-gnu]
+# compact relative relocations (`DT_RELR`): the PIE's relocations shrink from
+# about 1.6 MB to about 18 KB and apply faster at startup, keeping address
+# randomization. Needs glibc 2.36 or later where it runs (the release's floor
+# is 2.39, and an older loader refuses the binary by its `GLIBC_ABI_DT_RELR`
+# version). `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` in the environment
+# replaces this list, and this list overrides any `build.rustflags`.
+rustflags = ["-C", "link-arg=-Wl,-z,pack-relative-relocs"]
