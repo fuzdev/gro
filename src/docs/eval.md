@@ -147,10 +147,7 @@ Every `import()` in the run is refused before anything is resolved, whatever it 
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
 caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md).
 
-Each `package.json` the run's resolutions read is read once:
-a later resolution that finds the same file parses the first read's bytes,
-even when the file was rewritten in place since,
-and one that finds another file at its path (a file renamed over it after eval first read it) fails to resolve.
+Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 
 ## The box
 
@@ -370,7 +367,7 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, or V8 ran out of memory with the heap not at fault |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
 | `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
-| `internal`       | the host failed: a module changed on disk between resolving and loading, a read failed, a symlink loop, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
+| `internal`       | the host failed: a module replaced on disk between resolving and loading, a read failed, a symlink loop, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
 
 ## The graph
 
@@ -427,7 +424,7 @@ Every array is sorted, so the dump is a function of what was read, not of the or
 | `local.box`          | the [box](#the-box)'s roots, P first, then the link closure                                                                     |
 | `local.paths`        | each file's absolute path, keyed by its id; a module's is under its id cut at the first `?` or `#`                              |
 
-Each `package.json` is read once per run ([the protocol](#the-protocol)),
+Each `package.json` is read once per run ([resolver](resolver.md#departures-from-node)),
 so a consulted file's `blake3` is the hash of the bytes every resolution in the run parsed.
 
 What the run depended on is `modules` and `consulted` by id and hash and `absent` by id:

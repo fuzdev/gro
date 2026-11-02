@@ -7,9 +7,13 @@ use super::{ConfineError, Jit};
 /// the allowlist.
 ///
 /// None is made by any part of the runtime, so reaching one means code
-/// escaped the engine. The allowlist doesn't allow them either; this filter
-/// is the tripwire that ends the process rather than let it carry on past
-/// `ENOSYS`.
+/// escaped the engine: running a program, reading or writing another
+/// process's memory, loading a BPF program, a kernel, or a kernel module,
+/// opening performance counters (`perf_event_open`), handling page faults
+/// in user space (`userfaultfd`), and the `io_uring` calls, whose operations
+/// bypass seccomp. The allowlist
+/// doesn't allow them either; this filter is the tripwire that ends the
+/// process rather than let it carry on past `ENOSYS`.
 pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
     libc::SYS_execve,
     libc::SYS_execveat,

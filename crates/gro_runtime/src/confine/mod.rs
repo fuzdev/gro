@@ -36,25 +36,19 @@
 //!    unix socket outside it. A kernel without Landlock, or with it below
 //!    ABI 6, is refused, naming what is missing and the kernel's ABI.
 //! 3. **seccomp**, two filters on the calling thread (no thread sync, since it
-//!    is the process's only thread). The first kills the process on the calls
-//!    no part of the runtime makes and code that escaped the engine would
-//!    (`KILLED_CALLS`: `execve` and `execveat`, `ptrace`, the
-//!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`,
-//!    `userfaultfd`, the `kexec` calls, the `io_uring` calls, whose operations
-//!    bypass seccomp, and the kernel module calls). The second is an allowlist:
-//!    the calls the runtime makes after the box goes up, and their named
-//!    siblings (`ALLOWED_CALLS`), pass; `prctl`, `fcntl`, `ioctl`,
-//!    `socketpair`, `faccessat2`, and `clone` pass only with the arguments the
-//!    runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
-//!    `KEPT_SOCKETPAIR`, `KEPT_ACCESS_MODE`, and a `clone` that starts a
-//!    thread, setting no flag in `CLONE_NAMESPACES`); the mapping calls
-//!    (`MAPPING_CALLS`: `mmap`, `mprotect`, and `pkey_mprotect`) pass whatever
-//!    their arguments with the JIT on, whose compiled code needs executable
-//!    memory, and with it off only when their `prot` has `PROT_EXEC` clear, so
-//!    once the box is up a jitless process makes no mapping executable: what it
-//!    mapped before, its own code and its libraries', stays executable, and
-//!    `mremap`, which keeps a mapping's protection, can still move, copy, or
-//!    grow those mappings over their files' own bytes; every other call fails
+//!    is the process's only thread), their tables in `seccomp.rs`. The first
+//!    is a tripwire: it kills the process on the calls no part of the runtime
+//!    makes and code that escaped the engine would (`KILLED_CALLS`). The
+//!    second is an allowlist: the calls the runtime makes after the box goes
+//!    up, and their named siblings, pass (`ALLOWED_CALLS`); a few pass only
+//!    with the arguments the runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`,
+//!    `KEPT_IOCTLS`, `KEPT_SOCKETPAIR`, `KEPT_ACCESS_MODE`, and a `clone` that
+//!    starts a thread, setting no flag in `CLONE_NAMESPACES`); and the
+//!    mapping calls (`MAPPING_CALLS`) pass whatever their arguments with the
+//!    JIT on, whose compiled code needs executable memory, and with it off
+//!    only when their `prot` has `PROT_EXEC` clear, so once the box is up a
+//!    jitless process makes no mapping executable (what it mapped before, its
+//!    own code and its libraries', stays executable). Every other call fails
 //!    with `ENOSYS`, an argument outside its rules included. `ENOSYS` is what a
 //!    call the kernel lacks returns, so glibc and std fall back where they can
 //!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call the
@@ -62,12 +56,12 @@
 //!    fails with `ENOSYS`. The filter compares exact call numbers, so an x32
 //!    call (`nr | 0x40000000`) matches nothing and fails too, and since the
 //!    allowlist doesn't allow `seccomp`, no filter can be added after it. Built
-//!    for `x86_64` and `aarch64`; the `aarch64` list follows that
-//!    architecture's call table and is unverified on a host. A library loaded
-//!    after the box goes up (by `dlopen`, which nothing in the runtime is known
-//!    to call) fails on either architecture when its file is outside the roots,
-//!    which Landlock refuses, or jitless, when the rule refuses its code's
-//!    `PROT_EXEC` mapping; a library inside the roots loads under `--jit`.
+//!    for `x86_64` and `aarch64`, the `aarch64` list unverified on a host. A
+//!    library loaded after the box goes up (by `dlopen`, which nothing in the
+//!    runtime is known to call) fails on either architecture when its file is
+//!    outside the roots, which Landlock refuses, or jitless, when the rule
+//!    refuses its code's `PROT_EXEC` mapping; a library inside the roots loads
+//!    under `--jit`.
 //!
 //!    The `READ_IMPLIES_EXEC` personality, which would make every readable
 //!    mapping executable past the rule, can't be inherited: the kernel

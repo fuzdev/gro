@@ -92,6 +92,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
   Each `package.json` is read the same way, checked against its own lookup.
   In `fgro eval`, which records its graph in full, each `package.json` is read once per run:
   a later resolution that finds the same file there is served the first read's bytes,
+  even when it was rewritten in place since,
   and one that finds another file at the path is refused,
   so every resolution in the run parses the same bytes, whose BLAKE3 hash the graph keeps.
   `fgro run` reads it again at each resolution.
