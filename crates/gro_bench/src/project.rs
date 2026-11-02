@@ -14,8 +14,8 @@
 //! file in the committed directory, or a `node_modules` at its root, which the
 //! run generates, is refused.
 //!
-//! A project can also name files to generate into the copy
-//! ([`Generate`]), such as a [`write_data_module`] too large to commit.
+//! A project can also name files to generate into the copy ([`Generate`]), such
+//! as a [`write_data_module`] too large to commit.
 
 use std::fs;
 use std::io::{self, Write};

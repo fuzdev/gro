@@ -227,7 +227,8 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
         && matches!((modified(stamp), modified(plain)), (Some(ran), Some(built)) if ran > built)
 }
 
-/// Checks the snapshot `build`: the integration tests against it, then the
+/// Checks the snapshot `build`: the size budgets, clippy over the
+/// `snapshot` feature, the integration tests against it, then the
 /// off-build-tree run.
 pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let binary = &build.binary;
@@ -322,24 +323,30 @@ const BUDGET_SUITE: &str = "crates/gro_bench/suites/baseline/suite.json";
 /// bind only a release build, the one that ships; a debug build is checked
 /// on its snapshot alone, which is the same either way, and says so.
 fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
-    let failed = |message: String| XtaskError::Failed(format!("budget check failed: {message}"));
-    let suite = gro_bench::suite::Suite::load(&root.join(BUDGET_SUITE))
-        .map_err(|error| failed(error.to_string()))?;
+    let suite =
+        gro_bench::suite::Suite::load(&root.join(BUDGET_SUITE)).map_err(XtaskError::Budget)?;
     let Some(budget) = suite.budgets.get("fgro") else {
-        return Err(failed(format!("{BUDGET_SUITE} has no `fgro` budget")));
+        return Err(XtaskError::Budget(
+            gro_bench::error::BenchError::SuiteInvalid(format!(
+                "{BUDGET_SUITE} has no `fgro` budget"
+            )),
+        ));
     };
     let size = |path: &Path| {
         fs::metadata(path)
             .map(|metadata| metadata.len())
-            .map_err(|error| failed(format!("{}: {error}", path.display())))
+            .map_err(|error| {
+                XtaskError::Failed(format!(
+                    "budget check failed: failed to read {}: {error}",
+                    path.display()
+                ))
+            })
     };
     let snapshot_bytes = Some(size(&binary.with_file_name("snapshot.bin"))?);
     let (budget, sizes) = if release {
         let sizes = gro_bench::budget::Sizes {
             bytes: Some(size(binary)?),
-            gzip_bytes: Some(
-                gro_bench::budget::gzip_size(binary).map_err(|error| failed(error.to_string()))?,
-            ),
+            gzip_bytes: Some(gro_bench::budget::gzip_size(binary).map_err(XtaskError::Budget)?),
             snapshot_bytes,
         };
         (budget.clone(), sizes)
@@ -355,8 +362,7 @@ fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
         };
         (snapshot_only, sizes)
     };
-    gro_bench::budget::check_budget("fgro", &budget, &sizes)
-        .map_err(|error| failed(error.to_string()))?;
+    gro_bench::budget::check_budget("fgro", &budget, &sizes).map_err(XtaskError::Budget)?;
     println!(
         "[xtask] within the fgro budgets in {BUDGET_SUITE}{}",
         if release {

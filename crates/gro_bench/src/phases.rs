@@ -30,10 +30,10 @@ pub const PHASES_FILE_ENV: &str = "GRO_PHASES_FILE";
 pub const PHASES_HEADER: &str = "gro_phases 1";
 
 /// The duration before the runtime's first phase.
-pub const START: &str = "start";
+const START: &str = "start";
 
 /// The duration after the runtime's last phase.
-pub const REAP: &str = "reap";
+const REAP: &str = "reap";
 
 /// The wall clock read on each side of one sample, in nanoseconds since the
 /// Unix epoch.

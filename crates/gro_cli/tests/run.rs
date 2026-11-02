@@ -12,6 +12,7 @@ mod support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc::RecvTimeoutError;
 
 use support::{COLOR_VARS, Scratch, fgro_command, spawn};
 
@@ -432,7 +433,6 @@ fn run_in(fixtures: &Scratch, file: &str) -> Run {
 /// The run waits for the rename by importing `ready.js` until it exists.
 #[test]
 fn a_loaded_module_renamed_over_is_served_from_the_module_map() {
-    use std::io::{BufRead as _, Read as _};
     let main = "const first = await import('./a.js');
 console.log('loaded', first.a);
 let ready = false;
@@ -459,17 +459,19 @@ console.log(ready, again.a, b);
             ),
         ],
     );
-    let mut child = fgro_command(&["run", "main.js"])
-        .current_dir(&fixtures.0)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
-    let mut line = String::new();
-    stdout.read_line(&mut line).unwrap();
-    assert_eq!(line, "loaded 1\n");
+    let mut child = support::KillOnDrop(
+        fgro_command(&["run", "main.js"])
+            .current_dir(&fixtures.0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let stdout = support::lines(child.stdout.take().unwrap());
+    let stderr = support::drain(child.stderr.take().unwrap());
+    let line = stdout.recv_timeout(support::DEADLINE);
+    assert_eq!(line.as_deref(), Ok("loaded 1\n"));
     // made before the rename, so it can't reuse the replaced file's inode
     let replacement = fixtures.0.join("a.js.replacement");
     std::fs::write(&replacement, "export const a = 2;\n").unwrap();
@@ -477,15 +479,16 @@ console.log(ready, again.a, b);
     std::fs::write(fixtures.0.join("ready.js"), "export {};\n").unwrap();
     // the run ends by itself: its wait for `ready.js` is bounded
     let mut rest = String::new();
-    stdout.read_to_string(&mut rest).unwrap();
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut stderr)
-        .unwrap();
+    // the channel closes with the pipe, as the run exits
+    loop {
+        match stdout.recv_timeout(support::DEADLINE) {
+            Ok(line) => rest.push_str(&line),
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => panic!("the run didn't end: {rest}"),
+        }
+    }
     let status = child.wait().unwrap();
+    let stderr = String::from_utf8(stderr.join().unwrap()).unwrap();
     assert_eq!(rest, "true 1 2\n", "{stderr}");
     assert!(status.success(), "{stderr}");
 }

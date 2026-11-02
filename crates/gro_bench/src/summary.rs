@@ -262,11 +262,11 @@ fn write_noise(out: &mut String, record: &RunRecord) {
 
 /// The gate table, report only: nothing fails on it.
 ///
-/// It is the suite's own `gate` when it has one, else each
-/// row of a runtime `is_subject` picks (`fgro`'s), its median against its
-/// gate row's, same-session: warm rows gate against Node with its compile
-/// cache ([`GATE_WARM`]), cold rows against plain Node ([`GATE_COLD`]), with
-/// Deno beside ([`BESIDE`]). Empty when no row is gated.
+/// It is the suite's own `gate` when it has one, else each row of a runtime
+/// `is_subject` picks (`fgro`'s), its median against its gate row's,
+/// same-session: warm rows gate against Node with its compile cache
+/// ([`GATE_WARM`]), cold rows against plain Node ([`GATE_COLD`]), with Deno
+/// beside ([`BESIDE`]). Empty when no row is gated.
 pub fn gate(suite: &Suite, record: &RunRecord, is_subject: impl Fn(&Runtime) -> bool) -> String {
     if let Some(gate) = &suite.gate {
         return suite_gate(suite, gate, record);

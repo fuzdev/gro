@@ -6,7 +6,6 @@ use super::{ConfineError, Pin};
 /// Installs the Landlock rules, reading beneath each of `pins`, the roots'
 /// handles opened before, after `no_new_privs`, which the kernel requires
 /// first and Landlock sets.
-#[cfg(target_os = "linux")]
 pub(super) fn landlock(pins: &[Pin]) -> Result<(), ConfineError> {
     use std::os::fd::AsFd as _;
 
@@ -45,12 +44,10 @@ pub(super) fn landlock(pins: &[Pin]) -> Result<(), ConfineError> {
 
 /// The Landlock ABI the box's rules are written for, and the least the
 /// kernel's may be.
-#[cfg(target_os = "linux")]
 pub(super) const LANDLOCK_ABI: landlock::ABI = landlock::ABI::V6;
 
 /// Refuses a kernel whose Landlock, as `status` reports it, can't hold the
 /// box: none, switched off, or below [`LANDLOCK_ABI`].
-#[cfg(target_os = "linux")]
 pub(super) fn landlock_floor(status: landlock::LandlockStatus) -> Result<(), ConfineError> {
     use landlock::LandlockStatus;
     match status {

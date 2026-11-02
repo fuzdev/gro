@@ -85,8 +85,8 @@ pub fn lock_dir_blocking(dir: &Path) -> Result<DirLock, LockIoError> {
 ///
 /// # Errors
 ///
-/// Fails with [`LockError::Held`] when another holds it, or
-/// [`LockError::Io`] when a filesystem call fails.
+/// Fails with [`LockError::Held`] when another holds it, or [`LockError::Io`]
+/// when a filesystem call fails.
 pub fn try_lock_dir(dir: &Path) -> Result<DirLock, LockError> {
     let (path, file) = open_lock(dir)?;
     let deadline = Instant::now() + GRACE;

@@ -35,42 +35,39 @@
 //!    signal to a process outside the box, and no connection to an abstract
 //!    unix socket outside it. A kernel without Landlock, or with it below
 //!    ABI 6, is refused, naming what is missing and the kernel's ABI.
-//! 3. **seccomp**, two filters on the calling thread (no thread sync, since
-//!    it is the process's only thread). The first kills the process on the
-//!    calls no part of the runtime makes and code that escaped the engine
-//!    would (`KILLED_CALLS`: `execve` and `execveat`, `ptrace`, the
+//! 3. **seccomp**, two filters on the calling thread (no thread sync, since it
+//!    is the process's only thread). The first kills the process on the calls
+//!    no part of the runtime makes and code that escaped the engine would
+//!    (`KILLED_CALLS`: `execve` and `execveat`, `ptrace`, the
 //!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`,
-//!    `userfaultfd`, the `kexec` calls, the `io_uring` calls, whose operations bypass
-//!    seccomp, and the kernel module calls). The second is an allowlist:
+//!    `userfaultfd`, the `kexec` calls, the `io_uring` calls, whose operations
+//!    bypass seccomp, and the kernel module calls). The second is an allowlist:
 //!    the calls the runtime makes after the box goes up, and their named
 //!    siblings (`ALLOWED_CALLS`), pass; `prctl`, `fcntl`, `ioctl`,
-//!    `socketpair`, `faccessat2`, and `clone` pass only with the arguments
-//!    the runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
+//!    `socketpair`, `faccessat2`, and `clone` pass only with the arguments the
+//!    runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
 //!    `KEPT_SOCKETPAIR`, `KEPT_ACCESS_MODE`, and a `clone` that starts a
 //!    thread, setting no flag in `CLONE_NAMESPACES`); the mapping calls
-//!    (`MAPPING_CALLS`: `mmap`, `mprotect`, and `pkey_mprotect`) pass
-//!    whatever their arguments with the JIT on, whose compiled code needs
-//!    executable memory, and with it off only when their `prot` has
-//!    `PROT_EXEC` clear, so once the box is up a jitless process makes no
-//!    mapping executable:
-//!    what it mapped before, its own code and its libraries', stays
-//!    executable, and `mremap`, which keeps a mapping's protection, can
-//!    still move, copy, or grow those mappings over their files' own bytes;
-//!    every other call fails with `ENOSYS`,
-//!    an argument outside its rules included. `ENOSYS` is what a call the
-//!    kernel lacks returns, so glibc and std fall back where they can
-//!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call
-//!    the list doesn't name degrades where its libc has a fallback, and
-//!    otherwise fails with `ENOSYS`. The filter
-//!    compares exact call numbers, so an x32 call (`nr | 0x40000000`)
-//!    matches nothing and fails too, and since the allowlist doesn't allow
-//!    `seccomp`, no filter can be added after it. Built for `x86_64` and
-//!    `aarch64`; the `aarch64` list follows that architecture's call table
-//!    and is unverified on a host. A library loaded after the box goes up
-//!    (by `dlopen`, which nothing in the runtime is known to call) fails on
-//!    either architecture when its file is outside the roots, which Landlock
-//!    refuses, or jitless, when the rule refuses its code's `PROT_EXEC`
-//!    mapping; a library inside the roots loads under `--jit`.
+//!    (`MAPPING_CALLS`: `mmap`, `mprotect`, and `pkey_mprotect`) pass whatever
+//!    their arguments with the JIT on, whose compiled code needs executable
+//!    memory, and with it off only when their `prot` has `PROT_EXEC` clear, so
+//!    once the box is up a jitless process makes no mapping executable: what it
+//!    mapped before, its own code and its libraries', stays executable, and
+//!    `mremap`, which keeps a mapping's protection, can still move, copy, or
+//!    grow those mappings over their files' own bytes; every other call fails
+//!    with `ENOSYS`, an argument outside its rules included. `ENOSYS` is what a
+//!    call the kernel lacks returns, so glibc and std fall back where they can
+//!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call the
+//!    list doesn't name degrades where its libc has a fallback, and otherwise
+//!    fails with `ENOSYS`. The filter compares exact call numbers, so an x32
+//!    call (`nr | 0x40000000`) matches nothing and fails too, and since the
+//!    allowlist doesn't allow `seccomp`, no filter can be added after it. Built
+//!    for `x86_64` and `aarch64`; the `aarch64` list follows that
+//!    architecture's call table and is unverified on a host. A library loaded
+//!    after the box goes up (by `dlopen`, which nothing in the runtime is known
+//!    to call) fails on either architecture when its file is outside the roots,
+//!    which Landlock refuses, or jitless, when the rule refuses its code's
+//!    `PROT_EXEC` mapping; a library inside the roots loads under `--jit`.
 //!
 //!    The `READ_IMPLIES_EXEC` personality, which would make every readable
 //!    mapping executable past the rule, can't be inherited: the kernel
@@ -308,7 +305,7 @@ pub enum ConfineError {
     },
     /// The Landlock rules couldn't be made or installed.
     #[cfg(target_os = "linux")]
-    #[error("failed to install the box's Landlock rules: {0}")]
+    #[error("failed to make or install the box's Landlock rules: {0}")]
     Landlock(#[source] ::landlock::RulesetError),
     /// The kernel installed only part of the Landlock rules.
     #[error("the kernel enforced the box's Landlock rules only in part, so none can be relied on")]
@@ -366,7 +363,9 @@ const REQUIRED_LANDLOCK_ABI: u32 = 6;
 fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     use crate::prices::{self, EvalDefault};
     // a priced build can leave either wall out, to time it (`prices`)
-    // compiled first, so a filter that can't be built fails before any wall
+    //
+    // the filters are compiled first, so one that can't be built fails
+    // before any wall goes up
     let filters = if prices::off(EvalDefault::Seccomp) {
         None
     } else {
@@ -375,9 +374,9 @@ fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     if !prices::off(EvalDefault::Landlock) {
         landlock::landlock(&prepared.pins)?;
     }
-    // the killing filter first, so it passes the allowlist's own `seccomp`
-    // call; the allowlist doesn't allow `seccomp`, so it is the last filter
-    // the process can take
+    // the killing filter is installed first, so the allowlist's own
+    // `seccomp` call passes it; the allowlist doesn't allow `seccomp`, so it
+    // is the last filter the process can take
     for filter in filters.iter().flatten() {
         seccompiler::apply_filter(filter).map_err(ConfineError::Seccomp)?;
     }

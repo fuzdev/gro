@@ -241,42 +241,48 @@ fn link_problem(error: &io::Error) -> String {
 }
 
 impl BenchError {
-    /// Whether the input is at fault (the suite, a program or file it names,
-    /// a command that fails or prints no version, a corpora checkout off its
-    /// pin, a collection the pinned tree lacks or a copy can't hold, an
-    /// entry colliding with a collection's file, a project's missing or
-    /// unversioned link or unsupported entry, a failed correctness run,
-    /// values that break the suite's parity, counters the machine can't
-    /// give, a phases run's program that isn't a phases build, a size over
-    /// its budget, a process past its deadline, or a work
-    /// directory another run holds), so the caller must change
-    /// something before re-running: unchanged, it fails the same way.
+    /// Whether the input is at fault (the suite, a program or file it names, a
+    /// command that fails or prints no version, a corpora checkout off its pin,
+    /// a collection the pinned tree lacks or a copy can't hold, an entry
+    /// colliding with a collection's file, a project's missing or unversioned
+    /// link or unsupported entry, a failed correctness run, values that break
+    /// the suite's parity, counters the machine can't give, a phases run's
+    /// program that isn't a phases build, a size over its budget, a process
+    /// past its deadline, or a work directory another run holds), so the caller
+    /// must change something before re-running: unchanged, it fails the same
+    /// way.
     pub const fn is_input_error(&self) -> bool {
-        matches!(
-            self,
+        // every variant named, so a new one decides its exit code
+        match self {
             Self::SuiteRead { .. }
-                | Self::SuiteParse { .. }
-                | Self::SuiteInvalid(_)
-                | Self::SuiteFileMissing { .. }
-                | Self::ProgramNotFound { .. }
-                | Self::ProgramIsScript { .. }
-                | Self::CommandFailed { .. }
-                | Self::TimedOut { .. }
-                | Self::WorkDirLocked { .. }
-                | Self::NoVersion { .. }
-                | Self::CorporaTree { .. }
-                | Self::CorporaDirty { .. }
-                | Self::CollectionNotFound { .. }
-                | Self::CollectionEntry { .. }
-                | Self::EntryCollides { .. }
-                | Self::ProjectLinkMissing { .. }
-                | Self::ProjectLinkUnversioned { .. }
-                | Self::ProjectEntry { .. }
-                | Self::CheckFailed { .. }
-                | Self::ParityMismatch { .. }
-                | Self::Counters(_)
-                | Self::NotPhasesBuild { .. }
-                | Self::BudgetExceeded { .. }
-        )
+            | Self::SuiteParse { .. }
+            | Self::SuiteInvalid(_)
+            | Self::SuiteFileMissing { .. }
+            | Self::ProgramNotFound { .. }
+            | Self::ProgramIsScript { .. }
+            | Self::CommandFailed { .. }
+            | Self::TimedOut { .. }
+            | Self::WorkDirLocked { .. }
+            | Self::NoVersion { .. }
+            | Self::CorporaTree { .. }
+            | Self::CorporaDirty { .. }
+            | Self::CollectionNotFound { .. }
+            | Self::CollectionEntry { .. }
+            | Self::EntryCollides { .. }
+            | Self::ProjectLinkMissing { .. }
+            | Self::ProjectLinkUnversioned { .. }
+            | Self::ProjectEntry { .. }
+            | Self::CheckFailed { .. }
+            | Self::ParityMismatch { .. }
+            | Self::Counters(_)
+            | Self::NotPhasesBuild { .. }
+            | Self::BudgetExceeded { .. } => true,
+            Self::Read { .. }
+            | Self::Spawn { .. }
+            | Self::Write { .. }
+            | Self::ArtifactsChanged { .. }
+            | Self::Phases(_)
+            | Self::HistoryWrite { .. } => false,
+        }
     }
 }

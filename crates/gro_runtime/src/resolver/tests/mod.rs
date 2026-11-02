@@ -15,7 +15,24 @@ use url::Url;
 use crate::resolver::entry::entry_roots;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::walk::Consulted;
-use crate::resolver::{Resolution, ResolveError, ResolveErrorKind, Roots, SourceTree, resolve};
+use crate::resolver::{
+    Resolution, ResolveError, ResolveErrorKind, Roots, SourceTree, importer_path, resolve_from,
+};
+
+/// Resolves as `resolve_from` does, the importer's root found as the one
+/// its path is inside ([`Roots::containing`]), which must be one.
+pub(super) fn resolve(
+    tree: &impl SourceTree,
+    specifier: &str,
+    importer: &Url,
+    roots: &Roots,
+) -> Result<Resolution, ResolveError> {
+    let importer_path = importer_path(importer).expect("the importer names a local path");
+    let importer_root = roots
+        .containing(&importer_path)
+        .expect("the importer is inside one of the roots");
+    resolve_from(tree, specifier, importer, importer_root, roots)
+}
 
 pub(super) const MODULE: &str = r#"{"type": "module"}"#;
 

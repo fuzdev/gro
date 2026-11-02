@@ -109,10 +109,8 @@ mod tests {
         mode: Mode,
         test: impl FnOnce(&mut JsRuntime) -> T + Send + 'static,
     ) -> T {
-        use std::rc::Rc;
-
-        use crate::loader::Loader;
         use crate::resolver::DiskTree;
+
         init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
         let dir = TestDir::on_disk(name);
         std::fs::write(dir.path().join("main.mjs"), "").unwrap();
@@ -136,8 +134,6 @@ mod tests {
             .unwrap()
     }
 
-    const EVAL: Mode = Mode::Eval;
-
     /// Every op a runtime registers, `deno_core`'s own included, pinned in
     /// `tests/op_names.txt` in registration order, so a `deno_core` or
     /// `deno_web` bump that adds, removes, or renames one fails here and
@@ -157,7 +153,7 @@ mod tests {
                 .collect()
         };
         let run = on_new_runtime("op_names_run", Mode::Run, names);
-        let eval = on_new_runtime("op_names_eval", EVAL, names);
+        let eval = on_new_runtime("op_names_eval", Mode::Eval, names);
         let pinned =
             std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/op_names.txt"))
                 .unwrap();
@@ -216,7 +212,7 @@ for (const name of {}) {{
                 serde_json::from_str(&json).unwrap()
             }
         };
-        let eval = on_new_runtime("refused_eval", EVAL, call(source.clone()));
+        let eval = on_new_runtime("refused_eval", Mode::Eval, call(source.clone()));
         let refusal = format!("Error: {}", bootstrap::REFUSED);
         for name in bootstrap::REFUSED_OPS {
             assert_eq!(eval[name], refusal.as_str(), "{name}");

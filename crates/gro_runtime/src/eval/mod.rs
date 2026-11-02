@@ -4,14 +4,13 @@
 //! The protocol, its determinism, limits, serializer, envelope, and error
 //! kinds are `src/docs/eval.md`'s; this covers how the code holds them.
 //!
-//! An eval runs in two steps, so that its process can be confined between
-//! them ([`crate::confine`]): [`prepass()`] resolves the entry and computes the
+//! An eval runs in two steps, so that its process can be confined between them
+//! ([`crate::confine`]): [`prepass()`] resolves the entry and computes the
 //! box's roots, before any runtime exists, and [`eval`] runs the rest on an
 //! engine started after the box. [`eval`] takes a [`ConfinedEngine`], which
-//! only a process held in its box has, checks it against
-//! [`engine_options`] and against the eval's box, and refuses a build with no
-//! startup snapshot as `internal` before the runtime starts. Eval reads no
-//! environment variable.
+//! only a process held in its box has, checks it against [`engine_options`] and
+//! against the eval's box, and refuses a build with no startup snapshot as
+//! `internal` before the runtime starts. Eval reads no environment variable.
 //!
 //! The driver is a module at the synthetic URL [`DRIVER_SPECIFIER`], which
 //! the loader resolves to nothing; with none, the namespace's
@@ -23,7 +22,7 @@
 //! [`DEFAULT_TIMEOUT`], [`MEMORY_LIMIT`], [`MAX_ENVELOPE_SIZE`], and each
 //! module's [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE). With
 //! [`EvalOptions::graph`], the envelope carries the run's graph
-//! ([`GraphDump`], [`dump_graph`]); without it, nothing is kept for one.
+//! ([`GraphDump`], `dump.rs`); without it, nothing is kept for one.
 //!
 //! Each eval's runtime starts from the same snapshot as `fgro run`'s and is
 //! made eval's per run, never in the snapshot: the bootstrap's `deny`
@@ -48,9 +47,10 @@ use std::time::Duration;
 
 use url::Url;
 
+use self::dump::dump_graph;
 pub use self::dump::{
     DumpConsulted, DumpError, DumpFormat, DumpImport, DumpLocal, DumpModule, DumpOrigin, DumpReach,
-    DumpRole, GRAPH_VERSION, GraphDump, dump_graph,
+    DumpRole, GRAPH_VERSION, GraphDump,
 };
 pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,
@@ -145,9 +145,9 @@ pub struct EvalOptions {
     pub graph: bool,
 }
 
-/// Evaluates `prepass`, its process confined to its box
-/// ([`Prepass::confine`]), as the module doc describes, on the engine
-/// `engine` names, and returns the envelope, whatever happened.
+/// Evaluates `prepass`, its process confined to its box ([`Prepass::confine`]),
+/// as the module doc describes, on the engine `engine` names, and returns the
+/// envelope, whatever happened.
 ///
 /// The engine is a confined one, so there is no eval outside the box: one
 /// confined to another box than the prepass's, or started with no snapshot,

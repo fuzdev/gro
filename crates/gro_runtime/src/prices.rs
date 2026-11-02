@@ -10,13 +10,12 @@
 //!
 //! With it, the environment variable [`PRICES_OFF_ENV`] names the defaults to
 //! turn off, comma-separated by their [`EvalDefault::name`]s
-//! (`GRO_PRICES_OFF=landlock,seccomp`); unset or empty, every default
-//! stands. A name it doesn't know, and a value that isn't Unicode, is
-//! refused ([`start`]), so a typo never times the default build under
-//! another name. A priced build with some
-//! default off is no eval's to trust: it can run outside its box, read the
-//! clock, or run forever, and exists only to be timed against the build
-//! with every default on.
+//! (`GRO_PRICES_OFF=landlock,seccomp`); unset or empty, every default stands. A
+//! name it doesn't know, and a value that isn't Unicode, is refused
+//! ([`start`]), so a typo never times the default build under another name. A
+//! priced build with some default off is no eval's to trust: it can run outside
+//! its box, read the clock, or run forever, and exists only to be timed against
+//! the build with every default on.
 //!
 //! The JIT has no switch here: eval runs jitless unless `--jit`, which
 //! already turns it on, the box's executable mappings with it.
@@ -237,7 +236,7 @@ pub fn off(default: EvalDefault) -> bool {
 #[inline]
 #[expect(
     clippy::missing_const_for_fn,
-    reason = "the priced build's reads the environment, and callers are the same in both"
+    reason = "the priced build reads the environment, and callers are the same in both"
 )]
 pub fn off(_default: EvalDefault) -> bool {
     false
@@ -277,9 +276,15 @@ mod tests {
             parse("landlock, seccomp"),
             Ok(vec![EvalDefault::Landlock, EvalDefault::Seccomp])
         );
-        let error = parse("deny,jitless").unwrap_err().to_string();
-        assert!(error.contains("`jitless`"), "{error}");
-        assert!(error.contains("envelope_cap"), "{error}");
+        let error = parse("deny,jitless").unwrap_err();
+        assert_eq!(
+            error,
+            PricesError::Unknown {
+                name: "jitless".to_owned()
+            }
+        );
+        // the message lists every default
+        assert!(error.to_string().contains("envelope_cap"), "{error}");
     }
 
     #[test]

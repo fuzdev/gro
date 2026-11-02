@@ -19,8 +19,8 @@
 //!   previous record's;
 //! - peak memory medians and maxima when the latest record has them, each
 //!   median beside the previous record's, flagged past [`RSS_FLAG`], a row
-//!   whose peak sits within
-//!   [`RSS_FLOOR_MARGIN`] of the run's floor marked as not the runtime's.
+//!   whose peak sits within [`RSS_FLOOR_MARGIN`] of the run's floor marked as
+//!   not the runtime's.
 //!
 //! A move is measured the same either way, as a [`ratio_deviation`]: a 2%
 //! rise and a 2% drop are flagged alike.
@@ -54,7 +54,7 @@ pub const RSS_FLOOR_MARGIN: f64 = 1.25;
     clippy::cast_precision_loss,
     reason = "peaks in KiB are far below 2^52"
 )]
-pub fn near_rss_floor(peak: &Metric, floor: Option<u64>) -> bool {
+fn near_rss_floor(peak: &Metric, floor: Option<u64>) -> bool {
     let least = peak.samples.iter().copied().min().unwrap_or(0);
     floor.is_some_and(|floor| least as f64 <= floor as f64 * RSS_FLOOR_MARGIN)
 }

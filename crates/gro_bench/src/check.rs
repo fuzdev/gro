@@ -35,7 +35,7 @@ pub fn stdout_value(check: Stdout, stdout: &[u8]) -> Result<Value, String> {
 /// The deepest nesting of arrays and objects a stdout may hold: eval's
 /// serializer refuses a value past 1000, and its envelope adds one, so
 /// this leaves room while keeping the parse's recursion bounded.
-pub const MAX_DEPTH: usize = 2048;
+const MAX_DEPTH: usize = 2048;
 
 /// The stack the parse runs on, ample for [`MAX_DEPTH`] levels of
 /// `serde_json`'s recursion in a debug build.

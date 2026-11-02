@@ -270,7 +270,7 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
             | LoadFailure::IdentityMismatch
             | LoadFailure::Read(_)
             | LoadFailure::OutsideBox
-            | LoadFailure::NotAFile
+            | LoadFailure::NoLocalPath
             | LoadFailure::Format(_),
         )
         | FailureReason::UnknownImporter
@@ -314,8 +314,7 @@ mod tests {
     use super::*;
     use crate::loader::graph::Recording;
     use crate::loader::graph::{Position, StripFailure};
-    use crate::resolver::ResolveErrorKind;
-    use crate::resolver::{FileId, Origin, Resolution, Root, Roots};
+    use crate::resolver::{FileId, Origin, Resolution, ResolveErrorKind, Root, Roots, UrlFault};
 
     /// A graph of `/p/main.js` with `failures` recorded, each at its own
     /// site and reached as given.
@@ -368,7 +367,7 @@ mod tests {
             ),
             (FailureReason::DriverImport, ErrorKind::Resolve),
             (
-                FailureReason::Resolve(ResolveErrorKind::ImporterOutsideRoots),
+                FailureReason::Resolve(ResolveErrorKind::InvalidUrl(UrlFault::ImporterNoLocalPath)),
                 ErrorKind::Internal,
             ),
             (
@@ -404,7 +403,7 @@ mod tests {
                 ErrorKind::Internal,
             ),
             (
-                FailureReason::Load(LoadFailure::NotAFile),
+                FailureReason::Load(LoadFailure::NoLocalPath),
                 ErrorKind::Internal,
             ),
             (

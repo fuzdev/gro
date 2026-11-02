@@ -52,7 +52,7 @@ pub enum CliError {
     #[error("usage: fgro {} <dir> (it takes no flags)", MAKE_SNAPSHOT)]
     SnapshotFlag,
     /// The snapshot's directory couldn't be created.
-    #[error("{}: {source}", path.display())]
+    #[error("failed to create the snapshot directory {}: {source}", path.display())]
     SnapshotDir {
         /// The directory.
         path: PathBuf,

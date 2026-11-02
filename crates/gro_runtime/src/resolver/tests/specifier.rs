@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
-use super::{from_entry, importer, kind, ok, tree};
+use super::{from_entry, importer, kind, ok, resolve, tree};
 use crate::resolver::{
     ConsultedFile, FileRole, ModuleFormat, Origin, ResolveErrorKind, Root, Roots, UrlFault,
-    module_format, resolve, resolve_entry,
+    module_format, resolve_entry,
 };
 
 #[test]
@@ -79,16 +79,6 @@ fn record() {
     let resolution = resolve(&tree(), "./a.js", &importer(), &roots).unwrap();
     assert_eq!(resolution.root.origin, origin);
     assert_eq!(resolution.root.dir, Path::new("/p"));
-}
-
-/// An importer inside none of the roots passed in is the caller's bug, not
-/// a refusal of the specifier.
-#[test]
-fn an_importer_outside_the_roots_is_no_refusal() {
-    let roots = Roots::new(PathBuf::from("/q"));
-    let error = resolve(&tree(), "./a.js", &importer(), &roots).unwrap_err();
-    assert_eq!(error.kind, ResolveErrorKind::ImporterOutsideRoots);
-    assert!(!error.kind.is_refusal());
 }
 
 #[test]

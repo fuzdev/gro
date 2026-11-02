@@ -36,7 +36,7 @@ while a plain `cargo build` runs only from its build tree.
   A module larger than 16 MiB is refused as it's read, before any of it is parsed or stripped.
   A world-writable directory (other-write, like `/tmp`) ends the search for it, and for every `package.json`:
   no `package.json` or `node_modules` in it is read,
-  and a package installed through one (its `node_modules`, `@scope`, root, a linked root's real holders, or a linked `node_modules`'s or `@scope`'s real parent) is refused.
+  and a package installed through one is refused ([resolver](resolver.md#departures-from-node) lists the reads it refuses).
   TypeScript is stripped of its types in process ([typescript](typescript.md)).
 - Relative and absolute specifiers with their full extension,
   and bare specifiers through a package's `"exports"` in `node_modules`,
@@ -49,11 +49,8 @@ while a plain `cargo build` runs only from its build tree.
   Each refusal names the path, the root, and a fix,
   and so does a file reached both by a relative path and by its package's name, in either order.
   An entry inside `node_modules` runs as the package it's in.
-  A module with no project root above it (no `package.json` outside `node_modules` that isn't a type marker,
-  below any world-writable directory) gets no bare imports except a self-reference,
-  which resolves through its own package's `"exports"` and stays inside its package,
-  and any other bare import is refused with the fix: a `package.json` at the project root,
-  with the package installed in the `node_modules` beside it.
+  A module with no project root above it gets no bare imports but a self-reference,
+  and any other is refused with the fix ([resolver](resolver.md#departures-from-node)).
   A module's `import.meta.url` is its real path, after symlinks.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.

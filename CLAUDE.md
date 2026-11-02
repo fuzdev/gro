@@ -529,7 +529,7 @@ Crates:
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA`, the default thread stack, `wait4`, process
-  groups), each behind a safe API; Linux only
+  groups, `_exit`), each behind a safe API; Linux only
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (`HeapReader`); `v8` is pinned to the exact version
   `deno_core` re-exports, so a `deno_core` upgrade moves the pin with it
@@ -553,23 +553,21 @@ Invariants that live in the code:
   or the build fails.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
-  (`Roots`) and passes them into `resolve`. Failures are enums
-  (`FailureReason`, `ResolveErrorKind`), never parsed from a message; eval's
-  error kind comes from the step that failed and the graph's record.
+  (`Roots`) and passes them into `resolve_from`. Failures are enums (the
+  resolver's `ResolveErrorKind`, the loader's `FailureReason`), never parsed
+  from a message; eval's error kind comes from the step that failed and the
+  graph's record.
 - Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
-  `Unconfined` named by `fgro run`, `make-snapshot`, and unit tests;
-  `engine::init_engine` takes either and returns an `Engine`, which
-  `run_main` and `make_snapshot` require, and `init_confined_engine` takes a
-  `Confined` and returns the `ConfinedEngine` `eval::eval` requires. No
-  runtime starts before the process is confined or named unconfined; a
+  `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
+  tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,
+  which `run_main` and `make_snapshot` require, and `init_confined_engine`
+  takes a `Confined` and returns the `ConfinedEngine` `eval::eval` requires.
+  No runtime starts before the process is confined or named unconfined; a
   confined engine whose JIT disagrees with the box's is
   `EngineError::JitConflict`.
 - One thread until the box: `fgro eval` keeps its process single-threaded
-  until it's confined, and the step order (close descriptors, the phases
-  file, clear the environment but `TZ`, the default thread stack then
-  `RLIMIT_DATA`, then the pre-pass thread, confine on the main thread, then
-  the engine thread) is written once, in `confine_eval`'s doc in
-  `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
+  until it's confined, in the step order written once, in `confine_eval`'s
+  doc in `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
   sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy and synthetic ES module the
   extensions declare: deno_core falls back to a lazy ES module of the exact
@@ -607,13 +605,10 @@ it.
 
 **Commands.** The toolchain is pinned in `rust-toolchain.toml`.
 
-- `cargo xtask check` - the one local gate: `check-rust` (the V8 archive;
-  `cargo fmt`, `clippy`, `test`, and `doc` with warnings denied, `clippy`
-  and `test` again with the `phases` and `prices` features; then
-  `build --verify`), `check-js` (the JS/TS under `crates/`, which
-  `gro check` doesn't reach), then `gro check`. CI runs `check-rust` and
-  `check-js` as its own jobs, so the gate list lives in the xtask only
-  (`crates/xtask/src/check.rs`)
+- `cargo xtask check` - the one local gate: `check-rust`, `check-js` (the
+  JS/TS under `crates/`, which `gro check` doesn't reach), then `gro check`.
+  CI runs `check-rust` and `check-js` as its own jobs, so the steps live in
+  the xtask only (`crates/xtask/src/check.rs`)
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in
   two stages, at `<target>/gro_snapshot/<profile>/fgro`; `--verify` adds
   clippy over the `snapshot` feature, the integration tests against that
@@ -626,8 +621,8 @@ it.
 interleaved, with an A/A noise row, and appends one JSON line per run to
 `crates/gro_bench/history.jsonl`. Suites live in `crates/gro_bench/suites/`
 (`baseline`, `eval`, `prices`, `memory`; described in gro_bench's `lib.rs`).
-Flags and exit codes are in `crates/xtask/src/bench/mod.rs` and
-`crates/xtask/src/main.rs`.
+Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
+`crates/xtask/src/main.rs` and `crates/xtask/src/error.rs`.
 
 - `cargo xtask bench <suite.json>` - a wall run; `--counters` counts
   instructions and cycles under `perf stat`, `--phases` records per-phase

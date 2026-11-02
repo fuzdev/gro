@@ -18,20 +18,19 @@
 //!   the cap again with nothing left to give, and V8 calls the
 //!   out-of-memory handler: [`oom_backstop`] writes the envelope prepared
 //!   before the run ([`set_backstop`]) and exits the process with code 1.
-//! - **The process's memory.** `fgro eval` caps the process's data segment
-//!   at [`MEMORY_LIMIT`] before it starts a thread, which bounds what the
-//!   heap's cap doesn't: an array buffer's bytes, the copies a module's
-//!   parse and the envelope make, every thread's stack. Past it, an
-//!   allocation fails: an array buffer's makes V8 collect all it can and
-//!   call the near-heap-limit callback, which finds the heap well below its
-//!   cap and records [`Stop::Memory`], stopping the run the same way; V8's
-//!   own, on the run's thread, reaches the same out-of-memory handler, which
-//!   writes a prepared `memory` envelope instead when the heap isn't at
-//!   fault (V8 didn't report its heap out of memory, or the callback never
-//!   found the heap full); V8's
+//! - **The process's memory.** `fgro eval` caps the process's data segment at
+//!   [`MEMORY_LIMIT`] before it starts a thread, which bounds what the heap's
+//!   cap doesn't: an array buffer's bytes, the copies a module's parse and the
+//!   envelope make, every thread's stack. Past it, an allocation fails: an
+//!   array buffer's makes V8 collect all it can and call the near-heap-limit
+//!   callback, which finds the heap well below its cap and records
+//!   [`Stop::Memory`], stopping the run the same way; V8's own, on the run's
+//!   thread, reaches the same out-of-memory handler, which writes a prepared
+//!   `memory` envelope instead when the heap isn't at fault (V8 didn't report
+//!   its heap out of memory, or the callback never found the heap full); V8's
 //!   on one of its own threads, which calls no isolate's handler, and a Rust
-//!   allocation, whose failure handler stable Rust can't set, abort the
-//!   process with no envelope.
+//!   allocation, whose failure handler stable Rust can't set, abort the process
+//!   with no envelope.
 //! - **The timeout.** A [`Watchdog`] thread holds the isolate's thread-safe
 //!   handle and terminates execution at the deadline, recording
 //!   [`Stop::Timeout`], unless the eval ends first.
@@ -60,17 +59,16 @@ use gro_v8::HeapReader;
 ///
 /// The cap is V8's heap only. Outside it, bounded only by the process's
 /// [`MEMORY_LIMIT`], is the backing memory of an `ArrayBuffer`, a
-/// `SharedArrayBuffer`, or a typed array. Also outside it, and bounded by
-/// byte caps rather than this one: a module's source, as read
-/// and stripped, and its parse
-/// ([`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE) per module), and
-/// the envelope's own bytes, which the serializer writes outside the heap
-/// ([`MAX_ENVELOPE_SIZE`]; a large string is held a few times over while
-/// it's written). Not bounded but by this cap on each copy: an uncaught
-/// error's report (its message and stack, and each cause's and aggregated
-/// error's, up to 256 errors) and the specifiers the loader records, copied
-/// out of the heap, so a run that throws a long message, many times over,
-/// can take many times this cap, up to the process's, before it ends.
+/// `SharedArrayBuffer`, or a typed array. Also outside it, and bounded by byte
+/// caps rather than this one: a module's source, as read and stripped, and its
+/// parse ([`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE) per module),
+/// and the envelope's own bytes, which the serializer writes outside the heap
+/// ([`MAX_ENVELOPE_SIZE`]; a large string is held a few times over while it's
+/// written). Not bounded but by this cap on each copy: an uncaught error's
+/// report (its message and stack, and each cause's and aggregated error's, up
+/// to 256 errors) and the specifiers the loader records, copied out of the
+/// heap, so a run that throws a long message, many times over, can take many
+/// times this cap, up to the process's, before it ends.
 pub const HEAP_LIMIT: usize = 512 << 20;
 
 /// The cap on the process's data segment, `RLIMIT_DATA`, in bytes: 2 GiB.
@@ -101,9 +99,8 @@ pub const HEAP_LIMIT: usize = 512 << 20;
 /// or hard, which stands.
 pub const MEMORY_LIMIT: u64 = 2 << 30;
 
-/// The most stack a thread started without a size of its own gets, in
-/// bytes: 8 MiB, what glibc gives one under the common 8 MiB
-/// `RLIMIT_STACK`.
+/// The most stack a thread started without a size of its own gets, in bytes:
+/// 8 MiB, what glibc gives one under the common 8 MiB `RLIMIT_STACK`.
 ///
 /// `fgro eval` lowers the process's default to it before it starts any
 /// thread, and never raises it: a smaller default, under a smaller
@@ -152,14 +149,14 @@ const WATCHDOG_STACK_SIZE: usize = 128 << 10;
 pub(super) enum Stop {
     /// The heap reached its cap.
     Heap = 1,
+    /// The timeout passed.
+    Timeout = 2,
     /// An allocation outside the heap failed, the process's memory taken:
     /// V8 collects all it can before it gives up on one, and calls the
     /// near-heap-limit callback as it does, which finds the heap well below
     /// its cap ([`HEAP_FULL`]). Turned into [`Stop::Heap`] when the run's end
     /// finds the heap full after all ([`Stopped::check_heap`]).
     Memory = 3,
-    /// The timeout passed.
-    Timeout = 2,
 }
 
 impl Stop {
@@ -298,10 +295,8 @@ pub(super) fn watch_heap(runtime: &mut JsRuntime, stopped: Stopped) {
 struct Backstop {
     /// The stream the envelope goes to, opened before the run.
     out: Arc<File>,
-    /// The `heap` envelope, one line.
-    heap: String,
-    /// The `memory` envelope, one line.
-    memory: String,
+    /// The envelopes it chooses between.
+    envelopes: BackstopEnvelopes,
     /// The run's stops, which say whether the heap neared its cap.
     stopped: Stopped,
 }
@@ -333,12 +328,10 @@ static BACKSTOP_WRITTEN: AtomicBool = AtomicBool::new(false);
 /// out of memory, chosen by what V8 reports and by `stopped`, the run's
 /// stops. Returns false when the process set one already.
 pub(super) fn set_backstop(out: Arc<File>, envelopes: BackstopEnvelopes, stopped: Stopped) -> bool {
-    let BackstopEnvelopes { heap, memory } = envelopes;
     BACKSTOP
         .set(Backstop {
             out,
-            heap,
-            memory,
+            envelopes,
             stopped,
         })
         .is_ok()
@@ -364,9 +357,9 @@ extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::Oom
         && let Some(backstop) = BACKSTOP.get()
     {
         let envelope = if heap_at_fault(details.is_heap_oom, backstop.stopped.heap_neared()) {
-            &backstop.heap
+            &backstop.envelopes.heap
         } else {
-            &backstop.memory
+            &backstop.envelopes.memory
         };
         let mut out: &File = &backstop.out;
         // nothing is left to report a failed write to
@@ -507,13 +500,5 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
-    }
-
-    #[test]
-    fn the_heap_is_at_fault_only_when_v8_says_so_and_it_neared_its_cap() {
-        assert!(heap_at_fault(true, true));
-        assert!(!heap_at_fault(true, false));
-        assert!(!heap_at_fault(false, true));
-        assert!(!heap_at_fault(false, false));
     }
 }

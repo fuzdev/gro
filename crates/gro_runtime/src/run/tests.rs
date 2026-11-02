@@ -186,7 +186,7 @@ fn a_dynamic_import_failing_to_read_rejects_with_a_type_error() {
 \tawait import('./unreadable.mjs');
 \tthrow new Error('the unreadable module loaded');
 } catch (error) {
-\tif (!(error instanceof TypeError) || !String(error.message).includes('cannot load')) {
+\tif (!(error instanceof TypeError) || !String(error.message).includes('failed to load')) {
 \t\tthrow new Error(`not a TypeError: ${error}`);
 \t}
 }

@@ -1,11 +1,10 @@
 //! `limit_data` and `set_default_thread_stack` from inside a child process:
 //! each case runs this binary again, the child, which caps its own data
-//! segment, or lowers its default thread stack, and reports what it then
-//! has. The stack's cases run on glibc only, whose default the call sets and
-//! reads; elsewhere it does nothing.
-//! A cap is the whole process's and can't be raised again, so it's never set
-//! in this process, nor under libtest's harness, whose other tests would run
-//! under it.
+//! segment, or lowers its default thread stack, and reports what it then has.
+//! The stack's cases run on glibc only, whose default the call sets and reads;
+//! elsewhere it does nothing. A cap is the whole process's and can't be raised
+//! again, so it's never set in this process, nor under libtest's harness, whose
+//! other tests would run under it.
 
 #![cfg_attr(
     target_os = "linux",

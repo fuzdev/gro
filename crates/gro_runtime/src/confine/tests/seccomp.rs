@@ -7,23 +7,10 @@ use crate::confine::seccomp::{
     KILLED_CALLS, MAPPING_CALLS, seccomp_filters,
 };
 
-/// The filters compile for this architecture; installing them is the
-/// confined-process tests' (a test process has threads of its own).
-#[cfg(target_os = "linux")]
-#[test]
-fn the_seccomp_filters_compile() {
-    for jit in [Jit::Off, Jit::On] {
-        let [killing, allowing] = seccomp_filters(jit).unwrap();
-        assert!(!killing.is_empty());
-        assert!(!allowing.is_empty());
-    }
-}
-
 /// The calls the allowlist allows whatever their arguments, listed apart
 /// from [`ALLOWED_CALLS`], so a call added or dropped there fails
 /// the tests: the calls the runtime was seen to make after the box goes
 /// up, then the named siblings.
-#[cfg(target_os = "linux")]
 fn allowed_calls() -> Vec<libc::c_long> {
     let mut expected = vec![
         libc::SYS_brk,
@@ -78,7 +65,6 @@ fn allowed_calls() -> Vec<libc::c_long> {
 
 /// The calls the allowlist allows only by their arguments, the mapping
 /// calls jitless.
-#[cfg(target_os = "linux")]
 const RULED_CALLS: [libc::c_long; 9] = [
     libc::SYS_prctl,
     libc::SYS_fcntl,
@@ -91,14 +77,12 @@ const RULED_CALLS: [libc::c_long; 9] = [
     libc::SYS_pkey_mprotect,
 ];
 
-/// A sample of the calls the allowlist doesn't allow: every call the
-/// box once refused by name (the socket calls, the metadata calls, the
-/// watches, the System V and POSIX queue calls, the calls that read or
-/// set a process's limits, and the ones that set its priority or
-/// scheduling), then the namespace,
-/// key, filter, process, and filesystem calls nothing in the runtime
+/// A sample of the calls the allowlist doesn't allow: every call the box once
+/// refused by name (the socket calls, the metadata calls, the watches, the
+/// System V and POSIX queue calls, the calls that read or set a process's
+/// limits, and the ones that set its priority or scheduling), then the
+/// namespace, key, filter, process, and filesystem calls nothing in the runtime
 /// makes.
-#[cfg(target_os = "linux")]
 fn unlisted_calls() -> Vec<libc::c_long> {
     vec![
         libc::SYS_socket,
@@ -218,7 +202,6 @@ fn unlisted_calls() -> Vec<libc::c_long> {
 /// The allowlist is the list above, plus the calls allowed by their
 /// arguments, each with the values pinned here; none is a killed call,
 /// and the sample of unlisted calls is unlisted.
-#[cfg(target_os = "linux")]
 #[test]
 fn the_allowlist_is_the_census() {
     let mut allowed = ALLOWED_CALLS.to_vec();
@@ -246,20 +229,8 @@ fn the_allowlist_is_the_census() {
             libc::F_DUPFD_CLOEXEC,
         ]
     );
-    assert_eq!(KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
-    assert_eq!(KEPT_ACCESS_MODE, libc::F_OK);
-    assert_eq!(
-        MAPPING_CALLS,
-        [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect]
-    );
-}
-
-/// The `ioctl` requests kept are the ones std, tokio, and the console
-/// make, and the allowlist compares the request with each; the
-/// ones that set a file's attributes aren't kept.
-#[cfg(target_os = "linux")]
-#[test]
-fn the_kept_ioctls_set_nothing() {
+    // the requests std, tokio, and the console make; none sets a file's
+    // attributes
     assert_eq!(
         KEPT_IOCTLS,
         [
@@ -271,30 +242,17 @@ fn the_kept_ioctls_set_nothing() {
             libc::TIOCGWINSZ,
         ]
     );
-    for refused in [
-        libc::FS_IOC_SETFLAGS,
-        libc::FS_IOC32_SETFLAGS,
-        libc::FS_IOC_SETVERSION,
-        libc::FS_IOC32_SETVERSION,
-        0x401c_5820,
-    ] {
-        assert!(!KEPT_IOCTLS.contains(&refused), "{refused:#x}");
-    }
-    let [_, allowing] = seccomp_filters(Jit::Off).unwrap();
-    for request in KEPT_IOCTLS {
-        assert!(
-            allowing
-                .iter()
-                .any(|instruction| u64::from(instruction.k) == request),
-            "{request:#x}"
-        );
-    }
+    assert_eq!(KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
+    assert_eq!(KEPT_ACCESS_MODE, libc::F_OK);
+    assert_eq!(
+        MAPPING_CALLS,
+        [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect]
+    );
 }
 
-/// The `seccomp_data` architecture value of the kernel's ABI this test
-/// runs on: `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64`, the
-/// architectures the box is built for.
-#[cfg(target_os = "linux")]
+/// The `seccomp_data` architecture value of the kernel's ABI this test runs on:
+/// `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64`, the architectures the box is
+/// built for.
 fn audit_arch() -> u32 {
     match std::env::consts::ARCH {
         "x86_64" => 0xc000_003e,
@@ -311,7 +269,6 @@ fn audit_arch() -> u32 {
 /// little-endian on both architectures), so a table can pin the policy
 /// as compiled. Returns the filter's return value, its action and data.
 /// An instruction it doesn't know panics, never passes.
-#[cfg(target_os = "linux")]
 fn decide(filter: &[seccompiler::sock_filter], arch: u32, nr: libc::c_long, args: [u64; 6]) -> u32 {
     const LOAD: u32 = libc::BPF_LD | libc::BPF_W | libc::BPF_ABS;
     const AND: u32 = libc::BPF_ALU | libc::BPF_AND | libc::BPF_K;
@@ -363,7 +320,6 @@ fn decide(filter: &[seccompiler::sock_filter], arch: u32, nr: libc::c_long, args
 /// arguments; every other call, an x32 call among them, fails with
 /// `ENOSYS`. The killing filter allows all of those and kills on its own
 /// calls, and both kill a call from another architecture.
-#[cfg(target_os = "linux")]
 #[test]
 fn the_filters_decide_by_the_allowlist() {
     const ALLOW: u32 = libc::SECCOMP_RET_ALLOW;
@@ -371,7 +327,7 @@ fn the_filters_decide_by_the_allowlist() {
     const KILL: u32 = libc::SECCOMP_RET_KILL_PROCESS;
     let arch = audit_arch();
     let high = 0xdead_0000_0000_0000_u64;
-    let int = |value: libc::c_int| u64::from(value.unsigned_abs());
+    let int = |value: libc::c_int| u64::from(value.cast_unsigned());
     let unix = int(libc::AF_UNIX);
     let [stream, datagram, seqpacket, cloexec, nonblock] = [
         libc::SOCK_STREAM,

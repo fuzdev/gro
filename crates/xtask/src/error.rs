@@ -16,6 +16,10 @@ pub enum XtaskError {
     /// A bench run failed, by the harness's taxonomy.
     #[error("bench failed: {0}")]
     Bench(BenchError),
+    /// `build --verify`'s check of the baseline suite's `fgro` budgets
+    /// failed, by the harness's taxonomy.
+    #[error("budget check failed: {0}")]
+    Budget(BenchError),
     /// The V8 archive isn't ready.
     #[error(transparent)]
     Archive(#[from] ArchiveError),
@@ -102,13 +106,17 @@ impl XtaskError {
     pub fn exit_code(&self) -> u8 {
         match self {
             Self::BuildFailed(_) | Self::Input { .. } => EXIT_INPUT,
-            Self::Bench(error) if error.is_input_error() => EXIT_INPUT,
+            Self::Bench(error) | Self::Budget(error) if error.is_input_error() => EXIT_INPUT,
             Self::StepFailed { status, .. } => status
                 .code()
                 .and_then(|code| u8::try_from(code).ok())
                 .filter(|code| *code != 0)
                 .unwrap_or(1),
-            Self::Bench(_) | Self::Archive(_) | Self::Spawn { .. } | Self::Failed(_) => 1,
+            Self::Bench(_)
+            | Self::Budget(_)
+            | Self::Archive(_)
+            | Self::Spawn { .. }
+            | Self::Failed(_) => 1,
         }
     }
 
@@ -122,11 +130,11 @@ impl XtaskError {
         }
     }
 
-    /// Prints the error to stderr, each cause of a bench failure on a line
-    /// of its own.
+    /// Prints the error to stderr, each cause of a bench or budget failure on a
+    /// line of its own.
     pub fn print(&self) {
         eprintln!("[xtask] {self}");
-        if let Self::Bench(error) = self {
+        if let Self::Bench(error) | Self::Budget(error) = self {
             let mut source = error.source();
             while let Some(cause) = source {
                 eprintln!("  caused by: {cause}");

@@ -177,7 +177,7 @@ pub enum DumpError {
 ///
 /// Returns why the graph can't be dumped: a path that isn't UTF-8, a module
 /// URL with no path, or a consulted file the run didn't record reading.
-pub fn dump_graph(
+pub(super) fn dump_graph(
     graph: &Graph,
     entry: &Url,
     box_roots: &[PathBuf],

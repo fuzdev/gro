@@ -1,8 +1,8 @@
-//! The `prices` feature from outside: a default build ignores
-//! `GRO_PRICES_OFF`, and a priced build turns off each default it names
-//! (each test turning off one it can see from outside) and refuses a name it
-//! doesn't know. The priced build's test runs from
-//! `cargo xtask build --verify`, which builds `fgro` with the feature for it.
+//! The `prices` feature from outside: a default build ignores `GRO_PRICES_OFF`,
+//! and a priced build turns off each default it names (each test turning off
+//! one it can see from outside) and refuses a name it doesn't know. The priced
+//! build's test runs from `cargo xtask build --verify`, which builds `fgro`
+//! with the feature for it.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
@@ -11,10 +11,7 @@ mod support;
 
 use std::process::{Command, Output};
 
-use support::{fgro_command, spawn};
-
-/// The variable naming the defaults to turn off, `gro_runtime::prices`'s.
-const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
+use support::{PRICES_OFF_ENV, fgro_command, spawn};
 
 /// Runs `fgro` with `args` from the eval fixtures, with `off` as the
 /// switches when given.

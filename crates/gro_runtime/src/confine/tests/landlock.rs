@@ -5,7 +5,6 @@ use crate::confine::{ConfineError, REQUIRED_LANDLOCK_ABI};
 
 /// A kernel with no Landlock, with it off, or below ABI 6 is refused,
 /// naming what is missing; ABI 6 and later pass.
-#[cfg(target_os = "linux")]
 #[test]
 fn the_landlock_floor_is_abi_6() {
     use landlock::{ABI, LandlockStatus};

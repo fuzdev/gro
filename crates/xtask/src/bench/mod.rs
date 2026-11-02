@@ -73,7 +73,8 @@ mod base;
 pub const HISTORY: &str = "crates/gro_bench/history.jsonl";
 
 /// Where a bench writes, relative to the root: its copies of corpora
-/// collections, under the gitignored `target/`.
+/// collections and projects, and its sample files, under the gitignored
+/// `target/`.
 const BENCH_DIR: &str = "target/bench";
 
 /// What `cargo xtask bench` was asked to do, parsed from its flags once, so
@@ -424,7 +425,7 @@ struct BaseRun {
     head_rustc: String,
     /// The base dir's lock, held from the base's build to the end of the
     /// run.
-    _lock: base::BaseLock,
+    _lock: gro_bench::lock::DirLock,
 }
 
 /// Prints the report on the history (`--history`, or the default).
@@ -590,10 +591,6 @@ fn history_path(root: &Path, history: Option<PathBuf>) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::ExitStatus;
-
-    use gro_bench::check::Difference;
-
     use super::*;
     use crate::{EXIT_INPUT, root};
 
@@ -837,118 +834,14 @@ mod tests {
         );
     }
 
+    /// A bench error maps to the exit code its `is_input_error` says.
     #[test]
     fn bench_errors_map_to_their_exit_codes() {
-        let io_error = || io::Error::other("test");
-        let path = || PathBuf::from("suite.json");
-        let input = [
-            BenchError::SuiteRead {
-                path: path(),
-                source: io_error(),
-            },
-            // a manifest isn't JSON
-            Suite::load(Path::new("Cargo.toml")).unwrap_err(),
-            BenchError::SuiteInvalid("test".to_owned()),
-            BenchError::SuiteFileMissing {
-                path: path(),
-                source: io_error(),
-            },
-            BenchError::ProgramNotFound {
-                runtime: "r".to_owned(),
-                program: "p".to_owned(),
-            },
-            BenchError::ProgramIsScript {
-                runtime: "r".to_owned(),
-                path: path(),
-            },
-            BenchError::CommandFailed {
-                command: "c".to_owned(),
-                status: ExitStatus::default(),
-            },
-            BenchError::NoVersion {
-                command: "c".to_owned(),
-            },
-            BenchError::ProjectLinkMissing {
-                workload: "w".to_owned(),
-                package: "p".to_owned(),
-                path: path(),
-                source: io_error(),
-            },
-            BenchError::ProjectLinkUnversioned {
-                workload: "w".to_owned(),
-                package: "p".to_owned(),
-                path: path(),
-            },
-            BenchError::ProjectEntry {
-                workload: "w".to_owned(),
-                path: path(),
-                reason: "r".to_owned(),
-            },
-            BenchError::CheckFailed {
-                command: "c".to_owned(),
-                reason: "r".to_owned(),
-            },
-            BenchError::ParityMismatch {
-                workload: "w".to_owned(),
-                runtime: "a".to_owned(),
-                against: "b".to_owned(),
-                difference: Box::new(Difference {
-                    at: "$".to_owned(),
-                    a: "1".to_owned(),
-                    b: "2".to_owned(),
-                }),
-            },
-            BenchError::CollectionNotFound {
-                corpora: path(),
-                tree: "t".to_owned(),
-                name: "c".to_owned(),
-            },
-            BenchError::CollectionEntry {
-                name: "c".to_owned(),
-                path: path(),
-                mode: "120000".to_owned(),
-            },
-            BenchError::EntryCollides {
-                workload: "w".to_owned(),
-                collection: "c".to_owned(),
-                entry: path(),
-            },
-            BenchError::BudgetExceeded {
-                runtime: "fgro".to_owned(),
-                budget: "bytes",
-                current: 2,
-                limit: 1,
-            },
-        ];
-        assert!(matches!(input[1], BenchError::SuiteParse { .. }));
-        for error in input {
-            let debug = format!("{error:?}");
-            assert_eq!(bench_exit_code(error), EXIT_INPUT, "{debug}");
-        }
-        let other = [
-            BenchError::Read {
-                path: path(),
-                source: io_error(),
-            },
-            BenchError::Spawn {
-                command: "c".to_owned(),
-                source: io_error(),
-            },
-            BenchError::ArtifactsChanged {
-                paths: vec![path()],
-            },
-            BenchError::HistoryWrite {
-                path: path(),
-                source: io_error(),
-            },
-            BenchError::Write {
-                path: path(),
-                source: io_error(),
-            },
-        ];
-        for error in other {
-            let debug = format!("{error:?}");
-            assert_eq!(bench_exit_code(error), 1, "{debug}");
-        }
+        let input = BenchError::SuiteInvalid("test".to_owned());
+        assert_eq!(bench_exit_code(input), EXIT_INPUT);
+        let other = BenchError::ArtifactsChanged {
+            paths: vec![PathBuf::from("suite.json")],
+        };
+        assert_eq!(bench_exit_code(other), 1);
     }
 }

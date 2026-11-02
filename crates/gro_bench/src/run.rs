@@ -19,9 +19,8 @@
 //!    and the values of the suite's `parity` runtimes must be equal on each
 //!    workload ([`check`](crate::check));
 //! 4. runs each row's warmup processes, then its timed samples, in the
-//!    interleaved order of [`schedule`], with the
-//!    first row's A/A copy as one more row (a row is a workload and a
-//!    runtime);
+//!    interleaved order of [`schedule`], with the first row's A/A copy as one
+//!    more row (a row is a workload and a runtime);
 //! 5. hashes the artifacts, lists each copy, and reads the corpora's tree
 //!    and the other checkouts' states again, and discards the run if any
 //!    changed (a copy gaining or losing a path counts), since a rebuild or an
@@ -51,8 +50,10 @@
 //! A run holds an exclusive lock on its work directory throughout
 //! ([`lock`](crate::lock)), refusing to start while another run holds it,
 //! since both would rewrite the same copies and sample files. Every process
-//! it spawns has the suite's deadline ([`Suite::timeout`]): one past it is
+//! of a runtime it spawns (probes, correctness runs, warmups, samples, and
+//! perf) has the suite's deadline ([`Suite::timeout`]): one past it is
 //! killed and reaped, and the run fails ([`watchdog`](crate::watchdog)).
+//! The local `git` reads and `gzip` run without one.
 //!
 //! Every sample is a fresh process, timed from just before its spawn to just
 //! after its exit is reaped, with stdout and stderr on the null device, and
@@ -63,10 +64,11 @@
 //!
 //! Every process, samples and version probes alike, runs the canonical
 //! executable (the file hashed) with the suite's `program` as written as its
-//! `argv[0]`, as a shell would pass it, and with a cleared environment holding
-//! only the caller's `PATH` and `HOME` and the variables the suite sets. Its
-//! working directory is the suite's directory, a collection's workloads
-//! included.
+//! `argv[0]`, as a shell would pass it (but under `perf stat`, which execs the
+//! canonical path, [`counters`](crate::counters)), and with a cleared
+//! environment holding only the caller's `PATH` and `HOME` and the variables
+//! the suite sets. Its working directory is the suite's directory, a
+//! collection's workloads included.
 
 mod artifacts;
 mod check;
@@ -110,8 +112,9 @@ pub struct RunContext {
     pub git: GitState,
     pub machine: Machine,
     pub machine_quiet: MachineQuiet,
-    /// The directory the run writes its collection copies under, at
-    /// `corpora/<tree>/<collection>`, each replaced on every run.
+    /// The directory the run writes its copies under, a collection's at
+    /// `corpora/<tree>/<collection>` and a project's at
+    /// `projects/<workload>`, each replaced on every run.
     /// `cargo xtask bench` passes the gro checkout's gitignored
     /// `target/bench/`, which is trusted like the rest of `target/` (a
     /// symlink already in it is followed), since anyone who can write there

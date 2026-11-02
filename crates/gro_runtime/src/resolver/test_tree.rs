@@ -152,11 +152,11 @@ impl MemoryTree {
     }
 }
 
-/// The path of [`TestDir::on_disk`]'s directory for `name`, in the
-/// workspace's `target/tmp`, found from this crate's manifest directory. It's on the
-/// checkout's filesystem, not the system's temp directory, often a tmpfs,
-/// so the file identity tests meet the filesystem the code runs on, such as
-/// ext4, which can hand a remade file a freed inode number.
+/// The path of [`TestDir::on_disk`]'s directory for `name`, in the workspace's
+/// `target/tmp`, found from this crate's manifest directory. It's on the
+/// checkout's filesystem, not the system's temp directory, often a tmpfs, so
+/// the file identity tests meet the filesystem the code runs on, such as ext4,
+/// which can hand a remade file a freed inode number.
 fn disk_test_dir(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/tmp")

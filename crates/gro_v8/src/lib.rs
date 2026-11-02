@@ -18,8 +18,10 @@ use std::sync::{Arc, Weak};
 /// It keeps the isolate's raw pointer and a weak handle to a token the
 /// isolate holds in a slot. Slots are dropped as the isolate is disposed,
 /// before V8 frees it, so the reader reads only while the isolate lives,
-/// and reads nothing once it's gone. It can't leave the thread that made
-/// it, the isolate's (it's neither `Send` nor `Sync`).
+/// and reads nothing once it's gone. It's neither `Send` nor `Sync`, but a
+/// near-heap-limit callback holding it may run on a thread V8 allocates on
+/// in the background; the `// SAFETY:` comment in
+/// [`HeapReader::used_heap_size`] says why that read is sound.
 #[derive(Debug)]
 pub struct HeapReader {
     isolate: v8::UnsafeRawIsolatePtr,

@@ -33,11 +33,10 @@ pub struct Envelope {
     pub entry: Entry,
     /// The value as compact JSON text, or why there is none.
     pub result: Result<String, EvalError>,
-    /// What the run tried to reach and was refused; unset only in the
-    /// envelope the out-of-memory backstop writes, prepared before the run
-    /// and written without it, and in one whose text would pass
-    /// [`MAX_ENVELOPE_SIZE`]: a value's,
-    /// replaced by a small failure, or a failure's, which drops it.
+    /// What the run tried to reach and was refused; unset only in the envelope
+    /// the out-of-memory backstop writes, prepared before the run and written
+    /// without it, and in one whose text would pass [`MAX_ENVELOPE_SIZE`]: a
+    /// value's, replaced by a small failure, or a failure's, which drops it.
     pub access: Option<Access>,
     /// The module graph, when the caller asked for it.
     pub graph: GraphField,
@@ -48,14 +47,13 @@ pub struct Envelope {
 pub enum GraphField {
     /// Not asked for: the envelope has no `graph` field.
     Omitted,
-    /// Asked for, with no graph to write: `null`. The run never reached
-    /// its module graph (the entry didn't resolve, the box didn't go up,
-    /// or the process ran out of memory and wrote its prepared envelope),
-    /// or the graph names a path no id can: one that isn't UTF-8, or a
-    /// module URL with no path ([`super::DumpError`]). A graph the host
-    /// failed to record fails the eval as `internal`, and is `null` too, as
-    /// is one in an envelope that would pass
-    /// [`MAX_ENVELOPE_SIZE`], which drops it.
+    /// Asked for, with no graph to write: `null`. The run never reached its
+    /// module graph (the entry didn't resolve, the box didn't go up, or the
+    /// process ran out of memory and wrote its prepared envelope), or the graph
+    /// names a path no id can: one that isn't UTF-8, or a module URL with no
+    /// path ([`super::DumpError`]). A graph the host failed to record fails the
+    /// eval as `internal`, and is `null` too, as is one in an envelope that
+    /// would pass [`MAX_ENVELOPE_SIZE`], which drops it.
     Unavailable,
     /// The graph, from the run as far as it got.
     Dumped(Box<GraphDump>),
@@ -66,7 +64,7 @@ impl GraphField {
     /// carries: not asked for stays [`GraphField::Omitted`], and anything
     /// else is [`GraphField::Unavailable`].
     #[must_use]
-    pub const fn dropped(&self) -> Self {
+    pub(super) const fn dropped(&self) -> Self {
         match self {
             Self::Omitted => Self::Omitted,
             Self::Unavailable | Self::Dumped(_) => Self::Unavailable,
@@ -154,8 +152,7 @@ pub enum ErrorKind {
     /// `default`, or an `after_drain` that isn't a function.
     ExportMissing,
     /// The value isn't JSON data by the host serializer's rules, or the
-    /// envelope holding it would pass
-    /// [`MAX_ENVELOPE_SIZE`]. A failure past the
+    /// envelope holding it would pass [`MAX_ENVELOPE_SIZE`]. A failure past the
     /// cap keeps its kind.
     Serialize,
     /// After the value was serialized, the event loop's remaining work
@@ -319,7 +316,7 @@ impl Envelope {
     /// # Errors
     ///
     /// As [`Envelope::to_json`].
-    pub fn json_len(&self) -> serde_json::Result<usize> {
+    fn json_len(&self) -> serde_json::Result<usize> {
         let mut counter = Counter(0);
         self.write_json(&mut counter)?;
         Ok(counter.0)
@@ -424,29 +421,31 @@ pub(super) const MAX_TEXT_KEPT: usize = 64 << 10;
 
 const _: () = assert!(5 * 6 * (MAX_TEXT_KEPT + 32) < MAX_ENVELOPE_SIZE / 32);
 
-/// Brings `envelope`, when its text would pass `max` bytes, back under
-/// it as far as dropping and cutting can, which at `fgro`'s sizes always
-/// does ([`MAX_TEXT_KEPT`]). A value is replaced with a small `serialize`
-/// failure naming the size. A failure keeps its kind: its `access` and graph are dropped
-/// (`null`, as in the out-of-memory backstop's envelope), and if it's still
-/// past `max`, each of its text fields longer than `kept` bytes is cut to
+/// Brings `envelope`, when its text would pass `max` bytes, back under it as
+/// far as dropping and cutting can, which at `fgro`'s sizes always does
+/// ([`MAX_TEXT_KEPT`]). A value is replaced with a small `serialize` failure
+/// naming the size. A failure keeps its kind: its `access` and graph are
+/// dropped (`null`, as in the out-of-memory backstop's envelope), and if it's
+/// still past `max`, each of its text fields longer than `kept` bytes is cut to
 /// them, at a character boundary, and named by its length (`aaa… (70000
-/// bytes)`). The value is capped as it's written, but what's around it
-/// isn't (an error's message or specifier, the specifiers
-/// `access.dynamic` lists, the graph), and the code that ran can make any
-/// of them as long as its heap holds.
+/// bytes)`). The value is capped as it's written, but what's around it isn't
+/// (an error's message or specifier, the specifiers `access.dynamic` lists, the
+/// graph), and the code that ran can make any of them as long as its heap
+/// holds.
 pub(super) fn cap_envelope(envelope: &mut Envelope, max: usize, kept: usize) {
     // counted, not written: the text past the cap is never held
     let fits = |envelope: &Envelope| envelope.json_len().is_ok_and(|size| size <= max);
-    if fits(envelope) {
-        return;
-    }
+    let size = match envelope.json_len() {
+        Ok(size) if size <= max => return,
+        Ok(size) => Some(size),
+        Err(_) => None,
+    };
     if envelope.result.is_ok() {
-        let size = envelope.json_len().unwrap_or_default();
+        let size = size.map_or_else(|| "too large".to_owned(), |size| format!("{size} bytes"));
         envelope.result = Err(EvalError::new(
             ErrorKind::Serialize,
             format!(
-                "the envelope would be {size} bytes, past {}, the envelope's cap, so the \
+                "the envelope would be {size}, past {}, the envelope's cap, so the \
                  value isn't written; write less data, and keep error messages and import \
                  specifiers short",
                 format_size(max as u64)

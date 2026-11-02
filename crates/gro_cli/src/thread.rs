@@ -34,10 +34,9 @@ pub fn on_sized_thread<T: Send>(name: &str, work: impl FnOnce() -> T + Send) -> 
 
 /// Runs `task` by [`fn@crate::run`] on a thread named `fgro` with [`STACK_SIZE`]
 /// reserved, so the runtime, the module loads, and the strip all share the
-/// one stated stack: tsv's, so a debug build keeps inside its 16 MiB contract (a release build
-/// needs 2 MiB), and the main thread's platform stack (commonly 8 MiB on
-/// Linux, 1 MiB on Windows) never decides whether a module within tsv's depth
-/// limits strips.
+/// one stated stack, sized against tsv's contract ([`STACK_SIZE`] says how),
+/// and the main thread's platform stack never decides whether a module
+/// within tsv's depth limits strips.
 ///
 /// Not `tsv_ts::run_with_stack`: that names its thread `tsv`, and resumes a
 /// panic rather than mapping it to [`EXIT_PANIC`], and drops its work when the

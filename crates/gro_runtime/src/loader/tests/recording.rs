@@ -3,8 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use super::super::graph::StripFailure;
-use super::super::graph::{Edge, FailureSite, Loaded};
+use super::super::graph::{Edge, FailureSite, Loaded, StripFailure};
 use super::*;
 use crate::resolver::{ConsultedFile, FileRole, ReadRefusal, ResolveErrorKind};
 

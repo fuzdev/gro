@@ -36,7 +36,7 @@ pub enum RunError {
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
     /// tokio's runtime, which drives the event loop, couldn't be built.
-    #[error("cannot build the event loop's runtime: {0}")]
+    #[error("failed to build the event loop's runtime: {0}")]
     EventLoop(#[source] std::io::Error),
     /// The JS runtime couldn't be made, or its bootstrap failed. The report
     /// is printable as is.
@@ -57,9 +57,8 @@ pub enum StartError {
 /// # Errors
 ///
 /// Returns [`RunError::Entry`] when the entry doesn't resolve,
-/// [`RunError::Start`] when the runtime can't start, and
-/// [`RunError::Uncaught`] when the program fails, including when a module
-/// fails to load or strip.
+/// [`RunError::Start`] when the runtime can't start, and [`RunError::Uncaught`]
+/// when the program fails, including when a module fails to load or strip.
 ///
 /// # Stack
 ///
@@ -68,12 +67,13 @@ pub enum StartError {
 /// nested or chained past them fails to load, with a message naming the
 /// limit, and every module within them strips in 2 MiB of stack in a release
 /// build and 16 MiB in a debug one. Call this on a thread reserving
-/// [`STACK_SIZE`](crate::STACK_SIZE), as `fgro` does (`std::thread::Builder::stack_size`), not on
-/// the main thread, whose stack is the platform's (commonly 8 MiB on Linux,
-/// 1 MiB on Windows): below tsv's contract, a module within the limits can
-/// still overflow the stack, which aborts the process. V8's own limit for JS
-/// sits below wherever the runtime starts on that thread, so the size doesn't
-/// change how deep JS can go.
+/// [`STACK_SIZE`](crate::STACK_SIZE), as `fgro` does
+/// (`std::thread::Builder::stack_size`), not on the main thread, whose stack
+/// is the platform's (commonly 8 MiB on Linux, 1 MiB on Windows): below
+/// tsv's contract, a module within the limits can still overflow the stack,
+/// which aborts the process. V8's own limit for JS sits below wherever the
+/// runtime starts on that thread, so the size doesn't change how deep JS can
+/// go.
 pub fn run_main(
     engine: Engine,
     options: &RuntimeOptions,
@@ -81,15 +81,7 @@ pub fn run_main(
     cwd: &Path,
 ) -> Result<(), RunError> {
     let (entry, loader) = resolve_main(options, entry, cwd, Recording::Off)?;
-    let result = run_loaded(
-        engine,
-        options.snapshot,
-        options.console,
-        &entry,
-        Rc::clone(&loader),
-    );
-    phases::mark(Phase::Teardown);
-    result
+    run_resolved(engine, options, &entry, &loader)
 }
 
 /// Runs as [`run_main`] does, and returns the run's result with the graph its
@@ -109,16 +101,27 @@ fn run_recorded(
         Ok(resolved) => resolved,
         Err(error) => return (Err(error), None),
     };
+    let result = run_resolved(engine, options, &entry, &loader);
+    // the runtime, and its share of the loader, is gone once the run ends
+    (result, Some(loader.take_graph()))
+}
+
+/// Runs the resolved `entry` with `loader`, then marks the teardown.
+fn run_resolved(
+    engine: Engine,
+    options: &RuntimeOptions,
+    entry: &Url,
+    loader: &Rc<Loader>,
+) -> Result<(), RunError> {
     let result = run_loaded(
         engine,
         options.snapshot,
         options.console,
-        &entry,
-        Rc::clone(&loader),
+        entry,
+        Rc::clone(loader),
     );
     phases::mark(Phase::Teardown);
-    // the runtime, and its share of the loader, is gone once the run ends
-    (result, Some(loader.take_graph()))
+    result
 }
 
 /// Resolves the entry at `entry` from `cwd`, returning its URL and the

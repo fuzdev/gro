@@ -19,15 +19,13 @@
 //! environment and asks no stream whether it's a terminal.
 //!
 //! So does eval's [`Determinism`]: denied, the start installs
-//! `determinism: deny` (the bootstrap's `deny`, which refuses the clock,
-//! randomness, and the machine's facts, and deletes the timers, `Blob`,
-//! and `File`), before
-//! any user or driver code runs. One snapshot serves both: the snapshot
-//! holds the function, and only the run's start calls it. Beneath it,
-//! [`refuse_ops`] is the op middleware an eval runtime is built with: it
-//! replaces each op in [`REFUSED_OPS`] with [`op_gro_refused`], which
-//! throws, so a path past the bootstrap's refusals still finds none of
-//! them.
+//! `determinism: deny` (the bootstrap's `deny`, which refuses the clock, randomness, and the
+//! machine's facts, and deletes the timers, `Blob`, and `File`), before any
+//! user or driver code runs. One snapshot serves both: the snapshot holds the
+//! function, and only the run's start calls it. Beneath it, [`refuse_ops`] is
+//! the op middleware an eval runtime is built with: it replaces each op in
+//! [`REFUSED_OPS`] with [`op_gro_refused`], which throws, so a path past the
+//! bootstrap's refusals still finds none of them.
 
 use std::borrow::Cow;
 

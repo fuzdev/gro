@@ -75,9 +75,8 @@ pub struct Perf {
 
 impl Perf {
     /// Finds `perf` on `PATH` and checks it counts [`EVENTS`] in full, and
-    /// [`KERNEL_EVENT`] beside them when it can (else the events counted
-    /// leave it out),
-    /// writing its probe's output to `out`, each command killed past
+    /// [`KERNEL_EVENT`] beside them when it can (else the events counted leave
+    /// it out), writing its probe's output to `out`, each command killed past
     /// `watchdog`'s deadline.
     ///
     /// # Errors
@@ -144,7 +143,7 @@ impl Perf {
     }
 
     /// Whether this perf counts [`KERNEL_EVENT`].
-    pub const fn counts_kernel(&self) -> bool {
+    const fn counts_kernel(&self) -> bool {
         self.kernel
     }
 
@@ -230,10 +229,9 @@ fn watched_output(
 /// # Errors
 ///
 /// Says why when an event of [`EVENTS`] (or, with `kernel`, [`KERNEL_EVENT`])
-/// is missing, its value isn't a count
-/// (`<not counted>`, `<not supported>`), or it was counted for less than the
-/// whole run (multiplexed).
-pub fn parse_counts(text: &str, kernel: bool) -> Result<Counts, String> {
+/// is missing, its value isn't a count (`<not counted>`, `<not supported>`), or
+/// it was counted for less than the whole run (multiplexed).
+fn parse_counts(text: &str, kernel: bool) -> Result<Counts, String> {
     let mut counts = [None; EVENTS.len() + 1];
     for line in text.lines() {
         let line = line.trim();

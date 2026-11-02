@@ -39,7 +39,7 @@ impl Priced {
     }
 
     /// Whether the price is within its rows' noise.
-    pub fn is_noise(self) -> bool {
+    fn is_noise(self) -> bool {
         self.price.abs() <= self.noise
     }
 }

@@ -3,19 +3,17 @@
 //! served from, with the BLAKE3 hash of its bytes, and each path they went
 //! on past finding absent ([`SourceTree::note_absent`]).
 //!
-//! Without it, a resolution reads a `package.json` again each time it
-//! passes one, and nothing says which bytes it parsed. With it, a file is
-//! read once per run: its first read's identity, bytes, and hash stand, a
-//! later read finding the same identity gets the same bytes, and one
-//! finding another identity at the path is refused
-//! ([`ReadRefusal::Changed`]), as a module's load is ([`FileId`]). So the
-//! hash describes the bytes every resolution in the run parsed, even when
-//! the file is rewritten in place meanwhile. A read
+//! Without it, a resolution reads a `package.json` again each time it passes
+//! one, and nothing says which bytes it parsed. With it, a file is read once
+//! per run: its first read's identity, bytes, and hash stand, a later read
+//! finding the same identity gets the same bytes, and one finding another
+//! identity at the path is refused ([`ReadRefusal::Changed`]), as a module's
+//! load is ([`FileId`]). So the hash describes the bytes every resolution in
+//! the run parsed, even when the file is rewritten in place meanwhile. A read
 //! served from the record passes the inner tree's check first
-//! ([`SourceTree::check_read`]), and one that reaches the tree passes it
-//! there, at the start of the inner tree's own `read`, so each read is
-//! checked once, and a record seeded before a rule existed serves nothing
-//! the rule refuses.
+//! ([`SourceTree::check_read`]), and one that reaches the tree passes it there,
+//! at the start of the inner tree's own `read`, so each read is checked once,
+//! and a record seeded before a rule existed serves nothing the rule refuses.
 //!
 //! Only a graph recording in full uses it: off, a resolution reads the tree
 //! directly, hashing and keeping nothing.

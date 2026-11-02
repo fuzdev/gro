@@ -1,5 +1,5 @@
-//! A deadline on each process a run spawns, so a hung runtime fails the run
-//! instead of hanging it.
+//! A deadline on each process of a runtime a run spawns, so a hung runtime
+//! fails the run instead of hanging it.
 //!
 //! One thread watches every process of the run. A caller runs a process
 //! through [`Watchdog::run`], which spawns it as the leader of a process

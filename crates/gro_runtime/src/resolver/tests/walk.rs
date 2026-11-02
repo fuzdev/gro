@@ -4,17 +4,16 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
-use super::{MODULE, from_entry, package, packages, roots};
+use super::{MODULE, from_entry, package, packages, resolve, roots};
 use crate::resolver::test_tree::{MemoryTree, TestDir};
 use crate::resolver::{
     ConsultedFile, DiskTree, Entry, EntryBound, FileId, FileRole, MAX_PACKAGE_JSON_SIZE,
-    PackageSearchBound, ResolveErrorKind, SourceTree, resolve, resolve_entry,
-    resolve_entry_with_bound,
+    PackageSearchBound, ResolveErrorKind, SourceTree, resolve_entry, resolve_entry_with_bound,
 };
 
-/// The search ends at the first `package.json` outside `node_modules`
-/// that isn't a type marker, one holding only `"type"` and
-/// `"sideEffects"`, which is walked past.
+/// The search ends at the first `package.json` outside `node_modules` that
+/// isn't a type marker, one holding only `"type"` and `"sideEffects"`, which is
+/// walked past.
 #[test]
 fn the_search_ends_at_a_package_json_that_is_not_a_type_marker() {
     let tree = packages();

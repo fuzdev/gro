@@ -199,7 +199,7 @@ pub enum LoadFailure {
     ImportAttributes,
     /// Its URL names no local file. Defense in depth: a recorded URL is a
     /// resolved file's, so it can't happen.
-    NotAFile,
+    NoLocalPath,
     /// Its file's name doesn't load as a module. Defense in depth: a
     /// recorded URL passed the same table when it resolved, so it can't
     /// happen.
@@ -311,9 +311,10 @@ impl Graph {
                 recorded: Box::new(recorded.clone()),
                 admitted: Box::new(admitted.clone()),
             };
+        let new_root = self.roots.get(&root.dir).is_none();
         // a module recorded inside a root holds no `node_modules` segment
         // below it, so only a new root some admitted root contains can hold one
-        if self.roots.get(&root.dir).is_none()
+        if new_root
             && self.roots.containing(&root.dir).is_some()
             && let Some((path, recorded)) =
                 self.recorded_under(&root.dir).find(|(path, recorded)| {
@@ -333,7 +334,7 @@ impl Graph {
             // the first record stands
             return Ok(());
         }
-        if self.roots.get(&root.dir).is_none() {
+        if new_root {
             self.roots.admit(root.clone());
         }
         // built only now, so a URL already recorded clones nothing
@@ -840,7 +841,7 @@ mod tests {
             "./y.ts",
             Some(main),
             Reached::MetaResolve,
-            failure(FailureReason::Load(LoadFailure::NotAFile)),
+            failure(FailureReason::Load(LoadFailure::NoLocalPath)),
         );
         let site = |reached| FailureSite {
             specifier: "./y.ts".to_owned(),
@@ -859,7 +860,7 @@ mod tests {
                 ),
                 (
                     site(Reached::MetaResolve),
-                    vec![failure(FailureReason::Load(LoadFailure::NotAFile))]
+                    vec![failure(FailureReason::Load(LoadFailure::NoLocalPath))]
                 ),
             ])
         );

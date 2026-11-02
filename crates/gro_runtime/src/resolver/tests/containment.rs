@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
-use super::{from_entry, roots};
+use super::{from_entry, resolve, roots};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    ConsultedFile, FileRole, Origin, ResolveErrorKind, Root, Roots, resolve, resolve_entry,
+    ConsultedFile, FileRole, Origin, ResolveErrorKind, Root, Roots, resolve_entry,
     written_into_node_modules,
 };
 
@@ -193,9 +193,9 @@ fn a_package_stays_inside_its_root() {
     ));
 }
 
-/// A relative specifier never reaches into a package root admitted
-/// inside its importer's: an in-tree checkout linked into
-/// `node_modules` is reached only by its name, once admitted.
+/// A relative specifier never reaches into a package root admitted inside its
+/// importer's: an in-tree checkout linked into `node_modules` is reached only
+/// by its name, once admitted.
 #[test]
 fn a_relative_specifier_never_reaches_into_an_admitted_package() {
     let tree = contained();

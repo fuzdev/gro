@@ -1,6 +1,6 @@
 # eval
 
-> `fgro eval <module>` as built today: a module evaluated to JSON data,
+> `fgro eval <module>` as built today: a module evaluated to JSON data in a box,
 > the driver contract, the serializer's rules, the envelope, and the exit codes
 
 > **status**: built; the reference for the current binary
@@ -308,7 +308,8 @@ a key longer than 64 UTF-16 units, an identifier too, is cut to them and named b
 ## The envelope
 
 Eval writes one JSON object to stdout, on one line, once it has started.
-A usage error prints to stderr with no envelope.
+A usage error (a flag) prints to stderr with no envelope;
+a module refused at resolution, or one that isn't a project's own, exits 2 with a `resolve` envelope.
 
 ```json
 {
@@ -353,7 +354,7 @@ A usage error prints to stderr with no envelope.
 - `graph`, last, is present only with `--graph` ([the graph](#the-graph)).
   Without the flag, the envelope is exactly as above.
 
-The kinds, the contract a caller branches on, derived from the phase that failed and the loader's record,
+The kinds, the contract a caller branches on, derived from the step that failed and the loader's record,
 never from a message;
 a failure past the cap keeps its kind, its `access` and `graph` dropped and its long text fields cut:
 

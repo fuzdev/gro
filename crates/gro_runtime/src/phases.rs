@@ -209,7 +209,7 @@ mod enabled {
             Ok(file) => Output::File(file),
             Err(error) => {
                 eprintln!(
-                    "warning: phases: can't create {}, so no phases are written: {error}",
+                    "warning: phases: failed to create {}, so no phases are written: {error}",
                     std::path::Path::new(&path).display()
                 );
                 Output::None

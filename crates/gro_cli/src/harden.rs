@@ -31,13 +31,12 @@ pub fn clear_env() -> std::io::Result<()> {
 
 /// Lowers the stack of a thread started without a size of its own (V8's
 /// platform workers) to `gro_runtime::eval::DEFAULT_THREAD_STACK`, from the
-/// size glibc takes from the inherited `RLIMIT_STACK`, keeping a smaller
-/// one: `gro_sys::set_default_thread_stack`. Then caps the process's data
-/// segment, which counts those stacks, at
-/// `gro_runtime::eval::MEMORY_LIMIT`, soft and hard alike, or keeps the
-/// lower limit the parent set: `gro_sys::limit_data`. The box's seccomp
-/// filter then refuses `setrlimit` and `prlimit64`, so nothing the eval
-/// runs raises it.
+/// size glibc takes from the inherited `RLIMIT_STACK`, keeping a smaller one:
+/// `gro_sys::set_default_thread_stack`. Then caps the process's data segment,
+/// which counts those stacks, at `gro_runtime::eval::MEMORY_LIMIT`, soft and
+/// hard alike, or keeps the lower limit the parent set: `gro_sys::limit_data`.
+/// The box's seccomp filter then refuses `setrlimit` and `prlimit64`, so
+/// nothing the eval runs raises it.
 #[cfg(target_os = "linux")]
 pub fn limit_memory() -> std::io::Result<()> {
     gro_sys::set_default_thread_stack(gro_runtime::eval::DEFAULT_THREAD_STACK)?;

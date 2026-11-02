@@ -1,14 +1,17 @@
 //! What the end-to-end tests share: the fixtures, the `fgro` command, a
-//! spawn bounded in time and memory, and scratch directories removed on drop.
+//! spawn bounded in time and memory, a child killed on drop, and scratch
+//! directories removed on drop.
 
 #![allow(dead_code, reason = "each test binary uses only part of this module")]
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
 #![expect(clippy::panic, reason = "a hung child fails its test by panicking")]
 
-use std::io::{Read, Write as _};
+use std::io::{BufRead as _, BufReader, Read, Write as _};
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -24,6 +27,10 @@ pub const DEADLINE: Duration = Duration::from_secs(60);
 /// reaches, so a cap that stops holding fails its test rather than taking
 /// the machine's memory.
 pub const MAX_RSS_KIB: u64 = 3 << 19;
+
+/// The variable naming the defaults a priced build turns off,
+/// `gro_runtime::prices`'s, read only with its feature.
+pub const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
 
 /// The variables `fgro run` decides color from, all of them, so a test sets
 /// what it needs and the harness's own environment (Claude Code's
@@ -136,8 +143,53 @@ fn peak_rss_kib(pid: u32) -> u64 {
         .unwrap_or(0)
 }
 
+/// A child killed and reaped when dropped, so a test that fails while it
+/// runs leaves no process behind.
+#[derive(Debug)]
+pub struct KillOnDrop(pub Child);
+
+impl Deref for KillOnDrop {
+    type Target = Child;
+
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl DerefMut for KillOnDrop {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        // an exited child is only reaped
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// The lines `pipe` prints, each with its newline, read on a thread of its
+/// own, so a test waits for one with `recv_timeout` and a child that never
+/// prints can't hang it. The channel closes at the pipe's end.
+pub fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(pipe);
+        loop {
+            let mut line = String::new();
+            // the test may have stopped waiting
+            if !matches!(reader.read_line(&mut line), Ok(1..)) || send.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    receive
+}
+
 /// Reads `pipe` to its end on a thread of its own.
-fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+pub fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         pipe.read_to_end(&mut bytes).unwrap();

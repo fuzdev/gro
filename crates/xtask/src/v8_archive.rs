@@ -20,18 +20,17 @@
 //!   `v8` build script last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`),
 //!   which other build units of `v8` share, so it can't tell which copy a given
 //!   binary linked.
-//! - [`heal_missing_copies`] runs before the xtask's first build. The `v8`
-//!   rlib bundles the library, so binaries link without the copy, but a target
-//!   directory can hold `v8`'s build outputs without it: a manual prune, or
-//!   a CI cache that restores only `build/`, `deps/`, and `.fingerprint/`, so
-//!   on CI it fires on every cache hit, at the cost of rebuilding `v8` and
-//!   what depends on it.
-//!   Since nothing reruns the build script then, for each profile
-//!   [`verify_linked`] checks (`debug` and `release`) whose copy is missing
-//!   while a `v8` build script output is present, it cleans that profile's
-//!   `v8` outputs (`cargo clean -p v8 --profile <profile>`), so the next
-//!   build recopies and relinks. A target with no `v8` outputs is left alone,
-//!   and a copy still missing after the build fails [`verify_linked`].
+//! - [`heal_missing_copies`] runs before the xtask's first build. The `v8` rlib
+//!   bundles the library, so binaries link without the copy, but a target
+//!   directory can hold `v8`'s build outputs without it: a manual prune, or a
+//!   CI cache that restores only `build/`, `deps/`, and `.fingerprint/`, so on
+//!   CI it fires on every cache hit, at the cost of rebuilding `v8` and what
+//!   depends on it. Since nothing reruns the build script then, for each
+//!   profile the workspace builds whose copy is missing while a `v8` build
+//!   script output is present, it cleans that profile's `v8` outputs
+//!   (`cargo clean -p v8 --profile <profile>`), so the next build recopies
+//!   and relinks. A target with no `v8` outputs is left alone, and a copy
+//!   still missing after the build fails [`verify_linked`].
 //!
 //! What's left: a plain cargo build against a bad file at the path, with the
 //! file then fixed by hand before any xtask runs, isn't detectable here; a
@@ -178,7 +177,7 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
     }
 
     // one process checks, deletes, and downloads at a time, so none removes
-    // another's download or reads a file mid-replace
+    // another's download or reads a file mid-replace; the lock is on
     // `target/rusty_v8/`, above each version's directory, whose files an A/B
     // links into its clone
     let dir = root.join("target/rusty_v8");

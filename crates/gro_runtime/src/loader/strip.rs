@@ -129,7 +129,7 @@ const fn fix(kind: UnsupportedKind) -> Option<Fix> {
 mod tests {
     use url::Url;
 
-    use super::strip_module;
+    use super::{StripFailure, strip_module};
 
     fn url() -> Url {
         Url::parse("file:///p/a.ts").unwrap()
@@ -238,6 +238,7 @@ mod tests {
     #[test]
     fn the_goal_is_a_module() {
         // `with` is a sloppy script's; a module refuses it
-        assert!(strip("with (a) {}").is_err());
+        let refusal = strip_module("with (a) {}".to_owned(), &url()).unwrap_err();
+        assert_eq!(refusal.failure, StripFailure::Parse, "{}", refusal.message);
     }
 }

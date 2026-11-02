@@ -11,15 +11,16 @@ use crate::error::BenchError;
 use crate::project::materialize_project;
 use crate::suite::Suite;
 
-/// The collections a run copied: what each workload with a collection runs,
-/// and what the run checks didn't change.
+/// The collections and projects a run copied: what each workload with one
+/// runs, and what the run checks didn't change.
 #[derive(Debug, Default)]
 pub(super) struct Copies {
     /// Each copy's root, canonical.
     pub(super) roots: Vec<PathBuf>,
     /// Every file of every copy, entries included.
     pub(super) files: Vec<PathBuf>,
-    /// The entry each workload with a collection runs, by workload name.
+    /// The entry each workload with a collection or a project runs, by
+    /// workload name.
     pub(super) entries: BTreeMap<String, PathBuf>,
 }
 

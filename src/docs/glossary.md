@@ -11,6 +11,12 @@ The record of what a run actually used (files read, processes spawned, env read,
 taken by the host as each call happens and attributed to the module that made the call.
 It's evidence of [use](#reach-need-and-use), and it enforces nothing.
 
+## admission
+
+A [root](#root) joining a graph: the entry's [project root](#project-root) is admitted first,
+and a package's real directory when a bare import first resolves into it.
+The loader holds the admitted roots; the resolver admits nothing ([resolver](resolver.md#roots-and-origins)).
+
 ## authority globals
 
 The web globals that reach outside the run: the network (`fetch`, `WebSocket`, `EventSource`),
@@ -28,7 +34,7 @@ installed from the process's one thread before V8 starts, after it closes every 
 file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
 (a path's metadata stays readable everywhere),
 no write, no execution, no network,
-and no signal outside it, nor a limit, priority, or schedule set on a process outside it.
+and no signal outside it, nor a resource limit, priority, or scheduling set at all.
 The first built part of the [kernel backstop](#kernel-backstop) ([eval](eval.md#the-box)).
 
 ## composition root
@@ -60,7 +66,7 @@ the value, or an error with its kind, which a caller branches on.
 
 ## escape hatch
 
-`-A` (`--allow-all`), which runs a run [unconfined](#unconfined).
+`-A` (`--allow-all`), which makes a run [unconfined](#unconfined).
 It's the one blanket escape hatch, never a default.
 Narrower ways to widen sit beside each default, like the globals grant and the JIT flag for `gro eval`.
 
@@ -111,6 +117,11 @@ to see the calls and values that pass through it,
 including capabilities the patching code was never handed.
 It's why one [realm](#realm) isn't a boundary against a dependency built to steal.
 
+## jitless
+
+V8 running JS in its interpreter alone, with no JIT and no `WebAssembly`:
+`gro eval`'s default, and the box then refuses new executable mappings ([eval](eval.md#the-engine)).
+
 ## kernel backstop
 
 On Linux, the grant set enforced again as kernel rules (Landlock and seccomp),
@@ -157,8 +168,7 @@ and the project's check (`gro check`) diffs it like a lockfile, failing on a wid
 The directory of the first `package.json` above a module, outside `node_modules`,
 that isn't a [type marker](#type-marker), found below any world-writable directory.
 The `node_modules` search ends there, and a module with none gets no bare imports
-except a self-reference, which resolves through its own package's `"exports"`
-and stays inside its package.
+but a [self-reference](#self-reference) ([resolver](resolver.md#departures-from-node)).
 The entry's project root is its graph's first [root](#root).
 
 ## pure globals
@@ -194,7 +204,7 @@ The docs and the CLI name each one as a signal, with what evades it, never as a 
 ## root
 
 A directory whose modules share an [origin](#origin): the entry's [project root](#project-root),
-or the real directory of a package a bare import admitted.
+or the real directory of a package a bare import [admitted](#admission).
 A module's root is the innermost admitted one above its real path,
 and a relative or absolute import resolves only inside its importer's root,
 never into `node_modules` below it or into another root nested in it.
@@ -217,6 +227,11 @@ though dynamic access to the global object is itself flagged.
 
 A suite of escape probes run under every grant set,
 the way the bench measures speed, and passed by every milestone after `gro eval`.
+
+## self-reference
+
+A bare import of the importer's own package by its name, resolved through that package's `"exports"`
+and kept inside it, as Node resolves one ([resolver](resolver.md#specifiers)).
 
 ## type marker
 

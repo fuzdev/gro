@@ -15,11 +15,12 @@ use super::walk::{Consulted, FileRole, Walk, find_bound, read_package_json};
 /// Resolves the entry module at `path`, relative to `cwd`, returning it and
 /// the roots its graph starts with.
 ///
-/// `cwd` is an absolute path, and an absolute `path` ignores it. The same
-/// rules apply as to an import: the extension is mandatory, a path ending in
-/// `/`, or in a `.` or `..` component, which leaves one as a URL, names a
-/// directory and is refused, and the file must exist. It is a path, not a URL, so `%`, `?`, and `#` are file-name
-/// characters. Errors name the path as given, imported from `cwd`.
+/// `cwd` is an absolute path, and an absolute `path` ignores it. The same rules
+/// apply as to an import: the extension is mandatory, a path ending in `/`, or
+/// in a `.` or `..` component, which leaves one as a URL, names a directory and
+/// is refused, and the file must exist. It is a path, not a URL, so `%`, `?`,
+/// and `#` are file-name characters. Errors name the path as given, imported
+/// from `cwd`.
 ///
 /// The entry's origin comes from its real path, as every module's does. The
 /// project root is the entry's project root, the directory the walk for one

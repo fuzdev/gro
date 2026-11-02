@@ -72,12 +72,12 @@ use super::limits::format_size;
 
 /// How many arrays and objects deep a value may nest, the root counting as
 /// one.
-pub(super) const MAX_DEPTH: usize = 1000;
+const MAX_DEPTH: usize = 1000;
 
 /// The most UTF-16 units of a key that a path shows: a longer key is cut
 /// to them, then named by its length, so a path is at most [`MAX_DEPTH`]
 /// segments of a few hundred bytes each.
-pub(super) const MAX_KEY_SHOWN: usize = 64;
+const MAX_KEY_SHOWN: usize = 64;
 
 /// A value that didn't serialize: where, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,12 +86,12 @@ pub(super) struct SerializeError {
     /// than [`MAX_KEY_SHOWN`] cut.
     pub(super) at: String,
     /// Why it was refused.
-    pub(super) reason: Reason,
+    reason: Reason,
 }
 
 /// Why a value didn't serialize.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Reason {
+enum Reason {
     /// An enumerable accessor property, whose getter isn't run.
     Accessor,
     /// `undefined` where a value must be: the root, or an array's item.
@@ -134,7 +134,7 @@ pub(super) enum Reason {
 
 /// What makes an object not plain, which a refusal names.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum NonPlain {
+enum NonPlain {
     /// An exotic or host object that no prototype makes plain, by the name
     /// of its kind ([`exotic_kind`]): a `Map`, a `Proxy`, a typed array.
     Exotic(&'static str),

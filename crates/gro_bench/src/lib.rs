@@ -19,7 +19,7 @@
 //!   with an A/A noise row, and refuses a run whose artifacts changed
 //! - [`budget`]: the suite's size budgets, checked against the sizes measured
 //! - [`schedule`]: the interleaved order of a run's samples
-//! - [`watchdog`]: the deadline on each process a run spawns
+//! - [`watchdog`]: the deadline on each process of a runtime a run spawns
 //! - [`lock`]: the exclusive lock a run holds on its work directory
 //! - [`stats`]: MAD-cleaned statistics
 //! - [`git`]: the git reads behind the record: each checkout's state

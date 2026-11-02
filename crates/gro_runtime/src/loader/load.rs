@@ -31,7 +31,7 @@ pub(super) fn load(
     }
     let path = specifier.to_file_path().map_err(|()| {
         refused(
-            LoadFailure::NotAFile,
+            LoadFailure::NoLocalPath,
             format!("cannot load {specifier}: not a local file"),
         )
     })?;
@@ -40,12 +40,19 @@ pub(super) fn load(
         let message = format!("cannot load {specifier}: {kind}");
         refused(LoadFailure::Format(kind), message)
     })?;
-    let io_error = |error: io::Error| {
-        let failure = match ReadRefusal::of(&error) {
-            Some(ReadRefusal::OutsideBox(_)) => LoadFailure::OutsideBox,
-            Some(ReadRefusal::Changed) | None => LoadFailure::Read(error.kind()),
-        };
-        refused(failure, format!("cannot load {specifier}: {error}"))
+    let io_error = |error: io::Error| match ReadRefusal::of(&error) {
+        Some(ReadRefusal::OutsideBox(_)) => refused(
+            LoadFailure::OutsideBox,
+            format!("cannot load {specifier}: {error}"),
+        ),
+        Some(ReadRefusal::Changed) => refused(
+            LoadFailure::Read(error.kind()),
+            format!("cannot load {specifier}: {error}"),
+        ),
+        None => refused(
+            LoadFailure::Read(error.kind()),
+            format!("failed to load {specifier}: {error}"),
+        ),
     };
     check(&path).map_err(io_error)?;
     // read from the file checked, never the path again, which can change in

@@ -21,11 +21,12 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 use crate::error::BenchError;
-use crate::git::{git, git_output};
+use crate::git::{git, git_command, git_output, read_command};
+use crate::suite::is_plain_relative;
 
 /// One file of a collection's tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,10 +154,7 @@ fn parse_tree(listing: &[u8]) -> Result<Vec<TreeFile>, (PathBuf, String)> {
             ));
         };
         let path = PathBuf::from(path);
-        let plain = path.components().next().is_some()
-            && path
-                .components()
-                .all(|part| matches!(part, Component::Normal(_)));
+        let plain = is_plain_relative(&path);
         let executable = match (mode, kind) {
             ("100644", "blob") => false,
             ("100755", "blob") => true,
@@ -176,17 +174,13 @@ fn parse_tree(listing: &[u8]) -> Result<Vec<TreeFile>, (PathBuf, String)> {
 
 /// Reads each file's blob with one `git cat-file --batch`, in order.
 fn read_blobs(corpora: &Path, files: &[TreeFile]) -> Result<Vec<Vec<u8>>, BenchError> {
-    let command = format!("git -C {} cat-file --batch", corpora.display());
+    let args = ["cat-file", "--batch"];
+    let command = git_command(corpora, &args);
     let failed = |source| BenchError::Spawn {
         command: command.clone(),
         source,
     };
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(corpora)
-        .args(["cat-file", "--batch"])
-        // a local `git replace` would change the bytes behind a matching tree id
-        .env("GIT_NO_REPLACE_OBJECTS", "1")
+    let mut child = read_command(corpora, &args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -287,6 +281,8 @@ pub fn list_paths(dir: &Path) -> Result<BTreeSet<PathBuf>, BenchError> {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
 
     /// Runs `git` in `root` with a throwaway identity and no conversions.

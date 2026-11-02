@@ -160,14 +160,11 @@ fn check_pin(rustc: &str, channel: &str) -> Option<bool> {
     })
 }
 
-/// The lock an A/B holds on its base dir ([`gro_bench::lock`]), released
-/// when dropped or on any exit.
-pub type BaseLock = DirLock;
-
-/// Takes `<dir>/lock` without waiting, writing this process's id into it for
-/// another's refusal to name. A lock another process holds is refused,
-/// naming the id it wrote.
-pub fn lock(dir: &Path) -> Result<BaseLock, XtaskError> {
+/// Takes `<dir>/lock` without waiting, the lock an A/B holds on its base dir
+/// ([`gro_bench::lock`]), released when dropped or on any exit, writing this
+/// process's id into it for another's refusal to name. A lock another process
+/// holds is refused, naming the id it wrote.
+pub fn lock(dir: &Path) -> Result<DirLock, XtaskError> {
     try_lock_dir(dir).map_err(|error| match error {
         LockError::Held { path, holder } => XtaskError::bench_input(format!(
             "the base dir {} is in use by process {} (it holds {}); wait for it, \
@@ -226,12 +223,7 @@ pub fn resolve(root: &Path, rev: &str) -> Result<String, XtaskError> {
 /// holding `dir`'s [`lock`], and returns the copy of it under
 /// `dir/bin/<sha>/fgro` with the toolchain that built it, refusing one off
 /// the revision's pin.
-pub fn build(
-    root: &Path,
-    dir: &Path,
-    sha: &str,
-    _lock: &BaseLock,
-) -> Result<BaseBuild, XtaskError> {
+pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &DirLock) -> Result<BaseBuild, XtaskError> {
     let failed = |what: &str, error: &dyn std::fmt::Display| {
         XtaskError::Failed(format!("the base build failed to {what}: {error}"))
     };

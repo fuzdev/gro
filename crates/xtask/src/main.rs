@@ -12,17 +12,16 @@
 //! - `bench <suite.json>` and `bench report`: the measurement harness
 //!   ([`bench`](mod@bench))
 //!
-//! Exit codes are the xtask's contract: `0` success (for `bench`, the record
-//! was appended); `2` the caller must change something before re-running,
-//! since unchanged it fails the same way (a usage error, an invalid suite or
-//! a missing file it names, a failing workload or correctness run, a broken
-//! `parity`, a busy work directory, a corpora checkout off its pin, a crossed
-//! budget, a wrong or failed `fgro` build, perf unable to count, flags that
-//! don't combine); `1` anything else (an artifact or linked checkout changing
-//! mid-run, a failed read or write, a failed fetch). A program a step ran
-//! exits with its own code. Each failure ([`error::XtaskError`], whose
-//! `exit_code` is the full mapping) prints once, to stderr; `--help` prints
-//! to stdout and exits `0`. A failed bench run records nothing.
+//! Exit codes are the xtask's contract: `0` success; `2` the caller must
+//! change something before re-running, since unchanged it fails the same way
+//! (a usage error, flags that don't combine, a wrong or failed `fgro` build,
+//! a crossed budget, and a bench's input, which
+//! `gro_bench::error::BenchError::is_input_error` lists); `1` anything else
+//! (an artifact or linked checkout changing mid-run, a failed read or write,
+//! a failed fetch). A program a step ran exits with its own code. Each
+//! failure ([`error::XtaskError`], whose `exit_code` is the full mapping)
+//! prints once, to stderr; `--help` prints to stdout and exits `0`. A failed
+//! bench run records nothing.
 
 mod bench;
 mod check;

@@ -9,39 +9,19 @@ use std::process::{Command, Stdio};
 use serde_json::json;
 
 use crate::eval;
+#[cfg(all(feature = "snapshot", target_os = "linux"))]
+use crate::support::KillOnDrop;
 use crate::support::Scratch;
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 use crate::{command, fixtures, long_timeout, wrapped_command};
 
-/// The first line `stderr` prints, read on a thread of its own, so a child
-/// that never prints one can't hang the test: `None` past the harness's
-/// deadline.
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
-fn first_line(stderr: std::process::ChildStderr) -> Option<String> {
-    use std::io::BufRead as _;
-
-    let (send, receive) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let read = std::io::BufReader::new(stderr).read_line(&mut line);
-        // the test may have stopped waiting
-        let _ = send.send(read.map(|_| line));
-    });
-    receive
-        .recv_timeout(crate::support::DEADLINE)
-        .ok()
-        .and_then(Result::ok)
-}
-
-/// Waits for the driver's `ready` on `child`'s stderr, killing the child and
-/// failing the test when it doesn't come by the deadline.
+/// Waits for the driver's `ready` on `child`'s stderr, failing the test
+/// when it doesn't come by the deadline.
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 fn wait_ready(child: &mut std::process::Child) {
-    let line = first_line(child.stderr.take().unwrap());
-    if line.as_deref() != Some("ready\n") {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    let line = crate::support::lines(child.stderr.take().unwrap())
+        .recv_timeout(crate::support::DEADLINE)
+        .ok();
     assert_eq!(line.as_deref(), Some("ready\n"), "the eval didn't start");
 }
 
@@ -126,7 +106,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
         &[],
     );
     command.stdout(Stdio::null());
-    let mut child = command.spawn().unwrap();
+    let mut child = KillOnDrop(command.spawn().unwrap());
     child
         .stdin
         .take()
@@ -144,8 +124,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
             Some((path.display().to_string(), status))
         })
         .collect();
-    child.kill().unwrap();
-    child.wait().unwrap();
+    drop(child);
     // the main thread, the thread that evaluates, and V8's workers at least
     assert!(tasks.len() >= 3, "{tasks:?}");
     for (path, status) in &tasks {
@@ -181,7 +160,7 @@ fn an_inherited_descriptor_is_closed() {
         &["value.js", "--driver", "-", "--timeout", &long_timeout()],
     );
     command.stdout(Stdio::null());
-    let mut child = command.spawn().unwrap();
+    let mut child = KillOnDrop(command.spawn().unwrap());
     child
         .stdin
         .take()
@@ -193,8 +172,7 @@ fn an_inherited_descriptor_is_closed() {
         .unwrap()
         .filter_map(|fd| std::fs::read_link(fd.unwrap().path()).ok())
         .collect();
-    child.kill().unwrap();
-    child.wait().unwrap();
+    drop(child);
     assert!(!held.contains(&outside), "{held:?}");
 }
 

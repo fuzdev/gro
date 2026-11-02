@@ -56,8 +56,9 @@
 //! whose stdout values must be equal on every workload, and its `gate` names
 //! the rows judged against an incumbent; every other row is reported only.
 //!
-//! Every process a run spawns has a deadline, the suite's `timeout_ms` or
-//! two minutes: one still running past it is killed, and the run fails.
+//! Every process of a runtime a run spawns has a deadline, the suite's
+//! `timeout_ms` or two minutes: one still running past it is killed, and the
+//! run fails.
 //!
 //! Everything runtime-specific (a flag, a variable, a shim file) sits in the
 //! runtime's entry and counts against that runtime; workload scripts are web
@@ -203,8 +204,8 @@ pub struct CorporaPin {
     /// scripts read theirs.
     pub path: PathBuf,
     /// The tree id of its `collections/` at `HEAD`
-    /// (`git rev-parse HEAD:collections`), which names the bytes the
-    /// workloads read, and the tree a workload's collection is copied from.
+    /// (`git rev-parse HEAD:collections`), which names the bytes the workloads read, and the
+    /// tree a workload's collection is copied from.
     pub tree: String,
 }
 
@@ -305,8 +306,9 @@ pub struct Workload {
     /// default, warmed by the warmup processes.
     #[serde(default)]
     pub cold: bool,
-    /// The workload's weight in the suite's objective, a weighted geomean of
-    /// per-workload scores, relative to the other workloads' weights. Part of
+    /// The workload's weight relative to the other workloads', reserved for
+    /// a suite objective nothing computes yet (a weighted geomean of
+    /// per-workload scores); for now it only feeds the config hash. Part of
     /// the suite's version, like the workload set.
     #[serde(default = "default_weight")]
     pub weight: u32,
@@ -638,8 +640,8 @@ impl Suite {
     }
 
     /// The blake3 hash of the suite as parsed (defaults filled, formatting
-    /// ignored), its `budgets` left out: two runs with the same hash ran the
-    /// same rows the same way.
+    /// ignored), its `budgets` and `timeout_ms` left out: two runs with the
+    /// same hash ran the same rows the same way.
     ///
     /// # Panics
     ///
@@ -667,7 +669,7 @@ fn is_plain_segment(name: &str) -> bool {
 }
 
 /// Whether `path` is one or more plain segments, with no root, `.`, or `..`.
-fn is_plain_relative(path: &Path) -> bool {
+pub(crate) fn is_plain_relative(path: &Path) -> bool {
     path.components().next().is_some()
         && path
             .components()

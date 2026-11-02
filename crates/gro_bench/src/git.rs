@@ -221,7 +221,7 @@ pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, BenchErr
 
 /// A `git` read of the checkout at `root`, stdin on the null device, set up
 /// so the read is of the objects and writes nothing.
-fn read_command(root: &Path, args: &[&str]) -> Command {
+pub(crate) fn read_command(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     command
         .arg("-C")
@@ -235,8 +235,8 @@ fn read_command(root: &Path, args: &[&str]) -> Command {
     command
 }
 
-/// The command line `git` and `git_output` name in their errors.
-fn git_command(root: &Path, args: &[&str]) -> String {
+/// The command line a git read names in its errors.
+pub(crate) fn git_command(root: &Path, args: &[&str]) -> String {
     format!("git -C {} {}", root.display(), args.join(" "))
 }
 

@@ -68,10 +68,9 @@ impl Snapshot {
     ///
     /// `residual.rs` defines the static `RESIDUAL_LAZY_JS` that
     /// [`StartupSnapshot`]'s table comes from, one
-    /// `(specifier, include_str!(path))` entry a line. It has a second
-    /// reader, `cargo xtask build --verify`, which parses the first
-    /// `include_str!("…")` path out of it, so a change to the format updates
-    /// that parser too.
+    /// `(specifier, include_str!(path))` entry a line. It has a second reader,
+    /// `cargo xtask build --verify`, which parses the first `include_str!("…")` path out of
+    /// it, so a change to the format updates that parser too.
     ///
     /// # Errors
     ///
@@ -143,10 +142,10 @@ pub enum SnapshotError {
     #[error("failed to create the snapshot: {0}")]
     Create(#[source] deno_core::error::CoreError),
     /// A residual source's path isn't UTF-8, so `residual.rs` can't name it.
-    #[error("{} is not a UTF-8 path", .0.display())]
+    #[error("{0} is not a UTF-8 path")]
     NotUtf8(PathBuf),
     /// A snapshot file couldn't be written.
-    #[error("{path}: {source}")]
+    #[error("failed to write {path}: {source}")]
     Write {
         /// The file.
         path: PathBuf,

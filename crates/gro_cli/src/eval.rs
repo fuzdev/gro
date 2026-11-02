@@ -99,17 +99,10 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
         EvalValue::StdinDriver => (true, None),
         EvalValue::Export(export) => (false, export),
     };
-    // first, before the process opens anything: a descriptor it inherited
-    // would reach past the box, which gates only new opens
+    // steps 1 to 4, in the order the doc gives
     let closed = unless_off(EvalDefault::CloseFds, close_inherited);
-    // the phases file, under the `phases` feature, opens before the box
     phases::open();
-    // then the environment goes but `TZ`, so no library eval starts reads a
-    // variable; a phases or priced build has read its own by now
     let cleared = unless_off(EvalDefault::ClearEnv, clear_env);
-    // then the process's memory is capped, before the pre-pass thread, so
-    // every thread and allocation after is under it, the default thread
-    // stack lowered first, so no inherited stack limit sizes the engine's
     let limited = unless_off(EvalDefault::DataLimit, limit_memory);
     let mut options = EvalOptions {
         entry: module,

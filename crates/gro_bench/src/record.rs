@@ -1,12 +1,11 @@
 //! The run record: one JSON line per run, appended to the history.
 //!
 //! A line carries what a number needs to be read later: the suite and its
-//! version, the gro checkout's commit, the config hash, the runtimes'
-//! versions, binary hashes, and sizes, the hashes of the scripts and files the suite
-//! names, the state of the other checkouts the workloads read, the machine,
-//! the corpus pins, and every row's
-//! samples beside their statistics. Raw samples stay in the line, so later
-//! comparisons can recompute from them.
+//! version, the gro checkout's commit, the config hash, the runtimes' versions,
+//! binary hashes, and sizes, the hashes of the scripts and files the suite
+//! names, the state of the other checkouts the workloads read, the machine, the
+//! corpus pins, and every row's samples beside their statistics. Raw samples
+//! stay in the line, so later comparisons can recompute from them.
 //!
 //! A run measures in one [`Mode`]: wall time alone, wall time with fgro's
 //! phase timings, or wall time with hardware counters (`perf stat`). The
@@ -76,8 +75,9 @@ pub struct RunRecord {
     pub corpora: Option<String>,
     /// The runtimes, in suite order.
     pub runtimes: Vec<RuntimeInfo>,
-    /// The blake3 hash of every workload script and file argument, by its
-    /// path as the suite writes it (relative to the suite's directory).
+    /// The blake3 hash of every workload script, file argument, and runtime
+    /// `stdin` file, by its path as the suite writes it (relative to the
+    /// suite's directory).
     pub artifacts: BTreeMap<String, String>,
     /// The git state of each checkout outside the suite's own that the
     /// workloads read, by the path as the suite writes it: a project link's
@@ -168,13 +168,12 @@ pub struct CheckoutState {
     /// where `sha` can't: `git diff HEAD` (binary, full index ids, and the
     /// output options a flag can pin set to git's default, so a user's diff
     /// settings don't change the bytes; attribute-driven filters and hunk
-    /// headers, and `core.fileMode`, still apply), then each untracked
-    /// file's path and contents. Ignored files
-    /// (a checkout's `node_modules`, its build output) are in neither part,
-    /// so what a workload reaches through them isn't named here. A
-    /// submodule shows only as its commit and whether it's dirty, so edits
-    /// inside an already-dirty submodule aren't seen. `None` exactly when
-    /// it's clean.
+    /// headers, and `core.fileMode`, still apply), then each untracked file's
+    /// path and contents. Ignored files (a checkout's `node_modules`, its build
+    /// output) are in neither part, so what a workload reaches through them
+    /// isn't named here. A submodule shows only as its commit and whether it's
+    /// dirty, so edits inside an already-dirty submodule aren't seen. `None`
+    /// exactly when it's clean.
     pub changes_blake3: Option<String>,
 }
 

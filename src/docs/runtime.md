@@ -21,7 +21,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the security model, the design, and the roadmap
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
-- [eval](eval.md) - the reference for `fgro eval` as built today: the driver, determinism, the limits, the serializer, the envelope, the graph dump, and exit codes
+- [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size

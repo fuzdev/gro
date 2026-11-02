@@ -12,20 +12,23 @@
 //! - [`clear_env_except`] clears the process's environment but the
 //!   variables it names, so no library the process runs later reads one.
 //! - [`limit_data`] caps the process's data segment (`RLIMIT_DATA`), its
-//!   soft and hard limits alike, so it can't be raised again.
+//!   soft and hard limits alike, so it can't be raised again;
+//!   [`data_limit`] reads them.
 //! - [`set_default_thread_stack`] lowers the stack size of a thread started
 //!   without one, which glibc otherwise takes from `RLIMIT_STACK`, never
-//!   raising it.
+//!   raising it; `default_thread_stack` reads it.
 //! - [`thread_count`] reads the process's thread count, which a box or a
 //!   process-wide change installed from one thread needs to be 1.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
-//!   status with its peak resident set size, which std's `wait` drops.
+//!   status with its peak resident set size ([`Reaped`]), which std's `wait`
+//!   drops.
 //! - [`kill_process_group`] sends `SIGKILL` to a process group by its id,
 //!   for a watchdog that doesn't own the child another thread is reaping.
 //! - [`guard_group`] and [`kill_guarded_groups_on_signal`] kill the process
 //!   groups a process spawned when a terminal's interrupt, a hangup, or a
 //!   `SIGTERM` ends it, since a child in a group of its own doesn't get the
 //!   terminal's signals.
+//! - [`exit_now`] ends the process by `_exit`, running none of its teardown.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -299,7 +302,7 @@ pub fn data_limit() -> io::Result<(u64, u64)> {
 )]
 pub fn set_default_thread_stack(bytes: usize) -> io::Result<()> {
     let current = default_thread_stack()
-        .map_err(|error| context("reading the default thread stack failed", &error))?;
+        .map_err(|error| context("failed to read the default thread stack", &error))?;
     if current <= bytes {
         return Ok(());
     }
@@ -485,8 +488,8 @@ fn close_listed() -> io::Result<()> {
     Ok(())
 }
 
-/// The descriptors above stderr among `names`, the names of
-/// `/proc/self/fd`'s entries, each a descriptor's number.
+/// The descriptors above stderr among `names`, the names of `/proc/self/fd`'s
+/// entries, each a descriptor's number.
 ///
 /// # Errors
 ///
@@ -654,14 +657,14 @@ impl Drop for GroupGuard {
 ///
 /// The group is a child spawned as the leader of its own
 /// (`CommandExt::process_group(0)`), and the kill happens once
-/// [`kill_guarded_groups_on_signal`] is installed.
-/// A child in a group of its own isn't in the terminal's foreground group,
-/// so the terminal's interrupt never reaches it, and it would outlive its
-/// parent. The caller drops the guard once it reaps the child, since the id
-/// is free for reuse after; a signal in the moment between the two kills the
-/// group by an id the kernel hands out again only after wrapping around
-/// every id, as [`kill_process_group`] does. A signal between the spawn and
-/// the guard misses the group.
+/// [`kill_guarded_groups_on_signal`] is installed. A child in a group of its
+/// own isn't in the terminal's foreground group, so the terminal's interrupt
+/// never reaches it, and it would outlive its parent. The caller drops the
+/// guard once it reaps the child, since the id is free for reuse after; a
+/// signal in the moment between the two kills the group by an id the kernel
+/// hands out again only after wrapping around every id, as
+/// [`kill_process_group`] does. A signal between the spawn and the guard misses
+/// the group.
 ///
 /// Arming is a compare-and-swap on the first free slot, no lock or system
 /// call, cheap enough for a timed span.

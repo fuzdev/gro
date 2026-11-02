@@ -37,9 +37,12 @@
 //!   [`ModuleFormat`]).
 //! - **Also refused**, each with its reason: a bare Node built-in name
 //!   (`fs`), looked up as a package and not found; a `%2F`, `%5C`, or `%00`
-//!   in a resolved path; a symlink loop, named as one where the OS's `ELOOP`
-//!   is known; a `package.json` over [`MAX_PACKAGE_JSON_SIZE`] or failing
-//!   [`SourceTree::read`]'s identity check; and the empty specifier.
+//!   in a resolved path; a `package.json` over [`MAX_PACKAGE_JSON_SIZE`];
+//!   and the empty specifier. A symlink loop, named as one where the OS's
+//!   `ELOOP` is known, and a read failing [`SourceTree::read`]'s identity
+//!   check fail too, but aren't refusals in
+//!   [`ResolveErrorKind::is_refusal`]'s sense: no change to the import fixes
+//!   them.
 //!
 //! Each departure from Node refuses with its own kind: containment with
 //! [`ResolveErrorKind::OutsideRoot`], [`ResolveErrorKind::IntoNodeModules`],
@@ -102,32 +105,6 @@ pub struct Resolution {
     /// once per role. A relative specifier to a `.mjs` or TypeScript file
     /// reads none.
     pub files_consulted: Vec<ConsultedFile>,
-}
-
-/// Resolves as `resolve_from` does, the importer's root found as the one
-/// its path is inside ([`Roots::containing`]).
-///
-/// # Errors
-///
-/// As `resolve_from`, and [`ResolveErrorKind::ImporterOutsideRoots`] when
-/// the importer is inside none of `roots`.
-#[cfg(test)]
-pub(crate) fn resolve(
-    tree: &impl SourceTree,
-    specifier: &str,
-    importer: &Url,
-    roots: &Roots,
-) -> Result<Resolution, ResolveError> {
-    let error = |kind| ResolveError {
-        specifier: specifier.to_owned(),
-        importer: importer.to_string(),
-        kind,
-    };
-    let importer_path = importer_path(importer).map_err(error)?;
-    let importer_root = roots
-        .containing(&importer_path)
-        .ok_or_else(|| error(ResolveErrorKind::ImporterOutsideRoots))?;
-    resolve_from(tree, specifier, importer, importer_root, roots)
 }
 
 /// Resolves `specifier`, imported by the module at `importer`, a real path's

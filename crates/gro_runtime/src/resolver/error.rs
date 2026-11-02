@@ -20,8 +20,8 @@ pub struct ResolveError {
     pub kind: ResolveErrorKind,
 }
 
-/// Why a specifier didn't resolve. Each message names the specifier, so it
-/// reads on its own.
+/// Why a specifier didn't resolve. Each message reads after
+/// [`ResolveError`]'s, which names the specifier and its importer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveErrorKind {
     /// A `node:` specifier.
@@ -39,10 +39,6 @@ pub enum ResolveErrorKind {
     /// A specifier, its resolved URL, or its importer that isn't a valid
     /// file URL.
     InvalidUrl(UrlFault),
-    /// The importer is inside none of the roots passed in, which the
-    /// caller must have admitted it under: a bug in the caller, not the
-    /// specifier.
-    ImporterOutsideRoots,
     /// A bare specifier whose package name is malformed: it starts with `.`,
     /// holds `%` or `\`, has an empty, `.`, or `..` segment, or is a scope
     /// with no name after it.
@@ -314,8 +310,9 @@ impl ResolveErrorKind {
     /// project, or a package must change for it to resolve, the common case.
     /// Otherwise reading the tree failed (an I/O error, a symlink loop, a
     /// file changed or a read refused mid-run) or the caller broke an
-    /// invariant ([`ResolveErrorKind::ImporterOutsideRoots`]), which no
-    /// change to the import fixes.
+    /// invariant (an importer with no local path,
+    /// [`UrlFault::ImporterNoLocalPath`]), which no change to the import
+    /// fixes.
     pub const fn is_refusal(&self) -> bool {
         !matches!(
             self,
@@ -323,7 +320,6 @@ impl ResolveErrorKind {
                 | Self::SymlinkLoop(_)
                 | Self::ReadChanged(_)
                 | Self::ReadOutsideBox(_)
-                | Self::ImporterOutsideRoots
                 | Self::InvalidUrl(UrlFault::ImporterNoLocalPath)
         )
     }
@@ -366,10 +362,6 @@ impl fmt::Display for ResolveErrorKind {
             ),
             Self::Empty => f.write_str("the specifier is empty"),
             Self::InvalidUrl(fault) => write!(f, "not a valid file URL: {fault}"),
-            Self::ImporterOutsideRoots => f.write_str(
-                "the importer is inside none of the graph's admitted roots, which only a bug in \
-                 the host causes",
-            ),
             Self::InvalidPackageName => f.write_str(
                 "it is not a valid package name: a name can't start with '.' or hold '%' or '\\', \
                  and a scoped one is '@scope/name'",
@@ -688,13 +680,13 @@ impl fmt::Display for ResolveErrorKind {
             }
             Self::ReadChanged(path) => write!(
                 f,
-                "failed to read {}: {}",
+                "cannot read {}: {}",
                 path.display(),
                 ReadRefusal::Changed
             ),
             Self::ReadOutsideBox(path) => write!(
                 f,
-                "failed to read {}: it lies outside the box's roots, so it isn't read",
+                "cannot read {}: it lies outside the box's roots",
                 path.display(),
             ),
         }

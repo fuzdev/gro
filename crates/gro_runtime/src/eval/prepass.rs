@@ -32,13 +32,6 @@ pub struct Prepass<B = confine::Prepared> {
 }
 
 impl Prepass {
-    /// The roots of the box the eval's process is to be confined to,
-    /// before the engine starts.
-    #[cfg(test)]
-    const fn box_roots(&self) -> &confine::Prepared {
-        &self.box_roots
-    }
-
     /// Confines the process to the eval's box ([`confine::Prepared::confine`]),
     /// installed for the JIT its options name, the one
     /// [`engine_options`](super::engine_options) gives the engine: jitless,
@@ -253,7 +246,7 @@ mod tests {
 
         let resolved = prepass(options(Path::new("main.mjs"), &project)).unwrap();
         assert_eq!(
-            resolved.box_roots().roots().as_slice(),
+            resolved.box_roots.roots().as_slice(),
             std::slice::from_ref(&project)
         );
         assert_eq!(
@@ -281,6 +274,7 @@ mod tests {
             );
         }
     }
+
     /// An entry the host fails to read, a symlink loop here, is an
     /// `internal` failure, not a refusal the command line must fix, as the
     /// same failure on an import is.

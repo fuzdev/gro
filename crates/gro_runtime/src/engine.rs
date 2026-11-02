@@ -33,12 +33,11 @@
 //! reads from platform init on; then V8's flags (the JIT and code generation
 //! from strings), which V8 freezes once its platform starts, and to which
 //! `deno_core` adds its own without touching these; then the ICU default
-//! locale, which each
-//! isolate reads when its `Intl` first asks. ICU's data is linked into the V8
-//! library (`icu_use_data_file = false` in the `v8` crate's build), and
-//! `deno_core` loads data of its own (`set_common_data_77`) only under its
-//! `include_icu_data` feature, which this crate doesn't enable, so no data
-//! load comes after the locale is set.
+//! locale, which each isolate reads when its `Intl` first asks. ICU's data is
+//! linked into the V8 library (`icu_use_data_file = false` in the `v8` crate's
+//! build), and `deno_core` loads data of its own (`set_common_data_77`) only
+//! under its `include_icu_data` feature, which this crate doesn't enable, so no
+//! data load comes after the locale is set.
 
 use std::io::Write as _;
 use std::sync::OnceLock;

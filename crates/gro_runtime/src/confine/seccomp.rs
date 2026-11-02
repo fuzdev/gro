@@ -10,7 +10,6 @@ use super::{ConfineError, Jit};
 /// escaped the engine. The allowlist doesn't allow them either; this filter
 /// is the tripwire that ends the process rather than let it carry on past
 /// `ENOSYS`.
-#[cfg(target_os = "linux")]
 pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
     libc::SYS_execve,
     libc::SYS_execveat,
@@ -35,16 +34,15 @@ pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
 /// They are the calls the runtime was seen to make after the box goes up,
 /// and the named siblings a host may make in their place. Every call
 /// missing from it and from the calls allowed by their arguments
-/// (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`, [`KEPT_SOCKETPAIR`],
-/// `KEPT_ACCESS_MODE`, a `clone` that starts a thread, `CLONE_NAMESPACES`,
-/// and the [`MAPPING_CALLS`]) fails with `ENOSYS`.
+/// ([`KEPT_PRCTLS`], [`KEPT_FCNTLS`], [`KEPT_IOCTLS`], [`KEPT_SOCKETPAIR`],
+/// [`KEPT_ACCESS_MODE`], a `clone` that starts a thread, setting no flag in
+/// [`CLONE_NAMESPACES`], and the [`MAPPING_CALLS`]) fails with `ENOSYS`.
 ///
 /// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
 /// process, since glibc names the caller by its thread id, not 0: for
 /// another process they tell whether it exists and how it's scheduled, not
 /// its files or memory. Built for `x86_64` and `aarch64`; the `aarch64` list
 /// is written from its call table and unverified on a host.
-#[cfg(target_os = "linux")]
 pub(super) const ALLOWED_CALLS: &[libc::c_long] = &[
     libc::SYS_brk,
     libc::SYS_clock_gettime,
@@ -117,7 +115,6 @@ pub(super) const ALLOWED_CALLS: &[libc::c_long] = &[
 /// box goes up. `mremap` keeps a mapping's protection, so it stays allowed:
 /// it can move, copy, or grow an executable mapping made before the box,
 /// over its file's own bytes, but never over bytes the process wrote.
-#[cfg(target_os = "linux")]
 pub(super) const MAPPING_CALLS: [libc::c_long; 3] =
     [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect];
 
@@ -126,7 +123,6 @@ pub(super) const MAPPING_CALLS: [libc::c_long; 3] =
 /// fails with `ENOSYS`, the ones that change what the process may do
 /// (`PR_SET_NO_NEW_PRIVS`, `PR_SET_SECCOMP`, the capability options) or
 /// who may reach it (`PR_SET_DUMPABLE`, `PR_SET_PTRACER`) among them.
-#[cfg(target_os = "linux")]
 pub(super) const KEPT_PRCTLS: [libc::c_int; 2] = [libc::PR_SET_NAME, libc::PR_SET_VMA];
 
 /// The `fcntl` commands the box keeps, by the second argument: reading and
@@ -136,7 +132,6 @@ pub(super) const KEPT_PRCTLS: [libc::c_int; 2] = [libc::PR_SET_NAME, libc::PR_SE
 /// locking the same file inside the box, a lease, which stalls another
 /// process's open for writing and tells the holder it was tried, directory
 /// change notices, and setting a descriptor's owner among them.
-#[cfg(target_os = "linux")]
 pub(super) const KEPT_FCNTLS: [libc::c_int; 5] = [
     libc::F_GETFD,
     libc::F_SETFD,
@@ -151,7 +146,6 @@ pub(super) const KEPT_FCNTLS: [libc::c_int; 5] = [
 /// a file's attribute flags, generation, extended attributes, or verity, or
 /// a filesystem's own (a btrfs subvolume), from a handle opened only to
 /// read among them, which Landlock gates only on devices.
-#[cfg(target_os = "linux")]
 pub(super) const KEPT_IOCTLS: [libc::Ioctl; 6] = [
     libc::FIONBIO,
     libc::FIOCLEX,
@@ -166,26 +160,24 @@ pub(super) const KEPT_IOCTLS: [libc::Ioctl; 6] = [
 ///
 /// Every other fails with `ENOSYS`, a datagram pair above all, which can
 /// send to any socket file by its path.
-#[cfg(target_os = "linux")]
 pub(super) const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
 
 /// The one `faccessat2` mode the box keeps, by the third argument: `F_OK`,
-/// whether the path exists, which `statx` tells already and Landlock gates
-/// for neither. glibc's `realpath`, behind `std::fs::canonicalize` and so the
-/// resolver's every lookup, asks it of a directory that a `.` or `..`
-/// component or a trailing slash follows, as a link's target
-/// `/x/a/b/../../pkg` or `/x/pkg/` has. Every other mode, which asks whether
-/// the process may read, write, or execute the path, fails with `ENOSYS`.
+/// whether the path exists, which `statx` tells already and Landlock gates for
+/// neither. glibc's `realpath`, behind `std::fs::canonicalize` and so the
+/// resolver's every lookup, asks it of a directory that a `.` or `..` component
+/// or a trailing slash follows, as a link's target `/x/a/b/../../pkg` or
+/// `/x/pkg/` has. Every other mode, which asks whether the process may read,
+/// write, or execute the path, fails with `ENOSYS`.
 ///
 /// `faccessat`, glibc's fallback when `faccessat2` fails with `ENOSYS`,
 /// isn't allowed: every kernel the box runs on (Landlock ABI 6, Linux 6.12)
 /// has `faccessat2`, which arrived in Linux 5.8.
-#[cfg(target_os = "linux")]
 pub(super) const KEPT_ACCESS_MODE: libc::c_int = libc::F_OK;
 
 /// An `ioctl` request as the filter compares it, whichever type the libc
 /// declares requests as: glibc's `c_ulong`, as is.
-#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+#[cfg(not(target_env = "musl"))]
 const fn ioctl_request(request: libc::Ioctl) -> u64 {
     request
 }
@@ -193,14 +185,13 @@ const fn ioctl_request(request: libc::Ioctl) -> u64 {
 /// An `ioctl` request as the filter compares it, whichever type the libc
 /// declares requests as: musl's `c_int`, by its bits, as the kernel reads
 /// the `unsigned int` it is.
-#[cfg(all(target_os = "linux", target_env = "musl"))]
+#[cfg(target_env = "musl")]
 fn ioctl_request(request: libc::Ioctl) -> u64 {
     u64::from(request.cast_unsigned())
 }
 
 /// The bits of a socket type that name it, below the `SOCK_NONBLOCK` and
 /// `SOCK_CLOEXEC` flags.
-#[cfg(target_os = "linux")]
 const SOCKET_TYPE_MASK: u64 = 0xf;
 
 /// The namespace flags `clone` accepts, which the box's one kept `clone`
@@ -212,7 +203,6 @@ const SOCKET_TYPE_MASK: u64 = 0xf;
 ///
 /// `clone3` isn't allowed: its flags sit in memory, out of a filter's reach,
 /// and its `ENOSYS` makes glibc start the thread with `clone` instead.
-#[cfg(target_os = "linux")]
 const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
     | libc::CLONE_NEWCGROUP
     | libc::CLONE_NEWUTS
@@ -225,7 +215,6 @@ const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
 /// compiled for this architecture, in the order they are installed: the
 /// calls that kill the process, then the allowlist, which fails every call
 /// it doesn't allow with `ENOSYS`.
-#[cfg(target_os = "linux")]
 pub(super) fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], ConfineError> {
     use std::collections::BTreeMap;
 

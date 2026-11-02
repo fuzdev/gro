@@ -53,7 +53,7 @@ mod confined {
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
 
-    use super::support::Scratch;
+    use super::support::{PRICES_OFF_ENV, Scratch};
 
     /// The snapshot the binary under test embeds, as `fgro` embeds it.
     mod embedded {
@@ -61,10 +61,6 @@ mod confined {
             include_bytes!(concat!(env!("GRO_SNAPSHOT_DIR"), "/snapshot.bin"));
         include!(concat!(env!("GRO_SNAPSHOT_DIR"), "/residual.rs"));
     }
-
-    /// The variable naming the defaults a priced build turns off,
-    /// `gro_runtime::prices`'s.
-    const PRICES_OFF_ENV: &str = "GRO_PRICES_OFF";
 
     /// The signal seccomp kills a process with.
     const SIGSYS: i32 = 31;
@@ -168,7 +164,7 @@ mod confined {
             if case == "landlock_sockets" {
                 command.env(PRICES_OFF_ENV, "seccomp");
             }
-            let output = command.output().unwrap();
+            let output = super::support::spawn(command, b"");
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             // the signal case's process outside the box
@@ -591,9 +587,9 @@ mod confined {
             }
             "signal" => {
                 // a process outside the box, started before it; the parent
-                // stops it, which this process no longer can
-                // its stdio null, so the parent's read of this child's pipes
-                // doesn't wait for it
+                // stops it, which this process no longer can; its stdio null,
+                // so the parent's read of this child's pipes doesn't wait for
+                // it
                 #[expect(
                     clippy::zombie_processes,
                     reason = "this process can't stop it once boxed; the parent kills it, and \
