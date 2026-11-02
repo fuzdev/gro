@@ -76,9 +76,11 @@ The ECMAScript globals, including `Intl`, `Temporal`, and `WebAssembly`, plus th
 - `Blob`, `File`, `CompressionStream`, `DecompressionStream`
 - `AbortController`, `AbortSignal`, `Event`, `EventTarget`, `CustomEvent`, `ErrorEvent`, `PromiseRejectionEvent`, `DOMException`
 
-Absent today, by design until a grant or a consumer brings them, are `fetch`, `Headers`, `Request`, `Response`,
-`WebSocket`, `crypto`, `self`, `navigator`, `location`, `reportError`, `Worker`, `MessageChannel`,
-`MessagePort`, `BroadcastChannel`, `FileReader`, and web storage.
+Absent today are the [authority globals](glossary.md#authority-globals), which reach outside the run
+and arrive only as declared grants: `fetch`, `WebSocket`, `EventSource`, web storage, and `Worker` if it lands.
+Absent until a consumer needs them, with no grant involved, are `Headers`, `Request`, `Response`,
+`crypto`, `self`, `navigator`, `location`, `reportError`, `MessageChannel`,
+`MessagePort`, `BroadcastChannel`, and `FileReader`.
 The global object isn't an `EventTarget`, so there's no `addEventListener('unhandledrejection')`.
 
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.

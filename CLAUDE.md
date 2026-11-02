@@ -513,7 +513,9 @@ npm package's `files`. During development the binary is `fgro`, so it never
 collides with the Node `gro` on `PATH`. The README introduces the runtime in
 one plain paragraph and links out. [src/docs/runtime.md](src/docs/runtime.md)
 is the hub: an index of the runtime docs under its status block, then the
-thesis, why, the security model, the design, open questions, and the roadmap.
+thesis, why, the security model, the design (runtime-generic, written for
+`run` and `eval`), open questions, gro's workflow on the runtime (tasks, gen,
+`gro check`, the unconfined phases), and the roadmap.
 The rest each own one subject: [src/docs/run.md](src/docs/run.md) is the
 reference for the built binary (what loads, the globals, errors, exit codes),
 [src/docs/eval.md](src/docs/eval.md) the reference for `fgro eval` (the driver,

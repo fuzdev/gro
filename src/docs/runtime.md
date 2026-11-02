@@ -4,16 +4,18 @@
 > why it exists, the security model, the design, and the roadmap
 
 > **status**: experimental, with the direction settled and the design in progress.
-> Today `fgro run <file>` (renamed `gro` when ready) runs a JS or TypeScript module
-> from disk on V8 (x86_64 Linux only) using Deno's libraries,
-> with strict resolution and origin containment ([run](run.md)),
-> and `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied, its heap, memory, and time limited,
-> and its process held in a kernel box, read-only to its project's files ([eval](eval.md#the-box)),
-> reporting the module graph it loaded when asked ([eval](eval.md#the-graph));
-> the grants, the policy file, and the kernel backstop for runs below are designed, not built,
-> so no grant is enforced yet; the [roadmap](#roadmap) marks what's built.
-> The design doesn't have every answer yet ([open questions](#open-questions)),
-> and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
+> Built today, on x86_64 Linux, as `fgro` (renamed `gro` when ready):
+>
+> - `fgro run <file>` runs a JS or TypeScript module from disk on V8, using Deno's libraries,
+>   with strict resolution and origin containment ([run](run.md))
+> - `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied,
+>   its heap, memory, and time limited, and its process in a kernel box read-only to its project
+>   ([eval](eval.md))
+>
+> Designed, not built: the host modules, the grants, the policy file, and the kernel backstop for `run`.
+> Until they land, a run reaches nothing past its own module graph and the console.
+> The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
+> ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
 The runtime's docs:
 
@@ -35,42 +37,40 @@ Its code reaches only what it imports or is handed,
 the way a function reaches only the bindings in scope,
 plus any global the policy file accepts,
 so what a run can reach is a static fact about its import graph and its policy,
-reviewed like a lockfile, and the common case has nothing to declare.
+reviewed like a lockfile, and code that stays within its own project has nothing to declare.
 Runs can be hermetic too, with clock and randomness fixed or denied,
 so what a run depends on is known and it replays and caches by construction.
 It's built for code you didn't write, like your dependencies and your agents.
 
-Its primary verb is `gro run <file>` (currently named `fgro` until ready),
+Its primary verb is `gro run <file>`,
 which runs one module graph with no ambient authority,
 reaching nothing the graph didn't import or the policy file didn't accept.
-`gro eval` is its confined one-shot sibling.
-`gro task <path>` is the workflow layer that carries the original TS Gro API forward,
-running project tasks by full paths for explicit resolution,
-while the builtins stay first-class subcommands (`gro check`, `gro dev`).
+`gro eval` is its confined one-shot sibling, evaluating a module to data.
+Until the binary replaces the npm package, the TypeScript version keeps working on Node
+and the binary is named `fgro`,
+so these docs say `gro` for the design and `fgro` for what's built today.
 
-It starts with `gro eval`, then runs gro's own TS surface (tasks, gen, config),
+It starts with `gro eval`, then runs gro's own workflow (tasks, gen, and config,
+[below](#gros-workflow-on-the-runtime)),
 and grows into the toolchain for the whole Fuz stack,
 including the server side of [fuz_app](https://github.com/fuzdev/fuz_app),
 which keeps supporting Node and Bun beside it.
-Until the binary replaces the npm package, the TypeScript version keeps working on Node
-and the binary is named `fgro`.
 
 These terms carry the rest of this doc, and the [glossary](glossary.md) defines them and the others:
 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
   each a visible edge in the graph
-- **authority globals** are the web globals that reach the world (`fetch`, `WebSocket`),
-  the one authority not declared by import, since a global reaches every module in the graph
+- **authority globals** are the web globals that reach outside the run,
+  to the network (`fetch`, `WebSocket`, `EventSource`), to storage that outlives it (web storage),
+  or to code outside its module graph (`Worker`, if it lands),
+  the one authority not declared by import, since a global reaches every module in the graph;
+  every other web global is present, or absent only until a consumer needs it (`crypto`, `Headers`)
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
   hermetic (replayable), confined (bounded), or unconfined
 - the **kernel backstop** is the grant set enforced again as Linux kernel rules (Landlock, seccomp),
   under the runtime's own checks
-- **reach**, **need**, and **use** are three views of what code can do:
-  what it could get to (static, from the import graph and the policy file, and the only one enforced),
-  what a function asks for (static, in its parameter types),
-  and what a run actually did (dynamic, in the access manifest, evidence rather than enforcement)
 
 ## Why
 
@@ -91,7 +91,11 @@ The runtime is that loader becoming the host, on the pieces that outlive the sal
 ([rusty_v8](https://github.com/denoland/rusty_v8), which Cloudflare keeps maintaining,
 and [deno_core](https://crates.io/crates/deno_core) as a bootstrap, kept thin, as [Design](#design) says).
 One runtime we own in place of two we don't, and one embeddable host for the toolchain.
-The sandbox ships first, as `gro eval`, long before gro runs on itself.
+It also couldn't be Deno with different defaults:
+the model the stack wants, authority by import with nothing ambient,
+is one Deno can't adopt without breaking its users
+([compared to Deno](#compared-to-deno-node-and-bun)).
+The sandbox shipped first, as `gro eval`, long before gro runs on itself.
 
 It isn't a Deno replacement for everyone.
 Code that needs Node keeps running on Node,
@@ -102,7 +106,7 @@ any language compiled to it (see [polyglot sandboxing](#what-the-design-opens-up
 ## Secure by default
 
 Code starts with nothing and gets only what it's granted.
-There's no flag to remember and no mode to opt into.
+There's no flag or mode to turn confinement on.
 The default is the confined case, and widening it is a visible act, reviewed like a lockfile change.
 As designed, not yet built, a run gets:
 
@@ -118,20 +122,25 @@ As designed, not yet built, a run gets:
 - **under `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
   and the JIT off unless a flag turns it on
   (with the JIT off V8 has no `WebAssembly` at all, so a config that uses WASM needs the flag)
-- **for native code:** never the runtime's process, not even under `-A`,
-  since FFI is a grant that loads the library in its own confined process
+- **for native code:** FFI, a grant that loads the library in a confined process of its own,
+  not the runtime's, even under `-A`
+
+### How grants are proposed and accepted
 
 A script's needs are a static property of its import graph,
 so least privilege costs nothing to write.
 A file that imports only `fuz_util` and the fs module, and declares no global, can't spawn or fetch.
-That's `gro run`'s unit, one file's graph.
-`gro task` runs under the union of what the invocation reaches,
-since a task holds the context (config, `invoke_task`),
-and a Node tool it spawns is confined by the kernel backstop, not the grant set.
+That's `gro run`'s unit, one file's graph,
+and a tool that runs several entries in one invocation, like gro's tasks,
+holds their union ([below](#gros-workflow-on-the-runtime)).
 The source proposes grants (the host modules it imports, plus a static `grants` literal
 naming hosts and the like) and the committed policy file authorizes them,
-so a dependency bump that newly imports the filesystem, spawn, or the network fails
-`gro check` until the diff is accepted, the same shape as a lockfile change.
+so a dependency bump that newly imports the filesystem, spawn, or the network
+fails at link time, and in the project's check, until the diff is accepted,
+the same shape as a lockfile change.
+A run outside any project, or one that needs a grant just once, takes it by flag instead,
+in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
+and `-A` is the same flag at its widest.
 The authority globals are the exception: once a run holds the global `fetch`,
 a dependency that starts calling it changes no grant.
 A planned scan flags it in the diff for review,
@@ -145,9 +154,10 @@ Review, harness rules, and a push gate cover the normal case but aren't a struct
 and a signed acceptance is designed for when it's needed
 ([open questions](#open-questions)).
 
-Every run is one of three kinds, derived from its grants,
-recorded in the policy file, and shown in the task listing,
-so a gen file that stops being hermetic is a reviewed diff.
+### Run kinds
+
+Every run is one of three kinds, derived from its grants and recorded in the policy file,
+so an entry that stops being hermetic is a reviewed diff.
 
 | kind       | network and spawn | clock and randomness | reads                         | replays |
 | ---------- | ----------------- | -------------------- | ----------------------------- | ------- |
@@ -155,7 +165,7 @@ so a gen file that stops being hermetic is a reviewed diff.
 | confined   | by grant          | real                 | by grant                      | no      |
 | unconfined | everything        | real                 | everything                    | no      |
 
-Gen files and `gro eval` are hermetic by default.
+`gro eval` is hermetic by default, as are gro's gen files.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 That includes the authority globals, since `fetch` reaches every module in the graph
@@ -163,35 +173,40 @@ but only the hosts accepted.
 Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined,
 and a grant as strong as `-A`, like spawning a shell, is flagged that way in the diff.
 
+### By construction or by default
+
 The guarantees come in two kinds, and it's worth knowing which is which.
 Some hold by construction, with no setting that changes them.
 Authority enters by an import or a declared global, so what a run can reach is a static fact,
 though which of its modules ends up holding a capability is not.
-There's no `process` global, no Node compat, no in-process FFI, no remote import,
+There's no `process` global, no Node compat, no remote import,
 and no runtime namespace to reach around the loader.
 A WASM module's imports are its capability declaration the same way.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
 These are the read and write roots, the net hosts, the authority globals, the deny overlays,
-the empty environment for children, the kernel rules, and whether a run stays hermetic.
+the empty environment for children, the kernel rules, whether a run stays hermetic,
+and native code kept out of the runtime's process.
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
 `-A` is the one blanket escape hatch, never a default.
-`publish` and `deploy` push and use credentials, so they're named unconfined phases,
-shown that way in the policy diff, with credentials passed to the one process that needs them.
-Linux is the design target.
-The kernel backstop and every claim that rests on it are Linux's,
-and macOS and Windows get sandbox designs of their own before the binary ships there,
-never a translation of Linux's.
+A tool built on the runtime can name unconfined phases, like gro's `publish` and `deploy`,
+which push and use credentials;
+they're shown that way in the policy diff, with credentials passed to the one process that needs them.
+
+### Friction and costs
 
 Security-first runtimes earned a reputation for friction,
 with flags on every run, prompts mid-execution, and `-A` as the habit that follows.
-Gro has none of those.
-A normal run has no flags and nothing to declare,
+Gro is designed to have none of those (none of it is built yet, and today a run has no authority to widen).
+A normal run in a project has no flags, and code that stays within the project has nothing to declare,
 and the one moment worth a human's attention, when the graph newly reaches the network,
 a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt.
 The costs are elsewhere, and stated plainly:
-no Node compat, strict ESM, and the authority globals absent until declared.
+no Node compat and no runtime namespace, so code written for Node or Deno needs porting;
+strict ESM, so an npm package without `exports`, or one that's CommonJS, is refused;
+TypeScript's erasable syntax only;
+and the authority globals, `fetch` among them, absent until declared.
 
 ## Threat model
 
@@ -213,9 +228,10 @@ WASM runs with V8's JIT on, so against an engine exploit
 what holds it is the kernel backstop, not the engine.
 Until the Node tools leave the loop, an invocation that spawns them
 is confined only as finely as the kernel backstop, by paths and ports rather than the grant set.
-Outside the model are the unconfined phases (`publish`, `deploy`, `-A`),
-and on macOS and Windows anything past the runtime's own checks,
-until those platforms get a kernel equivalent.
+Outside the model are `-A` and the named unconfined phases (gro's `publish` and `deploy`).
+Linux is the design target, and the kernel backstop and every claim that rests on it are Linux's.
+On macOS and Windows anything past the runtime's own checks is outside the model
+until each gets a sandbox design of its own, never a translation of Linux's.
 
 ## Design
 
@@ -225,7 +241,7 @@ The runtime prioritizes, in order:
    measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance, to the WinterTC minimum common API,
    graded by its WPT subset under a full grant set
-3. developer control and ergonomics, with no prompts, nothing to declare in the common case,
+3. developer control and ergonomics, with no prompts, nothing to declare for code that stays within its project,
    and a way to widen beside every default (`-A`, the globals grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed
 4. speed, startup first, since short-lived invocations dominate an agent-driven loop,
@@ -254,6 +270,7 @@ so each piece can be rewritten on its own as measurements justify it.
   Node's API hands every module ambient authority (`process`, `require`, and `node:fs`
   are reachable from anywhere), so a compat layer would bring it back.
   It also declines the years of work Bun and Deno each spent on Node compat.
+  Nor is there a runtime namespace: beyond the web's globals, everything is an import.
 - **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
@@ -263,7 +280,6 @@ so each piece can be rewritten on its own as measurements justify it.
   and gro never pre-bundles a project's dependencies.
   Otherwise it follows Node's algorithm, departing where Node guesses, reads past the project,
   or substitutes a pattern unchecked, and [resolver](resolver.md) has the full rules.
-- **No runtime namespace.** Beyond the web's globals, everything is an import.
 - **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in process,
   preserving every position, so stack traces point at the TS source with no source maps.
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
@@ -277,8 +293,7 @@ so each piece can be rewritten on its own as measurements justify it.
   The host's net module exports a `net` handle (`net.fetch`, bound to the accepted hosts)
   that's narrowed and passed down like any other capability,
   so authority is visible at every use site and nothing shadows the web's `fetch`.
-  A net grant is inferred from the graph like a filesystem one, naming hosts,
-  and a blanket one is never proposed for you, only accepted, shown in the policy diff as the widest class.
+  A net grant is inferred from the graph like a filesystem one, naming hosts.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
   and ops check the scoped cases (reads under a root).
 - **No new globals.** The authority globals are a separate, wider grant,
@@ -301,20 +316,21 @@ so each piece can be rewritten on its own as measurements justify it.
   child process, so an op-check bug, an engine escape, or a spawned tool still lands in a box.
   The kernel layer is coarser than the runtime's own checks (paths and ports, not
   files carved out of a tree or hostnames), so it backstops them rather than replacing them.
-  Built so far for `fgro eval` alone, with no grants to enforce yet: its box reads file contents only under its project
-  and the packages linked into it, though a path's metadata (whether it exists, its `stat`, a symlink's target) stays readable everywhere;
-  it writes to no file and changes no file's metadata, executes nothing, reaches no network,
-  signals no process outside it nor sets one's limits, priority, or scheduling,
-  and keeps no descriptor it inherited beyond stdin, stdout, and stderr ([eval](eval.md#the-box)).
+  Built so far for `fgro eval` alone, as a fixed box with no grants to enforce yet:
+  read-only to its project and the packages linked into it, with no writes, exec, or network
+  ([eval](eval.md#the-box) has its exact walls).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
   FFI (calling a native library from JS) is planned as a grant, denied by default,
-  with the library loaded in its own confined process.
-  There is no in-process FFI, so native code can't reach the runtime's memory or its grants.
-  Calls cross a process boundary, so chatty native work belongs in WASM instead,
-  where a module reaches only the imports the host hands it
-  (see [polyglot sandboxing](#what-the-design-opens-up)).
+  with the library loaded in its own confined process, out of reach of the runtime's memory and grants.
+  Its calls cross a process boundary, so chatty native work belongs in WASM
+  ([polyglot sandboxing](#what-the-design-opens-up)) or an embedder's host module.
+  In-process loading isn't planned, and feedback on it is welcome in
+  [discussions](https://github.com/fuzdev/gro/discussions):
+  if a measured need brings it (chatty calls, callbacks into JS, a library tied to its process),
+  it comes as a grant of its own, never part of `-A`,
+  shown in the policy diff as leaving the runtime's checks, with the kernel backstop still around the process.
 - **A toolchain, grown by need.** Run, eval, and tasks come first,
   then serving (TCP, TLS, WebSocket) so fuz_app's TS backends run on it,
   a test runner, bundled dev and build, and types emitted from the binary.
@@ -373,7 +389,7 @@ The import is the default and the narrow path, and where it happens matters:
 
 A single-file script is its own root and imports directly.
 The cost is that the policy sees [reach](glossary.md#reach-need-and-use) only at the roots.
-What a library needs shows in its parameter types, what it used shows in the access manifest,
+What a library needs shows in its parameter types, what it used shows in the [access manifest](glossary.md#access-manifest),
 and what the root hands to whom is in the root's code, not the policy file.
 A grant limits what code can obtain, never what it's given,
 so even enforced per package it bounds the importer, not the code the importer hands to.
@@ -401,15 +417,34 @@ so they're set per run kind rather than granted.
 ## Compared to Deno, Node, and Bun
 
 [comparison](comparison.md) has the full account,
-with the design differences from Deno in prose, notes on Node and Bun,
-and the same ground as tables by axis, with the bench's measured startup and size.
-The ingredients are mostly shared, and the structural difference from Deno is that
-authority enters by import, with no namespace to reach around the loader,
-and the declared globals the one exception.
-In one line, Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process,
-while gro's policy file pins what that code can reach, per import chain for host modules
-and per run for the globals, inferred from the graph where it can be,
-and is treated like the lockfile, committed, diffed, and reviewed.
+with the design differences from Deno in prose, what moving a script from Deno changes,
+notes on Node and Bun, and the same ground as tables by axis, with the bench's measured startup and size.
+The ingredients are mostly shared.
+The difference that makes gro a new runtime rather than a set of Deno flags
+is one Deno can't adopt without breaking its users:
+authority enters by import, with nothing ambient
+(no runtime namespace, no `process`, no `require`, no `node:*`),
+so what a run can reach is a fact about its code, not its command line,
+and the declared globals are the one exception.
+The second is that the module graph is closed and on disk, never fetched at run time.
+Both are guarantees by omission, so they hold for every run,
+where Deno's equivalents are flags that hold for the runs that pass them.
+The rest, like the kernel backstop, no prompts, and deterministic runs,
+are defaults Deno could adopt without breaking anyone, and gro turns them on;
+Deno's end of life in October 2027 is why they're unlikely to land there ([Why](#why)).
+
+Day to day, coming from Deno, as designed:
+
+- a run in a project takes no permission flags, and a widening is a policy diff at lockfile cadence;
+  a one-off run takes Deno's `--allow-*` flags for that run
+- a missing grant fails the run before any code runs, naming the fix,
+  never a prompt or an error a `try/catch` can swallow mid-run
+- `Deno.*` calls become host module imports, so Deno code is ported, not run unchanged
+- dependencies come from `node_modules`, installed by npm, never `npm:`, `jsr:`, or `https:` specifiers,
+  and a package without `exports`, or one that's CommonJS, is refused (built)
+- `fetch` is absent until declared, and the host's `net` import is the narrow way to it
+- startup is faster on every row of the [bench](comparison.md#measured) (built),
+  and the binary has no formatter, linter, test runner, or `compile`
 
 ## What the design opens up
 
@@ -418,18 +453,18 @@ and is treated like the lockfile, committed, diffed, and reviewed.
 - **Deterministic runs.** Clock and randomness stay the web's globals,
   set per run kind (real, denied, or fixed) rather than imported,
   and hermetic runs pin the time zone and locale,
-  so an eval or gen run replays exactly
-  (for gen, once the host orders async completions, an [open question](#open-questions)).
-  Eval and gen see the project at a fixed root, never this machine's absolute paths,
+  so an eval or other hermetic run replays exactly
+  (for one that awaits reads, once the host orders async completions, an [open question](#open-questions)).
+  Hermetic runs see the project at a fixed root, never this machine's absolute paths,
   so their output is the same on every machine.
-- **Memoized gen.** A gen file declares the inputs it may read,
+- **Memoized runs.** A hermetic run declares the inputs it may read,
   and its output is keyed by the runtime, its module graph, and the files it actually read,
-  so `gro gen --check` becomes a cache probe.
+  so rerunning one is a cache probe (gro's `gen --check` becomes one).
 - **One module graph.** The loader's graph is the only graph.
-  It keys caches and gen invalidation, drives watch,
-  and lists tasks by parsing instead of executing them.
+  It keys caches and invalidation, drives watch,
+  and lets a tool list its entries by parsing instead of executing them (gro's task listing).
 - **Cheap isolation.** V8 isolates and contexts are cheap in one process,
-  so gen files can run in parallel, each confined, with no process spawn,
+  so independent runs (gro's gen files) can run in parallel, each confined, with no process spawn,
   and trust tiers (project, ecosystem, third party) could get their own global object
   (per-tier contexts, an opt-in on the roadmap's future list).
 - **Polyglot sandboxing.** V8 runs WASM, and a WASM module imported as an ES module
@@ -451,8 +486,8 @@ The design doesn't have every answer, and these are the ones it knows it's missi
 - **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
   normal case, and a signed acceptance that needs a person's presence is designed, built only if
   the measured widening rate makes its friction worth it.
-- **Replay needs deterministic scheduling, for gen.** `gro eval` only loads modules, which ESM orders,
-  but a hermetic gen run's recorded reads complete on the event loop in no fixed order,
+- **Replay needs deterministic scheduling.** `gro eval` only loads modules, which ESM orders,
+  but a hermetic run that awaits reads (a gen file, say) has them complete on the event loop in no fixed order,
   so it can resolve promises differently between runs.
   The host has to order completions for "replays exactly" to hold by construction,
   and the cost is unmeasured.
@@ -468,7 +503,28 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   How to scope globals within one realm (or whether to), whether to freeze the intrinsics alone,
   and what the opt-in tier looks like are undecided, the limit is stated in the meantime,
   and the gate suite carries a probe either way.
-- **Where the builtins' grants live.** `gro check` spawns Node tools through gro's own tasks,
+- **Where the builtins' grants live**, for gro's own workflow ([below](#gros-workflow-on-the-runtime)).
+
+## Gro's workflow on the runtime
+
+Gro's task runner, gen, and config move onto the runtime at gro on gro ([roadmap](#roadmap)),
+its first large consumer and the shape other tools built on it can take.
+As designed, except where marked built:
+
+- `gro task <path>` is the workflow layer that carries the original TS Gro API forward,
+  running project tasks by full path for explicit resolution,
+  while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node gro).
+- A task runs under the union of what the invocation reaches,
+  its own graph plus the tasks it invokes, since every task holds the shared context (config, `invoke_task`),
+  and a Node tool it spawns is confined by the kernel backstop, not the grant set.
+- `gro check` is the project's check: it infers each task's and gen file's grants,
+  diffs them against the committed policy file, and fails on a widening until `gro grants accept` records it.
+  On the Node gro it runs advisory first, since Node enforces none of it.
+- Gen files are hermetic by default, with each one's run kind shown in the task listing,
+  so a gen file that stops being hermetic is a reviewed diff, and `gro gen --check` becomes a cache probe.
+- `publish` and `deploy` push and use credentials, so they're named unconfined phases.
+- Where the builtins' grants live is open.
+  `gro check` spawns Node tools through gro's own tasks,
   so "nothing to declare" holds only once the builtins' grants ship with the binary
   and a project's policy file holds project tasks alone.
 
@@ -478,6 +534,10 @@ The first target is retiring Deno from the Fuz stack before its end of life
 in October 2027 (see [Why](#why)).
 Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svelte-check)
 run as Node subprocesses under the invocation's kernel rules.
+The runtime and gro's workflow on it are two tracks, and they meet at gro on gro,
+where the host modules and grants land with their first consumer.
+
+### The runtime
 
 - [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
       on the same workloads, the baseline every milestone is measured against
@@ -489,38 +549,45 @@ run as Node subprocesses under the invocation's kernel rules.
 - [x] origin containment in the resolver ([resolver](resolver.md#departures-from-node)),
       keeping every module inside its project's or package's root,
       and the loader reading only the file the resolver found
-- [ ] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
+- [x] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
-      it replaces Deno for config eval in the Fuz stack
+      zap evaluates its config on it, replacing Deno for config eval in the Fuz stack
 - [ ] the first release, `fgro` 0.1.0 for Linux x86_64 as a GitHub Release asset
       with `run` and `eval`, a SHA-512 checksum file, and a provenance attestation;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
+      (the release workflow is built, and no release is tagged yet)
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the authority it carries as the oracle,
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
+- [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
+- [ ] the host modules (fs, process, spawn, watch, net, from `fuz_host`), the grants,
+      and the policy file, enforced, with the kernel backstop under every run, landing with gro on gro
+- [ ] macOS and Windows builds, each with its own sandbox design
+- [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
+- [ ] serving and types from the binary, so fuz_app's server side runs on gro
+
+### Gro's workflow
+
 - [x] on the Node gro, `gro task <path>` replaces the bare `gro <name>` task search
       and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
 - [ ] on the Node gro, `gro check` infers each task's grants, records each package's use of the authority globals,
       and diffs both against the committed policy file, labeled advisory,
       since Node enforces none of it
-- [ ] the Deno exit, with config eval on `gro eval` and the stack's other Deno uses on Node
-- [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
+- [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
+      `deno task` becoming gro tasks
 - [ ] gro on gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module, and the network stays declared)
 - [ ] the Svelte compiler in-engine
-- [ ] macOS and Windows builds, each with its own sandbox design
-- [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
-- [ ] serving, a test runner, and types from the binary,
-      so fuz_app's server side runs on gro and Node leaves the stack's toolchain
+- [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain
 
 Future (unknown order):
 
 - FFI as a grant, in its own confined process
-- the `fixed` and `seeded` determinism modes for tasks and gen (`gro eval` ships with `deny`),
-  and gen as a memoized function of its graph
+- the `fixed` and `seeded` determinism modes beyond eval's `deny`,
+  and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
 - `fetch`, `crypto.subtle`, and `WebSocket` as consumers need them
 - size: filtered ICU data, V8 build flags
@@ -533,6 +600,7 @@ Maybe later or never:
 
 ## Install
 
+No release is tagged yet; the first will be 0.1.0.
 Each release of `fgro` is a GitHub Release on an `fgro-v<version>` tag,
 with the binary's notes in [crates/CHANGELOG.md](../../crates/CHANGELOG.md).
 Its asset is a bare binary for Linux x86_64, `fgro-linux-x64-gnu`,

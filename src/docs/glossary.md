@@ -13,7 +13,9 @@ It's evidence of [use](#reach-need-and-use), and it enforces nothing.
 
 ## authority globals
 
-The web globals that reach the world, like `fetch`, `WebSocket`, `EventSource`, and web storage.
+The web globals that reach outside the run: the network (`fetch`, `WebSocket`, `EventSource`),
+storage that outlives it (web storage), or code outside its module graph (`Worker`, if it lands).
+Every other web global is a [pure global](#pure-globals), present or absent only until a consumer needs it.
 A global isn't an import edge, so they can't be soundly [inferred](#inference),
 and they're [declared](#declared) instead, absent until granted.
 One [realm](#realm) has one global object, so a grant of one covers every module in the run.
@@ -147,8 +149,8 @@ or enters another root nested in it, and `"exports"` targets and self-references
 ## policy file
 
 The committed record of the grants accepted in review, currently `gro.policy.json`.
-It holds each task's and gen file's grants and [run kind](#run-kinds),
-and `gro check` diffs it like a lockfile, failing on a widening until a person accepts it.
+It holds each entry's grants and [run kind](#run-kinds) (for gro, each task and gen file),
+and the project's check (`gro check`) diffs it like a lockfile, failing on a widening until a person accepts it.
 
 ## project root
 
@@ -223,5 +225,5 @@ like `dist/esm/package.json`. It sets a directory's module format without boundi
 
 ## unconfined
 
-The [run kind](#run-kinds) that reaches everything, under `-A` or the named unconfined phases
-`publish` and `deploy`, which push and use credentials.
+The [run kind](#run-kinds) that reaches everything, under `-A` or a named unconfined phase,
+like gro's `publish` and `deploy`, which push and use credentials.
