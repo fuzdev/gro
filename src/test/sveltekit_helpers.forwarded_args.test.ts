@@ -29,7 +29,13 @@ const run = async (
 ): Promise<Array<string>> => {
 	process.argv = ['node', 'gro', 'build', '--', 'svelte-package', ...forwarded];
 	const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
-	await run_svelte_package(PACKAGE_JSON, options, cli, new Logger('test'), 'npm');
+	await run_svelte_package({
+		package_json: PACKAGE_JSON,
+		svelte_package_options: options,
+		svelte_package_cli: cli,
+		log: new Logger('test'),
+		pm_cli: 'npm'
+	});
 	expect(vi.mocked(spawn_cli)).toHaveBeenCalledTimes(1);
 	return vi.mocked(spawn_cli).mock.calls[0]![1]!;
 };
@@ -85,7 +91,12 @@ describe('run_svelte_package failure', () => {
 		process.argv = ['node', 'gro', 'build'];
 		const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
 		await expect(
-			run_svelte_package(PACKAGE_JSON, undefined, cli, new Logger('test'), 'npm')
+			run_svelte_package({
+				package_json: PACKAGE_JSON,
+				svelte_package_cli: cli,
+				log: new Logger('test'),
+				pm_cli: 'npm'
+			})
 		).rejects.toThrow('`svelte-package` failed');
 	});
 });

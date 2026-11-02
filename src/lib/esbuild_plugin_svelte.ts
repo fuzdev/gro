@@ -45,7 +45,7 @@ export const esbuild_plugin_svelte = (options: EsbuildPluginSvelteOptions): esbu
 
 	const ts_transform_options: esbuild.TransformOptions = {
 		...TS_TRANSFORM_OPTIONS_DEFAULT,
-		define: to_define_import_meta_env(dev, base_url),
+		define: to_define_import_meta_env({ dev, base_url }),
 		sourcemap: 'inline'
 	};
 

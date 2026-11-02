@@ -22,13 +22,13 @@ export const task: Task<Args> = {
 	run: async ({ args, log, config }) => {
 		const { _: patterns, check } = args;
 
-		const result = await format_directory(
+		const result = await format_directory({
 			log,
-			paths.source,
+			dir: paths.source,
 			check,
-			config.search_filters,
+			filter: config.search_filters,
 			patterns
-		);
+		});
 		if (!result.ok) {
 			throw new TaskError(`Failed ${check ? 'formatting check' : 'to format'}.`);
 		}

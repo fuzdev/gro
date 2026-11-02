@@ -74,14 +74,13 @@ test('format_directory searches a project under a dot-directory', async () => {
 	mkdirSync(join(dir, 'src/.hidden'), { recursive: true });
 	writeFileSync(join(dir, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(dir, 'src/.hidden/b.ts'), 'const  b=1\n');
-	const result = await format_directory(
-		create_mock_logger(),
-		join(dir, 'src'),
-		true,
-		create_empty_gro_config().search_filters,
-		undefined,
-		dir
-	);
+	const result = await format_directory({
+		log: create_mock_logger(),
+		dir: join(dir, 'src'),
+		check: true,
+		filter: create_empty_gro_config().search_filters,
+		root: dir
+	});
 	expect(result.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
 });
 
@@ -95,7 +94,14 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 	writeFileSync(join(dir, 'node_modules/x/c.ts'), 'const  c=1\n');
 	const { search_filters } = create_empty_gro_config();
 	const format = (patterns: Array<string>) =>
-		format_directory(create_mock_logger(), join(dir, 'src'), true, search_filters, patterns, dir);
+		format_directory({
+			log: create_mock_logger(),
+			dir: join(dir, 'src'),
+			check: true,
+			filter: search_filters,
+			patterns,
+			root: dir
+		});
 	const absolute = await format([join(dir, 'src/lib/*.ts'), join(dir, 'src/.hidden/*.ts')]);
 	expect(absolute.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
 	const cwd = process.cwd();
@@ -117,17 +123,23 @@ test('format_directory finds files outside the root under a dot-directory, swept
 	writeFileSync(join(other, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(other, 'src/.hidden/b.ts'), 'const  b=1\n');
 	const { search_filters } = create_empty_gro_config();
-	const swept = await format_directory(
-		create_mock_logger(),
-		join(other, 'src'),
-		true,
-		search_filters,
-		undefined,
-		dir
-	);
+	const swept = await format_directory({
+		log: create_mock_logger(),
+		dir: join(other, 'src'),
+		check: true,
+		filter: search_filters,
+		root: dir
+	});
 	expect(swept.formatted).toEqual([join(other, 'src/lib/a.ts')]);
 	const format = (patterns: Array<string>) =>
-		format_directory(create_mock_logger(), join(dir, 'src'), true, search_filters, patterns, dir);
+		format_directory({
+			log: create_mock_logger(),
+			dir: join(dir, 'src'),
+			check: true,
+			filter: search_filters,
+			patterns,
+			root: dir
+		});
 	const cwd = process.cwd();
 	try {
 		// from a cwd under a dot-directory outside both, which an entry's bare name never resolves to
@@ -150,14 +162,13 @@ test('format_directory filters relative to the root, whichever directory it swee
 	writeFileSync(join(root, 'src/lib/fixtures/b.ts'), 'const  b=1\n');
 	const filter = (p: string) => !p.startsWith('src/lib/fixtures') && !p.startsWith('src/test');
 	for (const dir of ['src', 'src/lib']) {
-		const result = await format_directory(
-			create_mock_logger(),
-			join(root, dir),
-			true,
+		const result = await format_directory({
+			log: create_mock_logger(),
+			dir: join(root, dir),
+			check: true,
 			filter,
-			undefined,
 			root
-		);
+		});
 		expect(result.formatted).toEqual([join(root, 'src/lib/a.ts')]);
 	}
 });
@@ -168,13 +179,12 @@ test('format_directory reads the ignore file from its root', async () => {
 	writeFileSync(join(dir, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(dir, 'src/lib/b.ts'), 'const  b=1\n');
 	writeFileSync(join(dir, '.formatignore'), 'src/lib/b.ts\n');
-	const result = await format_directory(
-		create_mock_logger(),
-		join(dir, 'src'),
-		true,
-		create_empty_gro_config().search_filters,
-		undefined,
-		dir
-	);
+	const result = await format_directory({
+		log: create_mock_logger(),
+		dir: join(dir, 'src'),
+		check: true,
+		filter: create_empty_gro_config().search_filters,
+		root: dir
+	});
 	expect(result.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
 });

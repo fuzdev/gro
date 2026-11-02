@@ -61,10 +61,27 @@ export const has_sveltekit_library = async (
 	return { ok: true };
 };
 
-export const sveltekit_sync = async (
-	sveltekit_cli: string | Cli = SVELTEKIT_CLI,
-	pm_cli = PM_CLI_DEFAULT // TODO source from config when possible, is just needed for error messages
-): Promise<void> => {
+export interface SveltekitSyncOptions {
+	/**
+	 * The SvelteKit CLI's name or a found `Cli`.
+	 * @default `SVELTEKIT_CLI`
+	 */
+	sveltekit_cli?: string | Cli;
+	/**
+	 * The package manager named in the install hint when the CLI isn't found.
+	 * @default `PM_CLI_DEFAULT`
+	 */
+	pm_cli?: string; // TODO source from config when possible, is just needed for error messages
+}
+
+/**
+ * Runs `svelte-kit sync`.
+ * @throws `TaskError` if the CLI isn't found or fails
+ */
+export const sveltekit_sync = async ({
+	sveltekit_cli = SVELTEKIT_CLI,
+	pm_cli = PM_CLI_DEFAULT
+}: SveltekitSyncOptions = {}): Promise<void> => {
 	const result = await spawn_cli(sveltekit_cli, ['sync']);
 	if (!result) {
 		throw new TaskError(
@@ -87,7 +104,7 @@ export const sveltekit_sync_if_available = async (
 	const found_sveltekit_cli =
 		typeof sveltekit_cli === 'string' ? await find_cli(sveltekit_cli) : sveltekit_cli;
 	if (found_sveltekit_cli) {
-		return sveltekit_sync(found_sveltekit_cli);
+		return sveltekit_sync({ sveltekit_cli: found_sveltekit_cli });
 	}
 };
 
@@ -107,7 +124,7 @@ export const sveltekit_sync_if_obviously_needed = async (
 	if (!found_sveltekit_cli) {
 		return;
 	}
-	return sveltekit_sync(found_sveltekit_cli);
+	return sveltekit_sync({ sveltekit_cli: found_sveltekit_cli });
 };
 
 /**
@@ -194,13 +211,35 @@ export interface SveltePackageOptions {
 	tsconfig?: string;
 }
 
-export const run_svelte_package = async (
-	package_json: PackageJson,
-	options: SveltePackageOptions | undefined,
-	cli: string | Cli,
-	log: Logger,
-	pm_cli: string
-): Promise<void> => {
+export interface RunSveltePackageOptions {
+	package_json: PackageJson;
+	/**
+	 * The options serialized as `svelte-package` flags, each dropped when the forwarded args name it.
+	 */
+	svelte_package_options?: SveltePackageOptions;
+	/**
+	 * The `svelte-package` CLI's name or a found `Cli`.
+	 */
+	svelte_package_cli: string | Cli;
+	log: Logger;
+	/**
+	 * The package manager named in the install hint when the CLI isn't found.
+	 */
+	pm_cli: string;
+}
+
+/**
+ * Runs `svelte-package` for a SvelteKit library, with any forwarded `-- svelte-package` args.
+ * @throws `TaskError` if the project isn't a SvelteKit library, the CLI isn't installed locally,
+ * or `svelte-package` fails
+ */
+export const run_svelte_package = async ({
+	package_json,
+	svelte_package_options,
+	svelte_package_cli: cli,
+	log,
+	pm_cli
+}: RunSveltePackageOptions): Promise<void> => {
 	const has_sveltekit_library_result = await has_sveltekit_library(package_json);
 	if (!has_sveltekit_library_result.ok) {
 		throw new TaskError(
@@ -218,7 +257,7 @@ export const run_svelte_package = async (
 	}
 	const forwarded_argv = to_forwarded_argv(cli_name);
 	const serialized_args = [
-		...serialize_svelte_package_options(options, forwarded_argv),
+		...serialize_svelte_package_options(svelte_package_options, forwarded_argv),
 		...forwarded_argv
 	];
 	const spawned = await spawn_cli(found_svelte_package_cli, serialized_args, log);

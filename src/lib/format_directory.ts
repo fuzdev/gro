@@ -47,6 +47,35 @@ export interface FormatDirectoryResult {
 	errored: Array<{ id: string; error: unknown }>;
 }
 
+export interface FormatDirectoryOptions {
+	log: Logger;
+	/**
+	 * The directory swept when `patterns` is empty.
+	 */
+	dir: string;
+	/**
+	 * When `true`, reports unformatted files instead of writing them.
+	 * @default false
+	 */
+	check?: boolean;
+	/**
+	 * Directory filters (e.g. `config.search_filters`) to skip, tested relative to the project root,
+	 * or outside it to the searched directory or a glob's leading literal directory; also prunes
+	 * `patterns` results, so a glob within the root can't reach `node_modules`, while a glob whose
+	 * literal base is outside the root (`../other/node_modules/x/*.js`) is taken as given.
+	 */
+	filter?: PathFilter | Array<PathFilter>;
+	/**
+	 * Globs to format instead of sweeping `dir`, relative to the cwd or absolute.
+	 */
+	patterns?: Array<string>;
+	/**
+	 * The project root `filter` tests paths relative to, and where the ignore files are read.
+	 * @default `paths.root`
+	 */
+	root?: string;
+}
+
 /**
  * Formats files on the filesystem in-process via `format_file`.
  * When `patterns` is provided, formats those specific files/globs.
@@ -59,23 +88,15 @@ export interface FormatDirectoryResult {
  *
  * This is separated from `./format_file` so modules that only need directory
  * traversal don't pull in the formatter (which loads the `tsv` native addon).
- *
- * @param check - when `true`, reports unformatted files instead of writing them
- * @param filter - directory filters (e.g. `config.search_filters`) to skip, tested relative to the project root,
- * or outside it to the searched directory or a glob's leading literal directory; also prunes `patterns`
- * results, so a glob within the root can't reach `node_modules`, while a glob whose literal base is
- * outside the root (`../other/node_modules/x/*.js`) is taken as given
- * @param patterns - globs to format instead of sweeping `dir`, relative to the cwd or absolute
- * @param root - the project root `filter` tests paths relative to, and where the ignore files are read
  */
-export const format_directory = async (
-	log: Logger,
-	dir: string,
+export const format_directory = async ({
+	log,
+	dir,
 	check = false,
-	filter?: PathFilter | Array<PathFilter>,
-	patterns?: Array<string>,
-	root: string = paths.root
-): Promise<FormatDirectoryResult> => {
+	filter,
+	patterns,
+	root = paths.root
+}: FormatDirectoryOptions): Promise<FormatDirectoryResult> => {
 	const collected = patterns?.length
 		? collect_glob_files(patterns, filter, root)
 		: await collect_source_files(dir, filter, root);

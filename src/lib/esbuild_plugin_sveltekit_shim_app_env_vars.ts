@@ -41,7 +41,9 @@ export const esbuild_plugin_sveltekit_shim_app_env_vars = ({
 			const visibility = SVELTEKIT_APP_ENV_VARS_MATCHER.exec(path)![1] as EnvVisibility;
 			const entry_id = resolve_sveltekit_env_entry(src_path, dir);
 			// fresh so a rebuild after editing the declarations sees their new names
-			const variables = entry_id ? await load_sveltekit_env_declarations(entry_id, true) : null;
+			const variables = entry_id
+				? await load_sveltekit_env_declarations({ entry_id, fresh: true })
+				: null;
 			return {
 				loader: 'js',
 				resolveDir: dir,

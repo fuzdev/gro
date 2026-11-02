@@ -43,19 +43,29 @@ export const resolve_sveltekit_env_entry = (
  */
 const ENV_VAR_NAME_MATCHER = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
+export interface LoadSveltekitEnvDeclarationsOptions {
+	/**
+	 * The env entry module.
+	 */
+	entry_id: string;
+	/**
+	 * Re-import the entry when it has changed on disk, for long-lived processes
+	 * that rebuild, at the cost of a new module instance per change.
+	 * @default false
+	 */
+	fresh?: boolean;
+}
+
 /**
  * Imports the `variables` declared in a project's env entry module.
  * The shims render static exports, so the declared names are needed before rendering -
  * the values aren't, those resolve when the rendered module runs.
- * @param entry_id - the env entry module
- * @param fresh - re-import the entry when it has changed on disk, for long-lived processes
- * that rebuild, at the cost of a new module instance per change
  * @throws if the entry doesn't export a `variables` object, or declares an invalid name
  */
-export const load_sveltekit_env_declarations = async (
-	entry_id: string,
+export const load_sveltekit_env_declarations = async ({
+	entry_id,
 	fresh = false
-): Promise<EnvVarDeclarations> => {
+}: LoadSveltekitEnvDeclarationsOptions): Promise<EnvVarDeclarations> => {
 	const url = pathToFileURL(entry_id);
 	if (fresh) url.searchParams.set('t', String(statSync(entry_id).mtimeMs));
 	const { variables } = await import(url.href);

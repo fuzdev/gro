@@ -120,7 +120,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		const entry_id = resolve_sveltekit_env_entry(src_path);
 		const variables = entry_id
 			? await loading_env_declarations.run(entry_id, () =>
-					load_sveltekit_env_declarations(entry_id)
+					load_sveltekit_env_declarations({ entry_id })
 				)
 			: null;
 		const source = render_sveltekit_shim_app_env_vars({

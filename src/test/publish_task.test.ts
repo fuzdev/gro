@@ -124,7 +124,7 @@ describe('publish_task version bump', () => {
 			context: 'after version bump'
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
-		assert.deepEqual(sveltekit_sync.mock.calls[0], [undefined, 'npm']);
+		assert.deepEqual(sveltekit_sync.mock.calls[0], [{ pm_cli: 'npm' }]);
 
 		const gen_call_index = invoke_task.mock.calls.findIndex(([name]) => name === 'gen');
 		assert.ok(gen_call_index !== -1, 'expected gen to run after the version bump');

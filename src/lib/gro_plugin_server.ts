@@ -209,7 +209,7 @@ export const gro_plugin_server = ({
 					}),
 					esbuild_plugin_sveltekit_local_imports()
 				],
-				define: to_define_import_meta_env(dev, base_url),
+				define: to_define_import_meta_env({ dev, base_url }),
 				...build_options
 			});
 

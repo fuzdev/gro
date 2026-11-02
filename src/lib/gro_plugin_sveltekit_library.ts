@@ -30,13 +30,13 @@ export const gro_plugin_sveltekit_library = ({
 		setup: async ({ dev, log, config }) => {
 			if (!dev) {
 				const package_json = await package_json_load();
-				await run_svelte_package(
+				await run_svelte_package({
 					package_json,
 					svelte_package_options,
 					svelte_package_cli,
 					log,
-					config.pm_cli
-				);
+					pm_cli: config.pm_cli
+				});
 				// `svelte-package` ships `.svelte` source verbatim and leaves relative `.ts`
 				// specifiers in `.d.ts` declarations; rewrite them to `.js` so the published
 				// `dist` resolves for external consumers without `allowImportingTsExtensions`.

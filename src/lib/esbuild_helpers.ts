@@ -17,21 +17,35 @@ export const print_build_result = (log: Logger, build_result: esbuild.BuildResul
 // because SvelteKit detects usage as a string and not the AST.
 const import_meta_env = 'import.' + 'meta.env.';
 
+export interface ToDefineImportMetaEnvOptions {
+	/**
+	 * Sets `DEV` and `PROD`, and picks the default `mode`.
+	 */
+	dev: boolean;
+	/**
+	 * Best-effort shim from SvelteKit's `base` to Vite's `import.meta\.env.BASE_URL`.
+	 */
+	base_url: ParsedSvelteConfig['base_url'];
+	/**
+	 * @default true
+	 */
+	ssr?: boolean;
+	/**
+	 * @default `'development'` when `dev`, else `'production'`
+	 */
+	mode?: string;
+}
+
 /**
  * Creates an esbuild `define` shim for Vite's `import.meta\.env`.
- * @param dev
- * @param base_url - best-effort shim from SvelteKit's `base` to Vite's `import.meta\.env.BASE_URL`
- * @param ssr
- * @param mode
- * @returns
  * @see https://esbuild.github.io/api/#define
  */
-export const to_define_import_meta_env = (
-	dev: boolean,
-	base_url: ParsedSvelteConfig['base_url'],
+export const to_define_import_meta_env = ({
+	dev,
+	base_url,
 	ssr = true,
 	mode = dev ? 'development' : 'production'
-): Record<string, string> => ({
+}: ToDefineImportMetaEnvOptions): Record<string, string> => ({
 	// see `import_meta_env` for why this is defined weirdly instead of statically
 	[import_meta_env + 'DEV']: JSON.stringify(dev),
 	[import_meta_env + 'PROD']: JSON.stringify(!dev),

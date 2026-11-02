@@ -181,7 +181,7 @@ export const task: Task<Args> = {
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
 				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
-				await sveltekit_sync(undefined, config.pm_cli);
+				await sveltekit_sync({ pm_cli: config.pm_cli });
 			}
 
 			// Regenerate files that depend on package.json version.
