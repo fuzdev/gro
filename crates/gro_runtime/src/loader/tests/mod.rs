@@ -58,7 +58,8 @@ fn state(loader: &Loader) -> (Roots, HashMap<Url, Record>) {
 
 /// Files on disk in a fresh directory (see [`TestDir`]), under a named
 /// `package.json`, so the project root is the directory itself. Every
-/// directory is `0o755`, so a umask of 0 can't make one world-writable.
+/// directory is `0o755`, the [`TestDir`] by its own making and each file's
+/// parent here, so a umask of 0 can't make one world-writable.
 struct DiskFixtures(TestDir);
 
 impl DiskFixtures {

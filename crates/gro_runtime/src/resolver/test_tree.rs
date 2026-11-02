@@ -163,6 +163,37 @@ fn disk_test_dir(name: &str) -> PathBuf {
         .join(format!("gro_runtime_{}_{name}", std::process::id()))
 }
 
+/// The system's temporary directory, canonical, checked to be
+/// world-writable with no `package.json` at or above it.
+///
+/// # Panics
+///
+/// Panics, naming `TMPDIR`, when it isn't.
+pub fn system_temp() -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let temp = std::env::temp_dir().canonicalize().unwrap();
+    let mode = std::fs::metadata(&temp).unwrap().permissions().mode();
+    assert!(
+        mode & 0o002 != 0,
+        "the temp dir {} (TMPDIR) isn't world-writable (mode {mode:o}), and the disk tests \
+         expect every walk up from their files to stop there. Set TMPDIR to one that is, like /tmp",
+        temp.display()
+    );
+    let package_json = temp
+        .ancestors()
+        .map(|dir| dir.join("package.json"))
+        .find(|package_json| package_json.exists());
+    if let Some(package_json) = package_json {
+        panic!(
+            "the temp dir {} (TMPDIR) is under a project: {} is at or above it, and the disk \
+             tests expect none. Set TMPDIR outside one",
+            temp.display(),
+            package_json.display()
+        );
+    }
+    temp
+}
+
 /// A fresh directory for one test's files, removed on drop, so a test that
 /// panics, on its own thread or one it joins, leaves nothing behind. One of
 /// the same name a killed run left behind, under a pid since reused, is
@@ -178,13 +209,23 @@ impl TestDir {
 
     /// A directory named for `name` under the system's temporary directory,
     /// which is world-writable, so every walk up from it stops there.
+    ///
+    /// # Panics
+    ///
+    /// Panics, naming `TMPDIR`, when the temp dir isn't world-writable or a
+    /// `package.json` is at or above it, which the tests that expect every
+    /// walk to stop there, finding none, would fail on misleadingly.
     pub fn in_system_temp(name: &str) -> Self {
-        Self::at(&std::env::temp_dir().join(format!("gro_runtime_{}_{name}", std::process::id())))
+        Self::at(&system_temp().join(format!("gro_runtime_{}_{name}", std::process::id())))
     }
 
+    /// A fresh directory at `dir` with the mode `0o755`, whatever the umask,
+    /// so it isn't world-writable, which would end every walk up at it.
     fn at(dir: &Path) -> Self {
+        use std::os::unix::fs::PermissionsExt as _;
         let _ = std::fs::remove_dir_all(dir);
         std::fs::create_dir_all(dir).unwrap();
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         Self(dir.canonicalize().unwrap())
     }
 

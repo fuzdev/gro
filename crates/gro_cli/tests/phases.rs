@@ -83,7 +83,7 @@ fn read_marks(file: &Path) -> Vec<String> {
 
 #[cfg(feature = "phases")]
 #[test]
-fn a_phases_build_writes_its_marks_in_order() {
+fn a_phases_build_writes_runs_marks_in_order() {
     assert!(version().contains(", phases)"), "{}", version());
     let dir = phases_dir("run");
     let file = dir.0.join("phases");
@@ -101,10 +101,17 @@ fn a_phases_build_writes_its_marks_in_order() {
             "exit"
         ]
     );
-    if !cfg!(feature = "snapshot") {
-        return;
-    }
-    // written from inside the box, through the handle opened before it
+}
+
+/// Eval's marks, written from inside the box, through the handle opened
+/// before it.
+#[cfg(feature = "phases")]
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_phases_build_writes_evals_marks_in_order() {
     let dir = phases_dir("eval");
     let file = dir.0.join("phases");
     let output = fgro("eval", &["eval", "value.js"], &file);

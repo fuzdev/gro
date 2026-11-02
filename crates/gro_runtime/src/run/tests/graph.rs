@@ -1,7 +1,5 @@
 //! Tests for the graph a run records.
 
-use std::path::PathBuf;
-
 use super::super::{RunError, run_recorded};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
@@ -11,29 +9,31 @@ use crate::resolver::test_tree::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE};
 
 /// Writes `files` into a fresh directory named for `name`, runs its
-/// `entry` recording as `recording` says, removes the directory, and
-/// returns the run's result and graph, with the directory's real path.
+/// `entry` recording as `recording` says, and returns the run's result and
+/// graph, with the directory, removed when it drops. A second run of the
+/// same `name` remakes the directory at the same path, so its graph names
+/// the same files.
 fn run_graph(
     name: &str,
     files: &[(&str, &str)],
     entry: &str,
     recording: Recording,
-) -> (Result<(), RunError>, Option<Graph>, PathBuf) {
+) -> (Result<(), RunError>, Option<Graph>, TestDir) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(name);
-    let dir = test_dir.path().to_owned();
+    let dir = test_dir.path();
     for (file, content) in files {
         std::fs::write(dir.join(file), content).unwrap();
     }
     let entry = dir.join(entry);
-    let cwd = dir.clone();
+    let cwd = dir.to_owned();
     let (result, graph) = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || run_recorded(engine, &RuntimeOptions::default(), &entry, &cwd, recording))
         .unwrap()
         .join()
         .unwrap();
-    (result, graph, dir)
+    (result, graph, test_dir)
 }
 
 const PACKAGE_JSON: (&str, &str) = ("package.json", r#"{"name": "fixture", "type": "module"}"#);
@@ -78,9 +78,10 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
         ("d.js", D),
     ];
     let name = "run_records_its_graph";
-    let (result, graph, dir) = run_graph(name, &files, "main.js", Recording::Full);
+    let (result, graph, test_dir) = run_graph(name, &files, "main.js", Recording::Full);
     assert!(result.is_ok(), "{result:?}");
-    let (off_result, off, _) = run_graph(name, &files, "main.js", Recording::Off);
+    let (off_result, off, _off_dir) = run_graph(name, &files, "main.js", Recording::Off);
+    let dir = test_dir.path();
     assert!(off_result.is_ok(), "{off_result:?}");
     let graph = graph.unwrap();
     let off = off.unwrap();
@@ -170,8 +171,8 @@ fn a_failed_run_still_records_its_graph() {
 
     let files = [("main.ts", "enum E { A }\n")];
     let name = "failed_run_records_its_graph";
-    let (result, graph, _) = run_graph(name, &files, "main.ts", Recording::Full);
-    let (missing, none, _) = run_graph(name, &files, "missing.ts", Recording::Full);
+    let (result, graph, _dir) = run_graph(name, &files, "main.ts", Recording::Full);
+    let (missing, none, _missing_dir) = run_graph(name, &files, "missing.ts", Recording::Full);
     assert!(matches!(result, Err(RunError::Uncaught(_))), "{result:?}");
     let failures = graph.unwrap().failures().clone();
     assert_eq!(failures.len(), 1, "{failures:?}");
@@ -218,10 +219,11 @@ await import('./s.js');
         ("s.js", "export {};\n"),
     ];
     let name = "load_failure_reach";
-    let (result, graph, dir) = run_graph(name, &files, "main.js", Recording::Full);
+    let (result, graph, test_dir) = run_graph(name, &files, "main.js", Recording::Full);
     // the entry's own load, failing, is static with no importer
     files[1].1 = "import './e.ts';\n";
-    let (failed, static_graph, _) = run_graph(name, &files, "main.js", Recording::Full);
+    let (failed, static_graph, _static_dir) = run_graph(name, &files, "main.js", Recording::Full);
+    let dir = test_dir.path();
     let url = |file: &str| Url::from_file_path(dir.join(file)).unwrap().to_string();
     assert!(result.is_ok(), "{result:?}");
     assert!(failed.is_err());

@@ -410,31 +410,6 @@ fn temp_fixtures(name: &str, files: &[(&str, &str)]) -> Scratch {
     fixtures
 }
 
-/// The first world-writable directory at or above `fixtures`, where every
-/// walk up from them stops (`/tmp` is one), if any.
-///
-/// # Panics
-///
-/// Panics when a `package.json` is above the fixtures and below that
-/// directory, since the walks from the fixtures would read it, and the
-/// tests that expect them to find none would fail misleadingly.
-fn world_writable_ancestor(fixtures: &Scratch) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt as _;
-    for dir in fixtures.0.ancestors() {
-        if std::fs::metadata(dir).unwrap().permissions().mode() & 0o002 != 0 {
-            return Some(dir.to_owned());
-        }
-        let package_json = dir.join("package.json");
-        assert!(
-            dir == fixtures.0 || !package_json.exists(),
-            "TMPDIR is under a project: {} is above the temp dir, and the walks from the \
-             fixtures read it. Set TMPDIR outside one",
-            package_json.display()
-        );
-    }
-    None
-}
-
 /// Runs `file` in `fixtures`.
 fn run_in(fixtures: &Scratch, file: &str) -> Run {
     let mut command = fgro_command(&["run", file]);
@@ -1098,6 +1073,28 @@ fn a_symlink_loop_is_named() {
     );
 }
 
+/// An entry that fails to resolve on a symlink loop, an I/O error rather
+/// than an entry that isn't there, exits 1, not 2, naming the loop.
+#[test]
+fn an_entry_in_a_symlink_loop_exits_1() {
+    let fixtures = temp_fixtures("entry_loop", &[]);
+    let root = &fixtures.0;
+    std::os::unix::fs::symlink("b.js", root.join("a.js")).unwrap();
+    std::os::unix::fs::symlink("a.js", root.join("b.js")).unwrap();
+    let run = run_in(&fixtures, "a.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    let root = root.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve 'a.js' from {root}: {root}/a.js leads into a symlink loop, so \
+             it names no file or directory. Fix: remove the looping link, or point it at what it \
+             should name (for a package, reinstall it)\n"
+        )
+    );
+}
+
 /// A `.js` file is an ES module only under `"type": "module"`, where Node
 /// would guess from the code; `.mjs` needs no `package.json`.
 #[test]
@@ -1111,25 +1108,15 @@ fn a_js_module_needs_type_module() {
             ("commonjs/c.js", "console.log('c');\n"),
         ],
     );
-    // where a temp dir is under `/tmp`, the search stops there
-    let stopped_at = world_writable_ancestor(&fixtures);
+    // the search stops at the temp dir, world-writable
     let run = run_in(&fixtures, "a.js");
     assert_eq!(run.code, 2);
-    let reason = stopped_at.map_or_else(
-        || {
-            "and none is above it (the format is never guessed from the code). Fix: rename the \
-             file to .mjs, or add a package.json with \"type\": \"module\""
-                .to_owned()
-        },
-        |stopped_at| {
-            format!(
-                "and the search for one stopped at {}, which is world-writable, so nothing in it \
-                 or above it is read (the format is never guessed from the code). Fix: rename the \
-                 file to .mjs, or move it under a package.json with \"type\": \"module\" in a \
-                 directory that isn't world-writable",
-                stopped_at.display()
-            )
-        },
+    let reason = format!(
+        "and the search for one stopped at {}, which is world-writable, so nothing in it or \
+         above it is read (the format is never guessed from the code). Fix: rename the file to \
+         .mjs, or move it under a package.json with \"type\": \"module\" in a directory that \
+         isn't world-writable",
+        support::system_temp().display()
     );
     assert_eq!(
         run.stderr,
@@ -1445,20 +1432,14 @@ fn a_node_modules_above_a_package_less_dir_is_never_searched() {
             ("x/zap.ts", "import 'foo';\n"),
         ],
     );
-    // where a temp dir is under `/tmp`, the search stops there
-    let stopped_at = world_writable_ancestor(&fixtures);
+    // the search stops at the temp dir, world-writable
     let run = run_in(&fixtures, "x/zap.ts");
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
     let root = fixtures.0.display();
-    let end = stopped_at.map_or_else(
-        || "reached the filesystem's root".to_owned(),
-        |stopped_at| {
-            format!(
-                "stopped at {}, which is world-writable, so nothing in it or above it is read",
-                stopped_at.display()
-            )
-        },
+    let end = format!(
+        "stopped at {}, which is world-writable, so nothing in it or above it is read",
+        support::system_temp().display()
     );
     assert_eq!(
         run.stderr,
@@ -1477,6 +1458,23 @@ fn top_level_await() {
     let run = run("top_level_await.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "awaited 7\n");
+}
+
+/// A top-level `await` on a promise nothing settles ends the run once the
+/// event loop drains, exit 1, rather than hanging or exiting 0.
+#[test]
+fn an_unsettled_top_level_await_exits_1() {
+    let run = run("top_level_await_unsettled.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Top-level await promise never resolved\n    at \
+             {}/top_level_await_unsettled.js:3:1\n",
+            fixtures_url()
+        )
+    );
 }
 
 #[test]

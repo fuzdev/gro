@@ -11,7 +11,39 @@ use serde_json::json;
 use crate::eval;
 use crate::support::Scratch;
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
-use crate::{command, fixtures, wrapped_command};
+use crate::{command, fixtures, long_timeout, wrapped_command};
+
+/// The first line `stderr` prints, read on a thread of its own, so a child
+/// that never prints one can't hang the test: `None` past the harness's
+/// deadline.
+#[cfg(all(feature = "snapshot", target_os = "linux"))]
+fn first_line(stderr: std::process::ChildStderr) -> Option<String> {
+    use std::io::BufRead as _;
+
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let read = std::io::BufReader::new(stderr).read_line(&mut line);
+        // the test may have stopped waiting
+        let _ = send.send(read.map(|_| line));
+    });
+    receive
+        .recv_timeout(crate::support::DEADLINE)
+        .ok()
+        .and_then(Result::ok)
+}
+
+/// Waits for the driver's `ready` on `child`'s stderr, killing the child and
+/// failing the test when it doesn't come by the deadline.
+#[cfg(all(feature = "snapshot", target_os = "linux"))]
+fn wait_ready(child: &mut std::process::Child) {
+    let line = first_line(child.stderr.take().unwrap());
+    if line.as_deref() != Some("ready\n") {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert_eq!(line.as_deref(), Some("ready\n"), "the eval didn't start");
+}
 
 #[test]
 fn an_entry_that_does_not_resolve_is_a_resolve_exiting_2() {
@@ -86,11 +118,11 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 #[test]
 fn every_task_of_a_confined_eval_is_boxed() {
-    use std::io::{BufRead as _, Write as _};
+    use std::io::Write as _;
 
     let mut command = command(
         "eval",
-        &["value.js", "--driver", "-", "--timeout", "60000"],
+        &["value.js", "--driver", "-", "--timeout", &long_timeout()],
         &[],
     );
     command.stdout(Stdio::null());
@@ -102,9 +134,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
         .write_all(&std::fs::read(fixtures().join("drivers/spin.js")).unwrap())
         .unwrap();
     // the driver says it runs once every thread the eval starts with is up
-    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-    let mut line = String::new();
-    stderr.read_line(&mut line).unwrap();
+    wait_ready(&mut child);
     // a task can exit between the listing and its read, which only drops it
     let tasks: Vec<(String, String)> = std::fs::read_dir(format!("/proc/{}/task", child.id()))
         .unwrap()
@@ -116,7 +146,6 @@ fn every_task_of_a_confined_eval_is_boxed() {
         .collect();
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(line, "ready\n", "the eval didn't start: {line}");
     // the main thread, the thread that evaluates, and V8's workers at least
     assert!(tasks.len() >= 3, "{tasks:?}");
     for (path, status) in &tasks {
@@ -138,7 +167,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 #[test]
 fn an_inherited_descriptor_is_closed() {
-    use std::io::{BufRead as _, Write as _};
+    use std::io::Write as _;
 
     let scratch = Scratch::new("inherited", &[("outside/secret.txt", "outside\n")]);
     let outside = scratch.0.join("outside/secret.txt");
@@ -147,7 +176,10 @@ fn an_inherited_descriptor_is_closed() {
     let mut bash = Command::new("bash");
     bash.args(["-c", r#"exec 7<"$1"; shift; exec "$@""#, "bash"])
         .arg(&outside);
-    let mut command = wrapped_command(bash, &["value.js", "--driver", "-", "--timeout", "60000"]);
+    let mut command = wrapped_command(
+        bash,
+        &["value.js", "--driver", "-", "--timeout", &long_timeout()],
+    );
     command.stdout(Stdio::null());
     let mut child = command.spawn().unwrap();
     child
@@ -156,16 +188,13 @@ fn an_inherited_descriptor_is_closed() {
         .unwrap()
         .write_all(&std::fs::read(fixtures().join("drivers/spin.js")).unwrap())
         .unwrap();
-    let mut stderr = std::io::BufReader::new(child.stderr.take().unwrap());
-    let mut line = String::new();
-    stderr.read_line(&mut line).unwrap();
+    wait_ready(&mut child);
     let held: Vec<PathBuf> = std::fs::read_dir(format!("/proc/{}/fd", child.id()))
         .unwrap()
         .filter_map(|fd| std::fs::read_link(fd.unwrap().path()).ok())
         .collect();
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(line, "ready\n", "the eval didn't start: {line}");
     assert!(!held.contains(&outside), "{held:?}");
 }
 

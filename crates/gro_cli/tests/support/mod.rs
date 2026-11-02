@@ -145,6 +145,39 @@ fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
     })
 }
 
+/// The system's temporary directory, canonical, checked to be
+/// world-writable with no `package.json` at or above it, so every walk up
+/// from a file under it stops there, having found none.
+///
+/// # Panics
+///
+/// Panics, naming `TMPDIR`, when it isn't, which the tests that expect the
+/// walks to stop there would fail on misleadingly.
+pub fn system_temp() -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let temp = std::env::temp_dir().canonicalize().unwrap();
+    let mode = std::fs::metadata(&temp).unwrap().permissions().mode();
+    assert!(
+        mode & 0o002 != 0,
+        "the temp dir {} (TMPDIR) isn't world-writable (mode {mode:o}), and the tests expect \
+         every walk up from their files to stop there. Set TMPDIR to one that is, like /tmp",
+        temp.display()
+    );
+    let package_json = temp
+        .ancestors()
+        .map(|dir| dir.join("package.json"))
+        .find(|package_json| package_json.exists());
+    if let Some(package_json) = package_json {
+        panic!(
+            "the temp dir {} (TMPDIR) is under a project: {} is at or above it, and the walks \
+             from the tests' files would read it. Set TMPDIR outside one",
+            temp.display(),
+            package_json.display()
+        );
+    }
+    temp
+}
+
 /// A fresh directory of files for one test, its path canonical, removed on
 /// drop, so a test that panics leaves nothing behind. It's named for the
 /// test binary, the process, and the test's `name`; one of the same name a
@@ -164,9 +197,14 @@ impl Scratch {
 
     /// `files`, each at its relative path, under the system's temporary
     /// directory, which is world-writable, so every walk up from the files
-    /// stops there.
+    /// stops there ([`system_temp`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics, naming `TMPDIR`, when the temp dir isn't world-writable or a
+    /// `package.json` is at or above it.
     pub fn in_system_temp(name: &str, files: &[(&str, &str)]) -> Self {
-        Self::under(&std::env::temp_dir(), name, files)
+        Self::under(&system_temp(), name, files)
     }
 
     fn under(base: &Path, name: &str, files: &[(&str, &str)]) -> Self {

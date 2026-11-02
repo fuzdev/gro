@@ -25,10 +25,22 @@ mod resolve_box;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use support::{fgro_command, wrapped_fgro_command};
+
+/// The `--timeout` a test passes an eval it lets run long, the harness's
+/// [`DEADLINE`](support::DEADLINE) less a margin, so a hung eval is stopped
+/// by its own timeout, and the test sees eval's `timeout` failure rather
+/// than the harness's kill.
+const LONG_TIMEOUT: Duration = Duration::from_secs(support::DEADLINE.as_secs() - 5);
+
+/// [`LONG_TIMEOUT`] as `--timeout` takes it, in milliseconds.
+fn long_timeout() -> String {
+    LONG_TIMEOUT.as_millis().to_string()
+}
 
 /// Held by every test whose child takes much of the machine's memory (a heap
 /// filled to the cap, an array buffer of a gibibyte, the process's memory

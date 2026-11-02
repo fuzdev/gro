@@ -198,26 +198,19 @@ pub(super) fn run_once(
     };
     let spawn_unix_ns = phases_file.map(|_| unix_ns());
     let start = Instant::now();
-    let spawned = command.spawn();
-    // inside the span, arming is a lock and a push, waking no thread
-    let watch = spawned
-        .as_ref()
-        .ok()
-        .map(|child| watchdog.watch(child.id()));
-    let reaped = spawned.and_then(reap);
-    let elapsed = start.elapsed();
-    let reap_unix_ns = phases_file.map(|_| unix_ns());
-    let timed_out = watch.is_some_and(crate::watchdog::Watch::disarm);
-    let (status, max_rss_kib) = reaped.map_err(|source| BenchError::Spawn {
-        command: row.display(),
-        source,
-    })?;
-    if timed_out {
-        return Err(BenchError::TimedOut {
+    let reaped = watchdog.run(
+        &mut command,
+        |_| row.display(),
+        |child| {
+            let reaped = reap(child)?;
+            Ok((reaped, start.elapsed(), phases_file.map(|_| unix_ns())))
+        },
+    )?;
+    let ((status, max_rss_kib), elapsed, reap_unix_ns) =
+        reaped.map_err(|source| BenchError::Spawn {
             command: row.display(),
-            timeout_ms: watchdog.timeout().as_millis(),
-        });
-    }
+            source,
+        })?;
     if !status.success() {
         return Err(BenchError::CommandFailed {
             command: row.display(),

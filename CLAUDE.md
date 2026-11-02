@@ -877,8 +877,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   `pthread_getattr_default_np`, declared in gro_sys since the `libc` crate
   lacks them; glibc only, a no-op elsewhere), and `default_thread_stack`
   reads it. Its tests close descriptors, clear the
-  environment, and cap memory only in a child process (`tests/close.rs`,
-  `tests/env.rs`, `tests/data.rs`, no libtest harness; `tests/data.rs`
+  environment, cap memory, and interrupt a guarding process only in a child
+  process (`tests/close.rs`, `tests/env.rs`, `tests/data.rs`,
+  `tests/signal.rs`, no libtest harness; `tests/data.rs`
   also lowers the default thread stack, its cases glibc's only). Its `testing` feature, which only
   `gro_cli`'s dev-dependencies enable, adds `signal_thread` (`tgkill`, safe:
   it touches no memory), so the box's tests reach Landlock's signal scope
@@ -889,8 +890,12 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   process by `_exit`, running no teardown, for eval's out-of-memory
   backstop, whose V8 workers are still live. `wait_child` reaps a
   child by `wait4`, returning its exit status and `ru_maxrss`, for the
-  bench's peak memory, and `kill_process` and `kill_process_group` send
-  `SIGKILL` by id, for the bench's watchdog
+  bench's peak memory, `kill_process_group` sends a group `SIGKILL` by id,
+  for the bench's watchdog, and `guard_group` with
+  `kill_guarded_groups_on_signal` (a `SIGINT`, `SIGTERM`, and `SIGHUP`
+  handler, async-signal-safe: `kill` over a fixed array of atomic group ids,
+  then the signal raised again under its default action) kills the groups
+  the bench spawned when a signal ends it
 - `gro_v8` - the V8 boundary: the calls into V8 that rusty_v8 exposes only
   as `unsafe`, each behind a safe API, so `gro_runtime` stays free of
   `unsafe`; its one dependency is `v8`, pinned to the exact version and
@@ -901,13 +906,18 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   only while a token in the isolate's slots, dropped before V8 frees it,
   is alive
 - `gro_bench` - the measurement harness, independent of the runtime crates
-  (it uses `gro_sys` for `wait4` and `kill`):
+  (it uses `gro_sys` for `wait4`, `kill`, and the signal handler):
   `cargo xtask bench <suite.json>` times every runtime × workload row in fresh
   processes, interleaved, with an A/A noise row, and appends one JSON line per
   run to `crates/gro_bench/history.jsonl`. A run holds an exclusive `flock`
   on its work directory (`target/bench/`), refusing to start while another
   holds it, and kills any process past the suite's `timeout_ms` (two minutes
-  by default; an untimed run's whole process group), failing the run. The baseline suite
+  by default), failing the run: every process it spawns, timed samples
+  included, leads a process group of its own, killed whole, so a hung
+  `perf stat` workload or a pipe-holding grandchild goes with it, and a
+  Ctrl-C, hangup, or `SIGTERM` of the run kills every group it's waiting
+  on (a `SIGKILL` of the run, or a signal between a spawn and its guard,
+  still orphans them). The baseline suite
   (`crates/gro_bench/suites/baseline/`) times Node (also with its compile cache
   on), Deno, and Bun on startup scripts and on fuz_util's TS module graph, cold
   and warm, and `fgro` on both (it has no on-disk cache, so its cold and warm

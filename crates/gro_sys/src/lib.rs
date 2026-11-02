@@ -20,9 +20,12 @@
 //!   process-wide change installed from one thread needs to be 1.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size, which std's `wait` drops.
-//! - [`kill_process`] and [`kill_process_group`] send `SIGKILL` to a process
-//!   or a process group by its id, for a watchdog that doesn't own the child
-//!   another thread is reaping.
+//! - [`kill_process_group`] sends `SIGKILL` to a process group by its id,
+//!   for a watchdog that doesn't own the child another thread is reaping.
+//! - [`guard_group`] and [`kill_guarded_groups_on_signal`] kill the process
+//!   groups a process spawned when a terminal's interrupt, a hangup, or a
+//!   `SIGTERM` ends it, since a child in a group of its own doesn't get the
+//!   terminal's signals.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -589,32 +592,17 @@ pub fn wait_child(child: std::process::Child) -> io::Result<Reaped> {
     })
 }
 
-/// Sends `SIGKILL` to the process `pid`, by `kill`.
-///
-/// For a watchdog that ends a child another thread is reaping with
-/// [`wait_child`], which owns the child, so std's `Child::kill` can't reach
-/// it. The id names the child only until it's reaped: a caller kills only a
-/// child it knows isn't reaped yet, as far as it can know, since the id is
-/// free for reuse once it is.
-///
-/// # Errors
-///
-/// Returns the call's error: `ESRCH` when no such process exists, `EPERM`
-/// when it may not be signaled, or `EINVAL` for an id past `pid_t` or not
-/// above 0, which would name a process group.
-#[cfg(target_os = "linux")]
-pub fn kill_process(pid: u32) -> io::Result<()> {
-    kill(positive_pid(pid)?)
-}
-
 /// Sends `SIGKILL` to every process of the group `pgid`, by `kill` with the
 /// id negated.
 ///
 /// That is a child spawned as the leader of its own group
 /// (`CommandExt::process_group(0)`) and what it spawned, which, holding the
-/// leader's pipes, would otherwise keep a reader of them waiting. Like
-/// [`kill_process`], the id names the group only while its leader isn't
-/// reaped.
+/// leader's pipes, would otherwise keep a reader of them waiting. For a
+/// watchdog that ends a child another thread is reaping with [`wait_child`],
+/// which owns the child, so std's `Child::kill` can't reach it. The id names
+/// the group only while its leader isn't reaped: a caller kills only a group
+/// it knows isn't reaped yet, as far as it can know, since the id is free for
+/// reuse once it is.
 ///
 /// # Errors
 ///
@@ -628,6 +616,145 @@ pub fn kill_process_group(pgid: u32) -> io::Result<()> {
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
     kill(-positive_pid(pgid)?)
+}
+
+/// The most process groups [`guard_group`] guards at once.
+#[cfg(target_os = "linux")]
+pub const GUARDED_GROUPS: usize = 64;
+
+/// The signals [`kill_guarded_groups_on_signal`] handles: the ones that end
+/// a process from a terminal (an interrupt, a hangup) or from a supervisor.
+#[cfg(target_os = "linux")]
+const GUARDING_SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
+
+/// The groups guarded, a slot each, 0 when free; lock-free, so the signal
+/// handler reads them.
+#[cfg(target_os = "linux")]
+static GUARDED: [std::sync::atomic::AtomicI32; GUARDED_GROUPS] =
+    [const { std::sync::atomic::AtomicI32::new(0) }; GUARDED_GROUPS];
+
+/// A process group [`kill_guarded_groups_on_signal`]'s handler kills, until
+/// dropped.
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+#[must_use = "the group is guarded only until the guard drops"]
+pub struct GroupGuard {
+    slot: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for GroupGuard {
+    fn drop(&mut self) {
+        GUARDED[self.slot].store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Guards the process group `pgid`, so a signal ending this process kills
+/// the group first.
+///
+/// The group is a child spawned as the leader of its own
+/// (`CommandExt::process_group(0)`), and the kill happens once
+/// [`kill_guarded_groups_on_signal`] is installed.
+/// A child in a group of its own isn't in the terminal's foreground group,
+/// so the terminal's interrupt never reaches it, and it would outlive its
+/// parent. The caller drops the guard once it reaps the child, since the id
+/// is free for reuse after; a signal in the moment between the two kills the
+/// group by an id the kernel hands out again only after wrapping around
+/// every id, as [`kill_process_group`] does. A signal between the spawn and
+/// the guard misses the group.
+///
+/// Arming is a compare-and-swap on the first free slot, no lock or system
+/// call, cheap enough for a timed span.
+///
+/// Returns `None`, guarding nothing, when [`GUARDED_GROUPS`] are guarded
+/// already, or for an id past `pid_t` or not above 1.
+#[cfg(target_os = "linux")]
+pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
+    use std::sync::atomic::Ordering;
+
+    let pgid = positive_pid(pgid).ok().filter(|pgid| *pgid > 1)?;
+    GUARDED
+        .iter()
+        .position(|slot| {
+            slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        })
+        .map(|slot| GroupGuard { slot })
+}
+
+/// Installs a handler for `SIGINT`, `SIGTERM`, and `SIGHUP` that kills
+/// every group [`guard_group`] guards.
+///
+/// The handler sends each `SIGKILL`, then ends the process by the signal's
+/// default action, so its parent sees it killed by that signal.
+/// The handler is async-signal-safe: it reads the guarded ids from a fixed
+/// array of atomics, calls `kill` for each, and raises the signal again,
+/// which the kernel delivers once the handler returns, its disposition reset
+/// to the default as the handler started (`SA_RESETHAND`). A signal the
+/// process ignores (`SIG_IGN`, as `nohup` leaves `SIGHUP`) stays ignored, and
+/// installing again is harmless. A `SIGKILL` of this process still orphans
+/// the groups.
+///
+/// # Errors
+///
+/// Returns `sigaction`'s error, which a valid signal and action never get.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "std installs no signal handler, and a libc call is `unsafe`"
+)]
+pub fn kill_guarded_groups_on_signal() -> io::Result<()> {
+    let handler: extern "C" fn(libc::c_int) = on_guarding_signal;
+    for signal in GUARDING_SIGNALS {
+        // SAFETY: an all-zero `sigaction` is a valid value of the struct of
+        // integers and a signal set
+        let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: a null action only reads the current one, into a live local
+        // of the type `sigaction` expects
+        if unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut current) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if current.sa_sigaction == libc::SIG_IGN {
+            continue;
+        }
+        // SAFETY: as above
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = handler as libc::sighandler_t;
+        action.sa_flags = libc::SA_RESETHAND | libc::SA_RESTART;
+        // SAFETY: `sigemptyset` writes only the live local's signal set
+        unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
+        // SAFETY: the action points at `on_guarding_signal`, an
+        // `extern "C" fn(c_int)` that lives as long as the process and is
+        // async-signal-safe; the old action isn't asked for
+        if unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+/// [`kill_guarded_groups_on_signal`]'s handler: kills each guarded group,
+/// then raises `signal` again, whose default action, reset as the handler
+/// started, ends the process when the handler returns.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "a signal handler calls libc's async-signal-safe calls, which are `unsafe`"
+)]
+extern "C" fn on_guarding_signal(signal: libc::c_int) {
+    for slot in &GUARDED {
+        let pgid = slot.load(std::sync::atomic::Ordering::SeqCst);
+        // a slot holds 0 or a group above 1, never a caller's group or every
+        // process
+        if pgid > 1 {
+            // SAFETY: `kill` is async-signal-safe and takes two integers,
+            // touching none of this process's memory
+            unsafe { libc::kill(-pgid, libc::SIGKILL) };
+        }
+    }
+    // SAFETY: `raise` is async-signal-safe and takes an integer; the signal
+    // stays blocked until the handler returns, then ends the process
+    unsafe { libc::raise(signal) };
 }
 
 /// `id` as a `pid_t` above 0, or `EINVAL`.
@@ -845,24 +972,14 @@ mod tests {
         assert!(reaped.max_rss_kib > 0, "{reaped:?}");
     }
 
-    /// A killed child reaps as killed by `SIGKILL`, and an id that would
-    /// name a group is refused.
+    /// An id past `pid_t`, or one that would name the caller's group or
+    /// every process, is refused, and guards nothing.
     #[test]
-    fn kill_process_kills_a_child_by_its_id() {
-        use std::os::unix::process::ExitStatusExt as _;
-
-        let child = std::process::Command::new("sleep")
-            .arg("60")
-            .spawn()
-            .unwrap();
-        super::kill_process(child.id()).unwrap();
-        let reaped = super::wait_child(child).unwrap();
-        assert_eq!(reaped.status.signal(), Some(libc::SIGKILL));
-        for pid in [0, u32::MAX] {
-            let error = super::kill_process(pid).unwrap_err();
-            assert_eq!(error.raw_os_error(), Some(libc::EINVAL), "{pid}");
+    fn a_group_id_not_above_1_is_refused() {
+        for pid in [0, 1, u32::MAX] {
             let error = super::kill_process_group(pid).unwrap_err();
             assert_eq!(error.raw_os_error(), Some(libc::EINVAL), "{pid}");
+            assert!(super::guard_group(pid).is_none(), "{pid}");
         }
     }
 

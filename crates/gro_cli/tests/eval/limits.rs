@@ -2,12 +2,12 @@
 //! memory, the inherited stack limit, and the timeout.
 
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::support::{DEADLINE, Scratch};
-use crate::{eval, fixtures, memory_heavy_turn, parse, spawn, wrapped_command};
+use crate::support::Scratch;
+use crate::{eval, fixtures, long_timeout, memory_heavy_turn, parse, spawn, wrapped_command};
 
 /// `size` bytes of a module whose first line is `first`, padded with a
 /// comment.
@@ -80,6 +80,8 @@ fn a_module_past_its_byte_cap_fails_to_load() {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn an_envelope_past_its_byte_cap_fails_as_serialize() {
+    // strings of 64 MiB, and the envelope written around them
+    let _turn = memory_heavy_turn();
     // `gro_runtime::eval::MAX_ENVELOPE_SIZE`, which gro_runtime pins; a
     // literal keeps V8 out of this test binary
     let cap: usize = 64 << 20;
@@ -91,7 +93,7 @@ fn an_envelope_past_its_byte_cap_fails_as_serialize() {
     // the walk over a 64 MiB string is slow in a debug build
     let eval_repeat = |count: usize| {
         std::fs::write(&module, format!("export default 'x'.repeat({count});\n")).unwrap();
-        eval(&[&module, "--timeout", "60000"])
+        eval(&[&module, "--timeout", &long_timeout()])
     };
     // the envelope around an empty string, so `count` x's make it that plus `count`
     let empty = eval_repeat(0);
@@ -133,6 +135,8 @@ fn an_envelope_past_its_byte_cap_fails_as_serialize() {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn a_failure_past_the_envelope_cap_keeps_its_kind() {
+    // a message of 64 MiB, and its report copied out of the heap
+    let _turn = memory_heavy_turn();
     let scratch = Scratch::new(
         "failure_cap",
         &[
@@ -140,7 +144,7 @@ fn a_failure_past_the_envelope_cap_keeps_its_kind() {
             ("throw.js", "throw new Error('b'.repeat(64 << 20));\n"),
         ],
     );
-    let run = eval(&[&scratch.path("throw.js"), "--timeout", "60000"]);
+    let run = eval(&[&scratch.path("throw.js"), "--timeout", &long_timeout()]);
     run.assert_failed("module_threw", 1);
     assert!(run.stdout.len() < 128 << 10, "{}", run.stdout.len());
     let message = run.message();
@@ -358,15 +362,22 @@ fn a_run_past_its_timeout_fails_as_timeout() {
 }
 
 /// The timeout stops the serializer's walk, which runs no JS for a
-/// terminate to stop: this value's walk would outlast the test.
+/// terminate to stop: this value's walk would outlast the test, and the stop
+/// comes promptly, within a margin of the timeout that covers the process's
+/// start and exit.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
     ignore = "a confined eval needs a snapshot build"
 )]
 fn the_timeout_stops_the_serializer_walk() {
+    let timeout = Duration::from_millis(500);
     let started = Instant::now();
-    let run = eval(&["walk.js", "--timeout", "500"]);
+    let run = eval(&["walk.js", "--timeout", &timeout.as_millis().to_string()]);
     run.assert_failed("timeout", 1);
-    assert!(started.elapsed() < DEADLINE);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < timeout + Duration::from_secs(10),
+        "the walk stopped {elapsed:?} after the eval started, past its {timeout:?} timeout"
+    );
 }

@@ -66,11 +66,6 @@ fn check_row(
     };
     let mut command = row.command(dir)?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    // its own group, so a kill reaches whatever holds its pipes
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let mut child = command.spawn().map_err(spawn_error)?;
-    let watch = watchdog.watch_group(child.id());
     // stdout whole only when it's checked: a large output kept unchecked
     // would raise the harness's peak, which every later sample reads at least
     let stdout_kept = if row.stdout.is_some() {
@@ -78,24 +73,28 @@ fn check_row(
     } else {
         UNCHECKED_KEPT
     };
-    let (stdout, stderr) = std::thread::scope(|scope| {
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let stdout =
-            scope.spawn(move || stdout.map_or(Ok(Vec::new()), |out| read_kept(out, stdout_kept)));
-        let stderr = stderr.map_or(Ok(Vec::new()), |err| read_kept(err, UNCHECKED_KEPT));
-        let stdout = stdout
-            .join()
-            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
-        (stdout, stderr)
-    });
-    let status = child.wait().map_err(spawn_error)?;
-    if watch.disarm() {
-        return Err(BenchError::TimedOut {
-            command: row.display(),
-            timeout_ms: watchdog.timeout().as_millis(),
-        });
-    }
+    let (status, stdout, stderr) = watchdog
+        .run(
+            &mut command,
+            |_| row.display(),
+            |mut child| {
+                let (stdout, stderr) = std::thread::scope(|scope| {
+                    let stdout = child.stdout.take();
+                    let stderr = child.stderr.take();
+                    let stdout = scope.spawn(move || {
+                        stdout.map_or(Ok(Vec::new()), |out| read_kept(out, stdout_kept))
+                    });
+                    let stderr =
+                        stderr.map_or(Ok(Vec::new()), |err| read_kept(err, UNCHECKED_KEPT));
+                    let stdout = stdout
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                    (stdout, stderr)
+                });
+                Ok((child.wait()?, stdout, stderr))
+            },
+        )?
+        .map_err(spawn_error)?;
     let (stdout, stderr) = (stdout.map_err(spawn_error)?, stderr.map_err(spawn_error)?);
     let failed = |reason: String| BenchError::CheckFailed {
         command: row.display(),

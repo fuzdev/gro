@@ -271,18 +271,13 @@ fn probe_line(
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    // its own group, so a kill reaches whatever holds its stdout
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut probe, 0);
-    let child = probe.spawn().map_err(spawn_error)?;
-    let watch = watchdog.watch_group(child.id());
-    let output = child.wait_with_output().map_err(spawn_error)?;
-    if watch.disarm() {
-        return Err(BenchError::TimedOut {
-            command,
-            timeout_ms: watchdog.timeout().as_millis(),
-        });
-    }
+    let output = watchdog
+        .run(
+            &mut probe,
+            |_| command.clone(),
+            std::process::Child::wait_with_output,
+        )?
+        .map_err(spawn_error)?;
     if !output.status.success() {
         return Err(BenchError::CommandFailed {
             command,

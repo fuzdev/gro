@@ -65,9 +65,7 @@ fn value(output: &Output) -> serde_json::Value {
 
 #[cfg(feature = "prices")]
 #[test]
-fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
-    use std::os::unix::fs::PermissionsExt as _;
-
+fn a_priced_build_says_so_and_refuses_an_unknown_switch() {
     assert!(version(None).contains(", prices)"), "{}", version(None));
     let output = fgro(&["--version"], Some("deny,jitless"));
     assert_eq!(output.status.code(), Some(2), "{output:?}");
@@ -75,9 +73,17 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
         String::from_utf8_lossy(&output.stderr).contains("`jitless`"),
         "{output:?}"
     );
-    if !cfg!(feature = "snapshot") {
-        return;
-    }
+}
+
+#[cfg(feature = "prices")]
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_priced_build_turns_off_what_it_names() {
+    use std::os::unix::fs::PermissionsExt as _;
+
     // every default on: the clock is refused, and code generation throws
     let output = fgro(&["eval", "clock.js"], None);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
@@ -227,10 +233,11 @@ fn a_priced_build_turns_off_what_it_names_and_refuses_the_unknown() {
 /// is written.
 #[cfg(feature = "prices")]
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
 fn every_thread_sets_its_own_stack() {
-    if !cfg!(feature = "snapshot") {
-        return;
-    }
     let output = fgro_in(
         &["eval", "value.js"],
         Some("clear_env"),

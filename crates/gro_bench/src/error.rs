@@ -63,10 +63,10 @@ pub enum BenchError {
     /// A process (a sample, a version probe, `git`) exited unsuccessfully.
     #[error("`{command}` failed ({status})")]
     CommandFailed { command: String, status: ExitStatus },
-    /// A process ran past the suite's deadline, so it was killed and
-    /// reaped.
+    /// A process ran past the suite's deadline, so its process group was
+    /// killed and it was reaped.
     #[error(
-        "`{command}` ran past the suite's timeout of {timeout_ms} ms, so it was killed; raise `timeout_ms` if it isn't hung"
+        "`{command}` ran past the suite's timeout of {timeout_ms} ms, so it and its process group were killed; raise `timeout_ms` if it isn't hung"
     )]
     TimedOut { command: String, timeout_ms: u128 },
     /// Another run holds the work directory, whose sample files and copies

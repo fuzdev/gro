@@ -16,14 +16,13 @@ mod seccomp;
 
 /// A fresh directory under the system's temporary directory (see
 /// [`TestDir`]). Every directory it makes has the mode `0o755`, whatever
-/// the umask, so none is world-writable unless a test makes it so.
+/// the umask, as the [`TestDir`] itself has, so none is world-writable
+/// unless a test makes it so.
 struct Scratch(TestDir);
 
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = TestDir::in_system_temp(&format!("confine_{name}"));
-        set_mode(dir.path(), 0o755);
-        Self(dir)
+        Self(TestDir::in_system_temp(&format!("confine_{name}")))
     }
 
     /// The directory's canonical path.

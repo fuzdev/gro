@@ -173,6 +173,10 @@ fn a_dynamic_import_failing_to_read_rejects_with_a_type_error() {
     std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
     // a user the mode doesn't bind, root, reads it anyway
     if std::fs::read(&unreadable).is_ok() {
+        eprintln!(
+            "skipped: {} reads with mode 0o000 (running as root?), so no read can fail",
+            unreadable.display()
+        );
         return;
     }
     let entry = dir.path().join("main.mjs");

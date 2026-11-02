@@ -183,8 +183,9 @@ fn a_special_file_package_json_is_refused() {
     let root = test_dir.path();
     std::fs::create_dir_all(root.join("node_modules/fifo")).unwrap();
     std::fs::create_dir_all(root.join("sub")).unwrap();
-    // pinned, since a world-writable one would end the walks
-    for dir in ["", "node_modules", "node_modules/fifo", "sub"] {
+    // pinned, since a world-writable one would end the walks (the
+    // `TestDir` pins its own)
+    for dir in ["node_modules", "node_modules/fifo", "sub"] {
         std::fs::set_permissions(root.join(dir), std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     std::fs::write(

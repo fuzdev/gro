@@ -211,25 +211,16 @@ fn watched_output(
     mut command: Command,
     watchdog: &Watchdog,
 ) -> Result<std::io::Result<std::process::Output>, BenchError> {
-    // its own group, so a kill reaches whatever holds its pipes
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return Ok(Err(error)),
-    };
-    let watch = watchdog.watch_group(child.id());
-    let output = child.wait_with_output();
-    if watch.disarm() {
-        return Err(BenchError::TimedOut {
-            command: crate::run::display_command(
+    watchdog.run(
+        &mut command,
+        |command| {
+            crate::run::display_command(
                 Path::new(command.get_program()),
                 &command.get_args().collect::<Vec<_>>(),
-            ),
-            timeout_ms: watchdog.timeout().as_millis(),
-        });
-    }
-    Ok(output)
+            )
+        },
+        std::process::Child::wait_with_output,
+    )
 }
 
 /// Parses `perf stat -x ,` output: per event, a line of the value, its unit,

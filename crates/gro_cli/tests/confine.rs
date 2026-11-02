@@ -6,7 +6,7 @@
 //! The binary runs without libtest's harness, whose threads would refuse the
 //! box. It needs a snapshot build, for the case that evaluates a module
 //! under the box, and Linux, the only platform with one, so it runs from
-//! `cargo xtask build --verify`; elsewhere it does nothing.
+//! `cargo xtask build --verify`; elsewhere it prints that it skipped.
 //!
 //! Built with the `prices` feature too, it adds a case that installs
 //! Landlock without the seccomp allowlist (`GRO_PRICES_OFF=seccomp`), whose
@@ -32,6 +32,10 @@ mod support;
 fn main() {
     #[cfg(all(feature = "snapshot", target_os = "linux"))]
     confined::main();
+    #[cfg(not(all(feature = "snapshot", target_os = "linux")))]
+    println!(
+        "skipped: the box's cases need a snapshot build on Linux (`cargo xtask build --verify`)"
+    );
 }
 
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
@@ -104,6 +108,7 @@ mod confined {
         "memory",
         "memory_jit",
         "threads",
+        "swapped",
         "eval",
         #[cfg(feature = "prices")]
         "landlock_sockets",
@@ -122,7 +127,8 @@ mod confined {
         }
     }
 
-    /// The scratch directory: a project, with a module, and a file outside it.
+    /// The scratch directory: a project, with a module, and a file outside it,
+    /// and a second project the swapped case moves away.
     fn scratch() -> Scratch {
         Scratch::new(
             "box",
@@ -131,6 +137,11 @@ mod confined {
                 ("project/main.js", "export default {box: 'held'};\n"),
                 ("project/truncated.txt", "kept\n"),
                 ("outside/secret.txt", "outside\n"),
+                (
+                    "swapped/project/package.json",
+                    r#"{"name": "s", "type": "module"}"#,
+                ),
+                ("swapped/project/main.js", "export default 1;\n"),
             ],
         )
     }
@@ -275,6 +286,11 @@ mod confined {
                 "mprotect read write exec: ok",
             ],
             "threads" => &["refused: 2 threads", "read outside: ok"],
+            "swapped" => &[
+                "confined",
+                "read the new directory at the root's path: denied",
+                "read the original at its new path: ok",
+            ],
             "eval" => &[
                 "confined",
                 r#"value: {"box":"held"}"#,
@@ -293,10 +309,13 @@ mod confined {
     /// Confines this process to `project`, for an engine whose JIT is `jit`,
     /// or prints why it can't and exits.
     fn confine(project: &Path, jit: Jit) -> Confinement {
-        match Prepared::for_project(project.to_owned())
-            .unwrap()
-            .confine(jit)
-        {
+        confine_prepared(Prepared::for_project(project.to_owned()).unwrap(), jit)
+    }
+
+    /// Confines this process to the roots `prepared` opened, for an engine
+    /// whose JIT is `jit`, or prints why it can't and exits.
+    fn confine_prepared(prepared: Prepared, jit: Jit) -> Confinement {
+        match prepared.confine(jit) {
             Ok(confined) => {
                 println!("confined");
                 Confinement::Confined(confined)
@@ -452,6 +471,28 @@ mod confined {
                 })
                 .join()
                 .unwrap();
+            }
+            // the box goes up on the root's handle, opened as the closure
+            // found it, and Landlock's rule is on that directory, not its
+            // path: a directory made at the root's path after the original
+            // moved away is outside the box, and the original stays inside
+            // it at its new path, the rule following it
+            "swapped" => {
+                let root = scratch.join("swapped/project");
+                let moved = scratch.join("swapped/moved");
+                let prepared = Prepared::for_project(root.clone()).unwrap();
+                std::fs::rename(&root, &moved).unwrap();
+                std::fs::create_dir(&root).unwrap();
+                std::fs::write(root.join("planted.txt"), "planted\n").unwrap();
+                confine_prepared(prepared, Jit::Off);
+                println!(
+                    "read the new directory at the root's path: {}",
+                    outcome(std::fs::read(root.join("planted.txt")))
+                );
+                println!(
+                    "read the original at its new path: {}",
+                    outcome(std::fs::read(moved.join("main.js")))
+                );
             }
             "exec" => {
                 confine(&project, Jit::Off);
