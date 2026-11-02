@@ -242,7 +242,7 @@ fn profiles_in(text: &str) -> Vec<(String, String)> {
 
 /// Removes the `v8` crate's build outputs for one cargo `profile`.
 fn clean_v8_profile(root: &Path, profile: &str) -> Result<(), ArchiveError> {
-    crate::run(
+    crate::cmd::run(
         root,
         &[],
         "cargo",

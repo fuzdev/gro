@@ -33,7 +33,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-use crate::run;
+use crate::cmd::run;
 
 /// The variables the base build keeps from this process's environment; every
 /// other is cleared.

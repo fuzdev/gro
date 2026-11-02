@@ -52,7 +52,7 @@ use std::process::{Command, ExitCode, Output, Stdio};
 
 use gro_bench::record::GitState;
 
-use crate::{StepResult, run};
+use crate::cmd::{StepResult, run};
 
 /// Which build of the snapshot `fgro` to make: the plain one, or a
 /// measurement build with one more feature, which release never carries.
@@ -101,7 +101,7 @@ pub struct SnapshotBuild {
 /// which `fgro --version` prints as `unknown`, when git can't say, with a
 /// warning: a source tree outside a checkout still builds.
 fn commit(root: &Path) -> String {
-    match GitState::read(root, &root.join(crate::HISTORY)) {
+    match GitState::read(root, &root.join(crate::bench::HISTORY)) {
         Ok(state) => commit_value(&state),
         Err(error) => {
             eprintln!(
@@ -140,21 +140,21 @@ pub fn build(
     stage_one.extend(profile_args);
     run(root, &[], "cargo", &stage_one)?;
     // before stage one runs V8 code, and after the build that wrote the copy
-    crate::verify_linked_step(target_dir, profile)?;
+    crate::check::verify_linked_step(target_dir, profile)?;
     let plain = target_dir.join(profile).join("fgro");
     let stamp = dir.join("stage_one.stamp");
     if snapshot_is_current(&dir, &stamp, &plain) {
         println!(
             "\n[xtask] the snapshot in {dir_arg} was made by the current {}",
-            crate::relative(root, &plain)
+            crate::cmd::relative(root, &plain)
         );
     } else {
         // its stdout carries only deno_core's progress lines; its errors go to stderr
-        crate::run_program_to(
+        crate::cmd::run_program_to(
             root,
             &[],
             &plain,
-            &crate::relative(root, &plain),
+            &crate::cmd::relative(root, &plain),
             &["make-snapshot", &dir_arg],
             Stdio::null(),
         )?;
@@ -340,10 +340,10 @@ fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
     };
     let snapshot_bytes = Some(size(&binary.with_file_name("snapshot.bin"))?);
     let (budget, sizes) = if release {
-        let sizes = gro_bench::run::Sizes {
+        let sizes = gro_bench::budget::Sizes {
             bytes: Some(size(binary)?),
             gzip_bytes: Some(
-                gro_bench::run::gzip_size(binary).map_err(|error| failed(error.to_string()))?,
+                gro_bench::budget::gzip_size(binary).map_err(|error| failed(error.to_string()))?,
             ),
             snapshot_bytes,
         };
@@ -354,13 +354,13 @@ fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
             gzip_bytes: None,
             ..budget.clone()
         };
-        let sizes = gro_bench::run::Sizes {
+        let sizes = gro_bench::budget::Sizes {
             snapshot_bytes,
             ..Default::default()
         };
         (snapshot_only, sizes)
     };
-    gro_bench::run::check_budget("fgro", &budget, &sizes)
+    gro_bench::budget::check_budget("fgro", &budget, &sizes)
         .map_err(|error| failed(error.to_string()))?;
     println!(
         "[xtask] within the fgro budgets in {BUDGET_SUITE}{}",
@@ -418,9 +418,9 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
 
     println!(
         "\n[xtask] {} run {SMOKE_FIXTURE}, seeing the build tree and then with {} and {} hidden",
-        crate::relative(root, binary),
+        crate::cmd::relative(root, binary),
         registry.display(),
-        crate::relative(root, &gro_js)
+        crate::cmd::relative(root, &gro_js)
     );
     let seen = Command::new(binary)
         .args(["run", SMOKE_FIXTURE])
