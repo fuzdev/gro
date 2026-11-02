@@ -652,9 +652,11 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   its code's `PROT_EXEC`);
   `Confined` records the `Jit`, `init_engine` refuses a confined engine
   whose `jitless` disagrees (`EngineError::JitConflict`), and eval's
-  `Prepass::confine` reads it from `engine_options`, so `fgro eval` takes
-  it from `--jit`. `clone3` isn't allowed (its flags
-  are in memory, past a filter), so glibc falls back to `clone`; the
+  `Prepass::confine` (by value, so the box goes up once, handing back the
+  eval with the roots it admits) reads it from `EvalOptions::jit`, the
+  `Jit` `engine_options` takes too, so `fgro eval` takes it from `--jit`.
+  `clone3` isn't allowed (its flags are in memory, past a filter), so
+  glibc falls back to `clone`; the
   filter compares exact numbers, so x32 calls fail too; `seccomp` isn't
   allowed, so nothing is added after it. The aarch64 list follows its call
   table (`readlinkat`, no `epoll_wait`) and is unverified on a host. A
@@ -867,7 +869,9 @@ A new runtime doc joins runtime.md's index, and a new term joins the glossary.
   precondition, that nothing holds a pointer into the environment, and
   refusing with more than one thread alive. `limit_data` sets
   `RLIMIT_DATA` soft and hard to a cap, or to a lower limit already set,
-  soft or hard, and `data_limit` reads it. `set_default_thread_stack`
+  soft or hard, and `data_limit` reads it. `thread_count` reads
+  `/proc/self/status`'s `Threads:` once (the box's check rereads it while a
+  joined thread finishes exiting). `set_default_thread_stack`
   lowers the stack of a thread started without a size of its own, never
   raising it (`pthread_setattr_default_np` and
   `pthread_getattr_default_np`, declared in gro_sys since the `libc` crate

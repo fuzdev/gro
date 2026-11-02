@@ -4,7 +4,7 @@
 
 use deno_core::{JsRuntime, v8};
 
-use super::{MAX_DEPTH, MAX_KEY_SHOWN, Reason, SerializeError, to_json};
+use super::{MAX_DEPTH, MAX_KEY_SHOWN, NonPlain, Reason, SerializeError, to_json};
 use crate::STACK_SIZE;
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
@@ -134,7 +134,7 @@ fn data_is_written_as_json_stringify_writes_it() {
 fn what_is_not_data_is_refused_with_its_path() {
     on_eval_stack(|| {
         let mut realm = Realm::new();
-        let non_plain = |kind: &str| Reason::NonPlain(kind.to_owned());
+        let non_plain = |kind: &'static str| Reason::NonPlain(NonPlain::Exotic(kind));
         let cases: Vec<(&str, &str, Reason)> = vec![
             ("undefined", "$", Reason::Undefined),
             ("[1, undefined]", "$[1]", Reason::Undefined),
@@ -205,29 +205,29 @@ fn what_is_not_data_is_refused_with_its_path() {
             (
                 "{c: new (class Point { x = 1; })()}",
                 "$.c",
-                non_plain(
-                    "an object whose prototype is neither `Object.prototype` nor null (its constructor is `Point`)",
-                ),
+                Reason::NonPlain(NonPlain::Prototype {
+                    constructor: Some("Point".to_owned()),
+                }),
             ),
             (
                 "{c: Object.create({inherited: 1})}",
                 "$.c",
-                non_plain("an object whose prototype is neither `Object.prototype` nor null"),
+                Reason::NonPlain(NonPlain::Prototype { constructor: None }),
             ),
             (
                 "{c: Object.create(Object.create(Object.prototype))}",
                 "$.c",
-                non_plain("an object whose prototype is neither `Object.prototype` nor null"),
+                Reason::NonPlain(NonPlain::Prototype { constructor: None }),
             ),
             (
                 "{a: Object.setPrototypeOf([1], null)}",
                 "$.a",
-                non_plain("an array whose prototype is not `Array.prototype`"),
+                Reason::NonPlain(NonPlain::ArrayPrototype),
             ),
             (
                 "{a: new (class List extends Array {})()}",
                 "$.a",
-                non_plain("an array whose prototype is not `Array.prototype`"),
+                Reason::NonPlain(NonPlain::ArrayPrototype),
             ),
             (
                 "(() => { const a = {}; a.self = a; return a; })()",
@@ -364,7 +364,7 @@ fn no_getter_or_setter_runs() {
         realm.assert_refused(
             "{p: new Proxy({}, {ownKeys() { called.push('ownKeys'); return []; }, getPrototypeOf() { called.push('getPrototypeOf'); return null; }})}",
             "$.p",
-            &Reason::NonPlain("a `Proxy`".to_owned()),
+            &Reason::NonPlain(NonPlain::Exotic("a `Proxy`")),
         );
         assert_eq!(realm.string("called.join()"), "");
     });
@@ -504,7 +504,7 @@ fn a_host_object_is_refused_whatever_its_prototype() {
         realm.assert_refused(
             "(Object.setPrototypeOf(globalThis, Object.prototype), {g: globalThis})",
             "$.g",
-            &Reason::NonPlain("a host object".to_owned()),
+            &Reason::NonPlain(NonPlain::HostObject),
         );
     });
 }

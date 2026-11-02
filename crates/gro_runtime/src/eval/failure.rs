@@ -6,10 +6,12 @@ use std::path::Path;
 use deno_core::error::{CoreError, CoreErrorKind, JsError};
 
 use super::limits::Stop;
+use super::serialize::format_size;
 use super::{
     Access, DEFAULT_EXPORT, DynamicImport, Entry, Envelope, ErrorKind, EvalError, EvalOptions,
     GraphField, HEAP_LIMIT, MEMORY_LIMIT,
 };
+use crate::confine::Jit;
 use crate::loader::graph::{
     Failure, FailureError, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
@@ -63,17 +65,17 @@ pub(super) fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
         Stop::Heap => EvalError::new(
             ErrorKind::Heap,
             format!(
-                "the eval's heap reached its cap of {} MiB, and the run was stopped",
-                HEAP_LIMIT >> 20
+                "the eval's heap reached its cap of {}, and the run was stopped",
+                format_size(HEAP_LIMIT as u64)
             ),
         ),
         Stop::Memory => EvalError::new(
             ErrorKind::Memory,
             format!(
                 "the eval ran out of memory outside the heap's cap: an allocation failed with \
-                 the process at its memory cap of {} MiB, or a lower one its caller set, and \
+                 the process at its memory cap of {}, or a lower one its caller set, and \
                  the run was stopped",
-                MEMORY_LIMIT >> 20
+                format_size(MEMORY_LIMIT)
             ),
         ),
         Stop::Timeout => {
@@ -84,7 +86,7 @@ pub(super) fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
                     options.timeout.as_millis()
                 ),
             );
-            if !options.jit {
+            if options.jit == Jit::Off {
                 error.hint = Some(TIMEOUT_HINT.to_owned());
             }
             error
@@ -236,7 +238,7 @@ impl Failed {
     /// The envelope's error: the kind from the phase and, for a load, the
     /// first failure of the static load in `graph`, with a hint when the
     /// uncaught error has one in an eval with the JIT as `jit` says.
-    pub(super) fn into_error(self, graph: &Graph, jit: bool) -> EvalError {
+    pub(super) fn into_error(self, graph: &Graph, jit: Jit) -> EvalError {
         let kind = match self.phase {
             Phase::Start | Phase::Internal => ErrorKind::Internal,
             Phase::DriverLoad | Phase::Load => {
@@ -258,11 +260,11 @@ impl Failed {
 /// The hint for an uncaught `thrown` in an eval with the JIT as `jit`
 /// says, keyed on V8's class and, for `WebAssembly`, on the one message V8
 /// gives an undefined name, the only signal there is.
-fn hint(thrown: &Thrown, jit: bool) -> Option<String> {
+fn hint(thrown: &Thrown, jit: Jit) -> Option<String> {
     match (thrown.name.as_deref(), thrown.message.as_deref()) {
         // V8 throws an EvalError natively only for code generation refused
         (Some("EvalError"), _) => Some(CODE_GENERATION_HINT.to_owned()),
-        (Some("ReferenceError"), Some("WebAssembly is not defined")) if !jit => {
+        (Some("ReferenceError"), Some("WebAssembly is not defined")) if jit == Jit::Off => {
             Some(WASM_HINT.to_owned())
         }
         _ => None,
@@ -273,11 +275,16 @@ fn hint(thrown: &Thrown, jit: bool) -> Option<String> {
 /// `deno_core` stops it at the first error and linking resolves nothing
 /// again, and a failed driver load ends the eval before the entry's.
 fn first_static_failure(graph: &Graph) -> Option<(&FailureSite, &Failure)> {
-    graph
+    let mut statics = graph
         .failures()
         .iter()
         .filter(|(site, _)| site.reached == Reached::Import(Reach::Static))
-        .find_map(|(site, failures)| failures.first().map(|failure| (site, failure)))
+        .flat_map(|(site, failures)| failures.iter().map(move |failure| (site, failure)));
+    let first = statics.next();
+    let second = statics.next();
+    // the first by site order is the run's own only while there is one
+    debug_assert!(second.is_none(), "a run records at most one static failure");
+    first
 }
 
 /// The error of a failed load, its kind from the first static failure
@@ -393,7 +400,7 @@ mod tests {
 
     fn load_kind(error: FailureError) -> ErrorKind {
         Failed::new(Phase::Load, "failed")
-            .into_error(&graph(&[("./x.js", STATIC, error)]), false)
+            .into_error(&graph(&[("./x.js", STATIC, error)]), Jit::Off)
             .kind
     }
 
@@ -464,7 +471,7 @@ mod tests {
     #[test]
     fn a_load_with_no_static_failure_is_link() {
         let dynamic = graph(&[("./y.js", DYNAMIC, FailureError::DynamicImport)]);
-        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic, false);
+        let error = Failed::new(Phase::Load, "SyntaxError").into_error(&dynamic, Jit::Off);
         assert_eq!(
             (error.kind, error.specifier, error.importer, error.at),
             (ErrorKind::Link, None, None, None)
@@ -475,13 +482,12 @@ mod tests {
                 STATIC,
                 FailureError::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
             )]),
-            false,
+            Jit::Off,
         );
         assert_eq!(error.kind, ErrorKind::Resolve);
         assert_eq!(error.specifier.as_deref(), Some("./x.js"));
         assert_eq!(error.importer.as_deref(), Some("file:///p/main.js"));
         assert_eq!(error.at.as_deref(), Some("file:///p/main.js:2:8"));
-        assert!(!error.usage);
     }
 
     #[test]
@@ -500,7 +506,7 @@ mod tests {
             (Phase::Environment, ErrorKind::Environment),
         ] {
             assert_eq!(
-                Failed::new(phase, "x").into_error(&graph, false).kind,
+                Failed::new(phase, "x").into_error(&graph, Jit::Off).kind,
                 kind,
                 "{phase:?}"
             );

@@ -11,7 +11,7 @@ use super::{ConfineError, Jit};
 /// is the tripwire that ends the process rather than let it carry on past
 /// `ENOSYS`.
 #[cfg(target_os = "linux")]
-pub const KILLED_CALLS: [libc::c_long; 16] = [
+pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
     libc::SYS_execve,
     libc::SYS_execveat,
     libc::SYS_ptrace,
@@ -45,7 +45,7 @@ pub const KILLED_CALLS: [libc::c_long; 16] = [
 /// its files or memory. Built for `x86_64` and `aarch64`; the `aarch64` list
 /// is written from its call table and unverified on a host.
 #[cfg(target_os = "linux")]
-pub const ALLOWED_CALLS: &[libc::c_long] = &[
+pub(super) const ALLOWED_CALLS: &[libc::c_long] = &[
     libc::SYS_brk,
     libc::SYS_clock_gettime,
     libc::SYS_clock_nanosleep,
@@ -118,7 +118,7 @@ pub const ALLOWED_CALLS: &[libc::c_long] = &[
 /// it can move, copy, or grow an executable mapping made before the box,
 /// over its file's own bytes, but never over bytes the process wrote.
 #[cfg(target_os = "linux")]
-pub const MAPPING_CALLS: [libc::c_long; 3] =
+pub(super) const MAPPING_CALLS: [libc::c_long; 3] =
     [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect];
 
 /// The `prctl` options the box keeps, by the first argument: naming a
@@ -167,7 +167,7 @@ pub(super) const KEPT_IOCTLS: [libc::Ioctl; 6] = [
 /// Every other fails with `ENOSYS`, a datagram pair above all, which can
 /// send to any socket file by its path.
 #[cfg(target_os = "linux")]
-pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
+pub(super) const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
 
 /// The one `faccessat2` mode the box keeps, by the third argument: `F_OK`,
 /// whether the path exists, which `statx` tells already and Landlock gates
@@ -182,6 +182,21 @@ pub const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM]
 /// has `faccessat2`, which arrived in Linux 5.8.
 #[cfg(target_os = "linux")]
 pub(super) const KEPT_ACCESS_MODE: libc::c_int = libc::F_OK;
+
+/// An `ioctl` request as the filter compares it, whichever type the libc
+/// declares requests as: glibc's `c_ulong`, as is.
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
+const fn ioctl_request(request: libc::Ioctl) -> u64 {
+    request
+}
+
+/// An `ioctl` request as the filter compares it, whichever type the libc
+/// declares requests as: musl's `c_int`, by its bits, as the kernel reads
+/// the `unsigned int` it is.
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+fn ioctl_request(request: libc::Ioctl) -> u64 {
+    u64::from(request.cast_unsigned())
+}
 
 /// The bits of a socket type that name it, below the `SOCK_NONBLOCK` and
 /// `SOCK_CLOEXEC` flags.
@@ -246,13 +261,14 @@ pub(super) fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], 
             })
             .collect::<Result<Vec<_>, _>>()
     };
-    let int = |value: libc::c_int| u64::from(value.unsigned_abs());
+    // an int's bits as the kernel passes them, a negative one's included
+    let int = |value: libc::c_int| u64::from(value.cast_unsigned());
     // `prctl`'s option, the first argument, and `fcntl`'s command, the
     // second, ints
     let prctls = each_value(0, &KEPT_PRCTLS.map(int))?;
     let fcntls = each_value(1, &KEPT_FCNTLS.map(int))?;
     // `ioctl`'s request, the second argument, an unsigned int
-    let ioctls = each_value(1, &KEPT_IOCTLS)?;
+    let ioctls = each_value(1, &KEPT_IOCTLS.map(ioctl_request))?;
     // `faccessat2`'s mode, the third argument, an int
     let accesses = each_value(2, &[int(KEPT_ACCESS_MODE)])?;
     // `socketpair`'s domain, the first argument, and its type, the second,

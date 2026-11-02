@@ -720,7 +720,7 @@ mod confined {
             cwd: project.to_owned(),
             export: None,
             driver: None,
-            jit: false,
+            jit: Jit::Off,
             snapshot: Some(StartupSnapshot {
                 bytes: embedded::SNAPSHOT,
                 residual_lazy_js: embedded::RESIDUAL_LAZY_JS,
@@ -737,14 +737,23 @@ mod confined {
             .join()
             .unwrap()
             .unwrap();
-        let Confinement::Confined(confined) = confine(project, Jit::Off) else {
-            unreachable!("confine exits when it refuses")
+        // the box from the pre-pass, as `fgro eval` installs it
+        let (prepass, confined) = match prepass.confine() {
+            Ok(confined) => {
+                println!("confined");
+                confined
+            }
+            Err(envelope) => {
+                let error = envelope.result.as_ref().err().map(|error| &error.message);
+                println!("refused: {error:?}");
+                std::process::exit(3);
+            }
         };
         let outside = outside.to_owned();
         let sized = std::thread::Builder::new().stack_size(STACK_SIZE);
         sized
             .spawn(move || {
-                let engine = init_confined_engine(confined, &engine_options(false)).unwrap();
+                let engine = init_confined_engine(confined, &engine_options(Jit::Off)).unwrap();
                 let envelope = gro_runtime::eval::eval(engine, prepass);
                 let value = envelope.result.map_err(|error| error.message).unwrap();
                 println!("value: {value}");

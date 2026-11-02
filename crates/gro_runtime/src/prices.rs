@@ -11,8 +11,9 @@
 //! With it, the environment variable [`PRICES_OFF_ENV`] names the defaults to
 //! turn off, comma-separated by their [`EvalDefault::name`]s
 //! (`GRO_PRICES_OFF=landlock,seccomp`); unset or empty, every default
-//! stands. A name it doesn't know is refused ([`start`]), so a typo never
-//! times the default build under another name. A priced build with some
+//! stands. A name it doesn't know, and a value that isn't Unicode, is
+//! refused ([`start`]), so a typo never times the default build under
+//! another name. A priced build with some
 //! default off is no eval's to trust: it can run outside its box, read the
 //! clock, or run forever, and exists only to be timed against the build
 //! with every default on.
@@ -123,13 +124,41 @@ impl EvalDefault {
     }
 }
 
-/// Parses a [`PRICES_OFF_ENV`] value: the defaults it names, or the message
-/// refusing a name it doesn't know.
+/// Why a [`PRICES_OFF_ENV`] value is refused, each naming every default.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PricesError {
+    /// It names a default there is none of.
+    #[error(
+        "{} names `{name}`, which is no default a priced build turns off; the defaults are {}",
+        PRICES_OFF_ENV,
+        default_names()
+    )]
+    Unknown {
+        /// The name, as listed.
+        name: String,
+    },
+    /// It isn't Unicode, so it names nothing it can be read as.
+    #[error(
+        "{} is not valid Unicode, so it names no default a priced build turns off; the \
+         defaults are {}",
+        PRICES_OFF_ENV,
+        default_names()
+    )]
+    NotUnicode,
+}
+
+/// Every default's name, comma-separated.
+fn default_names() -> String {
+    let names: Vec<&str> = EvalDefault::ALL.iter().map(|d| d.name()).collect();
+    names.join(", ")
+}
+
+/// Parses a [`PRICES_OFF_ENV`] value: the defaults it names.
 ///
 /// # Errors
 ///
-/// Returns the message naming the unknown name and every known one.
-pub fn parse(value: &str) -> Result<Vec<EvalDefault>, String> {
+/// Returns [`PricesError::Unknown`] naming a name it doesn't know.
+pub fn parse(value: &str) -> Result<Vec<EvalDefault>, PricesError> {
     value
         .split(',')
         .map(str::trim)
@@ -138,13 +167,8 @@ pub fn parse(value: &str) -> Result<Vec<EvalDefault>, String> {
             EvalDefault::ALL
                 .into_iter()
                 .find(|default| default.name() == name)
-                .ok_or_else(|| {
-                    let known: Vec<&str> = EvalDefault::ALL.iter().map(|d| d.name()).collect();
-                    format!(
-                        "{PRICES_OFF_ENV} names `{name}`, which is no default a priced build turns \
-                         off; the defaults are {}",
-                        known.join(", ")
-                    )
+                .ok_or_else(|| PricesError::Unknown {
+                    name: name.to_owned(),
                 })
         })
         .collect()
@@ -152,20 +176,23 @@ pub fn parse(value: &str) -> Result<Vec<EvalDefault>, String> {
 
 #[cfg(feature = "prices")]
 mod enabled {
+    use std::env::VarError;
     use std::sync::OnceLock;
 
-    use super::{EvalDefault, PRICES_OFF_ENV, parse};
+    use super::{EvalDefault, PRICES_OFF_ENV, PricesError, parse};
 
     /// The defaults turned off, read once.
-    static OFF: OnceLock<Result<Vec<EvalDefault>, String>> = OnceLock::new();
+    static OFF: OnceLock<Result<Vec<EvalDefault>, PricesError>> = OnceLock::new();
 
-    fn read() -> &'static Result<Vec<EvalDefault>, String> {
-        OFF.get_or_init(|| {
-            std::env::var(PRICES_OFF_ENV).map_or_else(|_| Ok(Vec::new()), |value| parse(&value))
+    fn read() -> &'static Result<Vec<EvalDefault>, PricesError> {
+        OFF.get_or_init(|| match std::env::var(PRICES_OFF_ENV) {
+            Ok(value) => parse(&value),
+            Err(VarError::NotPresent) => Ok(Vec::new()),
+            Err(VarError::NotUnicode(_)) => Err(PricesError::NotUnicode),
         })
     }
 
-    pub fn start() -> Result<(), String> {
+    pub fn start() -> Result<(), PricesError> {
         read().as_ref().map(|_| ()).map_err(Clone::clone)
     }
 
@@ -179,9 +206,10 @@ mod enabled {
 ///
 /// # Errors
 ///
-/// Returns the message refusing a name it doesn't know ([`parse`]).
+/// Returns why the value is refused: a name it doesn't know ([`parse`]), or
+/// a value that isn't Unicode.
 #[cfg(feature = "prices")]
-pub fn start() -> Result<(), String> {
+pub fn start() -> Result<(), PricesError> {
     enabled::start()
 }
 
@@ -192,7 +220,7 @@ pub fn start() -> Result<(), String> {
 /// Never, without the feature.
 #[cfg(not(feature = "prices"))]
 #[inline]
-pub const fn start() -> Result<(), String> {
+pub const fn start() -> Result<(), PricesError> {
     Ok(())
 }
 
@@ -227,7 +255,7 @@ mod tests {
             parse("landlock, seccomp"),
             Ok(vec![EvalDefault::Landlock, EvalDefault::Seccomp])
         );
-        let error = parse("deny,jitless").unwrap_err();
+        let error = parse("deny,jitless").unwrap_err().to_string();
         assert!(error.contains("`jitless`"), "{error}");
         assert!(error.contains("envelope_cap"), "{error}");
     }

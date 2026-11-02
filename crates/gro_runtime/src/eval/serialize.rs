@@ -103,8 +103,8 @@ pub enum Reason {
     Symbol,
     /// `NaN`, `Infinity`, or `-Infinity`, as JS writes it.
     NonFinite(String),
-    /// An object that isn't a plain object or an array, as named.
-    NonPlain(String),
+    /// An object that isn't a plain object or an array.
+    NonPlain(NonPlain),
     /// A value one of its own members leads back to.
     Cycle,
     /// Arrays and objects nested deeper than [`MAX_DEPTH`].
@@ -127,6 +127,42 @@ pub enum Reason {
     /// The host stopped the run (a timeout, the heap's cap) during the
     /// walk, which the host reports as such.
     Stopped,
+}
+
+/// What makes an object not plain, which a refusal names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NonPlain {
+    /// An exotic or host object that no prototype makes plain, by the name
+    /// of its kind ([`exotic_kind`]): a `Map`, a `Proxy`, a typed array.
+    Exotic(&'static str),
+    /// An array whose prototype isn't `Array.prototype`.
+    ArrayPrototype,
+    /// An object whose prototype is neither `Object.prototype` nor null.
+    Prototype {
+        /// Its constructor's name, read from its map, unless it's `Object`.
+        constructor: Option<String>,
+    },
+    /// An object with internal fields, which only the host makes.
+    HostObject,
+}
+
+impl fmt::Display for NonPlain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exotic(kind) => f.write_str(kind),
+            Self::ArrayPrototype => {
+                f.write_str("an array whose prototype is not `Array.prototype`")
+            }
+            Self::Prototype { constructor } => {
+                f.write_str("an object whose prototype is neither `Object.prototype` nor null")?;
+                if let Some(name) = constructor {
+                    write!(f, " (its constructor is `{name}`)")?;
+                }
+                Ok(())
+            }
+            Self::HostObject => f.write_str("a host object"),
+        }
+    }
 }
 
 impl SerializeError {
@@ -180,7 +216,7 @@ impl fmt::Display for SerializeError {
             Reason::TooLarge { max } => write!(
                 f,
                 "{at} takes the value's JSON past {}, the envelope's cap; write less data",
-                format_size(*max)
+                format_size(*max as u64)
             ),
             Reason::LoneSurrogate { unit, in_key } => write!(
                 f,
@@ -584,7 +620,7 @@ impl Walker {
         // `Proxy` of one
         let is_array = value.is_array();
         if !is_array && let Some(kind) = exotic_kind(value) {
-            return Err(self.error(Reason::NonPlain(kind.to_owned())));
+            return Err(self.error(Reason::NonPlain(NonPlain::Exotic(kind))));
         }
         let object: v8::Local<'_, v8::Object> = value.cast();
         let hash = object.get_identity_hash();
@@ -603,9 +639,7 @@ impl Walker {
         let prototype = object.get_prototype(scope);
         let (members, length) = if is_array {
             if !prototype.is_some_and(|prototype| self.array_prototype == prototype) {
-                return Err(self.error(Reason::NonPlain(
-                    "an array whose prototype is not `Array.prototype`".to_owned(),
-                )));
+                return Err(self.error(Reason::NonPlain(NonPlain::ArrayPrototype)));
             }
             self.out.push('[');
             // the length V8 holds, read without a getter
@@ -617,15 +651,11 @@ impl Walker {
                 // read from the object's map, running no JS
                 let name =
                     String::from_utf16_lossy(&read_string(scope, object.get_constructor_name()));
-                let mut kind =
-                    "an object whose prototype is neither `Object.prototype` nor null".to_owned();
-                if name != "Object" {
-                    let _ = write!(kind, " (its constructor is `{name}`)");
-                }
-                return Err(self.error(Reason::NonPlain(kind)));
+                let constructor = (name != "Object").then_some(name);
+                return Err(self.error(Reason::NonPlain(NonPlain::Prototype { constructor })));
             }
             if object.internal_field_count() > 0 {
-                return Err(self.error(Reason::NonPlain("a host object".to_owned())));
+                return Err(self.error(Reason::NonPlain(NonPlain::HostObject)));
             }
             let keys = object
                 .get_own_property_names(
@@ -784,8 +814,8 @@ fn push_utf16_json_string(out: &mut String, units: &[u16], max: usize) -> Result
 }
 
 /// `bytes` as a person reads a cap: whole MiB when it is some, else bytes.
-pub(super) fn format_size(bytes: usize) -> String {
-    const MIB: usize = 1024 * 1024;
+pub(super) fn format_size(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
     if bytes >= MIB && bytes.is_multiple_of(MIB) {
         format!("{} MiB", bytes / MIB)
     } else {

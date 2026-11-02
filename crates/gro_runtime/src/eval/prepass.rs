@@ -3,15 +3,19 @@
 
 use std::path::Path;
 
-use super::{Envelope, ErrorKind, EvalError, EvalOptions, engine_options, failed};
+use super::{Envelope, ErrorKind, EvalError, EvalOptions, failed};
 use crate::confine;
 use crate::loader::reads::{Reads, RecordingTree};
 use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 
-/// An eval resolved, its box computed, before any runtime: what [`prepass`]
-/// returns and [`eval`](super::eval) runs.
+/// An eval resolved, its box computed, before any runtime.
+///
+/// [`prepass`] returns one whose box `B` is the [`confine::Prepared`] roots,
+/// opened; once [`Prepass::confine`] has held the process in that box,
+/// [`eval`](super::eval) runs one whose box is the [`confine::BoxRoots`] it
+/// admits.
 #[derive(Debug)]
-pub struct Prepass {
+pub struct Prepass<B = confine::Prepared> {
     /// What to evaluate, and how.
     pub(super) options: EvalOptions,
     /// The entry, resolved.
@@ -22,7 +26,7 @@ pub struct Prepass {
     /// first reads.
     pub(super) reads: Reads,
     /// The box: the project's real directory and the link closure below it.
-    pub(super) confinement: confine::Prepared,
+    pub(super) confinement: B,
 }
 
 impl Prepass {
@@ -33,18 +37,40 @@ impl Prepass {
     }
 
     /// Confines the process to the eval's box ([`confine::Prepared::confine`]),
-    /// installed for the JIT the eval's engine is to have, read from
-    /// [`engine_options`], so the box and the engine take the choice from one
-    /// place: jitless, the box refuses executable mappings.
+    /// installed for the JIT its options name, the one
+    /// [`engine_options`](super::engine_options) gives the engine: jitless,
+    /// the box refuses executable mappings. Returns the eval, its box the
+    /// roots the box admits, and the confinement the engine starts on.
     ///
     /// # Errors
     ///
-    /// As [`confine::Prepared::confine`].
-    pub fn confine(&self) -> Result<confine::Confined, confine::ConfineError> {
-        let jit = confine::Jit::from_jitless(engine_options(self.options.jit).jitless);
-        self.confinement.confine(jit)
+    /// Returns the envelope of the eval failed by [`confine::Prepared::confine`]'s
+    /// error: an `environment` when the host can't hold the box, an `internal`
+    /// when the process broke the order the box needs.
+    pub fn confine(self) -> Result<(Prepass<confine::BoxRoots>, confine::Confined), Box<Envelope>> {
+        let Self {
+            options,
+            entry,
+            roots,
+            reads,
+            confinement,
+        } = self;
+        let jit = options.jit;
+        let boxed = Prepass {
+            options,
+            entry,
+            roots,
+            reads,
+            confinement: confinement.roots().clone(),
+        };
+        match confinement.confine(jit) {
+            Ok(confined) => Ok((boxed, confined)),
+            Err(error) => Err(Box::new(boxed.failed(confine_error(&error)))),
+        }
     }
+}
 
+impl<B> Prepass<B> {
     /// Whether the eval has a startup snapshot to start from, which a
     /// confined eval needs ([`no_snapshot_error`](super::no_snapshot_error)).
     pub const fn has_snapshot(&self) -> bool {
@@ -54,10 +80,37 @@ impl Prepass {
     /// The envelope of this eval failed with `error` before it ran: the
     /// entry by its canonical path.
     pub fn failed(&self, error: EvalError) -> Envelope {
-        let mut envelope = failed(&self.options, error);
-        envelope.entry.id = entry_id(&self.entry);
-        envelope
+        failed_at(&self.options, &self.entry, error)
     }
+}
+
+/// A pre-pass that failed, as the envelope that reports it, by whether the
+/// command line must change, which decides the exit code.
+#[derive(Debug)]
+pub enum PrepassError {
+    /// The command line must change: the entry didn't resolve as a
+    /// specifier, or it is no project's own module (inside `node_modules`,
+    /// or with no project root).
+    Usage(Box<Envelope>),
+    /// Anything else.
+    Failed(Box<Envelope>),
+}
+
+impl PrepassError {
+    /// The envelope that reports the failure.
+    pub fn envelope(&self) -> &Envelope {
+        match self {
+            Self::Usage(envelope) | Self::Failed(envelope) => envelope,
+        }
+    }
+}
+
+/// The envelope of an eval of `options` failed with `error`, its entry
+/// `entry` named by its canonical path.
+pub(super) fn failed_at(options: &EvalOptions, entry: &Resolution, error: EvalError) -> Envelope {
+    let mut envelope = failed(options, error);
+    envelope.entry.id = entry_id(entry);
+    envelope
 }
 
 /// The entry's canonical path, as the envelope names it.
@@ -75,13 +128,13 @@ pub(super) fn entry_id(entry: &Resolution) -> String {
 /// # Errors
 ///
 /// Returns the envelope of a failed eval, a `resolve`, when the entry
-/// doesn't resolve, is inside `node_modules`, or has no project root, and an
-/// `internal` when the project's directory can't be opened as the one
+/// doesn't resolve, is inside `node_modules`, or has no project root (each
+/// a [`PrepassError::Usage`] but a resolution's failure of the host), and
+/// an `internal` when the project's directory can't be opened as the one
 /// resolved ([`confine::Prepared::for_project`]).
-pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
-    let refused = |options: &EvalOptions, message: String, specifier_error: bool| {
+pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
+    let refused = |options: &EvalOptions, message: String| {
         let mut failure = EvalError::new(ErrorKind::Resolve, message);
-        failure.usage = specifier_error;
         failure.specifier = Some(options.entry.display().to_string());
         failure.importer = Some(options.cwd.display().to_string());
         failure
@@ -95,8 +148,12 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
     let (entry, roots, bound) = match resolved {
         Ok(resolved) => resolved,
         Err(error) => {
-            let failure = refused(&options, error.to_string(), error.kind.is_refusal());
-            return Err(Box::new(failed(&options, failure)));
+            let envelope = Box::new(failed(&options, refused(&options, error.to_string())));
+            return Err(if error.kind.is_refusal() {
+                PrepassError::Usage(envelope)
+            } else {
+                PrepassError::Failed(envelope)
+            });
         }
     };
     let project = roots.project().dir.clone();
@@ -119,10 +176,10 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
         )),
     };
     if let Some(message) = refusal {
-        let failure = refused(&options, message, true);
-        let mut envelope = failed(&options, failure);
-        envelope.entry.id = entry_id(&entry);
-        return Err(Box::new(envelope));
+        let failure = refused(&options, message);
+        return Err(PrepassError::Usage(Box::new(failed_at(
+            &options, &entry, failure,
+        ))));
     }
     let confinement = match confine::Prepared::for_project(project) {
         Ok(confinement) => confinement,
@@ -131,9 +188,9 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
                 ErrorKind::Internal,
                 format!("failed to open the project's directory for the box: {error}"),
             );
-            let mut envelope = failed(&options, failure);
-            envelope.entry.id = entry_id(&entry);
-            return Err(Box::new(envelope));
+            return Err(PrepassError::Failed(Box::new(failed_at(
+                &options, &entry, failure,
+            ))));
         }
     };
     Ok(Prepass {
@@ -148,7 +205,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, Box<Envelope>> {
 /// The error of an eval whose process `error` says couldn't be confined: an
 /// `environment` when the host can't hold the box, an `internal` when the
 /// process broke the order the box needs.
-pub fn confine_error(error: &confine::ConfineError) -> EvalError {
+fn confine_error(error: &confine::ConfineError) -> EvalError {
     let kind = if error.is_host_unsupported() {
         ErrorKind::Environment
     } else {
@@ -219,10 +276,11 @@ mod tests {
             ("node_modules/pkg/i.mjs", "it is inside node_modules"),
             ("../bare/main.mjs", "it has no project root"),
         ] {
-            let envelope = prepass(options(Path::new(entry), &project)).unwrap_err();
+            let refused = prepass(options(Path::new(entry), &project)).unwrap_err();
+            assert!(matches!(refused, PrepassError::Usage(_)), "{entry}");
+            let envelope = refused.envelope();
             let error = envelope.result.as_ref().unwrap_err();
             assert_eq!(error.kind, ErrorKind::Resolve, "{entry}");
-            assert!(error.usage, "{entry}");
             assert!(error.message.contains(says), "{}", error.message);
             assert_eq!(error.specifier.as_deref(), Some(entry));
             assert_eq!(

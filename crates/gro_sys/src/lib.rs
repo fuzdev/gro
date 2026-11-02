@@ -16,6 +16,8 @@
 //! - [`set_default_thread_stack`] lowers the stack size of a thread started
 //!   without one, which glibc otherwise takes from `RLIMIT_STACK`, never
 //!   raising it.
+//! - [`thread_count`] reads the process's thread count, which a box or a
+//!   process-wide change installed from one thread needs to be 1.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size, which std's `wait` drops.
 //!
@@ -388,9 +390,18 @@ unsafe extern "C" {
     fn pthread_getattr_default_np(attr: *mut libc::pthread_attr_t) -> libc::c_int;
 }
 
-/// The process's thread count, from `/proc/self/status`.
+/// The process's thread count, its `Threads:` line in `/proc/self/status`,
+/// read once.
+///
+/// A thread whose join has returned can stay counted for a moment longer,
+/// while the kernel finishes its exit, so a caller that needs the count to
+/// reach 1 after a join reads it again.
+///
+/// # Errors
+///
+/// Returns an error when the file can't be read or has no thread count.
 #[cfg(target_os = "linux")]
-fn thread_count() -> io::Result<u64> {
+pub fn thread_count() -> io::Result<u64> {
     let status = std::fs::read_to_string("/proc/self/status").map_err(|error| {
         context(
             "failed to read the thread count from /proc/self/status",

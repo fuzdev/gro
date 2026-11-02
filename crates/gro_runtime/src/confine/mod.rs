@@ -38,17 +38,17 @@
 //! 3. **seccomp**, two filters on the calling thread (no thread sync, since
 //!    it is the process's only thread). The first kills the process on the
 //!    calls no part of the runtime makes and code that escaped the engine
-//!    would ([`KILLED_CALLS`]: `execve` and `execveat`, `ptrace`, the
+//!    would (`KILLED_CALLS`: `execve` and `execveat`, `ptrace`, the
 //!    `process_vm_readv` and `process_vm_writev`, `bpf`, `perf_event_open`, `userfaultfd`,
 //!    the `kexec` calls, the `io_uring` calls, whose operations bypass
 //!    seccomp, and the kernel module calls). The second is an allowlist:
 //!    the calls the runtime makes after the box goes up, and their named
-//!    siblings ([`ALLOWED_CALLS`]), pass; `prctl`, `fcntl`, `ioctl`,
+//!    siblings (`ALLOWED_CALLS`), pass; `prctl`, `fcntl`, `ioctl`,
 //!    `socketpair`, `faccessat2`, and `clone` pass only with the arguments
 //!    the runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`, `KEPT_IOCTLS`,
-//!    [`KEPT_SOCKETPAIR`], `KEPT_ACCESS_MODE`, and a `clone` that starts a
+//!    `KEPT_SOCKETPAIR`, `KEPT_ACCESS_MODE`, and a `clone` that starts a
 //!    thread, setting no flag in `CLONE_NAMESPACES`); the mapping calls
-//!    ([`MAPPING_CALLS`]: `mmap`, `mprotect`, and `pkey_mprotect`) pass
+//!    (`MAPPING_CALLS`: `mmap`, `mprotect`, and `pkey_mprotect`) pass
 //!    whatever their arguments with the JIT on, whose compiled code needs
 //!    executable memory, and with it off only when their `prot` has
 //!    `PROT_EXEC` clear, so once the box is up a jitless process makes no
@@ -114,9 +114,6 @@ mod landlock;
 mod seccomp;
 #[cfg(test)]
 mod tests;
-
-#[cfg(target_os = "linux")]
-pub use seccomp::{ALLOWED_CALLS, KEPT_SOCKETPAIR, KILLED_CALLS, MAPPING_CALLS};
 
 use closure::{link_closure, pin};
 
@@ -195,7 +192,8 @@ impl Prepared {
 
     /// Confines the process to the box, from its one thread, as the module
     /// doc describes, for an engine whose JIT is `jit`: off, the box refuses
-    /// executable mappings.
+    /// executable mappings. The box goes up once: this takes the roots'
+    /// handles, which are closed once its rules name them.
     ///
     /// # Errors
     ///
@@ -206,11 +204,11 @@ impl Prepared {
     /// to install, after which the process may hold part of the box and must
     /// run nothing it was to confine; and [`ConfineError::Unsupported`] off
     /// Linux.
-    pub fn confine(&self, jit: Jit) -> Result<Confined, ConfineError> {
+    pub fn confine(self, jit: Jit) -> Result<Confined, ConfineError> {
         alone()?;
-        install(self, jit)?;
+        install(&self, jit)?;
         Ok(Confined {
-            roots: self.roots.clone(),
+            roots: self.roots,
             jit,
         })
     }
@@ -289,11 +287,11 @@ pub enum ConfineError {
     )]
     Threads {
         /// How many threads it has.
-        count: usize,
+        count: u64,
     },
     /// The process's thread count couldn't be read.
-    #[error("failed to read the process's thread count from /proc/self/status: {0}")]
-    ThreadsUnread(#[source] io::Error),
+    #[error(transparent)]
+    ThreadsUnread(io::Error),
     /// The kernel has no Landlock, or has it switched off.
     #[error(
         "the kernel {}, and the box's filesystem, network, and scope walls are Landlock's: \
@@ -409,7 +407,7 @@ const THREAD_COUNT_READS: usize = 1000;
 fn alone() -> Result<(), ConfineError> {
     let mut count = 0;
     for _ in 0..THREAD_COUNT_READS {
-        count = thread_count().map_err(ConfineError::ThreadsUnread)?;
+        count = gro_sys::thread_count().map_err(ConfineError::ThreadsUnread)?;
         if count == 1 {
             return Ok(());
         }
@@ -421,15 +419,4 @@ fn alone() -> Result<(), ConfineError> {
 #[cfg(not(target_os = "linux"))]
 const fn alone() -> Result<(), ConfineError> {
     Err(ConfineError::Unsupported)
-}
-
-/// The process's thread count, its `Threads:` line in `/proc/self/status`.
-#[cfg(target_os = "linux")]
-fn thread_count() -> io::Result<usize> {
-    let status = std::fs::read_to_string("/proc/self/status")?;
-    status
-        .lines()
-        .find_map(|line| line.strip_prefix("Threads:"))
-        .and_then(|count| count.trim().parse().ok())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no Threads: line"))
 }

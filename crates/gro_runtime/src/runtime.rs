@@ -5,12 +5,13 @@ use std::rc::Rc;
 
 use deno_core::JsRuntime;
 
+use crate::bootstrap::{self, Determinism, Ops};
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
 use crate::report::{report, report_js};
 use crate::snapshot::StartupSnapshot;
-use crate::{ConsoleOptions, bootstrap, eval};
+use crate::{ConsoleOptions, eval};
 
 /// What kind of runtime to build: `fgro run`'s, or eval's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,9 +41,13 @@ pub fn start_runtime(
     // before the bootstrap's start reads them
     let state = runtime.op_state();
     state.borrow_mut().put(console);
-    state.borrow_mut().put(bootstrap::Deny(
-        mode == Mode::Eval && !prices::off(EvalDefault::Deny),
-    ));
+    state
+        .borrow_mut()
+        .put(if mode == Mode::Eval && !prices::off(EvalDefault::Deny) {
+            Determinism::Denied
+        } else {
+            Determinism::Allowed
+        });
     drop(state);
     bootstrap::start(&mut runtime).map_err(|error| report_js(&error))?;
     phases::mark(Phase::Bootstrap);
@@ -71,7 +76,11 @@ fn new_runtime(
         module_loader: Some(loader),
         // the same list the snapshot was made from, in the same order
         extensions: bootstrap::extensions(
-            mode == Mode::Eval && !prices::off(EvalDefault::RefuseOps),
+            if mode == Mode::Eval && !prices::off(EvalDefault::RefuseOps) {
+                Ops::Refused
+            } else {
+                Ops::Kept
+            },
         ),
         startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
         residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),

@@ -8,9 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gro_runtime::confine::Confined;
+use gro_runtime::confine::{BoxRoots, Confined, Jit};
 use gro_runtime::engine::init_confined_engine;
-use gro_runtime::eval::{Envelope, ErrorKind, EvalError, EvalOptions, Prepass, RuntimeInfo};
+use gro_runtime::eval::{
+    Envelope, ErrorKind, EvalError, EvalOptions, Prepass, PrepassError, RuntimeInfo,
+};
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::prices::{self, EvalDefault};
 
@@ -25,7 +27,6 @@ use crate::{EXIT_FAILURE, EXIT_PANIC, EXIT_USAGE};
 /// eval's engine on another thread, and prints the envelope to stdout,
 /// returning the exit code. A usage error prints to stderr with no envelope.
 pub fn eval(args: EvalArgs) -> u8 {
-    let jit = args.jit;
     let (prepass, confined) = match confine_eval(args) {
         Ok(confined) => confined,
         Err(code) => return code,
@@ -36,7 +37,9 @@ pub fn eval(args: EvalArgs) -> u8 {
     ));
     // every thread the engine starts comes after the box, spawned from here
     let evaluated = on_sized_thread("fgro", move || {
-        match init_confined_engine(confined, &gro_runtime::eval::engine_options(jit)) {
+        // the JIT the box was installed for, as the engine must have it
+        let options = gro_runtime::eval::engine_options(confined.jit());
+        match init_confined_engine(confined, &options) {
             Ok(engine) => {
                 phases::mark(Phase::Engine);
                 gro_runtime::eval::eval(engine, prepass)
@@ -64,7 +67,7 @@ pub fn eval(args: EvalArgs) -> u8 {
 ///
 /// Returns the exit code of a failure, after printing it: a usage error to
 /// stderr with no envelope, any other as its envelope on stdout.
-fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
+fn confine_eval(args: EvalArgs) -> Result<(Prepass<BoxRoots>, Confined), u8> {
     let EvalArgs {
         module,
         driver,
@@ -127,7 +130,7 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
         cwd: PathBuf::new(),
         export,
         driver: None,
-        jit,
+        jit: if jit { Jit::On } else { Jit::Off },
         snapshot: STARTUP_SNAPSHOT,
         runtime: RuntimeInfo::new(env!("CARGO_PKG_VERSION"), COMMIT),
         timeout,
@@ -191,7 +194,12 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
             phases::mark(Phase::Prepass);
             prepass
         }
-        Joined::Returned(Err(envelope)) => return Err(write_envelope(&envelope)),
+        Joined::Returned(Err(PrepassError::Usage(envelope))) => {
+            return Err(write_envelope_failed(&envelope, EXIT_USAGE));
+        }
+        Joined::Returned(Err(PrepassError::Failed(envelope))) => {
+            return Err(write_envelope(&envelope));
+        }
         Joined::Unstarted(error) => return Err(write_envelope(&with_error(unstarted, &error))),
         Joined::Panicked => return Err(EXIT_PANIC),
     };
@@ -207,11 +215,9 @@ fn confine_eval(args: EvalArgs) -> Result<(Prepass, Confined), u8> {
     match prepass.confine() {
         Ok(confined) => {
             phases::mark(Phase::Confine);
-            Ok((prepass, confined))
+            Ok(confined)
         }
-        Err(error) => Err(write_envelope(
-            &prepass.failed(gro_runtime::eval::confine_error(&error)),
-        )),
+        Err(envelope) => Err(write_envelope(&envelope)),
     }
 }
 
@@ -227,6 +233,12 @@ fn with_error(mut envelope: Envelope, error: &std::io::Error) -> Envelope {
 /// Writes `envelope` to stdout, one line, returning the exit code its result
 /// gives, or [`EXIT_FAILURE`] when it can't be written.
 fn write_envelope(envelope: &Envelope) -> u8 {
+    write_envelope_failed(envelope, EXIT_FAILURE)
+}
+
+/// Writes `envelope` to stdout, one line, returning 0 for a value, `failed`
+/// for a failure, or [`EXIT_FAILURE`] when it can't be written.
+fn write_envelope_failed(envelope: &Envelope, failed: u8) -> u8 {
     // written and flushed by hand: `println!` panics when stdout fails (a
     // closed pipe, a full disk)
     let written = envelope
@@ -242,9 +254,5 @@ fn write_envelope(envelope: &Envelope) -> u8 {
         eprintln!("error: failed to write the envelope: {error}");
         return EXIT_FAILURE;
     }
-    match &envelope.result {
-        Ok(_) => 0,
-        Err(error) if error.usage => EXIT_USAGE,
-        Err(_) => EXIT_FAILURE,
-    }
+    if envelope.result.is_ok() { 0 } else { failed }
 }

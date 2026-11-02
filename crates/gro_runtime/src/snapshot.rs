@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot};
 use deno_core::{Extension, ExtensionFileSourceCode};
 
-use crate::bootstrap;
+use crate::bootstrap::{self, Ops};
 use crate::engine::Engine;
 
 /// A snapshot to start from, as the binary embeds it.
@@ -141,7 +141,7 @@ pub enum SnapshotError {
     NotAscii(PathBuf),
     /// Evaluating the extensions failed.
     #[error("failed to create the snapshot: {0}")]
-    Create(String),
+    Create(#[source] deno_core::error::CoreError),
     /// A residual source's path isn't UTF-8, so `residual.rs` can't name it.
     #[error("{} is not a UTF-8 path", .0.display())]
     NotUtf8(PathBuf),
@@ -167,7 +167,7 @@ pub enum SnapshotError {
 /// ASCII, or when evaluating the extensions fails.
 pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
     // a second copy of the same list, to read the sources the snapshot leaves out
-    let extensions = bootstrap::extensions(false);
+    let extensions = bootstrap::extensions(Ops::Kept);
     for path in disk_sources(&extensions) {
         check_ascii(path)?;
     }
@@ -177,13 +177,13 @@ pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
             skip_op_registration: false,
-            extensions: bootstrap::extensions(false),
+            extensions: bootstrap::extensions(Ops::Kept),
             extension_transpiler: None,
             with_runtime_cb: None,
         },
         None,
     )
-    .map_err(|error| SnapshotError::Create(error.to_string()))?;
+    .map_err(SnapshotError::Create)?;
 
     // TODO: no installed global lazy-loads a residual script yet, so nothing
     // tests the table; a test that loads one from a snapshot build lands with

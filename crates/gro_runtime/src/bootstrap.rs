@@ -18,7 +18,7 @@
 //! `OpState` and the bootstrap's start reads once. This module reads no
 //! environment and asks no stream whether it's a terminal.
 //!
-//! So does eval's [`Deny`]: when it's on, the start installs
+//! So does eval's [`Determinism`]: denied, the start installs
 //! `determinism: deny` (the bootstrap's `deny`, which refuses the clock,
 //! randomness, and the machine's facts, and deletes the timers, `Blob`,
 //! and `File`), before
@@ -67,17 +67,22 @@ fn op_gro_console_stderr(state: &OpState) -> bool {
     state.borrow::<ConsoleOptions>().routing == ConsoleRouting::Stderr
 }
 
-/// Whether the run is an eval, which denies the clock, randomness, the
-/// machine's facts, and timers: put in the runtime's `OpState` before the
-/// bootstrap's start reads it.
+/// Whether the run may read the clock, randomness, and the machine's facts,
+/// and set timers: put in the runtime's `OpState` before the bootstrap's
+/// start reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Deny(pub bool);
+pub enum Determinism {
+    /// `fgro run`'s: all of them, as the web platform has them.
+    Allowed,
+    /// Eval's: `determinism: deny` installed, refusing them all.
+    Denied,
+}
 
 /// Whether the bootstrap's start installs `determinism: deny`, as the run's
-/// [`Deny`] says.
+/// [`Determinism`] says.
 #[op2(fast)]
 fn op_gro_deny(state: &OpState) -> bool {
-    state.borrow::<Deny>().0
+    *state.borrow::<Determinism>() == Determinism::Denied
 }
 
 /// What [`op_gro_refused`] throws.
@@ -153,10 +158,19 @@ deno_core::extension!(
     },
 );
 
+/// Whether a runtime's ops run as their extensions declare them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ops {
+    /// Every op as declared: `fgro run`'s, and the snapshot's.
+    Kept,
+    /// The ops in [`REFUSED_OPS`] refused ([`refuse_ops`]): eval's.
+    Refused,
+}
+
 /// The runtime's extensions, in dependency order: `deno_webidl`, `deno_web`, and
-/// gro's bootstrap last, since it reads both. With `refuse`, the bootstrap's
-/// extension carries [`refuse_ops`], which `deno_core` applies to every
-/// op, its own included.
+/// gro's bootstrap last, since it reads both. With [`Ops::Refused`], the
+/// bootstrap's extension carries [`refuse_ops`], which `deno_core` applies
+/// to every op, its own included; the list is the same either way.
 ///
 /// Each extension's lazy ES modules (`deno_web`'s `locks.js` and
 /// `webtransport.js`) and synthetic ES modules (none today) are dropped from
@@ -167,12 +181,12 @@ deno_core::extension!(
 /// before asking the loader at all. Either way a user module's `import` would
 /// reach the module past the loader's refusal of every `ext:` specifier. gro
 /// installs no global from them, so nothing else changes.
-pub fn extensions(refuse: bool) -> Vec<Extension> {
+pub fn extensions(ops: Ops) -> Vec<Extension> {
     let mut extensions = declared_extensions();
     for extension in &mut extensions {
         extension.lazy_loaded_esm_files = Cow::Borrowed(&[]);
         extension.synthetic_esm_modules = Cow::Borrowed(&[]);
-        if refuse && extension.name == "gro" {
+        if ops == Ops::Refused && extension.name == "gro" {
             extension.middleware_fn = Some(Box::new(refuse_ops));
         }
     }
@@ -196,8 +210,8 @@ pub fn declared_extensions() -> Vec<Extension> {
 
 /// Runs the bootstrap's per-run steps on a started runtime, from a snapshot
 /// or not: what a snapshot must not carry (the time origin, the console's
-/// [`ConsoleOptions`] and the run's [`Deny`], which must be in the runtime's
-/// `OpState` by now, and with it on, `determinism: deny`) and
+/// [`ConsoleOptions`] and the run's [`Determinism`], which must be in the
+/// runtime's `OpState` by now, and denied, `determinism: deny`) and
 /// what `deno_core` still reads while it starts from one (`Deno.core`, removed
 /// here with `__bootstrap`).
 ///

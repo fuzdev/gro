@@ -156,14 +156,17 @@ pub struct DumpLocal {
 }
 
 /// Why a graph has no dump.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DumpError {
     /// A path in it isn't UTF-8, so no id can name it as written.
+    #[error("the graph names {}, which isn't a UTF-8 path, so no id can name it", .0.display())]
     NotUtf8(PathBuf),
     /// A module's URL names no local path.
+    #[error("the graph names the module {0}, whose URL names no local path")]
     NotAPath(Url),
     /// A consulted file has no read recorded: a host bug, which fails the
     /// eval as `internal`.
+    #[error("the graph names {} as consulted with no read of it recorded", .0.display())]
     Unread(PathBuf),
 }
 
@@ -241,6 +244,12 @@ pub fn dump_graph(
             imports,
         });
     }
+    // an edge is recorded only from a module the loader recorded
+    debug_assert!(
+        imports.is_empty(),
+        "edges from importers with no record: {:?}",
+        imports.keys().collect::<Vec<_>>()
+    );
     modules.sort_by(|a, b| a.id.cmp(&b.id));
     let mut consulted = Vec::with_capacity(graph.consulted().len());
     for file in graph.consulted() {

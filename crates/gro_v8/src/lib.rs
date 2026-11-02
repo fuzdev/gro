@@ -65,15 +65,24 @@ impl HeapReader {
         // the isolate; holding it here keeps nothing alive past that, since
         // the slot's drop is what ends it. Its count is atomic: V8 can run a
         // near-heap-limit callback on a thread allocating in the background
+        // (V8's `HeapAllocator::RetryCustomAllocateLight`, in
+        // `src/heap/heap-allocator.cc`, checks the heap's limit on the
+        // allocating thread), so the read can't be kept to the isolate's
         let _alive = self.alive.upgrade()?;
-        // SAFETY: the isolate lives: its slot still holds the token, and
-        // slots are dropped before the isolate is disposed. The reader is
-        // on the isolate's thread, the one that made it (it isn't `Send`),
-        // or in a near-heap-limit callback, which V8 calls between
-        // collections, and reading heap statistics is valid from any
-        // thread. The handle made here only copies the pointer, forms no
-        // Rust reference to the isolate's memory, has no `Drop`, and is gone
-        // before this returns
+        // SAFETY: the isolate's memory is live for the whole read. The token
+        // was in its slot when upgraded, and rusty_v8's `OwnedIsolate::drop`
+        // drops the slots (`prepare_annex_for_dispose`) before it calls
+        // `Isolate::Dispose`; a read that began before that drop finishes
+        // before V8 frees anything, since `Isolate::Deinit` (V8's
+        // `src/execution/isolate.cc`) waits out every background task and
+        // compile job before it tears the heap down ("no more background
+        // threads left in this isolate"), and the isolate's own thread is
+        // the one running the drop. The call itself may run on any thread:
+        // V8's `Isolate::GetHeapStatistics` (`src/api/api.cc`) states the
+        // embedder may call it from any thread, and sets the thread's
+        // current isolate for the call. The handle made here only copies the
+        // pointer, forms no Rust reference to the isolate's memory, has no
+        // `Drop`, and is gone before this returns
         let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(self.isolate) };
         Some(isolate.get_heap_statistics().used_heap_size())
     }

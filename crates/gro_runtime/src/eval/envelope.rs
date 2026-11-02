@@ -58,6 +58,19 @@ pub enum GraphField {
     Dumped(Box<GraphDump>),
 }
 
+impl GraphField {
+    /// The field with its graph dropped, as an envelope written without it
+    /// carries: not asked for stays [`GraphField::Omitted`], and anything
+    /// else is [`GraphField::Unavailable`].
+    #[must_use]
+    pub const fn dropped(&self) -> Self {
+        match self {
+            Self::Omitted => Self::Omitted,
+            Self::Unavailable | Self::Dumped(_) => Self::Unavailable,
+        }
+    }
+}
+
 /// The runtime that evaluated, for display only: two binaries can share
 /// every field, so none identifies one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -193,11 +206,6 @@ pub struct EvalError {
     /// own report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
-    /// Whether the command line must change: the entry didn't resolve as a
-    /// specifier, or it is no project's own module (inside `node_modules`,
-    /// or with no project root). Not written; it decides the exit code.
-    #[serde(skip)]
-    pub usage: bool,
 }
 
 impl EvalError {
@@ -210,7 +218,6 @@ impl EvalError {
             specifier: None,
             importer: None,
             hint: None,
-            usage: false,
         }
     }
 }
@@ -367,15 +374,12 @@ pub(super) fn cap_envelope(envelope: &mut Envelope, max: usize, kept: usize) {
                 "the envelope would be {size} bytes, past {}, the envelope's cap, so the \
                  value isn't written; write less data, and keep error messages and import \
                  specifiers short",
-                serialize::format_size(max)
+                serialize::format_size(max as u64)
             ),
         ));
     }
     envelope.access = None;
-    envelope.graph = match envelope.graph {
-        GraphField::Omitted => GraphField::Omitted,
-        GraphField::Unavailable | GraphField::Dumped(_) => GraphField::Unavailable,
-    };
+    envelope.graph = envelope.graph.dropped();
     if fits(envelope) {
         return;
     }
@@ -457,7 +461,6 @@ mod tests {
         );
         let mut error = EvalError::new(ErrorKind::LateRejection, "late");
         error.at = Some("$".to_owned());
-        error.usage = true;
         let failed = envelope(Err(error)).to_json().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&failed).unwrap();
         assert_eq!(parsed["ok"], false);

@@ -129,7 +129,7 @@ const _: () = assert!(MAX_ENVELOPE_SIZE == 64 << 20);
 
 /// The room the cap is raised by, once, when the heap first nears it: 32
 /// MiB, enough for the run to unwind and its envelope to be written.
-pub const HEAP_HEADROOM: usize = 32 << 20;
+const HEAP_HEADROOM: usize = 32 << 20;
 
 /// The timeout when the caller sets none: 10 seconds.
 ///
@@ -145,19 +145,33 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 /// it needs little; std raises a size below the platform's least to it.
 const WATCHDOG_STACK_SIZE: usize = 128 << 10;
 
-/// Why the host stopped the run's JS.
+/// Why the host stopped the run's JS, by the byte [`Stopped`] holds it as
+/// (0 is none).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Stop {
     /// The heap reached its cap.
-    Heap,
+    Heap = 1,
     /// An allocation outside the heap failed, the process's memory taken:
     /// V8 collects all it can before it gives up on one, and calls the
     /// near-heap-limit callback as it does, which finds the heap well below
     /// its cap ([`HEAP_FULL`]). Turned into [`Stop::Heap`] when the run's end
     /// finds the heap full after all ([`Stopped::check_heap`]).
-    Memory,
+    Memory = 3,
     /// The timeout passed.
-    Timeout,
+    Timeout = 2,
+}
+
+impl Stop {
+    /// The stop held as `value`, or `None` for none.
+    const fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::Heap),
+            2 => Some(Self::Timeout),
+            3 => Some(Self::Memory),
+            _ => None,
+        }
+    }
 }
 
 /// Why the host stopped the run's JS, if it did: the first stop recorded,
@@ -170,7 +184,7 @@ pub struct Stopped(Arc<StopState>);
 /// What [`Stopped`] shares.
 #[derive(Debug, Default)]
 struct StopState {
-    /// The first stop recorded.
+    /// The first stop recorded, as its byte, or [`Stopped::NONE`].
     first: AtomicU8,
     /// Whether the near-heap-limit callback found the heap full, whatever
     /// stopped the run first.
@@ -178,26 +192,21 @@ struct StopState {
 }
 
 impl Stopped {
+    /// No stop recorded.
     const NONE: u8 = 0;
-    const HEAP: u8 = 1;
-    const TIMEOUT: u8 = 2;
-    const MEMORY: u8 = 3;
 
     /// Records `stop`, unless a stop is recorded already.
     fn set(&self, stop: Stop) {
-        let value = match stop {
-            Stop::Heap => {
-                self.0.heap.store(true, Ordering::SeqCst);
-                Self::HEAP
-            }
-            Stop::Memory => Self::MEMORY,
-            Stop::Timeout => Self::TIMEOUT,
-        };
+        if stop == Stop::Heap {
+            self.0.heap.store(true, Ordering::SeqCst);
+        }
         // the first stop stands
-        let _ =
-            self.0
-                .first
-                .compare_exchange(Self::NONE, value, Ordering::SeqCst, Ordering::SeqCst);
+        let _ = self.0.first.compare_exchange(
+            Self::NONE,
+            stop as u8,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
     }
 
     /// Turns a recorded [`Stop::Memory`] into [`Stop::Heap`] when the heap,
@@ -210,7 +219,12 @@ impl Stopped {
             && self
                 .0
                 .first
-                .compare_exchange(Self::MEMORY, Self::HEAP, Ordering::SeqCst, Ordering::SeqCst)
+                .compare_exchange(
+                    Stop::Memory as u8,
+                    Stop::Heap as u8,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
                 .is_ok()
         {
             self.0.heap.store(true, Ordering::SeqCst);
@@ -225,12 +239,7 @@ impl Stopped {
 
     /// The stop recorded, if any.
     pub fn get(&self) -> Option<Stop> {
-        match self.0.first.load(Ordering::SeqCst) {
-            Self::HEAP => Some(Stop::Heap),
-            Self::TIMEOUT => Some(Stop::Timeout),
-            Self::MEMORY => Some(Stop::Memory),
-            _ => None,
-        }
+        Stop::from_u8(self.0.first.load(Ordering::SeqCst))
     }
 }
 

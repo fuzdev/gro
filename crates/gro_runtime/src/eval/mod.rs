@@ -145,9 +145,11 @@ use self::limits::Stopped;
 pub use self::limits::{
     DEFAULT_THREAD_STACK, DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE, MEMORY_LIMIT,
 };
-use self::prepass::entry_id;
-pub use self::prepass::{Prepass, confine_error, prepass};
+use self::prepass::failed_at;
+pub use self::prepass::{Prepass, PrepassError, prepass};
 use self::run::evaluate;
+use self::serialize::format_size;
+use crate::confine::{BoxRoots, Jit};
 use crate::engine::{ConfinedEngine, EngineOptions};
 use crate::loader::{Loader, Rules};
 use crate::phases;
@@ -182,13 +184,13 @@ pub const TIME_ZONE: &str = "UTC";
 /// something else.
 pub const UTC_EPOCH: &str = "Thu Jan 01 1970 00:00:00 GMT+0000 (Coordinated Universal Time)";
 
-/// The engine eval runs on: jitless unless `jit`, code generation from
-/// strings off either way, and [`LOCALE`]. A priced build can turn either
-/// of the last two off ([`prices`]).
-pub fn engine_options(jit: bool) -> EngineOptions {
+/// The engine eval runs on: jitless unless `jit` is on, code generation
+/// from strings off either way, and [`LOCALE`]. A priced build can turn
+/// either of the last two off ([`prices`]).
+pub fn engine_options(jit: Jit) -> EngineOptions {
     EngineOptions {
         locale: (!prices::off(EvalDefault::Locale)).then_some(LOCALE),
-        jitless: !jit,
+        jitless: jit == Jit::Off,
         disallow_code_generation_from_strings: !prices::off(EvalDefault::Codegen),
     }
 }
@@ -206,8 +208,9 @@ pub struct EvalOptions {
     /// The driver's source, as read from stdin; invalid UTF-8 reads as
     /// U+FFFD, as V8 decodes a module's bytes.
     pub driver: Option<Vec<u8>>,
-    /// Whether the JIT is on, which [`engine_options`] the engine must have.
-    pub jit: bool,
+    /// Whether the JIT is on, which [`engine_options`] the engine must have
+    /// and the box is installed for ([`Prepass::confine`]).
+    pub jit: Jit,
     /// The snapshot to start from, as for `fgro run`.
     pub snapshot: Option<StartupSnapshot>,
     /// The runtime the envelope reports.
@@ -225,8 +228,9 @@ pub struct EvalOptions {
     pub graph: bool,
 }
 
-/// Evaluates `prepass` as the module doc describes, on the engine `engine`
-/// names, and returns the envelope, whatever happened.
+/// Evaluates `prepass`, its process confined to its box
+/// ([`Prepass::confine`]), as the module doc describes, on the engine
+/// `engine` names, and returns the envelope, whatever happened.
 ///
 /// The engine is a confined one, so there is no eval outside the box: one
 /// confined to another box than the prepass's, or started with no snapshot,
@@ -234,22 +238,22 @@ pub struct EvalOptions {
 ///
 /// Runs on the calling thread, which must reserve
 /// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
-pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
+pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
     let Prepass {
         options,
         entry,
         roots,
         reads,
-        confinement,
+        confinement: box_roots,
     } = prepass;
     let options = &options;
     let driver_url = Url::parse(DRIVER_SPECIFIER).ok();
-    let mut envelope = failed(
+    let mut envelope = failed_at(
         options,
+        &entry,
         EvalError::new(ErrorKind::Internal, "not evaluated"),
     );
-    envelope.entry.id = entry_id(&entry);
-    if engine.confined().roots() != confinement.roots() {
+    if engine.confined().roots() != &box_roots {
         envelope.result = Err(EvalError::new(
             ErrorKind::Internal,
             "the process is confined to another box than this eval's",
@@ -294,13 +298,9 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
     let rules = Rules {
         refuse_dynamic_import: true,
         driver: options.driver.is_some().then(|| driver_url.clone()),
-        box_roots: (!prices::off(EvalDefault::BoxRule)).then(|| confinement.roots().clone()),
+        box_roots: (!prices::off(EvalDefault::BoxRule)).then(|| box_roots.clone()),
     };
-    let box_roots = options
-        .graph
-        .then(|| confinement.roots().as_slice().to_vec());
-    // the roots' handles are done with once the box is up
-    drop(confinement);
+    let graph_box = options.graph.then(|| box_roots.as_slice().to_vec());
     let loader = Rc::new(
         Loader::new(&entry, roots, recording())
             .with_reads(reads)
@@ -319,13 +319,14 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass) -> Envelope {
     let graph = loader.take_graph();
     envelope.access = Some(access(&graph));
     let mut unread = None;
-    if let Some(box_roots) = box_roots {
-        envelope.graph = match dump_graph(&graph, &entry.url, &box_roots) {
+    if let Some(graph_box) = graph_box {
+        envelope.graph = match dump_graph(&graph, &entry.url, &graph_box) {
             Ok(dump) => GraphField::Dumped(Box::new(dump)),
             Err(DumpError::Unread(path)) => {
                 unread = Some(path);
                 GraphField::Unavailable
             }
+            // a path no id can name: the documented `null`
             Err(DumpError::NotUtf8(_) | DumpError::NotAPath(_)) => GraphField::Unavailable,
         };
     }
@@ -370,10 +371,7 @@ fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> 
             result: Err(error),
             access: None,
             // prepared before the run, so never a graph, only its absence
-            graph: match envelope.graph {
-                GraphField::Omitted => GraphField::Omitted,
-                GraphField::Unavailable | GraphField::Dumped(_) => GraphField::Unavailable,
-            },
+            graph: envelope.graph.dropped(),
         };
         let mut json = backstop.to_json().ok()?;
         json.push('\n');
@@ -383,17 +381,17 @@ fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> 
         heap: prepared(EvalError::new(
             ErrorKind::Heap,
             format!(
-                "the eval's heap reached its cap of {} MiB with nothing left to give: one \
+                "the eval's heap reached its cap of {} with nothing left to give: one \
                  operation V8 can't stop ran out of memory, so the process exited",
-                HEAP_LIMIT >> 20
+                format_size(HEAP_LIMIT as u64)
             ),
         ))?,
         memory: prepared(EvalError::new(
             ErrorKind::Memory,
             format!(
                 "the eval ran out of memory outside the heap's cap: the process reached its \
-                 memory cap of {} MiB, or a lower one its caller set, so it exited",
-                MEMORY_LIMIT >> 20
+                 memory cap of {}, or a lower one its caller set, so it exited",
+                format_size(MEMORY_LIMIT)
             ),
         ))?,
     })
@@ -407,7 +405,7 @@ fn options(entry: &Path, cwd: &Path) -> EvalOptions {
         cwd: cwd.to_owned(),
         export: None,
         driver: None,
-        jit: false,
+        jit: Jit::Off,
         snapshot: None,
         runtime: RuntimeInfo::new("0.0.0", None),
         timeout: DEFAULT_TIMEOUT,
@@ -423,14 +421,14 @@ mod tests {
     #[test]
     fn eval_s_engine_is_jitless_unless_asked_and_never_generates_code() {
         assert_eq!(
-            engine_options(false),
+            engine_options(Jit::Off),
             EngineOptions {
                 locale: Some("en-US"),
                 jitless: true,
                 disallow_code_generation_from_strings: true,
             }
         );
-        assert!(!engine_options(true).jitless);
-        assert!(engine_options(true).disallow_code_generation_from_strings);
+        assert!(!engine_options(Jit::On).jitless);
+        assert!(engine_options(Jit::On).disallow_code_generation_from_strings);
     }
 }
