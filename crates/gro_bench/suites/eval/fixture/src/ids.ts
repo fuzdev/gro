@@ -38,6 +38,7 @@ export const ID = {
 	backup_cron: 'backup-cron',
 	logrotate: 'logrotate-harbor',
 	ssh_config: 'ssh-hardening',
-	ssh_reload: 'ssh-reload',
+	ssh_service: 'service-ssh',
+	ssh_verify: 'verify-ssh-hardening',
 	verify_pre_hardening: 'verify-pre-hardening'
 } as const;

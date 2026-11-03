@@ -6,8 +6,8 @@
  */
 
 import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
-import { ssh_hardening } from '@fuzdev/zap/recipe_ssh.ts';
-import { debian_ssh_reload } from '@fuzdev/zap/recipe_debian_ssh.ts';
+import { SSHD_VALIDATE, ssh_hardening, ssh_hardening_verify } from '@fuzdev/zap/recipe_ssh.ts';
+import { debian_ssh_service } from '@fuzdev/zap/recipe_debian_ssh.ts';
 
 import { DEPLOY_USER, OPERATORS } from './host.ts';
 import { ID } from './ids.ts';
@@ -39,13 +39,19 @@ export const declare_hardening = (zap: ZapBuilder): void => {
 			content: ssh_hardening({ user: DEPLOY_USER, max_auth_tries: 3, login_grace_time: 30 })
 		},
 		mode: '644',
-		validate: 'sudo sshd -t -f %s',
+		validate: SSHD_VALIDATE,
 		depends_on: [ID.verify_pre_hardening]
 	});
-	zap.script({
-		id: ID.ssh_reload,
-		name: 'Reload sshd with the hardened config',
-		...debian_ssh_reload(),
+	zap.service({
+		id: ID.ssh_service,
+		name: 'sshd',
+		...debian_ssh_service({ reload_on: [ID.ssh_config] }),
 		depends_on: [ID.ssh_config]
+	});
+	zap.verify({
+		id: ID.ssh_verify,
+		name: 'Effective sshd config is hardened',
+		...ssh_hardening_verify(),
+		depends_on: [ID.ssh_service]
 	});
 };
