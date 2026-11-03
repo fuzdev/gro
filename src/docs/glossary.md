@@ -19,13 +19,14 @@ The loader holds the admitted roots; the resolver admits nothing ([resolver](res
 
 ## authority globals
 
-The web globals that reach outside the run: the network (`fetch`, `WebSocket`, `EventSource`),
-storage that outlives it (web storage), or code outside its module graph (`Worker`, if it lands).
+The web globals that would reach outside the run: the network (`fetch`, `WebSocket`, `EventSource`),
+storage that outlives it (web storage), or code outside its module graph (`Worker`).
+Gro has none. A global isn't an import edge, so it can't be soundly [inferred](#inference),
+and one [realm](#realm) has one global object, so a grant of one would cover every module in the run.
+Each is an import instead (`net.fetch`, `net.WebSocket`, `net.EventSource` on the `net` [handle](#handle),
+a worker module when it lands) or isn't provided (web storage).
 Every other web global is a [pure global](#pure-globals), present or absent only until a consumer needs it.
-A global isn't an import edge, so they can't be soundly [inferred](#inference),
-and they're [declared](#declared) instead, absent until granted.
-One [realm](#realm) has one global object, so a grant of one covers every module in the run.
-Compare [pure globals](#pure-globals) and [host modules](#host-modules).
+Compare [host modules](#host-modules).
 
 ## box
 
@@ -49,8 +50,9 @@ The default [run kind](#run-kinds), bounded by its grants and not replayable.
 
 ## declared
 
-A grant a person writes, in a static `grants` literal or a flag, rather than one [inferred](#inference).
-Authority globals are always declared. A declaration is a proposal until the [policy file](#policy-file) accepts it.
+A grant a person writes, in a static `grants` literal or a flag, rather than one [inferred](#inference):
+named hosts, a read root outside the project, a spawn allowlist.
+A declaration is a proposal until the [policy file](#policy-file) accepts it.
 
 ## driver
 
@@ -68,11 +70,11 @@ the value, or an error with its kind, which a caller branches on.
 
 `-A` (`--allow-all`), which makes a run [unconfined](#unconfined).
 It's the one blanket escape hatch, never a default.
-Narrower ways to widen sit beside each default, like the globals grant and the JIT flag for `gro eval`.
+Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
 ## grant
 
-One accepted reach, like a host module, named network hosts, a read root, or an authority global.
+One accepted reach, like a host module, named network hosts, or a read root.
 A grant is always of something specific, so even a wide one keeps a run [confined](#confined).
 
 ## graph dump
@@ -107,8 +109,8 @@ Each is a visible edge in the import graph, so a run's host modules are [inferre
 ## inference
 
 Computing a run's grants from its import graph, before any code runs.
-It's sound for host modules, since every way to reach them is an import,
-and not possible soundly for authority globals, which any expression can name.
+It's sound, since every way to reach authority is an import.
+A global would defeat it, since any expression can name one, which is why Gro has no [authority globals](#authority-globals).
 
 ## interposition
 
@@ -194,11 +196,12 @@ Passing them as parameters keeps reach at the roots and puts the detail in need 
 
 One global object and its set of shared prototypes (the intrinsics).
 Every module in a realm shares them, and a run has one realm by default.
-Separate realms per package or trust tier are being explored as an opt-in, never the default.
+Separate realms per package or trust tier are being explored as an opt-in hardening of the intrinsics
+against [interposition](#interposition), not a way to grant authority, and never the default.
 
 ## review signal
 
-Something that reports without enforcing, like the [scan](#scan) or the advisory grants on the Node Gro.
+Something that reports without enforcing, like the advisory grants on the Node Gro.
 The docs and the CLI name each one as a signal, with what evades it, never as a boundary.
 
 ## root
@@ -214,14 +217,6 @@ never into `node_modules` below it or into another root nested in it.
 Every run is one of three by what it reaches and depends on,
 [hermetic](#hermetic), [confined](#confined), or [unconfined](#unconfined),
 derived from its grants and recorded in the policy file.
-
-## scan
-
-The planned per-package record of which authority globals a package's code references by name,
-so a package that starts calling `fetch` shows in the policy diff.
-It's a [review signal](#review-signal). Code that reaches a global indirectly
-(`globalThis[name]`, `Reflect.get`, a reference handed in) gets past it,
-though dynamic access to the global object is itself flagged.
 
 ## security gate
 

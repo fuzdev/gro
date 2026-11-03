@@ -35,7 +35,6 @@ with granular control over what code can reach.
 By default a run is confined.
 Its code reaches only what it imports or is handed,
 the way a function reaches only the bindings in scope,
-plus any global the policy file accepts,
 so what a run can reach is a static fact about its import graph and its policy,
 reviewed like a lockfile, and code that only reads and writes its own project's files has nothing to declare.
 Runs can be hermetic too, with clock and randomness fixed or denied,
@@ -60,11 +59,12 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
   each a visible edge in the graph
-- **authority globals** are the web globals that reach outside the run,
+- **authority globals** are the web globals that would reach outside the run,
   to the network (`fetch`, `WebSocket`, `EventSource`), to storage that outlives it (web storage),
-  or to code outside its module graph (`Worker`, if it lands),
-  the one authority not declared by import, since a global reaches every module in the graph;
-  every other web global is present, or absent only until a consumer needs it (`crypto`, `Headers`)
+  or to code outside its module graph (`Worker`);
+  Gro has none, since a global reaches every module in the graph:
+  the network is the `net` import, `Worker` will be an import, and web storage isn't provided;
+  every other web global is pure, present or absent only until a consumer needs it (`crypto`, `Headers`)
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
@@ -129,7 +129,7 @@ As designed, not yet built, a run gets:
 
 A script's needs are a static property of its import graph,
 so least privilege costs nothing to write.
-A file that imports only `fuz_util` and the fs module, and declares no global, can't spawn or fetch.
+A file that imports only `fuz_util` and the fs module can't spawn or fetch.
 That's `gro run`'s unit, one file's graph,
 and a tool that runs several entries in one invocation, like Gro's tasks,
 holds their union ([below](#gros-workflow-on-the-runtime)).
@@ -141,10 +141,8 @@ the same shape as a lockfile change.
 A run outside any project, or one that needs a grant just once, takes it by flag instead,
 in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
 and `-A` is the same flag at its widest.
-The authority globals are the exception: once a run holds the global `fetch`,
-a dependency that starts calling it changes no grant.
-A planned scan flags it in the diff for review,
-but the scan can be evaded and enforces nothing ([imports or globals](#imports-or-globals)).
+The network included: `fetch` is an import,
+so a dependency that starts fetching is a new edge in the graph, and the diff names the package.
 
 The policy file is also the guardrail for agents.
 What an agent's code may reach sits in one small file a person can audit,
@@ -168,8 +166,7 @@ so an entry that stops being hermetic is a reviewed diff.
 `gro eval` is hermetic by default, as are Gro's gen files.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
-That includes the authority globals, since `fetch` reaches every module in the graph
-but only the hosts accepted.
+A net grant names hosts, or is a blanket grant, never a global.
 Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined,
 and a grant as strong as `-A`, like spawning a shell, is flagged that way in the diff.
 
@@ -177,13 +174,13 @@ and a grant as strong as `-A`, like spawning a shell, is flagged that way in the
 
 The guarantees come in two kinds, and it's worth knowing which is which.
 Some hold by construction, with no setting that changes them.
-Authority enters by an import or a declared global, so what a run can reach is a static fact,
+Authority enters by an import, so what a run can reach is a static fact,
 though which of its modules ends up holding a capability is not.
 There's no `process` global, no Node compat, no remote import,
 and no runtime namespace to reach around the loader.
 A WASM module's imports are its capability declaration the same way.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
-These are the read and write roots, the net hosts, the authority globals, the deny overlays,
+These are the read and write roots, the net hosts, the deny overlays,
 the empty environment for children, the kernel rules, whether a run stays hermetic,
 and native code kept out of the runtime's process.
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
@@ -206,14 +203,14 @@ The costs are elsewhere, and stated plainly:
 no Node compat and no runtime namespace, so code written for Node or Deno needs porting;
 strict ESM, so an npm package without `exports`, or one that's CommonJS, is refused;
 TypeScript's erasable syntax only;
-and the authority globals, `fetch` among them, absent until declared.
+and no global carries authority, so a package that reaches the network only through the global `fetch` isn't supported.
 
 ## Threat model
 
 Grants contain overreach.
 A dependency, a task, or an agent that reaches for authority nobody accepted
 fails before it runs (an unaccepted host module fails at link time,
-and an undeclared global isn't there), and the widening shows up as a diff in review.
+and there's no global to reach around it), and the widening shows up as a diff in review.
 V8 itself isn't treated as the boundary against code built to escape it.
 An engine exploit lands in the kernel backstop,
 which applies the same grants to the whole invocation and every child process,
@@ -239,10 +236,11 @@ The runtime prioritizes, in order:
 
 1. security, with no ambient authority, confinement by construction, and a kernel backstop under it,
    measured by a gate suite of escape probes the way speed is measured by the bench
-2. web-standards conformance, to the WinterTC minimum common API,
-   graded by its WPT subset under a full grant set
+2. web-standards conformance, to the WinterTC minimum common API less the members that carry authority
+   (`fetch`, `WebSocket`), which are imports here because security comes first;
+   graded by its WPT subset with those bound from `net` in the harness
 3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads and writes its project's files,
-   and a way to widen beside every default (`-A`, the globals grant, the JIT flag for eval),
+   and a way to widen beside every default (`-A`, a blanket net grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed
 4. speed, startup first, since short-lived invocations dominate an agent-driven loop,
    measured against Node, Deno, and Bun on the same workloads,
@@ -251,7 +249,7 @@ The runtime prioritizes, in order:
 5. binary size and memory
 
 Staying simple and small is overarching, since the security story depends on
-a surface small enough to audit, where every path to the OS is an import or a declared global.
+a surface small enough to audit, where every path out of the run is an import.
 Gro runs on V8, as Node and Deno do, so steady-state compute will be at parity, version for version,
 and the wins are everything around the engine (startup, loading, caching, work avoided).
 Gro isn't security maximalism. The defaults are safe and the user decides when to widen them.
@@ -270,7 +268,8 @@ so each piece can be rewritten on its own as measurements justify it.
   Node's API hands every module ambient authority (`process`, `require`, and `node:fs`
   are reachable from anywhere), so a compat layer would bring it back.
   It also declines the years of work Bun and Deno each spent on Node compat.
-  Nor is there a runtime namespace: beyond the web's globals, everything is an import.
+  Nor is there a runtime namespace, and no global carries authority:
+  beyond the web's pure globals, everything is an import, `fetch` included.
 - **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
@@ -289,17 +288,19 @@ so each piece can be rewritten on its own as measurements justify it.
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
   so an ungranted graph fails at link time, not at the first call.
-  The network is an import too.
-  The host's net module exports a `net` handle (`net.fetch`, bound to the accepted hosts)
-  that's narrowed and passed down like any other capability,
-  so authority is visible at every use site and nothing shadows the web's `fetch`.
+  The network is an import too, never a global.
+  The host's net module exports a `net` handle (`net.fetch`, `net.WebSocket`, `net.EventSource`,
+  bound to the accepted hosts) that's narrowed and passed down like any other capability,
+  so authority is visible at every use site.
+  There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` whose hint names the import.
   A net grant is inferred from the graph like a filesystem one, naming hosts.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
   and ops check the scoped cases (reads under a root).
-- **No new globals.** The authority globals are a separate, wider grant,
-  since a global reaches every module in the graph
-  ([imports or globals](#imports-or-globals) weighs the two).
-  They're declared, never inferred, and absent until then.
+- **No authority globals, and no new globals.** Nothing that reaches outside the run is a global:
+  not the network, not storage that outlives the run (web storage isn't provided),
+  not code outside the graph (`Worker`, when it lands, is an import under the same rules).
+  A global reaches every module in the graph, so a granted one could never be attributed
+  to the package that uses it ([imports or globals](#imports-or-globals) has the trade-off).
   The global object is the one dynamic channel, and it's made non-extensible after bootstrap,
   so a handed capability can't be stashed there as a new global.
   A package that adds a global needs a policy entry,
@@ -354,23 +355,25 @@ so each piece can be rewritten on its own as measurements justify it.
 
 ### Imports or globals
 
-Authority reaches code two ways, and they trade differently.
+Authority could reach code two ways, and Gro has only the first. The table is why.
 
-|                    | a host module import (`net.fetch`, fs, spawn)            | an authority global (`fetch`, `WebSocket`)        |
+|                    | a host module import (`net.fetch`, fs, spawn)            | an authority global (`fetch`, `WebSocket`), as Node, Deno, and Bun have |
 | ------------------ | -------------------------------------------------------- | ------------------------------------------------- |
-| granted            | inferred from the import, accepted in review             | declared by hand, accepted in review              |
+| granted            | inferred from the import, accepted in review             | declared by hand, since any expression can name a global |
 | reaches            | the modules it's imported into and handed to             | every module in the invocation                    |
 | the diff shows     | which package newly reaches it                           | that the invocation needs it, not which code uses it |
 | narrowed           | on the value (fewer hosts, a subdirectory), passed down  | to the accepted hosts, the same for every module  |
-| when denied        | the import fails at link time                            | it's absent, so `typeof fetch` is `'undefined'`   |
+| when denied        | the import fails at link time                            | it's absent; a scan for free references would be evadable |
 | portable           | the Node twin in Gro's npm package until binary-only     | anywhere the web API exists                       |
 | existing packages  | the ones written to take it                              | the ones that call the global today               |
 | in the code        | passed down the call graph                               | reachable from anywhere                           |
 
+With no authority global, every reach is an import edge, so inference is sound for all of it
+and the policy diff attributes every widening to a package.
 Both columns describe code that doesn't patch shared prototypes;
 against a dependency that does, the [threat model](#threat-model) says where the bound is.
 
-The import is the default and the narrow path, and where it happens matters:
+Where the import happens matters:
 
 - Import host modules at the [composition root](glossary.md#composition-root),
   the task or entry module where authority enters,
@@ -385,7 +388,7 @@ The import is the default and the narrow path, and where it happens matters:
 - Hand down the narrowest handle (a directory handle, `net.narrow({hosts})`) rather than the module,
   so narrowing happens at the root, where review sees it.
 - `net.fetch` is bound, so it can be handed to any library that accepts an injected `fetch`,
-  and `const {fetch} = net` gives the bare name in one module.
+  and `const {fetch} = net` gives the bare name in one module; `net.WebSocket` and `net.EventSource` hand the same way.
 
 A single-file script is its own root and imports directly.
 The cost is that the policy sees [reach](glossary.md#reach-need-and-use) only at the roots.
@@ -394,20 +397,12 @@ and what the root hands to whom is in the root's code, not the policy file.
 A grant limits what code can obtain, never what it's given,
 so even enforced per package it bounds the importer, not the code the importer hands to.
 
-The globals grant is for code that can't take an injected value,
-like a package that calls the global `fetch` and can't be changed,
-or code that must also run unchanged in browsers and other runtimes.
-Its cost is scope.
-One realm has one global object, so granting `fetch` for the one package that needs it
-gives it to every module, a dependency that starts calling it later included,
-and the policy entry names the need while its effect covers the invocation.
-A planned scan records which packages reference each authority global by name,
-so a package that starts calling `fetch` shows in the diff for review.
-It's a review signal, not a boundary.
-Code that reaches a global indirectly (`globalThis[name]`, `Reflect.get`, a reference handed in)
-gets past it, though dynamic access to the global object is itself flagged,
-and nothing it records is enforced until globals are scoped per package,
-an [open question](#open-questions).
+The cost is the authority-global column's "existing packages" row.
+A package that reaches the network only through the global `fetch`, and can't take an injected one,
+doesn't run on Gro, and there's no compat layer for it:
+the fix is a package that accepts `fetch` as a parameter, or a fork that does.
+Code that must also run in browsers takes `fetch` as a parameter the same way.
+Security sits above web-standards conformance in Gro's priorities, and this is where the order shows.
 
 Clock and randomness stay globals for a different reason.
 `Date.now()` and `Math.random()` are everywhere and can't be removed,
@@ -425,7 +420,7 @@ is one Deno can't adopt without breaking its users:
 authority enters by import, with nothing ambient
 (no runtime namespace, no `process`, no `require`, no `node:*`),
 so what a run can reach is a fact about its code, not its command line,
-and the declared globals are the one exception.
+with no exception for the network.
 The second is that the module graph is closed and on disk, never fetched at run time.
 Both are guarantees by omission, so they hold for every run,
 where Deno's equivalents are flags that hold for the runs that pass them.
@@ -435,8 +430,9 @@ Deno's end of life in October 2027 is why they're unlikely to land there ([Why](
 
 ## What the design opens up
 
-- **Grants that read like the web.** `typeof fetch` stays the feature check the web already uses,
-  and the error for an undeclared one names the fix, the import first and the global grant second.
+- **Every reach attributed.** With the network an import, the policy diff names the package
+  that newly reaches it, for every kind of authority alike, and `const {fetch} = net` keeps the web's
+  spelling inside a module; the error for a free `fetch` names the import.
 - **Deterministic runs.** Clock and randomness stay the web's globals,
   set per run kind (real, denied, or fixed) rather than imported,
   and hermetic runs pin the time zone and locale,
@@ -452,7 +448,7 @@ Deno's end of life in October 2027 is why they're unlikely to land there ([Why](
   and lets a tool list its entries by parsing instead of executing them (Gro's task listing).
 - **Cheap isolation.** V8 isolates and contexts are cheap in one process,
   so independent runs (Gro's gen files) can run in parallel, each confined, with no process spawn,
-  and trust tiers (project, ecosystem, third party) could get their own global object
+  and trust tiers (project, ecosystem, third party) could get their own frozen intrinsics
   (per-tier contexts, an opt-in on the roadmap's future list).
 - **Polyglot sandboxing.** V8 runs WASM, and a WASM module imported as an ES module
   declares its capabilities by its imports, the same thing a JS module's imports are
@@ -478,17 +474,18 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   so it can resolve promises differently between runs.
   The host has to order completions for "replays exactly" to hold by construction,
   and the cost is unmeasured.
-- **Scoping per package.** One realm has one global object and one set of shared prototypes,
-  so a globals grant reaches every module, and a same-realm dependency can patch an intrinsic
+- **Interposition within one realm.** Authority is already per package, since every grant is an import,
+  but one realm has one set of shared prototypes,
+  so a same-realm dependency can patch an intrinsic
   to intercept a holder's calls and the capabilities passing through them.
-  A V8 context per package or trust tier, with frozen intrinsics, would scope both
+  A V8 context per package or trust tier, with frozen intrinsics, would close that
   (the shape [LavaMoat](https://github.com/LavaMoat/LavaMoat) builds on SES compartments),
   at the cost of realm identity (`instanceof` across contexts), memory,
   and packages that break under it.
   Separate realms are worth exploring as an opt-in tier, but won't be the default,
   since their startup, memory, and compatibility costs weigh against speed and ergonomics.
-  How to scope globals within one realm (or whether to), whether to freeze the intrinsics alone,
-  and what the opt-in tier looks like are undecided, the limit is stated in the meantime,
+  Whether to freeze the intrinsics alone, and what the opt-in tier looks like,
+  are undecided, the limit is stated in the meantime,
   and the gate suite carries a probe either way.
 - **Where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime)).
 
@@ -545,7 +542,7 @@ where the host modules and grants land with their first consumer.
       which the caller of `gro eval` verifies before every spawn
       (the release workflow is built, and no release is tagged yet)
 - [ ] the security gate, a suite of escape probes run under every grant set,
-      with every web global and member classified by the authority it carries as the oracle,
+      with every web global and member checked against the rule that none carries authority, as its oracle,
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
@@ -559,13 +556,13 @@ where the host modules and grants land with their first consumer.
 
 - [x] on the Node Gro, `gro task <path>` replaces the bare `gro <name>` task search
       and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
-- [ ] on the Node Gro, `gro check` infers each task's grants, records each package's use of the authority globals,
-      and diffs both against the committed policy file, labeled advisory,
+- [ ] on the Node Gro, `gro check` infers each task's grants
+      and diffs them against the committed policy file, labeled advisory,
       since Node enforces none of it
 - [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
       `deno task` becoming gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
-      (until then the CLI passes every host module, and the network stays declared)
+      (until then the CLI passes every host module)
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain
 
@@ -575,10 +572,9 @@ Future (unknown order):
 - the `fixed` and `seeded` determinism modes beyond eval's `deny`,
   and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
-- `fetch`, `crypto.subtle`, and `WebSocket` as consumers need them
+- `net.fetch`, `net.WebSocket`, and `crypto.subtle` as consumers need them
 - size: filtered ICU data, V8 build flags
-- per-package grants for the authority globals, enforced
-- V8 contexts per package or trust tier, as an opt-in tier, never the default
+- V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default
 
 Maybe later or never:
 

@@ -67,24 +67,23 @@ Most of Gro's sandbox follows from the first of these:
 
 - **Who holds a grant.** A Gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
-  so the diff says which package newly imports the network, not only that something does
-  (a call to the global `fetch` is the exception below).
+  so the diff names the package that newly reaches the network, or any other authority, by construction.
   A capability handed down by reference stays attributed to the module that imported it;
   handing never widens.
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
   with a `NotCapable` error the code can catch and swallow.
   Gro denies before the code runs: an ungranted host module doesn't link,
-  an undeclared `fetch` isn't there.
+  and there's no global `fetch` to reach around it.
   What's left for the call is the scoped check inside a grant
   (a path outside the root, a host not accepted), and the host reports those too.
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task,
   loads a named permission set from `deno.json` (`-P`, since 2.5), or takes `-A`.
   A Gro run in a project carries nothing: the grants come from the import graph,
-  and the policy file changes only when the graph newly imports authority or declares a global,
+  and the policy file changes only when the graph newly imports authority,
   which is lockfile cadence, not run cadence.
   Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only.
-- **Inference.** It's sound because every entry point but the declared globals is an import,
+- **Inference.** It's sound because every entry point is an import, the network included,
   so the policy file can be generated from the code and reviewed;
   no sound equivalent exists over `Deno.*` calls, which any expression can reach,
   so Deno's permission set is written by hand.
@@ -92,16 +91,13 @@ Most of Gro's sandbox follows from the first of these:
   so one policy file and one inference cover both.
 
 In one line, Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process,
-while Gro's policy file pins what that code can reach, per import chain for host modules
-and per run for the globals, inferred from the graph where it can be,
+while Gro's policy file pins what that code can reach, per import chain, inferred from the graph,
 and is treated like the lockfile, committed, diffed, and reviewed.
 
-Three limits belong beside that claim.
-The authority globals are the one corner of Gro's model shaped like Deno's:
-`fetch` and `WebSocket` reach every module in the graph and can't be soundly inferred,
-so they're declared, absent until granted, and shown as the wider class in the policy diff,
-and the host's `net` import is the narrow way to the same thing, which the hint for a free `fetch` names first
-([imports or globals](runtime.md#imports-or-globals) weighs the two).
+Two limits belong beside that claim, and one cost.
+The cost is that `fetch` and `WebSocket` are imports on the host's `net` handle, never globals,
+so a package that reaches the network only through the global doesn't run on Gro
+([imports or globals](runtime.md#imports-or-globals) has the trade-off).
 The import boundary holds against code that overreaches, not a dependency built to steal,
 which can patch a shared prototype in the same realm
 (the runtime's [threat model](runtime.md#threat-model) says where the bound is then).
@@ -149,7 +145,7 @@ What changes for a script that runs on Deno today, as designed, except where a c
 | a missing permission | a prompt on a terminal, else `NotCapable` at the call, which the code can catch        | the run fails before any code runs, naming the grant and the fix, never a prompt                                                     |
 | changing permissions | edit the flags, or the permission set in `deno.json`                                   | inferred from the imports; a widening fails the project's check until accepted, like a lockfile change                               |
 | host APIs            | `Deno.readTextFile`, `Deno.Command`, `Deno.env`, anywhere                               | imports from the host modules, at the entry module, handed down; the code is ported, not run unchanged                               |
-| `fetch`              | a global, scoped by `--allow-net`                                                      | absent until declared; `net.fetch` from the host's net import is the narrow way                                                      |
+| `fetch`              | a global, scoped by `--allow-net`                                                      | an import, `net.fetch` from the host's net module, bound to the accepted hosts; no global                                             |
 | dependencies         | `npm:`, `jsr:`, and `https:` specifiers, fetched and cached by Deno                    | built: `node_modules` from npm and a `package.json`; a package without `exports`, or one that's CommonJS, is refused with the reason  |
 | TypeScript           | the full language, transpiled, `.tsx` included                                         | built: erasable syntax only, so an `enum` or a parameter property is refused with a fix; no `.tsx`, and no `tsconfig.json` read      |
 | `node:*` built-ins   | a compatibility layer                                                                  | none; the web globals and the host modules instead                                                                                   |
@@ -248,9 +244,9 @@ Gro's cells for a feature start with one of these words:
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
 | opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch |
-| unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain; the run, for authority globals |
-| a dependency's reach is attributable | no                                       | no                                                                  | —       | designed: by the import chain, for host modules                                             |
-| how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, authority globals declared, the policy file authorizes; flags for one run |
+| unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
+| a dependency's reach is attributable | no                                       | no                                                                  | —       | designed: by the import chain, for every grant                                              |
+| how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |
 | network scoping                 | not covered in 24; `--allow-net` since 25          | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
@@ -268,15 +264,15 @@ Gro's cells for a feature start with one of these words:
 
 |                                            | Node                    | Deno                        | Bun                     | Gro                                             |
 | ------------------------------------------ | ----------------------- | --------------------------- | ----------------------- | ----------------------------------------------- |
-| `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed, as a declared grant                   |
-| `WebSocket`                                | yes                     | yes                         | yes                     | later, as a declared grant                      |
+| `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed: `fetch` as the `net.fetch` import, the classes as pure globals |
+| `WebSocket`                                | yes                     | yes                         | yes                     | later, as the `net.WebSocket` import            |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
 | `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
 | `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
-| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the conformance target, graded by its WPT subset under a full grant set |
+| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its authority-bearing members (`fetch`, `WebSocket`), which are imports; graded by its WPT subset with those bound from `net` |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
-| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as a declared grant                      |
+| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as an import, holding at most its parent's grants |
 | HTTP server                                | `node:http`             | `Deno.serve`                | `Bun.serve`             | planned, at the Node exit                       |
 | WebAssembly                                | yes                     | yes                         | yes                     | built: the JS API; `.wasm` imports designed     |
 
