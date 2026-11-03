@@ -272,7 +272,7 @@ Gro's cells for a feature start with one of these words:
 | WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its one authority-bearing member, `fetch`, which is the `net.fetch` import; graded by its WPT subset with `fetch` bound from `net` |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
-| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as an import, holding at most its parent's grants |
+| workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as an import, starting with only what its spawner hands it |
 | HTTP server                                | `node:http`             | `Deno.serve`                | `Bun.serve`             | planned, at the Node exit                       |
 | WebAssembly                                | yes                     | yes                         | yes                     | built: the JS API; `.wasm` imports designed     |
 

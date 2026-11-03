@@ -271,6 +271,10 @@ so each piece can be rewritten on its own as measurements justify it.
   It also declines the years of work Bun and Deno each spent on Node compat.
   Nor is there a runtime namespace, and no global carries authority:
   beyond the web's pure globals, everything is an import, `fetch` included.
+  Gro doesn't take web functionality away, it makes it controllable:
+  an API that carries authority is an import, never banned,
+  and only narrower run kinds like hermetic add constraints, for what they buy.
+  Which web APIs Gro implements beyond that set is decided one at a time.
 - **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
@@ -299,14 +303,17 @@ so each piece can be rewritten on its own as measurements justify it.
   and ops check the scoped cases (reads under a root).
 - **No authority globals, and no new globals.** Nothing that reaches outside the run is a global:
   not the network, not storage that outlives the run, not a channel found by name,
-  not code outside the graph (`Worker` and `SharedWorker`); each is an import, landing when a consumer needs it.
+  not code outside the graph (`Worker` and `SharedWorker`); each is an import if Gro implements it.
   A global reaches every module in the graph, so a granted one could never be attributed
   to the package that uses it ([imports or globals](#imports-or-globals) has the trade-off).
   The global object is the one dynamic channel, and it's made non-extensible after bootstrap,
   so a handed capability can't be stashed there as a new global.
-  A package that adds a global (a polyfill, say) needs a policy entry,
-  and like any global, the entry's effect covers the whole invocation.
-  Existing globals and the shared prototypes stay mutable, as in browsers.
+  A package that adds a global (a polyfill, say) needs a policy entry naming it,
+  and the authority-bearing names (`fetch`, `Worker`, and the rest) are refused even then,
+  so routing a capability back into a global is a loud error, not a quiet workaround.
+  Like any global, an added one's effect covers the whole invocation.
+  Existing globals and the shared prototypes stay mutable, as in browsers
+  (closing the shared-prototype route back to a free `fetch` is an open design question).
   A reference parked on one never widens what its holder could reach,
   but a module that patches a shared prototype can interpose on calls that pass through it,
   and so obtain capabilities it was never handed.
@@ -575,7 +582,8 @@ Future (unknown order):
 - owning the core, replacing deno_core's pieces one at a time, measured
 - the `net` handle's members (`net.fetch`, `net.WebSocket`, `net.EventSource`) and `crypto.subtle`, each as a consumer needs it
 - storage (web storage, IndexedDB, the Cache API), the by-name channels (`BroadcastChannel`),
-  and workers (`Worker`, `SharedWorker`), each an import, as a consumer needs it
+  and workers (`Worker`, `SharedWorker`), each an import if Gro implements it,
+  a worker starting with only what its spawner hands it
 - size: filtered ICU data, V8 build flags
 - V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default
 
