@@ -326,7 +326,7 @@ so each piece can be rewritten on its own as measurements justify it.
   with the library loaded in its own confined process, out of reach of the runtime's memory and grants.
   Its calls cross a process boundary, so chatty native work belongs in WASM
   ([polyglot sandboxing](#what-the-design-opens-up)) or an embedder's host module.
-  In-process loading isn't planned, and feedback on it is welcome in
+  In-process loading isn't currently planned, and feedback on it is welcome in
   [discussions](https://github.com/fuzdev/gro/discussions):
   if a measured need brings it (chatty calls, callbacks into JS, a library tied to its process),
   it comes as a grant of its own, never part of `-A`,
@@ -566,7 +566,6 @@ where the host modules and grants land with their first consumer.
       `deno task` becoming gro tasks
 - [ ] gro on gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module, and the network stays declared)
-- [ ] the Svelte compiler in-engine
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain
 

@@ -152,8 +152,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
 - **A `.ts` file is always an ES module,** where Node reads `"type"` and the code and may run it as CommonJS;
   `.cts` is refused.
 - **A scoped name with an empty, `.`, or `..` segment is refused,** where Node accepts it.
-- **No other condition matches:** not `node`, `require`, `browser`,
-  or `svelte` until the Svelte compiler is in.
+- **No other condition matches:** not `node`, `require`, `browser`, or `svelte`.
 - **A pattern's match can't hide a `..` behind a tab or a line break** (`.\t.`), which URL parsing drops,
   where Node substitutes it unchecked and loads what it names outside the package.
 - **A pattern's match can't make an empty segment the target doesn't have:**

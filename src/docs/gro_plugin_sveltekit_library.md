@@ -4,8 +4,8 @@ Gro's [SvelteKit library plugin](/src/lib/gro_plugin_sveltekit_library.ts)
 uses [`svelte-package`](https://svelte.dev/docs/kit/packaging)
 to build libraries from `src/lib/` for publishing to npm.
 
-> Where it's going: on the [runtime](runtime.md), `svelte-package` runs as a subprocess under the run's kernel rules,
-> and the Svelte compiler later runs in-engine; the published output doesn't change.
+> Where it's going: on the [runtime](runtime.md), `svelte-package` runs as a subprocess under the run's kernel rules;
+> the published output doesn't change.
 
 ## detection
 
