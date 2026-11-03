@@ -2,12 +2,13 @@
 // removes the host's internals from the global object.
 //
 // Pure globals only: nothing here reaches the network, the filesystem, the
-// environment, or another process. Authority globals (`fetch` and the like)
-// will install only under a grant. The set is the part of the WinterTC
-// minimum common API that deno_web carries (`fetch` and `crypto` live in other
-// crates, not linked). `reportError`, `self`, and the global object as an
-// `EventTarget` wait for a consumer: deno_web's `reportError` dispatches on a
-// global event target this bootstrap doesn't set up.
+// environment, or another process. No global carries authority: `fetch` and
+// its siblings are on the net host module's handle, never installed here. The
+// set is the part of the WinterTC minimum common API that deno_web carries
+// (`fetch` and `crypto` live in other crates, not linked). `reportError`,
+// `self`, and the global object as an `EventTarget` wait for a consumer:
+// deno_web's `reportError` dispatches on a global event target this bootstrap
+// doesn't set up.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 

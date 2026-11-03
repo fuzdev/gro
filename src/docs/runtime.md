@@ -64,7 +64,7 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
   or to code outside its module graph (`Worker`);
   Gro has none, since a global reaches every module in the graph:
   the network is the `net` import, `Worker` will be an import, and web storage isn't provided;
-  every other web global is pure, present or absent only until a consumer needs it (`crypto`, `Headers`)
+  every other web global is pure, and the ones not installed yet (`crypto`, `Headers`) wait only for a consumer
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
@@ -141,7 +141,7 @@ the same shape as a lockfile change.
 A run outside any project, or one that needs a grant just once, takes it by flag instead,
 in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
 and `-A` is the same flag at its widest.
-The network included: `fetch` is an import,
+The network included: `fetch` arrives by import, as `net.fetch`,
 so a dependency that starts fetching is a new edge in the graph, and the diff names the package.
 
 The policy file is also the guardrail for agents.
@@ -166,7 +166,7 @@ so an entry that stops being hermetic is a reviewed diff.
 `gro eval` is hermetic by default, as are Gro's gen files.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
-A net grant names hosts, or is a blanket grant, never a global.
+A net grant names hosts, or is a blanket grant.
 Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined,
 and a grant as strong as `-A`, like spawning a shell, is flagged that way in the diff.
 
@@ -293,7 +293,7 @@ so each piece can be rewritten on its own as measurements justify it.
   bound to the accepted hosts) that's narrowed and passed down like any other capability,
   so authority is visible at every use site.
   There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` whose hint names the import.
-  A net grant is inferred from the graph like a filesystem one, naming hosts.
+  The net grant is inferred from the graph like a filesystem one, and the hosts it reaches are declared.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
   and ops check the scoped cases (reads under a root).
 - **No authority globals, and no new globals.** Nothing that reaches outside the run is a global:
@@ -303,7 +303,7 @@ so each piece can be rewritten on its own as measurements justify it.
   to the package that uses it ([imports or globals](#imports-or-globals) has the trade-off).
   The global object is the one dynamic channel, and it's made non-extensible after bootstrap,
   so a handed capability can't be stashed there as a new global.
-  A package that adds a global needs a policy entry,
+  A package that adds a global (a polyfill, say) needs a policy entry,
   and like any global, the entry's effect covers the whole invocation.
   Existing globals and the shared prototypes stay mutable, as in browsers.
   A reference parked on one never widens what its holder could reach,
@@ -474,7 +474,7 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   so it can resolve promises differently between runs.
   The host has to order completions for "replays exactly" to hold by construction,
   and the cost is unmeasured.
-- **Interposition within one realm.** Authority is already per package, since every grant is an import,
+- **Interposition within one realm.** Grants are already attributed per package, since all authority enters by import,
   but one realm has one set of shared prototypes,
   so a same-realm dependency can patch an intrinsic
   to intercept a holder's calls and the capabilities passing through them.
@@ -572,7 +572,7 @@ Future (unknown order):
 - the `fixed` and `seeded` determinism modes beyond eval's `deny`,
   and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
-- `net.fetch`, `net.WebSocket`, and `crypto.subtle` as consumers need them
+- the `net` handle's members (`net.fetch`, `net.WebSocket`, `net.EventSource`) and `crypto.subtle`, each as a consumer needs it
 - size: filtered ICU data, V8 build flags
 - V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default
 

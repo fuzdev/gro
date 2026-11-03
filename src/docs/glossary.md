@@ -25,7 +25,7 @@ Gro has none. A global isn't an import edge, so it can't be soundly [inferred](#
 and one [realm](#realm) has one global object, so a grant of one would cover every module in the run.
 Each is an import instead (`net.fetch`, `net.WebSocket`, `net.EventSource` on the `net` [handle](#handle),
 a worker module when it lands) or isn't provided (web storage).
-Every other web global is a [pure global](#pure-globals), present or absent only until a consumer needs it.
+Every other web global is a [pure global](#pure-globals).
 Compare [host modules](#host-modules).
 
 ## box
@@ -110,6 +110,7 @@ Each is a visible edge in the import graph, so a run's host modules are [inferre
 
 Computing a run's grants from its import graph, before any code runs.
 It's sound, since every way to reach authority is an import.
+What a grant reaches past the defaults, like named hosts or a read root outside the project, is [declared](#declared).
 A global would defeat it, since any expression can name one, which is why Gro has no [authority globals](#authority-globals).
 
 ## interposition
@@ -176,7 +177,8 @@ The entry's project root is its graph's first [root](#root).
 ## pure globals
 
 The web globals that carry no authority, like `URL`, `TextEncoder`, streams, and `console`.
-They're always present.
+No grant adds or removes one: each is installed, or absent only until a consumer needs it (`crypto`, `Headers`).
+Under a hermetic run the ones that reveal the clock or randomness are refused or absent ([eval](eval.md#determinism) lists them).
 
 ## reach, need, and use
 
