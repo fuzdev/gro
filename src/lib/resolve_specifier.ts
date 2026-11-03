@@ -23,7 +23,7 @@ export interface ResolvedSpecifier {
 }
 
 /**
- * The query that imports a file's text as its default export, the only query gro recognizes.
+ * The query that imports a file's text as its default export, the only query Gro recognizes.
  */
 export const RAW_QUERY = '?raw';
 

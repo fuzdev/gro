@@ -160,7 +160,7 @@ or enters another root nested in it, and `"exports"` targets and self-references
 ## policy file
 
 The committed record of the grants accepted in review, currently `gro.policy.json`.
-It holds each entry's grants and [run kind](#run-kinds) (for gro, each task and gen file),
+It holds each entry's grants and [run kind](#run-kinds) (for Gro, each task and gen file),
 and the project's check (`gro check`) diffs it like a lockfile, failing on a widening until a person accepts it.
 
 ## project root
@@ -198,7 +198,7 @@ Separate realms per package or trust tier are being explored as an opt-in, never
 
 ## review signal
 
-Something that reports without enforcing, like the [scan](#scan) or the advisory grants on the Node gro.
+Something that reports without enforcing, like the [scan](#scan) or the advisory grants on the Node Gro.
 The docs and the CLI name each one as a signal, with what evades it, never as a boundary.
 
 ## root
@@ -241,4 +241,4 @@ like `dist/esm/package.json`. It sets a directory's module format without boundi
 ## unconfined
 
 The [run kind](#run-kinds) that reaches everything, under `-A` or a named unconfined phase,
-like gro's `publish` and `deploy`, which push and use credentials.
+like Gro's `publish` and `deploy`, which push and use credentials.

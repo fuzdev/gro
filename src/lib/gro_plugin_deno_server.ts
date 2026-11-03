@@ -65,7 +65,7 @@ export interface GroPluginDenoServerOptions {
 }
 
 /**
- * Creates a gro plugin that runs a Deno server during development.
+ * Creates a Gro plugin that runs a Deno server during development.
  * The server is started during setup and stopped on teardown.
  *
  * In dev mode, Vite should proxy API requests to this server.

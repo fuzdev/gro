@@ -241,7 +241,7 @@ args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 
 ## Rust workspace (experimental)
 
-Beside the npm package, `crates/` holds a Cargo workspace for gro's own JS
+Beside the npm package, `crates/` holds a Cargo workspace for Gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
 collides with the Node `gro` on `PATH`.
@@ -256,7 +256,7 @@ agent editing `crates/` needs beside them.
 Crates:
 
 - `gro_runtime` - the JS host: a deno_core `JsRuntime` with `deno_webidl`,
-  `deno_web`, and gro's bootstrap extension; the resolver, the loader, the
+  `deno_web`, and Gro's bootstrap extension; the resolver, the loader, the
   engine, the box (`confine/`), and `fgro eval`'s protocol (`eval/`). Start
   at its `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`

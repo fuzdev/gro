@@ -8,7 +8,7 @@
 > `"imports"` for `#` subpaths comes later.
 
 The runtime resolves modules with its own strict algorithm, not Node's.
-Bridging on the legacy algorithm would let code work on gro by accident of legacy resolution
+Bridging on the legacy algorithm would let code work on Gro by accident of legacy resolution
 and break when the bridge is removed, and the strict subset is small enough that a bridge saves little.
 It's written once in `gro_runtime` as a pure module with no engine types:
 it reads only through a source-tree trait and returns the resolved URL, the file's identity,
@@ -43,7 +43,7 @@ A linked package's real path has no `node_modules` in it, so only its admission 
   The package is found by self-reference or in `node_modules`, walking up from the importer's real path
   to its project root.
 - **Files on disk only.** No `https:`, `jsr:`, or `npm:` imports,
-  and gro never pre-bundles a project's dependencies.
+  and Gro never pre-bundles a project's dependencies.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
   a CommonJS package or file, a `.js` file whose nearest `package.json` lacks `"type": "module"`,
   schemes other than `file:` (the host's own `ext:` modules included), and the file types [typescript](typescript.md#file-types) lists

@@ -50,7 +50,7 @@ Until the binary replaces the npm package, the TypeScript version keeps working 
 and the binary is named `fgro`,
 so these docs say `gro` for the design and `fgro` for what's built today.
 
-It starts with `gro eval`, then runs gro's own workflow (tasks, gen, and config,
+It starts with `gro eval`, then runs Gro's own workflow (tasks, gen, and config,
 [below](#gros-workflow-on-the-runtime)),
 and grows into the toolchain for the whole Fuz stack,
 including the server side of [fuz_app](https://github.com/fuzdev/fuz_app),
@@ -76,7 +76,7 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
 
 The runtime started as an exit.
 The Fuz stack ran on two runtimes it doesn't own,
-Node for gro and the tools it wraps like SvelteKit and Vite,
+Node for Gro and the tools it wraps like SvelteKit and Vite,
 and Deno for scripts, tests, and evaluating config it didn't trust under permission flags.
 When [Cloudflare bought Deno](https://deno.com/blog/cloudflare) and put the runtime on bug and security fixes
 until its end of life in October 2027, everything on it had to move.
@@ -95,7 +95,7 @@ It also couldn't be Deno with different defaults:
 the model the stack wants, authority by import with nothing ambient,
 is one Deno can't adopt without breaking its users
 ([compared to Deno](#compared-to-deno-node-and-bun)).
-The sandbox shipped first, as `gro eval`, long before gro runs on itself.
+The sandbox shipped first, as `gro eval`, long before Gro runs on itself.
 
 It isn't a Deno replacement for everyone.
 Code that needs Node keeps running on Node,
@@ -131,7 +131,7 @@ A script's needs are a static property of its import graph,
 so least privilege costs nothing to write.
 A file that imports only `fuz_util` and the fs module, and declares no global, can't spawn or fetch.
 That's `gro run`'s unit, one file's graph,
-and a tool that runs several entries in one invocation, like gro's tasks,
+and a tool that runs several entries in one invocation, like Gro's tasks,
 holds their union ([below](#gros-workflow-on-the-runtime)).
 The source proposes grants (the host modules it imports, plus a static `grants` literal
 naming hosts and the like) and the committed policy file authorizes them,
@@ -165,7 +165,7 @@ so an entry that stops being hermetic is a reviewed diff.
 | confined   | by grant          | real                 | by grant                      | no      |
 | unconfined | everything        | real                 | everything                    | no      |
 
-`gro eval` is hermetic by default, as are gro's gen files.
+`gro eval` is hermetic by default, as are Gro's gen files.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 That includes the authority globals, since `fetch` reaches every module in the graph
@@ -190,7 +190,7 @@ A widening of the second kind is a diff accepted in review, and the first kind h
 
 The exceptions are explicit and labeled.
 `-A` is the one blanket escape hatch, never a default.
-A tool built on the runtime can name unconfined phases, like gro's `publish` and `deploy`,
+A tool built on the runtime can name unconfined phases, like Gro's `publish` and `deploy`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
 
@@ -228,7 +228,7 @@ WASM runs with V8's JIT on, so against an engine exploit
 what holds it is the kernel backstop, not the engine.
 Until the Node tools leave the loop, an invocation that spawns them
 is confined only as finely as the kernel backstop, by paths and ports rather than the grant set.
-Outside the model are `-A` and the named unconfined phases (gro's `publish` and `deploy`).
+Outside the model are `-A` and the named unconfined phases (Gro's `publish` and `deploy`).
 Linux is the design target, and the kernel backstop and every claim that rests on it are Linux's.
 On macOS and Windows anything past the runtime's own checks is outside the model
 until each gets a sandbox design of its own, never a translation of Linux's.
@@ -258,7 +258,7 @@ Gro isn't security maximalism. The defaults are safe and the user decides when t
 
 The runtime is a Rust binary embedding V8 through [rusty_v8](https://github.com/denoland/rusty_v8).
 It's bootstrapped on [deno_core](https://crates.io/crates/deno_core)
-and Deno's web-standards extension crates, used thinly behind gro's own seams
+and Deno's web-standards extension crates, used thinly behind Gro's own seams
 so each piece can be rewritten on its own as measurements justify it.
 
 - **Web standards, not Node compat.** The API is the
@@ -277,7 +277,7 @@ so each piece can be rewritten on its own as measurements justify it.
   (`gro`, `import`, `default`), walking `node_modules`, and `imports` for `#` subpaths comes later.
   A package without `exports`, or one that's CommonJS, fails loudly with the reason and the fix.
   Code comes from files on disk only, never `https:`, `jsr:`, or `npm:` imports,
-  and gro never pre-bundles a project's dependencies.
+  and Gro never pre-bundles a project's dependencies.
   Otherwise it follows Node's algorithm, departing where Node guesses, reads past the project,
   or substitutes a pattern unchecked, and [resolver](resolver.md) has the full rules.
 - **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in process,
@@ -337,16 +337,16 @@ so each piece can be rewritten on its own as measurements justify it.
   tsv formats, linked in as crates. Nothing lands before a consumer needs it.
 - **Embeddable.** `gro_runtime` is a library other Rust binaries embed,
   with a registration API for their own host modules, and the `gro` binary is one embedder.
-  The registration API is gro's own, not deno_core's,
+  The registration API is Gro's own, not deno_core's,
   so embedders don't break as the core underneath is rewritten.
   Grants are a constructor argument, so an embedder is confined without flags.
   The crates publish when the binary replaces the npm package.
 - **One global binary, pinned per project.** A project declares a compatible range under
   `engines.gro` in `package.json`, and the binary fails hard outside it.
-  Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns gro,
+  Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
 - **Startup.** A snapshot of the host, a code cache keyed by content, and lazy host init.
-  A cache entry is code to V8, so the cache directory is written only by gro,
+  A cache entry is code to V8, so the cache directory is written only by Gro,
   never by a confined run or its children, and `gro eval` and hermetic runs never read it.
   On a platform without the kernel backstop it stays off until that platform's sandbox exists.
 - **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
@@ -420,7 +420,7 @@ so they're set per run kind rather than granted.
 with the design differences from Deno in prose, [what moving a script from Deno changes](comparison.md#moving-a-script-from-deno),
 notes on Node and Bun, and the same ground as tables by axis, with the bench's measured startup and size.
 The ingredients are mostly shared.
-The difference that makes gro a new runtime rather than a set of Deno flags
+The difference that makes Gro a new runtime rather than a set of Deno flags
 is one Deno can't adopt without breaking its users:
 authority enters by import, with nothing ambient
 (no runtime namespace, no `process`, no `require`, no `node:*`),
@@ -430,7 +430,7 @@ The second is that the module graph is closed and on disk, never fetched at run 
 Both are guarantees by omission, so they hold for every run,
 where Deno's equivalents are flags that hold for the runs that pass them.
 The rest, like the kernel backstop, no prompts, and deterministic runs,
-are defaults Deno could adopt without breaking anyone, and gro turns them on;
+are defaults Deno could adopt without breaking anyone, and Gro turns them on;
 Deno's end of life in October 2027 is why they're unlikely to land there ([Why](#why)).
 
 ## What the design opens up
@@ -446,12 +446,12 @@ Deno's end of life in October 2027 is why they're unlikely to land there ([Why](
   so their output is the same on every machine.
 - **Memoized runs.** A hermetic run declares the inputs it may read,
   and its output is keyed by the runtime, its module graph, and the files it actually read,
-  so rerunning one is a cache probe (gro's `gen --check` becomes one).
+  so rerunning one is a cache probe (Gro's `gen --check` becomes one).
 - **One module graph.** The loader's graph is the only graph.
   It keys caches and invalidation, drives watch,
-  and lets a tool list its entries by parsing instead of executing them (gro's task listing).
+  and lets a tool list its entries by parsing instead of executing them (Gro's task listing).
 - **Cheap isolation.** V8 isolates and contexts are cheap in one process,
-  so independent runs (gro's gen files) can run in parallel, each confined, with no process spawn,
+  so independent runs (Gro's gen files) can run in parallel, each confined, with no process spawn,
   and trust tiers (project, ecosystem, third party) could get their own global object
   (per-tier contexts, an opt-in on the roadmap's future list).
 - **Polyglot sandboxing.** V8 runs WASM, and a WASM module imported as an ES module
@@ -490,28 +490,28 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   How to scope globals within one realm (or whether to), whether to freeze the intrinsics alone,
   and what the opt-in tier looks like are undecided, the limit is stated in the meantime,
   and the gate suite carries a probe either way.
-- **Where the builtins' grants live**, for gro's own workflow ([below](#gros-workflow-on-the-runtime)).
+- **Where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime)).
 
 ## Gro's workflow on the runtime
 
-Gro's task runner, gen, and config move onto the runtime at gro on gro ([roadmap](#roadmap)),
+Gro's task runner, gen, and config move onto the runtime at Gro on Gro ([roadmap](#roadmap)),
 its first large consumer and the shape other tools built on it can take.
 As designed, except where marked built:
 
 - `gro task <path>` is the workflow layer that carries the original TS Gro API forward,
   running project tasks by full path for explicit resolution,
-  while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node gro).
+  while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node Gro).
 - A task runs under the union of what the invocation reaches,
   its own graph plus the tasks it invokes, since every task holds the shared context (config, `invoke_task`),
   and a Node tool it spawns is confined by the kernel backstop, not the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
   diffs them against the committed policy file, and fails on a widening until `gro grants accept` records it.
-  On the Node gro it runs advisory first, since Node enforces none of it.
+  On the Node Gro it runs advisory first, since Node enforces none of it.
 - Gen files are hermetic by default, with each one's run kind shown in the task listing,
   so a gen file that stops being hermetic is a reviewed diff, and `gro gen --check` becomes a cache probe.
 - `publish` and `deploy` push and use credentials, so they're named unconfined phases.
 - Where the builtins' grants live is open.
-  `gro check` spawns Node tools through gro's own tasks,
+  `gro check` spawns Node tools through Gro's own tasks,
   so "nothing to declare" holds only once the builtins' grants ship with the binary
   and a project's policy file holds project tasks alone.
 
@@ -521,12 +521,12 @@ The first target is retiring Deno from the Fuz stack before its end of life
 in October 2027 (see [Why](#why)).
 Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svelte-check)
 run as Node subprocesses under the invocation's kernel rules.
-The runtime and gro's workflow on it are two tracks, and they meet at gro on gro,
+The runtime and Gro's workflow on it are two tracks, and they meet at Gro on Gro,
 where the host modules and grants land with their first consumer.
 
 ### The runtime
 
-- [x] Rust workspace and a benchmark harness that times gro beside Node, Deno, and Bun
+- [x] Rust workspace and a benchmark harness that times Gro beside Node, Deno, and Bun
       on the same workloads, the baseline every milestone is measured against
 - [x] `gro run` (as `fgro run` for now), running ESM from disk on V8 with web-standard globals
       and a startup snapshot
@@ -550,21 +550,21 @@ where the host modules and grants land with their first consumer.
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
 - [ ] the host modules (fs, process, spawn, watch, net, from `fuz_host`), the grants,
-      and the policy file, enforced, with the kernel backstop under every run, landing with gro on gro
+      and the policy file, enforced, with the kernel backstop under every run, landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
-- [ ] serving and types from the binary, so fuz_app's server side runs on gro
+- [ ] serving and types from the binary, so fuz_app's server side runs on Gro
 
 ### Gro's workflow
 
-- [x] on the Node gro, `gro task <path>` replaces the bare `gro <name>` task search
+- [x] on the Node Gro, `gro task <path>` replaces the bare `gro <name>` task search
       and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
-- [ ] on the Node gro, `gro check` infers each task's grants, records each package's use of the authority globals,
+- [ ] on the Node Gro, `gro check` infers each task's grants, records each package's use of the authority globals,
       and diffs both against the committed policy file, labeled advisory,
       since Node enforces none of it
 - [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
       `deno task` becoming gro tasks
-- [ ] gro on gro, with tasks, gen, and check running on the runtime and enforcing the policy file
+- [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module, and the network stays declared)
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain

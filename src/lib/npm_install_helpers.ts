@@ -16,7 +16,7 @@ import { package_json_load } from './package_json.ts';
  * an opaque "Cannot find package" error.
  *
  * Users who genuinely want a production-pruned install run it themselves
- * (e.g. `npm ci --omit=dev`) outside the gro pipeline.
+ * (e.g. `npm ci --omit=dev`) outside the Gro pipeline.
  */
 const PRUNE_TRIGGERING_ENV_VARS: ReadonlySet<string> = new Set([
 	'NODE_ENV',

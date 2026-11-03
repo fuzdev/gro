@@ -13,7 +13,7 @@ There is no transpile step: the stripped text goes straight to V8.
 
 ## Erasable syntax only
 
-Like Node's stripper, gro erases types and never transforms code.
+Like Node's stripper, Gro erases types and never transforms code.
 The one exception is a single `;`, `(`, or `)` written into blanked space
 where removing a type would change how the code parses (an ASI hazard), which keeps every position.
 Syntax with runtime semantics is refused with its position and a fix:

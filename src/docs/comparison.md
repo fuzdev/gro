@@ -25,9 +25,9 @@ V8, web standards, TypeScript without a build step, and deny-by-default permissi
 The difference is where authority comes from.
 In Deno it's ambient: `Deno.*`, and through Node compat `process`, `require`, and `node:*`,
 are reachable from any module, and a permission granted to the process covers every module in it.
-In gro it enters by import, so what a run can reach is a fact about its code, not its command line.
-Deno can't adopt that without breaking its users, and it's why gro is a new runtime rather than a set of Deno flags.
-A second set of choices Deno could adopt without breaking anyone, and gro turns them on by default.
+In Gro it enters by import, so what a run can reach is a fact about its code, not its command line.
+Deno can't adopt that without breaking its users, and it's why Gro is a new runtime rather than a set of Deno flags.
+A second set of choices Deno could adopt without breaking anyone, and Gro turns them on by default.
 
 There's also a practical reason, apart from the design:
 Deno is on bug and security fixes until its end of life in October 2027 ([why](runtime.md#why)),
@@ -43,7 +43,7 @@ so even the choices it could adopt aren't likely to land.
   A permission in Deno belongs to the thread, so every module on it holds it
   (Deno's docs say as much: modules on one thread can't hold different privileges),
   and what a program can reach is a dynamic fact, known by running it.
-  As an opt-in, gro's model would be a second runtime inside Deno with its own standard library.
+  As an opt-in, Gro's model would be a second runtime inside Deno with its own standard library.
 - **The module graph is closed and on disk.**
   Deno resolves `https:`, `jsr:`, and `npm:` specifiers, fetching code at run time
   (a static remote import from Deno's default hosts needs no permission, other hosts take `--allow-import`;
@@ -56,16 +56,16 @@ so even the choices it could adopt aren't likely to land.
 The difference between a guarantee by omission and an opt-out flag is where the guarantee lives.
 In Deno, safety belongs to the invocation,
 so auditing a project means auditing every way it's run and the flags each one passes.
-In gro it belongs to the repo: it holds for every run,
+In Gro it belongs to the repo: it holds for every run,
 so a reviewer reads the code and the policy file and nothing else.
 Gro commits to never adding these paths.
 Where it keeps a Node convention, like `exports` resolution through `node_modules`,
-it's because that's the global maximum for gro across security, speed, and ergonomics,
+it's because that's the global maximum for Gro across security, speed, and ergonomics,
 with security first, not compatibility for its own sake.
 
-Most of gro's sandbox follows from the first of these:
+Most of Gro's sandbox follows from the first of these:
 
-- **Who holds a grant.** A gro grant belongs to the module graph that imports the host module,
+- **Who holds a grant.** A Gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
   so the diff says which package newly imports the network, not only that something does
   (a call to the global `fetch` is the exception below).
@@ -80,10 +80,10 @@ Most of gro's sandbox follows from the first of these:
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task,
   loads a named permission set from `deno.json` (`-P`, since 2.5), or takes `-A`.
-  A gro run in a project carries nothing: the grants come from the import graph,
+  A Gro run in a project carries nothing: the grants come from the import graph,
   and the policy file changes only when the graph newly imports authority or declares a global,
   which is lockfile cadence, not run cadence.
-  Outside a project, or for one run, gro takes Deno's `--allow-*` flags, for that run only.
+  Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only.
 - **Inference.** It's sound because every entry point but the declared globals is an import,
   so the policy file can be generated from the code and reviewed;
   no sound equivalent exists over `Deno.*` calls, which any expression can reach,
@@ -92,12 +92,12 @@ Most of gro's sandbox follows from the first of these:
   so one policy file and one inference cover both.
 
 In one line, Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process,
-while gro's policy file pins what that code can reach, per import chain for host modules
+while Gro's policy file pins what that code can reach, per import chain for host modules
 and per run for the globals, inferred from the graph where it can be,
 and is treated like the lockfile, committed, diffed, and reviewed.
 
 Three limits belong beside that claim.
-The authority globals are the one corner of gro's model shaped like Deno's:
+The authority globals are the one corner of Gro's model shaped like Deno's:
 `fetch` and `WebSocket` reach every module in the graph and can't be soundly inferred,
 so they're declared, absent until granted, and shown as the wider class in the policy diff,
 and the host's `net` import is the narrow way to the same thing, which the hint for a free `fetch` names first
@@ -108,13 +108,13 @@ which can patch a shared prototype in the same realm
 And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
 while the grants by import are designed, not built.
 
-### What Deno could adopt, and gro turns on
+### What Deno could adopt, and Gro turns on
 
 These are defaults, choices Deno could adopt without breaking anyone,
 some of which it already offers behind a flag.
-They matter, but they aren't why gro exists.
+They matter, but they aren't why Gro exists.
 
-|                   | Deno                                                                     | gro                                                                                                                                                                                                                        |
+|                   | Deno                                                                     | Gro                                                                                                                                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prompts           | asks on a terminal, unless `--no-prompt`                                 | never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`                                                                  |
 | denials           | a thrown error the code can catch                                        | reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run                                                                                                             |
@@ -127,10 +127,10 @@ They matter, but they aren't why gro exists.
 | eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | `gro eval`: its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap and a memory cap, and no environment variable configures it, every knob a flag                             |
 
 TypeScript is a simplicity choice rather than a security one:
-Deno transpiles the full language, and gro strips erasable syntax only, so positions never move
+Deno transpiles the full language, and Gro strips erasable syntax only, so positions never move
 ([typescript](typescript.md)).
 
-### What Deno has that gro doesn't
+### What Deno has that Gro doesn't
 
 Workers with a reduced permission set,
 a runtime API to query, request, and revoke permissions, `--deny-*` overrides,
@@ -143,7 +143,7 @@ Gro's claim is the shape of the boundary, not its maturity.
 
 What changes for a script that runs on Deno today, as designed, except where a cell says built:
 
-|                      | Deno                                                                                   | gro                                                                                                                                  |
+|                      | Deno                                                                                   | Gro                                                                                                                                  |
 | -------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | running it           | `deno run --allow-read=. --allow-net=api.example.com main.ts`, or the flags in a task | in a project, `gro run main.ts`, with the grants in the policy file; outside one, the same `--allow-*` flags, for that run only      |
 | a missing permission | a prompt on a terminal, else `NotCapable` at the call, which the code can catch        | the run fails before any code runs, naming the grant and the fix, never a prompt                                                     |
@@ -153,8 +153,8 @@ What changes for a script that runs on Deno today, as designed, except where a c
 | dependencies         | `npm:`, `jsr:`, and `https:` specifiers, fetched and cached by Deno                    | built: `node_modules` from npm and a `package.json`; a package without `exports`, or one that's CommonJS, is refused with the reason  |
 | TypeScript           | the full language, transpiled, `.tsx` included                                         | built: erasable syntax only, so an `enum` or a parameter property is refused with a fix; no `.tsx`, and no `tsconfig.json` read      |
 | `node:*` built-ins   | a compatibility layer                                                                  | none; the web globals and the host modules instead                                                                                   |
-| tools in the binary  | `deno fmt`, `lint`, `test`, `compile`, and a package manager                           | none yet; `gro format` and `gro lint` on the Node gro, a test runner planned, no `compile`                                           |
-| startup              | slower than gro on every row of the bench                                              | built: faster than Deno on every row ([measured](#measured))                                                                         |
+| tools in the binary  | `deno fmt`, `lint`, `test`, `compile`, and a package manager                           | none yet; `gro format` and `gro lint` on the Node Gro, a test runner planned, no `compile`                                           |
+| startup              | slower than Gro on every row of the bench                                              | built: faster than Deno on every row ([measured](#measured))                                                                         |
 
 The shape of the move: a script that's already strict ESM over npm packages with `exports`,
 reaching the OS in a few places, ports by turning those places into imports.
@@ -163,20 +163,20 @@ ports to Node instead, or waits.
 
 ## Compared to Node
 
-Node is the reference the others are measured against, and the host of the tools gro still wraps
+Node is the reference the others are measured against, and the host of the tools Gro still wraps
 (Vite, vitest, eslint, svelte-check) until each is replaced.
 Its API hands every module ambient authority: `process`, `require`, and `node:fs`
-are reachable from anywhere, which is what makes a compat layer incompatible with gro's model.
+are reachable from anywhere, which is what makes a compat layer incompatible with Gro's model.
 Node's permission model (`--permission`, with `--allow-fs-read`, `--allow-fs-write`,
 `--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-wasi`, `--allow-inspector`)
 is opt-in and process-wide, and in Node 24 leaves the network out (Node 25 adds `--allow-net`, in active development),
 so a run under it still fetches anywhere.
-What gro keeps from Node is the ESM half:
+What Gro keeps from Node is the ESM half:
 mandatory extensions on relative imports, `exports` with conditions, `node_modules` as the package source,
-and type stripping of erasable syntax only (Node's rule since 22.18, so ES-module TypeScript written for Node's stripper runs on gro's,
-with one exception gro refuses and Node strips silently: an `as` whose removal regroups the expression,
+and type stripping of erasable syntax only (Node's rule since 22.18, so ES-module TypeScript written for Node's stripper runs on Gro's,
+with one exception Gro refuses and Node strips silently: an `as` whose removal regroups the expression,
 `a + b as number / c`, which Node's stripper reads as `a + b / c`).
-What gro drops is the legacy half: CommonJS, `main`, extensionless probing, and the format sniff.
+What Gro drops is the legacy half: CommonJS, `main`, extensionless probing, and the format sniff.
 
 ## Compared to Bun
 
@@ -184,8 +184,8 @@ Bun is speed-first, with JavaScriptCore, its own transpiler, a bundler, a test r
 with the broadest Node compatibility after Node itself
 (Anthropic acquired it in December 2025; it stays open source under MIT).
 It has no permission model, so a run holds everything,
-and its loader probes extensions and index files, a convenience gro refuses.
-On the bench Bun's startup is the floor gro's startup milestone chases;
+and its loader probes extensions and index files, a convenience Gro refuses.
+On the bench Bun's startup is the floor Gro's startup milestone chases;
 its steady-state throughput differs from the V8 runtimes' because the engine does, in both directions.
 Gro doesn't compete with Bun on compatibility or batteries;
 the comparison is what a run can reach, where Bun has nothing to compare.
@@ -282,7 +282,7 @@ Gro's cells for a feature start with one of these words:
 
 ### Toolchain
 
-Gro's cells here name the Node gro's command where the runtime has none yet.
+Gro's cells here name the Node Gro's command where the runtime has none yet.
 
 |                        | Node                              | Deno                          | Bun                   | Gro                                              |
 | ---------------------- | --------------------------------- | ----------------------------- | --------------------- | ------------------------------------------------ |
@@ -292,7 +292,7 @@ Gro's cells here name the Node gro's command where the runtime has none yet.
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed; never read by `gro eval`               |
 | single-file executable | SEA, experimental                 | `deno compile`                | `bun build --compile` | no                                               |
-| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node gro: `gro task <path>` with the builtins as subcommands |
+| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |
 
 ## Measured
