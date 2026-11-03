@@ -170,7 +170,14 @@ export const task: Task<Args> = {
 							' `SECRET_GITHUB_API_TOKEN=$(gh auth token) gro publish`'
 					);
 				}
-				await update_changelog(parsed_repo_url.owner, parsed_repo_url.repo, changelog, token, log);
+				await update_changelog(
+					parsed_repo_url.owner,
+					parsed_repo_url.repo,
+					globalThis.fetch,
+					changelog,
+					token,
+					log
+				);
 			}
 
 			// Update package-lock.json to reflect the new version.

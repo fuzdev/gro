@@ -60,10 +60,11 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
   each a visible edge in the graph
 - **authority globals** are the web globals that would reach outside the run,
-  to the network (`fetch`, `WebSocket`, `EventSource`), to storage that outlives it (web storage),
+  to the network (`fetch`, `WebSocket`, `EventSource`), to storage that outlives it (web storage, IndexedDB),
+  to other runs or contexts by name rather than by a handed reference (`BroadcastChannel`, `SharedWorker`),
   or to code outside its module graph (`Worker`);
   Gro has none, since a global reaches every module in the graph:
-  the network is the `net` import, `Worker` will be an import, and web storage isn't provided;
+  the network is the `net` import, `Worker` will be an import, and web storage and the by-name channels aren't provided;
   every other web global is pure, and the ones not installed yet (`crypto`, `Headers`) wait only for a consumer
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
@@ -236,9 +237,9 @@ The runtime prioritizes, in order:
 
 1. security, with no ambient authority, confinement by construction, and a kernel backstop under it,
    measured by a gate suite of escape probes the way speed is measured by the bench
-2. web-standards conformance, to the WinterTC minimum common API less the members that carry authority
-   (`fetch`, `WebSocket`), which are imports here because security comes first;
-   graded by its WPT subset with those bound from `net` in the harness
+2. web-standards conformance, to the WinterTC minimum common API less its one member that carries authority,
+   `fetch`, which is an import here (`net.fetch`) because security comes first;
+   graded by its WPT subset with `fetch` bound from `net` in the harness
 3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads and writes its project's files,
    and a way to widen beside every default (`-A`, a blanket net grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed

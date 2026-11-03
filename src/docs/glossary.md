@@ -19,12 +19,22 @@ The loader holds the admitted roots; the resolver admits nothing ([resolver](res
 
 ## authority globals
 
-The web globals that would reach outside the run: the network (`fetch`, `WebSocket`, `EventSource`),
-storage that outlives it (web storage), or code outside its module graph (`Worker`).
-Gro has none. A global isn't an import edge, so it can't be soundly [inferred](#inference),
+The web globals that would reach outside the run. A web API carries authority if it can:
+
+- reach state outside the run, like the network (`fetch`, `WebSocket`, `EventSource`)
+  or storage that outlives it (web storage, IndexedDB, the Cache API)
+- reach another run or context without being handed a reference,
+  by a name or origin any code can supply (`BroadcastChannel`, `SharedWorker`)
+- load or start code outside its module graph (`Worker`)
+
+A channel made by reference is pure: both ends of a `MessageChannel` are values someone hands over.
+APIs that only observe the machine or the time (the clock, randomness, the locale, hardware details)
+don't carry authority; the [run kind](#run-kinds) sets them.
+
+Gro has no authority globals. A global isn't an import edge, so it can't be soundly [inferred](#inference),
 and one [realm](#realm) has one global object, so a grant of one would cover every module in the run.
 Each is an import instead (`net.fetch`, `net.WebSocket`, `net.EventSource` on the `net` [handle](#handle),
-a worker module when it lands) or isn't provided (web storage).
+a worker module when it lands) or isn't provided (web storage, IndexedDB, the Cache API, `BroadcastChannel`, `SharedWorker`).
 Every other web global is a [pure global](#pure-globals).
 Compare [host modules](#host-modules).
 

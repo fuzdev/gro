@@ -32,6 +32,9 @@ test('update_changelog', async () => {
 	const result = await update_changelog(
 		'fuzdev',
 		'gro',
+		() => {
+			throw Error('the cache answers every request, so nothing fetches');
+		},
 		changelog_path,
 		token,
 		log,

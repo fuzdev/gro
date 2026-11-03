@@ -21,12 +21,15 @@ export const GithubPullRequest = s.loose_object({
 export type GithubPullRequest = s.Infer<typeof GithubPullRequest>;
 
 /**
+ * Fetches the pull requests associated with a commit.
+ * @param fetch - the `fetch` the GitHub API request goes through, handed in by the caller
  * @see https://docs.github.com/en/rest/commits/commits?apiVersion=2022-11-28#list-pull-requests-associated-with-a-commit
  */
 export const github_fetch_commit_prs = async (
 	owner: string,
 	repo: string,
 	commit_sha: string,
+	fetch: typeof globalThis.fetch,
 	token?: string,
 	log?: Logger,
 	cache?: FetchValueCache,
@@ -40,7 +43,8 @@ export const github_fetch_commit_prs = async (
 		token,
 		cache,
 		return_early_from_cache: true,
-		log
+		log,
+		fetch
 	});
 	if (!fetched.ok) return null;
 	return fetched.value;

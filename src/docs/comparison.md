@@ -269,7 +269,7 @@ Gro's cells for a feature start with one of these words:
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
 | `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
 | `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
-| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its authority-bearing members (`fetch`, `WebSocket`), which are imports; graded by its WPT subset with those bound from `net` |
+| WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its one authority-bearing member, `fetch`, which is the `net.fetch` import; graded by its WPT subset with `fetch` bound from `net` |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
 | npm packages                               | yes                     | yes                         | yes                     | built: ES modules with `exports` only           |
 | workers                                    | `worker_threads`        | Web Workers                 | Web Workers             | later, as an import, holding at most its parent's grants |
