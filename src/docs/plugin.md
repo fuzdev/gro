@@ -5,7 +5,7 @@ Gro uses `Plugin`s to support custom usecases outside of the normal build pipeli
 
 > Where it's going: the lifecycle stays.
 > On the [runtime](runtime.md), the Node tools plugins wrap
-> run as subprocesses under the run's grants until each is replaced.
+> run as subprocesses under the run's kernel rules until each is replaced.
 
 In this early implementation of plugins in Gro,
 plugins run serially, in the order they are returned from `plugins` in the `gro.config.ts`.

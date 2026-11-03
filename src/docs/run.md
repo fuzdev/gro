@@ -75,6 +75,8 @@ Absent until a consumer needs them, with no grant involved, are `Headers`, `Requ
 `crypto`, `self`, `navigator`, `location`, `reportError`, `MessageChannel`,
 `MessagePort`, and `FileReader`.
 The global object isn't an `EventTarget`, so there's no `addEventListener('unhandledrejection')`.
+It's still extensible, and a free `fetch` is a plain `ReferenceError` with no hint;
+the seal is designed ([runtime](runtime.md#design)).
 
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.
 `import.meta.resolve` runs the same strict resolver as an import,

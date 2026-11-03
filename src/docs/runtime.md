@@ -12,7 +12,7 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules, the grants, the policy file, and the kernel backstop for `run`.
+> Designed, not built: the host modules, the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
 > Until they land, a run reaches nothing past its own module graph and the console.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
@@ -59,8 +59,8 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
   each a visible edge in the graph
-- **authority globals** are the web globals that would reach outside the run,
-  to the network (`fetch`, `WebSocket`, `EventSource`), to storage that outlives it (web storage, IndexedDB),
+- **authority globals** are the web globals that would carry authority,
+  reaching the network (`fetch`, `WebSocket`, `EventSource`), storage that outlives the run (web storage, IndexedDB, the Cache API),
   to other runs or contexts by name rather than by a handed reference (`BroadcastChannel`, `SharedWorker`),
   or to code outside its module graph (`Worker`);
   Gro has none, since a global reaches every module in the graph:
@@ -168,8 +168,10 @@ so an entry that stops being hermetic is a reviewed diff.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 A net grant names hosts, or is a blanket grant.
+A hermetic run also gets no storage and no by-name channels, since persistence and cross-run channels break replay.
 Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined,
 and a grant as strong as `-A`, like spawning a shell, is flagged that way in the diff.
+`-A` widens every grant and adds no global: a free `fetch` still fails.
 
 ### By construction or by default
 
@@ -313,7 +315,7 @@ so each piece can be rewritten on its own as measurements justify it.
   so routing a capability back into a global is a loud error, not a quiet workaround.
   Like any global, an added one's effect covers the whole invocation.
   Existing globals and the shared prototypes stay mutable, as in browsers
-  (closing the shared-prototype route back to a free `fetch` is an open design question).
+  ([open questions](#open-questions) has the shared-prototype route back to a free `fetch`).
   A reference parked on one never widens what its holder could reach,
   but a module that patches a shared prototype can interpose on calls that pass through it,
   and so obtain capabilities it was never handed.
@@ -495,6 +497,12 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   Whether to freeze the intrinsics alone, and what the opt-in tier looks like,
   are undecided, the limit is stated in the meantime,
   and the gate suite carries a probe either way.
+- **Free names through the global's prototype.** The global object's prototype chain resolves free names,
+  so `Object.prototype.fetch = …` makes a free `fetch` work without touching the seal.
+  Reserved bindings on the global would shadow the chain, at a cost to feature detection,
+  a frozen `Object.prototype` costs compatibility,
+  and a global object with no prototype loses free `hasOwnProperty` and `toString`;
+  undecided, and measured against real packages.
 - **Where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime)).
 
 ## Gro's workflow on the runtime
@@ -550,10 +558,14 @@ where the host modules and grants land with their first consumer.
       which the caller of `gro eval` verifies before every spawn
       (the release workflow is built, and no release is tagged yet)
 - [ ] the security gate, a suite of escape probes run under every grant set,
-      with every web global and member checked against the rule that none carries authority, as its oracle,
+      with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
+      and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
+      a transferred or revoked one is dead in its old holder),
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
+- [ ] the seal: `globalThis` non-extensible after bootstrap, a package's added globals named in the policy file,
+      the authority-bearing names refused even then, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, process, spawn, watch, net), the grants,
       and the policy file, enforced, with the kernel backstop under every run, landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design
@@ -566,7 +578,10 @@ where the host modules and grants land with their first consumer.
       and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
 - [ ] on the Node Gro, `gro check` infers each task's grants
       and diffs them against the committed policy file, labeled advisory,
-      since Node enforces none of it
+      since Node enforces none of it, and reports each grant the graph no longer imports,
+      the source for pruning the policy file
+- [ ] on the Node Gro, a lint generated from the authority table,
+      refusing free authority globals in code meant for the runtime, a portability check
 - [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
       `deno task` becoming gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file

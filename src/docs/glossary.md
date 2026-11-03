@@ -19,7 +19,7 @@ The loader holds the admitted roots; the resolver admits nothing ([resolver](res
 
 ## authority globals
 
-The web globals that would reach outside the run. A web API carries authority if it can:
+The web globals that would carry authority. A web API carries authority if it can:
 
 - reach state outside the run, like the network (`fetch`, `WebSocket`, `EventSource`)
   or storage that outlives it (web storage, IndexedDB, the Cache API)
@@ -34,7 +34,7 @@ don't carry authority; the [run kind](#run-kinds) sets them.
 Gro has no authority globals. A global isn't an import edge, so it can't be soundly [inferred](#inference),
 and one [realm](#realm) has one global object, so a grant of one would cover every module in the run.
 Each is an import instead: the network on the `net` [handle](#handle) (`net.fetch`, `net.WebSocket`, `net.EventSource`),
-and storage, the by-name channels, and workers (`Worker`, `SharedWorker`) as host modules of their own,
+and storage, the by-name channels, and workers (`Worker`, `SharedWorker`) as imports of their own,
 each if Gro implements it.
 Every other web global is a [pure global](#pure-globals).
 Compare [host modules](#host-modules).
@@ -108,7 +108,7 @@ A grant limits what code can obtain, never what it's given.
 
 ## hermetic
 
-The strictest [run kind](#run-kinds), with no network or spawn,
+The strictest [run kind](#run-kinds), with no network, spawn, storage, or by-name channels,
 clock and randomness fixed or denied, and every read recorded,
 so the run replays exactly and its output can be cached.
 

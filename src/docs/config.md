@@ -335,6 +335,9 @@ export default {
 } satisfies GroConfig;
 ```
 
+On the [runtime](runtime.md) there's no global `fetch`:
+import `net` and call `net.fetch`, accepted for the host in the policy file.
+
 ### security considerations
 
 The `build_cache_config` value is hashed before being written to `.gro/build.json`.

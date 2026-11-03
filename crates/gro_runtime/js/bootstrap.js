@@ -3,9 +3,11 @@
 //
 // Pure globals only: nothing here reaches the network, the filesystem, the
 // environment, or another process. No global carries authority: `fetch` and
-// its siblings are on the net host module's handle, never installed here. The
-// set is the part of the WinterTC minimum common API that deno_web carries
-// (`fetch` and `crypto` live in other crates, not linked). `reportError`,
+// its siblings will be on the net host module's handle, never installed here.
+// The set is the part of the WinterTC minimum common API that deno_web carries
+// (`fetch` and `crypto` live in other crates, not linked), less `MessageChannel`
+// and `MessagePort`, which wait for a consumer; deno_web's `BroadcastChannel`
+// is a by-name channel, so it carries authority and is never installed here. `reportError`,
 // `self`, and the global object as an `EventTarget` wait for a consumer:
 // deno_web's `reportError` dispatches on a global event target this bootstrap
 // doesn't set up.

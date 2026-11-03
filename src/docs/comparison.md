@@ -95,7 +95,7 @@ while Gro's policy file pins what that code can reach, per import chain, inferre
 and is treated like the lockfile, committed, diffed, and reviewed.
 
 Two limits belong beside that claim, and one cost.
-The cost is that `fetch` and `WebSocket` are imports on the host's `net` handle, never globals,
+The cost is that `fetch`, `WebSocket`, and `EventSource` are imports on the host's `net` handle, never globals,
 so a package that reaches the network only through the global doesn't run on Gro
 ([imports or globals](runtime.md#imports-or-globals) has the trade-off).
 The import boundary holds against code that overreaches, not a dependency built to steal,
@@ -258,7 +258,7 @@ Gro's cells for a feature start with one of these words:
 | authority recorded with the code | no                                                | a hand-written permission set in `deno.json` (`-P`, since 2.5), process-wide    | no | designed: the policy file beside the lockfile, inferred from the graph                 |
 | a record of what a run reached  | no                                                 | `DENO_AUDIT_PERMISSIONS`                                            | no      | designed: the access manifest                                                               |
 | a sandboxed eval mode           | composed from flags (`--permission`, `--jitless`, `--disallow-code-generation-from-strings`, a heap limit) | composed from flags (`--v8-flags=--jitless`, a heap limit) | no      | built: `fgro eval`, its own process, JIT off by default, no code from strings, a heap cap, a memory cap, a timeout, clock and randomness denied, and a kernel box (Linux): read-only to its project, no exec, no network |
-| workers with fewer permissions  | no                                                 | yes, unstable                                                       | no      | later, if workers land                                                                      |
+| workers with fewer permissions  | no                                                 | yes, unstable                                                       | no      | later, if workers land: a worker starts with only what its spawner hands it                 |
 
 ### Web platform and Node compatibility
 
@@ -267,7 +267,7 @@ Gro's cells for a feature start with one of these words:
 | `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed: `fetch` as the `net.fetch` import, the classes as pure globals |
 | `WebSocket`                                | yes                     | yes                         | yes                     | later, as the `net.WebSocket` import            |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
-| `crypto.subtle`                            | yes                     | yes                         | yes                     | later                                           |
+| `crypto.subtle`                            | yes                     | yes                         | yes                     | later; its members that consume randomness on the determinism axis |
 | `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
 | WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its one authority-bearing member, `fetch`, which is the `net.fetch` import; graded by its WPT subset with `fetch` bound from `net` |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
