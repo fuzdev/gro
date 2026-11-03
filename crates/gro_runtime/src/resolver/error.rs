@@ -347,7 +347,7 @@ impl fmt::Display for ResolveErrorKind {
         match self {
             Self::NodeBuiltin => f.write_str(
                 "a node: specifier names a Node built-in, and there is no Node compat. \
-                 Fix: import the fuz_host equivalent, or run this under Node",
+                 Fix: import Gro's host module for it, or run this under Node",
             ),
             Self::Registry => f.write_str(
                 "it is a registry specifier; only files on disk load. \

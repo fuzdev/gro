@@ -357,7 +357,7 @@ fn messages() {
     assert_eq!(
         message("node:fs"),
         "cannot resolve 'node:fs' from file:///p/main.js: a node: specifier names a Node \
-         built-in, and there is no Node compat. Fix: import the fuz_host equivalent, or run \
+         built-in, and there is no Node compat. Fix: import Gro's host module for it, or run \
          this under Node"
     );
     assert!(message("https://example.com/a.js").contains("only files on disk load"));

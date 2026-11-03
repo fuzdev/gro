@@ -101,7 +101,7 @@ so the run replays exactly and its output can be cached.
 
 ## host modules
 
-The imports that reach the OS (fs, process, spawn, watch, net), from [`fuz_host`](https://github.com/fuzdev/fuz_host).
+The imports that reach the OS (fs, process, spawn, watch, net), Gro's own modules under `@fuzdev/gro/*`.
 Each is a visible edge in the import graph, so a run's host modules are [inferred](#inference).
 
 ## inference

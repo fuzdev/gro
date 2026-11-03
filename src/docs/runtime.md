@@ -263,7 +263,7 @@ so each piece can be rewritten on its own as measurements justify it.
 
 - **Web standards, not Node compat.** The API is the
   [WinterTC minimum common API](https://min-common-api.proposal.wintertc.org/)
-  plus a small set of host modules from [`fuz_host`](https://github.com/fuzdev/fuz_host)
+  plus a small set of Gro's own host modules
   (fs, process, spawn, watch, net), each an explicit import.
   No `node:*`, no `npm:`, no CommonJS, no N-API, and no `process` global.
   The break is what makes the security model enforceable.
@@ -363,7 +363,7 @@ Authority reaches code two ways, and they trade differently.
 | the diff shows     | which package newly reaches it                           | that the invocation needs it, not which code uses it |
 | narrowed           | on the value (fewer hosts, a subdirectory), passed down  | to the accepted hosts, the same for every module  |
 | when denied        | the import fails at link time                            | it's absent, so `typeof fetch` is `'undefined'`   |
-| portable           | through `fuz_host`, which runs on Node too               | anywhere the web API exists                       |
+| portable           | the Node twin in Gro's npm package until binary-only     | anywhere the web API exists                       |
 | existing packages  | the ones written to take it                              | the ones that call the global today               |
 | in the code        | passed down the call graph                               | reachable from anywhere                           |
 
@@ -549,7 +549,7 @@ where the host modules and grants land with their first consumer.
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
-- [ ] the host modules (fs, process, spawn, watch, net, from `fuz_host`), the grants,
+- [ ] the host modules (fs, process, spawn, watch, net), the grants,
       and the policy file, enforced, with the kernel backstop under every run, landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
