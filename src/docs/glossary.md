@@ -33,8 +33,9 @@ don't carry authority; the [run kind](#run-kinds) sets them.
 
 Gro has no authority globals. A global isn't an import edge, so it can't be soundly [inferred](#inference),
 and one [realm](#realm) has one global object, so a grant of one would cover every module in the run.
-Each is an import instead (`net.fetch`, `net.WebSocket`, `net.EventSource` on the `net` [handle](#handle),
-a worker module when it lands) or isn't provided (web storage, IndexedDB, the Cache API, `BroadcastChannel`, `SharedWorker`).
+Each is an import instead: the network on the `net` [handle](#handle) (`net.fetch`, `net.WebSocket`, `net.EventSource`),
+and storage, the by-name channels, and workers (`Worker`, `SharedWorker`) as host modules of their own,
+each landing when a consumer needs it.
 Every other web global is a [pure global](#pure-globals).
 Compare [host modules](#host-modules).
 

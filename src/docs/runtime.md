@@ -64,7 +64,7 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
   to other runs or contexts by name rather than by a handed reference (`BroadcastChannel`, `SharedWorker`),
   or to code outside its module graph (`Worker`);
   Gro has none, since a global reaches every module in the graph:
-  the network is the `net` import, `Worker` will be an import, and web storage and the by-name channels aren't provided;
+  the network is the `net` import, and storage, the by-name channels, and workers will be imports too;
   every other web global is pure, and the ones not installed yet (`crypto`, `Headers`) wait only for a consumer
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
@@ -298,8 +298,8 @@ so each piece can be rewritten on its own as measurements justify it.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
   and ops check the scoped cases (reads under a root).
 - **No authority globals, and no new globals.** Nothing that reaches outside the run is a global:
-  not the network, not storage that outlives the run (web storage isn't provided),
-  not code outside the graph (`Worker`, when it lands, is an import under the same rules).
+  not the network, not storage that outlives the run, not a channel found by name,
+  not code outside the graph (`Worker` and `SharedWorker`); each is an import, landing when a consumer needs it.
   A global reaches every module in the graph, so a granted one could never be attributed
   to the package that uses it ([imports or globals](#imports-or-globals) has the trade-off).
   The global object is the one dynamic channel, and it's made non-extensible after bootstrap,
@@ -574,6 +574,8 @@ Future (unknown order):
   and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
 - the `net` handle's members (`net.fetch`, `net.WebSocket`, `net.EventSource`) and `crypto.subtle`, each as a consumer needs it
+- storage (web storage, IndexedDB, the Cache API), the by-name channels (`BroadcastChannel`),
+  and workers (`Worker`, `SharedWorker`), each an import, as a consumer needs it
 - size: filtered ICU data, V8 build flags
 - V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default
 

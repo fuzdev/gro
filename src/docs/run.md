@@ -68,8 +68,9 @@ The ECMAScript globals, including `Intl`, `Temporal`, and `WebAssembly`, plus th
 - `AbortController`, `AbortSignal`, `Event`, `EventTarget`, `CustomEvent`, `ErrorEvent`, `PromiseRejectionEvent`, `DOMException`
 
 Absent by design are the [authority globals](glossary.md#authority-globals), which would reach outside the run:
-`fetch`, `WebSocket`, and `EventSource` arrive on the `net` import when it lands, `Worker` as an import too,
-and web storage, IndexedDB, the Cache API, `BroadcastChannel`, and `SharedWorker` not at all.
+`fetch`, `WebSocket`, and `EventSource` arrive on the `net` import when it lands,
+and storage (web storage, IndexedDB, the Cache API), `BroadcastChannel`, `Worker`, and `SharedWorker`
+as imports too, each when a consumer needs it.
 Absent until a consumer needs them, with no grant involved, are `Headers`, `Request`, `Response`,
 `crypto`, `self`, `navigator`, `location`, `reportError`, `MessageChannel`,
 `MessagePort`, and `FileReader`.
