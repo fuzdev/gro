@@ -10,7 +10,7 @@
 <TomeContent {tome}>
 	<section>
 		<p>
-			Gro is a task runner and toolkit extending SvelteKit. It's part of the
+			Today, Gro is a task runner and toolkit extending SvelteKit. It's part of the
 			<a href="https://www.fuz.dev/">Fuz stack</a>.
 		</p>
 		<p>

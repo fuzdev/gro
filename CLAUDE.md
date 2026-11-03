@@ -1,7 +1,7 @@
 # Gro architecture reference
 
-> Task runner and toolkit extending SvelteKit - conventions over configuration,
-> filesystem as API
+> security-first JS runtime and toolchain on V8 - today a task runner and toolkit
+> extending SvelteKit, conventions over configuration, filesystem as API
 
 Gro (`@fuzdev/gro`) is a dev tool for building TypeScript projects with
 SvelteKit, providing: convention-based task runner, Node loader for

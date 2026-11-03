@@ -1,7 +1,7 @@
 {
   "name": "@fuzdev/gro",
   "version": "0.224.0",
-  "description": "task runner and toolkit extending SvelteKit",
+  "description": "security-first JS runtime and toolchain on V8",
   "tagline": "generate, run, optimize",
   "glyph": "🌰",
   "logo": "logo.svg",
