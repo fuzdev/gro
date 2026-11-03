@@ -59,13 +59,11 @@ These terms carry the rest of this doc, and the [glossary](glossary.md) defines 
 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
   each a visible edge in the graph
-- **authority globals** are the web globals that would carry authority,
-  reaching the network (`fetch`, `WebSocket`, `EventSource`), storage that outlives the run (web storage, IndexedDB, the Cache API),
-  to other runs or contexts by name rather than by a handed reference (`BroadcastChannel`, `SharedWorker`),
-  or to code outside its module graph (`Worker`);
+- **authority globals** are the web globals that would carry authority
+  (the network, storage that outlives the run, a channel found by name, code outside the graph);
   Gro has none, since a global reaches every module in the graph:
-  the network is the `net` import, and storage, the by-name channels, and workers will be imports too;
-  every other web global is pure, and the ones not installed yet (`crypto`, `Headers`) wait only for a consumer
+  each is an import instead, if Gro implements it (the network is the `net` import),
+  and every other web global is pure
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
@@ -241,7 +239,7 @@ The runtime prioritizes, in order:
    measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance, to the WinterTC minimum common API less its one member that carries authority,
    `fetch`, which is an import here (`net.fetch`) because security comes first;
-   graded by its WPT subset with `fetch` bound from `net` in the harness
+   graded by its WPT subset, with the harness supplying `fetch` from `net`
 3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads and writes its project's files,
    and a way to widen beside every default (`-A`, a blanket net grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed
@@ -311,8 +309,7 @@ so each piece can be rewritten on its own as measurements justify it.
   The global object is the one dynamic channel, and it's made non-extensible after bootstrap,
   so a handed capability can't be stashed there as a new global.
   A package that adds a global (a polyfill, say) needs a policy entry naming it,
-  and the authority-bearing names (`fetch`, `Worker`, and the rest) are refused even then,
-  so routing a capability back into a global is a loud error, not a quiet workaround.
+  and the names that carry authority are refused, so routing a capability back into a global fails loudly.
   Like any global, an added one's effect covers the whole invocation.
   Existing globals and the shared prototypes stay mutable, as in browsers
   ([open questions](#open-questions) has the shared-prototype route back to a free `fetch`).
@@ -497,12 +494,8 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   Whether to freeze the intrinsics alone, and what the opt-in tier looks like,
   are undecided, the limit is stated in the meantime,
   and the gate suite carries a probe either way.
-- **Free names through the global's prototype.** The global object's prototype chain resolves free names,
-  so `Object.prototype.fetch = …` makes a free `fetch` work without touching the seal.
-  Reserved bindings on the global would shadow the chain, at a cost to feature detection,
-  a frozen `Object.prototype` costs compatibility,
-  and a global object with no prototype loses free `hasOwnProperty` and `toString`;
-  undecided, and measured against real packages.
+- **Free names through the global's prototype.** `Object.prototype.fetch = …` makes a free `fetch` resolve
+  without touching the seal; how to close that, and at what cost to compatibility, is undecided.
 - **Where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime)).
 
 ## Gro's workflow on the runtime
@@ -564,8 +557,7 @@ where the host modules and grants land with their first consumer.
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
-- [ ] the seal: `globalThis` non-extensible after bootstrap, a package's added globals named in the policy file,
-      the authority-bearing names refused even then, and a free `fetch`'s error naming the import
+- [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, process, spawn, watch, net), the grants,
       and the policy file, enforced, with the kernel backstop under every run, landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design
@@ -596,9 +588,7 @@ Future (unknown order):
   and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
 - the `net` handle's members (`net.fetch`, `net.WebSocket`, `net.EventSource`) and `crypto.subtle`, each as a consumer needs it
-- storage (web storage, IndexedDB, the Cache API), the by-name channels (`BroadcastChannel`),
-  and workers (`Worker`, `SharedWorker`), each an import if Gro implements it,
-  a worker starting with only what its spawner hands it
+- other web APIs that carry authority (storage, workers, by-name channels), each an import if Gro implements it
 - size: filtered ICU data, V8 build flags
 - V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default
 

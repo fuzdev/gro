@@ -267,7 +267,7 @@ Gro's cells for a feature start with one of these words:
 | `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed: `fetch` as the `net.fetch` import, the classes as pure globals |
 | `WebSocket`                                | yes                     | yes                         | yes                     | later, as the `net.WebSocket` import            |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
-| `crypto.subtle`                            | yes                     | yes                         | yes                     | later; its members that consume randomness on the determinism axis |
+| `crypto.subtle`                            | yes                     | yes                         | yes                     | later |
 | `crypto.getRandomValues`, `randomUUID`     | yes                     | yes                         | yes                     | designed, on the determinism axis               |
 | WinterTC minimum common API                | largely implemented     | largely implemented         | largely implemented     | planned: the target less its one authority-bearing member, `fetch`, which is the `net.fetch` import; graded by its WPT subset with `fetch` bound from `net` |
 | `node:*` built-ins                         | native                  | yes, a compatibility layer  | yes, most               | no                                              |
