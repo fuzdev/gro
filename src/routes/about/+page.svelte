@@ -14,7 +14,7 @@
 </script>
 
 <main class="width_atmost_md pb_xl9">
-	<section class="mt_xl3">
+	<section class="box mt_xl3">
 		<header class="box">
 			<h1>{library.repo_name}</h1>
 		</header>
