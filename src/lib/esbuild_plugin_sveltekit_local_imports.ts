@@ -35,11 +35,11 @@ const SUBPATH_IMPORT_RESOLVING = 'gro_subpath_import_resolving';
 export const esbuild_plugin_sveltekit_local_imports = (): esbuild.Plugin => ({
 	name: 'sveltekit_local_imports',
 	setup: (build) => {
-		build.onResolve({ filter: PATH_SPECIFIER_MATCHER }, async (args) => {
+		build.onResolve({ filter: PATH_SPECIFIER_MATCHER }, (args) => {
 			const { path, importer } = args;
 			if (!importer) return { path };
 			if (importer.includes('/node_modules/')) return undefined;
-			const { path_id, namespace } = await resolve_specifier(path, importer);
+			const { path_id, namespace } = resolve_specifier(path, importer);
 			return { path: path_id, namespace }; // `namespace` may be `undefined`, but esbuild needs the absolute path for json etc
 		});
 		build.onResolve({ filter: SUBPATH_IMPORT_MATCHER }, async (args) => {

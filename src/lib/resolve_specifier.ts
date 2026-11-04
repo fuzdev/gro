@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises';
+import { statSync, type Stats } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
@@ -75,10 +75,7 @@ export const to_specifier_path_id = (specifier: string, importer: PathId): PathI
  *   and the path's `url` (with any `?raw`), as Node sets them; any other filesystem error
  *   (like `EACCES`) is rethrown naming the specifier and importer, the original as `cause`
  */
-export const resolve_specifier = async (
-	specifier: string,
-	importer: PathId
-): Promise<ResolvedSpecifier> => {
+export const resolve_specifier = (specifier: string, importer: PathId): ResolvedSpecifier => {
 	const final_specifier = strip_raw_query(specifier);
 	const raw = final_specifier !== specifier;
 	const path_id = to_specifier_path_id(specifier, importer);
@@ -91,7 +88,7 @@ export const resolve_specifier = async (
 					reason: "a leading '//' names a URL host, not a path; write a single '/'",
 					code: 'ERR_MODULE_NOT_FOUND'
 				}
-			: await to_refusal(path_id, specifier);
+			: to_refusal(path_id, specifier);
 	} catch (error) {
 		throw new Error(`cannot resolve '${specifier}' from ${importer}: ${to_error_message(error)}`, {
 			cause: error
@@ -136,14 +133,14 @@ interface Refusal {
  * to name the fix - resolution itself never probes.
  * @param specifier - the specifier as written, optionally ending in `?raw`, which the named fix keeps
  */
-const to_refusal = async (path_id: string, specifier: string): Promise<Refusal | null> => {
-	const stats = await stat_or_null(path_id);
+const to_refusal = (path_id: string, specifier: string): Refusal | null => {
+	const stats = stat_or_null(path_id);
 	if (stats?.isFile()) return null;
 	const code = stats?.isDirectory() ? 'ERR_UNSUPPORTED_DIR_IMPORT' : 'ERR_MODULE_NOT_FOUND';
 	const reason = stats
 		? 'it is not a regular file (a directory or a special file); name a module file'
 		: 'no such file';
-	const sibling = await to_sibling_hint(path_id, specifier);
+	const sibling = to_sibling_hint(path_id, specifier);
 	if (sibling !== null) return { reason: `${reason}, but ${sibling.hint}`, code };
 	if (!stats && !extname(path_id)) {
 		return {
@@ -184,17 +181,14 @@ export interface SiblingHint {
  * @returns the sibling and the hint, or `null` when no sibling exists
  * @internal
  */
-export const to_sibling_hint = async (
-	path_id: PathId,
-	specifier: string
-): Promise<SiblingHint | null> => {
+export const to_sibling_hint = (path_id: PathId, specifier: string): SiblingHint | null => {
 	const bare_specifier = strip_raw_query(specifier);
 	const query = specifier.slice(bare_specifier.length);
 	const ext = extname(path_id);
 	const swapped_ext = ext === '.js' ? '.ts' : ext === '.ts' ? '.js' : null;
 	if (swapped_ext !== null) {
 		const sibling_id = replace_extension(path_id, swapped_ext);
-		if (!(await stat_or_null(sibling_id))?.isFile()) return null;
+		if (!stat_or_null(sibling_id)?.isFile()) return null;
 		const sibling_specifier = replace_extension(bare_specifier, swapped_ext) + query;
 		return {
 			sibling_id,
@@ -205,7 +199,7 @@ export const to_sibling_hint = async (
 	if (ext) return null; // only a path with no extension is a sibling's stem
 	for (const appended of ['.ts', '.js']) {
 		const sibling_id = path_id + appended;
-		if ((await stat_or_null(sibling_id))?.isFile()) {
+		if (stat_or_null(sibling_id)?.isFile()) {
 			const sibling_specifier = bare_specifier + appended + query;
 			return {
 				sibling_id,
@@ -217,9 +211,9 @@ export const to_sibling_hint = async (
 	return null;
 };
 
-const stat_or_null = async (path: string): Promise<Awaited<ReturnType<typeof stat>> | null> => {
+const stat_or_null = (path: string): Stats | null => {
 	try {
-		return await stat(path);
+		return statSync(path);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === 'ENOENT' || code === 'ENOTDIR') return null;

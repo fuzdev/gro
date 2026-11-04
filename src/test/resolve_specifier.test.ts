@@ -12,10 +12,10 @@ import { paths } from '#lib/paths.ts';
 const dir = paths.source + 'test/fixtures/';
 const importer = join(dir, 'importer.ts');
 
-const assert_refused = async (specifier: string, expected: string): Promise<void> => {
+const assert_refused = (specifier: string, expected: string): void => {
 	let error;
 	try {
-		await resolve_specifier(specifier, importer);
+		resolve_specifier(specifier, importer);
 	} catch (e) {
 		error = e;
 	}
@@ -23,11 +23,9 @@ const assert_refused = async (specifier: string, expected: string): Promise<void
 	expect(error.message).toBe(`cannot resolve '${specifier}' from ${importer}: ${expected}`);
 };
 
-const to_refusal_error = async (
-	specifier: string
-): Promise<Error & { code?: unknown; url?: unknown }> => {
+const to_refusal_error = (specifier: string): Error & { code?: unknown; url?: unknown } => {
 	try {
-		await resolve_specifier(specifier, importer);
+		resolve_specifier(specifier, importer);
 	} catch (error) {
 		assert(error instanceof Error);
 		return error;
@@ -36,10 +34,10 @@ const to_refusal_error = async (
 };
 
 describe('resolve_specifier', () => {
-	test('resolves a specifier to a file that exists with an unknown file extension', async () => {
+	test('resolves a specifier to a file that exists with an unknown file extension', () => {
 		const specifier = join(dir, 'test_file.other.ext');
 		const path_id = specifier;
-		expect(await resolve_specifier(specifier, importer)).toEqual({
+		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
 			specifier,
 			namespace: undefined,
@@ -47,10 +45,10 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('resolves an extensionless specifier naming a file that exists', async () => {
+	test('resolves an extensionless specifier naming a file that exists', () => {
 		const specifier = './modules/some_test_json_without_extension';
 		const path_id = join(dir, specifier);
-		expect(await resolve_specifier(specifier, importer)).toEqual({
+		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
 			specifier,
 			namespace: undefined,
@@ -58,10 +56,10 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('resolves a TS specifier', async () => {
+	test('resolves a TS specifier', () => {
 		const specifier = join(dir, 'test_ts.ts');
 		const path_id = specifier;
-		expect(await resolve_specifier(specifier, importer)).toEqual({
+		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
 			specifier,
 			namespace: 'sveltekit_local_imports_ts',
@@ -69,11 +67,11 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('resolves a `?raw` ts specifier', async () => {
+	test('resolves a `?raw` ts specifier', () => {
 		const path = join(dir, 'test_ts.ts');
 		const specifier = path + '?raw';
 		const path_id = path;
-		expect(await resolve_specifier(specifier, importer)).toEqual({
+		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
 			specifier,
 			namespace: 'sveltekit_local_imports_ts',
@@ -81,29 +79,29 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('resolves relative ts specifiers', async () => {
+	test('resolves relative ts specifiers', () => {
 		const path_id1 = join(dir, 'test_ts.ts');
-		expect(await resolve_specifier('./test_ts.ts', importer)).toEqual({
+		expect(resolve_specifier('./test_ts.ts', importer)).toEqual({
 			path_id: path_id1,
 			specifier: './test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		const path_id2 = join(dir, 'modules/some_test_ts.ts');
-		expect(await resolve_specifier('./modules/some_test_ts.ts', importer)).toEqual({
+		expect(resolve_specifier('./modules/some_test_ts.ts', importer)).toEqual({
 			path_id: path_id2,
 			specifier: './modules/some_test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		const path_id3 = join(dir, 'test_ts.ts');
-		expect(await resolve_specifier('../fixtures/test_ts.ts', importer)).toEqual({
+		expect(resolve_specifier('../fixtures/test_ts.ts', importer)).toEqual({
 			path_id: path_id3,
 			specifier: '../fixtures/test_ts.ts',
 			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
-		expect(await resolve_specifier('../fixtures/test_ts.ts?raw', importer)).toEqual({
+		expect(resolve_specifier('../fixtures/test_ts.ts?raw', importer)).toEqual({
 			path_id: path_id3,
 			specifier: '../fixtures/test_ts.ts?raw',
 			namespace: 'sveltekit_local_imports_ts',
@@ -111,10 +109,10 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('resolves a js specifier', async () => {
+	test('resolves a js specifier', () => {
 		const specifier = join(dir, 'test_js.js');
 		const path_id = specifier;
-		expect(await resolve_specifier(specifier, importer)).toEqual({
+		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
 			specifier,
 			namespace: 'sveltekit_local_imports_js',
@@ -122,89 +120,89 @@ describe('resolve_specifier', () => {
 		});
 	});
 
-	test('refuses a TS specifier that does not exist', async () => {
-		await assert_refused('./this_test_ts_does_not_exist.ts', 'no such file');
+	test('refuses a TS specifier that does not exist', () => {
+		assert_refused('./this_test_ts_does_not_exist.ts', 'no such file');
 	});
 
-	test('a refusal carries the code and url Node uses for a missing module', async () => {
-		const error = await to_refusal_error('./this_test_ts_does_not_exist.ts');
+	test('a refusal carries the code and url Node uses for a missing module', () => {
+		const error = to_refusal_error('./this_test_ts_does_not_exist.ts');
 		expect(error.code).toBe('ERR_MODULE_NOT_FOUND');
 		expect(error.url).toBe(pathToFileURL(join(dir, 'this_test_ts_does_not_exist.ts')).href);
-		expect((await to_refusal_error('./this_test_ts_does_not_exist.ts?raw')).url).toBe(
+		expect(to_refusal_error('./this_test_ts_does_not_exist.ts?raw').url).toBe(
 			pathToFileURL(join(dir, 'this_test_ts_does_not_exist.ts')).href + '?raw'
 		);
 	});
 
-	test('a refusal of a directory carries the code and url Node uses for a directory', async () => {
-		const error = await to_refusal_error('./modules/');
+	test('a refusal of a directory carries the code and url Node uses for a directory', () => {
+		const error = to_refusal_error('./modules/');
 		expect(error.code).toBe('ERR_UNSUPPORTED_DIR_IMPORT');
 		expect(error.url).toBe(pathToFileURL(join(dir, 'modules/')).href);
-		expect((await to_refusal_error('./modules')).code).toBe('ERR_UNSUPPORTED_DIR_IMPORT');
+		expect(to_refusal_error('./modules').code).toBe('ERR_UNSUPPORTED_DIR_IMPORT');
 	});
 
-	test('refuses a js specifier for a missing file without mapping it to its ts sibling', async () => {
-		await assert_refused(
+	test('refuses a js specifier for a missing file without mapping it to its ts sibling', () => {
+		assert_refused(
 			'./test_ts.js',
 			"no such file, but './test_ts.ts' exists; write the real extension (.js never maps to .ts)"
 		);
-		await assert_refused(
+		assert_refused(
 			'./test_ts.js?raw',
 			"no such file, but './test_ts.ts?raw' exists; write the real extension (.js never maps to .ts)"
 		);
 	});
 
-	test('refuses a ts specifier for a missing file, naming its js sibling', async () => {
-		await assert_refused(
+	test('refuses a ts specifier for a missing file, naming its js sibling', () => {
+		assert_refused(
 			'./test_js.ts',
 			"no such file, but './test_js.js' exists; write the real extension (.ts never maps to .js)"
 		);
 	});
 
-	test('appends no extension to a path that has one', async () => {
+	test('appends no extension to a path that has one', () => {
 		// a missing `x.css` or `x.ts` is never probed as `x.css.ts` or `x.ts.ts`
-		await assert_refused('./test_ts.css', 'no such file');
-		await assert_refused('./test_missing.ts', 'no such file');
+		assert_refused('./test_ts.css', 'no such file');
+		assert_refused('./test_missing.ts', 'no such file');
 	});
 
-	test('refuses a js specifier for a missing file with no sibling', async () => {
-		await assert_refused('./test_missing.js', 'no such file');
+	test('refuses a js specifier for a missing file with no sibling', () => {
+		assert_refused('./test_missing.js', 'no such file');
 	});
 
-	test('refuses an extensionless specifier, naming the file it likely meant', async () => {
-		await assert_refused(
+	test('refuses an extensionless specifier, naming the file it likely meant', () => {
+		assert_refused(
 			'./test_ts',
 			"no such file, but './test_ts.ts' exists; write the real extension (nothing is probed)"
 		);
-		await assert_refused(
+		assert_refused(
 			'./test_js',
 			"no such file, but './test_js.js' exists; write the real extension (nothing is probed)"
 		);
-		await assert_refused(
+		assert_refused(
 			'./test_ts?raw',
 			"no such file, but './test_ts.ts?raw' exists; write the real extension (nothing is probed)"
 		);
 	});
 
-	test('refuses an extensionless specifier for a file that does not exist', async () => {
-		await assert_refused(
+	test('refuses an extensionless specifier for a file that does not exist', () => {
+		assert_refused(
 			'./test_missing',
 			'no such file; the path has no extension and nothing is probed, so write the real one'
 		);
 	});
 
-	test('refuses a file named with a trailing slash', async () => {
-		await assert_refused('./test_ts.ts/', 'no such file');
-		await assert_refused('./test_ts.ts/.', 'no such file');
+	test('refuses a file named with a trailing slash', () => {
+		assert_refused('./test_ts.ts/', 'no such file');
+		assert_refused('./test_ts.ts/.', 'no such file');
 	});
 
-	test("refuses a leading '//', which Node reads as a URL host", async () => {
+	test("refuses a leading '//', which Node reads as a URL host", () => {
 		const specifier = '/' + join(dir, 'test_ts.ts');
 		const expected = "a leading '//' names a URL host, not a path; write a single '/'";
-		await assert_refused(specifier, expected);
-		await assert_refused(specifier + '?raw', expected);
+		assert_refused(specifier, expected);
+		assert_refused(specifier + '?raw', expected);
 		let error;
 		try {
-			await resolve_specifier(specifier, importer);
+			resolve_specifier(specifier, importer);
 		} catch (e) {
 			error = e;
 		}
@@ -212,8 +210,8 @@ describe('resolve_specifier', () => {
 		expect((error as NodeJS.ErrnoException).code).toBe('ERR_MODULE_NOT_FOUND');
 	});
 
-	test('refuses a directory', async () => {
-		await assert_refused(
+	test('refuses a directory', () => {
+		assert_refused(
 			'./modules',
 			'it is not a regular file (a directory or a special file); name a module file'
 		);

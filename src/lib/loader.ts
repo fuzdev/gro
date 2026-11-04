@@ -241,7 +241,7 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 			const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
 			if (code === 'ERR_MODULE_NOT_FOUND' && typeof url === 'string' && url.startsWith('file:')) {
 				const missing_id = fileURLToPath(url);
-				const sibling = await to_sibling_hint(missing_id, s);
+				const sibling = to_sibling_hint(missing_id, s);
 				if (sibling !== null) {
 					// the corrected specifier names the sibling only if `imports` maps it there,
 					// unlike `#cfg.ts` for a lone `"#cfg.js"` entry, so otherwise name the file
@@ -289,7 +289,7 @@ export const resolve: ResolveHook = async (specifier, context, nextResolve) => {
 		return nextResolve(s, context);
 	}
 
-	const resolved = await resolve_specifier(s, fileURLToPath(parent_url));
+	const resolved = resolve_specifier(s, fileURLToPath(parent_url));
 	// `?raw` is a real query, as Node gives it, not part of the path
 	const url = pathToFileURL(resolved.path_id).href + (resolved.raw ? RAW_QUERY : '');
 
