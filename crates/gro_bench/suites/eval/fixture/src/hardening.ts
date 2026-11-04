@@ -30,13 +30,15 @@ export const declare_hardening = (zap: ZapBuilder): void => {
 		depends_on: [ID.verify_firewall, ...OPERATORS.map((operator) => ID.operator(operator.username))]
 	});
 
+	// One options object for the drop-in and its verify, so the two can't drift
+	const hardening = { user: DEPLOY_USER, max_auth_tries: 3, login_grace_time: 30 };
 	zap.file({
 		id: ID.ssh_config,
 		name: 'SSH hardening',
 		path: '/etc/ssh/sshd_config.d/50-harbor.conf',
 		content: {
 			type: 'inline',
-			content: ssh_hardening({ user: DEPLOY_USER, max_auth_tries: 3, login_grace_time: 30 })
+			content: ssh_hardening(hardening)
 		},
 		mode: '644',
 		validate: SSHD_VALIDATE,
@@ -51,7 +53,7 @@ export const declare_hardening = (zap: ZapBuilder): void => {
 	zap.verify({
 		id: ID.ssh_verify,
 		name: 'Effective sshd config is hardened',
-		...ssh_hardening_verify(),
+		...ssh_hardening_verify(hardening),
 		depends_on: [ID.ssh_service]
 	});
 };
