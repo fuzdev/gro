@@ -12,6 +12,7 @@ import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
 import {
 	NGINX_VALIDATE,
 	RATE_LIMIT_ZONE,
+	SSL_PARAMS_PATH,
 	nginx_config_verify,
 	rate_limit_zone,
 	ssl_params
@@ -107,7 +108,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 	zap.file({
 		id: ID.nginx_ssl_params,
 		name: 'TLS parameters',
-		path: '/etc/nginx/snippets/ssl_params.conf',
+		path: SSL_PARAMS_PATH,
 		content: { type: 'inline', content: ssl_params() },
 		mode: '644',
 		triggers: [ID.nginx_service],
