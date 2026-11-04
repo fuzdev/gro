@@ -20,7 +20,10 @@ import {
 	debian_nginx_remove_default,
 	debian_nginx_spa_site
 } from '@fuzdev/zap/recipe_debian_nginx.ts';
-import { debian_certbot_stop_nginx } from '@fuzdev/zap/recipe_debian_certbot.ts';
+import {
+	debian_certbot_reload_nginx_hook,
+	debian_certbot_stop_nginx
+} from '@fuzdev/zap/recipe_debian_certbot.ts';
 import { certbot_standalone_issue, certbot_webroot_switch } from '@fuzdev/zap/recipe_certbot.ts';
 import { spa_csp } from '@fuzdev/zap/recipe_csp.ts';
 
@@ -81,11 +84,24 @@ export const declare_web = (zap: ZapBuilder): void => {
 		...certbot_standalone_issue({ domain, extra_domains: [mirror], email }),
 		depends_on: [ID.certbot_stop_nginx]
 	});
+	const reload_hook = debian_certbot_reload_nginx_hook();
+	zap.file({
+		id: ID.certbot_reload_hook,
+		name: 'Reload nginx after a certificate renews',
+		...reload_hook,
+		depends_on: ['package-certbot']
+	});
 	zap.script({
 		id: ID.certbot_webroot,
 		name: 'Renew from the webroot from now on',
-		...certbot_webroot_switch({ domain, extra_domains: [mirror], email, webroot: ACME_WEBROOT }),
-		depends_on: ['acme-webroot', ID.nginx_service]
+		...certbot_webroot_switch({
+			domain,
+			extra_domains: [mirror],
+			email,
+			webroot: ACME_WEBROOT,
+			deploy_hook: reload_hook
+		}),
+		depends_on: ['acme-webroot', ID.nginx_service, ID.certbot_reload_hook]
 	});
 
 	zap.file({

@@ -23,6 +23,7 @@ export const ID = {
 	certbot_stop_nginx: 'certbot-stop-nginx',
 	certbot_issue: 'certbot-issue',
 	certbot_webroot: 'certbot-webroot',
+	certbot_reload_hook: 'certbot-reload-nginx-hook',
 	env_file: 'env-file',
 	unit: 'unit-harbord',
 	worker_unit: 'unit-harbor-worker',
