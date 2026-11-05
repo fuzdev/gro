@@ -21,7 +21,6 @@ export const ID = {
 	nginx_catch_all: 'nginx-catch-all',
 	nginx_verify: 'verify-nginx-config',
 	nginx_service: 'service-nginx',
-	certbot_stop_nginx: 'certbot-stop-nginx',
 	certbot_issue: 'certbot-issue',
 	certbot_webroot: 'certbot-webroot',
 	certbot_reload_hook: 'certbot-reload-nginx-hook',

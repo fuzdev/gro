@@ -20,9 +20,9 @@ import {
 import { debian_nginx_catch_all, debian_nginx_spa_site } from '@fuzdev/zap/recipe_debian_nginx.ts';
 import {
 	debian_certbot_reload_nginx_hook,
-	debian_certbot_stop_nginx
+	debian_certbot_standalone_issue
 } from '@fuzdev/zap/recipe_debian_certbot.ts';
-import { certbot_standalone_issue, certbot_webroot_switch } from '@fuzdev/zap/recipe_certbot.ts';
+import { certbot_webroot_switch } from '@fuzdev/zap/recipe_certbot.ts';
 import { spa_csp } from '@fuzdev/zap/recipe_csp.ts';
 
 import { ACME_WEBROOT, CURRENT_LINK, PORT, WORKER_PORT } from './host.ts';
@@ -71,16 +71,10 @@ export const declare_web = (zap: ZapBuilder): void => {
 		group: 'root'
 	});
 	zap.script({
-		id: ID.certbot_stop_nginx,
-		name: 'Stop nginx for the first certificate (fresh host only)',
-		...debian_certbot_stop_nginx({ domain }),
-		depends_on: ['package-nginx', 'package-certbot']
-	});
-	zap.script({
 		id: ID.certbot_issue,
 		name: 'Issue the certificate (standalone, first time only)',
-		...certbot_standalone_issue({ domain, extra_domains: [mirror], email }),
-		depends_on: [ID.certbot_stop_nginx]
+		...debian_certbot_standalone_issue({ domain, extra_domains: [mirror], email }),
+		depends_on: ['package-nginx', 'package-certbot']
 	});
 	const reload_hook = debian_certbot_reload_nginx_hook();
 	zap.file({
