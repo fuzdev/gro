@@ -8,7 +8,7 @@
 import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
 import { hardened_systemd_unit } from '@fuzdev/zap/recipe_debian_systemd.ts';
 
-import { ENV_TEMPLATE } from './env.ts';
+import { env_content } from './env.ts';
 import {
 	APP_DIR,
 	CONFIG_DIR,
@@ -80,18 +80,13 @@ export const declare_service = (zap: ZapBuilder): void => {
 		id: ID.env_file,
 		name: 'The service env file',
 		path: ENV_FILE,
-		content: {
-			type: 'template',
-			template: ENV_TEMPLATE,
-			vars: {
-				domain: zap.env('DEPLOY_DOMAIN'),
-				port: PORT,
-				cookie_keys: zap.env('SECRET_FUZ_COOKIE_KEYS'),
-				smtp_host: zap.env('SMTP_HOST'),
-				smtp_user: zap.env('SMTP_USER'),
-				smtp_password: zap.env('SECRET_SMTP_PASSWORD')
-			}
-		},
+		content: env_content({
+			domain: zap.env('DEPLOY_DOMAIN'),
+			cookie_keys: zap.env('SECRET_FUZ_COOKIE_KEYS'),
+			smtp_host: zap.env('SMTP_HOST'),
+			smtp_user: zap.env('SMTP_USER'),
+			smtp_password: zap.env('SECRET_SMTP_PASSWORD')
+		}),
 		mode: '600',
 		owner: DEPLOY_USER,
 		group: DEPLOY_USER,

@@ -17,10 +17,7 @@ import {
 	rate_limit_zone,
 	ssl_params
 } from '@fuzdev/zap/recipe_nginx.ts';
-import {
-	debian_nginx_remove_default,
-	debian_nginx_spa_site
-} from '@fuzdev/zap/recipe_debian_nginx.ts';
+import { debian_nginx_catch_all, debian_nginx_spa_site } from '@fuzdev/zap/recipe_debian_nginx.ts';
 import {
 	debian_certbot_reload_nginx_hook,
 	debian_certbot_stop_nginx
@@ -129,36 +126,43 @@ export const declare_web = (zap: ZapBuilder): void => {
 		id: ID.nginx_site,
 		name: 'The site',
 		path: '/etc/nginx/sites-enabled/harbor.conf',
-		content: {
-			type: 'template',
-			template: debian_nginx_spa_site({
-				root: `${CURRENT_LINK}/build`,
-				csp: CSP,
-				ssl: 'certbot',
-				client_max_body_size: '2m',
-				api_burst: 40,
-				extra_locations: EXTRA_LOCATIONS,
-				acme_webroot: ACME_WEBROOT,
-				redirect_domains: ['{{mirror}}']
-			}),
-			vars: { domain, mirror, port: PORT }
-		},
+		content: debian_nginx_spa_site({
+			domain,
+			port: PORT,
+			root: `${CURRENT_LINK}/build`,
+			csp: CSP,
+			ssl: 'certbot',
+			client_max_body_size: '2m',
+			api_burst: 40,
+			extra_locations: EXTRA_LOCATIONS,
+			acme_webroot: ACME_WEBROOT,
+			redirect_domains: [mirror]
+		}),
 		mode: '644',
 		triggers: [ID.nginx_service],
 		validate: NGINX_VALIDATE,
 		depends_on: [ID.certbot_issue, ID.nginx_ssl_params, ID.nginx_rate_limit]
 	});
+	const nginx_catch_all = debian_nginx_catch_all({ ssl: 'certbot' });
 	zap.script({
 		id: ID.nginx_remove_default,
 		name: "Remove nginx's default site",
-		...debian_nginx_remove_default(),
+		...nginx_catch_all.remove_default,
 		depends_on: ['package-nginx']
+	});
+	zap.file({
+		id: ID.nginx_catch_all,
+		name: 'Any other host name gets no answer',
+		...nginx_catch_all.catch_all,
+		mode: '644',
+		triggers: [ID.nginx_service],
+		depends_on: [ID.nginx_remove_default, ID.certbot_issue]
 	});
 	zap.verify({
 		id: ID.nginx_verify,
 		name: 'The nginx config is valid',
 		...nginx_config_verify(),
-		depends_on: [ID.nginx_site, ID.nginx_remove_default]
+		depends_on: [ID.nginx_site, ID.nginx_catch_all]
 	});
 	zap.service({
 		id: ID.nginx_service,
@@ -166,7 +170,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 		service: 'nginx',
 		enabled: true,
 		running: true,
-		reload_on: [ID.nginx_site, ID.nginx_ssl_params, ID.nginx_rate_limit],
+		reload_on: [ID.nginx_site, ID.nginx_ssl_params, ID.nginx_rate_limit, ID.nginx_catch_all],
 		depends_on: [ID.nginx_verify]
 	});
 };

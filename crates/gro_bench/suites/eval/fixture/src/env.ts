@@ -1,11 +1,12 @@
 /**
- * The service's env file template: the shared fuz_app base, then the
- * service's own lines. Values that differ per instance stay template vars,
- * filled from `zap.env` references where the file is declared.
+ * The service's env file: the shared fuz_app base, then the service's own
+ * lines. Values that differ per instance stay template vars, filled from
+ * `zap.env` references where the file is declared.
  *
  * @module
  */
 
+import type { TemplateContent } from '@fuzdev/zap/schema.ts';
 import { fuz_app_env_base, fuz_app_trusted_proxies } from '@fuzdev/zap/recipe_env.ts';
 
 import { CONFIG_DIR, DATABASE_NAME, DEPLOY_USER, PORT, UPLOADS_DIR, WORKER_PORT } from './host.ts';
@@ -21,11 +22,8 @@ const FEATURES: ReadonlyArray<[name: string, on: boolean, why: string]> = [
 const feature_lines = (): string =>
 	FEATURES.map(([name, on, why]) => `# ${why}\n${name}=${on ? 'true' : 'false'}`).join('\n');
 
-export const ENV_TEMPLATE = `${fuz_app_env_base({
-	user: DEPLOY_USER,
-	service: DATABASE_NAME,
-	config_dir: CONFIG_DIR
-})}
+/** The service's own lines, after the base. */
+const ENV_EXTRA = `
 ${fuz_app_trusted_proxies({ env_prefix: 'HARBOR' })}
 
 # Security - allowed origins for API requests
@@ -46,3 +44,29 @@ ${feature_lines()}
 # Plain-text logs for journald
 NO_COLOR=1
 `;
+
+/** The values the env file's placeholders take, each a `zap.env` reference. */
+export interface EnvValues {
+	domain: string;
+	cookie_keys: string;
+	smtp_host: string;
+	smtp_user: string;
+	smtp_password: string;
+}
+
+/** The env file's `template` content: the base, then the service's lines. */
+export const env_content = (values: EnvValues): TemplateContent => {
+	const { cookie_keys, ...extra_vars } = values;
+	return fuz_app_env_base({
+		user: DEPLOY_USER,
+		service: DATABASE_NAME,
+		config_dir: CONFIG_DIR,
+		port: PORT,
+		cookie_keys,
+		extra: {
+			template: ENV_EXTRA,
+			vars: extra_vars,
+			kinds: { domain: 'hostname' }
+		}
+	});
+};

@@ -18,6 +18,7 @@ export const ID = {
 	nginx_ssl_params: 'nginx-ssl-params',
 	nginx_rate_limit: 'nginx-rate-limit',
 	nginx_remove_default: 'nginx-remove-default',
+	nginx_catch_all: 'nginx-catch-all',
 	nginx_verify: 'verify-nginx-config',
 	nginx_service: 'service-nginx',
 	certbot_stop_nginx: 'certbot-stop-nginx',

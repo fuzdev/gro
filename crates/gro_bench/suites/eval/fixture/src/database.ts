@@ -1,6 +1,6 @@
 /**
  * Phase 3: PostgreSQL from the upstream repository, the service's database
- * over loopback TCP, and the one-shot bootstrap token.
+ * with its loopback TCP auth rule, and the one-shot bootstrap token.
  *
  * @module
  */
@@ -37,7 +37,7 @@ export const declare_database = (zap: ZapBuilder): void => {
 		engine: 'postgresql',
 		database_name: DATABASE_NAME,
 		username: DEPLOY_USER,
-		auth: { method: 'trust', hosts: ['127.0.0.1/32', '::1/128'] },
+		auth: { method: 'scram-sha-256', hosts: ['127.0.0.1/32', '::1/128'] },
 		depends_on: [ID.postgres_package, ID.deploy_user]
 	});
 
