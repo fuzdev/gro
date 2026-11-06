@@ -27,8 +27,7 @@ so it replays and caches by construction;
 an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
-Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults:
-Deno can't adopt it without breaking its users.
+Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
 It's an in-progress design, and of the confinement only `fgro eval`'s kernel box is built so far.
 The experimental build runs modules with no access to the OS at all - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
