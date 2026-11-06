@@ -15,7 +15,7 @@
 				"TZ": "UTC"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -32,7 +32,7 @@
 				"GRO_PRICES_OFF": "close_fds"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -49,7 +49,7 @@
 				"GRO_PRICES_OFF": "clear_env"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -66,7 +66,7 @@
 				"GRO_PRICES_OFF": "data_limit"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -83,7 +83,7 @@
 				"GRO_PRICES_OFF": "landlock"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -100,7 +100,7 @@
 				"GRO_PRICES_OFF": "seccomp"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -117,7 +117,7 @@
 				"GRO_PRICES_OFF": "landlock,seccomp"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -134,7 +134,7 @@
 				"GRO_PRICES_OFF": "box_rule"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -151,7 +151,7 @@
 				"GRO_PRICES_OFF": "deny"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -168,7 +168,7 @@
 				"GRO_PRICES_OFF": "refuse_ops"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -185,7 +185,7 @@
 				"TZ": "UTC"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -202,7 +202,7 @@
 				"GRO_PRICES_OFF": "codegen"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -219,7 +219,7 @@
 				"GRO_PRICES_OFF": "locale"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -236,7 +236,7 @@
 				"GRO_PRICES_OFF": "heap_cap"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -253,7 +253,7 @@
 				"GRO_PRICES_OFF": "heap_watch"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -270,7 +270,7 @@
 				"GRO_PRICES_OFF": "watchdog"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -287,7 +287,7 @@
 				"GRO_PRICES_OFF": "utc_check"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -304,7 +304,7 @@
 				"GRO_PRICES_OFF": "recording"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		},
@@ -321,7 +321,7 @@
 				"GRO_PRICES_OFF": "envelope_cap"
 			},
 			"stdin": {
-				"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"
+				"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"
 			},
 			"stdout": "envelope"
 		}
@@ -343,7 +343,7 @@
 				"dir": "../eval/fixture",
 				"stub_packages": 230,
 				"links": {
-					"@fuzdev/zap": "../../../../../private_zap"
+					"@fuzdev/zap": "../../../../../zap"
 				}
 			}
 		}

@@ -8,7 +8,7 @@
 			"program": "../../../../target/gro_snapshot/release/fgro",
 			"args": ["eval", "--driver", "-"],
 			"env": {"TZ": "UTC"},
-			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder_fgro.js"},
+			"stdin": {"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"},
 			"stdout": "envelope"
 		},
 		{
@@ -27,7 +27,7 @@
 			],
 			"v8_args": ["eval", "console.log(Deno.version.v8)"],
 			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
-			"stdin": {"file": "../../../../../private_zap/crates/zap_core/src/config/builder.js"},
+			"stdin": {"file": "../../../../../zap/crates/zap_core/src/config/builder.js"},
 			"stdout": "json"
 		},
 		{
@@ -47,10 +47,10 @@
 			"project": {
 				"dir": "fixture",
 				"stub_packages": 230,
-				"links": {"@fuzdev/zap": "../../../../../private_zap"}
+				"links": {"@fuzdev/zap": "../../../../../zap"}
 			}
 		},
-		{"name": "forge2", "script": "../../../../../private_fuz_forge/zap.forge2.ts", "warmup": 10}
+		{"name": "forge2", "script": "../../../../../fuz_forge/zap.forge2.ts", "warmup": 10}
 	],
 	"parity": ["fgro", "deno"],
 	"gate": {"against": "deno", "runtimes": ["fgro"], "workloads": ["fixture"]}
