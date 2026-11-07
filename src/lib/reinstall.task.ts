@@ -7,8 +7,7 @@ import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
 
 /** @nodocs */
 export const Args = s.object({});
-// written out, as `s.Infer` of an empty object is `{}`, which takes any non-nullish value
-export type Args = Record<string, never>;
+export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {

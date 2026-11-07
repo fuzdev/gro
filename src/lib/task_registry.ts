@@ -51,7 +51,7 @@ export type TaskArgsInput<TName extends TaskName> = TaskRegistry[TName] extends 
 	? InferInput<TSchema> extends infer TInput
 		? TInput extends unknown // distributes, `keyof` of a union is only the shared keys
 			? [keyof TInput] extends [never]
-				? // the input of `s.object({})` is `{}`, which takes any non-nullish value
+				? // a keyless member, such as the `undefined` a `with_default_fn` admits
 					Record<string, never>
 				: TInput
 			: never
