@@ -225,7 +225,8 @@ import the Filer and chokidar on first use, so tasks that never use them never
 load them. The Filer family (`internal/filer.ts`, `internal/disknode.ts`,
 `internal/watch_dir.ts`, `internal/parse_imports.ts`) is internal, not exported.
 A chokidar error (like `EACCES` reading a directory) is a warning through the
-graph's and watcher's `log` (`console` with none), not fatal; the Filer stats before reading, so a
+graph's and watcher's `log` (`console` with none), not fatal; a file that doesn't parse warns with
+its location and keeps the edges it last parsed with; the Filer stats before reading, so a
 directory or special file (a FIFO) is a contentless node, and the graph
 forwards a change whose read finds no file as one `delete` (`#remove` notifies
 only a node that had contents); a file reached by a bare specifier (a package's,

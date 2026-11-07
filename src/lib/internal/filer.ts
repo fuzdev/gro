@@ -291,11 +291,18 @@ export class Filer {
 
 		let imported: Array<string> = [];
 		if (file.contents) {
-			try {
-				imported = parse_imports(file.id, file.contents);
-			} catch (error) {
-				this.#log?.error('[filer] Failed to parse imports', file.id, error);
+			const parsed = parse_imports(file.id, file.contents);
+			if (!parsed.ok) {
+				// a source that doesn't parse, like one mid-edit, keeps the edges it last parsed with
+				const { message, loc } = parsed.error;
+				this.#log?.warn(
+					'[filer] failed to parse imports',
+					`${file.id}:${loc.start.line}:${loc.start.column + 1}`,
+					message
+				);
+				return file;
 			}
+			imported = parsed.specifiers;
 		}
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;

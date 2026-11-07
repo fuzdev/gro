@@ -590,27 +590,59 @@ test('an external dependency through a file is a contentless node, not an init f
 	}
 });
 
-test('handles parse_imports throwing error', async () => {
-	const mock_watch_dir = vi.fn((options) => {
-		const mock_watcher: WatchNodeFs = {
-			init: vi.fn(async () => {
-				// File with potentially invalid syntax
-				options.on_change({ type: 'add', path: '/test/invalid.ts', is_directory: false });
-			}),
-			close: vi.fn(async () => {})
-		};
-		return mock_watcher;
-	});
+test('a source that stops parsing warns and keeps its edges until it parses again', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_parse_error_'));
+	try {
+		const a_path = join(dir, 'a.ts');
+		const b_path = join(dir, 'b.ts');
+		const c_path = join(dir, 'c.ts');
+		await writeFile(b_path, 'export const b = 1;\n');
+		await writeFile(c_path, 'export const c = 1;\n');
+		await writeFile(a_path, "import {b} from './b.ts';\n");
+		let on_change: ((change: WatcherChange) => void) | undefined;
+		const mock_watch_dir = vi.fn((options) => {
+			on_change = options.on_change;
+			const mock_watcher: WatchNodeFs = {
+				init: vi.fn(async () => {
+					options.on_change({ type: 'add', path: a_path, is_directory: false });
+				}),
+				close: vi.fn(async () => {})
+			};
+			return mock_watcher;
+		});
+		const log = create_mock_logger();
+		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		await filer.init();
+		const a = filer.get_by_id(a_path);
+		assert.ok(a);
+		assert.deepEqual([...a.dependencies.keys()], [b_path]);
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
-	await filer.init();
+		// mid-edit, importing `c.ts` but not parsing
+		await writeFile(a_path, "import {b} from './b.ts';\nimport {c from './c.ts';\n");
+		on_change!({ type: 'update', path: a_path, is_directory: false });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.include(a.contents, './c.ts');
+		assert.deepEqual([...a.dependencies.keys()], [b_path]);
+		assert.ok(filer.get_by_id(b_path)?.dependents.has(a_path));
+		const warnings = vi.mocked(log.warn).mock.calls;
+		assert.equal(warnings.length, 1);
+		assert.equal(warnings[0]![0], '[filer] failed to parse imports');
+		assert.equal(warnings[0]![1], `${a_path}:2:11`);
+		assert.equal(vi.mocked(log.error).mock.calls.length, 0);
 
-	// File should still be tracked even if parse_imports fails
-	const file = filer.get_by_id('/test/invalid.ts');
-	assert.ok(file);
-	assert.equal(file.id, '/test/invalid.ts');
-	// Dependencies should be empty when parsing fails
-	assert.equal(file.dependencies.size, 0);
+		// parsing again, with `b.ts` dropped
+		await writeFile(a_path, "import {c} from './c.ts';\n");
+		on_change!({ type: 'update', path: a_path, is_directory: false });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual([...a.dependencies.keys()], [c_path]);
+		assert.ok(!filer.get_by_id(b_path)?.dependents.has(a_path));
+		assert.ok(filer.get_by_id(c_path)?.dependents.has(a_path));
+		assert.equal(warnings.length, 1);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 // Performance edge cases
