@@ -5,7 +5,6 @@ with helpful tools. It supports:
 
 - frontends with SvelteKit and [Vite](https://github.com/vitejs/vite)
 - Node libraries
-- Node servers
 
 > Where it's going: the [runtime](runtime.md) keeps this workflow and moves it onto Gro's own host,
 > running Vite and the other Node tools as subprocesses under the run's kernel rules

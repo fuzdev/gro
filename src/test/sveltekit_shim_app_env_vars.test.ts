@@ -62,12 +62,14 @@ describe('resolve_env_vars', () => {
 	});
 });
 
+const ENV_MODULE_SPECIFIER = 'file:///gro/env.ts';
+
 describe('render_sveltekit_shim_app_env_vars', () => {
 	test('renders an empty module without declarations', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'public',
-			variables: null,
-			entry_specifier: null,
+			entry: null,
+			env_module_specifier: ENV_MODULE_SPECIFIER,
 			dev: true
 		});
 		expect(source).toContain('export {};');
@@ -76,8 +78,8 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 	test('exports only the declared vars of the visibility', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'public',
-			variables: { A: { public: true }, B: {} },
-			entry_specifier: '/project/src/env.ts',
+			entry: { id: '/project/src/env.ts', variables: { A: { public: true }, B: {} } },
+			env_module_specifier: ENV_MODULE_SPECIFIER,
 			dev: true
 		});
 		expect(source).toContain('export const A = __gro_env.A;');
@@ -88,23 +90,21 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 	test('renders the given load_env options', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
-			variables: { A: {} },
-			entry_specifier: '/project/src/env.ts',
+			entry: { id: '/project/src/env.ts', variables: { A: {} } },
+			env_module_specifier: ENV_MODULE_SPECIFIER,
 			dev: false,
-			env_dir: '/project',
-			env_files: ['.env']
+			env_dir: '/project'
 		});
-		expect(source).toContain(
-			'__gro_load_env({"dev":false,"env_dir":"/project","env_files":[".env"]})'
-		);
+		expect(source).toContain('__gro_load_env({"dev":false,"env_dir":"/project"})');
+		expect(source).toContain(`} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`);
 	});
 
 	// declared names can't collide with the module's own bindings
 	test('prefixes its own bindings', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
-			variables: { env: {}, variables: {}, load_env: {} },
-			entry_specifier: '/project/src/env.ts',
+			entry: { id: '/project/src/env.ts', variables: { env: {}, variables: {}, load_env: {} } },
+			env_module_specifier: ENV_MODULE_SPECIFIER,
 			dev: true
 		});
 		expect(source).toContain('export const env = __gro_env.env;');

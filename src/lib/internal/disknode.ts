@@ -12,7 +12,7 @@ export interface Disknode {
 	 */
 	contents: string | null;
 	/**
-	 * Is the source file outside of the `root_dir` or excluded by `watch_dir_options.filter`?
+	 * Is the source file outside of the `root_dir` or excluded by the Filer's `filter`?
 	 */
 	external: boolean;
 	/**

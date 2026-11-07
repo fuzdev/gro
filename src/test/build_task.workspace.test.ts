@@ -57,9 +57,7 @@ vi.mock('#lib/paths.ts', () => ({
 		root: './',
 		source: './src/',
 		lib: './src/lib/',
-		build: './.gro/',
-		build_dev: './.gro/dev/',
-		config: './gro.config.ts'
+		build: './.gro/'
 	}
 }));
 
@@ -101,7 +99,7 @@ describe('build_task workspace state', () => {
 		vi.mocked(fs_exists).mockResolvedValue(true);
 
 		// Mock discover_build_output_dirs() internals - async readdir/stat for dist_* checks
-		vi.mocked(readdir).mockResolvedValue(['dist_server', 'dist_worker', 'other'] as any);
+		vi.mocked(readdir).mockResolvedValue(['dist_artifacts', 'dist_worker', 'other'] as any);
 		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
 
 		const ctx = create_mock_build_task_context();
@@ -118,7 +116,7 @@ describe('build_task workspace state', () => {
 		expect(rm).toHaveBeenCalledWith('dist', { recursive: true, force: true });
 
 		// Should delete all dist_* directories
-		expect(rm).toHaveBeenCalledWith('dist_server', { recursive: true, force: true });
+		expect(rm).toHaveBeenCalledWith('dist_artifacts', { recursive: true, force: true });
 		expect(rm).toHaveBeenCalledWith('dist_worker', { recursive: true, force: true });
 
 		// Should not delete non-build directories

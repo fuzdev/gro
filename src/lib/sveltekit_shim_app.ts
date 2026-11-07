@@ -1,20 +1,17 @@
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 
-// matched against the URL the loader resolves the shim specifier to, in `dist/` or `src/lib/`
-export const SVELTEKIT_SHIM_APP_PATHS_MATCHER = /\/sveltekit_shim_app_paths\.(js|ts)$/;
-export const SVELTEKIT_SHIM_APP_ENV_MATCHER = /\/sveltekit_shim_app_env\.(js|ts)$/;
-
 /**
- * Maps SvelteKit `$app` specifiers to their Gro shims.
+ * Maps SvelteKit `$app` specifiers to the names of their Gro shim modules,
+ * which sit beside the loader.
  * `$app/env/public` and `$app/env/private` aren't files, see `sveltekit_shim_app_env_vars.ts`.
  * @see https://svelte.dev/docs/kit/$app-env
  */
 export const SVELTEKIT_SHIM_APP_SPECIFIERS = new Map([
-	['$app/env', '@fuzdev/gro/sveltekit_shim_app_env.js'],
-	['$app/forms', '@fuzdev/gro/sveltekit_shim_app_forms.js'],
-	['$app/navigation', '@fuzdev/gro/sveltekit_shim_app_navigation.js'],
-	['$app/paths', '@fuzdev/gro/sveltekit_shim_app_paths.js'],
-	['$app/state', '@fuzdev/gro/sveltekit_shim_app_state.js']
+	['$app/env', 'sveltekit_shim_app_env'],
+	['$app/forms', 'sveltekit_shim_app_forms'],
+	['$app/navigation', 'sveltekit_shim_app_navigation'],
+	['$app/paths', 'sveltekit_shim_app_paths'],
+	['$app/state', 'sveltekit_shim_app_state']
 ]);
 
 // TODO route ids with params aren't filled in, only paths are prefixed

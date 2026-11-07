@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, type SpawnResult } from '@fuzdev/fuz_util/process.ts';
 
-import { JS_CLI_DEFAULT, NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
+import { NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 
 /*
 
@@ -82,9 +82,8 @@ export const resolve_gro_module_path = (path = ''): string => {
 export const spawn_with_loader = (
 	loader_path: string,
 	invoke_path: string,
-	argv: Array<string>,
-	js_cli = JS_CLI_DEFAULT // TODO source from config when possible
-): Promise<SpawnResult> => spawn(js_cli, spawn_with_loader_args(loader_path, invoke_path, argv));
+	argv: Array<string>
+): Promise<SpawnResult> => spawn('node', spawn_with_loader_args(loader_path, invoke_path, argv));
 
 /**
  * The Node args that run `invoke_path` with Gro's loader registered.

@@ -6,7 +6,7 @@
 Gro (`@fuzdev/gro`) is a dev tool for building TypeScript projects with
 SvelteKit, providing: convention-based task runner, Node loader for
 TypeScript/Svelte/SvelteKit modules, code generation system, plugin
-architecture, and integrations with Vite, esbuild, Vitest, tsv, ESLint, and
+architecture, and integrations with Vite, Vitest, tsv, ESLint, and
 Changesets. It's designed around conventions and the filesystem, not
 configuration files.
 
@@ -95,14 +95,13 @@ specifier, the importer, and the fix, carrying Node's `code`
 (`ERR_UNSUPPORTED_DIR_IMPORT` for a directory, else `ERR_MODULE_NOT_FOUND`) and
 the path's `url`, so `import.meta.resolve` returns the URL as in Node while the
 import still fails. A path specifier is `./`, `../`, `/`, `.`, or `..`
-(`is_path_specifier`), shared by the loader, the esbuild filter, and the Filer,
-so `'.hidden.ts'` is bare, as in Node. The esbuild plugins for server builds
-follow the same rule, and the Filer's import graph records the exact path a
-specifier names (`to_specifier_path_id`), existing or not, so a file created
-later links to its importers; imports from inside `node_modules` keep Node's and
-esbuild's own resolution.
+(`is_path_specifier`), shared by the loader and the Filer,
+so `'.hidden.ts'` is bare, as in Node. The Filer's import graph records the exact
+path a specifier names (`to_specifier_path_id`), existing or not, so a file
+created later links to its importers; imports from inside `node_modules` keep
+Node's own resolution.
 
-SvelteKit module shims: Best-effort shims for tasks/tests/servers, not identical
+SvelteKit module shims: Best-effort shims for tasks and tests, not identical
 to actual SvelteKit modules:
 
 - `$app/env/public` / `$app/env/private` → the vars declared in `src/env.ts`
@@ -143,7 +142,6 @@ and error handling; `plugin.ts` implements them. Builtin plugins:
 - `gro_plugin_sveltekit_library` - `svelte-package`, then `.ts`→`.js`
   specifier rewrites in the emitted `.d.ts`/`.svelte`
   ([docs](src/docs/gro_plugin_sveltekit_library.md))
-- `gro_plugin_server` - Node servers with auto-restart on changes
 - `gro_plugin_deno_server` - a Deno server beside the Vite dev server,
   unbundled
 
@@ -159,7 +157,7 @@ and `CreateGroConfig`, the default config's project detection, and each option
   cooks)
 - Default config - `gro.config.default.ts`; detection is deferred until `dev`
   or `build` creates plugins (`has_sveltekit_app` / `has_sveltekit_library` in
-  `sveltekit_helpers.ts`, `has_server` in `gro_plugin_server.ts`)
+  `sveltekit_helpers.ts`)
 - Exports automation - `package_json_sync` in `package_json.ts`, run by
   `gro sync`
 
@@ -177,7 +175,7 @@ searched directory under `~/.cache/` still searches):
 
 - Dot-prefixed directories (`.git`, `.svelte-kit`, `.gro`)
 - `node_modules/`
-- Build directories: `build/`, `dist/`, `dist_server/`
+- Build directories: `build/`, `dist/`
 
 ## Builtin tasks
 
@@ -216,28 +214,27 @@ Plugin lifecycle - setup initializes, adapt handles production finalization
 (SvelteKit adapters), teardown cleans up. Watch mode skips teardown to keep
 processes alive.
 
-Module graph and watcher - the task/plugin context's `graph` (`ModuleGraph`:
-project modules, transitive dependents, content-based change events; the gen
-plugin uses it to trigger regeneration) and `watcher` (`Watcher`: a plain file
-watch; the server plugin uses it to rebuild). The interfaces live in
-`module_graph.ts`, types only; the Node implementations in `module_graph_node.ts`
-import the Filer and chokidar on first use, so tasks that never use them never
-load them. The Filer family (`internal/filer.ts`, `internal/disknode.ts`,
-`internal/watch_dir.ts`, `internal/parse_imports.ts`) is internal, not exported.
-A chokidar error (like `EACCES` reading a directory) is a warning through the
-graph's and watcher's `log` (`console` with none), not fatal; a file that doesn't parse warns with
-its location and keeps the edges it last parsed with; the Filer stats before reading, so a
-directory or special file (a FIFO) is a contentless node, and the graph
-forwards a change whose read finds no file as one `delete` (`#remove` notifies
-only a node that had contents); a file reached by a bare specifier (a package's,
-even when linked) is a contentless node, never read, so its imports aren't
-edges (its importer's edge is kept), while a file a path or `#` subpath import
-reaches is read.
+Module graph - the task/plugin context's `graph` (`ModuleGraph`: project
+modules, transitive dependents, content-based change events; the gen plugin uses
+it to trigger regeneration). The interface lives in `module_graph.ts`, types
+only; the Node implementation in `module_graph_node.ts` imports the Filer and
+chokidar on first use, so tasks that never use it never load them. The Filer
+family (`internal/filer.ts`, `internal/disknode.ts`, `internal/watch_dir.ts`,
+`internal/parse_imports.ts`) is internal, not exported. A chokidar error (like
+`EACCES` reading a directory) is a warning through the graph's `log` (`console`
+with none), not fatal; a file that doesn't parse warns with its location and
+keeps the edges it last parsed with; the Filer stats before reading, so a
+directory or special file (a FIFO) is a contentless node, and the graph forwards
+a change whose read finds no file as one `delete` (`#remove` notifies only a
+node that had contents); a file reached by a bare specifier (a package's, even
+when linked) is a contentless node, never read, so its imports aren't edges (its
+importer's edge is kept), while a file a path or `#` subpath import reaches is
+read.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.
 
-Minimal abstraction - thin layer over tools (Vite, esbuild, Vitest), forwarding
+Minimal abstraction - thin layer over tools (Vite, Vitest), forwarding
 args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 
 ## Rust workspace (experimental)
@@ -396,10 +393,8 @@ Key utilities:
 
 - Filesystem: `module_graph.ts`, `module_graph_node.ts`, `internal/filer.ts`, `paths.ts`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
-- SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`,
-  `esbuild_plugin_sveltekit_*.ts`
-- Build tools: `esbuild_helpers.ts`, `esbuild_plugin_svelte.ts`,
-  `build_cache.ts`, `build_cache_dependencies.ts`
+- SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
+- Build tools: `build_cache.ts`, `build_cache_dependencies.ts`
 
 Documentation: [Complete index at src/docs/README.md](src/docs/README.md) - Core
 topics: [task](src/docs/task.md), [gen](src/docs/gen.md),

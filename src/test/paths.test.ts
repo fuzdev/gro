@@ -7,7 +7,6 @@ import {
 	gro_paths,
 	is_gro_id,
 	to_root_path,
-	base_path_to_path_id,
 	to_search_filters_relative,
 	to_gro_package_dir
 } from '#lib/paths.ts';
@@ -45,16 +44,6 @@ describe('to_root_path', () => {
 		expect(to_root_path(resolve('foo/bar'))).toBe('foo/bar');
 		expect(to_root_path(resolve('./'))).toBe('./');
 		expect(to_root_path(resolve('./'))).toBe('./');
-	});
-});
-
-describe('base_path_to_path_id', () => {
-	test('basic behavior', () => {
-		expect(base_path_to_path_id('foo/bar/baz.ts')).toBe(resolve('src/foo/bar/baz.ts'));
-	});
-
-	test('does not change extension', () => {
-		expect(base_path_to_path_id('foo/bar/baz.js')).toBe(resolve('src/foo/bar/baz.js'));
 	});
 });
 

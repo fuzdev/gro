@@ -1,4 +1,5 @@
 import { test, assert, vi } from 'vitest';
+import { paths } from '#lib/paths.ts';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,7 +38,7 @@ test('close() during init() handles gracefully', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Start initialization but don't await
 	const init_promise = filer.init();
@@ -68,7 +69,7 @@ test('concurrent init and close handle correctly', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Start multiple concurrent operations
 	const operations = Promise.all([
@@ -99,7 +100,7 @@ test('closing flag is reset even if close throws', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Close should throw
@@ -134,7 +135,7 @@ test('no partial file state after close during init', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Start init and close after first file
 	const init_promise = filer.init();
@@ -162,7 +163,7 @@ test('watcher.close() is called on close during init', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Start init but don't await
 	const init_promise = filer.init();
@@ -196,7 +197,7 @@ test('concurrent close() calls share same promise', async () => {
 	};
 
 	const mock_watch_dir = vi.fn(() => mock_watcher);
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Initialize first
 	await filer.init();
@@ -248,7 +249,7 @@ test('processes rapid changes to different files in order', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push({ type: change.type, path: change.path });
@@ -265,7 +266,7 @@ test('processes rapid changes to different files in order', async () => {
 test('queue is fully drained after init completes', async () => {
 	const events: Array<string> = [];
 	const mock_watch_dir = create_mock_watch_dir();
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.init();
 
@@ -304,7 +305,7 @@ test('new changes are queued while processing', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push(change.path);
@@ -342,7 +343,7 @@ test('handles many rapid changes efficiently', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push({ type: change.type, path: change.path });
@@ -381,7 +382,7 @@ test('queue processes all changes even when they arrive during processing', asyn
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.watch((change) => {
 		events.push(change.path);
@@ -414,7 +415,7 @@ test('files with no actual changes do not re-notify', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	await filer.watch(() => {
 		update_count++;
@@ -438,7 +439,7 @@ test('handles rapid updates to same file', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Simulate 100 rapid updates to the same file
@@ -492,7 +493,7 @@ test('an awaited close stops in-flight processing', async () => {
 				emit = options.on_change;
 				return { init: async () => {}, close: async () => {} };
 			},
-			watch_dir_options: { dir: src },
+			dir: src,
 			log: log as unknown as Logger
 		});
 		await filer.init();
@@ -546,7 +547,7 @@ test('a failed init stops its in-flight processing', async () => {
 				},
 				close: async () => {}
 			}),
-			watch_dir_options: { dir: src },
+			dir: src,
 			log: log as unknown as Logger
 		});
 		const get_or_create = filer.get_or_create;
@@ -575,6 +576,7 @@ test('a failed init stops its in-flight processing', async () => {
 test('init right after a close during init waits for the close, then inits fresh', async () => {
 	let inits = 0;
 	const filer = new Filer({
+		dir: paths.source,
 		watch_dir: (options) => ({
 			init: async () => {
 				inits++;

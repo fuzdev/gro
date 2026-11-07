@@ -54,9 +54,7 @@ vi.mock('#lib/paths.ts', () => ({
 		root: './',
 		source: './src/',
 		lib: './src/lib/',
-		build: './.gro/',
-		build_dev: './.gro/dev/',
-		config: './gro.config.ts'
+		build: './.gro/'
 	}
 }));
 

@@ -15,8 +15,6 @@ import {
 import {
 	render_sveltekit_shim_app_env,
 	render_sveltekit_shim_app_paths,
-	SVELTEKIT_SHIM_APP_ENV_MATCHER,
-	SVELTEKIT_SHIM_APP_PATHS_MATCHER,
 	SVELTEKIT_SHIM_APP_SPECIFIERS
 } from './sveltekit_shim_app.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
@@ -73,11 +71,14 @@ const env_module_url = to_sibling_url('env');
 const loading_env_declarations = new AsyncLocalStorage<string>();
 
 const shim_app_urls = new Map(
-	Array.from(SVELTEKIT_SHIM_APP_SPECIFIERS, ([specifier, shim]) => [
+	Array.from(SVELTEKIT_SHIM_APP_SPECIFIERS, ([specifier, name]) => [
 		specifier,
-		to_sibling_url(shim.slice(shim.lastIndexOf('/') + 1, -'.js'.length))
+		to_sibling_url(name)
 	])
 );
+// rendered from the Svelte config when loaded, in place of their placeholder source
+const shim_app_paths_url = shim_app_urls.get('$app/paths');
+const shim_app_env_url = shim_app_urls.get('$app/env');
 
 /*
 
@@ -118,15 +119,18 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		const visibility = matches[1] as 'public' | 'private';
 		const { src_path, env_dir } = await load_default_svelte_config();
 		const entry_id = resolve_sveltekit_env_entry(src_path);
-		const variables = entry_id
-			? await loading_env_declarations.run(entry_id, () =>
-					load_sveltekit_env_declarations({ entry_id })
-				)
-			: null;
+		const entry =
+			entry_id === null
+				? null
+				: {
+						id: entry_id,
+						variables: await loading_env_declarations.run(entry_id, () =>
+							load_sveltekit_env_declarations(entry_id)
+						)
+					};
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility,
-			variables,
-			entry_specifier: entry_id && pathToFileURL(entry_id).href,
+			entry,
 			env_module_specifier: env_module_url,
 			dev,
 			env_dir
@@ -134,7 +138,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		return { format: 'module', shortCircuit: true, source };
 	}
 
-	if (SVELTEKIT_SHIM_APP_PATHS_MATCHER.test(url)) {
+	if (url === shim_app_paths_url) {
 		// SvelteKit `$app/paths` shim
 		const { base_url, assets_url } = await load_default_svelte_config();
 		return {
@@ -142,7 +146,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 			shortCircuit: true,
 			source: render_sveltekit_shim_app_paths(base_url, assets_url)
 		};
-	} else if (SVELTEKIT_SHIM_APP_ENV_MATCHER.test(url)) {
+	} else if (url === shim_app_env_url) {
 		// SvelteKit `$app/env` shim
 		const { version_name } = await load_default_svelte_config();
 		return {

@@ -20,7 +20,6 @@ describe('parse_svelte_config', () => {
 		const parsed = await parse({});
 		expect(parsed.routes_path).toBe('src/routes');
 		expect(parsed.src_path).toBe('src');
-		expect(parsed.assets_path).toBe('static');
 		expect(parsed.env_dir).toBe(undefined);
 		expect(parsed.version_name).toBe(undefined);
 	});
@@ -34,19 +33,14 @@ describe('parse_svelte_config', () => {
 	// Resolving through Vite yields absolute paths, but Gro's vocabulary is project-relative.
 	test('makes absolute paths relative to the project directory', async () => {
 		const parsed = await parse({
-			files: {
-				src: DIR + '/src',
-				routes: DIR + '/src/routes',
-				assets: DIR + '/static'
-			}
+			files: { src: DIR + '/src', routes: DIR + '/src/routes' }
 		});
 		expect(parsed.src_path).toBe('src');
 		expect(parsed.routes_path).toBe('src/routes');
-		expect(parsed.assets_path).toBe('static');
 	});
 
 	// `env_dir` is serialized into the generated `$app/env/*` modules,
-	// so an absolute path would bake the build machine's directory into server bundles.
+	// which resolve it against the cwd.
 	test('makes an absolute env dir relative so it stays portable', async () => {
 		expect((await parse({ env: { dir: DIR } })).env_dir).toBe('.');
 		expect((await parse({ env: { dir: DIR + '/config' } })).env_dir).toBe('config');

@@ -11,7 +11,7 @@ import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { print_path } from './paths.ts';
 import { load_module, type ModuleMeta } from './modules.ts';
-import type { ModuleGraph, Watcher } from './module_graph.ts';
+import type { ModuleGraph } from './module_graph.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
 
@@ -37,10 +37,6 @@ export interface TaskContext<TArgs = object> {
 	 * The project's module graph, loaded on first use.
 	 */
 	graph: ModuleGraph;
-	/**
-	 * Watches files with no module graph, loaded on first use.
-	 */
-	watcher: Watcher;
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
@@ -104,7 +100,7 @@ export type InvokeTaskRest<TName extends string> =
 export interface InvokeTaskContextOptions {
 	/**
 	 * The config the invoked task runs with, defaults to the invoking task's.
-	 * The invoked task still shares the invoking task's `graph` and `watcher`,
+	 * The invoked task still shares the invoking task's `graph`,
 	 * so this config's `watch` doesn't apply.
 	 */
 	config?: GroConfig;

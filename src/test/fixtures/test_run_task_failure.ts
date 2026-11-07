@@ -8,7 +8,7 @@ import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { run_task } from '#lib/run_task.ts';
 import { load_gro_config } from '#lib/gro_config.ts';
-import { create_node_module_graph, create_node_watcher } from '#lib/module_graph_node.ts';
+import { create_node_module_graph } from '#lib/module_graph_node.ts';
 
 async function runTest() {
 	console.log('Testing run_task handles failing tasks...\n');
@@ -16,7 +16,6 @@ async function runTest() {
 	let err;
 	const config = await load_gro_config();
 	const graph = create_node_module_graph({ watch: config.watch });
-	const watcher = create_node_watcher({ watch: config.watch });
 	const log = new Logger('test');
 	const result = await run_task(
 		{
@@ -36,13 +35,11 @@ async function runTest() {
 			invoke_task: async () => {},
 			config,
 			graph,
-			watcher,
 			log,
 			timings: new Timings()
 		}
 	);
 	await graph.close();
-	await watcher.close();
 
 	const success = !result.ok && result.reason && result.error === err;
 

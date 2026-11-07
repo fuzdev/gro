@@ -50,7 +50,7 @@ export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> =
 	build: 'build the project',
 	changeset: 'call changeset with gro patterns',
 	check: 'check that everything is ready to commit',
-	clean: 'remove temporary dev and build files, and optionally prune git branches',
+	clean: 'remove build files, and optionally prune git branches',
 	commit: 'commit and push to a new branch',
 	deploy: 'deploy to a branch',
 	dev: 'start SvelteKit and other dev plugins',

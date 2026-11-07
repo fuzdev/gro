@@ -27,7 +27,6 @@ import {
 	to_task_path,
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB,
-	type TaskContext,
 	type TaskModuleMeta
 } from './task.ts';
 import {
@@ -42,7 +41,8 @@ import {
 import { package_json_load_for_gro } from './package_json.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from './task_logging.ts';
 import type { GroConfig } from './gro_config.ts';
-import { create_node_module_graph, create_node_watcher } from './module_graph_node.ts';
+import { create_node_module_graph } from './module_graph_node.ts';
+import type { ModuleGraph } from './module_graph.ts';
 import { task_registry_find } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
@@ -57,12 +57,12 @@ export interface InvokeTaskOptions {
 	 */
 	config: GroConfig;
 	/**
-	 * The `graph` and `watcher` from the invoking task,
+	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
 	 * A nested task gets its invoking task's even when invoked with its own `config`,
 	 * so its `config.watch` is ignored.
 	 */
-	watching?: Pick<TaskContext, 'graph' | 'watcher'>;
+	graph?: ModuleGraph;
 	/**
 	 * The invoking task's timings, shared by nested tasks;
 	 * absent for the top-level task, which creates them and prints them on success.
@@ -95,7 +95,7 @@ export const invoke_task = async (
 	args: Args | undefined,
 	options: InvokeTaskOptions
 ): Promise<void> => {
-	const { config, watching: initial_watching, timings: initial_timings, parent_log } = options;
+	const { config, graph: initial_graph, timings: initial_timings, parent_log } = options;
 	// Create child logger if parent exists, otherwise root logger,
 	// labeled by the name the task is displayed by when it's a normalized path
 	const log_label = is_task_path(task_name) ? to_task_path(task_name) : task_name || 'gro';
@@ -123,12 +123,10 @@ export const invoke_task = async (
 		throw new SilentError();
 	}
 
-	// the graph and watcher load lazily, so a task that never uses them never loads chokidar
-	const owns_watching = !initial_watching;
-	const { graph, watcher } = initial_watching ?? {
-		graph: create_node_module_graph({ watch: config.watch, log: log.child('graph') }),
-		watcher: create_node_watcher({ watch: config.watch, log: log.child('watcher') })
-	};
+	// the graph loads lazily, so a task that never uses it never loads chokidar
+	const owns_graph = !initial_graph;
+	const graph =
+		initial_graph ?? create_node_module_graph({ watch: config.watch, log: log.child('graph') });
 
 	const owns_timings = !initial_timings;
 	const timings = initial_timings ?? new Timings();
@@ -148,15 +146,12 @@ export const invoke_task = async (
 			invoke_task,
 			config,
 			graph,
-			watcher,
 			log,
 			timings
 		});
 	} finally {
 		// close only what we created, failed or not, a no-op when it never loaded
-		if (owns_watching) {
-			await Promise.all([graph.close(), watcher.close()]);
-		}
+		if (owns_graph) await graph.close();
 	}
 	timing_to_run_task();
 	if (!result.ok) {

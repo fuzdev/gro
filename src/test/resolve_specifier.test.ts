@@ -39,8 +39,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			specifier,
-			namespace: undefined,
 			raw: false
 		});
 	});
@@ -50,8 +48,6 @@ describe('resolve_specifier', () => {
 		const path_id = join(dir, specifier);
 		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			specifier,
-			namespace: undefined,
 			raw: false
 		});
 	});
@@ -61,8 +57,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			specifier,
-			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 	});
@@ -73,8 +67,6 @@ describe('resolve_specifier', () => {
 		const path_id = path;
 		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			specifier,
-			namespace: 'sveltekit_local_imports_ts',
 			raw: true
 		});
 	});
@@ -83,28 +75,20 @@ describe('resolve_specifier', () => {
 		const path_id1 = join(dir, 'test_ts.ts');
 		expect(resolve_specifier('./test_ts.ts', importer)).toEqual({
 			path_id: path_id1,
-			specifier: './test_ts.ts',
-			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		const path_id2 = join(dir, 'modules/some_test_ts.ts');
 		expect(resolve_specifier('./modules/some_test_ts.ts', importer)).toEqual({
 			path_id: path_id2,
-			specifier: './modules/some_test_ts.ts',
-			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		const path_id3 = join(dir, 'test_ts.ts');
 		expect(resolve_specifier('../fixtures/test_ts.ts', importer)).toEqual({
 			path_id: path_id3,
-			specifier: '../fixtures/test_ts.ts',
-			namespace: 'sveltekit_local_imports_ts',
 			raw: false
 		});
 		expect(resolve_specifier('../fixtures/test_ts.ts?raw', importer)).toEqual({
 			path_id: path_id3,
-			specifier: '../fixtures/test_ts.ts?raw',
-			namespace: 'sveltekit_local_imports_ts',
 			raw: true
 		});
 	});
@@ -114,8 +98,6 @@ describe('resolve_specifier', () => {
 		const path_id = specifier;
 		expect(resolve_specifier(specifier, importer)).toEqual({
 			path_id,
-			specifier,
-			namespace: 'sveltekit_local_imports_js',
 			raw: false
 		});
 	});

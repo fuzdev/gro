@@ -1,6 +1,6 @@
 # config
 
-Gro supports SvelteKit apps, Node libraries, and Node servers with minimal abstraction
+Gro supports SvelteKit apps and Node libraries with minimal abstraction
 with the help of an optional config file that lives at the root `gro.config.ts`.
 If a project does not define a config, Gro imports a default config from
 [`src/lib/gro.config.default.ts`](/src/lib/gro.config.default.ts),
@@ -12,10 +12,9 @@ without required deps.
 > and `gro eval` gives any tool a confined, deterministic one-shot eval of a module like this one.
 
 > The [default config](/src/lib/gro.config.default.ts)
-> detects three types of projects that can coexist in one repo:
-> SvelteKit frontends,
-> Node libraries with [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging),
-> and Node servers.
+> detects two types of projects that can coexist in one repo:
+> SvelteKit frontends
+> and Node libraries with [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging).
 > It inspects `package.json` and the filesystem when `gro dev` or `gro build` creates the plugins,
 > not on every task:
 >
@@ -24,7 +23,6 @@ without required deps.
 >   [`gro_plugin_sveltekit_app`](gro_plugin_sveltekit_app.md)
 > - that plus `@sveltejs/package` and the `src/lib/` directory →
 >   [`gro_plugin_sveltekit_library`](gro_plugin_sveltekit_library.md#detection)
-> - `server/server.ts` in the `src/lib/` directory → `gro_plugin_server`
 
 See [`src/lib/gro_config.ts`](/src/lib/gro_config.ts) for the config types and implementation.
 
@@ -58,7 +56,6 @@ export interface GroConfig extends RawGroConfig {
 	plugins: PluginsCreateConfig;
 	map_package_json: PackageJsonMapper | null;
 	search_filters: Array<PathFilter>;
-	js_cli: string;
 	pm_cli: string;
 	build_cache_config_hash: string;
 	watch: WatchOptions;
@@ -69,7 +66,6 @@ export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: PackageJsonMapper | null;
 	search_filters?: PathFilter | Array<PathFilter> | null;
-	js_cli?: string;
 	pm_cli?: string;
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
@@ -97,13 +93,11 @@ const config: CreateGroConfig = async (cfg) => {
 	// example extending the default plugins:
 	const get_base_plugins = cfg.plugins;
 	cfg.plugins = async (ctx) => {
-		// replace a base plugin with `import {plugin_replace} from '@fuzdev/gro';`:
-		const updated_plugins = plugin_replace(
-			await get_base_plugins(ctx),
-			gro_plugin_sveltekit_app(),
-			// 'gro_plugin_sveltekit_app', // optional name if they don't match
-		);
-		return updated_plugins.concat(create_some_custom_plugin());
+		// drop a base plugin by name and add your own:
+		const base_plugins = await get_base_plugins(ctx);
+		return base_plugins
+			.filter((p) => p.name !== 'gro_plugin_sveltekit_app')
+			.concat(create_some_custom_plugin());
 		// `return get_base_plugins(ctx)` is the base behavior
 	};
 
@@ -123,7 +117,6 @@ const config = create_empty_gro_config();
 // config.plugins = ...;
 // config.map_package_json = ...;
 // config.search_filters = ...;
-// config.js_cli = ...;
 // config.pm_cli = ...;
 
 export default config;
@@ -232,11 +225,11 @@ and any other path is given as its absolute id.
 
 By default, it uses the `SEARCH_EXCLUDER_DEFAULT` to exclude
 dot-prefixed directories, node_modules,
-and the build and dist directories for SvelteKit and Gro.
+and SvelteKit's build and dist directories.
 
 ## `watch`
 
-What the task context's `graph` and `watcher` watch:
+What the task context's `graph` watches:
 `dir`, the directory holding the project modules (default `src/`),
 and `filter`, a `PathFilter` excluding the paths it rejects (default `null`).
 Files outside `dir` enter the graph only when a project module imports them.
@@ -245,12 +238,6 @@ Files outside `dir` enter the graph only when a project module imports them.
 unlike [`search_filters`](#search_filters), which test relative paths (see above).
 It filters change events, not the directory walk:
 a directory it rejects is still watched, and each path below it is filtered on its own.
-
-## `js_cli`
-
-> ⚠️ support is currently partial, help is welcome
-
-The CLI to use that's compatible with `node`. Defaults to `'node'`.
 
 ## `pm_cli`
 

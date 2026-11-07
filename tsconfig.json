@@ -16,7 +16,6 @@
 		"declaration": true,
 		"declarationMap": true,
 		"sourceRoot": "../src/lib/",
-		"importHelpers": true,
 		"erasableSyntaxOnly": true,
 		"rewriteRelativeImportExtensions": false
 	},

@@ -14,8 +14,6 @@ export interface ResolvedSpecifier {
 	 * The resolved filesystem path for the specifier.
 	 */
 	path_id: PathId;
-	specifier: string;
-	namespace: undefined | 'sveltekit_local_imports_ts' | 'sveltekit_local_imports_js';
 	/**
 	 * Whether the specifier ends in `?raw`, importing the file's text.
 	 */
@@ -31,15 +29,12 @@ export const RAW_QUERY = '?raw';
  * Strips a trailing `?raw` from `specifier`.
  * @param specifier - an import specifier or URL, optionally ending in `?raw`
  */
-export const strip_raw_query = (specifier: string): string =>
+const strip_raw_query = (specifier: string): string =>
 	specifier.endsWith(RAW_QUERY) ? specifier.slice(0, -RAW_QUERY.length) : specifier;
 
 const DIRECTORY_LIKE_MATCHER = /(^|\/)\.{0,2}$/;
 
-/**
- * Matches a path specifier, the rule `is_path_specifier` and esbuild filters share.
- */
-export const PATH_SPECIFIER_MATCHER = /^(\.\.?(\/|$)|\/)/;
+const PATH_SPECIFIER_MATCHER = /^(\.\.?(\/|$)|\/)/;
 
 /**
  * Whether an import `specifier` is a path, relative or absolute,
@@ -103,20 +98,7 @@ export const resolve_specifier = (specifier: string, importer: PathId): Resolved
 		);
 	}
 
-	const ext = extname(path_id);
-	const namespace: ResolvedSpecifier['namespace'] =
-		ext === '.ts'
-			? 'sveltekit_local_imports_ts'
-			: ext === '.js'
-				? 'sveltekit_local_imports_js'
-				: undefined;
-
-	return {
-		path_id,
-		raw,
-		specifier,
-		namespace
-	};
+	return { path_id, raw };
 };
 
 /**

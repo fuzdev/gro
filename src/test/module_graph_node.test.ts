@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import { create_node_module_graph, create_node_watcher } from '#lib/module_graph_node.ts';
+import { create_node_module_graph } from '#lib/module_graph_node.ts';
 import type { FileChange } from '#lib/module_graph.ts';
 
 const WAIT_TIMEOUT = 5000;
@@ -236,114 +236,6 @@ describe('create_node_module_graph', () => {
 			first_closed = true;
 		});
 		await graph.close();
-		assert.ok(first_closed);
-		await first;
-	});
-});
-
-describe('create_node_watcher', () => {
-	test('reports changes from now on, not the existing files', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		onTestFinished(() => watcher.close());
-
-		const log = create_change_log();
-		await watcher.watch(log.on_change);
-
-		await writeFile(join(dir, 'e.ts'), 'export const e = 1;\n');
-		await log.wait_for((c) => c.type === 'add' && c.id === join(dir, 'e.ts'));
-		assert.notOk(log.changes.some((c) => c.id === join(dir, 'a.ts')));
-
-		// directories emit nothing, waiting on a file inside so the dir's event came first
-		await mkdir(join(dir, 'sub'));
-		await writeFile(join(dir, 'sub', 'f.ts'), 'export const f = 1;\n');
-		await log.wait_for((c) => c.type === 'add' && c.id === join(dir, 'sub', 'f.ts'));
-		assert.notOk(log.changes.some((c) => c.id === join(dir, 'sub')));
-
-		await rm(join(dir, 'e.ts'));
-		await log.wait_for((c) => c.type === 'delete' && c.id === join(dir, 'e.ts'));
-	});
-
-	test('the returned function stops the watch', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		onTestFinished(() => watcher.close());
-
-		const log = create_change_log();
-		const unwatch = await watcher.watch(log.on_change);
-		await unwatch();
-		await writeFile(join(dir, 'e.ts'), 'export const e = 1;\n');
-
-		// a second watch sees the next change, the stopped one never does
-		const log2 = create_change_log();
-		await watcher.watch(log2.on_change);
-		await writeFile(join(dir, 'f.ts'), 'export const f = 1;\n');
-		await log2.wait_for((c) => c.id === join(dir, 'f.ts'));
-		assert.equal(log.changes.length, 0);
-	});
-
-	test('the filter excludes paths', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: (p) => !p.endsWith('x.ts') } });
-		onTestFinished(() => watcher.close());
-
-		const log = create_change_log();
-		await watcher.watch(log.on_change);
-
-		await writeFile(join(dir, 'x.ts'), 'export const x = 1;\n');
-		await writeFile(join(dir, 'y.ts'), 'export const y = 1;\n');
-		await log.wait_for((c) => c.id === join(dir, 'y.ts'));
-		assert.notOk(log.changes.some((c) => c.id === join(dir, 'x.ts')));
-	});
-
-	test('closing is permanent, so later watches reject', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		await watcher.close();
-
-		await assert_rejects_closed(
-			watcher.watch(() => {}),
-			'Watcher is closed'
-		);
-	});
-
-	test('a watch pending when the watcher closes rejects', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		const watching = watcher.watch(() => {});
-		await watcher.close();
-
-		await assert_rejects_closed(watching, 'Watcher is closed');
-	});
-
-	test('a watch closed while chokidar starts closes once ready and rejects', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		// caches the module import so the next watch gets to start chokidar
-		await (await watcher.watch(() => {}))();
-		const watching = watcher.watch(() => {});
-		let watch_settled = false;
-		const settle = () => {
-			watch_settled = true;
-		};
-		watching.then(settle, settle);
-		await next_macrotask();
-		await watcher.close();
-		// `close` waits for the starting watch to close itself
-		assert.ok(watch_settled);
-
-		await assert_rejects_closed(watching, 'Watcher is closed');
-	});
-
-	test('a second close resolves no earlier than the first teardown', async () => {
-		const { dir } = await create_project();
-		const watcher = create_node_watcher({ watch: { dir, filter: null } });
-		await watcher.watch(() => {});
-		let first_closed = false;
-		const first = watcher.close().then(() => {
-			first_closed = true;
-		});
-		await watcher.close();
 		assert.ok(first_closed);
 		await first;
 	});

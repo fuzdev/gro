@@ -1,9 +1,9 @@
-import { dirname, relative, basename } from 'node:path';
+import { dirname, relative, basename, join } from 'node:path';
 import { parse_path_parts, parse_path_segments } from '@fuzdev/fuz_util/path.ts';
 import { strip_start } from '@fuzdev/fuz_util/string.ts';
 
 import { to_output_file_name } from '../lib/gen.ts';
-import { paths, base_path_to_path_id } from '../lib/paths.ts';
+import { paths } from '../lib/paths.ts';
 
 // TODO maybe extract some of these to `gen_helpers.ts` in `src/lib`
 
@@ -62,7 +62,7 @@ export const create_breadcrumbs = (
 		if (is_index_file && relative_path_part === relative_dir) {
 			return segment;
 		}
-		const href = relative(origin_dir, base_path_to_path_id(relative_path_part)) || './';
+		const href = relative(origin_dir, join(paths.source, relative_path_part)) || './';
 		const final_href = href === '/..' ? '/../..' : href; // for GitHub, link to the right place, never `/blob`
 		return `[${segment}](${final_href})`;
 	});

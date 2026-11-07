@@ -1,8 +1,7 @@
 /**
  * Gro plugin for running a Deno server alongside the Vite dev server.
  *
- * Unlike `gro_plugin_server`, this doesn't use esbuild bundling since
- * Deno can run TypeScript directly with JSR imports.
+ * It runs the entry unbundled, since Deno runs TypeScript directly with JSR imports.
  *
  * @module
  */
@@ -44,7 +43,7 @@ export interface GroPluginDenoServerOptions {
 	/**
 	 * Whether to watch for file changes and restart.
 	 * Uses Deno's built-in --watch flag.
-	 * @default true in `dev`
+	 * @default the task's `watch`, so `gro dev --no-watch` doesn't watch
 	 */
 	watch?: boolean;
 
@@ -86,10 +85,10 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 
 	return {
 		name: 'gro_plugin_deno_server',
-		setup: async ({ dev, log }) => {
+		setup: async ({ dev, watch: task_watch, log }) => {
 			if (!dev) return; // Only run in dev mode
 
-			const should_watch = watch ?? dev;
+			const should_watch = watch ?? task_watch;
 
 			log.info(`[gro_plugin_deno_server] starting Deno server: ${entry} on http://${host}:${port}`);
 

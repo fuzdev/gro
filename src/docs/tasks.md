@@ -9,7 +9,7 @@ What is a `Task`? See [`task.md`](./task.md).
 - [build](../lib/build.task.ts) - build the project
 - [changeset](../lib/changeset.task.ts) - call changeset with gro patterns
 - [check](../lib/check.task.ts) - check that everything is ready to commit
-- [clean](../lib/clean.task.ts) - remove temporary dev and build files, and optionally prune git branches
+- [clean](../lib/clean.task.ts) - remove build files, and optionally prune git branches
 - [commit](../lib/commit.task.ts) - commit and push to a new branch
 - [deploy](../lib/deploy.task.ts) - deploy to a branch
 - [dev](../lib/dev.task.ts) - start SvelteKit and other dev plugins

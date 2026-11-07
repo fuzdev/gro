@@ -1,9 +1,8 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import type { FileChangeCallback, ModuleGraph, Watcher, WatchOptions } from './module_graph.ts';
+import type { FileChangeCallback, ModuleGraph, WatchOptions } from './module_graph.ts';
 import type { Filer, filter_dependents } from './internal/filer.ts';
-import type { WatchNodeFs } from './internal/watch_dir.ts';
 
 interface LoadedFiler {
 	filer: Filer;
@@ -48,11 +47,9 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 		loading ??= (async () => {
 			const { Filer, filter_dependents } = await import('./internal/filer.ts');
 			const filer = new Filer({
-				watch_dir_options: {
-					dir: watch.dir,
-					filter: watch.filter,
-					on_error: (error) => (log ?? console).warn('watch error, changes may be missed:', error)
-				},
+				dir: watch.dir,
+				filter: watch.filter,
+				on_error: (error) => (log ?? console).warn('watch error, changes may be missed:', error),
 				log
 			});
 			await filer.init();
@@ -115,89 +112,6 @@ export const create_node_module_graph = (options: NodeModuleGraphOptions): Modul
 					return; // a failed load already cleaned up
 				}
 				await loaded.filer.close();
-			})())
-	};
-};
-
-/**
- * Options for `create_node_watcher`.
- */
-export interface NodeWatcherOptions {
-	/**
-	 * What each `watch` call watches, usually `GroConfig.watch`.
-	 */
-	watch: WatchOptions;
-	/**
-	 * Warns of a watch error, like `EACCES` reading a directory; absent, `console` does.
-	 * The module graph runs its own watch and warns separately,
-	 * so in `gro dev` one bad directory can warn twice.
-	 */
-	log?: Logger;
-}
-
-/**
- * Creates the Node `Watcher`, a chokidar watch per `watch` call.
- * chokidar is imported on first use.
- */
-export const create_node_watcher = (options: NodeWatcherOptions): Watcher => {
-	const { watch, log } = options;
-	const watching: Set<WatchNodeFs> = new Set();
-	// watches not yet started, which `close` waits for
-	const starting: Set<Promise<boolean>> = new Set();
-	let closed = false;
-	let closing: Promise<void> | undefined;
-
-	return {
-		watch: async (on_change) => {
-			if (closed) throw Error('Watcher is closed');
-			const { watch_dir } = await import('./internal/watch_dir.ts');
-			if (closed) throw Error('Watcher is closed');
-			const watcher = watch_dir({
-				dir: watch.dir,
-				filter: watch.filter,
-				chokidar: { ignoreInitial: true },
-				on_error: (error) => (log ?? console).warn('watch error, changes may be missed:', error),
-				on_change: (change) => {
-					if (change.is_directory) return;
-					on_change({ type: change.type, id: change.path });
-				}
-			});
-			// `watch_dir`'s `init` never resolves when closed before ready,
-			// so a watch that `close` ran during closes itself once ready
-			const starting_watch = (async () => {
-				await watcher.init();
-				if (closed) {
-					await watcher.close();
-					return false;
-				}
-				watching.add(watcher);
-				return true;
-			})();
-			starting.add(starting_watch);
-			let started: boolean;
-			try {
-				started = await starting_watch;
-			} finally {
-				starting.delete(starting_watch);
-			}
-			if (!started) throw Error('Watcher is closed');
-			return async () => {
-				if (!watching.delete(watcher)) return;
-				await watcher.close();
-			};
-		},
-		close: () =>
-			(closing ??= (async () => {
-				closed = true;
-				const closing_watches = Array.from(watching, (w) => w.close());
-				watching.clear();
-				// settle every teardown before rejecting, so an awaited `close` means fully closed
-				const results = await Promise.allSettled([
-					...closing_watches,
-					...Array.from(starting, (s) => s.catch(() => false))
-				]);
-				const failed = results.find((r) => r.status === 'rejected');
-				if (failed) throw failed.reason;
 			})())
 	};
 };

@@ -57,9 +57,7 @@ vi.mock('#lib/paths.ts', () => ({
 		root: './',
 		source: './src/',
 		lib: './src/lib/',
-		build: './.gro/',
-		build_dev: './.gro/dev/',
-		config: './gro.config.ts'
+		build: './.gro/'
 	}
 }));
 
@@ -179,7 +177,7 @@ describe('build_task cache persistence', () => {
 		// Workspace is dirty, force_build is true
 		vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified files:\n  src/foo.ts');
 		vi.mocked(fs_exists).mockResolvedValue(true); // All files exist
-		vi.mocked(readdir).mockResolvedValue(['dist_server'] as any);
+		vi.mocked(readdir).mockResolvedValue(['dist_artifacts'] as any);
 		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
 
 		const ctx = create_mock_build_task_context({ force_build: true });
@@ -189,7 +187,7 @@ describe('build_task cache persistence', () => {
 		// Should still delete all build outputs (dirty workspace protection via discover_build_output_dirs)
 		expect(rm).toHaveBeenCalledWith('build', { recursive: true, force: true });
 		expect(rm).toHaveBeenCalledWith('dist', { recursive: true, force: true });
-		expect(rm).toHaveBeenCalledWith('dist_server', { recursive: true, force: true });
+		expect(rm).toHaveBeenCalledWith('dist_artifacts', { recursive: true, force: true });
 	});
 
 	test('build_dirs parameter is correctly threaded through clean workspace path', async () => {

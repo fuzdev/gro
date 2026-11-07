@@ -136,7 +136,7 @@ describe('create_build_cache_metadata', () => {
 		// Set up async mocks for discover_build_output_dirs and collect_build_outputs
 		vi.mocked(readdir).mockImplementation((path: any) => {
 			if (path === '.') {
-				return Promise.resolve(['dist_server', 'src', 'node_modules'] as any);
+				return Promise.resolve(['dist_artifacts', 'src', 'node_modules'] as any);
 			}
 			if (path === 'build') {
 				return Promise.resolve([mock_file_entry('app.js')] as any);
@@ -144,7 +144,7 @@ describe('create_build_cache_metadata', () => {
 			if (path === 'dist') {
 				return Promise.resolve([mock_file_entry('lib.js')] as any);
 			}
-			if (path === 'dist_server') {
+			if (path === 'dist_artifacts') {
 				return Promise.resolve([mock_file_entry('server.js')] as any);
 			}
 			return Promise.resolve([] as any);
@@ -165,7 +165,7 @@ describe('create_build_cache_metadata', () => {
 		expect(result.outputs).toHaveLength(3);
 		expect(result.outputs.find((o) => o.path === 'build/app.js')).toBeDefined();
 		expect(result.outputs.find((o) => o.path === 'dist/lib.js')).toBeDefined();
-		expect(result.outputs.find((o) => o.path === 'dist_server/server.js')).toBeDefined();
+		expect(result.outputs.find((o) => o.path === 'dist_artifacts/server.js')).toBeDefined();
 	});
 
 	test('handles empty build directories', async () => {

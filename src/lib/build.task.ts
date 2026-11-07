@@ -118,7 +118,7 @@ export const task: Task<Args> = {
 
 		// Clean build outputs (skip if workspace was dirty - already cleaned manually above)
 		if (!workspace_dirty) {
-			await clean_fs({ build_dist: true });
+			await clean_fs({ dist_dirs: true });
 		}
 
 		const plugins = await Plugins.create(to_plugin_context(ctx, false, false));

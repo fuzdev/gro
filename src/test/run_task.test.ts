@@ -13,7 +13,6 @@ import {
 	LOADER_SOURCE_PATH,
 	create_mock_config,
 	create_mock_module_graph,
-	create_mock_watcher,
 	create_mock_logger,
 	create_mock_timings
 } from './test_helpers.ts';
@@ -76,7 +75,6 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	invoke_task: vi.fn(),
 	config: await create_mock_config(),
 	graph: create_mock_module_graph(),
-	watcher: create_mock_watcher(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()
 });
@@ -172,12 +170,11 @@ test('run_task reports a `TaskError` subclass by its message, not as an unexpect
 	assert.notInclude(result.reason, 'Unexpected error');
 });
 
-test('run_task passes the graph and watcher to the task and to the tasks it invokes', async () => {
+test('run_task passes the graph to the task and to the tasks it invokes', async () => {
 	const graph = create_mock_module_graph();
-	const watcher = create_mock_watcher();
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const config = await create_mock_config();
-	const other_config = await create_mock_config({ js_cli: 'other_js_cli' });
+	const other_config = await create_mock_config({ pm_cli: 'other_pm_cli' });
 	const result = await run_task(
 		{
 			name: 'greet',
@@ -198,7 +195,6 @@ test('run_task passes the graph and watcher to the task and to the tasks it invo
 			invoke_task,
 			config,
 			graph,
-			watcher,
 			log: create_mock_logger(),
 			timings: create_mock_timings()
 		}
@@ -206,16 +202,15 @@ test('run_task passes the graph and watcher to the task and to the tasks it invo
 	assert(result.ok);
 	const ctx = result.output as TaskContext;
 	assert.strictEqual(ctx.graph, graph);
-	assert.strictEqual(ctx.watcher, watcher);
 	expect(invoke_task).toHaveBeenNthCalledWith(1, 'other', undefined, {
 		config,
-		watching: { graph, watcher },
+		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
 	});
 	expect(invoke_task).toHaveBeenNthCalledWith(2, 'other', undefined, {
 		config: other_config,
-		watching: { graph, watcher },
+		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
 	});

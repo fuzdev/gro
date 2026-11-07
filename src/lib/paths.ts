@@ -4,14 +4,7 @@ import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 
-import { GRO_CONFIG_FILENAME, GRO_DEV_DIR, GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
-
-/*
-
-A path `id` is an absolute path to the source/.gro/dist directory.
-It's the same name that Rollup uses.
-
-*/
+import { GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
 
 /*
 
@@ -30,9 +23,6 @@ export interface Paths {
 	lib: string;
 	/** @trailing_slash */
 	build: string;
-	/** @trailing_slash */
-	build_dev: string;
-	config: string;
 }
 
 export const create_paths = (root_dir: string): Paths => {
@@ -42,9 +32,7 @@ export const create_paths = (root_dir: string): Paths => {
 		root,
 		source: root + SOURCE_DIR,
 		lib: root + LIB_DIR,
-		build: root + GRO_DIR,
-		build_dev: root + GRO_DEV_DIR,
-		config: root + GRO_CONFIG_FILENAME
+		build: root + GRO_DIR
 	};
 };
 
@@ -56,11 +44,6 @@ export const is_gro_id = (id: PathId): boolean =>
 // '/home/me/app/src/foo/bar/baz.ts' → 'src/foo/bar/baz.ts'
 export const to_root_path = (id: PathId, p = infer_paths(id)): string =>
 	relative(p.root, id) || './';
-
-// TODO base_path is an obsolete concept, it was a remnant from forcing `src/`
-// 'foo/bar/baz.ts' → '/home/me/app/src/foo/bar/baz.ts'
-export const base_path_to_path_id = (base_path: string, p = infer_paths(base_path)): PathId =>
-	join(p.source, base_path);
 
 export const print_path = (path: string, p = infer_paths(path)): string => {
 	const root_path = to_root_path(path, p);

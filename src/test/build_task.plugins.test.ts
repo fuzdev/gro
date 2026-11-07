@@ -54,9 +54,7 @@ vi.mock('#lib/paths.ts', () => ({
 		root: './',
 		source: './src/',
 		lib: './src/lib/',
-		build: './.gro/',
-		build_dev: './.gro/dev/',
-		config: './gro.config.ts'
+		build: './.gro/'
 	}
 }));
 
@@ -137,7 +135,7 @@ describe('build_task plugin lifecycle', () => {
 
 		await build_task.run(ctx);
 
-		expect(clean_fs).toHaveBeenCalledWith({ build_dist: true });
+		expect(clean_fs).toHaveBeenCalledWith({ dist_dirs: true });
 	});
 
 	describe('error handling', () => {

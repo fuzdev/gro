@@ -65,7 +65,7 @@ test('SEARCH_EXCLUDER_DEFAULT', () => {
 	assert_includes('benchmark', true);
 	assert_includes('benchmarks', true);
 	assert_includes('nodemodules', true);
-	assert_includes('dist_server', false);
+	assert_includes('src/lib/dist_helpers.ts', true);
 	assert_includes('gro/dist', false);
 	assert_includes('node_modules/@someuser/gro/dist', false);
 	assert_includes('Ebuild', true);

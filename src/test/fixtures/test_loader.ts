@@ -68,7 +68,7 @@ const run_tests = async () => {
 	// Test 1d: a subpath import naming the real file resolves through package.json `imports`
 	try {
 		const imported = await import('#lib/constants.ts');
-		assert(typeof imported.EVERYTHING_MATCHER === 'object', 'import #lib/*.ts works');
+		assert(typeof imported.TS_MATCHER === 'object', 'import #lib/*.ts works');
 	} catch (error) {
 		assert(false, `import #lib/*.ts failed: ${error.message}`);
 	}

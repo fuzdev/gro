@@ -277,7 +277,7 @@ export const is_build_cache_valid = async (
  * Files are hashed in parallel for performance. For very large builds (10k+ files),
  * this may take several seconds but ensures complete cache validation.
  *
- * @param build_dirs - array of output directories to scan (e.g., ['build', 'dist', 'dist_server'])
+ * @param build_dirs - array of output directories to scan (e.g., ['build', 'dist'] and any `dist_*`)
  */
 export const collect_build_outputs = async (
 	build_dirs: Array<string>
@@ -367,7 +367,15 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 		build_dirs.push(SVELTEKIT_DIST_DIRNAME);
 	}
 
-	// Check for server and other plugin outputs (dist_*)
+	build_dirs.push(...(await discover_dist_dirs()));
+
+	return build_dirs;
+};
+
+/**
+ * Discovers the `dist_*` plugin output directories in the current working directory.
+ */
+export const discover_dist_dirs = async (): Promise<Array<string>> => {
 	const root_entries = await readdir('.');
 	const dist_dir_checks = await Promise.all(
 		root_entries
@@ -377,14 +385,12 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 					const s = await stat(p);
 					return s.isDirectory() ? p : null;
 				} catch {
-					// File was deleted/moved during iteration - skip it
+					// deleted or moved during iteration
 					return null;
 				}
 			})
 	);
-	build_dirs.push(...dist_dir_checks.filter((p): p is string => p !== null));
-
-	return build_dirs;
+	return dist_dir_checks.filter((p): p is string => p !== null);
 };
 
 /**

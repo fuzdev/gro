@@ -331,7 +331,7 @@ The cache automatically discovers all build output directories:
 
 - `build/` - SvelteKit app output
 - `dist/` - SvelteKit library output
-- `dist_*` - plugin outputs (e.g., `dist_server`)
+- `dist_*` - plugin outputs
 
 Within these directories:
 

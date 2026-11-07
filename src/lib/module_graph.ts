@@ -39,24 +39,6 @@ export interface ModuleGraph {
 }
 
 /**
- * Watches the filesystem under the watched directory, with no module graph.
- */
-export interface Watcher {
-	/**
-	 * Subscribes to file changes from now on. Files that already exist emit nothing.
-	 * @param on_change - called for each file change, never for directories
-	 * @returns a function that stops this watch
-	 */
-	watch: (on_change: FileChangeCallback) => Promise<() => Promise<void>>;
-	/**
-	 * Stops every watch this watcher started.
-	 * Closing is permanent: later watches reject, as do any still starting.
-	 * Every call returns the same teardown, so an awaited `close` means fully closed.
-	 */
-	close: () => Promise<void>;
-}
-
-/**
  * A file added, updated, or deleted, by absolute path.
  */
 export interface FileChange {
@@ -75,7 +57,7 @@ export type FileChangeType = 'add' | 'update' | 'delete';
 export type FileChangeCallback = (change: FileChange) => void;
 
 /**
- * What a `ModuleGraph` and `Watcher` watch, from `GroConfig.watch`.
+ * What a `ModuleGraph` watches, from `GroConfig.watch`.
  */
 export interface WatchOptions {
 	/**

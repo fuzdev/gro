@@ -2,8 +2,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import type { Task } from './task.ts';
-import { Plugins, to_plugin_context, type PluginContext } from './plugin.ts';
-import { clean_fs } from './clean_fs.ts';
+import { Plugins, to_plugin_context } from './plugin.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -20,8 +19,6 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
-export type DevTaskContext = PluginContext<Args>;
-
 /** @nodocs */
 export const task: Task<Args> = {
 	summary: 'start SvelteKit and other dev plugins',
@@ -29,8 +26,6 @@ export const task: Task<Args> = {
 	run: async (ctx) => {
 		const { args, invoke_task, log } = ctx;
 		const { watch, sync, install } = args;
-
-		await clean_fs({ build_dev: true });
 
 		if (sync || install) {
 			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
@@ -44,9 +39,9 @@ export const task: Task<Args> = {
 		} else {
 			// TODO maybe redesign for this API to be explicitly cancelable?
 			// Keep the task running indefinitely in watch mode.
-			// This keeps invoke_task from closing the graph and watcher it created.
+			// This keeps invoke_task from closing the graph it created.
 			await new Promise(() => {
-				// Never resolves - keeps the graph, watcher, and listeners alive.
+				// Never resolves - keeps the graph and listeners alive.
 			});
 		}
 	}

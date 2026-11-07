@@ -4,7 +4,7 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
 import { format_issue } from '@fuzdev/fuz_schema/schema.ts';
 
-import type { ModuleGraph, Watcher } from './module_graph.ts';
+import type { ModuleGraph } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
@@ -33,17 +33,16 @@ export type RunTaskResult =
 
 /**
  * What `run_task` builds the task's context from:
- * `config`, `graph`, `watcher`, `log`, and `timings` become its fields of the same name.
+ * `config`, `graph`, `log`, and `timings` become its fields of the same name.
  */
 export interface RunTaskOptions {
 	/**
 	 * The `invoke_task` the task's own `invoke_task` calls,
-	 * passing it this task's `config`, `graph`, `watcher`, `timings`, and `log`.
+	 * passing it this task's `config`, `graph`, `timings`, and `log`.
 	 */
 	invoke_task: typeof base_invoke_task;
 	config: GroConfig;
 	graph: ModuleGraph;
-	watcher: Watcher;
 	log: Logger;
 	timings: Timings;
 }
@@ -62,7 +61,7 @@ export const run_task = async (
 	unparsed_args: Args,
 	options: RunTaskOptions
 ): Promise<RunTaskResult> => {
-	const { invoke_task, config, graph, watcher, log, timings } = options;
+	const { invoke_task, config, graph, log, timings } = options;
 	const { task } = task_meta.mod;
 
 	if (unparsed_args.help) {
@@ -95,7 +94,6 @@ export const run_task = async (
 				return load_default_svelte_config();
 			},
 			graph,
-			watcher,
 			log,
 			timings,
 			// the registry typing is for callers, the runtime takes any name and args
@@ -106,7 +104,7 @@ export const run_task = async (
 			) =>
 				invoke_task(invoked_task_name, invoked_args, {
 					config: invoked_options?.config ?? config,
-					watching: { graph, watcher },
+					graph,
 					timings,
 					parent_log: log
 				})

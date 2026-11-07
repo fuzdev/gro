@@ -27,7 +27,6 @@ Maybe let you map the array of each method batch. (is that possible with those?)
 
 Gro's builtin plugins:
 
-- [`@fuzdev/gro/gro_plugin_server.ts`](../lib/gro_plugin_server.ts) - Node server support
 - [`@fuzdev/gro/gro_plugin_deno_server.ts`](../lib/gro_plugin_deno_server.ts) - runs a Deno server
   beside the Vite dev server, unbundled
 - [`@fuzdev/gro/gro_plugin_sveltekit_library.ts`](../lib/gro_plugin_sveltekit_library.ts) -
@@ -37,7 +36,7 @@ Gro's builtin plugins:
 - [`@fuzdev/gro/gro_plugin_gen.ts`](../lib/gro_plugin_gen.ts) - watch the config's `watch.dir` (default `src/`)
   and efficiently run `gen` when genfiles, their imports, or their `inputs` change
 
-> server and gen plugin docs are not yet written
+> gen plugin docs are not yet written
 
 Also see [`config.plugins` in the config docs](config.md#plugins)
 and usage in [the default config](../lib/gro.config.default.ts).
@@ -59,7 +58,7 @@ export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
 }
 ```
 
-`PluginContext` extends the task context, so plugins get the same args, config, `graph`, `watcher`,
+`PluginContext` extends the task context, so plugins get the same args, config, `graph`,
 logger, and `invoke_task` as tasks; see [`TaskContext` in the task docs](task.md#type-taskcontext).
 
 ## error handling

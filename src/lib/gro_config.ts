@@ -9,10 +9,8 @@ import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { paths } from './paths.ts';
 import {
 	GRO_CONFIG_FILENAME,
-	JS_CLI_DEFAULT,
 	NODE_MODULES_DIRNAME,
 	PM_CLI_DEFAULT,
-	SERVER_DIST_PATH,
 	SVELTEKIT_BUILD_DIRNAME,
 	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
@@ -53,10 +51,6 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	search_filters: Array<PathFilter>;
 	/**
-	 * The CLI to use that's compatible with `node`.
-	 */
-	js_cli: string;
-	/**
 	 * The CLI to use that's compatible with `npm install` and `npm link`. Defaults to `'npm'`.
 	 */
 	pm_cli: string;
@@ -68,7 +62,7 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	build_cache_config_hash: string;
 	/**
-	 * What the task context's `graph` and `watcher` watch.
+	 * What the task context's `graph` watches.
 	 * Defaults to `src/` with no filter.
 	 */
 	watch: WatchOptions;
@@ -83,7 +77,6 @@ export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: PackageJsonMapper | null;
 	search_filters?: PathFilter | Array<PathFilter> | null;
-	js_cli?: string;
 	pm_cli?: string;
 	/**
 	 * Optional object defining custom build inputs for cache invalidation.
@@ -105,7 +98,7 @@ export interface RawGroConfig {
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	/**
-	 * What the task context's `graph` and `watcher` watch, each field defaulting separately.
+	 * What the task context's `graph` watches, each field defaulting separately.
 	 */
 	watch?: Partial<WatchOptions>;
 }
@@ -116,7 +109,6 @@ export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],
 	map_package_json: identity,
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
-	js_cli: JS_CLI_DEFAULT,
 	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
 	watch: { dir: paths.source, filter: null }
@@ -134,8 +126,7 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
 		'(^|/)\\.[^/]+' + // exclude all `.`-prefixed directories
 		`|(^|/)${NODE_MODULES_DIRNAME}` +
 		`|(^|/)${SVELTEKIT_BUILD_DIRNAME}` + // exclude the SvelteKit build directory
-		`|(^|/)${SVELTEKIT_DIST_DIRNAME}` + // exclude the SvelteKit dist directory
-		`|(^|/)${SERVER_DIST_PATH}` // exclude the Gro server plugin dist directory
+		`|(^|/)${SVELTEKIT_DIST_DIRNAME}` // exclude the SvelteKit dist directory
 	})($|/)`,
 	'u'
 );
@@ -154,7 +145,6 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		plugins = empty_config.plugins,
 		map_package_json = empty_config.map_package_json,
 		search_filters = empty_config.search_filters,
-		js_cli = empty_config.js_cli,
 		pm_cli = empty_config.pm_cli,
 		build_cache_config,
 		watch
@@ -184,7 +174,6 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 			: search_filters
 				? [search_filters]
 				: [],
-		js_cli,
 		pm_cli,
 		build_cache_config_hash,
 		watch: {

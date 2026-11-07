@@ -8,7 +8,7 @@ import { format } from 'node:util';
 import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { SilentError } from '#lib/task.ts';
-import { create_mock_module_graph, create_mock_watcher } from './test_helpers.ts';
+import { create_mock_module_graph } from './test_helpers.ts';
 
 let dir: string;
 let errors: Array<Array<unknown>>;
@@ -58,7 +58,7 @@ const invoke_outer = async (outer: string): Promise<unknown> => {
 			{},
 			{
 				config: create_empty_gro_config(),
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() },
+				graph: create_mock_module_graph(),
 				// the tasks' loggers are its children, logging at `info` despite Vitest's default `off`
 				parent_log: new Logger('test', {
 					level: 'info',

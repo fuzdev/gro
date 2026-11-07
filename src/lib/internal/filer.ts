@@ -1,4 +1,3 @@
-import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { OmitStrict } from '@fuzdev/fuz_util/types.ts';
@@ -15,7 +14,6 @@ import {
 	type WatchDirOptions,
 	type WatcherChangeCallback
 } from './watch_dir.ts';
-import { paths } from '../paths.ts';
 import { parse_imports } from './parse_imports.ts';
 import { is_path_specifier, to_specifier_path_id } from '../resolve_specifier.ts';
 import { SVELTEKIT_GLOBAL_SPECIFIER } from '../constants.ts';
@@ -23,9 +21,8 @@ import type { Disknode } from './disknode.ts';
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 
-export interface FilerOptions {
+export interface FilerOptions extends OmitStrict<WatchDirOptions, 'on_change'> {
 	watch_dir?: typeof watch_dir;
-	watch_dir_options?: Partial<OmitStrict<WatchDirOptions, 'on_change'>>;
 	log?: Logger;
 }
 
@@ -36,7 +33,8 @@ export class Filer {
 	readonly files: Map<PathId, Disknode> = new Map();
 
 	#watch_dir: typeof watch_dir;
-	#watch_dir_options: Partial<WatchDirOptions>;
+	#filter: WatchDirOptions['filter'];
+	#on_error: WatchDirOptions['on_error'];
 
 	#log?: Logger;
 
@@ -53,10 +51,11 @@ export class Filer {
 	#unread: Set<PathId> = new Set();
 	#processing_promise: Promise<void> | null = null;
 
-	constructor(options: FilerOptions = EMPTY_OBJECT) {
+	constructor(options: FilerOptions) {
 		this.#watch_dir = options.watch_dir ?? watch_dir;
-		this.#watch_dir_options = options.watch_dir_options ?? EMPTY_OBJECT;
-		this.root_dir = resolve(options.watch_dir_options?.dir ?? paths.source);
+		this.#filter = options.filter;
+		this.#on_error = options.on_error;
+		this.root_dir = resolve(options.dir);
 		// TODO for package.json maybe another array of files/dirs to watch to invalidate everything?
 		// or instead of that, think of taking an array of config objects that can specify invalidation rules,
 		// so package.json would be configured differently than ./src, and we could add a default with
@@ -152,8 +151,9 @@ export class Filer {
 
 	async #init(): Promise<void> {
 		const watcher = this.#watch_dir({
-			...this.#watch_dir_options,
 			dir: this.root_dir,
+			filter: this.#filter,
+			on_error: this.#on_error,
 			on_change: this.#on_change
 		});
 
@@ -474,7 +474,7 @@ export class Filer {
 	};
 
 	#is_external(id: PathId): boolean {
-		const { filter } = this.#watch_dir_options;
+		const filter = this.#filter;
 		return !id.startsWith(this.root_dir + '/') || (!!filter && !filter(id, false));
 	}
 }

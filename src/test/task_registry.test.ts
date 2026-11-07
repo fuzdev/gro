@@ -81,7 +81,6 @@ describe('task_registry_find', () => {
 			'node_modules/@fuzdev/gro/dist/check.task.js',
 			'dist/b.task.js',
 			'build/c.task.js',
-			'dist_server/d.task.js',
 			'.svelte-kit/e.task.js',
 			'a.task.ts'
 		]);
@@ -298,12 +297,12 @@ describe('InvokeTask', () => {
 			// a module without an `Args` export accepts any args
 			await invoke_task('fixture/no_args.task.ts', { anything: 1 });
 			// a project task named like a builtin never shadows it
-			await invoke_task('clean', { build_dev: true });
+			await invoke_task('clean', { build_dist: true });
 			// @ts-expect-error the project task's args don't apply to the builtin
 			await invoke_task('clean', { deep: true });
 			await invoke_task('fixture/clean.task.ts', { deep: true });
 			// @ts-expect-error the builtin's args don't apply to the project task
-			await invoke_task('fixture/clean.task.ts', { build_dev: true });
+			await invoke_task('fixture/clean.task.ts', { build_dist: true });
 			// @ts-expect-error a project task's name without its path is no builtin
 			await invoke_task('fixture/no_args');
 		};

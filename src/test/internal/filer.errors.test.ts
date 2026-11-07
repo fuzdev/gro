@@ -1,4 +1,5 @@
 import { test, assert, vi } from 'vitest';
+import { paths } from '#lib/paths.ts';
 import { join, resolve } from 'node:path';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,7 +35,7 @@ test('error in watch_dir.init() is handled', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// init should propagate the error
 	let error_thrown = false;
@@ -67,7 +68,7 @@ test('watcher is cleaned up when init fails after partial success', async () => 
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Init should fail
 	let error_thrown = false;
@@ -106,7 +107,7 @@ test('can reinitialize after init error', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// First init should fail
 	let error_thrown = false;
@@ -147,7 +148,7 @@ test('handles error when watcher.close() fails during init error', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// Init should fail with the original error
 	let error_thrown = false;
@@ -185,7 +186,7 @@ test('can recover from multiple consecutive init errors', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 
 	// First attempt fails
 	try {
@@ -225,7 +226,7 @@ test('skips non-file URL schemes from import resolution', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id(fixture_path);
@@ -250,7 +251,7 @@ test('resolves file: URLs from import resolution', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id(fixture_path);
@@ -274,7 +275,7 @@ test('handles permission errors on file read', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// File should be tracked even if we can't read its contents
@@ -299,7 +300,7 @@ test('a special file like a FIFO is a contentless node, never read', async () =>
 			return mock_watcher;
 		});
 
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir });
 		await filer.init();
 
 		const fifo = filer.get_by_id(fifo_path);
@@ -328,7 +329,7 @@ test('an unexpected error processing a change is logged, and later changes proce
 			return mock_watcher;
 		});
 		const log = create_mock_logger();
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir, log });
 		await filer.init();
 
 		assert.ok(on_change_callback);
@@ -370,7 +371,7 @@ test('a failing read in a burst is logged once, and the changes behind it proces
 			return mock_watcher;
 		});
 		const log = create_mock_logger();
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir, log });
 		await filer.init();
 
 		assert.equal(filer.get_by_id(a_path)?.contents, 'export const a = 1;\n');
@@ -400,7 +401,7 @@ test('after init, a change queued behind a failing one processes with no further
 			return mock_watcher;
 		});
 		const log = create_mock_logger();
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir, log });
 		await filer.init();
 
 		// no drain runs after init, so only the recheck after the failed run takes `a.ts`
@@ -435,7 +436,7 @@ test.skipIf(process.getuid?.() === 0)(
 				};
 				return mock_watcher;
 			});
-			const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+			const filer = new Filer({ watch_dir: mock_watch_dir, dir });
 			await filer.init();
 
 			const file = filer.get_by_id(file_path);
@@ -463,7 +464,7 @@ test('an unexpected error processing a change goes to `console` with no log', as
 			};
 			return mock_watcher;
 		});
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir });
 		await filer.init();
 		assert.ok(on_change_callback);
 		on_change_callback({ type: 'add', path: join(dir, 'x'.repeat(300)), is_directory: false });
@@ -496,7 +497,7 @@ test('an unresolvable bare import logs as an error', async () => {
 		const log = create_mock_logger();
 		const filer = new Filer({
 			watch_dir: mock_watch_dir,
-			watch_dir_options: { dir: src_dir },
+			dir: src_dir,
 			log
 		});
 		await filer.init();
@@ -532,7 +533,7 @@ test('an external dependency naming a directory is a contentless node, not an in
 			return mock_watcher;
 		});
 
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir: root_dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir: root_dir });
 		await filer.init(); // drains the deferred external add, rejected with `EISDIR` when rethrown
 
 		const importer = filer.get_by_id(importer_path);
@@ -569,7 +570,7 @@ test('an external dependency through a file is a contentless node, not an init f
 			return mock_watcher;
 		});
 
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir: root_dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir: root_dir });
 		await filer.init(); // drains the deferred external add, rejected with `ENOTDIR` when rethrown
 
 		const importer = filer.get_by_id(importer_path);
@@ -611,7 +612,7 @@ test('a source that stops parsing warns and keeps its edges until it parses agai
 			return mock_watcher;
 		});
 		const log = create_mock_logger();
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir }, log });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir, log });
 		await filer.init();
 		const a = filer.get_by_id(a_path);
 		assert.ok(a);
@@ -686,7 +687,7 @@ test('handles large file contents efficiently', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file = filer.get_by_id('/test/large.ts');

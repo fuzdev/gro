@@ -1,4 +1,5 @@
 import { test, assert, vi } from 'vitest';
+import { paths } from '#lib/paths.ts';
 import { join, resolve } from 'node:path';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -134,7 +135,7 @@ test('builds bidirectional dependency links from parsed imports', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const importer = filer.get_by_id(importer_path);
@@ -164,7 +165,7 @@ test('skips non-file schemes in transitive dependency resolution', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	// Wait for deferred external file processing
@@ -201,7 +202,7 @@ test('an import of a missing file links once the file is added', async () => {
 			return mock_watcher;
 		});
 
-		const filer = new Filer({ watch_dir: mock_watch_dir });
+		const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 		await filer.init();
 
 		// the edge is recorded to the exact named path before the file exists
@@ -273,7 +274,7 @@ test('a package file reached by a bare specifier keeps its edge but is never rea
 				},
 				close: async () => {}
 			}),
-			watch_dir_options: { dir: src },
+			dir: src,
 			log: log as any
 		});
 		await filer.init();
@@ -336,7 +337,7 @@ test('a file reached by both a bare specifier and a path or subpath import is re
 					},
 					close: async () => {}
 				}),
-				watch_dir_options: { dir: src }
+				dir: src
 			});
 			await filer.init();
 			await new Promise((r) => setTimeout(r, 20));
@@ -384,7 +385,7 @@ test('an edit adding a path or subpath import of a file a bare import reached re
 						close: async () => {}
 					};
 				},
-				watch_dir_options: { dir: src }
+				dir: src
 			});
 			await filer.init();
 			await new Promise((r) => setTimeout(r, 20));
@@ -450,7 +451,7 @@ test('deleted file with dependents stays in memory', async () => {
 		return mock_watcher;
 	});
 
-	const filer = new Filer({ watch_dir: mock_watch_dir });
+	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });
 	await filer.init();
 
 	const file_a = filer.get_by_id('/test/a.ts');
@@ -508,7 +509,7 @@ test('a deleted file is no longer a dependent of what it imported', async () => 
 			return mock_watcher;
 		});
 
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir });
 		await filer.init();
 		const dep = filer.get_by_id(dep_path);
 		assert.ok(dep);
@@ -545,7 +546,7 @@ test('a burst of synchronous deletes notifies every one', async () => {
 			};
 			return mock_watcher;
 		});
-		const filer = new Filer({ watch_dir: mock_watch_dir, watch_dir_options: { dir } });
+		const filer = new Filer({ watch_dir: mock_watch_dir, dir });
 		const deleted: Array<string> = [];
 		await filer.watch((change) => {
 			if (change.type === 'delete') deleted.push(change.path);

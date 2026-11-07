@@ -56,7 +56,7 @@ describe('invoke_task finish', () => {
 		assert.ok(lines.some((line) => line.includes('run task ') && line.includes('inner.task.ts')));
 	});
 
-	test('a failing task still closes the graph and watcher it owns', async () => {
+	test('a failing task still closes the graph it owns', async () => {
 		const failing = join(dir, 'failing.task.ts');
 		writeFileSync(
 			failing,
@@ -74,7 +74,7 @@ describe('invoke_task finish', () => {
 		}
 		assert.instanceOf(error, SilentError);
 
-		const { graph, watcher } = (globalThis as any).gro_invoke_task_finish_ctx as TaskContext;
+		const { graph } = (globalThis as any).gro_invoke_task_finish_ctx as TaskContext;
 		try {
 			let graph_error;
 			try {
@@ -84,17 +84,8 @@ describe('invoke_task finish', () => {
 			}
 			assert.instanceOf(graph_error, Error);
 			assert.strictEqual(graph_error.message, 'ModuleGraph is closed');
-
-			let watcher_error;
-			try {
-				await watcher.watch(() => {});
-			} catch (e) {
-				watcher_error = e;
-			}
-			assert.instanceOf(watcher_error, Error);
-			assert.strictEqual(watcher_error.message, 'Watcher is closed');
 		} finally {
-			await Promise.all([graph.close(), watcher.close()]); // idempotent, cleans up on failure
+			await graph.close(); // idempotent, cleans up on failure
 		}
 	});
 });

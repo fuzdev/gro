@@ -4,11 +4,7 @@ import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
 import { to_task_args } from '#lib/args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { SilentError, TaskError } from '#lib/task.ts';
-import {
-	create_mock_config,
-	create_mock_module_graph,
-	create_mock_watcher
-} from './test_helpers.ts';
+import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';
 
 vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
@@ -77,7 +73,7 @@ describe('gro run script args', () => {
 			{ _: [SCRIPT, 'a'], port: 3000, watch: true },
 			{
 				config: await create_mock_config(),
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+				graph: create_mock_module_graph()
 			}
 		);
 		expect(vi.mocked(spawn_with_loader).mock.calls[0]![2]).toEqual([

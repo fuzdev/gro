@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { create_node_module_graph, create_node_watcher } from '#lib/module_graph_node.ts';
-import type { FileChange, ModuleGraph, Watcher } from '#lib/module_graph.ts';
+import { create_node_module_graph } from '#lib/module_graph_node.ts';
+import type { FileChange, ModuleGraph } from '#lib/module_graph.ts';
 import type { WatchDirOptions } from '#lib/internal/watch_dir.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
@@ -29,7 +29,7 @@ const create_dir = async (): Promise<string> => {
 };
 
 // closes `closable` when the test finishes, passed or failed
-const closing = <T extends ModuleGraph | Watcher>(closable: T): T => {
+const closing = <T extends ModuleGraph>(closable: T): T => {
 	onTestFinished(() => closable.close());
 	return closable;
 };
@@ -60,26 +60,20 @@ test('the graph forwards a change whose read finds no file as one delete', async
 	]);
 });
 
-test('the graph and the watcher warn of a watch error, which is not fatal', async () => {
+test('the graph warns of a watch error, which is not fatal', async () => {
 	const dir = await create_dir();
-	const graph_log = create_mock_logger();
-	const watcher_log = create_mock_logger();
-	const graph = closing(create_node_module_graph({ watch: { dir, filter: null }, log: graph_log }));
-	const watcher = closing(create_node_watcher({ watch: { dir, filter: null }, log: watcher_log }));
+	const log = create_mock_logger();
+	const graph = closing(create_node_module_graph({ watch: { dir, filter: null }, log }));
 	await graph.modules();
-	await watcher.watch(() => {});
-	assert.equal(watches.length, 2);
+	assert.equal(watches.length, 1);
 	const error = Object.assign(Error('denied'), { code: 'EACCES' });
-	for (const options of watches) {
-		assert.ok(options.on_error);
-		options.on_error(error);
-	}
-	for (const log of [graph_log, watcher_log]) {
-		assert.deepEqual(vi.mocked(log.warn).mock.calls, [
-			['watch error, changes may be missed:', error]
-		]);
-		assert.equal(vi.mocked(log.error).mock.calls.length, 0);
-	}
+	const [options] = watches;
+	assert.ok(options?.on_error);
+	options.on_error(error);
+	assert.deepEqual(vi.mocked(log.warn).mock.calls, [
+		['watch error, changes may be missed:', error]
+	]);
+	assert.equal(vi.mocked(log.error).mock.calls.length, 0);
 });
 
 test('with no log, a watch error warns through `console`', async () => {
@@ -87,13 +81,8 @@ test('with no log, a watch error warns through `console`', async () => {
 	const console_warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 	onTestFinished(() => console_warn.mockRestore());
 	const graph = closing(create_node_module_graph({ watch: { dir, filter: null } }));
-	const watcher = closing(create_node_watcher({ watch: { dir, filter: null } }));
 	await graph.modules();
-	await watcher.watch(() => {});
 	const error = Error('denied');
 	for (const options of watches) options.on_error!(error);
-	assert.deepEqual(console_warn.mock.calls, [
-		['watch error, changes may be missed:', error],
-		['watch error, changes may be missed:', error]
-	]);
+	assert.deepEqual(console_warn.mock.calls, [['watch error, changes may be missed:', error]]);
 });

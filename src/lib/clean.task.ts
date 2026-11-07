@@ -8,12 +8,10 @@ import { clean_fs } from './clean_fs.ts';
 
 /** @nodocs */
 export const Args = s.object({
-	build_dev: s.with_default(
-		meta(s.boolean, { description: 'delete the Gro build dev directory' }),
-		false
-	),
 	build_dist: s.with_default(
-		meta(s.boolean, { description: 'delete the Gro build dist directory' }),
+		meta(s.boolean, {
+			description: 'delete only the `dist_*` plugin output directories, keeping `.gro/`'
+		}),
 		false
 	),
 	sveltekit: s.with_default(
@@ -40,18 +38,12 @@ export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {
-	summary: 'remove temporary dev and build files, and optionally prune git branches',
+	summary: 'remove build files, and optionally prune git branches',
 	Args,
 	run: async ({ args }): Promise<void> => {
-		const { build_dev, build_dist, sveltekit, nodemodules, git, git_origin } = args;
+		const { build_dist, sveltekit, nodemodules, git, git_origin } = args;
 
-		await clean_fs({
-			build: !build_dev && !build_dist,
-			build_dev,
-			build_dist,
-			sveltekit,
-			nodemodules
-		});
+		await clean_fs({ gro_dir: !build_dist, dist_dirs: true, sveltekit, nodemodules });
 
 		// lop off stale git branches
 		if (git) {

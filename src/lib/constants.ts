@@ -9,15 +9,15 @@ If any of these become customizable from SvelteKit or Gro's configs, move them t
 
 export const SOURCE_DIRNAME = 'src';
 export const GRO_DIRNAME = '.gro';
-export const GRO_DIST_PREFIX = 'dist_'; //
-export const SERVER_DIST_PATH = 'dist_server'; // TODO should all of these be `_PATH` or should this be `DIRNAME`? also, add `_PLUGIN` to this name?
-export const GRO_DEV_DIRNAME = GRO_DIRNAME + '/dev';
+/**
+ * The prefix of plugin output directories at the project root,
+ * which `gro build` and `gro clean` delete and the build cache hashes.
+ */
+export const GRO_DIST_PREFIX = 'dist_';
 /** @trailing_slash */
 export const SOURCE_DIR = SOURCE_DIRNAME + '/';
 /** @trailing_slash */
 export const GRO_DIR = GRO_DIRNAME + '/';
-/** @trailing_slash */
-export const GRO_DEV_DIR = GRO_DEV_DIRNAME + '/';
 export const GRO_CONFIG_FILENAME = 'gro.config.ts';
 /**
  * The library directory - SvelteKit has no `files.lib` option, so it's always here.
@@ -74,9 +74,7 @@ export const CSS_MATCHER = /\.css$/;
 /** Extracts the script content from Svelte files. */
 export const SVELTE_SCRIPT_MATCHER = /<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gim; // TODO maybe this shouldnt be global? or make a getter?
 export const SVELTEKIT_GLOBAL_SPECIFIER = /^\$(env|app)\//;
-export const EVERYTHING_MATCHER = /.*/;
 
-export const JS_CLI_DEFAULT = 'node';
 export const PM_CLI_DEFAULT = 'npm';
 export const SVELTEKIT_CLI = 'svelte-kit';
 export const SVELTE_CHECK_CLI = 'svelte-check';

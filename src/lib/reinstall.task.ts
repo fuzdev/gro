@@ -32,7 +32,7 @@ export const task: Task<Args> = {
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// Deleting the lockfile and reinstalling cleans the lockfile of unnecessary dep noise,
-		// like esbuild's many packages for each platform.
+		// like a native tool's many packages for each platform.
 		await rm(LOCKFILE_FILENAME);
 		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
 		await install_with_cache_healing_or_throw(config.pm_cli, { log });

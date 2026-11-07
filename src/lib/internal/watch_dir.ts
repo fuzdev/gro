@@ -1,11 +1,10 @@
-import { watch, type ChokidarOptions, type FSWatcher, type Matcher } from 'chokidar';
+import { watch, type FSWatcher } from 'chokidar';
 import { create_deferred, type Deferred } from '@fuzdev/fuz_util/async.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
-import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
+
+import type { FileChangeType } from '../module_graph.ts';
 
 const TMP_FILE_PATTERN = /\.tmp\./;
-
-// TODO pretty hacky
 
 export interface WatchNodeFs {
 	init: () => Promise<void>;
@@ -13,25 +12,16 @@ export interface WatchNodeFs {
 }
 
 export interface WatcherChange {
-	type: WatcherChangeType;
+	type: FileChangeType;
 	path: string;
 	is_directory: boolean;
 }
-export type WatcherChangeType = 'add' | 'update' | 'delete';
 export type WatcherChangeCallback = (change: WatcherChange) => void;
 
 export interface WatchDirOptions {
 	dir: string;
 	on_change: WatcherChangeCallback;
 	filter?: PathFilter | null | undefined;
-	chokidar?: ChokidarOptions;
-	/**
-	 * Pattern to ignore files, merged into `chokidar.ignored` if also provided.
-	 * - `undefined` (default) ignores files matching `.tmp.` pattern
-	 * - `null` sets no default ignore pattern
-	 * - or some custom pattern
-	 */
-	ignored?: Matcher | null;
 	/**
 	 * Called with each error chokidar emits, like `EACCES` reading a directory,
 	 * which is otherwise thrown, crashing the process.
@@ -42,14 +32,7 @@ export interface WatchDirOptions {
 /**
  * Watch for changes on the filesystem using chokidar.
  */
-export const watch_dir = ({
-	dir,
-	on_change,
-	filter,
-	chokidar,
-	ignored = TMP_FILE_PATTERN,
-	on_error
-}: WatchDirOptions): WatchNodeFs => {
+export const watch_dir = ({ dir, on_change, filter, on_error }: WatchDirOptions): WatchNodeFs => {
 	let watcher: FSWatcher | undefined;
 	let initing: Deferred<void> | undefined;
 
@@ -57,7 +40,7 @@ export const watch_dir = ({
 		init: async () => {
 			if (initing) return initing.promise;
 			initing = create_deferred();
-			watcher = watch(dir, resolve_chokidar_options(chokidar, ignored));
+			watcher = watch(dir, { ignored: TMP_FILE_PATTERN });
 			watcher.on('add', (path) => {
 				if (filter && !filter(path, false)) return;
 				on_change({ type: 'add', path, is_directory: false });
@@ -92,18 +75,4 @@ export const watch_dir = ({
 			await watcher.close();
 		}
 	};
-};
-
-const resolve_chokidar_options = (
-	options: ChokidarOptions | undefined,
-	ignored: Matcher | null
-): ChokidarOptions | undefined => {
-	if (ignored === null) return options;
-
-	const { ignored: i, ...rest } = options ?? EMPTY_OBJECT;
-
-	const resolved_ignored =
-		i === undefined ? ignored : Array.isArray(i) ? [...i, ignored] : [i, ignored];
-
-	return { ...rest, ignored: resolved_ignored };
 };

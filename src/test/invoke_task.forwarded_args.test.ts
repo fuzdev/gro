@@ -12,7 +12,7 @@ import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
 } from '#lib/internal/task_hints.ts';
-import { create_mock_module_graph, create_mock_watcher } from './test_helpers.ts';
+import { create_mock_module_graph } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -51,7 +51,7 @@ describe('invoke_task forwarded args', () => {
 			{ color: true, C: true },
 			{
 				config: {} as unknown as GroConfig,
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+				graph: create_mock_module_graph()
 			}
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
@@ -66,7 +66,7 @@ describe('invoke_task forwarded args', () => {
 			{ b: true },
 			{
 				config: {} as unknown as GroConfig,
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+				graph: create_mock_module_graph()
 			}
 		);
 		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(1);
@@ -82,7 +82,7 @@ describe('invoke_task forwarded args', () => {
 			{ b: true },
 			{
 				config: {} as unknown as GroConfig,
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+				graph: create_mock_module_graph()
 			}
 		);
 		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ b: true });
@@ -97,7 +97,7 @@ describe('invoke_task forwarded args', () => {
 					{},
 					{
 						config: {} as unknown as GroConfig,
-						watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+						graph: create_mock_module_graph()
 					}
 				)
 			).rejects.toBeInstanceOf(SilentError);
@@ -117,7 +117,7 @@ describe('invoke_task forwarded args', () => {
 			{},
 			{
 				config: {} as unknown as GroConfig,
-				watching: { graph: create_mock_module_graph(), watcher: create_mock_watcher() }
+				graph: create_mock_module_graph()
 			}
 		);
 		expect(vi.mocked(run_task).mock.calls[0]![1]).toEqual({ a: true });

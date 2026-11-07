@@ -10,7 +10,7 @@
 Today, Gro is a task runner and toolkit
 extending [SvelteKit](https://github.com/sveltejs/kit)
 and [Vite](https://github.com/vitejs/vite)
-for making web frontends, servers, and libraries with TypeScript.
+for making web frontends and libraries with TypeScript.
 It runs on Node and is a dev tool, not for production use.
 
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
@@ -39,15 +39,14 @@ The Node tool includes:
   and a project's `*.task.ts` modules by path, composed in plain TypeScript
 - [dev](/src/docs/dev.md), [build](/src/docs/build.md), [test](/src/docs/test.md),
   [deploy](/src/docs/deploy.md), and [publish](/src/docs/publish.md) workflows
-  for SvelteKit apps, library packages, and Node servers,
+  for SvelteKit apps and library packages,
   deferring to SvelteKit and Vite for the frontend and
   [`@sveltejs/package`](https://svelte.dev/docs/kit/packaging) for the library
 - a [Node loader](/src/lib/loader.ts) with a [register hook](/src/lib/register.ts)
   that runs TypeScript, JSON, and SSR'd Svelte files directly (`gro run a.ts`),
   with best-effort shims for [SvelteKit's `$app` modules](https://kit.svelte.dev/docs/modules)
-  in tasks, tests, and Node servers
-- [plugins](/src/docs/plugin.md) for SvelteKit,
-  [auto-restarting Node servers](/src/lib/gro_plugin_server.ts),
+  in tasks and tests
+- [plugins](/src/docs/plugin.md) for SvelteKit
   and other build processes, configured in an optional [`gro.config.ts`](/src/docs/config.md)
   (see [the default config](https://github.com/fuzdev/gro/blob/main/src/lib/gro.config.default.ts),
   [`fuz_template`](https://github.com/fuzdev/fuz_template) for a simple starter, and
@@ -62,7 +61,7 @@ The Node tool includes:
 
 ## Docs
 
-- developing web frontends, servers, and libraries
+- developing web frontends and libraries
   - [config](/src/docs/config.md)
   - [dev](/src/docs/dev.md)
   - [build](/src/docs/build.md) for production
@@ -268,7 +267,6 @@ Gro builds on
 [Svelte](https://github.com/sveltejs/svelte) ∙
 [SvelteKit](https://github.com/sveltejs/kit) ∙
 [Vite](https://github.com/vitejs/vite) ∙
-[esbuild](https://github.com/evanw/esbuild) ∙
 [Vitest](https://github.com/vitest-dev/vitest) ∙
 [chokidar](https://github.com/paulmillr/chokidar) ∙
 [@fuzdev/fuz_util](https://github.com/fuzdev/fuz_util) ∙

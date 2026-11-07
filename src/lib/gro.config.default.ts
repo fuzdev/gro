@@ -1,6 +1,5 @@
 import type { CreateGroConfig } from './gro_config.ts';
 import { gro_plugin_sveltekit_library } from './gro_plugin_sveltekit_library.ts';
-import { has_server, gro_plugin_server } from './gro_plugin_server.ts';
 import { gro_plugin_sveltekit_app } from './gro_plugin_sveltekit_app.ts';
 import { has_sveltekit_app, has_sveltekit_library } from './sveltekit_helpers.ts';
 import { gro_plugin_gen } from './gro_plugin_gen.ts';
@@ -15,7 +14,6 @@ import { package_json_load } from './package_json.ts';
  *
  * - if `@sveltejs/kit`, assumes a SvelteKit frontend
  * - if `@sveltejs/package` + the lib directory, assumes a Node library
- * - if `src/lib/server/server.ts`, assumes a Node server - needs config
  */
 const config: CreateGroConfig = (cfg) => {
 	// Detection is deferred into `plugins` because every Gro invocation loads the config,
@@ -25,15 +23,11 @@ const config: CreateGroConfig = (cfg) => {
 		const package_json = await package_json_load(); // TODO gets wastefully loaded by some plugins, maybe put in plugin/task context? how does that interact with `map_package_json`?
 
 		const has_sveltekit_app_result = has_sveltekit_app(package_json);
-		const [has_server_result, has_sveltekit_library_result] = await Promise.all([
-			has_server(),
-			has_sveltekit_library(package_json)
-		]);
+		const has_sveltekit_library_result = await has_sveltekit_library(package_json);
 
 		// put things that generate files before SvelteKit so it can see them
 		return [
 			gro_plugin_gen(),
-			has_server_result.ok ? gro_plugin_server() : null,
 			has_sveltekit_library_result.ok ? gro_plugin_sveltekit_library() : null,
 			has_sveltekit_app_result.ok ? gro_plugin_sveltekit_app() : null
 		].filter((v) => v !== null);
