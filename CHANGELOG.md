@@ -1,5 +1,39 @@
 # @fuzdev/gro
 
+## 0.225.0
+
+### Minor Changes
+
+- **breaking** feat: `update_changelog` and `github_fetch_commit_prs` take a required `fetch`, handed to fuz_util's `fetch_value`, which no longer defaults to `globalThis.fetch` ([a199a74](https://github.com/fuzdev/gro/commit/a199a74))
+- deps: upgrade to `chokidar@6`, which requires Node `>=22.22` (Gro requires `>=24.14`) ([f123efe](https://github.com/fuzdev/gro/commit/f123efe))
+- **breaking** refactor: remove unused API: `path_id_to_base_path` from `paths.ts`; `possible_paths_by_input_path` from `resolve_input_paths`'s result; `resolved_input_files_by_root_dir` from `resolve_input_files`'s and `find_genfiles`'s results; and `print_command_args` moves from `args.ts` to `cli.ts` ([0236016](https://github.com/fuzdev/gro/commit/0236016))
+- **breaking** feat: `load_env` takes a `LoadEnvOptions` object (`{dev, env_dir?, env_files?, ambient_env?}`) instead of positional args, and the `$app/env` shims call it that way; the `gro` bin and the loader's spawned Node no longer pass `--experimental-strip-types` (unflagged in the supported Node `>=24.14`) or `--disable-warning=ExperimentalWarning`, so experimental warnings from task code now print ([2252ac8](https://github.com/fuzdev/gro/commit/2252ac8))
+- **breaking** fix: `load_from_env` no longer reads `../.env` by default (`paths` defaults to `['.env']`), so `gro publish` takes `SECRET_GITHUB_API_TOKEN` only from the env or the project's `.env`; and `gro deploy` stages the build with `git add .` instead of `git add . -f`, so files the deploy clone's ignore rules match (a `.gitignore` in the build output, the user's global excludes) are no longer deployed, and `gro deploy` warns with the list ([e9cd178](https://github.com/fuzdev/gro/commit/e9cd178))
+- **breaking** feat: `run_svelte_package`, `sveltekit_sync`, and `format_directory` take an options object (`RunSveltePackageOptions`, `SveltekitSyncOptions`, `FormatDirectoryOptions`) instead of positional args; `run_svelte_package`'s `options` and `cli` are named `svelte_package_options` and `svelte_package_cli`, like `gro_plugin_sveltekit_library`'s options ([d48e619](https://github.com/fuzdev/gro/commit/d48e619))
+- **breaking** feat: remove `gro_plugin_server` and esbuild, which only it used; the default config no longer adds a Node server plugin for `src/lib/server/server.ts`, and esbuild is no longer a peer dependency. Removed with it: ([f123efe](https://github.com/fuzdev/gro/commit/f123efe))
+  
+  - the rest of `gro_plugin_server.ts`: `has_server`, `SERVER_SOURCE_PATH`, `to_server_source_id`, `GroPluginServerOptions`, `Outpaths`, `CreateOutpaths`, and `to_default_outpaths`
+  - the esbuild plugins and helpers: `esbuild_plugin_svelte`, `esbuild_plugin_sveltekit_local_imports`, `esbuild_plugin_sveltekit_shim_app`, `esbuild_plugin_sveltekit_shim_app_env_vars`, and `esbuild_helpers.ts` (`print_build_result`, `to_define_import_meta_env`, `TS_TRANSFORM_OPTIONS_DEFAULT`)
+  - the task and plugin context's `watcher`, which only the server plugin used: `Watcher`, `create_node_watcher`, `NodeWatcherOptions`, and `RunTaskOptions.watcher`; `invoke_task`'s `watching` option becomes `graph`
+  - the `.gro/dev` output directory: `paths.build_dev`, `GRO_DEV_DIRNAME`, `GRO_DEV_DIR`, and `gro clean --build_dev`; `gro dev` no longer cleans it
+  - `clean_fs` takes independent `CleanFsOptions` (`gro_dir`, `dist_dirs`, `sveltekit`, `nodemodules`) instead of `build`, `build_dev`, and `build_dist`, where `build` also deleted the `dist_*` dirs, and drops its `rm_options` param; `discover_dist_dirs` in `build_cache.ts` finds the `dist_*` dirs for both
+  - `ParsedSvelteConfig.svelte_compile_module_options` keeps only `generate`, `rootDir`, and `warningFilter` of the compile options, since the loader sets `dev` and `filename` per module
+  - `SERVER_DIST_PATH`, so the default `search_filters` no longer skip `dist_server`
+  - `EVERYTHING_MATCHER`, `ResolvedSpecifier.namespace`, and the exports `PATH_SPECIFIER_MATCHER`, `strip_raw_query`, `SVELTE_COMPILE_OPTIONS_DEFAULT`, and `to_default_compile_module_options`
+  - the unused `tslib` and `esm-env` dependencies
+  - other unused API: `DevTaskContext`, `module.ts` (`is_external_module`, `MODULE_PATH_SRC_PREFIX`, `MODULE_PATH_LIB_PREFIX`), `Paths.config`, `base_path_to_path_id`, `plugin_replace` (filter the base plugins by name instead), and `ParsedSvelteConfig.assets_path`
+  - `SVELTEKIT_SHIM_APP_PATHS_MATCHER` and `SVELTEKIT_SHIM_APP_ENV_MATCHER`; `SVELTEKIT_SHIM_APP_SPECIFIERS` maps to shim module names instead of `@fuzdev/gro/*` specifiers; `ResolvedSpecifier.specifier`, which echoed the input; and the `has_vite_config` export
+  - `gro_plugin_deno_server`'s `watch` defaults to the task's `watch` instead of `dev`, so `gro dev --no-watch` no longer starts `deno run --watch`
+  - `GroConfig.js_cli` and `JS_CLI_DEFAULT`, which nothing read; `spawn_with_loader` drops its `js_cli` param and always spawns `node`
+  - `load_sveltekit_env_declarations` drops its `fresh` param; `resolve_sveltekit_env_entry` drops its `dir` param and resolves against the cwd; `RenderSveltekitShimAppEnvVarsOptions` drops `env_files` and `ambient_env`, takes one `entry: SveltekitEnvEntry | null` (`{id, variables}`, the path and its declarations) instead of `variables` and `entry_specifier`, and requires `env_module_specifier`
+- **breaking** refactor: `resolve_specifier` and `to_sibling_hint` in `resolve_specifier.ts` are synchronous, returning `ResolvedSpecifier` and `SiblingHint | null` instead of promises, and throw where they rejected, with the same errors ([57aea5f](https://github.com/fuzdev/gro/commit/57aea5f))
+- feat: a `TaskError` or `SilentError` subclass is recognized as one, so a task throwing a `TaskError` subclass reports its message instead of an unexpected error with a stack; add `is_task_error` and `is_silent_error` to `task.ts`, which recognize the classes and their subclasses from any copy of Gro ([000d237](https://github.com/fuzdev/gro/commit/000d237))
+- deps: upgrade to `@fuzdev/tsv@0.8.1` and drop `oxc-parser`; `gro format` and `format_file` take its formatting fixes, so `gro format --check` can flag files formatted by 0.7, and sources tsv 0.8 newly rejects (see its changelog) now fail `gro format` and the loader's `.svelte.ts` type strip. The Filer's import graph reads imports with tsv's `parse_imports_typescript` / `parse_imports_svelte`: `import x = require()` is an edge, `export {type X} from` is skipped as type-only, and a file that doesn't parse (a Svelte component's markup included) warns with its location and keeps the edges it last parsed with, where oxc recovered a partial list ([e0ba3ee](https://github.com/fuzdev/gro/commit/e0ba3ee))
+
+### Patch Changes
+
+- fix: a search of a directory outside the project root tests `search_filters` with paths relative to that directory, so `gro task ~/.cache/other/src`, `gro gen` of such a directory, and `gro format` of it or a glob into it find files under a `.`-prefixed directory instead of nothing; `to_search_filters_relative` takes an optional `search_dir` ([8f05ff1](https://github.com/fuzdev/gro/commit/8f05ff1))
+
 ## 0.224.0
 
 ### Minor Changes
