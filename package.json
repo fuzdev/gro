@@ -1,6 +1,6 @@
 {
   "name": "@fuzdev/gro",
-  "version": "0.225.0",
+  "version": "0.225.1",
   "description": "security-first JS runtime and toolchain on V8",
   "tagline": "generate, run, optimize",
   "glyph": "🌰",

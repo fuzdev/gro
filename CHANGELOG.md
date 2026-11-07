@@ -1,5 +1,11 @@
 # @fuzdev/gro
 
+## 0.225.1
+
+### Patch Changes
+
+- deps: the `@fuzdev/fuz_schema` peer is `^0.5.6`, whose empty object schemas infer `Record<string, never>` ([6912868](https://github.com/fuzdev/gro/commit/6912868))
+
 ## 0.225.0
 
 ### Minor Changes
