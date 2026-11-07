@@ -1,1 +1,0 @@
-import{i as e,r as t}from"./CURo20eD.js";var n=n=>t(e(e(n,`https://`),`www.`),`/`);export{n as t};
