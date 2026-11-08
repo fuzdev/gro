@@ -1,10 +1,11 @@
 # host modules
 
-> the imports that reach the OS, starting with `fs`: how to import them, hand them down,
+> the imports that reach the OS, `fs` and `spawn` so far: how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs` exists, as the Node implementation in Gro's npm package;
-> process, spawn, watch, and net are designed, not built.
+> **status**: `fs` and `spawn` exist as the Node implementation in Gro's npm package,
+> `spawn` with inherited and captured calls, not yet long-lived children;
+> process, watch, and net are designed, not built.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
 > ([runtime](runtime.md#imports-or-globals) has the design).
 
@@ -70,6 +71,75 @@ finding the files beneath a directory through `list`, recursively.
 A symlink is a result like a file, never followed, its `kind` telling them apart,
 and a missing directory finds nothing.
 Gro's own sweeps, like `gro format`'s, act on regular files only and skip a symlink, as tsv's walk does.
+
+## spawn
+
+```ts
+import {spawn} from '@fuzdev/gro/spawn.ts';
+
+const git = spawn.program('git', {pass_env: ['GIT_*', 'SSH_AUTH_SOCK']});
+const status = await git.out(['status', '--porcelain']);
+if (status.kind === 'exited' && status.code === 0) console.log(status.stdout);
+await git.run(['fetch'], {cwd: repo_dir}); // `repo_dir` an fs handle, stdio inherited
+```
+
+- `spawn.program(name, options?)` makes a `SpawnProgram`, the capability to run one executable,
+  resolved once when it's made and pinned for the handle's life.
+  `spawn.find(name, options?)` is the same, returning `null` instead of throwing `not_found`,
+  and any other failure, like `not_executable`, still throws.
+- A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
+  Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
+  can't shadow `spawn.program('git')`.
+- A name containing `/` resolves against the project root. It's a lexical check:
+  a name that's absolute or climbs above the project through `..` is `not_granted`,
+  while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
+- The pin is the executable's real path. A later `PATH` change or swapped symlink changes nothing.
+  The real path is what runs. A bare name is its own `argv[0]`,
+  since a multicall binary like `~/.cargo/bin/cargo -> rustup` picks its behavior from `argv[0]`,
+  and a name containing `/` passes its lexical project-absolute path,
+  so a tool finding itself through `argv[0]`, like a virtualenv's `python`, still does under another `cwd`.
+  `name` and `path` are for display; the pin itself is private.
+- A file is pinned only when its first bytes are a format the kernel runs, else it's `not_executable`,
+  an empty file included, since on Linux `execvp` hands any other file the kernel won't run to `/bin/sh`.
+  `#!` is accepted everywhere, the ELF magic everywhere but macOS,
+  and on macOS the Mach-O magics, 32-bit and 64-bit in either byte order and fat binaries.
+  A file with execute permission this user can't read passes, as it can't be inspected.
+  `binfmt_misc` formats are refused along with the rest.
+- `program.run(args, options?)` runs with stdio inherited.
+  `program.out(args, options?)` gives the child `/dev/null` for stdin and captures stdout and stderr as UTF-8 text,
+  with `U+FFFD` for bytes that aren't, up to `max_bytes` per stream, 64 MiB by default.
+  Output past the cap kills the child with `SIGKILL` and the result has `truncated: true`,
+  its `kind` then `signaled` unless the child had already exited,
+  and a multi-byte character cut at the end becomes `U+FFFD`.
+- A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
+  A program that can't start throws `SpawnError` of kind `launch_failed`.
+  `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
+  matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
+  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `spawn`.
+- `.bat` and `.cmd` are refused, by the name and by the pin's real path. A call is argv only, never a shell string.
+- A name or argument must be a string without a NUL byte or a lone surrogate, else a `TypeError`,
+  and a name can't be empty, while an argument can (`git commit -m ''`).
+  A lone surrogate would reach a child as U+FFFD, a different string than the caller wrote.
+- `cwd` is an fs handle, never a string, and defaults to the project root.
+- A child starts from a cleared environment, on the runtime's grant rules:
+  `PATH`, `HOME`, `TMPDIR`, and `TERM` when the host has them, `LC_ALL=C`, and the host's own
+  `NO_COLOR` and `FORCE_COLOR`, then the names `pass_env` lists, then the values `env` gives.
+  `pass_env` takes names and `PREFIX_*` globs; `*` alone is refused, since `'all'` says that out loud.
+  Environment options exist only on `program`, never per call,
+  because a per-call `LD_PRELOAD` or `GIT_SSH_COMMAND` would turn a `git` handle into arbitrary execution.
+  The set is fixed when the handle is made.
+- `pass_env: 'all'` is the hatch, as strong as `-A`: the child gets the host's whole environment
+  and no base pinning (`LC_ALL` included), for forwarding tasks where a person made that choice.
+- `spawn.narrow(names)` is a root limited to `names`, spelled as they'll be requested,
+  and it only shrinks: narrowing to a name its parent doesn't allow is `not_granted`.
+  A name outside the set is `not_granted` from `program` and `find` alike.
+  A narrowed root also refuses `env`, `pass_env: 'all'`, and `pass_env` globs as `not_granted`, through any chain of narrows.
+  `env` would turn a named program into arbitrary execution,
+  and `'all'` or a set of globs would let the holder of a narrowed handle take the whole environment.
+  Named `pass_env` stays, forwarding one host value at a time, so a narrowed caller names each variable.
+  To give a library a program with an environment, build the `SpawnProgram` at the root and hand that down.
+
+The module's TSDoc has each op's contract.
 
 ## Where to import them
 
@@ -149,6 +219,21 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   even when it would land back inside. A component a path passes through must be a directory.
 - `fs.temp_dir` takes only a string prefix, so no `toString` of the caller's names the directory.
 
+### spawn's invariants
+
+- Handles come only from `spawn` and other handles, through a module-private key,
+  and hold their pin, `argv[0]`, and environment in private fields,
+  so a method called on any other object throws `TypeError` and changing `path` changes nothing that runs.
+- Handles, their prototypes, `spawn`, results, and `SpawnError` with its prototype are frozen.
+- A result is a null-prototype record, so a polluted `Object.prototype.then` isn't consulted when it's awaited.
+- A child's environment is a null-prototype object, since Node enumerates it with `for in`
+  and `Object.prototype.X` would otherwise reach the child.
+  The options to Node are null-prototype too, on top of Node's own null-prototype copy of them.
+  `process.env` is read through own properties only, so a polluted or inherited name is no variable.
+- Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
+  Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
+- Every array argument (`args`, `narrow`'s names, `pass_env`) is read by index with its length read once.
+
 ### The Node implementation's own measures
 
 These exist because the Node implementation resolves paths itself, in JS, before handing one to Node:
@@ -211,9 +296,38 @@ It documents each gap rather than weakening the API to match, and is a review si
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
   so importing the module throws when the working directory has been removed.
 
+### spawn
+
+- The pin is a path, resolved and then exec'd by path when called,
+  so a file replaced at the pinned path in between runs instead.
+- A forged `cwd` handle is any object with a checked absolute `path`, so a child can start in a directory it was never given.
+  Only the shape is checked.
+- A real `cwd` handle follows its path too. Where `fs` refuses a directory that was replaced
+  (`open_dir(mv)`, then a rename and a symlink at `mv`, so `mv.exists('.')` is `outside_root`),
+  a call with that `cwd` runs in what the symlink leads to.
+- No policy check limits which programs a handle reaches or what they do,
+  and no kernel confinement like Landlock applies to a child,
+  so a running program reaches whatever its user can.
+- A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
+- The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
+  or a `#!` line naming no interpreter, still reaches the Linux `/bin/sh` fallback of the `execvp` Node starts children with, and a Java class file passes on macOS, sharing the fat binary's magic.
+- A shebang script's `$0` is the pinned path, not the name it was granted,
+  so a shell script dispatching on the symlink it was called through can't.
+- A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`, since Node passes an empty signal name for one.
+- Intrinsics stay pollutable. The module copies at load the Node functions it calls,
+  `Array.isArray`, `Number.isSafeInteger`, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,
+  and its own objects are null-prototype, but code that patches `Array.prototype`, `String.prototype`,
+  `Promise`, `Uint8Array`, `TextDecoder`, or `Error` after the module loads runs inside its ops.
+- Node copies a set `NODE_V8_COVERAGE` into every child's environment.
+- `spawn`, like `fs`, reads the project root when the module loads, so importing it throws
+  in a removed or non-UTF-8 working directory.
+- Any module can import `node:child_process`, so a narrowed `spawn` bounds only the code that uses it.
+
 ## Native requirements
 
 What the runtime's builtin must do that the Node implementation can't:
+
+### fs
 
 - Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's descriptor,
   never a check followed by an open.
@@ -221,3 +335,15 @@ What the runtime's builtin must do that the Node implementation can't:
 - Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`.
 - Return owned buffers from `read`, never a view of memory the runtime reuses.
+
+### spawn
+
+- Start a child from one op taking a program resource, argv, and a cwd resource,
+  so a call names nothing a path could swap: the pinned program runs by descriptor where the kernel allows it,
+  the cwd by its directory handle. A shebang script runs by path, since `/proc/self/fd` can't reach one.
+- Clear the environment in the op (`env_clear`) and set only what the handle holds,
+  with no way for a call to add to it.
+- Inherit only fds 0, 1, and 2 into the child, and confine it with the run's Landlock rules.
+- Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel.
+- Report a child killed by any signal, real-time ones included, from `wait4`'s status.
+- Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.

@@ -12,7 +12,7 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules (the first, `fs`, exists as its Node implementation,
+> Designed, not built: the host modules (`fs` and `spawn` exist as their Node implementation,
 > [host modules](host_modules.md)), the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
 > Until they land, a run reaches nothing past its own module graph and the console.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
@@ -26,7 +26,7 @@ The runtime's docs:
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
-- [host modules](host_modules.md) - the imports that reach the OS: `fs` today, how to hand them down, and the Node implementation's gaps
+- [host modules](host_modules.md) - the imports that reach the OS: `fs` and `spawn` today, how to hand them down, and the Node implementation's gaps
 - [glossary](glossary.md) - the terms these docs use, each defined once
 - installing a release - [install](#install), below
 - building it - the README's [Develop](../../README.md#develop) section

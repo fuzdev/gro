@@ -12,7 +12,8 @@ so the API stays implementable on every runtime. This lint emits each host modul
 declarations (`transpileDeclaration`, so also checking they need no inference), type-checks
 them against TypeScript's ES and DOM libs with no `@types` loaded, and fails on:
 
-- any import, re-export, `import()` type, or type reference directive
+- any import, re-export, `import()` type, or type reference directive, except a type-only
+  named import of another host module, so `spawn.ts` can name the fs handle its `cwd` takes
 - `declare global`, which could reshape a lib type
 - a type reference, heritage clause, `typeof` query, or `export default`/`export =` of a
   name whose symbol has a declaration outside the module and the ES libs, unless it's a
@@ -24,8 +25,8 @@ because it isn't on the list.
 
 */
 
-// with `fs_error.ts`, the errors `fs.ts` throws, apart from it so matching one grants nothing
-const HOST_MODULES = ['fs.ts', 'fs_error.ts'];
+// each host module with its error module, apart from it so matching an error grants nothing
+const HOST_MODULES = ['fs.ts', 'fs_error.ts', 'spawn.ts', 'spawn_error.ts'];
 
 /**
  * The DOM lib types a host module's API may name. Each is in the WinterTC Minimum Common
@@ -50,6 +51,22 @@ const WEB_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const is_dom_lib = (file: ts.SourceFile): boolean => basename(file.fileName).startsWith('lib.dom');
+
+const HOST_MODULE_SPECIFIERS: ReadonlySet<string> = new Set(HOST_MODULES.map((m) => `./${m}`));
+
+const is_host_module_file = (file: ts.SourceFile): boolean =>
+	file.fileName.startsWith(paths.lib) &&
+	HOST_MODULES.includes(file.fileName.slice(paths.lib.length).replace(/^\//, ''));
+
+/**
+ * `import type {X} from './fs.ts'`, a type-only named import of another host module.
+ */
+const is_host_module_type_import = (node: ts.ImportDeclaration): boolean =>
+	node.importClause?.phaseModifier === ts.SyntaxKind.TypeKeyword &&
+	node.importClause.namedBindings !== undefined &&
+	ts.isNamedImports(node.importClause.namedBindings) &&
+	ts.isStringLiteral(node.moduleSpecifier) &&
+	HOST_MODULE_SPECIFIERS.has(node.moduleSpecifier.text);
 
 const to_declarations = (module_path: string): string => {
 	const result = ts.transpileDeclaration(readFileSync(module_path, 'utf8'), {
@@ -93,7 +110,7 @@ const find_foreign_type_references = (module_path: string, declarations: string)
 
 	const is_allowed_declaration = (declaration: ts.Declaration, name: string): boolean => {
 		const file = declaration.getSourceFile();
-		if (file === source) return true;
+		if (file === source || is_host_module_file(file)) return true;
 		if (!program.isSourceFileDefaultLibrary(file)) return false;
 		return !is_dom_lib(file) || WEB_TYPES.has(name);
 	};
@@ -116,7 +133,9 @@ const find_foreign_type_references = (module_path: string, declarations: string)
 		found.push(`type reference directive "${directive.fileName}"`);
 	}
 	const visit = (node: ts.Node): void => {
-		if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+		if (ts.isImportDeclaration(node) && is_host_module_type_import(node)) {
+			// a type-only import of a sibling host module: its names are checked by reference below
+		} else if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
 			if (node.moduleSpecifier) found.push(`import of ${node.moduleSpecifier.getText(source)}`);
 		} else if (ts.isImportTypeNode(node)) {
 			found.push(`import type ${node.argument.getText(source)}`);
@@ -167,6 +186,16 @@ describe('host module declarations', () => {
 		assert.deepEqual(found, []);
 	});
 
+	test('allows a type-only named import of another host module', () => {
+		const found = find_in_fixture(
+			[
+				`import type { FsReadDir } from './fs.ts';`,
+				`export interface Options { cwd?: FsReadDir }`
+			].join('\n')
+		);
+		assert.deepEqual(found, []);
+	});
+
 	test('flags a Node type, a Node import, and an unresolved type', () => {
 		const found = find_in_fixture(
 			[
@@ -203,7 +232,14 @@ describe('host module declarations', () => {
 		reexport: 'export type { Stats } from "node:fs";',
 		export_default_global: 'export default Buffer;',
 		export_equals_global: 'export = process;',
-		reference_directive: '/// <reference types="node" />\nexport declare const x: number;'
+		reference_directive: '/// <reference types="node" />\nexport declare const x: number;',
+		host_module_value_import: 'import { fs } from "./fs.ts"; export declare const f: typeof fs;',
+		host_module_inline_type_import:
+			'import { type FsReadDir } from "./fs.ts"; export declare const d: FsReadDir;',
+		host_module_namespace_import:
+			'import type * as fs from "./fs.ts"; export declare const d: fs.FsReadDir;',
+		non_host_module_type_import:
+			'import type { Paths } from "./paths.ts"; export declare const p: Paths;'
 	};
 
 	for (const [name, declarations] of Object.entries(MUTANTS)) {
