@@ -4,7 +4,7 @@ import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
+import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -19,19 +19,6 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
 	git_current_commit_hash: vi.fn()
 }));
-
-// Mock async fs functions used by build.task.ts and build_cache.ts (discover_build_output_dirs)
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		rm: vi.fn(),
-		readdir: vi.fn(),
-		stat: vi.fn()
-	};
-});
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -180,22 +167,23 @@ describe('build_task cache persistence', () => {
 	test('still deletes dist when force_build with dirty workspace', async () => {
 		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 		const { exists } = await get_mock_project();
-		const { rm, readdir, stat } = vi.mocked(await import('node:fs/promises'));
+		const { list, remove } = await get_mock_project();
 
 		// Workspace is dirty, force_build is true
 		vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified files:\n  src/foo.ts');
 		vi.mocked(exists).mockResolvedValue(true); // All files exist
-		vi.mocked(readdir).mockResolvedValue(['dist_artifacts'] as any);
-		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
+		vi.mocked(list).mockImplementation(() =>
+			to_mock_listing(['dist_artifacts'], ['dist_artifacts'])
+		);
 
 		const ctx = create_mock_build_task_context({ force_build: true });
 
 		await build_task.run(ctx);
 
 		// Should still delete all build outputs (dirty workspace protection via discover_build_output_dirs)
-		expect(rm).toHaveBeenCalledWith('build', { recursive: true, force: true });
-		expect(rm).toHaveBeenCalledWith('dist', { recursive: true, force: true });
-		expect(rm).toHaveBeenCalledWith('dist_artifacts', { recursive: true, force: true });
+		expect(remove).toHaveBeenCalledWith('build', { recursive: true, missing_ok: true });
+		expect(remove).toHaveBeenCalledWith('dist', { recursive: true, missing_ok: true });
+		expect(remove).toHaveBeenCalledWith('dist_artifacts', { recursive: true, missing_ok: true });
 	});
 
 	test('build_dirs parameter is correctly threaded through clean workspace path', async () => {

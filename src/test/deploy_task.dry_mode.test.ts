@@ -37,19 +37,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task dry mode', () => {
@@ -67,7 +54,7 @@ describe('deploy_task dry mode', () => {
 	describe('dry mode behavior', () => {
 		test('performs all steps except git commit and push', async () => {
 			const { git_checkout, git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const { cp } = await import('node:fs/promises');
+			const { copy } = await get_mock_project();
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { exists, remove } = await get_mock_project();
 
@@ -87,7 +74,7 @@ describe('deploy_task dry mode', () => {
 				force_build: false
 			});
 			expect(remove).toHaveBeenCalled();
-			expect(cp).toHaveBeenCalled();
+			expect(copy).toHaveBeenCalled();
 
 			// Should NOT commit or push
 			expect(spawn).not.toHaveBeenCalledWith('git', ['add', '.'], expect.anything());

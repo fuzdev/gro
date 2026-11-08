@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+	lstatSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -26,46 +34,64 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-test('no .formatignore yields an empty set', () => {
-	expect(read_format_ignore(root).size).toBe(0);
+test('no ignore file skips nothing', async () => {
+	const is_ignored = await read_format_ignore(root);
+	expect(is_ignored(resolve(root, 'notes.md'))).toBe(false);
+	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
 
-test('anchored and non-anchored patterns expand to absolute ignored paths', () => {
+test('anchored and non-anchored patterns match absolute ids', async () => {
 	writeFileSync(
 		join(root, '.formatignore'),
 		'# comment\nsrc/test/fixtures/generated/**\nsrc/test/fixtures/samples/sample_*.*\n\n*.md\n'
 	);
-	const ignored = read_format_ignore(root);
-	expect(ignored.has(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
-	expect(ignored.has(resolve(root, 'src/test/fixtures/samples/sample_b.svelte'))).toBe(true);
-	expect(ignored.has(resolve(root, 'src/test/fixtures/generated/out.ts'))).toBe(true);
+	const is_ignored = await read_format_ignore(root);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_b.svelte'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/generated/out.ts'))).toBe(true);
 	// `*.md` has no slash, so it matches at any depth.
-	expect(ignored.has(resolve(root, 'notes.md'))).toBe(true);
+	expect(is_ignored(resolve(root, 'notes.md'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/lib/notes.md'))).toBe(true);
 	// unlisted source is not ignored.
-	expect(ignored.has(resolve(root, 'src/lib/keep.ts'))).toBe(false);
+	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
 
-test('a blank/comment-only .formatignore yields an empty set', () => {
+test('a directory pattern skips everything beneath it, and a negation re-includes', async () => {
+	writeFileSync(join(root, '.formatignore'), 'fixtures/\n*.ts\n!keep.ts\n');
+	const is_ignored = await read_format_ignore(root);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_b.svelte'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/lib/other.ts'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
+});
+
+test('a file outside the root is never ignored', async () => {
+	writeFileSync(join(root, '.formatignore'), '*.ts\n');
+	const is_ignored = await read_format_ignore(join(root, 'src'));
+	expect(is_ignored(resolve(root, 'outside.ts'))).toBe(false);
+});
+
+test('a blank/comment-only .formatignore skips nothing', async () => {
 	writeFileSync(join(root, '.formatignore'), '# only a comment\n\n');
-	expect(read_format_ignore(root).size).toBe(0);
+	const is_ignored = await read_format_ignore(root);
+	expect(is_ignored(resolve(root, 'notes.md'))).toBe(false);
 });
 
-test('.prettierignore is honored and merges with .formatignore', () => {
+test('a .formatignore shadows a sibling .prettierignore, as tsv reads them', async () => {
 	writeFileSync(join(root, '.formatignore'), 'src/test/fixtures/samples/sample_*.*\n');
 	writeFileSync(join(root, '.prettierignore'), 'src/test/fixtures/generated/**\n');
-	const ignored = read_format_ignore(root);
+	const is_ignored = await read_format_ignore(root);
 	// from .formatignore
-	expect(ignored.has(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
-	// from .prettierignore
-	expect(ignored.has(resolve(root, 'src/test/fixtures/generated/out.ts'))).toBe(true);
-	expect(ignored.has(resolve(root, 'src/lib/keep.ts'))).toBe(false);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
+	// the shadowed .prettierignore is never read
+	expect(is_ignored(resolve(root, 'src/test/fixtures/generated/out.ts'))).toBe(false);
+	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
 
-test('.prettierignore alone (no .formatignore) is respected', () => {
+test('.prettierignore alone (no .formatignore) is respected', async () => {
 	writeFileSync(join(root, '.prettierignore'), 'src/test/fixtures/samples/sample_*.*\n');
-	const ignored = read_format_ignore(root);
-	expect(ignored.has(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
-	expect(ignored.has(resolve(root, 'src/lib/keep.ts'))).toBe(false);
+	const is_ignored = await read_format_ignore(root);
+	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
+	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
 
 test('format_directory searches a project under a dot-directory', async () => {
@@ -187,4 +213,91 @@ test('format_directory reads the ignore file from its root', async () => {
 		root: dir
 	});
 	expect(result.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
+});
+
+test('format_directory matches a glob without `**` only at its depth', async () => {
+	writeFileSync(join(root, 'src/a.ts'), 'const  a=1\n');
+	writeFileSync(join(root, 'src/lib/b.ts'), 'const  b=1\n');
+	const format = (patterns: Array<string>) =>
+		format_directory({
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns,
+			root
+		});
+	expect((await format([join(root, 'src/*.ts')])).formatted).toEqual([join(root, 'src/a.ts')]);
+	expect((await format([join(root, 'src/*/b.ts')])).formatted).toEqual([
+		join(root, 'src/lib/b.ts')
+	]);
+	expect((await format([join(root, 'src/**/*.ts')])).formatted).toEqual([
+		join(root, 'src/a.ts'),
+		join(root, 'src/lib/b.ts')
+	]);
+});
+
+test('a sweep skips symlinks and acts on regular files only', async () => {
+	mkdirSync(join(root, 'src/lib/real'));
+	writeFileSync(join(root, 'src/lib/real/real.ts'), 'const  r=1\n');
+	writeFileSync(join(root, 'outside.ts'), 'const  o=1\n');
+	symlinkSync('real/real.ts', join(root, 'src/lib/relative.ts'));
+	symlinkSync(join(root, 'outside.ts'), join(root, 'src/lib/absolute.ts'));
+	const format = (patterns?: Array<string>) =>
+		format_directory({ log: create_mock_logger(), dir: join(root, 'src/lib'), patterns, root });
+	const swept = await format();
+	expect(swept.ok).toBe(true);
+	expect(swept.formatted).toEqual([join(root, 'src/lib/real/real.ts')]);
+	const globbed = await format([join(root, 'src/lib/*.ts')]);
+	expect(globbed.formatted).toEqual([]);
+	expect(lstatSync(join(root, 'src/lib/relative.ts')).isSymbolicLink()).toBe(true);
+	expect(readFileSync(join(root, 'outside.ts'), 'utf8')).toBe('const  o=1\n');
+});
+
+test('a file named explicitly is followed through a symlink', async () => {
+	writeFileSync(join(root, 'outside.ts'), 'const  o=1\n');
+	symlinkSync(join(root, 'outside.ts'), join(root, 'src/lib/absolute.ts'));
+	const result = await format_directory({
+		log: create_mock_logger(),
+		dir: join(root, 'src'),
+		patterns: [join(root, 'src/lib/absolute.ts')],
+		root
+	});
+	expect(result.formatted).toEqual([join(root, 'src/lib/absolute.ts')]);
+	expect(readFileSync(join(root, 'outside.ts'), 'utf8')).toBe('const o = 1;\n');
+	expect(lstatSync(join(root, 'src/lib/absolute.ts')).isSymbolicLink()).toBe(true);
+});
+
+test('an existing file is never a glob, even with glob syntax in its name', async () => {
+	mkdirSync(join(root, 'src/routes/[slug]'), { recursive: true });
+	mkdirSync(join(root, 'src/routes/s'), { recursive: true });
+	writeFileSync(join(root, 'src/routes/[slug]/+page.ts'), 'const  p=1\n');
+	// what `[slug]` would match as a character class
+	writeFileSync(join(root, 'src/routes/s/+page.ts'), 'const  s=1\n');
+	const format = (patterns: Array<string>) =>
+		format_directory({
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns,
+			root
+		});
+	// as lint-staged passes them, absolute
+	expect((await format([join(root, 'src/routes/[slug]/+page.ts')])).formatted).toEqual([
+		join(root, 'src/routes/[slug]/+page.ts')
+	]);
+	const cwd = process.cwd();
+	try {
+		process.chdir(root);
+		expect((await format(['src/routes/[slug]/+page.ts'])).formatted).toEqual([
+			join(root, 'src/routes/[slug]/+page.ts')
+		]);
+		// a missing one is a glob
+		expect((await format(['src/routes/[s]/+page.ts'])).formatted).toEqual([
+			join(root, 'src/routes/s/+page.ts')
+		]);
+		// a missing path with no glob syntax names nothing
+		expect((await format(['src/routes/missing.ts'])).formatted).toEqual([]);
+	} finally {
+		process.chdir(cwd);
+	}
 });

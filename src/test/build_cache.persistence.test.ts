@@ -18,19 +18,6 @@ vi.mock('#lib/paths.ts', () => ({
 	}
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		readFile: vi.fn(),
-		writeFile: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('load_build_cache_metadata', () => {
@@ -231,40 +218,40 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('writes metadata to correct path', async () => {
-		const { writeFile, mkdir } = await import('node:fs/promises');
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockResolvedValue(undefined);
+		vi.mocked(write).mockResolvedValue(undefined);
 
 		await save_build_cache_metadata(metadata);
 
-		expect(mkdir).toHaveBeenCalledWith('./.gro/', { recursive: true });
-		expect(writeFile).toHaveBeenCalledWith('.gro/build.json', expect.any(String), 'utf-8');
+		expect(mkdir).toHaveBeenCalledWith('.gro/', { recursive: true });
+		expect(write).toHaveBeenCalledWith('.gro/build.json', expect.any(String));
 	});
 
 	test('uses proper JSON formatting with tabs', async () => {
-		const { writeFile, mkdir } = await import('node:fs/promises');
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockResolvedValue(undefined);
+		vi.mocked(write).mockResolvedValue(undefined);
 
 		await save_build_cache_metadata(metadata);
 
-		const written_content = vi.mocked(writeFile).mock.calls[0]![1] as string;
+		const written_content = vi.mocked(write).mock.calls[0]![1] as string;
 		expect(written_content).toContain('\t');
 		expect(JSON.parse(written_content)).toEqual(metadata);
 	});
 
 	test('logs warning on write error', async () => {
-		const { writeFile, mkdir } = await import('node:fs/promises');
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 		const log = create_mock_logger();
 
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockRejectedValue(new Error('ENOSPC: no space left on device'));
+		vi.mocked(write).mockRejectedValue(new Error('ENOSPC: no space left on device'));
 
 		await save_build_cache_metadata(metadata, log);
 
@@ -275,31 +262,31 @@ describe('save_build_cache_metadata', () => {
 	});
 
 	test('does not throw on write error', async () => {
-		const { writeFile, mkdir } = await import('node:fs/promises');
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockRejectedValue(new Error('EACCES: permission denied'));
+		vi.mocked(write).mockRejectedValue(new Error('EACCES: permission denied'));
 
 		// Should not throw despite write error
 		await expect(save_build_cache_metadata(metadata)).resolves.not.toThrow();
 	});
 
 	test('handles write error without logger', async () => {
-		const { writeFile, mkdir } = await import('node:fs/promises');
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockRejectedValue(new Error('Write failed'));
+		vi.mocked(write).mockRejectedValue(new Error('Write failed'));
 
 		// Should not throw even without logger (log?.warn is safe)
 		await expect(save_build_cache_metadata(metadata)).resolves.not.toThrow();
 	});
 
 	test('does not throw when mkdir fails', async () => {
-		const { mkdir } = await import('node:fs/promises');
+		const { mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
 		const log = create_mock_logger();

@@ -19,8 +19,7 @@ describe('BuildOutputEntry schema', () => {
 				path: 'build/file.js',
 				size: 1024,
 				mtime: 1729512000000,
-				ctime: 1729512000000,
-				mode: 33188
+				mode: 0o644
 			})
 		).toThrow();
 	});
@@ -32,8 +31,7 @@ describe('BuildOutputEntry schema', () => {
 				hash: 'abc',
 				size: '1024', // should be number
 				mtime: 1729512000000,
-				ctime: 1729512000000,
-				mode: 33188
+				mode: 0o644
 			})
 		).toThrow();
 	});

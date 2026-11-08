@@ -1,56 +1,85 @@
-import { describe, test, assert, vi, beforeEach } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { describe, test, assert, beforeEach, afterEach } from 'vitest';
+import { symlinkSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { load_from_env } from '#lib/env.ts';
-
-vi.mock('node:fs', () => ({
-	existsSync: vi.fn(),
-	readFileSync: vi.fn()
-}));
+import { fs, is_fs_error, type FsDir } from '#lib/fs.ts';
+import { load_env, load_from_env } from '#lib/env.ts';
 
 const KEY = 'GRO_TEST_LOAD_FROM_ENV_KEY';
 
-// a virtual filesystem of env files keyed by the path `load_from_env` asks for
-const files: Map<string, string> = new Map();
+let temp: FsDir & AsyncDisposable;
+let cwd: string;
 
-beforeEach(() => {
-	files.clear();
+beforeEach(async () => {
 	delete process.env[KEY];
-	vi.mocked(existsSync).mockImplementation((path) => files.has(String(path)));
-	vi.mocked(readFileSync).mockImplementation((path) => {
-		const content = files.get(String(path));
-		if (content === undefined) throw Error('missing ' + String(path));
-		return content;
-	});
+	temp = await fs.temp_dir();
+	cwd = process.cwd();
+});
+
+afterEach(async () => {
+	process.chdir(cwd);
+	delete process.env[KEY];
+	await temp[Symbol.asyncDispose]();
 });
 
 describe('load_from_env', () => {
-	test('reads the project `.env`', () => {
-		files.set('.env', `${KEY}=local`);
-		assert.strictEqual(load_from_env(KEY), 'local');
+	test('reads the cwd `.env`', async () => {
+		await temp.write('.env', `${KEY}=local`);
+		process.chdir(temp.path);
+		assert.strictEqual(await load_from_env(KEY), 'local');
 	});
 
-	test('never reads a parent directory `.env` by default', () => {
-		files.set('../.env', `${KEY}=parent`);
-		assert.strictEqual(load_from_env(KEY), undefined);
-		for (const [path] of vi.mocked(existsSync).mock.calls) {
-			assert.notStrictEqual(String(path), '../.env');
-		}
+	test('never reads a parent directory `.env` by default', async () => {
+		await temp.write('.env', `${KEY}=parent`);
+		await temp.mkdir('child');
+		process.chdir(join(temp.path, 'child'));
+		assert.strictEqual(await load_from_env(KEY), undefined);
 	});
 
-	test('process.env wins over the files', () => {
-		files.set('.env', `${KEY}=local`);
+	test('process.env wins over the files', async () => {
+		await temp.write('.env', `${KEY}=local`);
 		process.env[KEY] = 'ambient';
-		try {
-			assert.strictEqual(load_from_env(KEY), 'ambient');
-		} finally {
-			delete process.env[KEY];
-		}
+		assert.strictEqual(await load_from_env(KEY, [join(temp.path, '.env')]), 'ambient');
 	});
 
-	test('reads explicit paths in order', () => {
-		files.set('a.env', `${KEY}=`);
-		files.set('b.env', `${KEY}=b`);
-		assert.strictEqual(load_from_env(KEY, ['a.env', 'b.env']), 'b');
+	test('reads explicit paths in order, skipping a missing one', async () => {
+		await temp.write('a.env', `${KEY}=`);
+		await temp.write('b.env', `${KEY}=b`);
+		const paths = ['a.env', 'missing.env', 'b.env'].map((p) => join(temp.path, p));
+		assert.strictEqual(await load_from_env(KEY, paths), 'b');
+	});
+
+	test('follows a symlinked env file', async () => {
+		await temp.mkdir('elsewhere');
+		await temp.write('elsewhere/real.env', `${KEY}=linked`);
+		symlinkSync(join(temp.path, 'elsewhere/real.env'), join(temp.path, 'link.env'));
+		assert.strictEqual(await load_from_env(KEY, [join(temp.path, 'link.env')]), 'linked');
+	});
+
+	test('an env file that can not be read throws', async () => {
+		await temp.mkdir('dir.env');
+		try {
+			await load_from_env(KEY, [join(temp.path, 'dir.env')]);
+			assert.fail('expected a throw');
+		} catch (error) {
+			assert.ok(is_fs_error(error, 'is_a_directory'), String(error));
+		}
+	});
+});
+
+describe('load_env', () => {
+	test('later files win and the ambient env wins over them', async () => {
+		await temp.write('.env', `${KEY}=base\nGRO_TEST_LOAD_ENV_OTHER=base`);
+		await temp.write('.env.development', `${KEY}=dev`);
+		const env = await load_env({ dev: true, env_dir: temp.path, ambient_env: {} });
+		assert.strictEqual(env[KEY], 'dev');
+		assert.strictEqual(env.GRO_TEST_LOAD_ENV_OTHER, 'base');
+		const ambient = await load_env({ dev: true, env_dir: temp.path, ambient_env: { [KEY]: 'a' } });
+		assert.strictEqual(ambient[KEY], 'a');
+	});
+
+	test('skips the missing files', async () => {
+		const env = await load_env({ dev: false, env_dir: temp.path, ambient_env: {} });
+		assert.deepEqual(env, {});
 	});
 });

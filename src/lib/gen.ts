@@ -1,6 +1,5 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { join, basename, dirname, isAbsolute } from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
@@ -19,7 +18,7 @@ import {
 	type ResolvedInputPath
 } from './input_path.ts';
 import type { InvokeTask } from './task.ts';
-import { fs_search_path } from './internal/fs_path.ts';
+import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
@@ -258,19 +257,15 @@ export const analyze_gen_results = async (
 };
 
 export const analyze_gen_result = async (file: GenFile): Promise<AnalyzedGenResult> => {
-	let existing_content: string;
-	try {
-		existing_content = await readFile(file.id, 'utf8');
-	} catch (error) {
-		if (error.code === 'ENOENT') {
-			return {
-				file,
-				existing_content: null,
-				is_new: true,
-				has_changed: true
-			};
-		}
-		throw error;
+	const output = await fs_open_path(file.id);
+	const existing_content = await output.dir.read_text_if_exists(output.path);
+	if (existing_content === null) {
+		return {
+			file,
+			existing_content: null,
+			is_new: true,
+			has_changed: true
+		};
 	}
 	return {
 		file,
@@ -292,15 +287,22 @@ export const write_gen_results = async (
 		const log_args = [print_path(file.id), 'generated from', print_path(file.origin_id)];
 		if (analyzed.is_new) {
 			log.info('writing new', ...log_args);
-			await mkdir(dirname(file.id), { recursive: true });
-			await writeFile(file.id, file.content);
+			const parent = await fs_open_path(dirname(file.id));
+			await parent.dir.mkdir(parent.path, { recursive: true });
+			await write_path(file.id, file.content);
 		} else if (analyzed.has_changed) {
 			log.info('writing changed', ...log_args);
-			await writeFile(file.id, file.content);
+			await write_path(file.id, file.content);
 		} else {
 			log.info('skipping unchanged', ...log_args);
 		}
 	});
+};
+
+// opened at the write, after any directory it needs is made
+const write_path = async (path: string, content: string): Promise<void> => {
+	const opened = await fs_open_path(path);
+	await opened.dir.write(opened.path, content);
 };
 
 export interface FoundGenfiles {

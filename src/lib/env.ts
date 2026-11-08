@@ -1,42 +1,33 @@
 import type { EnvVarConfig } from '@sveltejs/kit/env';
 import dotenv from 'dotenv';
 import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 
-export interface LoadEnvOptions {
-	/**
-	 * Picks the `development` or `production` mode files for the default `env_files`.
-	 */
-	dev: boolean;
-	/**
-	 * The directory the env files are resolved against, defaults to the cwd.
-	 */
-	env_dir?: string;
-	/**
-	 * The env files to load, in order, defaults to the same files as Vite.
-	 */
-	env_files?: Array<string>;
-	/**
-	 * The env merged in last.
-	 * @default `process.env`
-	 */
-	ambient_env?: Record<string, string | undefined>;
-}
+import {
+	env_var_has_visibility,
+	type EnvVarDeclarations,
+	type EnvVisibility,
+	type LoadEnvOptions
+} from './env_declarations.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * Loads every env var from the env files plus the ambient env, later sources winning,
  * so the ambient env overrides the files.
+ * A missing env file is skipped; one that can't be read throws.
  * @returns all loaded vars, unfiltered - `resolve_env_vars` picks out the declared ones
+ * @throws `FsError` - when reading an env file fails other than by its absence
  */
-export const load_env = ({
+export const load_env = async ({
 	dev,
 	env_dir,
 	env_files = to_default_env_files(dev),
 	ambient_env = process.env
-}: LoadEnvOptions): Record<string, string> => {
+}: LoadEnvOptions): Promise<Record<string, string>> => {
 	const env: Record<string, string> = {};
-	for (const path of env_files) {
-		const loaded = load(env_dir === undefined ? path : resolve(env_dir, path));
+	const loaded_files = await Promise.all(
+		env_files.map((path) => load(env_dir === undefined ? path : resolve(env_dir, path)))
+	);
+	for (const loaded of loaded_files) {
 		if (loaded) Object.assign(env, loaded);
 	}
 	for (const key in ambient_env) {
@@ -60,40 +51,24 @@ export const to_default_env_files = (dev: boolean): Array<string> => {
  * Searches `process.env`, then each of `paths` that exists, by default only the cwd's `.env` -
  * never a parent directory's, so one directory's `.env` isn't a secret channel to every repo under it.
  * Empty strings are semantically the same as `undefined` for more ergonomic fallbacks.
+ * @throws `FsError` - when reading one of `paths` fails other than by its absence
  */
-export const load_from_env = (key: string, paths = ['.env']): string | undefined => {
+export const load_from_env = async (key: string, paths = ['.env']): Promise<string | undefined> => {
 	let v = process.env[key];
 	if (v) return v;
 	for (const path of paths) {
-		const env = load(path);
+		const env = await load(path);
 		v = env?.[key];
 		if (v) return v;
 	}
 	return undefined;
 };
 
-const load = (path: string): Record<string, string> | undefined => {
-	if (!existsSync(path)) return;
-	const loaded = readFileSync(path, 'utf8');
-	return dotenv.parse(loaded);
+const load = async (path: string): Promise<Record<string, string> | undefined> => {
+	const opened = await fs_open_path(path);
+	const loaded = await opened.dir.read_text_if_exists(opened.path);
+	return loaded === null ? undefined : dotenv.parse(loaded);
 };
-
-/**
- * The `variables` a project's `src/env.ts` exports via SvelteKit's `defineEnvVars`.
- * @see https://svelte.dev/docs/kit/environment-variables
- */
-export type EnvVarDeclarations = Record<string, EnvVarConfig<any>>;
-
-export type EnvVisibility = 'public' | 'private';
-
-/**
- * Whether a declared env var belongs to `visibility` - SvelteKit's vars are private
- * unless declared `public: true`.
- */
-export const env_var_has_visibility = (
-	config: EnvVarConfig<any>,
-	visibility: EnvVisibility
-): boolean => (visibility === 'public') === !!config.public;
 
 type EnvVarSchema = NonNullable<EnvVarConfig<any>['schema']>;
 type StandardSchema = Exclude<EnvVarSchema, (value: string | undefined) => any>;

@@ -39,19 +39,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task commit and push', () => {
@@ -100,22 +87,21 @@ describe('deploy_task commit and push', () => {
 
 		test('git add happens after file copying', async () => {
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { cp } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { copy, exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 
-			// Find cp and git add invocation orders
-			const cp_order = (cp as any).mock.invocationCallOrder[0];
+			// Find copy and git add invocation orders
+			const copy_order = copy.mock.invocationCallOrder[0]!;
 			const add_call = spawn.mock.calls.findIndex(
 				(call) => call[0] === 'git' && call[1]?.[0] === 'add'
 			);
 			const add_order = spawn.mock.invocationCallOrder[add_call];
 
-			expect(add_order).toBeGreaterThan(cp_order);
+			expect(add_order).toBeGreaterThan(copy_order);
 		});
 	});
 

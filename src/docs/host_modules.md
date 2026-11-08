@@ -63,7 +63,9 @@ The module's TSDoc has each op's contract.
 
 `fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
 finding the files beneath a directory through `list`, recursively.
-A symlink is a result like a file, never followed, and a missing directory finds nothing.
+A symlink is a result like a file, never followed, its `kind` telling them apart,
+and a missing directory finds nothing.
+Gro's own sweeps, like `gro format`'s, act on regular files only and skip a symlink, as tsv's walk does.
 
 ## Where to import them
 
@@ -90,6 +92,15 @@ A symlink is a result like a file, never followed, and a missing directory finds
   so confinement applies to those.
   The target is for the tasks, the composition roots, to thread handles down to the library code they call,
   which isn't done yet, so some of Gro's library modules still open paths through `fs_open_path` themselves.
+  Where a directory's files come from its own listing or search, Gro opens the directory once
+  and reads and writes them beneath its handle.
+- Gro's library and task code reaches the filesystem only through the fs host module,
+  so it can run unchanged where the module is a builtin.
+  What stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
+  (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
+  the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
+  and the sync stats behind the task-path hints (`internal/task_hints.ts`),
+  which the synchronous args parsing calls, where no sync boundary opens a path from outside.
 
 ## The Node implementation's gaps
 

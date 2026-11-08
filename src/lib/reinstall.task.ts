@@ -1,9 +1,9 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
-import { rm } from 'node:fs/promises';
 
 import type { Task } from './task.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
+import { fs_remove_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({});
@@ -18,7 +18,10 @@ export const task: Task<Args> = {
 		await install_with_cache_healing_or_throw(config.pm_cli, { log, context: '(initial)' });
 
 		// Deleting both the lockfile and node_modules upgrades to the latest minor/patch versions.
-		await Promise.all([rm(LOCKFILE_FILENAME), rm(NODE_MODULES_DIRNAME, { recursive: true })]);
+		await Promise.all([
+			fs_remove_path(LOCKFILE_FILENAME),
+			fs_remove_path(NODE_MODULES_DIRNAME, { recursive: true })
+		]);
 		log.info(
 			`running \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${
 				NODE_MODULES_DIRNAME
@@ -32,7 +35,7 @@ export const task: Task<Args> = {
 		// TODO @many this relies on npm behavior that changed in v11
 		// Deleting the lockfile and reinstalling cleans the lockfile of unnecessary dep noise,
 		// like a native tool's many packages for each platform.
-		await rm(LOCKFILE_FILENAME);
+		await fs_remove_path(LOCKFILE_FILENAME);
 		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
 		await install_with_cache_healing_or_throw(config.pm_cli, { log });
 	}

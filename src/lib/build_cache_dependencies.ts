@@ -1,10 +1,10 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import { package_json_load_for_gro } from './package_json.ts';
 import { paths } from './paths.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * npm's hidden lockfile, which records the packages installed in `node_modules`.
@@ -55,12 +55,7 @@ export const load_build_cache_dependencies = async (
 };
 
 const hash_npm_hidden_lockfile = async (dir: string): Promise<string | null> => {
-	let contents: Buffer;
-	try {
-		contents = await readFile(join(dir, NPM_HIDDEN_LOCKFILE_PATH));
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-		throw error;
-	}
-	return hash_blake3(contents);
+	const lockfile = await fs_open_path(join(dir, NPM_HIDDEN_LOCKFILE_PATH));
+	const contents = await lockfile.dir.read_if_exists(lockfile.path);
+	return contents === null ? null : hash_blake3(contents);
 };

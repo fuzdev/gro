@@ -33,9 +33,9 @@ describe('fs_search', () => {
 	test('finds files recursively, sorted by path, with absolute ids', async () => {
 		const found = await fs_search(dir);
 		assert.deepEqual(found, [
-			{ path: 'a.ts', id: join(sandbox.root, 'a.ts'), is_directory: false },
-			{ path: 'b/b.ts', id: join(sandbox.root, 'b/b.ts'), is_directory: false },
-			{ path: 'b/c/c.md', id: join(sandbox.root, 'b/c/c.md'), is_directory: false }
+			{ path: 'a.ts', id: join(sandbox.root, 'a.ts'), is_directory: false, kind: 'file' },
+			{ path: 'b/b.ts', id: join(sandbox.root, 'b/b.ts'), is_directory: false, kind: 'file' },
+			{ path: 'b/c/c.md', id: join(sandbox.root, 'b/c/c.md'), is_directory: false, kind: 'file' }
 		]);
 	});
 
@@ -128,6 +128,11 @@ describe('fs_search', () => {
 		symlinkSync(sandbox.outside, join(root, 'escaping'));
 		const found = await fs_search(dir);
 		const by_path = new Map(found.map((f) => [f.path, f.is_directory]));
+		const kinds = new Map(found.map((f) => [f.path, f.kind]));
+		assert.strictEqual(kinds.get('a.ts'), 'file');
+		for (const link of ['link_to_dir', 'link_to_file', 'dangling', 'escaping']) {
+			assert.strictEqual(kinds.get(link), 'symlink');
+		}
 		assert.strictEqual(by_path.get('link_to_dir'), false);
 		assert.strictEqual(by_path.get('link_to_file'), false);
 		assert.strictEqual(by_path.get('dangling'), false);

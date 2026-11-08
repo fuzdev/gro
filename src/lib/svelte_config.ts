@@ -1,6 +1,7 @@
 import type { Config as SvelteConfig } from '@sveltejs/kit/vite';
 import type { CompileOptions, ModuleCompileOptions, PreprocessorGroup } from 'svelte/compiler';
 import { isAbsolute, join, relative } from 'node:path';
+// on `node:fs`: a loader helper, reading the Svelte config through Vite, which runs only on Node
 import { existsSync } from 'node:fs';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';

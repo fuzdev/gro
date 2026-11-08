@@ -1,4 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { task as deploy_task } from '#lib/deploy.task.ts';
 import { TaskError } from '#lib/task.ts';
@@ -9,7 +12,7 @@ import {
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock
 } from './deploy_task_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
+import { create_mock_fs_dir, get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
@@ -36,19 +39,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task safety checks', () => {
@@ -61,6 +51,51 @@ describe('deploy_task safety checks', () => {
 
 	afterEach(() => {
 		vi.resetAllMocks();
+	});
+
+	describe('deploy dir validation', () => {
+		const assert_refused_before_git = async (deploy_dir: string): Promise<void> => {
+			const git = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { remove } = await get_mock_project();
+
+			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true });
+
+			await expect(deploy_task.run(ctx)).rejects.toThrow('the project or one of its ancestors');
+			for (const fn of [
+				git.git_check_clean_workspace,
+				git.git_checkout,
+				git.git_pull,
+				git.git_remote_branch_exists,
+				git.git_clone_locally,
+				spawn,
+				spawn_out,
+				remove
+			]) {
+				expect(fn).not.toHaveBeenCalled();
+			}
+		};
+
+		test('refuses the project before any git call', async () => {
+			await assert_refused_before_git('.');
+		});
+
+		test('refuses an ancestor of the project before any git call', async () => {
+			// the mock fs opens a directory outside the project as a mock handle
+			const { fs } = vi.mocked(await import('#lib/fs.ts'));
+			vi.mocked(fs.open_dir).mockImplementation(async (path) => create_mock_fs_dir(path) as any);
+			await assert_refused_before_git('..');
+		});
+
+		test('refuses a symlink resolving to the project before any git call', async () => {
+			const dir = realpathSync(mkdtempSync(join(tmpdir(), 'gro-deploy-dir-')));
+			try {
+				symlinkSync(process.cwd(), join(dir, 'link'));
+				await assert_refused_before_git(join(dir, 'link'));
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
 	});
 
 	describe('custom target branch validation', () => {

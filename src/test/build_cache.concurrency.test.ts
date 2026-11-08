@@ -31,21 +31,6 @@ vi.mock('#lib/paths.ts', () => ({
 	}
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		readFile: vi.fn(),
-		writeFile: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		stat: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
@@ -94,19 +79,19 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles concurrent cache writes', async () => {
-		const { writeFile, mkdir } = vi.mocked(await import('node:fs/promises'));
+		const { write, mkdir } = await get_mock_project();
 
 		const metadata1 = create_mock_build_cache_metadata({ git_commit: 'commit1' });
 		const metadata2 = create_mock_build_cache_metadata({ git_commit: 'commit2' });
 
 		vi.mocked(mkdir).mockResolvedValue(undefined);
-		vi.mocked(writeFile).mockResolvedValue(undefined);
+		vi.mocked(write).mockResolvedValue(undefined);
 
 		// actually concurrent writes via Promise.all
 		await Promise.all([save_build_cache_metadata(metadata1), save_build_cache_metadata(metadata2)]);
 
 		// both should complete without throwing
-		expect(writeFile).toHaveBeenCalledTimes(2);
+		expect(write).toHaveBeenCalledTimes(2);
 		expect(mkdir).toHaveBeenCalledTimes(2);
 	});
 

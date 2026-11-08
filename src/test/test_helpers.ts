@@ -59,49 +59,6 @@ export const create_mock_config = async (
 	};
 };
 
-/**
- * Creates a mock fs.Stats object for a file.
- */
-export const mock_file_stats = (
-	size = 1024,
-	options: {
-		mtimeMs?: number;
-		ctimeMs?: number;
-		mode?: number;
-	} = {}
-): any => ({
-	size,
-	mtimeMs: options.mtimeMs ?? 1729512000000,
-	ctimeMs: options.ctimeMs ?? 1729512000000,
-	mode: options.mode ?? 33188,
-	isDirectory: () => false
-});
-
-/**
- * Creates a mock fs.Stats object for a directory.
- */
-export const mock_dir_stats = (): any => ({
-	isDirectory: () => true
-});
-
-/**
- * Creates a mock fs.Dirent object for a file.
- */
-export const mock_file_entry = (name: string): any => ({
-	name,
-	isDirectory: () => false,
-	isFile: () => true
-});
-
-/**
- * Creates a mock fs.Dirent object for a directory.
- */
-export const mock_dir_entry = (name: string): any => ({
-	name,
-	isDirectory: () => true,
-	isFile: () => false
-});
-
 export const TEST_TIMEOUT_MD = 20_000;
 
 /**

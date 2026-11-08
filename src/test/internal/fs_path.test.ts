@@ -1,9 +1,10 @@
-import { describe, test, assert, beforeEach, afterEach } from 'vitest';
+import { describe, test, assert, vi, beforeEach, afterEach } from 'vitest';
 import {
 	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -11,8 +12,6 @@ import {
 } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
-import { fs } from '#lib/fs.ts';
-import { fs_open_path, fs_remove_path, fs_search_path } from '#lib/internal/fs_path.ts';
 import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
@@ -20,18 +19,100 @@ import {
 	type FsSandbox
 } from '../fs_test_helpers.ts';
 
+/*
+
+Hermetic: the cwd moves to a sandbox project and the modules reload,
+so `fs.project` is the sandbox, and no destructive op can reach the repo.
+`process.chdir` needs Vitest's default `forks` pool.
+
+*/
+
 let sandbox: FsSandbox;
+let project: string;
+let cwd: string;
+let fs: (typeof import('#lib/fs.ts'))['fs'];
+let fs_copy_path: (typeof import('#lib/internal/fs_path.ts'))['fs_copy_path'];
+let fs_empty_dir_path: (typeof import('#lib/internal/fs_path.ts'))['fs_empty_dir_path'];
+let fs_open_dir_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_dir_path'];
+let fs_open_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_path'];
+let fs_remove_path: (typeof import('#lib/internal/fs_path.ts'))['fs_remove_path'];
+let fs_search_path: (typeof import('#lib/internal/fs_path.ts'))['fs_search_path'];
+let is_project_or_ancestor: (typeof import('#lib/internal/fs_path.ts'))['is_project_or_ancestor'];
 
 beforeEach(async () => {
 	sandbox = await create_fs_sandbox();
+	project = join(sandbox.base, 'project');
+	mkdirSync(join(project, 'src/lib'), { recursive: true });
+	mkdirSync(join(project, 'src/docs'));
+	writeFileSync(join(project, 'package.json'), '{}');
+	writeFileSync(join(project, 'src/lib/fs.ts'), '');
+	writeFileSync(join(project, 'src/lib/fs_search.ts'), '');
+	cwd = process.cwd();
+	process.chdir(project);
+	vi.resetModules();
+	({ fs } = await import('#lib/fs.ts'));
+	({
+		fs_copy_path,
+		fs_empty_dir_path,
+		fs_open_dir_path,
+		fs_open_path,
+		fs_remove_path,
+		fs_search_path,
+		is_project_or_ancestor
+	} = await import('#lib/internal/fs_path.ts'));
+	assert.strictEqual(fs.project.path, project);
 });
 
 afterEach(() => {
+	process.chdir(cwd);
+	vi.resetModules();
 	remove_fs_sandbox(sandbox);
 });
 
+describe('is_project_or_ancestor', () => {
+	const p = '/home/desk/dev/gro';
+
+	test('the root, the project, and each ancestor', () => {
+		for (const path of ['/', '/home', '/home/desk', '/home/desk/dev', p]) {
+			assert.ok(is_project_or_ancestor(path, p), path);
+		}
+	});
+
+	test('ignores trailing slashes on either', () => {
+		for (const path of ['//', '/home/', '/home/desk/dev/', p + '/', p + '//']) {
+			assert.ok(is_project_or_ancestor(path, p), path);
+			assert.ok(is_project_or_ancestor(path, p + '/'), path);
+		}
+	});
+
+	test('a path beneath the project, a sibling, or a prefix is neither', () => {
+		for (const path of [
+			p + '/.gro',
+			p + '/src/lib',
+			'/home/desk/dev/gro2',
+			'/home/desk/dev/gr',
+			'/home/desk/de',
+			'/home/desk/dev/other',
+			'/tmp'
+		]) {
+			assert.ok(!is_project_or_ancestor(path, p), path);
+		}
+	});
+
+	test('with the project at the root, only the root', () => {
+		assert.ok(is_project_or_ancestor('/', '/'));
+		assert.ok(!is_project_or_ancestor('/home', '/'));
+	});
+
+	test('defaults to `fs.project`', () => {
+		assert.ok(is_project_or_ancestor(project));
+		assert.ok(is_project_or_ancestor(dirname(project)));
+		assert.ok(!is_project_or_ancestor(join(project, '.gro')));
+	});
+});
+
 /**
- * A symlink in the project's gitignored `.gro/`, removed after `fn`,
+ * A symlink in the sandbox project's `.gro/`, removed after `fn`,
  * for the cases that need a symlink inside the project.
  */
 const with_project_link = async (
@@ -205,6 +286,40 @@ describe('fs_open_path outside the project', () => {
 	});
 });
 
+describe('fs_open_dir_path', () => {
+	test('opens a directory outside the project as its own handle', async () => {
+		mkdirSync(join(sandbox.root, 'sub'));
+		const opened = await fs_open_dir_path(join(sandbox.root, 'sub'));
+		assert.ok(opened);
+		assert.strictEqual(opened.dir.path, join(sandbox.root, 'sub'));
+		assert.strictEqual(opened.path, '');
+	});
+
+	test('follows a symlink to the directory', async () => {
+		symlinkSync(sandbox.outside, join(sandbox.root, 'link'));
+		const opened = await fs_open_dir_path(join(sandbox.root, 'link'));
+		assert.ok(opened);
+		assert.strictEqual(opened.dir.path, sandbox.outside);
+		assert.strictEqual(await opened.dir.read_text('secret.txt'), 'secret');
+	});
+
+	test('a directory beneath the project is `fs.project` and its path', async () => {
+		const opened = await fs_open_dir_path(join(fs.project.path, 'src/lib/'));
+		assert.ok(opened);
+		assert.strictEqual(opened.dir, fs.project);
+		assert.strictEqual(opened.path, 'src/lib');
+	});
+
+	test('a missing directory is `null`', async () => {
+		assert.strictEqual(await fs_open_dir_path(join(sandbox.root, 'missing/deeper')), null);
+	});
+
+	test('a file outside the project throws `not_a_directory`', async () => {
+		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
+		await assert_fs_error_rejects(fs_open_dir_path(join(sandbox.root, 'a.txt')), 'not_a_directory');
+	});
+});
+
 describe('fs_search_path', () => {
 	beforeEach(() => {
 		mkdirSync(join(sandbox.root, 'src/sub'), { recursive: true });
@@ -256,6 +371,87 @@ describe('fs_search_path', () => {
 	});
 });
 
+describe('fs_copy_path', () => {
+	test('copies a file between directories outside the project', async () => {
+		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
+		await fs_copy_path(join(sandbox.root, 'a.txt'), join(sandbox.outside, 'b.txt'));
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'b.txt'), 'utf8'), 'a');
+	});
+
+	test('copies a tree, its symlinks as links', async () => {
+		mkdirSync(join(sandbox.root, 'tree/sub'), { recursive: true });
+		writeFileSync(join(sandbox.root, 'tree/sub/a.txt'), 'a');
+		symlinkSync('sub/a.txt', join(sandbox.root, 'tree/link'));
+		await fs_copy_path(join(sandbox.root, 'tree'), join(sandbox.outside, 'copied'), {
+			recursive: true
+		});
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'copied/sub/a.txt'), 'utf8'), 'a');
+		assert.ok(lstatSync(join(sandbox.outside, 'copied/link')).isSymbolicLink());
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'copied/link'), 'utf8'), 'a');
+	});
+
+	test('follows symlinks above both paths', async () => {
+		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
+		symlinkSync(sandbox.root, join(sandbox.base, 'root_link'));
+		symlinkSync(sandbox.outside, join(sandbox.base, 'outside_link'));
+		await fs_copy_path(
+			join(sandbox.base, 'root_link/a.txt'),
+			join(sandbox.base, 'outside_link/b.txt')
+		);
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'b.txt'), 'utf8'), 'a');
+	});
+
+	test('a missing source throws `not_found`', async () => {
+		await assert_fs_error_rejects(
+			fs_copy_path(join(sandbox.root, 'missing.txt'), join(sandbox.outside, 'b.txt')),
+			'not_found'
+		);
+	});
+});
+
+describe('fs_empty_dir_path', () => {
+	test('empties a directory through a symlink, keeping the link and the directory', async () => {
+		mkdirSync(join(sandbox.outside, 'sub'));
+		writeFileSync(join(sandbox.outside, 'sub/a.txt'), 'a');
+		symlinkSync(sandbox.outside, join(sandbox.root, 'link'));
+		await fs_empty_dir_path(join(sandbox.root, 'link'));
+		assert.ok(lstatSync(join(sandbox.root, 'link')).isSymbolicLink());
+		assert.ok(lstatSync(sandbox.outside).isDirectory());
+		assert.deepEqual(readdirSync(sandbox.outside), []);
+	});
+
+	test('removes a symlink inside it, never what it points at', async () => {
+		mkdirSync(join(sandbox.root, 'dir'));
+		symlinkSync(sandbox.outside, join(sandbox.root, 'dir/link'));
+		await fs_empty_dir_path(join(sandbox.root, 'dir'));
+		assert.deepEqual(readdirSync(join(sandbox.root, 'dir')), []);
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'secret.txt'), 'utf8'), 'secret');
+	});
+
+	test('a missing directory, or a dangling symlink, is a no-op', async () => {
+		await fs_empty_dir_path(join(sandbox.root, 'missing'));
+		symlinkSync('missing', join(sandbox.root, 'dangling'));
+		await fs_empty_dir_path(join(sandbox.root, 'dangling'));
+		assert.ok(lstatSync(join(sandbox.root, 'dangling')).isSymbolicLink());
+	});
+
+	test('refuses the project and its ancestors, through a symlink too', async () => {
+		symlinkSync(dirname(process.cwd()), join(sandbox.root, 'up'));
+		for (const path of ['.', '..', join(sandbox.root, 'up')]) {
+			await assert_fs_error_rejects(fs_empty_dir_path(path), 'io_error');
+		}
+		// the refusal names the resolved target and the path as given
+		const error = await assert_fs_error_rejects(
+			fs_empty_dir_path(join(sandbox.root, 'up')),
+			'io_error'
+		);
+		assert.include(error.message, `${dirname(process.cwd())} (from ${join(sandbox.root, 'up')})`);
+		// the root goes through `is_project_or_ancestor` alone, never an op on it
+		assert.ok(existsSync(join(process.cwd(), 'package.json')));
+		assert.ok(existsSync(join(sandbox.outside, 'secret.txt')));
+	});
+});
+
 describe('fs_remove_path', () => {
 	test('removes a final symlink, never what it points at', async () => {
 		symlinkSync(join(sandbox.outside, 'secret.txt'), join(sandbox.root, 'link'));
@@ -289,5 +485,6 @@ describe('fs_remove_path', () => {
 			await assert_fs_error_rejects(fs_remove_path(path), 'io_error');
 		}
 		assert.ok(existsSync(join(process.cwd(), 'package.json')));
+		assert.ok(existsSync(join(sandbox.outside, 'secret.txt')));
 	});
 });

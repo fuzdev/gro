@@ -1,9 +1,10 @@
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
-import { fs_search_path } from './internal/fs_path.ts';
+import { fs_search } from './fs_search.ts';
+import { fs_open_dir_path } from './internal/fs_path.ts';
 
 /*
 
@@ -90,7 +91,7 @@ const DIST_REWRITE_CONCURRENCY = 16;
 /**
  * Walks `dist_dir` and rewrites relative `.ts` import specifiers to `.js` in every
  * `.js` runtime file and `.d.ts` declaration file (whole-file) and `.svelte` file
- * (`<script>` blocks only). Source maps (`*.map`) are skipped.
+ * (`<script>` blocks only). Source maps (`*.map`) and symlinks are skipped.
  *
  * @param dist_dir - the packaged output directory; defaults to `dist`
  * @returns counts of files scanned and rewritten
@@ -99,17 +100,26 @@ export const rewrite_dist_imports = async (
 	dist_dir: string = SVELTEKIT_DIST_DIRNAME,
 	log?: Logger
 ): Promise<RewriteDistImportsResult> => {
-	const found = await fs_search_path(dist_dir, {
-		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
-	});
+	// opened once, the found files read and written beneath it
+	const dist = await fs_open_dir_path(dist_dir);
+	if (dist === null) return { scanned: 0, rewritten: 0 };
+	// regular files only, a symlink never followed into what it points at
+	const found = (
+		await fs_search(dist.dir, {
+			path: dist.path,
+			id_dir: resolve(dist_dir),
+			file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
+		})
+	).filter((f) => f.kind === 'file');
 
-	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({ id, path: _ }) => {
-		const content = await readFile(id, 'utf8');
+	const changed = await map_concurrent(found, DIST_REWRITE_CONCURRENCY, async ({ id, path }) => {
+		const file_path = dist.path ? dist.path + '/' + path : path;
+		const content = await dist.dir.read_text(file_path);
 		const next = id.endsWith('.svelte')
 			? rewrite_svelte_ts_imports(content)
 			: rewrite_relative_ts_imports(content);
 		if (next === content) return false;
-		await writeFile(id, next);
+		await dist.dir.write(file_path, next);
 		// log?.debug(`rewrote relative .ts import specifiers to .js in ${path}`);
 		return true;
 	});

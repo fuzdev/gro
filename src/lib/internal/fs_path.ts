@@ -16,17 +16,17 @@
 
 import { readlink, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
 import {
 	fs,
 	FsError,
 	is_fs_error,
+	type FsCopyOptions,
 	type FsDir,
 	type FsErrorKind,
 	type FsRemoveOptions
 } from '../fs.ts';
-import { fs_search, type FsSearchOptions } from '../fs_search.ts';
+import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
 
 // TODO: on the runtime, the realpath this boundary needs is a host op beside `fs.open_dir`
 
@@ -99,6 +99,28 @@ const to_project_relative = (real: string): string | null => {
 };
 
 /**
+ * Whether the absolute, normalized `real` is `project` or one of its ancestors, `/` included,
+ * the directories no removal or emptying may touch. A trailing `/` on either is ignored.
+ * @param real - an absolute real path
+ * @param project - the project's absolute real path, defaults to `fs.project`'s
+ */
+export const is_project_or_ancestor = (
+	real: string,
+	project: string = fs.project.path
+): boolean => {
+	const target = strip_trailing_slashes(real);
+	const project_path = strip_trailing_slashes(project);
+	if (target === '/' || target === project_path) return true;
+	return project_path.startsWith(target + '/');
+};
+
+// the resolved target a refusal names, with the path as given when it differs
+const to_refusal_subject = (path: string, target: string): string =>
+	path === target ? target : `${target} (from ${path})`;
+
+const strip_trailing_slashes = (path: string): string => path.replace(/(.)\/+$/, '$1');
+
+/**
  * Converts a path from outside into a handle and the relative path beneath it.
  *
  * The path is resolved against the cwd lexically, its `..` segments before any symlink
@@ -137,10 +159,32 @@ export const fs_open_path = async (path: string): Promise<FsOpenedPath> => {
 };
 
 /**
+ * Opens a directory named by a path from outside, resolved as `fs_open_path` resolves it:
+ * beneath the project, `fs.project` and the directory's path beneath it,
+ * else the directory as its own handle, so what's found beneath it reaches nothing above.
+ * @param path - absolute, or relative to the cwd
+ * @returns the handle and the directory's path beneath it; `null` when nothing is at a `path`
+ * outside the project, while beneath it the result is `fs.project` and the path, missing or not,
+ * and the op on it reports a missing directory
+ * @throws `FsError` - `not_a_directory` when `path` is a file outside the project
+ * (beneath the project, the op on the result throws it instead), otherwise as `fs_open_path` does
+ */
+export const fs_open_dir_path = async (path: string): Promise<FsOpenedPath | null> => {
+	const real = await to_real_path(resolve(path));
+	const relative = to_project_relative(real);
+	if (relative !== null) return { dir: fs.project, path: relative };
+	try {
+		return { dir: await fs.open_dir(real), path: '' };
+	} catch (error) {
+		if (is_fs_error(error, 'not_found')) return null;
+		throw error;
+	}
+};
+
+/**
  * Searches a directory named by a path from outside, as `fs_search` does,
  * with ids that start with the path as named, resolved against the cwd.
- * The directory is opened as `fs_open_path` resolves it: beneath the project through
- * `fs.project`, else as its own handle, so the search reaches nothing above it.
+ * The directory is opened as `fs_open_dir_path` opens it, so the search reaches nothing above it.
  * @param path - absolute, or relative to the cwd
  * @returns the found paths, or an empty array when nothing is at `path`
  * @throws `FsError` - when `path` isn't a directory, or a listing fails
@@ -148,21 +192,74 @@ export const fs_open_path = async (path: string): Promise<FsOpenedPath> => {
 export const fs_search_path = async (
 	path: string,
 	options?: Omit<FsSearchOptions, 'path' | 'id_dir'>
-): Promise<Array<ResolvedPath>> => {
-	const id_dir = resolve(path);
-	const real = await to_real_path(id_dir);
-	const relative = to_project_relative(real);
-	if (relative !== null) {
-		return fs_search(fs.project, { ...options, path: relative, id_dir });
+): Promise<Array<FsSearchResult>> => {
+	const opened = await fs_open_dir_path(path);
+	if (opened === null) return [];
+	return fs_search(opened.dir, { ...options, path: opened.path, id_dir: resolve(path) });
+};
+
+/**
+ * Copies a file, or with `recursive` a directory tree, between paths from outside,
+ * as `FsDir.copy` does, symlinks in a tree copied as links.
+ * Both paths are resolved as `fs_open_path` resolves them, and the copy runs beneath
+ * `fs.project` when both are in the project, else beneath their nearest common directory.
+ * @param from - absolute, or relative to the cwd
+ * @param to - absolute, or relative to the cwd
+ * @throws `FsError` - as `fs_open_path` and `FsDir.copy` do
+ */
+export const fs_copy_path = async (
+	from: string,
+	to: string,
+	options?: FsCopyOptions
+): Promise<void> => {
+	const [real_from, real_to] = await Promise.all([
+		to_real_path(resolve(from)),
+		to_real_path(resolve(to))
+	]);
+	const from_relative = to_project_relative(real_from);
+	const to_relative = to_project_relative(real_to);
+	if (from_relative !== null && to_relative !== null) {
+		await fs.project.copy(from_relative, to_relative, options);
+		return;
 	}
-	let dir: FsDir;
+	let common = dirname(real_from);
+	while (common !== '/' && !real_to.startsWith(common + '/')) common = dirname(common);
+	const dir = await fs.open_dir(common);
+	const start = common === '/' ? 1 : common.length + 1;
+	await dir.copy(real_from.slice(start), real_to.slice(start), options);
+};
+
+/**
+ * Empties a directory named by a path from outside, its symlinks followed,
+ * removing everything in it but never the directory itself, so a symlink to it is kept.
+ * @param path - absolute, or relative to the cwd
+ * @throws `FsError` - `io_error` when the directory is the project or one of its ancestors,
+ * `not_a_directory` when it's a file, otherwise as `fs_open_dir_path` and `FsDir.remove` do
+ */
+export const fs_empty_dir_path = async (path: string): Promise<void> => {
+	const opened = await fs_open_dir_path(path);
+	if (opened === null) return;
+	const target = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
+	if (is_project_or_ancestor(target)) {
+		throw new FsError(
+			'io_error',
+			resolve(path),
+			`io_error: ${to_refusal_subject(path, target)} is the project or one of its ancestors, which can't be emptied`
+		);
+	}
+	const names: Array<string> = [];
 	try {
-		dir = await fs.open_dir(real);
+		for await (const { name } of opened.dir.list(opened.path)) names.push(name);
 	} catch (error) {
-		if (is_fs_error(error, 'not_found')) return [];
+		// beneath the project, a missing directory is found missing by the listing
+		if (is_fs_error(error, 'not_found')) return;
 		throw error;
 	}
-	return fs_search(dir, { ...options, id_dir });
+	await Promise.all(
+		names.map((name) =>
+			opened.dir.remove(opened.path ? opened.path + '/' + name : name, { recursive: true })
+		)
+	);
 };
 
 /**
@@ -181,12 +278,11 @@ export const fs_remove_path = async (path: string, options?: FsRemoveOptions): P
 	const parent = await fs_open_path(dirname(resolved));
 	const entry = parent.path ? parent.path + '/' + name : name;
 	const target = join(parent.dir.path, entry);
-	const project = fs.project.path;
-	if (project === target || project.startsWith(target + '/')) {
+	if (is_project_or_ancestor(target)) {
 		throw new FsError(
 			'io_error',
 			resolved,
-			`io_error: ${resolved} is the project or one of its ancestors, which can't be removed`
+			`io_error: ${to_refusal_subject(path, target)} is the project or one of its ancestors, which can't be removed`
 		);
 	}
 	await parent.dir.remove(path.endsWith('/') ? entry + '/' : entry, options);

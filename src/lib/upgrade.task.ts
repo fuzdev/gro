@@ -1,5 +1,4 @@
 import { GitOrigin, git_pull } from '@fuzdev/fuz_util/git.ts';
-import { rm } from 'node:fs/promises';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
@@ -13,6 +12,7 @@ import {
 	type PackageJsonDep
 } from './package_json.ts';
 import { TaskError, type Task } from './task.ts';
+import { fs_remove_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -93,12 +93,12 @@ export const task: Task<Args> = {
 
 		if (delete_node_modules) {
 			log.info(`deleting node_modules at `, node_modules_path);
-			await rm(node_modules_path, { recursive: true, force: true });
+			await fs_remove_path(node_modules_path, { recursive: true, missing_ok: true });
 		}
 
 		if (delete_lockfile) {
 			log.info(`deleting lockfile at`, lockfile_path);
-			await rm(lockfile_path, { force: true });
+			await fs_remove_path(lockfile_path, { missing_ok: true });
 		}
 
 		const package_json = await package_json_load();

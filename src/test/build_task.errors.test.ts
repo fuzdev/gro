@@ -3,7 +3,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
+import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -18,19 +18,6 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_check_clean_workspace: vi.fn(),
 	git_current_commit_hash: vi.fn()
 }));
-
-// Mock async fs functions used by build.task.ts and build_cache.ts (discover_build_output_dirs)
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		rm: vi.fn(),
-		readdir: vi.fn(),
-		stat: vi.fn()
-	};
-});
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -100,12 +87,12 @@ describe('build_task error handling', () => {
 	test('handles file system errors during cache deletion', async () => {
 		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 		const { exists, remove } = await get_mock_project();
-		const { readdir } = vi.mocked(await import('node:fs/promises'));
+		const { list } = await get_mock_project();
 
 		// Workspace is dirty
 		vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified files:\n  src/foo.ts');
 		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([]);
+		vi.mocked(list).mockImplementation(() => to_mock_listing([]));
 
 		// removing the cache rejects with an error
 		vi.mocked(remove).mockRejectedValue(new Error('Permission denied'));

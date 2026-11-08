@@ -7,7 +7,8 @@ import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	mock_listings
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
@@ -35,19 +36,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
 	spawn_out: vi.fn()
 }));
-
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -149,11 +137,10 @@ describe('deploy_task args', () => {
 	});
 
 	test('respects custom build_dir', async () => {
-		const { exists } = await get_mock_project();
-		const { cp, readdir } = vi.mocked(await import('node:fs/promises'));
+		const { exists, list, copy } = await get_mock_project();
 
 		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue(['index.html'] as any);
+		await mock_listings(['index.html'], 'dist');
 
 		const ctx = create_mock_deploy_task_context({
 			build_dir: 'dist',
@@ -163,12 +150,10 @@ describe('deploy_task args', () => {
 		await deploy_task.run(ctx);
 
 		// Should read from custom build_dir
-		expect(readdir).toHaveBeenCalledWith('dist');
-		expect(cp).toHaveBeenCalledWith(
-			expect.stringContaining('dist/'),
-			expect.anything(),
-			expect.anything()
-		);
+		expect(list).toHaveBeenCalledWith('dist');
+		expect(copy).toHaveBeenCalledWith('dist/index.html', '.gro/deploy/index.html', {
+			recursive: true
+		});
 	});
 
 	describe('build/no-build dual args', () => {

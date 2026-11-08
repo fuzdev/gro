@@ -2,7 +2,6 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 import { git_check_clean_workspace, git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
-import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { TaskError, type Task } from './task.ts';
@@ -114,7 +113,9 @@ export const task: Task<Args> = {
 
 			// Delete all build output directories
 			build_dirs = await discover_build_output_dirs();
-			await Promise.all(build_dirs.map((dir) => rm(dir, { recursive: true, force: true })));
+			await Promise.all(
+				build_dirs.map((dir) => fs_remove_path(dir, { recursive: true, missing_ok: true }))
+			);
 
 			log.info(st('yellow', 'workspace has uncommitted changes - skipping build cache'));
 			// Skip clean_fs - already manually cleaned cache and all build outputs above

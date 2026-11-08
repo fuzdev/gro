@@ -9,7 +9,15 @@
 import type { FileFilter, PathFilter, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 
-import type { FsReadDir } from './fs.ts';
+import type { FileKind, FsReadDir } from './fs.ts';
+
+/**
+ * A file `fs_search` found: a non-directory entry, with its kind as the listing read it,
+ * so a caller that acts on regular files alone can skip a symlink.
+ */
+export interface FsSearchResult extends ResolvedPath {
+	kind: Exclude<FileKind, 'directory'>;
+}
 
 export interface FsSearchOptions {
 	/**
@@ -45,7 +53,7 @@ export interface FsSearchOptions {
  *
  * Each result is a file. Its `path` is relative to the searched directory and its `id`
  * is absolute (see `id_dir`). A symlink is never followed, so it's a result like a file
- * whatever it points at, as is any other entry that isn't a directory.
+ * whatever it points at, as is any other entry that isn't a directory; `kind` tells them apart.
  *
  * @param dir - the handle to search beneath
  * @returns the found paths, or an empty array when nothing is at the searched path
@@ -54,7 +62,7 @@ export interface FsSearchOptions {
 export const fs_search = async (
 	dir: FsReadDir,
 	options?: FsSearchOptions
-): Promise<Array<ResolvedPath>> => {
+): Promise<Array<FsSearchResult>> => {
 	const { path = '', filter, file_filter, sort = true } = options ?? {};
 
 	if ((await dir.stat(path)) === null) return [];
@@ -64,7 +72,7 @@ export const fs_search = async (
 	const filters = to_filters(filter);
 	const file_filters = to_filters(file_filter);
 
-	const found: Array<ResolvedPath> = [];
+	const found: Array<FsSearchResult> = [];
 
 	const search = async (relative_dir: string | null): Promise<void> => {
 		const list_path =
@@ -77,10 +85,10 @@ export const fs_search = async (
 			const id = id_dir + entry_path;
 			const is_directory = kind === 'directory';
 			if (filters && !filters.every((f) => f(id, is_directory))) continue;
-			if (is_directory) {
+			if (kind === 'directory') {
 				subdirs.push(entry_path);
 			} else if (!file_filters || file_filters.every((f) => f(id))) {
-				found.push({ path: entry_path, id, is_directory: false });
+				found.push({ path: entry_path, id, is_directory: false, kind });
 			}
 		}
 		await Promise.all(subdirs.map(search));
@@ -90,7 +98,8 @@ export const fs_search = async (
 	return sort ? found.sort(compare_paths) : found;
 };
 
-const compare_paths = (a: ResolvedPath, b: ResolvedPath): number => a.path.localeCompare(b.path);
+const compare_paths = (a: FsSearchResult, b: FsSearchResult): number =>
+	a.path.localeCompare(b.path);
 
 const to_filters = <T>(filter: T | Array<T> | undefined): Array<T> | undefined =>
 	filter === undefined

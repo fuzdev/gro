@@ -1,3 +1,5 @@
+// on `node:fs` until fgro runs Gro itself: the args parsing that calls it is sync,
+// and no sync boundary opens a path from outside
 import { statSync, type Stats } from 'node:fs';
 import { resolve } from 'node:path';
 

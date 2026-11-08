@@ -1,5 +1,5 @@
 import { describe, test, assert, vi, afterEach, beforeEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { dirname, join, relative } from 'node:path';
@@ -58,6 +58,21 @@ const error_text = (): string =>
 		.join('\n');
 
 describe('resolve_task', () => {
+	test('a task path that can not be read is a reason naming the error', async () => {
+		mkdirSync(join(dir, 'locked'));
+		chmodSync(join(dir, 'locked'), 0o000);
+		try {
+			const resolved = await resolve_task('locked/x.task.ts', dir);
+			assert.ok(!resolved.ok);
+			assert.match(
+				resolved.reasons.join('\n'),
+				/Can't read `locked\/x\.task\.ts`: permission_denied/
+			);
+		} finally {
+			chmodSync(join(dir, 'locked'), 0o700);
+		}
+	});
+
 	test('a bare name is a builtin', async () => {
 		const resolved = await resolve_task('check', dir);
 		assert.deepEqual(resolved, { ok: true, id: to_builtin_task_id('check'), name: 'check' });

@@ -3,7 +3,6 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import type { WrittenConfig } from '@changesets/types';
-import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	GitOrigin,
@@ -24,7 +23,7 @@ import {
 	CHANGESET_RESTRICTED_ACCESS
 } from './changeset_helpers.ts';
 import { package_json_load } from './package_json.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import { fs_open_path, type FsOpenedPath } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -181,9 +180,11 @@ const create_changeset_adder = async (
 	message: string,
 	bump: ChangesetBump
 ): Promise<() => Promise<void>> => {
-	const filenames_before = await readdir(dir);
+	// opened once, so the new file is found and written in the directory listed before
+	const changesets = await fs_open_path(dir);
+	const filenames_before = await list_names(changesets);
 	return async () => {
-		const filenames_after = await readdir(dir);
+		const filenames_after = await list_names(changesets);
 		const filenames_added = filenames_after.filter((p) => !filenames_before.includes(p));
 		if (!filenames_added.length) {
 			throw Error('expected to find a new changeset file');
@@ -191,9 +192,10 @@ const create_changeset_adder = async (
 		if (filenames_added.length !== 1) {
 			throw Error('expected to find exactly one new changeset file');
 		}
-		const path = join(dir, filenames_added[0]!);
+		const filename = filenames_added[0]!;
+		const path = join(dir, filename);
 		const contents = create_new_changeset(repo_name, message, bump);
-		await writeFile(path, contents, 'utf8');
+		await changesets.dir.write(join(changesets.path, filename), contents);
 		await spawn('git', ['add', path]);
 	};
 };
@@ -231,10 +233,21 @@ const update_changeset_config: UpdateWrittenConfig = async (path, cb) => {
 	return true;
 };
 
-const load_changeset_config_contents = (path: string): Promise<string> => readFile(path, 'utf8');
+const list_names = async ({ dir, path }: FsOpenedPath): Promise<Array<string>> => {
+	const names: Array<string> = [];
+	for await (const { name } of dir.list(path)) names.push(name);
+	return names;
+};
 
-const write_changeset_config = (path: string, serialized: string): Promise<void> =>
-	writeFile(path, serialized);
+const load_changeset_config_contents = async (path: string): Promise<string> => {
+	const opened = await fs_open_path(path);
+	return opened.dir.read_text(opened.path);
+};
+
+const write_changeset_config = async (path: string, serialized: string): Promise<void> => {
+	const opened = await fs_open_path(path);
+	await opened.dir.write(opened.path, serialized);
+};
 
 const serialize_changeset_config = (config: WrittenConfig): string =>
 	JSON.stringify(config, null, '\t') + '\n';

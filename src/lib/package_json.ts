@@ -1,5 +1,4 @@
 import { join } from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
 import { plural, strip_end } from '@fuzdev/fuz_util/string.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
@@ -19,7 +18,7 @@ import {
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
-import { fs_search_path } from './internal/fs_path.ts';
+import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
 
 export type PackageJsonMapper = (
 	package_json: PackageJson
@@ -93,11 +92,15 @@ export const package_json_load_for_gro = (): Promise<PackageJson> =>
 	package_json_load(gro_paths.root);
 
 // TODO probably make this nullable and make callers handle failures
-const package_json_load_contents = (dir: string): Promise<string> =>
-	readFile(join(dir, PACKAGE_JSON_FILENAME), 'utf8');
+const package_json_load_contents = async (dir: string): Promise<string> => {
+	const opened = await fs_open_path(join(dir, PACKAGE_JSON_FILENAME));
+	return opened.dir.read_text(opened.path);
+};
 
-export const package_json_write = (serialized_package_json: string): Promise<void> =>
-	writeFile(join(paths.root, PACKAGE_JSON_FILENAME), serialized_package_json);
+export const package_json_write = async (serialized_package_json: string): Promise<void> => {
+	const opened = await fs_open_path(join(paths.root, PACKAGE_JSON_FILENAME));
+	await opened.dir.write(opened.path, serialized_package_json);
+};
 
 export const package_json_serialize = (package_json: PackageJson): string =>
 	JSON.stringify(parse_package_json(PackageJson, package_json), null, 2) + '\n';

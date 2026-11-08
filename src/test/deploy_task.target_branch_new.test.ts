@@ -36,19 +36,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task target branch creation (remote does not exist)', () => {
@@ -69,8 +56,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('deploy directory cleanup', () => {
 		test('deletes existing deploy directory', async () => {
-			const { exists } = await get_mock_project();
-			const { rm, mkdir } = await import('node:fs/promises');
+			const { exists, remove, mkdir } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
 
@@ -79,16 +65,13 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			await deploy_task.run(ctx);
 
 			// Should delete deploy dir
-			expect(rm).toHaveBeenCalledWith(expect.stringContaining('.gro/deploy'), { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			// Should recreate it
-			expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('.gro/deploy'), {
-				recursive: true
-			});
+			expect(mkdir).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 		});
 
 		test('skips deletion when deploy directory does not exist', async () => {
-			const { exists } = await get_mock_project();
-			const { rm, mkdir } = await import('node:fs/promises');
+			const { exists, remove, mkdir } = await get_mock_project();
 
 			// deploy dir doesn't exist, but build_dir does
 			vi.mocked(exists).mockImplementation((path: any) => String(path).includes('build'));
@@ -98,14 +81,13 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			await deploy_task.run(ctx);
 
 			// Should NOT delete (doesn't exist)
-			expect(rm).not.toHaveBeenCalled();
+			expect(remove).not.toHaveBeenCalledWith('.gro/deploy', expect.anything());
 			// Should NOT recreate (only does that if it existed before)
 			expect(mkdir).not.toHaveBeenCalled();
 		});
 
 		test('uses custom deploy_dir path', async () => {
-			const { exists } = await get_mock_project();
-			const { rm, mkdir } = await import('node:fs/promises');
+			const { exists, remove, mkdir } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -116,10 +98,8 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(rm).toHaveBeenCalledWith(expect.stringContaining('custom/path'), { recursive: true });
-			expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('custom/path'), {
-				recursive: true
-			});
+			expect(remove).toHaveBeenCalledWith('custom/path', { recursive: true });
+			expect(mkdir).toHaveBeenCalledWith('custom/path', { recursive: true });
 		});
 	});
 

@@ -39,6 +39,9 @@ beforeEach(async () => {
 	process.chdir(project);
 	vi.resetModules();
 	build_cache = await import('#lib/build_cache.ts');
+	// the reloaded modules see the sandbox, so no op reaches the repo
+	assert.strictEqual((await import('#lib/fs.ts')).fs.project.path, project);
+	assert.strictEqual((await import('#lib/paths.ts')).paths.root, project + '/');
 });
 
 afterEach(() => {

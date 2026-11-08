@@ -8,22 +8,6 @@ import {
 } from './build_cache_test_helpers.ts';
 import { get_mock_project, to_mock_file_info } from './fs_mocks.ts';
 
-// Mock dependencies
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		readFile: vi.fn(),
-		writeFile: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		stat: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
@@ -36,8 +20,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns true when all output files match hashes and sizes', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -50,7 +33,7 @@ describe('validate_build_cache', () => {
 		vi.mocked(project_stat).mockImplementation(async (path) =>
 			to_mock_file_info(path === 'build/index.html' ? 1024 : 2048)
 		);
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		vi.mocked(read).mockResolvedValue(new TextEncoder().encode('content'));
 
 		let call_count = 0;
 		vi.mocked(hash_blake3).mockImplementation(() => {
@@ -64,8 +47,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when output file is missing', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -78,13 +60,12 @@ describe('validate_build_cache', () => {
 
 		expect(result).toBe(false);
 		// should not attempt to hash missing files
-		expect(readFile).not.toHaveBeenCalled();
+		expect(read).not.toHaveBeenCalled();
 		expect(hash_blake3).not.toHaveBeenCalled();
 	});
 
 	test('returns false when output file size differs (fast path)', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -97,13 +78,12 @@ describe('validate_build_cache', () => {
 
 		expect(result).toBe(false);
 		// fast path: size mismatch skips expensive hashing
-		expect(readFile).not.toHaveBeenCalled();
+		expect(read).not.toHaveBeenCalled();
 		expect(hash_blake3).not.toHaveBeenCalled();
 	});
 
 	test('returns false when output file hash does not match', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -111,7 +91,7 @@ describe('validate_build_cache', () => {
 		});
 
 		vi.mocked(project_stat).mockResolvedValue(to_mock_file_info());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		vi.mocked(read).mockResolvedValue(new TextEncoder().encode('content'));
 		vi.mocked(hash_blake3).mockReturnValue('different_hash');
 
 		const result = await validate_build_cache(metadata);
@@ -140,8 +120,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when parallel hash validation has mixed results', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -153,7 +132,7 @@ describe('validate_build_cache', () => {
 		});
 
 		vi.mocked(project_stat).mockResolvedValue(to_mock_file_info());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		vi.mocked(read).mockResolvedValue(new TextEncoder().encode('content'));
 
 		let call_count = 0;
 		vi.mocked(hash_blake3).mockImplementation(() => {
@@ -167,8 +146,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when file is deleted between size check and hash validation', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [create_mock_output_entry('build/index.html', { size: 1024 })]
@@ -176,7 +154,7 @@ describe('validate_build_cache', () => {
 
 		vi.mocked(project_stat).mockResolvedValue(to_mock_file_info());
 
-		vi.mocked(readFile).mockImplementation(() => {
+		vi.mocked(read).mockImplementation(() => {
 			return Promise.reject(new Error('ENOENT: no such file or directory'));
 		});
 
@@ -220,8 +198,7 @@ describe('validate_build_cache', () => {
 	});
 
 	test('returns false when file becomes inaccessible during hash validation', async () => {
-		const { stat: project_stat } = await get_mock_project();
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { stat: project_stat, read } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata({
 			outputs: [
@@ -234,9 +211,9 @@ describe('validate_build_cache', () => {
 			to_mock_file_info(path === 'build/index.html' ? 1024 : 2048)
 		);
 
-		vi.mocked(readFile).mockImplementation((path: any) => {
+		vi.mocked(read).mockImplementation((path: any) => {
 			if (String(path) === 'build/index.html') {
-				return Promise.resolve(Buffer.from('content'));
+				return Promise.resolve(new TextEncoder().encode('content'));
 			}
 			return Promise.reject(new Error('EACCES: permission denied'));
 		});

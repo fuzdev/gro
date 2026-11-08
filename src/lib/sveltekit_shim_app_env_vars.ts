@@ -1,3 +1,4 @@
+// on `node:fs`: `resolve_sveltekit_env_entry` runs in the loader's hooks, Node-only machinery
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,7 +8,7 @@ import {
 	type EnvVarDeclarations,
 	type EnvVisibility,
 	type LoadEnvOptions
-} from './env.ts';
+} from './env_declarations.ts';
 
 /**
  * Matches the SvelteKit env var modules, capturing the visibility.
@@ -126,7 +127,7 @@ import {
 const __gro_env = __gro_resolve_env_vars(
 	__gro_variables,
 	${JSON.stringify(visibility)},
-	__gro_load_env(${load_env_options})
+	await __gro_load_env(${load_env_options})
 );
 
 ${names.map((name) => `export const ${name} = __gro_env.${name};`).join('\n')}

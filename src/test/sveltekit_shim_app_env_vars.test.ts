@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
-import { resolve_env_vars, type EnvVarDeclarations } from '#lib/env.ts';
+import { resolve_env_vars } from '#lib/env.ts';
+import type { EnvVarDeclarations } from '#lib/env_declarations.ts';
 import { render_sveltekit_shim_app_env_vars } from '#lib/sveltekit_shim_app_env_vars.ts';
 
 import { LOADER_SOURCE_PATH, TEST_TIMEOUT_MD } from './test_helpers.ts';

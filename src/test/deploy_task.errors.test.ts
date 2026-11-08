@@ -9,9 +9,10 @@ import {
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock,
 	mock_spawn_results,
+	DEPLOY_DIR_ENTRIES,
 	FIRST_COMMIT_HASH
 } from './deploy_task_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
+import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
@@ -37,19 +38,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
 	spawn_out: vi.fn()
 }));
-
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -221,14 +209,13 @@ describe('deploy_task error handling', () => {
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Permission denied');
 		});
 
-		test('propagates rm errors', async () => {
+		test('propagates errors removing the deploy dir', async () => {
 			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const { rm } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger deletion
 			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
-			vi.mocked(rm).mockRejectedValue(new Error('Cannot remove directory'));
+			vi.mocked(remove).mockRejectedValue(new Error('Cannot remove directory'));
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -237,8 +224,7 @@ describe('deploy_task error handling', () => {
 
 		test('propagates mkdir errors', async () => {
 			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const { mkdir } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { mkdir, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
 			vi.mocked(exists).mockResolvedValue(true);
@@ -260,13 +246,13 @@ describe('deploy_task error handling', () => {
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Failed to empty directory');
 		});
 
-		test('propagates readdir errors', async () => {
-			const { readdir } = vi.mocked(await import('node:fs/promises'));
-			const { exists } = await get_mock_project();
+		test('propagates errors listing the build dir', async () => {
+			const { exists, list } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
-			vi.mocked(readdir).mockImplementation(() => {
-				throw new Error('Cannot read directory');
+			vi.mocked(list).mockImplementation((path) => {
+				if (path === 'build') throw new Error('Cannot read directory');
+				return to_mock_listing(DEPLOY_DIR_ENTRIES);
 			});
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
@@ -274,12 +260,11 @@ describe('deploy_task error handling', () => {
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Cannot read directory');
 		});
 
-		test('propagates cp errors', async () => {
-			const { cp } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+		test('propagates copy errors', async () => {
+			const { copy, exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
-			vi.mocked(cp).mockRejectedValue(new Error('Failed to copy files'));
+			vi.mocked(copy).mockRejectedValue(new Error('Failed to copy files'));
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -289,7 +274,7 @@ describe('deploy_task error handling', () => {
 
 	describe('spawn operation failures', () => {
 		test('a failed git reset recreates the deploy dir', async () => {
-			const { rm } = vi.mocked(await import('node:fs/promises'));
+			const { remove } = await get_mock_project();
 			const { git_pull, git_clone_locally } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { exists } = await get_mock_project();
 
@@ -298,8 +283,8 @@ describe('deploy_task error handling', () => {
 			vi.mocked(exists).mockImplementation(async (path: any) =>
 				path === '.gro/deploy' ? deploy_dir_exists : true
 			);
-			vi.mocked(rm).mockImplementation(async (path: any) => {
-				if (String(path) === resolve('.gro/deploy')) deploy_dir_exists = false;
+			vi.mocked(remove).mockImplementation(async (path: any) => {
+				if (path === '.gro/deploy') deploy_dir_exists = false;
 			});
 			await mock_spawn_results((cmd, args) => cmd === 'git' && args[0] === 'reset');
 
@@ -307,7 +292,7 @@ describe('deploy_task error handling', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(rm).toHaveBeenCalledWith(resolve('.gro/deploy'), { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			expect(git_pull).not.toHaveBeenCalledWith('origin', 'deploy', expect.anything());
 			expect(git_clone_locally).toHaveBeenCalledWith(
 				'origin',
@@ -316,7 +301,7 @@ describe('deploy_task error handling', () => {
 				resolve('.gro/deploy')
 			);
 			expect(git_clone_locally.mock.invocationCallOrder[0]!).toBeGreaterThan(
-				rm.mock.invocationCallOrder[0]!
+				remove.mock.invocationCallOrder[0]!
 			);
 			expect(ctx.log.warn).toHaveBeenCalledWith(
 				expect.stringContaining('git reset --hard'),

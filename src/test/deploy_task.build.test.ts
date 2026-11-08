@@ -7,7 +7,8 @@ import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	mock_listings
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
@@ -35,19 +36,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
 	spawn_out: vi.fn()
 }));
-
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -252,12 +240,10 @@ describe('deploy_task build integration', () => {
 
 	describe('build task success scenarios', () => {
 		test('continues to file copying after successful build', async () => {
-			const { exists } = await get_mock_project();
-			const { readdir } = vi.mocked(await import('node:fs/promises'));
-			const { cp } = await import('node:fs/promises');
+			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
-			vi.mocked(readdir).mockResolvedValue(['index.html', 'assets'] as any);
+			await mock_listings(['index.html', 'assets']);
 
 			const ctx = create_mock_deploy_task_context({
 				build: true,
@@ -269,7 +255,7 @@ describe('deploy_task build integration', () => {
 			await deploy_task.run(ctx);
 
 			// Should copy files after successful build
-			expect(cp).toHaveBeenCalled();
+			expect(copy).toHaveBeenCalled();
 		});
 
 		test('creates build_dir before checking if it exists', async () => {
@@ -298,8 +284,7 @@ describe('deploy_task build integration', () => {
 
 	describe('build-less deploy', () => {
 		test('skips build and uses existing build_dir when no-build=true', async () => {
-			const { exists } = await get_mock_project();
-			const { cp } = await import('node:fs/promises');
+			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -314,7 +299,7 @@ describe('deploy_task build integration', () => {
 			expect(ctx.invoke_task).not.toHaveBeenCalled();
 
 			// Should still check build_dir and copy files
-			expect(cp).toHaveBeenCalled();
+			expect(copy).toHaveBeenCalled();
 		});
 
 		test('fails gracefully when build_dir missing and no-build=true', async () => {

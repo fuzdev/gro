@@ -37,19 +37,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task target branch sync (remote exists)', () => {
@@ -140,8 +127,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 	describe('deploy dir exists with wrong branch', () => {
 		test('deletes deploy dir when branch name differs', async () => {
 			const { git_current_branch_name } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-			const { rm } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
 			vi.mocked(git_current_branch_name).mockResolvedValue('wrong-branch'); // wrong branch!
@@ -154,7 +140,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			await deploy_task.run(ctx);
 
 			// Should delete deploy dir
-			expect(rm).toHaveBeenCalledWith(resolve('.gro/deploy'), { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 		});
 
 		test('reinitializes deploy dir after deletion', async () => {
@@ -193,8 +179,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			const { git_check_clean_workspace, git_current_branch_name } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
-			const { rm } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 			vi.mocked(git_current_branch_name).mockResolvedValue('deploy');
@@ -215,7 +200,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			await deploy_task.run(ctx);
 
 			// Should delete deploy dir due to sync failure
-			expect(rm).toHaveBeenCalledWith(resolve('.gro/deploy'), { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 		});
 
 		test('reinitializes after sync failure', async () => {

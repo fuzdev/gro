@@ -2,21 +2,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { discover_build_output_dirs, collect_build_outputs } from '#lib/build_cache.ts';
 
-import { mock_file_stats, mock_file_entry, mock_dir_entry } from './build_cache_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
-
-// Mock dependencies - discover_build_output_dirs and collect_build_outputs now use async fs functions
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		readdir: vi.fn(),
-		stat: vi.fn(),
-		readFile: vi.fn()
-	};
-});
+import { get_mock_project, mock_tree } from './fs_mocks.ts';
 
 // Mock the fs host module
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
@@ -27,22 +13,18 @@ vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 
 describe('discover_build_output_dirs', () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 	});
 
 	test('returns all existing build directories', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		// Mock all directories exist
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			'dist_artifacts',
-			'dist_worker',
-			'node_modules',
-			'src'
-		] as any);
-		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
+		mock_tree(await get_mock_project(), {
+			'build/': '',
+			'dist/': '',
+			'dist_worker/': '',
+			'dist_artifacts/': '',
+			'node_modules/': '',
+			'src/': ''
+		});
 
 		const result = await discover_build_output_dirs();
 
@@ -50,15 +32,7 @@ describe('discover_build_output_dirs', () => {
 	});
 
 	test('returns only directories that exist', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		// Only dist and dist_artifacts exist
-		vi.mocked(exists).mockImplementation((path: any) => {
-			return Promise.resolve(path === 'dist');
-		});
-		vi.mocked(readdir).mockResolvedValue(['dist_artifacts', 'other'] as any);
-		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
+		mock_tree(await get_mock_project(), { 'dist/': '', 'dist_artifacts/': '', 'other/': '' });
 
 		const result = await discover_build_output_dirs();
 
@@ -66,11 +40,7 @@ describe('discover_build_output_dirs', () => {
 	});
 
 	test('returns empty array when no build directories exist', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir } = vi.mocked(await import('node:fs/promises'));
-
-		vi.mocked(exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue([]);
+		mock_tree(await get_mock_project(), {});
 
 		const result = await discover_build_output_dirs();
 
@@ -78,111 +48,59 @@ describe('discover_build_output_dirs', () => {
 	});
 
 	test('filters out non-directory dist_ entries', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		vi.mocked(exists).mockImplementation((path: any) => Promise.resolve(path === 'build'));
-		vi.mocked(readdir).mockResolvedValue([
-			'dist_artifacts',
-			'dist_readme.md' // file, not directory
-		] as any);
-		vi.mocked(stat).mockImplementation((path: any) => {
-			if (String(path) === 'dist_artifacts') {
-				return Promise.resolve({ isDirectory: () => true } as any);
-			}
-			return Promise.resolve({ isDirectory: () => false } as any);
+		mock_tree(await get_mock_project(), {
+			'build/': '',
+			'dist_artifacts/': '',
+			'dist_readme.md': 'file, not directory'
 		});
 
 		const result = await discover_build_output_dirs();
 
 		expect(result).toEqual(['build', 'dist_artifacts']);
-		expect(result).not.toContain('dist_readme.md');
 	});
 
-	test('handles permission errors on directory listing', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
+	test('follows a dist_ symlink to a directory', async () => {
+		mock_tree(await get_mock_project(), {
+			'real_dir/': '',
+			real_file: '',
+			dist_linked: { target: 'real_dir' },
+			dist_file_link: { target: 'real_file' },
+			dist_dangling: { target: 'missing' }
+		});
 
-		vi.mocked(exists).mockResolvedValue(true);
+		const result = await discover_build_output_dirs();
 
-		// readdir throws permission error
-		vi.mocked(readdir).mockRejectedValue(new Error('EACCES: permission denied'));
-		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
+		expect(result).toEqual(['dist_linked']);
+	});
 
-		// Should throw - permission errors are fatal
+	test('a listing error is fatal', async () => {
+		const project = await get_mock_project();
+		mock_tree(project, { 'build/': '' });
+		project.list.mockImplementation(() => {
+			throw new Error('EACCES: permission denied');
+		});
+
 		await expect(discover_build_output_dirs()).rejects.toThrow('EACCES: permission denied');
 	});
 
-	test('handles files named with dist_ prefix', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			'dist_config.json', // file, not directory
-			'dist_artifacts' // directory
-		] as any);
-
-		// Mock stat to differentiate files vs directories
-		vi.mocked(stat).mockImplementation((path: any) => {
-			if (String(path) === 'dist_artifacts') {
-				return Promise.resolve({ isDirectory: () => true } as any);
-			}
-			return Promise.resolve({ isDirectory: () => false } as any);
-		});
+	test('skips a dist_ entry that vanished during iteration', async () => {
+		const project = await get_mock_project();
+		mock_tree(project, { 'dist_ok/': '' });
+		const listing = async function* () {
+			yield { name: 'dist_vanished', kind: 'symlink' as const };
+			yield { name: 'dist_ok', kind: 'directory' as const };
+		};
+		project.list.mockImplementation(() => listing());
 
 		const result = await discover_build_output_dirs();
 
-		// Should include directory but not file
-		expect(result).toContain('dist_artifacts');
-		expect(result).not.toContain('dist_config.json');
-	});
-
-	test('skips dist_ entry when stat fails during iteration', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		vi.mocked(exists).mockResolvedValue(false);
-		vi.mocked(readdir).mockResolvedValue(['dist_vanished', 'dist_ok'] as any);
-		vi.mocked(stat).mockImplementation((path: any) => {
-			if (String(path) === 'dist_vanished') {
-				return Promise.reject(new Error('ENOENT: no such file or directory'));
-			}
-			return Promise.resolve({ isDirectory: () => true } as any);
-		});
-
-		const result = await discover_build_output_dirs();
-
-		// vanished entry is skipped, surviving entry is included
-		expect(result).toContain('dist_ok');
-		expect(result).not.toContain('dist_vanished');
-	});
-
-	test('skips non-dist_ prefixed directories', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, stat } = vi.mocked(await import('node:fs/promises'));
-
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			'node_modules',
-			'src',
-			'dist_artifacts', // should be included
-			'output' // should not be included
-		] as any);
-		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
-
-		const result = await discover_build_output_dirs();
-
-		expect(result).toEqual(['build', 'dist', 'dist_artifacts']);
-		expect(result).not.toContain('node_modules');
-		expect(result).not.toContain('src');
-		expect(result).not.toContain('output');
+		expect(result).toEqual(['dist_ok']);
 	});
 });
 
 describe('collect_build_outputs', () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 	});
 
 	test('returns empty array for empty dirs array', async () => {
@@ -191,173 +109,100 @@ describe('collect_build_outputs', () => {
 		expect(result).toEqual([]);
 	});
 
-	test('hashes all files in build directory', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, readFile, stat } = vi.mocked(await import('node:fs/promises'));
+	test('hashes all files in build directory, sorted by name', async () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			mock_file_entry('index.html'),
-			mock_file_entry('bundle.js')
-		] as any);
-		vi.mocked(stat).mockResolvedValue(mock_file_stats());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		mock_tree(await get_mock_project(), {
+			'build/index.html': { size: 1024 },
+			'build/bundle.js': { size: 1024 }
+		});
 
 		let hash_count = 0;
 		vi.mocked(hash_blake3).mockImplementation(() => `hash${++hash_count}`);
 
 		const result = await collect_build_outputs(['build']);
 
-		expect(result).toHaveLength(2);
-		expect(result[0]).toEqual({
-			path: 'build/index.html',
-			hash: 'hash1',
-			size: 1024,
-			mtime: 1729512000000,
-			ctime: 1729512000000,
-			mode: 33188
-		});
-		expect(result[1]).toEqual({
-			path: 'build/bundle.js',
-			hash: 'hash2',
-			size: 1024,
-			mtime: 1729512000000,
-			ctime: 1729512000000,
-			mode: 33188
-		});
+		expect(result).toEqual([
+			{ path: 'build/bundle.js', hash: 'hash1', size: 1024, mtime: 1729512000000, mode: 0o644 },
+			{ path: 'build/index.html', hash: 'hash2', size: 1024, mtime: 1729512000000, mode: 0o644 }
+		]);
 	});
 
 	test('skips build.json file', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, readFile, stat } = vi.mocked(await import('node:fs/promises'));
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			mock_file_entry('build.json'),
-			mock_file_entry('index.html')
-		] as any);
-		vi.mocked(stat).mockResolvedValue(mock_file_stats());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		mock_tree(await get_mock_project(), { 'build/build.json': '{}', 'build/index.html': '' });
 		vi.mocked(hash_blake3).mockReturnValue('hash');
 
 		const result = await collect_build_outputs(['build']);
 
-		expect(result).toHaveLength(1);
-		expect(result.find((o) => o.path === 'build/build.json')).toBeUndefined();
-		expect(result.find((o) => o.path === 'build/index.html')).toBeDefined();
+		expect(result.map((o) => o.path)).toEqual(['build/index.html']);
+	});
+
+	test('skips symlinks', async () => {
+		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
+		mock_tree(await get_mock_project(), {
+			'build/index.html': '',
+			'build/link.html': { target: 'build/index.html' }
+		});
+		vi.mocked(hash_blake3).mockReturnValue('hash');
+
+		const result = await collect_build_outputs(['build']);
+
+		expect(result.map((o) => o.path)).toEqual(['build/index.html']);
 	});
 
 	test('returns empty array for non-existent directory', async () => {
-		const { exists } = await get_mock_project();
-
-		vi.mocked(exists).mockResolvedValue(false);
+		mock_tree(await get_mock_project(), {});
 
 		const result = await collect_build_outputs(['build']);
 
 		expect(result).toEqual([]);
 	});
 
-	test('hashes all files in directory', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, readFile, stat } = vi.mocked(await import('node:fs/promises'));
+	test('hashes the contents of each file', async () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-
-		vi.mocked(exists).mockResolvedValue(true);
-		vi.mocked(readdir).mockResolvedValue([
-			mock_file_entry('file1.js'),
-			mock_file_entry('file2.js'),
-			mock_file_entry('file3.js')
-		] as any);
-		vi.mocked(stat).mockResolvedValue(mock_file_stats());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
-		vi.mocked(hash_blake3).mockReturnValue('hash');
+		mock_tree(await get_mock_project(), { 'build/a.js': 'aaa', 'build/b.js': 'bbb' });
+		vi.mocked(hash_blake3).mockImplementation((data) =>
+			new TextDecoder().decode(data as Uint8Array)
+		);
 
 		const result = await collect_build_outputs(['build']);
 
-		// Should hash all 3 files
-		expect(result).toHaveLength(3);
-		expect(result.find((o) => o.path === 'build/file1.js')).toBeDefined();
-		expect(result.find((o) => o.path === 'build/file2.js')).toBeDefined();
-		expect(result.find((o) => o.path === 'build/file3.js')).toBeDefined();
+		expect(result.map((o) => o.hash)).toEqual(['aaa', 'bbb']);
+		expect(result.map((o) => o.size)).toEqual([3, 3]);
 	});
 
 	test('hashes files from multiple directories', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, readFile, stat } = vi.mocked(await import('node:fs/promises'));
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-
-		vi.mocked(exists).mockResolvedValue(true);
-
-		vi.mocked(readdir).mockImplementation((path: any) => {
-			if (path === 'build') {
-				return Promise.resolve([mock_file_entry('index.html')] as any);
-			}
-			if (path === 'dist') {
-				return Promise.resolve([mock_file_entry('index.js')] as any);
-			}
-			if (path === 'dist_artifacts') {
-				return Promise.resolve([mock_file_entry('server.js')] as any);
-			}
-			return Promise.resolve([] as any);
+		mock_tree(await get_mock_project(), {
+			'build/index.html': '',
+			'dist/index.js': '',
+			'dist_artifacts/server.js': ''
 		});
-
-		vi.mocked(stat).mockResolvedValue(mock_file_stats());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
 
 		let hash_count = 0;
 		vi.mocked(hash_blake3).mockImplementation(() => `hash${++hash_count}`);
 
 		const result = await collect_build_outputs(['build', 'dist', 'dist_artifacts']);
 
-		// Should hash files from all three directories
-		expect(result).toHaveLength(3);
-		expect(result.find((o) => o.path === 'build/index.html')).toBeDefined();
-		expect(result.find((o) => o.path === 'dist/index.js')).toBeDefined();
-		expect(result.find((o) => o.path === 'dist_artifacts/server.js')).toBeDefined();
-		// Each file should have a unique hash
-		expect(result.find((o) => o.path === 'build/index.html')?.hash).toBe('hash1');
-		expect(result.find((o) => o.path === 'dist/index.js')?.hash).toBe('hash2');
-		expect(result.find((o) => o.path === 'dist_artifacts/server.js')?.hash).toBe('hash3');
+		expect(result.map(({ path, hash }) => ({ path, hash }))).toEqual([
+			{ path: 'build/index.html', hash: 'hash1' },
+			{ path: 'dist/index.js', hash: 'hash2' },
+			{ path: 'dist_artifacts/server.js', hash: 'hash3' }
+		]);
 	});
 
 	test('hashes files in deeply nested directories', async () => {
-		const { exists } = await get_mock_project();
-		const { readdir, readFile, stat } = vi.mocked(await import('node:fs/promises'));
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-
-		vi.mocked(exists).mockResolvedValue(true);
-
-		vi.mocked(readdir).mockImplementation((path: any) => {
-			const path_str = String(path);
-			if (path_str === 'build') {
-				return Promise.resolve([mock_dir_entry('assets')] as any);
-			}
-			if (path_str === 'build/assets') {
-				return Promise.resolve([mock_dir_entry('js')] as any);
-			}
-			if (path_str === 'build/assets/js') {
-				return Promise.resolve([mock_dir_entry('vendor')] as any);
-			}
-			if (path_str === 'build/assets/js/vendor') {
-				return Promise.resolve([mock_dir_entry('libs')] as any);
-			}
-			if (path_str === 'build/assets/js/vendor/libs') {
-				return Promise.resolve([mock_file_entry('foo.js')] as any);
-			}
-			return Promise.resolve([] as any);
-		});
-
-		vi.mocked(stat).mockResolvedValue(mock_file_stats());
-		vi.mocked(readFile).mockResolvedValue(Buffer.from('content'));
+		const project = await get_mock_project();
+		mock_tree(project, { 'build/assets/js/vendor/libs/foo.js': '' });
 		vi.mocked(hash_blake3).mockReturnValue('deep_hash');
 
 		const result = await collect_build_outputs(['build']);
 
-		// Should recursively hash deeply nested file
-		const deep_file = result.find((o) => o.path === 'build/assets/js/vendor/libs/foo.js');
-		expect(deep_file).toBeDefined();
-		expect(deep_file?.hash).toBe('deep_hash');
+		expect(result).toEqual([
+			expect.objectContaining({ path: 'build/assets/js/vendor/libs/foo.js', hash: 'deep_hash' })
+		]);
+		// each directory is listed beneath the one handle, never opened by path
+		expect(project.list).toHaveBeenCalledWith('build/assets/js/vendor/libs');
 	});
 });

@@ -2,7 +2,6 @@ import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { print_ms, print_timings } from '@fuzdev/fuz_util/print.ts';
 import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
-import { stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { styleText as st } from 'node:util';
 
@@ -46,6 +45,7 @@ import { task_registry_find } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
+import { is_fs_error, type FileInfo } from './fs.ts';
 import { fs_open_path } from './internal/fs_path.ts';
 
 /**
@@ -214,18 +214,40 @@ export const resolve_task = async (
 	}
 	const name = to_task_path(task_name, root);
 	const id = resolve(root, name);
-	const stats = await stat(id).catch(() => null);
-	if (!stats?.isFile()) {
+	const stat = await stat_path(id);
+	if (!stat.ok) {
+		return { ok: false, reasons: [`Can't read \`${name}\`: ${stat.message}`] };
+	}
+	const { info } = stat;
+	if (info?.kind !== 'file') {
 		return {
 			ok: false,
 			reasons: [
-				stats
+				info
 					? `\`${name}\` is not a task file: it's a directory or a special file.`
 					: `No task file at \`${name}\`.`
 			]
 		};
 	}
 	return { ok: true, id, name };
+};
+
+/**
+ * Stats a path from outside, following symlinks, `info` `null` when nothing is there
+ * or a file is where a directory would be, both meaning no task is at the path,
+ * and any other fs failure the message for a reason, never thrown.
+ */
+const stat_path = async (
+	path: string
+): Promise<{ ok: true; info: FileInfo | null } | { ok: false; message: string }> => {
+	try {
+		const opened = await fs_open_path(path);
+		return { ok: true, info: await opened.dir.stat(opened.path) };
+	} catch (error) {
+		if (is_fs_error(error, 'not_a_directory')) return { ok: true, info: null };
+		if (is_fs_error(error)) return { ok: false, message: error.message };
+		throw error;
+	}
 };
 
 /**
@@ -308,8 +330,12 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
  */
 const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): Promise<void> => {
 	const dir_id = resolve(dir ?? SOURCE_DIR);
-	const stats = await stat(dir_id).catch(() => null);
-	if (!stats?.isDirectory()) {
+	const stat = await stat_path(dir_id);
+	if (!stat.ok) {
+		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${stat.message}`]);
+		throw new SilentError();
+	}
+	if (stat.info?.kind !== 'directory') {
 		// the user named no path, so don't blame one
 		if (dir === null) {
 			log_error_reasons(log, [

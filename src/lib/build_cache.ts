@@ -1,4 +1,3 @@
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, normalize } from 'node:path';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
@@ -16,12 +15,12 @@ import {
 	load_build_cache_dependencies,
 	type BuildCacheDependencies
 } from './build_cache_dependencies.ts';
-import { is_fs_error } from './fs.ts';
+import { FsError, is_fs_error, type DirEntry, type FsDir } from './fs.ts';
 // TODO: take handles from the tasks, the composition roots, instead of opening paths here
-import { fs_open_path, fs_remove_path } from './internal/fs_path.ts';
+import { fs_open_path, fs_remove_path, type FsOpenedPath } from './internal/fs_path.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
-export const BUILD_CACHE_VERSION = '2';
+export const BUILD_CACHE_VERSION = '3';
 
 /**
  * Metadata about a single build output file.
@@ -34,8 +33,9 @@ export const BuildOutputEntry = s.object({
 	hash: meta(s.string, { description: 'BLAKE3 hash of file contents' }),
 	size: meta(s.number, { description: 'file size in bytes' }),
 	mtime: meta(s.number, { description: 'modification time in milliseconds since epoch' }),
-	ctime: meta(s.number, { description: 'POSIX change time in milliseconds since epoch' }),
-	mode: meta(s.number, { description: 'unix file permission mode (e.g., 33188 = 0644)' })
+	mode: meta(s.number, {
+		description: 'unix permission bits, without the file type bits (e.g., 420 = 0o644)'
+	})
 });
 export type BuildOutputEntry = s.Infer<typeof BuildOutputEntry>;
 
@@ -156,10 +156,11 @@ export const save_build_cache_metadata = async (
 ): Promise<void> => {
 	try {
 		// Ensure .gro directory exists
-		await mkdir(paths.build, { recursive: true });
+		const build_dir = await fs_open_path(paths.build);
+		await build_dir.dir.mkdir(build_dir.path, { recursive: true });
 
-		const metadata_path = join(paths.build, BUILD_CACHE_METADATA_FILENAME);
-		await writeFile(metadata_path, JSON.stringify(metadata, null, '\t'), 'utf-8');
+		const metadata_file = await fs_open_path(join(paths.build, BUILD_CACHE_METADATA_FILENAME));
+		await metadata_file.dir.write(metadata_file.path, JSON.stringify(metadata, null, '\t'));
 	} catch (error) {
 		// Cache writes are optional - log warning but don't fail the build
 		log?.warn(
@@ -184,6 +185,8 @@ const is_project_relative = (path: string): boolean => {
 export const validate_build_cache = async (metadata: BuildCacheMetadata): Promise<boolean> => {
 	// Verify all tracked output files exist and have matching size
 	// Sequential checks with early return for performance
+	// each opened file is kept for the hashing below, so each path is resolved once
+	const opened_outputs: Array<FsOpenedPath> = [];
 	for (const output of metadata.outputs) {
 		// Fast negative check: size mismatch = definitely invalid
 		// This avoids expensive file reads and hashing for files that have clearly changed
@@ -193,6 +196,7 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 		try {
 			const opened = await fs_open_path(output.path);
 			info = await opened.dir.stat(opened.path);
+			opened_outputs.push(opened);
 		} catch (error) {
 			// unreadable is an invalid cache
 			if (is_fs_error(error)) return false;
@@ -205,9 +209,10 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 
 	// Size matches for all files - now verify content with cryptographic hashing
 	// Hash files with controlled concurrency (could be 10k+ files)
-	const results = await map_concurrent(metadata.outputs, 20, async (output) => {
+	const results = await map_concurrent(metadata.outputs, 20, async (output, i) => {
+		const opened = opened_outputs[i]!;
 		try {
-			const contents = await readFile(output.path);
+			const contents = await opened.dir.read(opened.path);
 			const actual_hash = hash_blake3(contents);
 			return actual_hash === output.hash;
 		} catch {
@@ -282,7 +287,9 @@ export const is_build_cache_valid = async (
 
 /**
  * Collects information about all files in build output directories.
- * Returns an array of entries with path, hash, size, mtime, ctime, and mode.
+ * Returns an array of entries with path, hash, size, mtime, and mode.
+ * Each directory is opened once, its symlinks followed, and walked beneath its handle,
+ * where only regular files are collected, never a symlink.
  *
  * Files are hashed in parallel for performance. For very large builds (10k+ files),
  * this may take several seconds but ensures complete cache validation.
@@ -294,7 +301,9 @@ export const collect_build_outputs = async (
 ): Promise<Array<BuildOutputEntry>> => {
 	// Collect all files to hash first
 	interface FileEntry {
-		full_path: string;
+		dir: FsDir;
+		// beneath `dir`
+		path: string;
 		cache_key: string;
 	}
 
@@ -302,26 +311,30 @@ export const collect_build_outputs = async (
 
 	// Recursively collect files
 	const collect_files = async (
-		dir: string,
+		dir: FsDir,
+		dir_path: string,
 		relative_base: string,
 		dir_prefix: string
 	): Promise<void> => {
-		const entries = await readdir(dir, { withFileTypes: true });
-
+		const list_path = relative_base ? join(dir_path, relative_base) : dir_path;
+		const entries: Array<DirEntry> = [];
+		for await (const entry of dir.list(list_path)) entries.push(entry);
+		// sorted, since a listing's order is volatile
+		entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 		for (const entry of entries) {
 			// Skip metadata file itself
 			if (entry.name === BUILD_CACHE_METADATA_FILENAME) {
 				continue;
 			}
 
-			const full_path = join(dir, entry.name);
 			const relative_path = relative_base ? join(relative_base, entry.name) : entry.name;
+			const path = dir_path ? join(dir_path, relative_path) : relative_path;
 			const cache_key = join(dir_prefix, relative_path);
 
-			if (entry.isDirectory()) {
-				await collect_files(full_path, relative_path, dir_prefix);
-			} else if (entry.isFile()) {
-				files_to_hash.push({ full_path, cache_key });
+			if (entry.kind === 'directory') {
+				await collect_files(dir, dir_path, relative_path, dir_prefix);
+			} else if (entry.kind === 'file') {
+				files_to_hash.push({ dir, path, cache_key });
 			}
 			// Symlinks are intentionally ignored - we only hash regular files
 		}
@@ -334,25 +347,25 @@ export const collect_build_outputs = async (
 			continue; // Skip non-existent directories
 		}
 
-		await collect_files(build_dir, '', build_dir);
+		await collect_files(opened.dir, opened.path, '', build_dir);
 	}
 
 	// Hash files with controlled concurrency and collect stats (could be 10k+ files)
 	return map_concurrent(
 		files_to_hash,
 		20,
-		async ({ full_path, cache_key }): Promise<BuildOutputEntry> => {
-			const stats = await stat(full_path);
-			const contents = await readFile(full_path);
+		async ({ dir, path, cache_key }): Promise<BuildOutputEntry> => {
+			const info = await dir.stat(path);
+			if (info === null) throw new FsError('not_found', join(dir.path, path));
+			const contents = await dir.read(path);
 			const hash = hash_blake3(contents);
 
 			return {
 				path: cache_key,
 				hash,
-				size: stats.size,
-				mtime: stats.mtimeMs,
-				ctime: stats.ctimeMs,
-				mode: stats.mode
+				size: info.size,
+				mtime: info.mtime_ms,
+				mode: info.mode
 			};
 		}
 	);
@@ -389,21 +402,32 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
  * Discovers the `dist_*` plugin output directories in the current working directory.
  */
 export const discover_dist_dirs = async (): Promise<Array<string>> => {
-	const root_entries = await readdir('.');
-	const dist_dir_checks = await Promise.all(
-		root_entries
-			.filter((p) => p.startsWith(GRO_DIST_PREFIX))
-			.map(async (p) => {
-				try {
-					const s = await stat(p);
-					return s.isDirectory() ? p : null;
-				} catch {
-					// deleted or moved during iteration
-					return null;
-				}
-			})
-	);
-	return dist_dir_checks.filter((p): p is string => p !== null);
+	const root = await fs_open_path('.');
+	const candidates: Array<Promise<string | null>> = [];
+	for await (const { name, kind } of root.dir.list(root.path)) {
+		if (!name.startsWith(GRO_DIST_PREFIX)) continue;
+		if (kind === 'directory') {
+			candidates.push(Promise.resolve(name));
+		} else if (kind === 'symlink') {
+			// a symlink is followed wherever it points, as Gro follows its own paths
+			candidates.push(
+				(async () => {
+					try {
+						const opened = await fs_open_path(name);
+						const info = await opened.dir.stat(opened.path);
+						return info?.kind === 'directory' ? name : null;
+					} catch (error) {
+						// unreadable, or deleted or moved during iteration
+						if (is_fs_error(error)) return null;
+						throw error;
+					}
+				})()
+			);
+		}
+	}
+	const dist_dirs = await Promise.all(candidates);
+	// sorted, since a listing's order is volatile
+	return dist_dirs.filter((p): p is string => p !== null).sort();
 };
 
 /**

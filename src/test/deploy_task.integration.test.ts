@@ -37,19 +37,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', async (import_original) => {
-	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
-	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
-	return {
-		realpath,
-		readlink,
-		cp: vi.fn(),
-		mkdir: vi.fn(),
-		rm: vi.fn(),
-		readdir: vi.fn()
-	};
-});
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task integration scenarios', () => {
@@ -172,8 +159,7 @@ describe('deploy_task integration scenarios', () => {
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { exists } = await get_mock_project();
-			const { remove } = await get_mock_project();
+			const { exists, remove } = await get_mock_project();
 
 			// Remote branch exists, deploy dir exists with correct branch
 			vi.mocked(exists).mockResolvedValue(true);
@@ -275,8 +261,7 @@ describe('deploy_task integration scenarios', () => {
 			const { git_current_branch_name, git_fetch, git_clone_locally } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
-			const { rm } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, exists } = await get_mock_project();
 
 			// Deploy dir exists but with wrong branch
 			let exists_call_count = 0;
@@ -293,7 +278,7 @@ describe('deploy_task integration scenarios', () => {
 			await deploy_task.run(ctx);
 
 			// Should delete and reinitialize
-			expect(rm).toHaveBeenCalledWith(resolve('.gro/deploy'), { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			expect(git_fetch).toHaveBeenCalled();
 			expect(git_clone_locally).toHaveBeenCalled();
 		});
@@ -302,8 +287,7 @@ describe('deploy_task integration scenarios', () => {
 	describe('deployment with no-build flag', () => {
 		test('deploys using existing build output', async () => {
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { exists } = await get_mock_project();
-			const { cp } = await import('node:fs/promises');
+			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -318,7 +302,7 @@ describe('deploy_task integration scenarios', () => {
 			expect(ctx.invoke_task).not.toHaveBeenCalled();
 
 			// Should still copy files and deploy
-			expect(cp).toHaveBeenCalled();
+			expect(copy).toHaveBeenCalled();
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'deployment'], expect.anything());
 		});
 	});
@@ -351,8 +335,7 @@ describe('deploy_task integration scenarios', () => {
 		test('dry deployment performs all prep but skips push', async () => {
 			const { git_checkout } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { exists } = await get_mock_project();
-			const { cp } = await import('node:fs/promises');
+			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -368,7 +351,7 @@ describe('deploy_task integration scenarios', () => {
 				install: true,
 				force_build: false
 			});
-			expect(cp).toHaveBeenCalled();
+			expect(copy).toHaveBeenCalled();
 
 			// Should NOT push
 			expect(spawn).not.toHaveBeenCalledWith(
@@ -435,9 +418,7 @@ describe('deploy_task integration scenarios', () => {
 				git_push_to_create
 			} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { remove } = await get_mock_project();
-			const { cp } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, copy, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
 			vi.mocked(exists).mockResolvedValue(true);
@@ -454,9 +435,10 @@ describe('deploy_task integration scenarios', () => {
 			const remote_exists_order = git_remote_branch_exists.mock.invocationCallOrder[0]!;
 			const clone_order = git_clone_locally.mock.invocationCallOrder[0]!;
 			const push_create_order = git_push_to_create.mock.invocationCallOrder[0]!;
-			const empty_order = remove.mock.invocationCallOrder[0]!;
+			// the last removal empties the deploy dir, after the first removed the whole of it
+			const empty_order = remove.mock.invocationCallOrder.at(-1)!;
 			const build_order = (ctx.invoke_task as any).mock.invocationCallOrder[0]!;
-			const cp_order = (cp as any).mock.invocationCallOrder[0]!;
+			const copy_order = copy.mock.invocationCallOrder[0]!;
 
 			// Safety checks first
 			expect(check_workspace_order).toBeLessThan(checkout_order);
@@ -473,14 +455,14 @@ describe('deploy_task integration scenarios', () => {
 			// Build and deploy
 			expect(push_create_order).toBeLessThan(empty_order);
 			expect(empty_order).toBeLessThan(build_order);
-			expect(build_order).toBeLessThan(cp_order);
+			expect(build_order).toBeLessThan(copy_order);
 
 			// Final commit and push
 			const final_push_call = spawn.mock.calls.findIndex(
 				(call) => call[0] === 'git' && call[1]?.[0] === 'push' && call[1][1] === 'origin'
 			);
 			const final_push_order = spawn.mock.invocationCallOrder[final_push_call]!;
-			expect(cp_order).toBeLessThan(final_push_order);
+			expect(copy_order).toBeLessThan(final_push_order);
 		});
 
 		test('all operations happen in expected order for existing deployment', async () => {
@@ -488,9 +470,7 @@ describe('deploy_task integration scenarios', () => {
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { remove } = await get_mock_project();
-			const { cp } = await import('node:fs/promises');
-			const { exists } = await get_mock_project();
+			const { remove, copy, exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
 			vi.mocked(git_current_branch_name).mockResolvedValue('deploy');
@@ -513,7 +493,7 @@ describe('deploy_task integration scenarios', () => {
 			// Build and deploy
 			const empty_order = remove.mock.invocationCallOrder[0]!;
 			const build_order = (ctx.invoke_task as any).mock.invocationCallOrder[0]!;
-			const cp_order = (cp as any).mock.invocationCallOrder[0]!;
+			const copy_order = copy.mock.invocationCallOrder[0]!;
 
 			// Verify order
 			expect(checkout_order).toBeLessThan(pull_source_order);
@@ -521,7 +501,7 @@ describe('deploy_task integration scenarios', () => {
 			expect(branch_name_order).toBeLessThan(reset_order);
 			expect(reset_order).toBeLessThan(empty_order);
 			expect(empty_order).toBeLessThan(build_order);
-			expect(build_order).toBeLessThan(cp_order);
+			expect(build_order).toBeLessThan(copy_order);
 		});
 	});
 });

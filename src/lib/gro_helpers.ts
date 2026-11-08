@@ -1,3 +1,4 @@
+// on `node:fs`: finds the Gro install that the CLI spawns `node` with, bootstrapping only Node
 import { realpathSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

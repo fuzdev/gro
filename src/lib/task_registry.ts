@@ -1,7 +1,6 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
-import { readdir } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
@@ -9,7 +8,7 @@ import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import { paths, to_search_filters_relative } from './paths.ts';
 import { is_path_specifier } from './resolve_specifier.ts';
-import { fs_search_path } from './internal/fs_path.ts';
+import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
 import {
 	is_task_path,
 	load_task,
@@ -158,7 +157,12 @@ export interface BuiltinTaskEntry extends TaskRegistryEntry {
 export const task_registry_find_builtins = async (
 	dir: PathId
 ): Promise<Array<BuiltinTaskEntry>> => {
-	const filenames = (await readdir(dir)).filter((f) => f.endsWith(TASK_FILE_SUFFIX_TS)).sort();
+	const opened = await fs_open_path(dir);
+	const filenames: Array<string> = [];
+	for await (const { name } of opened.dir.list(opened.path)) {
+		if (name.endsWith(TASK_FILE_SUFFIX_TS)) filenames.push(name);
+	}
+	filenames.sort();
 	const entries: Array<BuiltinTaskEntry> = [];
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);

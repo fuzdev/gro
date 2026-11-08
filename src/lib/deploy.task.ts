@@ -3,7 +3,6 @@ import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
-import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import {
 	git_check_clean_workspace,
@@ -25,7 +24,13 @@ import {
 import { is_silent_error, TaskError, type Task } from './task.ts';
 import { print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import {
+	fs_copy_path,
+	fs_open_path,
+	fs_remove_path,
+	is_project_or_ancestor,
+	type FsOpenedPath
+} from './internal/fs_path.ts';
 
 // docs at ../docs/deploy.md
 
@@ -130,6 +135,9 @@ export const task: Task<Args> = {
 		} = args;
 
 		// Checks
+		// the deploy dir is removed and emptied below, so never the project or an ancestor
+		const resolved_deploy_dir = resolve(deploy_dir);
+		await assert_deploy_dir_not_project(resolved_deploy_dir);
 		if (!force && target !== TARGET_BRANCH) {
 			throw new TaskError(
 				`Warning! You are deploying to a custom target branch '${target}',` +
@@ -178,7 +186,6 @@ export const task: Task<Args> = {
 		}
 
 		// Prepare the target branch remotely and locally
-		const resolved_deploy_dir = resolve(deploy_dir);
 		// resolved at each check, since the steps below remove and recreate the directory
 		const deploy_dir_exists = async (): Promise<boolean> => {
 			const opened = await fs_open_path(resolved_deploy_dir);
@@ -196,7 +203,7 @@ export const task: Task<Args> = {
 				if (target !== (await git_current_branch_name(target_spawn_options))) {
 					// We're in a bad state because the target branch has changed,
 					// so delete the directory and continue as if it wasn't there.
-					await rm(resolved_deploy_dir, { recursive: true });
+					await fs_remove_path(resolved_deploy_dir, { recursive: true });
 				} else {
 					// in case it's dirty
 					const reset_result = await spawn('git', ['reset', '--hard'], target_spawn_options);
@@ -208,14 +215,14 @@ export const task: Task<Args> = {
 							print_path(resolved_deploy_dir),
 							'- recreating it'
 						);
-						await rm(resolved_deploy_dir, { recursive: true });
+						await fs_remove_path(resolved_deploy_dir, { recursive: true });
 					} else if (!reset) {
 						// Skip pulling target branch when resetting (optimization - we reset after anyway)
 						await git_pull(origin, target, target_spawn_options);
 						if (await git_check_clean_workspace(target_spawn_options)) {
 							// We're in a bad state because the local branch lost continuity with the remote,
 							// so delete the directory and continue as if it wasn't there.
-							await rm(resolved_deploy_dir, { recursive: true });
+							await fs_remove_path(resolved_deploy_dir, { recursive: true });
 						}
 					}
 				}
@@ -255,8 +262,9 @@ export const task: Task<Args> = {
 
 			// Delete the deploy dir and recreate it
 			if (await deploy_dir_exists()) {
-				await rm(resolved_deploy_dir, { recursive: true });
-				await mkdir(resolved_deploy_dir, { recursive: true });
+				await fs_remove_path(resolved_deploy_dir, { recursive: true });
+				const recreated = await fs_open_path(resolved_deploy_dir);
+				await recreated.dir.mkdir(recreated.path, { recursive: true });
 			}
 
 			// Delete the target branch locally in the cwd if it exists
@@ -290,7 +298,7 @@ export const task: Task<Args> = {
 
 		// Remove everything except .git from the deploy directory to avoid stale files,
 		// opened now that it's in its final form, so the emptying never acts on a replaced directory
-		const deploy = await fs_open_path(resolved_deploy_dir);
+		const deploy = await assert_deploy_dir_not_project(resolved_deploy_dir);
 		const stale: Array<string> = [];
 		for await (const { name } of deploy.dir.list(deploy.path)) {
 			if (name !== GIT_DIRNAME) stale.push(name);
@@ -325,10 +333,13 @@ export const task: Task<Args> = {
 		}
 
 		// Copy the build
-		const build_entries = await readdir(build_dir);
+		const build_entries: Array<string> = [];
+		for await (const { name } of build_output.dir.list(build_output.path)) {
+			build_entries.push(name);
+		}
 		await Promise.all(
-			build_entries.map((path) =>
-				cp(join(build_dir, path), join(resolved_deploy_dir, path), { recursive: true })
+			build_entries.map((name) =>
+				fs_copy_path(join(build_dir, name), join(resolved_deploy_dir, name), { recursive: true })
 			)
 		);
 
@@ -395,4 +406,22 @@ export const task: Task<Args> = {
 
 		log.info(st('green', changed ? 'deployed' : 'deployed with no changes'));
 	}
+};
+
+/**
+ * Opens the deploy dir, following its symlinks,
+ * refusing one that resolves to the project or one of its ancestors.
+ */
+const assert_deploy_dir_not_project = async (
+	resolved_deploy_dir: string
+): Promise<FsOpenedPath> => {
+	const opened = await fs_open_path(resolved_deploy_dir);
+	const real = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
+	if (is_project_or_ancestor(real)) {
+		throw new TaskError(
+			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
+				' the project or one of its ancestors'
+		);
+	}
+	return opened;
 };

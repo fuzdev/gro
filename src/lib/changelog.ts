@@ -1,8 +1,8 @@
-import { readFile, writeFile } from 'node:fs/promises';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
 import { github_fetch_commit_prs } from './github.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * Updates a changelog produced by `@changesets/changelog-git` with better links and formatting.
@@ -21,14 +21,15 @@ export const update_changelog = async (
 	log?: Logger,
 	cache: FetchValueCache = new Map() // include a default cache to efficiently handle multiple changesets per commit
 ): Promise<boolean> => {
-	const contents = await readFile(path, 'utf8');
+	const changelog = await fs_open_path(path);
+	const contents = await changelog.dir.read_text(changelog.path);
 	const parsed = parse_changelog(contents);
 	const mapped = await map_changelog(parsed, owner, repo, fetch, token, log, cache);
 	const updated = serialize_changelog(mapped);
 	if (contents === updated) {
 		return false;
 	}
-	await writeFile(path, updated, 'utf8');
+	await changelog.dir.write(changelog.path, updated);
 	return true;
 };
 

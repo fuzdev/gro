@@ -1,4 +1,3 @@
-import { readdir } from 'node:fs/promises';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { spawn } from '@fuzdev/fuz_util/process.ts';
@@ -7,6 +6,7 @@ import { git_check_clean_workspace } from '@fuzdev/fuz_util/git.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -114,8 +114,12 @@ export const task: Task<Args> = {
 
 		// Disallow TODO*.md files in the project root on CI.
 		if (process.env.CI === 'true') {
-			const root_files = await readdir('.');
-			const todo_files = root_files.filter((f) => f.startsWith('TODO') && f.endsWith('.md'));
+			const root = await fs_open_path('.');
+			const todo_files: Array<string> = [];
+			for await (const { name } of root.dir.list(root.path)) {
+				if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);
+			}
+			todo_files.sort();
 			if (todo_files.length > 0) {
 				throw new TaskError(
 					'Found disallowed TODO*.md files in project root: ' + todo_files.join(', ')

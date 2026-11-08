@@ -91,19 +91,37 @@ export const setup_successful_git_mocks = async () => {
 export const DEPLOY_DIR_ENTRIES = ['.git', 'index.html', 'assets'];
 
 /**
+ * The entries of the mocked build dir, copied into the deploy dir.
+ */
+export const BUILD_DIR_ENTRIES = ['index.html', 'assets'];
+
+/**
+ * Mocks `fs.project.list`: the build dir lists `build_entries`, any other directory,
+ * like the deploy dir, lists `DEPLOY_DIR_ENTRIES`.
+ */
+export const mock_listings = async (
+	build_entries: Array<string> = BUILD_DIR_ENTRIES,
+	build_dir = 'build'
+) => {
+	const { list } = await get_mock_project();
+	vi.mocked(list).mockImplementation((path) =>
+		path === build_dir
+			? to_mock_listing(build_entries)
+			: to_mock_listing(DEPLOY_DIR_ENTRIES, ['.git', 'assets'])
+	);
+};
+
+/**
  * Sets up common fs mocks for successful scenarios.
  */
 export const setup_successful_fs_mocks = async () => {
-	const { exists, list, remove } = await get_mock_project();
-	const { cp, mkdir, rm, readdir } = await import('node:fs/promises');
+	const { exists, remove, copy, mkdir } = await get_mock_project();
 
 	vi.mocked(exists).mockResolvedValue(true);
-	vi.mocked(list).mockImplementation(() => to_mock_listing(DEPLOY_DIR_ENTRIES, ['.git', 'assets']));
+	await mock_listings();
 	vi.mocked(remove).mockResolvedValue(undefined);
-	vi.mocked(readdir).mockResolvedValue(['index.html', 'assets'] as any);
-	vi.mocked(cp).mockResolvedValue(undefined);
+	vi.mocked(copy).mockResolvedValue(undefined);
 	vi.mocked(mkdir).mockResolvedValue(undefined);
-	vi.mocked(rm).mockResolvedValue(undefined);
 };
 
 /**

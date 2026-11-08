@@ -5,14 +5,7 @@ import {
 } from '#lib/build_cache.ts';
 import type { BuildCacheDependencies } from '#lib/build_cache_dependencies.ts';
 
-export {
-	create_mock_logger,
-	create_mock_config,
-	mock_file_stats,
-	mock_dir_stats,
-	mock_file_entry,
-	mock_dir_entry
-} from './test_helpers.ts';
+export { create_mock_logger, create_mock_config } from './test_helpers.ts';
 
 /**
  * The dependency key components that test files mocking `build_cache_dependencies.ts` return.
@@ -50,7 +43,6 @@ export const create_mock_output_entry = (
 	hash: 'hash123',
 	size: 1024,
 	mtime: 1729512000000,
-	ctime: 1729512000000,
-	mode: 33188,
+	mode: 0o644,
 	...overrides
 });
