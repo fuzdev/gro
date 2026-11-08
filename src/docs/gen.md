@@ -199,6 +199,11 @@ Outputs `src/elsewhere/otherName.ts`:
 console.log('output path can be relative and name can be anything');
 ```
 
+A `filename` is relative to the genfile's directory, or absolute,
+and it may climb out of that directory with `..`,
+but the output must resolve inside the project, its symlinks followed.
+`gro gen` refuses an output outside it, and so does `gro gen --check`, before reading it.
+
 ### generate multiple custom files
 
 The `gen` function can also return an array of files.

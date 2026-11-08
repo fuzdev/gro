@@ -99,13 +99,13 @@ export interface FormatDirectoryOptions {
  * When `patterns` is provided, formats those specific files/globs.
  * Otherwise formats `dir` (recursively, respecting `filter`) plus the root
  * files when `dir` is the root's `src/`. A sweep acts on regular files only,
- * skipping a symlink, as tsv's own walk does; a root file is followed.
+ * skipping a symlink, as tsv's own walk does, root files included.
  * In both modes, files matched by the project root's `.formatignore`,
  * or with none, its `.prettierignore`, are skipped.
  *
  * Files the formatter rejects (e.g. a syntax error), or that can't be read,
  * are reported and fail the run in both modes rather than being silently skipped.
- * A default root file the project lacks is skipped.
+ * A default root file the project lacks, or that's a symlink, is skipped.
  *
  * This is separated from `./format_file` so modules that only need directory
  * traversal don't pull in the formatter (which loads the `tsv` native addon).
@@ -306,13 +306,18 @@ const collect_source_files = async (
 		}
 	}
 	if (dir === join(root, 'src/')) {
-		const root_files = await Promise.all(
-			ROOT_FILES_DEFAULT.map(async (name): Promise<FormatFile> => {
-				const id = join(root, name);
-				return { id, ...(await fs_open_path(id)) };
-			})
-		);
-		files.push(...root_files);
+		// entries of the root, never followed, so a symlinked root file is skipped like a sweep's
+		const root_dir = await fs_open_dir_path(root);
+		if (root_dir !== null) {
+			const root_files = await Promise.all(
+				ROOT_FILES_DEFAULT.map(async (name): Promise<FormatFile | null> => {
+					const path = join_beneath(root_dir.path, name);
+					const info = await root_dir.dir.stat(path, { follow: false });
+					return info?.kind === 'file' ? { id: join(root, name), dir: root_dir.dir, path } : null;
+				})
+			);
+			for (const f of root_files) if (f !== null) files.push(f);
+		}
 	}
 	return files;
 };

@@ -1,13 +1,16 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resolve } from 'node:path';
 
-import { task as deploy_task } from '#lib/deploy.task.ts';
+import { task as deploy_task, DEPLOY_CLONE_CONFIG_KEY } from '#lib/deploy.task.ts';
 
 import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock,
-	mock_spawn_results
+	mock_spawn_results,
+	is_clone_call,
+	ORIGIN_URL
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
@@ -23,7 +26,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -82,8 +84,9 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 			// Should NOT delete (doesn't exist)
 			expect(remove).not.toHaveBeenCalledWith('.gro/deploy', expect.anything());
-			// Should NOT recreate (only does that if it existed before)
-			expect(mkdir).not.toHaveBeenCalled();
+			// Should NOT recreate (only does that if it existed before), only make `.gro/` for the clone
+			expect(mkdir).not.toHaveBeenCalledWith('.gro/deploy', expect.anything());
+			expect(mkdir).toHaveBeenCalledWith('.gro');
 		});
 
 		test('uses custom deploy_dir path', async () => {
@@ -92,14 +95,14 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			vi.mocked(exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
-				deploy_dir: 'custom/path',
+				deploy_dir: '.gro/custom/path',
 				dry: true
 			});
 
 			await deploy_task.run(ctx);
 
-			expect(remove).toHaveBeenCalledWith('custom/path', { recursive: true });
-			expect(mkdir).toHaveBeenCalledWith('custom/path', { recursive: true });
+			expect(remove).toHaveBeenCalledWith('.gro/custom/path', { recursive: true });
+			expect(mkdir).toHaveBeenCalledWith('.gro/custom/path', { recursive: true });
 		});
 	});
 
@@ -141,7 +144,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('orphan branch creation', () => {
 		test('clones source branch locally to deploy dir', async () => {
-			const { git_clone_locally } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 
 			const ctx = create_mock_deploy_task_context({
 				source: 'main',
@@ -151,12 +154,23 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 			await deploy_task.run(ctx);
 
-			// Should clone from origin/source to deploy dir
-			expect(git_clone_locally).toHaveBeenCalledWith(
-				'origin',
+			// clones the source branch from the cwd, then points the clone's origin at the project's
+			expect(spawn).toHaveBeenCalledWith('git', [
+				'clone',
+				'-b',
 				'main',
+				'--single-branch',
 				process.cwd(),
-				expect.stringContaining('.gro/deploy')
+				resolve('.gro/deploy')
+			]);
+			expect(spawn).toHaveBeenCalledWith('git', ['remote', 'set-url', 'origin', ORIGIN_URL], {
+				cwd: resolve('.gro/deploy')
+			});
+			// tagged, so a later deploy knows it for a clone Gro made
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['config', '--local', DEPLOY_CLONE_CONFIG_KEY, 'true'],
+				{ cwd: resolve('.gro/deploy') }
 			);
 		});
 
@@ -323,14 +337,16 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 	});
 
 	describe('error handling', () => {
-		test('propagates error when git_clone_locally fails', async () => {
-			const { git_clone_locally } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-
-			vi.mocked(git_clone_locally).mockRejectedValue(new Error('Clone failed'));
+		test('a failed clone fails the deploy before setting any remote', async () => {
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			await mock_spawn_results(is_clone_call);
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Clone failed');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				'`git clone -b main --single-branch` failed'
+			);
+			expect(spawn.mock.calls.some(([, args]) => args?.includes('set-url'))).toBe(false);
 		});
 
 		test('propagates error when orphan branch creation fails', async () => {

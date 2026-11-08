@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { fs, type DirEntry, type FsDir } from '#lib/fs.ts';
+import { fs, FsError, type DirEntry, type FsDir } from '#lib/fs.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,
@@ -545,5 +545,59 @@ describe('path arguments', () => {
 		}
 		assert.throws(() => dir.stat_sync('a\0b'), TypeError);
 		assert.throws(() => dir.dir('a\0b'), TypeError);
+	});
+
+	test('a path with a lone surrogate is a `TypeError`, never the U+FFFD entry it encodes as', async () => {
+		writeFileSync(join(sandbox.root, '\uFFFD'), 'replacement');
+		const ops: Array<() => unknown> = [
+			() => dir.read_text('\uD800'),
+			() => dir.stat('a/\uDC00'),
+			() => dir.write('\uD800', 'x'),
+			() => dir.remove('\uD800'),
+			() => fs.open_dir(sandbox.root + '/\uD800'),
+			() => fs.temp_dir('\uD800')
+		];
+		for (const op of ops) {
+			try {
+				await op();
+				assert.fail('expected a TypeError');
+			} catch (error) {
+				assert.instanceOf(error, TypeError);
+			}
+		}
+		assert.throws(() => dir.read_text_sync('\uD800'), TypeError);
+		assert.strictEqual(readFileSync(join(sandbox.root, '\uFFFD'), 'utf8'), 'replacement');
+	});
+
+	test('temp_dir refuses a prefix that is not a string, whatever it claims', async () => {
+		const forged = {
+			includes: () => false,
+			toString: () => '../' + sandbox.base.slice(1) + '/made-'
+		};
+		// a String object, which passes a check that reads its own `includes`
+		// eslint-disable-next-line no-new-wrappers
+		for (const prefix of [forged, Object.assign(new String('x'), { toString: () => '../x' }), 1]) {
+			try {
+				await fs.temp_dir(prefix as any);
+				assert.fail('expected a TypeError');
+			} catch (error) {
+				assert.instanceOf(error, TypeError);
+			}
+		}
+		assert.deepEqual(readdirSync(sandbox.base).sort(), ['outside', 'root']);
+	});
+});
+
+describe('FsError', () => {
+	test('the class and its prototype are frozen, so no holder hooks how ops classify errors', () => {
+		assert.ok(Object.isFrozen(FsError));
+		assert.ok(Object.isFrozen(FsError.prototype));
+		assert.throws(() => {
+			Object.defineProperty(FsError, Symbol.hasInstance, { value: () => true });
+		}, TypeError);
+		assert.throws(() => {
+			(FsError.prototype as any).toString = () => 'patched';
+		}, TypeError);
+		assert.strictEqual(String(new FsError('io_error', '/x')), 'FsError: io_error: /x');
 	});
 });

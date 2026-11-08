@@ -5,6 +5,7 @@ import { styleText as st } from 'node:util';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
+import { to_checked_cwd } from './internal/cwd.ts';
 
 /*
 
@@ -58,7 +59,7 @@ export const replace_extension = (path: string, new_extension: string): string =
 /**
  * `Paths` for the user repo.
  */
-export const paths = create_paths(process.cwd());
+export const paths = create_paths(to_checked_cwd());
 
 /**
  * Finds the Gro package directory from the path of Gro's own `paths` module,

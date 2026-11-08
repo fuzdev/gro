@@ -276,6 +276,16 @@ Cache metadata is stored at `.gro/build.json`.
 This location is independent of build outputs, so the cache survives manual deletion of `build/`.
 Running `gro clean` deletes the cache along with the `.gro/` directory.
 
+To keep `.gro/` off disk, link it to a path on a tmpfs that doesn't exist yet,
+like `ln -s /tmp/my-project-gro .gro`.
+Gro creates the target when it first writes there and marks it with `.gro/.gro_marker`,
+and `gro clean` then empties the target and keeps the link.
+After a reboot clears the tmpfs, `gro clean` leaves the dangling link alone,
+and Gro creates and marks the target again on its next write.
+`gro clean` empties only a target that holds the marker and is outside any git work tree:
+a target that already existed, even empty, or was recreated by something other than Gro,
+is unlinked, its contents untouched, with a warning saying why.
+
 The `.gro/build.json` file stores:
 
 ```json

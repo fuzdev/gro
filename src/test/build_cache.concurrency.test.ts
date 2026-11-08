@@ -79,11 +79,13 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles concurrent cache writes', async () => {
-		const { write, mkdir } = await get_mock_project();
+		const { write, mkdir, stat } = await get_mock_project();
 
 		const metadata1 = create_mock_build_cache_metadata({ git_commit: 'commit1' });
 		const metadata2 = create_mock_build_cache_metadata({ git_commit: 'commit2' });
 
+		// no `.gro/` yet, so each makes it and writes its marker
+		vi.mocked(stat).mockResolvedValue(null);
 		vi.mocked(mkdir).mockResolvedValue(undefined);
 		vi.mocked(write).mockResolvedValue(undefined);
 
@@ -91,7 +93,7 @@ describe('race condition: cache file modification during validation', () => {
 		await Promise.all([save_build_cache_metadata(metadata1), save_build_cache_metadata(metadata2)]);
 
 		// both should complete without throwing
-		expect(write).toHaveBeenCalledTimes(2);
+		expect(write.mock.calls.filter(([path]) => path === '.gro/build.json')).toHaveLength(2);
 		expect(mkdir).toHaveBeenCalledTimes(2);
 	});
 

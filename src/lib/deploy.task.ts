@@ -17,20 +17,23 @@ import {
 	git_pull,
 	git_fetch,
 	git_check_setting_pull_rebase,
-	git_clone_locally,
 	git_current_branch_name
 } from '@fuzdev/fuz_util/git.ts';
 
 import { is_silent_error, TaskError, type Task } from './task.ts';
-import { print_path } from './paths.ts';
+import { paths, print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
+import { fs } from './fs.ts';
 import {
 	fs_copy_path,
 	fs_open_path,
+	fs_protected_dirs,
 	fs_remove_path,
-	is_project_or_ancestor,
+	is_protected_dir,
+	PROTECTED_DIRS_TEXT,
 	type FsOpenedPath
 } from './internal/fs_path.ts';
+import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 // docs at ../docs/deploy.md
 
@@ -135,9 +138,10 @@ export const task: Task<Args> = {
 		} = args;
 
 		// Checks
-		// the deploy dir is removed and emptied below, so never the project or an ancestor
+		// the deploy dir is removed, emptied, and run git in below, so before anything else,
+		// it must be somewhere Gro may own, and if it exists, a clone Gro made
 		const resolved_deploy_dir = resolve(deploy_dir);
-		await assert_deploy_dir_not_project(resolved_deploy_dir);
+		await assert_deploy_dir_owned(await open_deploy_dir(resolved_deploy_dir), origin);
 		if (!force && target !== TARGET_BRANCH) {
 			throw new TaskError(
 				`Warning! You are deploying to a custom target branch '${target}',` +
@@ -233,7 +237,7 @@ export const task: Task<Args> = {
 			if (!(await deploy_dir_exists())) {
 				const local_deploy_branch_exists = await git_local_branch_exists(target);
 				await git_fetch(origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
-				await git_clone_locally(origin, target, dir, resolved_deploy_dir);
+				await clone_deploy_dir(origin, target, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd
 				if (!local_deploy_branch_exists) {
 					await git_delete_local_branch(target);
@@ -274,7 +278,7 @@ export const task: Task<Args> = {
 
 			// Create the target branch locally and remotely.
 			// This is more complex to avoid churning the cwd.
-			await git_clone_locally(origin, source, dir, resolved_deploy_dir);
+			await clone_deploy_dir(origin, source, resolved_deploy_dir);
 			const spawn_init = async (command: string, command_args: Array<string>): Promise<void> => {
 				const result = await spawn(command, command_args, target_spawn_options);
 				if (!result.ok) {
@@ -298,7 +302,7 @@ export const task: Task<Args> = {
 
 		// Remove everything except .git from the deploy directory to avoid stale files,
 		// opened now that it's in its final form, so the emptying never acts on a replaced directory
-		const deploy = await assert_deploy_dir_not_project(resolved_deploy_dir);
+		const deploy = await open_deploy_dir(resolved_deploy_dir);
 		const stale: Array<string> = [];
 		for await (const { name } of deploy.dir.list(deploy.path)) {
 			if (name !== GIT_DIRNAME) stale.push(name);
@@ -409,19 +413,144 @@ export const task: Task<Args> = {
 };
 
 /**
- * Opens the deploy dir, following its symlinks,
- * refusing one that resolves to the project or one of its ancestors.
+ * Opens the deploy dir, following its symlinks, and refuses one where Gro may own nothing:
+ * the project, `$HOME`, or an ancestor of either, or a directory inside the project
+ * other than one strictly beneath `.gro/`, where the project's own files are.
  */
-const assert_deploy_dir_not_project = async (
-	resolved_deploy_dir: string
-): Promise<FsOpenedPath> => {
+const open_deploy_dir = async (resolved_deploy_dir: string): Promise<FsOpenedPath> => {
 	const opened = await fs_open_path(resolved_deploy_dir);
-	const real = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
-	if (is_project_or_ancestor(real)) {
+	const real = to_opened_real_path(opened);
+	if (is_protected_dir(real, await fs_protected_dirs())) {
 		throw new TaskError(
 			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
-				' the project or one of its ancestors'
+				` ${PROTECTED_DIRS_TEXT}`
 		);
 	}
+	if (opened.dir === fs.project) {
+		const segments = opened.path.split('/').filter(Boolean);
+		if (segments[0] !== GRO_DIRNAME || segments.length < 2) {
+			throw new TaskError(
+				`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real}, inside the project` +
+					` but not beneath \`${GRO_DIRNAME}/\`, so it could hold the project's own files` +
+					` - choose a deploy dir beneath \`${GRO_DIRNAME}/\` or outside the project`
+			);
+		}
+	}
 	return opened;
+};
+
+const join_beneath = (dir_path: string, name: string): string =>
+	dir_path ? dir_path.replace(/\/+$/, '') + '/' + name : name;
+
+const to_opened_real_path = (opened: FsOpenedPath): string =>
+	opened.path ? join(opened.dir.path, opened.path.replace(/\/+$/, '')) : opened.dir.path;
+
+/**
+ * The local git config key `clone_deploy_dir` sets to `true` in each deploy clone it makes,
+ * so an ordinary checkout of the project, with the same `origin`, is never taken for one.
+ * @nodocs
+ */
+export const DEPLOY_CLONE_CONFIG_KEY = 'gro.deploy-clone';
+
+/**
+ * Refuses an existing deploy dir that isn't a clone Gro made, before anything removes it or
+ * runs git in it: it must be a directory and its own repo's top level, not a directory
+ * in another repo, with its own `.git` directory as its git dir, carry the local config `DEPLOY_CLONE_CONFIG_KEY` set to `true`, and have
+ * the `origin` remote `clone_deploy_dir` sets, the project's. A missing one passes.
+ * Gro never removes a refused deploy dir, which the message leaves to the user.
+ */
+const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin): Promise<void> => {
+	if (!(await opened.dir.exists(opened.path))) return;
+	const real = to_opened_real_path(opened);
+	const refuse = (reason: string): TaskError =>
+		new TaskError(
+			`The deploy dir ${print_path(real)} exists but isn't a clone \`gro deploy\` made: ${reason}.` +
+				' Gro never removes it - if nothing in it is needed, remove it yourself, then deploy again'
+		);
+	// before any git call, which would run with a file as its cwd
+	if ((await opened.dir.stat(opened.path))?.kind !== 'directory') {
+		throw refuse('it is not a directory');
+	}
+	const toplevel = await spawn_out('git', ['rev-parse', '--show-toplevel'], { cwd: real });
+	const toplevel_path = toplevel.result.ok ? toplevel.stdout?.trim() : undefined;
+	if (!toplevel_path) throw refuse('it is not in a git repo');
+	if (toplevel_path !== real) throw refuse(`it is inside the git repo at ${toplevel_path}`);
+	// its own `.git` directory, so a layout like a committed bare repo with `core.worktree`,
+	// whose config could carry a forged tag, isn't taken for a clone
+	const own_git_dir = real + '/' + GIT_DIRNAME;
+	const git_dir = await spawn_out('git', ['rev-parse', '--absolute-git-dir'], { cwd: real });
+	const git_dir_path = git_dir.result.ok ? git_dir.stdout?.trim() : undefined;
+	if (git_dir_path !== own_git_dir) {
+		throw refuse(`its git dir is ${git_dir_path ?? 'unknown'}, not its own ${own_git_dir}`);
+	}
+	const git_dir_info = await opened.dir.stat(join_beneath(opened.path, GIT_DIRNAME), {
+		follow: false
+	});
+	if (git_dir_info?.kind !== 'directory') {
+		throw refuse(`its ${GIT_DIRNAME} is not a directory`);
+	}
+	const expected = await to_origin_url(origin, dir);
+	if (expected === null) {
+		throw refuse(`the project has no \`${origin}\` remote to compare it with`);
+	}
+	const actual = await to_origin_url(origin, real);
+	if (actual !== expected) {
+		throw refuse(
+			actual === null
+				? `it has no \`${origin}\` remote`
+				: `its \`${origin}\` remote is ${actual}, not the project's ${expected}`
+		);
+	}
+	const tag = await spawn_out('git', ['config', '--local', '--get', DEPLOY_CLONE_CONFIG_KEY], {
+		cwd: real
+	});
+	if (!tag.result.ok || tag.stdout?.trim() !== 'true') {
+		throw refuse(
+			`it lacks the local git config \`${DEPLOY_CLONE_CONFIG_KEY} true\` that marks a deploy clone` +
+				' (a clone from before the mark, which Gro re-clones once it is removed, or another checkout)'
+		);
+	}
+};
+
+const to_origin_url = async (origin: GitOrigin, cwd: string): Promise<string | null> => {
+	const { result, stdout } = await spawn_out('git', ['remote', 'get-url', origin], { cwd });
+	return (result.ok && stdout?.trim()) || null;
+};
+
+/**
+ * Clones the project's `branch` into the deploy dir, points the clone's `origin` remote
+ * at the project's, and tags it with `DEPLOY_CLONE_CONFIG_KEY`, failing at the first step that fails, so `remote set-url`
+ * never runs after a failed clone, in a directory that could be inside another repo.
+ * Makes the project's `.gro/` first, with its marker, when the deploy dir is beneath it.
+ */
+const clone_deploy_dir = async (
+	origin: GitOrigin,
+	branch: GitBranch,
+	resolved_deploy_dir: string
+): Promise<void> => {
+	if (resolved_deploy_dir.startsWith(paths.build)) await gro_dir_ensure();
+	const fail = (step: string): TaskError =>
+		new TaskError(
+			`\`${step}\` failed preparing the deploy dir ${print_path(resolved_deploy_dir)},` +
+				' so nothing was pushed - see the output above, resolve the failure, then deploy again'
+		);
+	const clone = await spawn('git', [
+		'clone',
+		'-b',
+		branch,
+		'--single-branch',
+		dir,
+		resolved_deploy_dir
+	]);
+	if (!clone.ok) throw fail(`git clone -b ${branch} --single-branch`);
+	const url = await to_origin_url(origin, dir);
+	if (url === null) throw fail(`git remote get-url ${origin}`);
+	const set_url = await spawn('git', ['remote', 'set-url', origin, url], {
+		cwd: resolved_deploy_dir
+	});
+	if (!set_url.ok) throw fail(`git remote set-url ${origin}`);
+	const set_tag = await spawn('git', ['config', '--local', DEPLOY_CLONE_CONFIG_KEY, 'true'], {
+		cwd: resolved_deploy_dir
+	});
+	if (!set_tag.ok) throw fail(`git config --local ${DEPLOY_CLONE_CONFIG_KEY} true`);
 };

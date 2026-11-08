@@ -26,7 +26,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -75,13 +74,13 @@ describe('deploy_task commit and push', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				dry: false,
-				deploy_dir: 'custom/deploy'
+				deploy_dir: '.gro/custom/deploy'
 			});
 
 			await deploy_task.run(ctx);
 
 			expect(spawn).toHaveBeenCalledWith('git', ['add', '.'], {
-				cwd: resolve('custom/deploy')
+				cwd: resolve('.gro/custom/deploy')
 			});
 		});
 
@@ -127,13 +126,13 @@ describe('deploy_task commit and push', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				dry: false,
-				deploy_dir: 'custom/deploy'
+				deploy_dir: '.gro/custom/deploy'
 			});
 
 			await deploy_task.run(ctx);
 
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'deployment'], {
-				cwd: resolve('custom/deploy')
+				cwd: resolve('.gro/custom/deploy')
 			});
 		});
 
@@ -202,13 +201,13 @@ describe('deploy_task commit and push', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				dry: false,
-				deploy_dir: 'custom/deploy'
+				deploy_dir: '.gro/custom/deploy'
 			});
 
 			await deploy_task.run(ctx);
 
 			expect(spawn).toHaveBeenCalledWith('git', expect.anything(), {
-				cwd: resolve('custom/deploy')
+				cwd: resolve('.gro/custom/deploy')
 			});
 		});
 
@@ -363,7 +362,11 @@ describe('deploy_task commit and push', () => {
 				spawn.mock.invocationCallOrder[
 					spawn.mock.calls.findIndex((call) => call[0] === 'git' && call[1]?.[0] === 'add')
 				]!;
-			expect(spawn_out.mock.invocationCallOrder[0]).toBeGreaterThan(add_order);
+			const ls_files_order =
+				spawn_out.mock.invocationCallOrder[
+					spawn_out.mock.calls.findIndex((call) => call[0] === 'git' && call[1]?.[0] === 'ls-files')
+				]!;
+			expect(ls_files_order).toBeGreaterThan(add_order);
 		});
 
 		test('warns with each ignored file and still deploys', async () => {

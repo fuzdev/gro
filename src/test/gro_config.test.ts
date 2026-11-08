@@ -1,4 +1,4 @@
-import { test, expect, vi } from 'vitest';
+import { test, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
@@ -9,12 +9,6 @@ import {
 	load_gro_config
 } from '#lib/gro_config.ts';
 import { paths } from '#lib/paths.ts';
-
-// Makes `load_gro_config` see no `gro.config.ts` and fall back to the default config.
-// At the top level because that's where Vitest hoists it to anyway.
-vi.mock('node:fs', () => ({
-	existsSync: vi.fn().mockReturnValue(false)
-}));
 
 test('load_gro_config', async () => {
 	const config = await load_gro_config();

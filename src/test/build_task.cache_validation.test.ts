@@ -19,16 +19,6 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
 
-vi.mock('node:fs', () => ({
-	existsSync: vi.fn(),
-	rmSync: vi.fn(),
-	mkdirSync: vi.fn(),
-	readFileSync: vi.fn(),
-	writeFileSync: vi.fn(),
-	readdirSync: vi.fn(),
-	statSync: vi.fn()
-}));
-
 vi.mock('#lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
 }));

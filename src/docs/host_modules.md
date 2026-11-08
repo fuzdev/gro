@@ -98,9 +98,62 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
   so it can run unchanged where the module is a builtin.
   What stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
   (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
+  the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
   the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
+
+## Hardening
+
+### The module's invariants
+
+The fs module keeps these in the Node implementation, and the runtime's builtin keeps them natively:
+
+- Handles come only from `fs` and other handles.
+  Each constructor checks a key only the module holds, so a handle's `constructor` makes nothing.
+- A handle's state lives in private fields, and every op reads it from there,
+  so an op called on a borrowed receiver, any object but a handle, throws `TypeError`.
+- Handles, their prototypes, `fs`, and `FsError` with its prototype are frozen.
+- `remove` and `rename` refuse the handle's own directory.
+- A path's `..` segments resolve lexically, before any symlink, and never climb above the handle.
+  A path is a string without a NUL byte or a lone surrogate, which would encode as U+FFFD
+  and name a different entry than it spells, else a `TypeError`.
+- An absolute symlink is `outside_root`, and so is a relative one that climbs above the handle,
+  even when it would land back inside. A component a path passes through must be a directory.
+- `fs.temp_dir` takes only a string prefix, so no `toString` of the caller's names the directory.
+
+### The Node implementation's own measures
+
+These exist because the Node implementation resolves paths itself, in JS, before handing one to Node:
+
+- The walk takes one component at a time, and a component holds no `/`,
+  checked by index, so a segment a polluted `split`, `pop`, or array iterator forged is `outside_root`.
+- Inside an op, errors are classified by a private brand, never `instanceof`,
+  so no `Symbol.hasInstance` runs mid-op.
+- The Node functions the module calls are copied at load,
+  so `syncBuiltinESMExports` can't rebind them under a handle.
+- Symlink targets, real paths, and listed names are read as bytes and must be UTF-8,
+  else the op fails with `io_error`, rather than a lossy name reaching a different entry
+  or the kernel following bytes the walk never saw.
+  One name that isn't UTF-8 fails the whole listing, so a sweep over the directory,
+  like `gro format`'s, fails loudly rather than skipping or misnaming the entry.
+
+### Gro's guards on its own destructive paths
+
+Gro's tooling, not the module, guards what it removes and writes:
+
+- Emptying or removing a path from outside refuses `/`, the project, `$HOME`, and an ancestor of either.
+- `gro clean` empties a symlinked `.gro/`'s target only when it holds the marker Gro writes
+  into a `.gro/` it creates, and isn't inside a git work tree.
+  It leaves a dangling link alone, with nothing to clean.
+  It unlinks `.gro/` with a warning when the target is a directory outside the project
+  that lacks the marker or is inside a git work tree,
+  and unlinks it silently when it points inside the project, at a file, or into a loop.
+- Gro reads its working directory's real path as bytes when it loads,
+  and refuses to load where that path isn't UTF-8, which `process.cwd()` would report
+  lossily as a different directory.
+- `gro deploy` refuses a deploy dir it didn't clone, `gro gen` writes only inside the project,
+  and `gro upgrade` deletes only inside it.
 
 ## The Node implementation's gaps
 
@@ -110,12 +163,29 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 - Confinement is a check, then an open: a path is walked beneath the handle's directory,
   reading each symlink, then the op runs. A symlink swapped in between escapes, since Node has no `openat2`.
+  Recursive `copy` and `remove` hand the whole tree to Node, which walks it by path.
 - A handle is bound to its directory's path, not its inode.
   When the directory is moved or replaced, the handle follows the path,
   refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
   the runtime's handle holds a descriptor and keeps the directory it opened.
+- Intrinsics stay pollutable. Code that patches `String.prototype`, `Array.prototype`, `Promise`,
+  `Error`, `TextDecoder`, or `Reflect` after the module loads runs inside its ops,
+  and the module blocks only the forgeries named above.
+- A handle opened on `/proc` follows its magic links (`/proc/self/fd/1`, `/proc/self/root`),
+  which the kernel resolves without a path the walk can check.
 - `fs.open_dir` takes any absolute path, checked against no grant.
 - Any module can import `node:fs` and the `process` global stays,
   so a narrowed handle bounds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
   so importing the module throws when the working directory has been removed.
+
+## Native requirements
+
+What the runtime's builtin must do that the Node implementation can't:
+
+- Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's descriptor,
+  never a check followed by an open.
+- Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
+- Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
+- Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`.
+- Return owned buffers from `read`, never a view of memory the runtime reuses.

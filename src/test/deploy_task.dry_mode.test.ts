@@ -24,7 +24,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -115,7 +114,7 @@ describe('deploy_task dry mode', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				dry: true,
-				deploy_dir: 'custom/path'
+				deploy_dir: '.gro/custom/path'
 			});
 
 			await deploy_task.run(ctx);
@@ -123,7 +122,7 @@ describe('deploy_task dry mode', () => {
 			expect(ctx.log.info).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.anything(),
-				expect.stringContaining('custom/path')
+				expect.stringContaining('.gro/custom/path')
 			);
 		});
 

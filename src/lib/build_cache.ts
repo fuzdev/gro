@@ -18,6 +18,7 @@ import {
 import { FsError, is_fs_error, type DirEntry, type FsDir } from './fs.ts';
 // TODO: take handles from the tasks, the composition roots, instead of opening paths here
 import { fs_open_path, fs_remove_path, type FsOpenedPath } from './internal/fs_path.ts';
+import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
 export const BUILD_CACHE_VERSION = '3';
@@ -155,9 +156,7 @@ export const save_build_cache_metadata = async (
 	log?: Logger
 ): Promise<void> => {
 	try {
-		// Ensure .gro directory exists
-		const build_dir = await fs_open_path(paths.build);
-		await build_dir.dir.mkdir(build_dir.path, { recursive: true });
+		await gro_dir_ensure();
 
 		const metadata_file = await fs_open_path(join(paths.build, BUILD_CACHE_METADATA_FILENAME));
 		await metadata_file.dir.write(metadata_file.path, JSON.stringify(metadata, null, '\t'));

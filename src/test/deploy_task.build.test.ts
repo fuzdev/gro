@@ -24,7 +24,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),

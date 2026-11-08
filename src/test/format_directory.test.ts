@@ -267,6 +267,22 @@ test('a file named explicitly is followed through a symlink', async () => {
 	expect(lstatSync(join(root, 'src/lib/absolute.ts')).isSymbolicLink()).toBe(true);
 });
 
+test('a root file that is a symlink is skipped, never followed', async () => {
+	writeFileSync(join(root, 'outside.ts'), 'const  o=1\n');
+	writeFileSync(join(root, 'vite.config.ts'), 'const  v=1\n');
+	symlinkSync(join(root, 'outside.ts'), join(root, 'gro.config.ts'));
+	const result = await format_directory({
+		log: create_mock_logger(),
+		dir: join(root, 'src/'),
+		root
+	});
+	expect(result.ok).toBe(true);
+	expect(result.formatted).toContain(join(root, 'vite.config.ts'));
+	expect(result.formatted).not.toContain(join(root, 'gro.config.ts'));
+	expect(readFileSync(join(root, 'outside.ts'), 'utf8')).toBe('const  o=1\n');
+	expect(lstatSync(join(root, 'gro.config.ts')).isSymbolicLink()).toBe(true);
+});
+
 test('an existing file is never a glob, even with glob syntax in its name', async () => {
 	mkdirSync(join(root, 'src/routes/[slug]'), { recursive: true });
 	mkdirSync(join(root, 'src/routes/s'), { recursive: true });

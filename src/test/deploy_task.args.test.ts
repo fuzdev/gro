@@ -24,7 +24,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -125,15 +124,15 @@ describe('deploy_task args', () => {
 		vi.mocked(exists).mockResolvedValue(true);
 
 		const ctx = create_mock_deploy_task_context({
-			deploy_dir: 'custom/deploy',
+			deploy_dir: '.gro/custom/deploy',
 			dry: true
 		});
 
 		await deploy_task.run(ctx);
 
 		// Should use custom deploy_dir in operations
-		expect(git_current_branch_name).toHaveBeenCalledWith({ cwd: resolve('custom/deploy') });
-		expect(list).toHaveBeenCalledWith('custom/deploy');
+		expect(git_current_branch_name).toHaveBeenCalledWith({ cwd: resolve('.gro/custom/deploy') });
+		expect(list).toHaveBeenCalledWith('.gro/custom/deploy');
 	});
 
 	test('respects custom build_dir', async () => {

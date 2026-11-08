@@ -10,7 +10,8 @@ import {
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock,
-	mock_listings
+	mock_listings,
+	get_clone_calls
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
@@ -26,7 +27,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -114,9 +114,7 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('the deploy dir is opened for emptying after it is recreated', async () => {
-			const { git_remote_branch_exists, git_clone_locally } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { remove, mkdir } = await get_mock_project();
 			const { fs_open_path } = vi.mocked(await import('#lib/internal/fs_path.ts'));
 			const { exists, list } = await get_mock_project();
@@ -139,12 +137,13 @@ describe('deploy_task deploy directory operations', () => {
 			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			expect(last_open_order).toBeGreaterThan(remove.mock.invocationCallOrder[0]!);
 			expect(last_open_order).toBeGreaterThan(mkdir.mock.invocationCallOrder[0]!);
-			expect(last_open_order).toBeGreaterThan(git_clone_locally.mock.invocationCallOrder[0]!);
+			const clone_order = (await get_clone_calls())[0]!.order;
+			expect(last_open_order).toBeGreaterThan(clone_order);
 			expect(last_open_order).toBeLessThan(list_order);
 			// every open but the one for emptying is an existence check before the clone
 			for (const order of open_orders) {
 				if (order !== last_open_order) {
-					expect(order).toBeLessThan(git_clone_locally.mock.invocationCallOrder[0]!);
+					expect(order).toBeLessThan(clone_order);
 				}
 			}
 		});
@@ -199,13 +198,15 @@ describe('deploy_task deploy directory operations', () => {
 
 			const ctx = create_mock_deploy_task_context({
 				build_dir: 'dist',
-				deploy_dir: 'custom/deploy',
+				deploy_dir: '.gro/custom/deploy',
 				dry: true
 			});
 
 			await deploy_task.run(ctx);
 
-			expect(copy).toHaveBeenCalledWith('dist/app.js', 'custom/deploy/app.js', { recursive: true });
+			expect(copy).toHaveBeenCalledWith('dist/app.js', '.gro/custom/deploy/app.js', {
+				recursive: true
+			});
 		});
 
 		test('copies directories recursively', async () => {

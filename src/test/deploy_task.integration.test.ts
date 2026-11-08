@@ -8,7 +8,8 @@ import {
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock,
-	FIRST_COMMIT_HASH
+	FIRST_COMMIT_HASH,
+	get_clone_calls
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
@@ -24,7 +25,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -59,7 +59,6 @@ describe('deploy_task integration scenarios', () => {
 				git_remote_branch_exists,
 				git_local_branch_exists,
 				git_delete_local_branch,
-				git_clone_locally,
 				git_push_to_create
 			} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
@@ -79,7 +78,7 @@ describe('deploy_task integration scenarios', () => {
 			expect(git_pull).toHaveBeenCalledWith('origin', 'main');
 
 			// Should create orphan branch
-			expect(git_clone_locally).toHaveBeenCalled();
+			expect(await get_clone_calls()).toHaveLength(1);
 			expect(spawn).toHaveBeenCalledWith(
 				'git',
 				['checkout', '--orphan', 'deploy'],
@@ -258,7 +257,7 @@ describe('deploy_task integration scenarios', () => {
 		});
 
 		test('subsequent deployment reinitializes when deploy dir has wrong branch', async () => {
-			const { git_current_branch_name, git_fetch, git_clone_locally } = vi.mocked(
+			const { git_current_branch_name, git_fetch } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { remove, exists } = await get_mock_project();
@@ -269,7 +268,7 @@ describe('deploy_task integration scenarios', () => {
 				const path_str = String(path);
 				if (path_str.includes('build')) return true; // build_dir always exists
 				exists_call_count++;
-				return exists_call_count === 1; // Only first check returns true
+				return exists_call_count <= 2; // the ownership check and the first deploy_dir check
 			});
 			vi.mocked(git_current_branch_name).mockResolvedValue('wrong-branch');
 
@@ -280,7 +279,7 @@ describe('deploy_task integration scenarios', () => {
 			// Should delete and reinitialize
 			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			expect(git_fetch).toHaveBeenCalled();
-			expect(git_clone_locally).toHaveBeenCalled();
+			expect(await get_clone_calls()).toHaveLength(1);
 		});
 	});
 
@@ -380,7 +379,7 @@ describe('deploy_task integration scenarios', () => {
 				source: 'develop',
 				target: 'staging',
 				origin: 'upstream',
-				deploy_dir: 'custom/deploy',
+				deploy_dir: '.gro/custom/deploy',
 				build_dir: 'dist',
 				build: false,
 				pull: false,
@@ -393,7 +392,7 @@ describe('deploy_task integration scenarios', () => {
 			// Should use all custom settings
 			expect(git_checkout).toHaveBeenCalledWith('develop');
 			expect(spawn).toHaveBeenCalledWith('git', ['reset', '--hard', FIRST_COMMIT_HASH], {
-				cwd: resolve('custom/deploy')
+				cwd: resolve('.gro/custom/deploy')
 			});
 			expect(ctx.invoke_task).not.toHaveBeenCalled(); // no-build
 
@@ -401,7 +400,7 @@ describe('deploy_task integration scenarios', () => {
 			expect(ctx.log.info).toHaveBeenCalledWith(
 				expect.stringContaining('dry deploy complete'),
 				expect.anything(),
-				expect.stringContaining('custom/deploy')
+				expect.stringContaining('.gro/custom/deploy')
 			);
 		});
 	});
@@ -414,7 +413,6 @@ describe('deploy_task integration scenarios', () => {
 				git_checkout,
 				git_pull,
 				git_remote_branch_exists,
-				git_clone_locally,
 				git_push_to_create
 			} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
@@ -433,7 +431,7 @@ describe('deploy_task integration scenarios', () => {
 			const checkout_order = git_checkout.mock.invocationCallOrder[0]!;
 			const pull_order = git_pull.mock.invocationCallOrder[0]!;
 			const remote_exists_order = git_remote_branch_exists.mock.invocationCallOrder[0]!;
-			const clone_order = git_clone_locally.mock.invocationCallOrder[0]!;
+			const clone_order = (await get_clone_calls())[0]!.order;
 			const push_create_order = git_push_to_create.mock.invocationCallOrder[0]!;
 			// the last removal empties the deploy dir, after the first removed the whole of it
 			const empty_order = remove.mock.invocationCallOrder.at(-1)!;

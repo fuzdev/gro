@@ -15,7 +15,7 @@
  */
 
 import { readlink, realpath } from 'node:fs/promises';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import {
 	fs,
@@ -68,19 +68,22 @@ const to_resolve_error = (error: unknown, path: string): FsError => {
  * directory lexically, its `..` segments before any symlink in it is followed.
  */
 const to_real_path = async (path: string, links = { count: 0 }): Promise<string> => {
+	let real: Uint8Array | null = null;
 	try {
-		return await realpath(path);
+		// as bytes, so a real path that isn't UTF-8 is refused rather than decoded lossily
+		real = await realpath(path, { encoding: 'buffer' });
 	} catch (error) {
 		const code = code_of(error);
 		if (code !== 'ENOENT' && code !== 'ENOTDIR') throw to_resolve_error(error, path);
 	}
+	if (real !== null) return to_utf8_path(path, real);
 	const parent = dirname(path);
 	if (parent === path) return path;
 	const candidate = join(await to_real_path(parent, links), basename(path));
 	// the parent is real, so the candidate is missing, or a symlink whose target is
-	let target: string;
+	let target_bytes: Uint8Array;
 	try {
-		target = await readlink(candidate);
+		target_bytes = await readlink(candidate, { encoding: 'buffer' });
 	} catch (error) {
 		// missing, not a symlink, or beneath a file, which the op on the result reports
 		const code = code_of(error);
@@ -88,7 +91,28 @@ const to_real_path = async (path: string, links = { count: 0 }): Promise<string>
 		throw to_resolve_error(error, candidate);
 	}
 	if (++links.count > MAX_SYMLINKS) throw to_loop_error(path);
-	return to_real_path(resolve(dirname(candidate), target), links);
+	return to_real_path(
+		resolve(
+			dirname(candidate),
+			to_utf8_path(candidate, target_bytes, 'is a symlink whose target is a path')
+		),
+		links
+	);
+};
+
+// fatal, so a target that isn't UTF-8 throws rather than decoding to U+FFFD, BOM kept
+const utf8_decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/**
+ * A symlink's target or a real path read as bytes, refused with `io_error` when it isn't
+ * UTF-8, since decoded lossily it would name a different path than the kernel follows.
+ */
+const to_utf8_path = (path: string, bytes: Uint8Array, what = 'resolves to a path'): string => {
+	try {
+		return utf8_decoder.decode(bytes);
+	} catch {
+		throw new FsError('io_error', path, `io_error: ${path} ${what} that isn't UTF-8`);
+	}
 };
 
 const to_project_relative = (real: string): string | null => {
@@ -98,21 +122,47 @@ const to_project_relative = (real: string): string | null => {
 	return real.startsWith(prefix) ? real.slice(prefix.length) : null;
 };
 
+// read once, when the module loads; an unset, empty, or relative `HOME` protects nothing
+const HOME = process.env.HOME;
+
+let protected_dirs: Promise<Array<string>> | undefined;
+
 /**
- * Whether the absolute, normalized `real` is `project` or one of its ancestors, `/` included,
- * the directories no removal or emptying may touch. A trailing `/` on either is ignored.
- * @param real - an absolute real path
- * @param project - the project's absolute real path, defaults to `fs.project`'s
+ * The directories no removal or emptying may touch, beside `/` and their ancestors:
+ * the project, and `$HOME` as given and as its real path. Resolved once.
  */
-export const is_project_or_ancestor = (
-	real: string,
-	project: string = fs.project.path
-): boolean => {
+export const fs_protected_dirs = (): Promise<Array<string>> =>
+	(protected_dirs ??= (async () => {
+		const dirs = [fs.project.path];
+		if (HOME && isAbsolute(HOME)) {
+			const home = resolve(HOME);
+			dirs.push(home);
+			const home_real = await realpath(home).catch(() => null);
+			if (home_real !== null && home_real !== home) dirs.push(home_real);
+		}
+		return dirs;
+	})());
+
+/**
+ * Whether the absolute, normalized `real` is `/`, one of `dirs`, or an ancestor of one,
+ * the directories no removal or emptying may touch. A trailing `/` on any is ignored.
+ * @param real - an absolute real path
+ * @param dirs - absolute paths, like `fs_protected_dirs`'s: the project and `$HOME`
+ */
+export const is_protected_dir = (real: string, dirs: ReadonlyArray<string>): boolean => {
 	const target = strip_trailing_slashes(real);
-	const project_path = strip_trailing_slashes(project);
-	if (target === '/' || target === project_path) return true;
-	return project_path.startsWith(target + '/');
+	if (target === '/') return true;
+	for (const dir of dirs) {
+		const dir_path = strip_trailing_slashes(dir);
+		if (target === dir_path || dir_path.startsWith(target + '/')) return true;
+	}
+	return false;
 };
+
+/**
+ * How a refusal names the protected directories.
+ */
+export const PROTECTED_DIRS_TEXT = 'the project, the home directory, or one of their ancestors';
 
 // the resolved target a refusal names, with the path as given when it differs
 const to_refusal_subject = (path: string, target: string): string =>
@@ -233,18 +283,18 @@ export const fs_copy_path = async (
  * Empties a directory named by a path from outside, its symlinks followed,
  * removing everything in it but never the directory itself, so a symlink to it is kept.
  * @param path - absolute, or relative to the cwd
- * @throws `FsError` - `io_error` when the directory is the project or one of its ancestors,
+ * @throws `FsError` - `io_error` when the directory is the project, `$HOME`, or an ancestor of either,
  * `not_a_directory` when it's a file, otherwise as `fs_open_dir_path` and `FsDir.remove` do
  */
 export const fs_empty_dir_path = async (path: string): Promise<void> => {
 	const opened = await fs_open_dir_path(path);
 	if (opened === null) return;
 	const target = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
-	if (is_project_or_ancestor(target)) {
+	if (is_protected_dir(target, await fs_protected_dirs())) {
 		throw new FsError(
 			'io_error',
 			resolve(path),
-			`io_error: ${to_refusal_subject(path, target)} is the project or one of its ancestors, which can't be emptied`
+			`io_error: ${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be emptied`
 		);
 	}
 	const names: Array<string> = [];
@@ -268,7 +318,7 @@ export const fs_empty_dir_path = async (path: string): Promise<void> => {
  * and the final entry is removed as `FsDir.remove` does, a symlink removed itself.
  * A trailing `/` removes only a directory, as in `FsDir.remove`.
  * @param path - absolute, or relative to the cwd
- * @throws `FsError` - `io_error` for the project or one of its ancestors,
+ * @throws `FsError` - `io_error` for the project, `$HOME`, or an ancestor of either,
  * otherwise as `fs_open_path` and `FsDir.remove` do
  */
 export const fs_remove_path = async (path: string, options?: FsRemoveOptions): Promise<void> => {
@@ -278,11 +328,11 @@ export const fs_remove_path = async (path: string, options?: FsRemoveOptions): P
 	const parent = await fs_open_path(dirname(resolved));
 	const entry = parent.path ? parent.path + '/' + name : name;
 	const target = join(parent.dir.path, entry);
-	if (is_project_or_ancestor(target)) {
+	if (is_protected_dir(target, await fs_protected_dirs())) {
 		throw new FsError(
 			'io_error',
 			resolved,
-			`io_error: ${to_refusal_subject(path, target)} is the project or one of its ancestors, which can't be removed`
+			`io_error: ${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be removed`
 		);
 	}
 	await parent.dir.remove(path.endsWith('/') ? entry + '/' : entry, options);

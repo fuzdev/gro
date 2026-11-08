@@ -1,18 +1,20 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { task as deploy_task } from '#lib/deploy.task.ts';
+import { task as deploy_task, DEPLOY_CLONE_CONFIG_KEY, type Args } from '#lib/deploy.task.ts';
 import { TaskError } from '#lib/task.ts';
 
 import {
 	create_mock_deploy_task_context,
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
-	setup_successful_spawn_mock
+	setup_successful_spawn_mock,
+	to_spawn_result,
+	ORIGIN_URL
 } from './deploy_task_test_helpers.ts';
-import { create_mock_fs_dir, get_mock_project } from './fs_mocks.ts';
+import { create_mock_fs_dir, get_mock_project, to_mock_file_info } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
@@ -26,7 +28,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -61,13 +62,14 @@ describe('deploy_task safety checks', () => {
 
 			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('the project or one of its ancestors');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				'the project, the home directory, or one of their ancestors'
+			);
 			for (const fn of [
 				git.git_check_clean_workspace,
 				git.git_checkout,
 				git.git_pull,
 				git.git_remote_branch_exists,
-				git.git_clone_locally,
 				spawn,
 				spawn_out,
 				remove
@@ -95,6 +97,174 @@ describe('deploy_task safety checks', () => {
 			} finally {
 				rmSync(dir, { recursive: true, force: true });
 			}
+		});
+	});
+
+	describe('deploy dir ownership', () => {
+		const assert_refused = async (
+			deploy_dir: string,
+			message: string,
+			args: Partial<Args> = {}
+		): Promise<void> => {
+			const git = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { remove, mkdir } = await get_mock_project();
+
+			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true, ...args });
+
+			await expect(deploy_task.run(ctx)).rejects.toThrow(message);
+			for (const fn of [
+				git.git_check_clean_workspace,
+				git.git_checkout,
+				git.git_pull,
+				git.git_remote_branch_exists,
+				git.git_current_branch_name,
+				spawn,
+				remove,
+				mkdir
+			]) {
+				expect(fn).not.toHaveBeenCalled();
+			}
+		};
+
+		test('refuses a deploy dir inside the project but not beneath `.gro/`', async () => {
+			for (const deploy_dir of ['build', 'src/deploy', '.gro', '.gro/', 'deploy']) {
+				await assert_refused(deploy_dir, 'inside the project but not beneath `.gro/`');
+			}
+		});
+
+		// `tag` is what `git config --get` prints for the deploy-clone tag, `null` failing as unset
+		const mock_git_out = async (
+			out: (args: ReadonlyArray<string>, cwd: string | undefined) => string | null,
+			tag: string | null = 'true\n',
+			git_dir: (cwd: string | undefined) => string | null = (cwd) => cwd + '/.git\n'
+		): Promise<void> => {
+			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			vi.mocked(spawn_out).mockImplementation(async (_command, args = [], options) => {
+				const cwd = options?.cwd === undefined ? undefined : String(options.cwd);
+				const stdout =
+					args[0] === 'config'
+						? tag
+						: args[1] === '--absolute-git-dir'
+							? git_dir(cwd)
+							: out(args, cwd);
+				return stdout === null
+					? { result: to_spawn_result(128), stdout: '', stderr: 'fatal: boom\n' }
+					: { result: to_spawn_result(0), stdout, stderr: '' };
+			});
+		};
+
+		// both the remote-branch-exists path and the missing one, which remove the deploy dir
+		for (const remote_target_exists of [true, false]) {
+			describe(
+				remote_target_exists ? 'with the remote target' : 'without the remote target',
+				() => {
+					beforeEach(async () => {
+						const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+						vi.mocked(git_remote_branch_exists).mockResolvedValue(remote_target_exists);
+					});
+
+					test('refuses an existing deploy dir inside another repo, removing nothing', async () => {
+						await mock_git_out((args) =>
+							args[0] === 'rev-parse' ? process.cwd() + '\n' : ORIGIN_URL
+						);
+						await assert_refused('.gro/deploy', `inside the git repo at ${process.cwd()}`);
+					});
+
+					test('refuses an existing deploy dir in no repo', async () => {
+						await mock_git_out((args) => (args[0] === 'rev-parse' ? null : ORIGIN_URL));
+						await assert_refused('.gro/deploy', 'it is not in a git repo');
+					});
+
+					test("refuses an existing deploy dir whose origin is not the project's", async () => {
+						await mock_git_out((args, cwd) =>
+							args[0] === 'rev-parse'
+								? cwd + '\n'
+								: cwd === process.cwd()
+									? ORIGIN_URL
+									: 'git@example.com:someone/else.git'
+						);
+						await assert_refused('.gro/deploy', 'remote is git@example.com:someone/else.git');
+					});
+
+					test('refuses an existing deploy dir with no origin', async () => {
+						await mock_git_out((args, cwd) =>
+							args[0] === 'rev-parse' ? cwd + '\n' : cwd === process.cwd() ? ORIGIN_URL : null
+						);
+						await assert_refused('.gro/deploy', 'it has no `origin` remote', { dry: false });
+					});
+
+					test('refuses a same-origin checkout without the deploy-clone tag', async () => {
+						const same_origin = (args: ReadonlyArray<string>, cwd: string | undefined) =>
+							args[0] === 'rev-parse' ? cwd + '\n' : ORIGIN_URL;
+						for (const tag of [null, 'false\n', '']) {
+							await mock_git_out(same_origin, tag);
+							await assert_refused(
+								'.gro/deploy',
+								`lacks the local git config \`${DEPLOY_CLONE_CONFIG_KEY} true\``
+							);
+						}
+					});
+
+					test('refuses a deploy dir whose git dir is not its own `.git` directory', async () => {
+						const same_origin = (args: ReadonlyArray<string>, cwd: string | undefined) =>
+							args[0] === 'rev-parse' ? cwd + '\n' : ORIGIN_URL;
+						// a bare repo elsewhere, its `core.worktree` pointing here
+						await mock_git_out(same_origin, 'true\n', () => '/elsewhere/bare.git\n');
+						await assert_refused('.gro/deploy', 'its git dir is /elsewhere/bare.git');
+						// `.git` a file, as for a linked worktree, though git names the path
+						const { stat } = await get_mock_project();
+						vi.mocked(stat).mockImplementation(async (path) =>
+							path.endsWith('/.git')
+								? to_mock_file_info()
+								: { ...to_mock_file_info(), kind: 'directory' }
+						);
+						await mock_git_out(same_origin);
+						await assert_refused('.gro/deploy', 'its .git is not a directory');
+					});
+
+					test('refuses a deploy dir that is a file, before any git call', async () => {
+						const { stat } = await get_mock_project();
+						const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+						vi.mocked(stat).mockResolvedValue(to_mock_file_info());
+						await assert_refused('.gro/deploy', 'it is not a directory');
+						expect(spawn_out).not.toHaveBeenCalled();
+					});
+
+					test('the refusal tells the user to remove it themselves', async () => {
+						await mock_git_out(() => null);
+						await assert_refused('.gro/deploy', 'remove it yourself');
+					});
+				}
+			);
+		}
+
+		test('a missing deploy dir is never checked with git', async () => {
+			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockImplementation(async (path) => path !== '.gro/deploy');
+
+			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
+
+			expect(spawn_out).not.toHaveBeenCalledWith(
+				'git',
+				['rev-parse', '--show-toplevel'],
+				expect.anything()
+			);
+		});
+
+		test("a tagged clone with the project's origin is accepted and synced", async () => {
+			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+
+			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
+
+			expect(spawn_out).toHaveBeenCalledWith(
+				'git',
+				['config', '--local', '--get', DEPLOY_CLONE_CONFIG_KEY],
+				{ cwd: resolve('.gro/deploy') }
+			);
+			expect(git_pull).toHaveBeenCalledWith('origin', 'deploy', { cwd: resolve('.gro/deploy') });
 		});
 	});
 

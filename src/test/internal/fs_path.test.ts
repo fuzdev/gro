@@ -37,7 +37,8 @@ let fs_open_dir_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_dir_p
 let fs_open_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_path'];
 let fs_remove_path: (typeof import('#lib/internal/fs_path.ts'))['fs_remove_path'];
 let fs_search_path: (typeof import('#lib/internal/fs_path.ts'))['fs_search_path'];
-let is_project_or_ancestor: (typeof import('#lib/internal/fs_path.ts'))['is_project_or_ancestor'];
+let fs_protected_dirs: (typeof import('#lib/internal/fs_path.ts'))['fs_protected_dirs'];
+let is_protected_dir: (typeof import('#lib/internal/fs_path.ts'))['is_protected_dir'];
 
 beforeEach(async () => {
 	sandbox = await create_fs_sandbox();
@@ -58,7 +59,8 @@ beforeEach(async () => {
 		fs_open_path,
 		fs_remove_path,
 		fs_search_path,
-		is_project_or_ancestor
+		fs_protected_dirs,
+		is_protected_dir
 	} = await import('#lib/internal/fs_path.ts'));
 	assert.strictEqual(fs.project.path, project);
 });
@@ -69,19 +71,20 @@ afterEach(() => {
 	remove_fs_sandbox(sandbox);
 });
 
-describe('is_project_or_ancestor', () => {
+describe('is_protected_dir', () => {
 	const p = '/home/desk/dev/gro';
+	const home = '/home/desk';
 
 	test('the root, the project, and each ancestor', () => {
 		for (const path of ['/', '/home', '/home/desk', '/home/desk/dev', p]) {
-			assert.ok(is_project_or_ancestor(path, p), path);
+			assert.ok(is_protected_dir(path, [p]), path);
 		}
 	});
 
 	test('ignores trailing slashes on either', () => {
 		for (const path of ['//', '/home/', '/home/desk/dev/', p + '/', p + '//']) {
-			assert.ok(is_project_or_ancestor(path, p), path);
-			assert.ok(is_project_or_ancestor(path, p + '/'), path);
+			assert.ok(is_protected_dir(path, [p]), path);
+			assert.ok(is_protected_dir(path, [p + '/']), path);
 		}
 	});
 
@@ -95,19 +98,31 @@ describe('is_project_or_ancestor', () => {
 			'/home/desk/dev/other',
 			'/tmp'
 		]) {
-			assert.ok(!is_project_or_ancestor(path, p), path);
+			assert.ok(!is_protected_dir(path, [p]), path);
 		}
 	});
 
 	test('with the project at the root, only the root', () => {
-		assert.ok(is_project_or_ancestor('/', '/'));
-		assert.ok(!is_project_or_ancestor('/home', '/'));
+		assert.ok(is_protected_dir('/', ['/']));
+		assert.ok(!is_protected_dir('/home', ['/']));
 	});
 
-	test('defaults to `fs.project`', () => {
-		assert.ok(is_project_or_ancestor(project));
-		assert.ok(is_project_or_ancestor(dirname(project)));
-		assert.ok(!is_project_or_ancestor(join(project, '.gro')));
+	test('`$HOME` and its ancestors, beside a project outside it', () => {
+		const project = '/srv/project';
+		for (const path of ['/', '/home', home, home + '/', '/srv', project]) {
+			assert.ok(is_protected_dir(path, [project, home]), path);
+		}
+		for (const path of [home + '/docs', home + '/dev', '/homes', '/home/des', '/srv/other']) {
+			assert.ok(!is_protected_dir(path, [project, home]), path);
+		}
+	});
+
+	test('`fs_protected_dirs` holds the project', async () => {
+		const dirs = await fs_protected_dirs();
+		assert.include(dirs, project);
+		assert.ok(is_protected_dir(project, dirs));
+		assert.ok(is_protected_dir(dirname(project), dirs));
+		assert.ok(!is_protected_dir(join(project, '.gro'), dirs));
 	});
 });
 
@@ -286,6 +301,23 @@ describe('fs_open_path outside the project', () => {
 	});
 });
 
+describe('fs_open_path and symlink targets that are not UTF-8', () => {
+	test('a dangling symlink whose target is not UTF-8 is refused, never a lossy path', async () => {
+		symlinkSync(Buffer.from([0xff, ...Buffer.from('/planted.txt')]), join(sandbox.root, 'W'));
+		await assert_fs_error_rejects(fs_open_path(join(sandbox.root, 'W')), 'io_error');
+		await assert_fs_error_rejects(fs_remove_path(join(sandbox.root, 'W/x')), 'io_error');
+		assert.ok(lstatSync(join(sandbox.root, 'W')).isSymbolicLink());
+	});
+
+	test('a path whose real path is not UTF-8 is refused, never a lossy path', async () => {
+		mkdirSync(Buffer.concat([Buffer.from(sandbox.root + '/'), Buffer.from([0xfe])]));
+		symlinkSync(Buffer.from([0xfe]), join(sandbox.root, 'R'));
+		await assert_fs_error_rejects(fs_open_path(join(sandbox.root, 'R')), 'io_error');
+		await assert_fs_error_rejects(fs_open_path(join(sandbox.root, 'R/x.txt')), 'io_error');
+		await assert_fs_error_rejects(fs_open_dir_path(join(sandbox.root, 'R')), 'io_error');
+	});
+});
+
 describe('fs_open_dir_path', () => {
 	test('opens a directory outside the project as its own handle', async () => {
 		mkdirSync(join(sandbox.root, 'sub'));
@@ -446,7 +478,7 @@ describe('fs_empty_dir_path', () => {
 			'io_error'
 		);
 		assert.include(error.message, `${dirname(process.cwd())} (from ${join(sandbox.root, 'up')})`);
-		// the root goes through `is_project_or_ancestor` alone, never an op on it
+		// the root goes through `is_protected_dir` alone, never an op on it
 		assert.ok(existsSync(join(process.cwd(), 'package.json')));
 		assert.ok(existsSync(join(sandbox.outside, 'secret.txt')));
 	});

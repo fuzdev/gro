@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { load_build_cache_metadata, save_build_cache_metadata } from '#lib/build_cache.ts';
+import { GRO_DIR_MARKER_CONTENT, GRO_DIR_MARKER_FILENAME } from '#lib/internal/gro_dir.ts';
 
 import {
 	create_mock_logger,
@@ -213,11 +214,14 @@ describe('load_build_cache_metadata', () => {
 });
 
 describe('save_build_cache_metadata', () => {
-	beforeEach(() => {
+	beforeEach(async () => {
 		vi.clearAllMocks();
+		// no `.gro/` yet, so it's made with its marker
+		const { stat } = await get_mock_project();
+		vi.mocked(stat).mockReset().mockResolvedValue(null);
 	});
 
-	test('writes metadata to correct path', async () => {
+	test('writes metadata to correct path, making `.gro/` with its marker', async () => {
 		const { write, mkdir } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata();
@@ -226,7 +230,10 @@ describe('save_build_cache_metadata', () => {
 
 		await save_build_cache_metadata(metadata);
 
-		expect(mkdir).toHaveBeenCalledWith('.gro/', { recursive: true });
+		expect(mkdir).toHaveBeenCalledWith('.gro');
+		expect(write).toHaveBeenCalledWith('.gro/' + GRO_DIR_MARKER_FILENAME, GRO_DIR_MARKER_CONTENT, {
+			create_new: true
+		});
 		expect(write).toHaveBeenCalledWith('.gro/build.json', expect.any(String));
 	});
 
@@ -239,7 +246,9 @@ describe('save_build_cache_metadata', () => {
 
 		await save_build_cache_metadata(metadata);
 
-		const written_content = vi.mocked(write).mock.calls[0]![1] as string;
+		const written_content = vi
+			.mocked(write)
+			.mock.calls.find(([path]) => path === '.gro/build.json')![1] as string;
 		expect(written_content).toContain('\t');
 		expect(JSON.parse(written_content)).toEqual(metadata);
 	});

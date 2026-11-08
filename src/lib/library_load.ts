@@ -22,6 +22,7 @@ import {
 import { sveltekit_tsconfig_is_unsynced } from './sveltekit_helpers.ts';
 // TODO: take handles from the tasks, the composition roots, instead of opening paths here
 import { fs_open_path } from './internal/fs_path.ts';
+import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 // the cache's filename in a repo's `.gro` directory
 const LIBRARY_CACHE_FILENAME = 'library.json';
@@ -157,8 +158,7 @@ export const library_cache_write = async (
 	log?: Logger
 ): Promise<void> => {
 	try {
-		const cache_dir = await fs_open_path(dirname(cache_path));
-		await cache_dir.dir.mkdir(cache_dir.path, { recursive: true });
+		await gro_dir_ensure(dirname(cache_path));
 		const data: LibraryCache = {
 			hash: key,
 			version: LIBRARY_CACHE_VERSION,

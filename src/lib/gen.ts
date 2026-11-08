@@ -17,8 +17,9 @@ import {
 	type ResolvedInputFile,
 	type ResolvedInputPath
 } from './input_path.ts';
-import type { InvokeTask } from './task.ts';
-import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
+import { TaskError, type InvokeTask } from './task.ts';
+import { fs } from './fs.ts';
+import { fs_open_path, fs_search_path, type FsOpenedPath } from './internal/fs_path.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
@@ -256,8 +257,34 @@ export const analyze_gen_results = async (
 	return map_concurrent(files, 10, (file) => analyze_gen_result(file));
 };
 
-export const analyze_gen_result = async (file: GenFile): Promise<AnalyzedGenResult> => {
+/**
+ * Opens a gen output's path, its symlinks followed, refusing one that resolves outside the
+ * project or to the project directory itself, so a genfile writes and `gro gen --check`
+ * reads only the project's files.
+ * A relative `filename` that climbs out of the genfile's directory but stays in the project,
+ * like `'../elsewhere/x.ts'`, is fine.
+ * @throws `TaskError` - for an output outside the project or at the project directory itself
+ */
+const open_gen_output = async (file: GenFile): Promise<FsOpenedPath> => {
 	const output = await fs_open_path(file.id);
+	if (output.dir !== fs.project) {
+		throw new TaskError(
+			`Gen output ${file.id} from ${print_path(file.origin_id)} resolves outside the project` +
+				` (${output.path ? output.dir.path + '/' + output.path : output.dir.path}),` +
+				' and genfiles write only inside it'
+		);
+	}
+	if (!output.path) {
+		throw new TaskError(
+			`Gen output ${file.id} from ${print_path(file.origin_id)} resolves to the project` +
+				' directory itself, which a genfile can never write'
+		);
+	}
+	return output;
+};
+
+export const analyze_gen_result = async (file: GenFile): Promise<AnalyzedGenResult> => {
+	const output = await open_gen_output(file);
 	const existing_content = await output.dir.read_text_if_exists(output.path);
 	if (existing_content === null) {
 		return {
@@ -287,12 +314,13 @@ export const write_gen_results = async (
 		const log_args = [print_path(file.id), 'generated from', print_path(file.origin_id)];
 		if (analyzed.is_new) {
 			log.info('writing new', ...log_args);
-			const parent = await fs_open_path(dirname(file.id));
-			await parent.dir.mkdir(parent.path, { recursive: true });
-			await write_path(file.id, file.content);
+			const output = await open_gen_output(file);
+			const parent = dirname(output.path);
+			if (parent !== '.') await output.dir.mkdir(parent, { recursive: true });
+			await write_gen_output(file);
 		} else if (analyzed.has_changed) {
 			log.info('writing changed', ...log_args);
-			await write_path(file.id, file.content);
+			await write_gen_output(file);
 		} else {
 			log.info('skipping unchanged', ...log_args);
 		}
@@ -300,9 +328,9 @@ export const write_gen_results = async (
 };
 
 // opened at the write, after any directory it needs is made
-const write_path = async (path: string, content: string): Promise<void> => {
-	const opened = await fs_open_path(path);
-	await opened.dir.write(opened.path, content);
+const write_gen_output = async (file: GenFile): Promise<void> => {
+	const output = await open_gen_output(file);
+	await output.dir.write(output.path, file.content);
 };
 
 export interface FoundGenfiles {

@@ -3,13 +3,15 @@ import {
 	existsSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 
-import type { FsDir } from '#lib/fs.ts';
+import { fs, type FsDir, type FsReadDir } from '#lib/fs.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,
@@ -294,5 +296,211 @@ describe('trailing slash', () => {
 		assert.isNull(await dir.stat('moved'));
 		assert.isNull(await dir.stat('empty'));
 		await dir.remove('missing/', { missing_ok: true });
+	});
+});
+
+/**
+ * The absolute path beneath `base` of a name given as bytes, which needn't be UTF-8.
+ */
+const to_byte_path = (base: string, name: Uint8Array): Buffer =>
+	Buffer.concat([Buffer.from(base + '/'), name]);
+
+const FF = new Uint8Array([0xff]);
+
+describe('names that are not UTF-8', () => {
+	// an entry named `\xff`, an absolute link out, which a lossy decode of `\xff/...` never finds
+	beforeEach(() => {
+		symlinkSync(sandbox.outside, to_byte_path(sandbox.root, FF));
+		symlinkSync(Buffer.from([0xff, ...Buffer.from('/secret.txt')]), join(sandbox.root, 'L'));
+		symlinkSync(Buffer.from([0xff, ...Buffer.from('/planted.txt')]), join(sandbox.root, 'W'));
+	});
+
+	test('a symlink whose target is not UTF-8 is refused, never handed to the kernel', async () => {
+		await assert_fs_error_rejects(dir.read_text('L'), 'io_error');
+		await assert_fs_error_rejects(dir.read_text_if_exists('L'), 'io_error');
+		await assert_fs_error_rejects(dir.stat('L'), 'io_error');
+		await assert_fs_error_rejects(dir.write('L', 'overwritten'), 'io_error');
+		await assert_fs_error_rejects(dir.write('W', 'planted'), 'io_error');
+		await assert_fs_error_rejects(dir.write('W', 'planted', { create_new: true }), 'io_error');
+		await assert_fs_error_rejects(dir.mkdir('L/x', { recursive: true }), 'io_error');
+		assert_fs_error_throws(() => dir.read_text_sync('L'), 'io_error');
+		assert_fs_error_throws(() => dir.stat_sync('W'), 'io_error');
+		assert_fs_error_throws(() => dir.dir('L'), 'io_error');
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'secret.txt'), 'utf8'), 'secret');
+		assert.deepEqual(readdirSync(sandbox.outside), ['secret.txt']);
+	});
+
+	test('the refusal names the link and its target bytes escaped', async () => {
+		const error = await assert_fs_error_rejects(dir.read_text('L'), 'io_error');
+		assert.include(error.message, '\\xff/secret.txt');
+		assert.strictEqual(error.path, join(sandbox.root, 'L'));
+	});
+
+	test('so is one that would stay inside, which the native op follows', async () => {
+		mkdirSync(to_byte_path(sandbox.root, new Uint8Array([0xfe])));
+		writeFileSync(to_byte_path(sandbox.root, new Uint8Array([0xfe, 0x2f, 0x78])), 'x');
+		symlinkSync(Buffer.from([0xfe, 0x2f, 0x78]), join(sandbox.root, 'M'));
+		await assert_fs_error_rejects(dir.read_text('M'), 'io_error');
+	});
+
+	test('`fs.open_dir` refuses a directory whose real path is not UTF-8', async () => {
+		mkdirSync(to_byte_path(sandbox.root, new Uint8Array([0xfe])));
+		symlinkSync(Buffer.from([0xfe]), join(sandbox.root, 'R'));
+		await assert_fs_error_rejects(fs.open_dir(join(sandbox.root, 'R')), 'io_error');
+	});
+
+	test('a symlink itself is still removed and renamed, its target never read', async () => {
+		await dir.rename('L', 'L2');
+		await dir.remove('L2');
+		assert.isNull(await dir.stat('L2', { follow: false }));
+	});
+
+	test('a listing holding an entry that is not UTF-8 is refused, never a lossy name', async () => {
+		writeFileSync(join(sandbox.root, '\uFFFD'), 'replacement');
+		const list = async (): Promise<void> => {
+			for await (const _ of dir.list()) {
+				// drained
+			}
+		};
+		const error = await assert_fs_error_rejects(list(), 'io_error');
+		assert.include(error.message, 'holds an entry named \\xff');
+		assert.strictEqual(readFileSync(join(sandbox.root, '\uFFFD'), 'utf8'), 'replacement');
+	});
+});
+
+describe('forged path segments', () => {
+	// a polluted intrinsic that turns the segment `x` into a climb out of the handle
+	const EVIL = '../../outside/secret.txt';
+
+	const with_patch = async <T extends object, K extends keyof T>(
+		target: T,
+		key: K,
+		make: (original: T[K]) => T[K],
+		fn: () => Promise<void>
+	): Promise<void> => {
+		const original = target[key];
+		target[key] = make(original);
+		try {
+			await fn();
+		} finally {
+			target[key] = original;
+		}
+	};
+
+	let sub: FsReadDir;
+
+	beforeEach(() => {
+		mkdirSync(join(sandbox.root, 'sub'));
+		symlinkSync('sub', join(sandbox.root, 'link'));
+		sub = dir.dir('sub').readonly();
+	});
+
+	test("a segment holding `/` from a polluted `split` is refused, at the lexical step and the walk's", async () => {
+		await with_patch(
+			String.prototype,
+			'split',
+			(split) =>
+				function (this: string, ...args: Array<any>) {
+					return this === 'x' ? [EVIL] : split.apply(this, args as any);
+				} as any,
+			async () => {
+				await assert_fs_error_rejects(sub.read_text('x'), 'outside_root');
+				await assert_fs_error_rejects(dir.readonly().read_text('x'), 'outside_root');
+			}
+		);
+		// a link target split into a climbing name
+		await with_patch(
+			String.prototype,
+			'split',
+			(split) =>
+				function (this: string, ...args: Array<any>) {
+					return this === 'sub' ? ['../outside'] : split.apply(this, args as any);
+				} as any,
+			async () => {
+				await assert_fs_error_rejects(dir.read_text('link/secret.txt'), 'outside_root');
+				assert_fs_error_throws(() => dir.read_text_sync('link/secret.txt'), 'outside_root');
+			}
+		);
+	});
+
+	test('a segment holding `/` from a polluted array iterator or `push` is refused', async () => {
+		const proto = Array.prototype as any;
+		await with_patch(
+			proto,
+			Symbol.iterator,
+			(iterator: any) =>
+				function (this: Array<string>) {
+					return this.length === 1 && this[0] === 'x' ? iterator.call([EVIL]) : iterator.call(this);
+				},
+			async () => {
+				await assert_fs_error_rejects(sub.read_text('x'), 'outside_root');
+			}
+		);
+		await with_patch(
+			proto,
+			'push',
+			(push: any) =>
+				function (this: Array<unknown>, ...args: Array<unknown>) {
+					return push.apply(this, args[0] === 'x' ? [EVIL] : args);
+				},
+			async () => {
+				await assert_fs_error_rejects(sub.read_text('x'), 'outside_root');
+			}
+		);
+	});
+
+	test("a segment holding `/` from the walk's polluted `pop` or `toReversed` is refused", async () => {
+		const proto = Array.prototype as any;
+		await with_patch(
+			proto,
+			'pop',
+			(pop: any) =>
+				function (this: Array<unknown>) {
+					const value = pop.call(this);
+					return value === 'x' ? EVIL : value;
+				},
+			async () => {
+				await assert_fs_error_rejects(dir.readonly().read_text('link/x'), 'outside_root');
+				assert_fs_error_throws(() => dir.readonly().read_text_sync('link/x'), 'outside_root');
+			}
+		);
+		await with_patch(
+			proto,
+			'toReversed',
+			(to_reversed: any) =>
+				function (this: Array<unknown>) {
+					return to_reversed.call(this).map((s: unknown) => (s === 'x' ? EVIL : s));
+				},
+			async () => {
+				await assert_fs_error_rejects(dir.readonly().read_text('link/x'), 'outside_root');
+			}
+		);
+		assert.strictEqual(readFileSync(join(sandbox.outside, 'secret.txt'), 'utf8'), 'secret');
+	});
+});
+
+describe('builtin exports rebound after load', () => {
+	test("`syncBuiltinESMExports` can't rebind the Node functions the module copied at load", async () => {
+		const require = createRequire(import.meta.url);
+		const fs_promises = require('node:fs/promises');
+		const node_fs = require('node:fs');
+		const { realpath } = fs_promises;
+		const { lstatSync } = node_fs;
+		symlinkSync(sandbox.outside, join(sandbox.root, 'abslink'));
+		mkdirSync(join(sandbox.root, 'sub'));
+		try {
+			// every path its own real path, which would skip the walk
+			fs_promises.realpath = async (path: string) => path;
+			// the absolute link reported as a directory, which would walk through it
+			node_fs.lstatSync = (path: string, options: unknown) =>
+				lstatSync(path.endsWith('/abslink') ? join(sandbox.root, 'sub') : path, options);
+			syncBuiltinESMExports();
+			await assert_fs_error_rejects(dir.read_text('abslink/secret.txt'), 'outside_root');
+			assert_fs_error_throws(() => dir.read_text_sync('abslink/secret.txt'), 'outside_root');
+		} finally {
+			fs_promises.realpath = realpath;
+			node_fs.lstatSync = lstatSync;
+			syncBuiltinESMExports();
+		}
 	});
 });

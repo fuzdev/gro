@@ -23,6 +23,8 @@
  * `not_a_directory`, `write('new.txt/')` fails, and `remove` and `rename` refuse a
  * symlink named with a trailing `/` (`not_a_directory`), never acting on its target.
  * `remove` and `rename` refuse the handle's own directory with `io_error`.
+ * Symlink targets, real paths, and listed names are read as bytes, and one that isn't UTF-8 fails
+ * with `io_error`, since no string names what the kernel would reach.
  *
  * Errors are typed: each op throws an `FsError` whose `kind` names the failure, and
  * `is_fs_error` recognizes one from any copy of Gro. Each op's one expected failure
@@ -43,17 +45,35 @@
  *   is moved or replaced follows the path, refused only when the path's real location
  *   changed (`outside_root`) or is gone (`not_found`). The runtime's handle holds a
  *   descriptor and keeps the directory it opened.
+ * - Intrinsics stay pollutable: code that patches `String.prototype`, `Array.prototype`,
+ *   or `Promise` after this module loads runs inside its ops. The walk refuses a segment
+ *   holding a `/`, so a forged segment can't climb out, and the Node functions it calls
+ *   are copied at load, so `syncBuiltinESMExports` can't rebind them.
+ * - A handle opened on `/proc` follows its magic links, which the kernel resolves
+ *   without a path the walk can check.
  * - `fs.open_dir` takes any absolute path, checked against no grant.
  * - Any module can import `node:fs`, so a narrowed handle bounds only code that
  *   uses the handles.
  * - `fs.project` is the working directory when this module loads, the same source
  *   as Gro's `paths.root`; `getcwd` returns a path with symlinks resolved. Importing
- *   the module throws when the working directory has been removed.
+ *   the module throws when the working directory has been removed, or when its path
+ *   isn't UTF-8, which Node would report lossily as a different path.
  *
  * @module
  */
 
-import {
+import * as node_fs_promises from 'node:fs/promises';
+import * as node_fs from 'node:fs';
+import type { Dir, Dirent, Stats } from 'node:fs';
+import * as node_os from 'node:os';
+import * as node_path from 'node:path';
+
+import { is_error_class_named } from './internal/error_class.ts';
+import { to_checked_cwd } from './internal/cwd.ts';
+
+// copied at load rather than imported by name, since a named import of a builtin is a live
+// binding that `syncBuiltinESMExports` rebinds to whatever a caller assigned to the export
+const {
 	copyFile,
 	cp,
 	lstat,
@@ -69,21 +89,10 @@ import {
 	stat,
 	unlink,
 	writeFile
-} from 'node:fs/promises';
-import {
-	lstatSync,
-	readFileSync,
-	readlinkSync,
-	realpathSync,
-	statSync,
-	type Dir,
-	type Dirent,
-	type Stats
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, isAbsolute } from 'node:path';
-
-import { is_error_class_named } from './internal/error_class.ts';
+} = node_fs_promises;
+const { lstatSync, readFileSync, readlinkSync, realpathSync, statSync } = node_fs;
+const { tmpdir } = node_os;
+const { dirname, isAbsolute } = node_path;
 
 // TODO: `FsFile` and `dir.open(path)`, a file handle for byte-level reads and writes
 // into caller buffers, the native-first byte path, once a caller needs one
@@ -135,9 +144,15 @@ export type FsErrorKind =
 	| 'outside_root'
 	| 'io_error';
 
+// whether a value is an `FsError` from this copy of the module, by its private brand,
+// set in the class's static block, so classifying an error mid-op runs no caller's code
+// (`instanceof` would call a `Symbol.hasInstance`)
+let is_own_fs_error: (value: unknown) => value is FsError;
+
 /**
  * The error every fs op throws, typed by `kind`.
  * Match it with `is_fs_error`, which also recognizes one from another copy of Gro.
+ * The class and its prototype are frozen.
  */
 export class FsError extends Error {
 	override name = 'FsError';
@@ -146,6 +161,12 @@ export class FsError extends Error {
 	 * The absolute path the op targeted, or for `outside_root` the path as requested.
 	 */
 	readonly path: string;
+	readonly #brand = true;
+
+	static {
+		is_own_fs_error = (value): value is FsError =>
+			typeof value === 'object' && value !== null && #brand in value;
+	}
 
 	constructor(kind: FsErrorKind, path: string, message?: string, options?: ErrorOptions) {
 		super(message ?? `${kind}: ${path}`, options);
@@ -153,6 +174,9 @@ export class FsError extends Error {
 		this.path = path;
 	}
 }
+
+Object.freeze(FsError.prototype);
+Object.freeze(FsError);
 
 /**
  * Whether `error` is an `FsError` from any copy of Gro, optionally of one `kind`.
@@ -249,6 +273,8 @@ export interface FsReadDir {
 	read_text_if_exists(path: string): Promise<string | null>;
 	/**
 	 * Lists a directory's entries, in no particular order.
+	 * An entry whose name isn't UTF-8 fails the listing with `io_error`,
+	 * since no string names it.
 	 * @param path - defaults to the handle's own directory
 	 */
 	list(path?: string): AsyncIterable<DirEntry>;
@@ -313,7 +339,7 @@ export interface Fs {
 	readonly project: FsDir;
 	/**
 	 * Opens a directory by absolute path.
-	 * @throws `TypeError` - for a relative path or one holding a NUL byte
+	 * @throws `TypeError` - for a relative path, or one holding a NUL byte or a lone surrogate
 	 * @throws `FsError` - `not_found`, `not_a_directory`
 	 */
 	open_dir(path: string): Promise<FsDir>;
@@ -321,9 +347,9 @@ export interface Fs {
 	 * Creates a fresh directory under the OS temp directory,
 	 * removed with everything in it when disposed (`await using`).
 	 * @param prefix - the start of the directory's name, defaults to `'gro-'`.
-	 * It names no other directory: a `/` or a NUL byte throws `TypeError`,
+	 * It names no other directory: a non-string, a `/`, or a NUL byte throws `TypeError`,
 	 * and `..` is only the name's start (`..` then six random characters).
-	 * @throws `TypeError` - for a prefix holding a `/` or a NUL byte
+	 * @throws `TypeError` - for a prefix that isn't a string or holds a `/` or a NUL byte
 	 */
 	temp_dir(prefix?: string): Promise<FsDir & AsyncDisposable>;
 }
@@ -356,7 +382,7 @@ const code_of = (error: unknown): unknown =>
 	typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
 
 const is_not_found = (error: unknown): boolean =>
-	code_of(error) === 'ENOENT' || (error instanceof FsError && error.kind === 'not_found');
+	code_of(error) === 'ENOENT' || (is_own_fs_error(error) && error.kind === 'not_found');
 
 /**
  * Classifies a Node error by its code, naming `path`, the path the op reports.
@@ -365,7 +391,7 @@ const is_not_found = (error: unknown): boolean =>
  * resolved, is rewrapped to name `path`, the resolved one kept in its message and `cause`.
  */
 const to_fs_error = (error: unknown, path: string): FsError => {
-	if (error instanceof FsError) {
+	if (is_own_fs_error(error)) {
 		if (error.path === path || error.kind === 'outside_root') return error;
 		return new FsError(error.kind, path, `${error.kind}: ${path} (${error.message})`, {
 			cause: error
@@ -376,7 +402,7 @@ const to_fs_error = (error: unknown, path: string): FsError => {
 	return new FsError(kind, path, `${kind}: ${path} (${detail})`, { cause: error });
 };
 
-const to_file_kind = (s: Stats | Dirent): FileKind =>
+const to_file_kind = (s: Stats | Dirent<string | Buffer>): FileKind =>
 	s.isFile() ? 'file' : s.isDirectory() ? 'directory' : s.isSymbolicLink() ? 'symlink' : 'other';
 
 const to_file_info = (s: Stats): FileInfo => ({
@@ -423,14 +449,40 @@ interface LexicalPath {
 }
 
 /**
+ * Refuses a path that isn't a string, holds a NUL byte, or isn't well-formed Unicode,
+ * whose lone surrogates would encode as U+FFFD and name a different entry than it spells.
+ */
+const assert_path_string = (path: string): void => {
+	if (typeof path !== 'string') throw new TypeError('fs paths are strings');
+	if (path.includes('\0')) throw new TypeError('fs paths hold no NUL byte');
+	if (!path.isWellFormed()) throw new TypeError('fs paths are well-formed Unicode');
+};
+
+/**
+ * Refuses a path segment holding a `/`, which no split of a path makes, so a segment forged
+ * by a polluted intrinsic (`split`, `pop`, an array iterator) is never taken as one component.
+ * Checked by index, which no prototype can intercept.
+ */
+const assert_segment = (name: unknown, requested: string): string => {
+	if (typeof name !== 'string') {
+		throw to_outside_error(requested, 'yields a path segment that is not a string');
+	}
+	for (let i = 0; i < name.length; i++) {
+		if (name[i] === '/') {
+			throw to_outside_error(requested, `yields the path segment ${name}, which holds a \`/\``);
+		}
+	}
+	return name;
+};
+
+/**
  * Resolves `requested` lexically beneath `root`, refusing an absolute path
  * and one whose `..` segments climb above it.
- * @throws `TypeError` - for a path that isn't a string or holds a NUL byte
+ * @throws `TypeError` - for a path that isn't a well-formed string or holds a NUL byte
  * @throws `FsError` - `outside_root`
  */
 const to_lexical_path = (root: Root, requested: string): LexicalPath => {
-	if (typeof requested !== 'string') throw new TypeError('fs paths are strings');
-	if (requested.includes('\0')) throw new TypeError('fs paths hold no NUL byte');
+	assert_path_string(requested);
 	if (requested.startsWith('/')) {
 		throw new FsError('outside_root', requested, `outside_root: absolute path ${requested}`);
 	}
@@ -448,7 +500,7 @@ const to_lexical_path = (root: Root, requested: string): LexicalPath => {
 			}
 			segments.pop();
 		} else {
-			segments.push(segment);
+			segments.push(assert_segment(segment, requested));
 		}
 	}
 	if (segments.length === 0) return { path: root.path, segments, dir: false };
@@ -546,7 +598,7 @@ const create_walk = (root: Root, segments: Array<string>): Walk => ({
  * @returns the next component's path, or `null` when the segment needs no lookup
  */
 const step_walk = (root: Root, requested: string, walk: Walk): string | null => {
-	const name = walk.stack.pop()!;
+	const name = assert_segment(walk.stack.pop(), requested);
 	if (name === '' || name === '.') return null;
 	if (name === '..') {
 		if (walk.current === root.path) throw to_climb_error(root, requested, walk.last_link);
@@ -568,11 +620,62 @@ const to_missing_path = (walk: Walk, next: string): string => {
 	return walk.stack.length === 0 ? next : next + '/' + walk.stack.toReversed().join('/');
 };
 
+// fatal, so bytes that aren't UTF-8 throw rather than decode to U+FFFD,
+// and with `ignoreBOM`, so a leading BOM is kept as part of the name
+const utf8_decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/**
+ * Decodes a symlink target or entry name read as bytes, refusing one that isn't UTF-8:
+ * decoded lossily, its U+FFFD would name a different entry than the kernel follows.
+ * The refusal is `io_error`, not `outside_root`, since nothing showed the bytes leave the
+ * handle; the runtime's native op, which never decodes them, follows such a link.
+ */
+const decode_name = (bytes: Uint8Array, path: string, what: string): string => {
+	try {
+		return utf8_decoder.decode(bytes);
+	} catch {
+		throw new FsError(
+			'io_error',
+			path,
+			`io_error: ${path} ${what} ${to_escaped_bytes(bytes)}, which isn't UTF-8`
+		);
+	}
+};
+
+/**
+ * A path's real path, read as bytes and decoded as UTF-8, so a real path that isn't
+ * fails with `io_error` rather than decoding to U+FFFD and naming a different path.
+ */
+const realpath_text = async (path: string): Promise<string> =>
+	decode_name(await realpath(path, { encoding: 'buffer' }), path, 'has the real path');
+
+const realpath_text_sync = (path: string): string =>
+	decode_name(realpathSync(path, { encoding: 'buffer' }), path, 'has the real path');
+
+// printable ASCII as itself, every other byte as `\xNN`
+const to_escaped_bytes = (bytes: Uint8Array): string => {
+	let text = '';
+	for (const byte of bytes) {
+		text +=
+			byte >= 0x20 && byte < 0x7f && byte !== 0x5c
+				? String.fromCharCode(byte)
+				: '\\x' + byte.toString(16).padStart(2, '0');
+	}
+	return text;
+};
+
 /**
  * Takes a symlink's target into the walk in place of the link.
+ * The target is read as bytes and must be UTF-8, so the walk follows the bytes the kernel would.
  */
-const enter_link = (requested: string, walk: Walk, link: string, target: string): void => {
+const enter_link = (
+	requested: string,
+	walk: Walk,
+	link: string,
+	target_bytes: Uint8Array
+): void => {
 	if (++walk.links > MAX_SYMLINKS) throw to_symlinks_error(link);
+	const target = decode_name(target_bytes, link, 'is a symlink to');
 	if (target.startsWith('/')) throw to_absolute_link_error(requested, link, target);
 	if (walk.stack.length === 0) walk.final_link ??= link;
 	walk.last_link = link;
@@ -587,7 +690,7 @@ const enter_link = (requested: string, walk: Walk, link: string, target: string)
  */
 const is_missing_beneath_real_parent = async (path: string): Promise<boolean> => {
 	const parent = dirname(path);
-	const parent_real = await realpath(parent).catch(() => null);
+	const parent_real = await realpath_text(parent).catch(() => null);
 	if (parent_real !== parent) return false;
 	return lstat(path).then(
 		() => false,
@@ -604,7 +707,7 @@ const confine = async (
 	const { path } = lexical;
 	const head = follow || path === root.path ? path : dirname(path);
 	try {
-		if ((await realpath(head)) === head) return path;
+		if ((await realpath_text(head)) === head) return path;
 	} catch (error) {
 		// missing, or not a directory, which the walk sorts out, but for the common miss
 		if (
@@ -616,7 +719,7 @@ const confine = async (
 			return path;
 		}
 	}
-	const root_real = await realpath(root.path);
+	const root_real = await realpath_text(root.path);
 	if (root_real !== root.path) {
 		throw to_moved_root_error(root, requested, root_real);
 	}
@@ -634,7 +737,7 @@ const confine = async (
 			throw error;
 		}
 		if (s.isSymbolicLink()) {
-			enter_link(requested, walk, next, await readlink(next));
+			enter_link(requested, walk, next, await readlink(next, { encoding: 'buffer' }));
 		} else {
 			// a component the walk passes through must be a directory, as the kernel requires
 			if (walk.stack.length > 0 && !s.isDirectory()) throw new FsError('not_a_directory', next);
@@ -651,7 +754,7 @@ const confine_sync = (
 	lexical: LexicalPath,
 	follow: boolean
 ): string => {
-	const root_real = realpathSync(root.path);
+	const root_real = realpath_text_sync(root.path);
 	if (root_real !== root.path) {
 		throw to_moved_root_error(root, requested, root_real);
 	}
@@ -664,7 +767,7 @@ const confine_sync = (
 		const s = lstatSync(next, { throwIfNoEntry: false });
 		if (s === undefined) return to_missing_path(walk, next);
 		if (s.isSymbolicLink()) {
-			enter_link(requested, walk, next, readlinkSync(next));
+			enter_link(requested, walk, next, readlinkSync(next, { encoding: 'buffer' }));
 		} else {
 			// a component the walk passes through must be a directory, as the kernel requires
 			if (walk.stack.length > 0 && !s.isDirectory()) throw new FsError('not_a_directory', next);
@@ -810,13 +913,20 @@ class NodeFsReadDir implements FsReadDir {
 		const lexical = to_lexical_path(this.#root, path);
 		let entries: Dir;
 		try {
-			entries = await opendir(await confine(this.#root, path, lexical, true));
+			// names read as bytes, so one that isn't UTF-8 is refused rather than listed as a
+			// lossy name that reaches a different entry, or none (Node's types omit `'buffer'`)
+			entries = await opendir(await confine(this.#root, path, lexical, true), {
+				encoding: 'buffer' as BufferEncoding
+			});
 		} catch (error) {
 			throw to_fs_error(error, lexical.path);
 		}
 		try {
-			for await (const entry of entries) {
-				yield { name: entry.name, kind: to_file_kind(entry) };
+			for await (const entry of entries as AsyncIterable<Dirent<Buffer>>) {
+				yield {
+					name: decode_name(entry.name, lexical.path, 'holds an entry named'),
+					kind: to_file_kind(entry)
+				};
 			}
 		} catch (error) {
 			throw to_fs_error(error, lexical.path);
@@ -1062,12 +1172,12 @@ const create_dir = (real_path: string): FsDir =>
  * (a task, a script, an entry module) and hand narrower handles down.
  */
 export const fs: Fs = Object.freeze({
-	project: create_dir(process.cwd()),
+	project: create_dir(to_checked_cwd()),
 	open_dir: async (path: string): Promise<FsDir> => {
-		if (path.includes('\0')) throw new TypeError('fs paths hold no NUL byte');
+		assert_path_string(path);
 		if (!isAbsolute(path)) throw new TypeError(`fs.open_dir takes an absolute path: ${path}`);
 		try {
-			const real_path = await realpath(path);
+			const real_path = await realpath_text(path);
 			if (!(await stat(real_path)).isDirectory()) throw new FsError('not_a_directory', path);
 			return create_dir(real_path);
 		} catch (error) {
@@ -1075,12 +1185,14 @@ export const fs: Fs = Object.freeze({
 		}
 	},
 	temp_dir: async (prefix = 'gro-'): Promise<FsDir & AsyncDisposable> => {
-		if (prefix.includes('\0')) throw new TypeError('fs paths hold no NUL byte');
+		// a string, so no `includes` or `toString` of the caller's runs between the checks and the name
+		if (typeof prefix !== 'string') throw new TypeError('fs.temp_dir takes a string prefix');
+		assert_path_string(prefix);
 		if (prefix.includes('/')) throw new TypeError(`fs.temp_dir takes a name prefix: ${prefix}`);
 		// concatenated, not joined, so a prefix of `..` names `..XXXXXX`, never the parent
 		const template = tmpdir() + '/' + prefix;
 		try {
-			const real_path = await realpath(await mkdtemp(template));
+			const real_path = await realpath_text(await mkdtemp(template));
 			return Object.freeze(new NodeFsTempDir(HANDLE_KEY, real_path));
 		} catch (error) {
 			throw to_fs_error(error, template);

@@ -1,5 +1,4 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resolve } from 'node:path';
 
 import { task as deploy_task } from '#lib/deploy.task.ts';
 
@@ -10,7 +9,10 @@ import {
 	setup_successful_spawn_mock,
 	mock_spawn_results,
 	DEPLOY_DIR_ENTRIES,
-	FIRST_COMMIT_HASH
+	FIRST_COMMIT_HASH,
+	get_clone_calls,
+	expect_cloned,
+	is_clone_call
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
@@ -26,7 +28,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -129,19 +130,35 @@ describe('deploy_task error handling', () => {
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Remote not found');
 		});
 
-		test('propagates git_clone_locally errors', async () => {
-			const { git_remote_branch_exists, git_clone_locally } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+		test('a failed clone or remote step fails the deploy at that step', async () => {
+			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger new branch path
 			vi.mocked(exists).mockResolvedValue(false);
-			vi.mocked(git_clone_locally).mockRejectedValue(new Error('Clone failed'));
-
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
-			await expect(deploy_task.run(ctx)).rejects.toThrow('Clone failed');
+			await mock_spawn_results(is_clone_call);
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				'`git clone -b main --single-branch` failed'
+			);
+			expect(spawn.mock.calls.some(([, args]) => args?.includes('set-url'))).toBe(false);
+
+			// the project's origin, which the clone's is set to, can't be read
+			await mock_spawn_results(
+				(cmd, args) => cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url'
+			);
+			await expect(deploy_task.run(ctx)).rejects.toThrow('`git remote get-url origin` failed');
+
+			await mock_spawn_results((cmd, args) => cmd === 'git' && args[1] === 'set-url');
+			await expect(deploy_task.run(ctx)).rejects.toThrow('`git remote set-url origin` failed');
+
+			await mock_spawn_results((cmd, args) => cmd === 'git' && args[0] === 'config');
+			await expect(deploy_task.run(ctx)).rejects.toThrow(
+				'`git config --local gro.deploy-clone true` failed'
+			);
+			expect(spawn.mock.calls.some(([, args]) => args?.[1] === '--orphan')).toBe(false);
 		});
 
 		test('propagates git_current_branch_name errors', async () => {
@@ -275,7 +292,7 @@ describe('deploy_task error handling', () => {
 	describe('spawn operation failures', () => {
 		test('a failed git reset recreates the deploy dir', async () => {
 			const { remove } = await get_mock_project();
-			const { git_pull, git_clone_locally } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { exists } = await get_mock_project();
 
 			// the deploy dir exists until it's removed
@@ -294,13 +311,8 @@ describe('deploy_task error handling', () => {
 
 			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 			expect(git_pull).not.toHaveBeenCalledWith('origin', 'deploy', expect.anything());
-			expect(git_clone_locally).toHaveBeenCalledWith(
-				'origin',
-				'deploy',
-				expect.anything(),
-				resolve('.gro/deploy')
-			);
-			expect(git_clone_locally.mock.invocationCallOrder[0]!).toBeGreaterThan(
+			await expect_cloned('deploy');
+			expect((await get_clone_calls())[0]!.order).toBeGreaterThan(
 				remove.mock.invocationCallOrder[0]!
 			);
 			expect(ctx.log.warn).toHaveBeenCalledWith(

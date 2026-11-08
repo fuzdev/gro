@@ -8,7 +8,9 @@ import {
 	setup_successful_git_mocks,
 	setup_successful_fs_mocks,
 	setup_successful_spawn_mock,
-	FIRST_COMMIT_HASH
+	FIRST_COMMIT_HASH,
+	get_clone_calls,
+	expect_cloned
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
@@ -24,7 +26,6 @@ vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 		git_checkout: vi.fn(),
 		git_pull: vi.fn(),
 		git_remote_branch_exists: vi.fn(),
-		git_clone_locally: vi.fn(),
 		git_current_branch_name: vi.fn(),
 		git_delete_local_branch: vi.fn(),
 		git_push_to_create: vi.fn(),
@@ -144,7 +145,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 		});
 
 		test('reinitializes deploy dir after deletion', async () => {
-			const { git_current_branch_name, git_fetch, git_clone_locally } = vi.mocked(
+			const { git_current_branch_name, git_fetch } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { exists } = await get_mock_project();
@@ -155,7 +156,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 				const path_str = String(path);
 				if (path_str.includes('build')) return true; // build_dir always exists
 				exists_call_count++;
-				return exists_call_count === 1; // Only first deploy_dir check returns true
+				return exists_call_count <= 2; // the ownership check and the first deploy_dir check
 			});
 			vi.mocked(git_current_branch_name).mockResolvedValue('wrong-branch');
 
@@ -165,12 +166,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 			// Should fetch and clone
 			expect(git_fetch).toHaveBeenCalledWith('origin', '+deploy:deploy');
-			expect(git_clone_locally).toHaveBeenCalledWith(
-				'origin',
-				'deploy',
-				process.cwd(),
-				resolve('.gro/deploy')
-			);
+			await expect_cloned('deploy');
 		});
 	});
 
@@ -204,7 +200,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 		});
 
 		test('reinitializes after sync failure', async () => {
-			const { git_check_clean_workspace, git_fetch, git_clone_locally } = vi.mocked(
+			const { git_check_clean_workspace, git_fetch } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { exists } = await get_mock_project();
@@ -215,7 +211,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 				const path_str = String(path);
 				if (path_str.includes('build')) return true; // build_dir always exists
 				exists_call_count++;
-				return exists_call_count === 1;
+				return exists_call_count <= 2; // the ownership check and the first deploy_dir check
 			});
 
 			// Dirty after pull
@@ -234,13 +230,13 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 			// Should reinitialize
 			expect(git_fetch).toHaveBeenCalled();
-			expect(git_clone_locally).toHaveBeenCalled();
+			expect(await get_clone_calls()).toHaveLength(1);
 		});
 	});
 
 	describe('deploy dir does not exist', () => {
 		test('fetches and clones when deploy dir missing', async () => {
-			const { git_fetch, git_clone_locally, git_local_branch_exists } = vi.mocked(
+			const { git_fetch, git_local_branch_exists } = vi.mocked(
 				await import('@fuzdev/fuz_util/git.ts')
 			);
 			const { exists } = await get_mock_project();
@@ -256,12 +252,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			// Should fetch with + for non-fastforward
 			expect(git_fetch).toHaveBeenCalledWith('origin', '+deploy:deploy');
 			// Should clone
-			expect(git_clone_locally).toHaveBeenCalledWith(
-				'origin',
-				'deploy',
-				process.cwd(),
-				resolve('.gro/deploy')
-			);
+			await expect_cloned('deploy');
 		});
 
 		test('cleans up local target branch if created during fetch', async () => {
