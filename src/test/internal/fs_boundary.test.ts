@@ -139,7 +139,10 @@ const with_project_link = async (
 	target: string,
 	fn: (link: string) => Promise<void>
 ): Promise<void> => {
-	const link = join('.gro', `fs_boundary_test_${process.pid}_${Math.random().toString(36).slice(2)}`);
+	const link = join(
+		'.gro',
+		`fs_boundary_test_${process.pid}_${Math.random().toString(36).slice(2)}`
+	);
 	mkdirSync(join(fs.project.path, '.gro'), { recursive: true });
 	symlinkSync(target, join(fs.project.path, link));
 	try {
