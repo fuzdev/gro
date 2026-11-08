@@ -392,6 +392,10 @@ Core systems (src/lib/):
 Key utilities:
 
 - Filesystem: `module_graph.ts`, `module_graph_node.ts`, `internal/filer.ts`, `paths.ts`
+- Host modules: `fs.ts`, the fs host module's Node implementation
+  ([docs](src/docs/host_modules.md)); `src/test/host_module_declarations.test.ts`
+  fails if a host module's emitted declarations name a type outside the ES libs
+  and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
 - Build tools: `build_cache.ts`, `build_cache_dependencies.ts`

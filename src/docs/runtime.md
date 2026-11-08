@@ -12,7 +12,8 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules, the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
+> Designed, not built: the host modules (the first, `fs`, exists as its Node implementation,
+> [host modules](host_modules.md)), the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
 > Until they land, a run reaches nothing past its own module graph and the console.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
@@ -25,6 +26,7 @@ The runtime's docs:
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
+- [host modules](host_modules.md) - the imports that reach the OS: `fs` today, how to hand them down, and the Node implementation's gaps
 - [glossary](glossary.md) - the terms these docs use, each defined once
 - installing a release - [install](#install), below
 - building it - the README's [Develop](../../README.md#develop) section
@@ -380,22 +382,12 @@ and the policy diff attributes every widening to a package.
 Both columns describe code that doesn't patch shared prototypes;
 against a dependency that does, the [threat model](#threat-model) says where the bound is.
 
-Where the import happens matters:
-
-- Import host modules at the [composition root](glossary.md#composition-root),
-  the task or entry module where authority enters,
-  so the policy diff points at a few files a person can review.
-- Library code takes capabilities as parameters, through small dependency interfaces,
-  the way a function takes its dependencies.
-  Tests then pass mocks with no module mocking,
-  and a library given fs needs no policy entry of its own, since handing is delegation, not a new grant.
-- Name a handle's type with `import type`, never `import {type Fs}`.
-  Under `verbatimModuleSyntax` the second form keeps the import,
-  so the host module still links and the library looks like it reaches fs.
-- Hand down the narrowest handle (a directory handle, `net.narrow({hosts})`) rather than the module,
-  so narrowing happens at the root, where review sees it.
-- `net.fetch` is bound, so it can be handed to any library that accepts an injected `fetch`,
-  and `const {fetch} = net` gives the bare name in one module; `net.WebSocket` and `net.EventSource` hand the same way.
+Where the import happens matters: at the [composition root](glossary.md#composition-root),
+the task or entry module where authority enters, with library code taking capabilities as parameters
+and the narrowest handle (a directory handle, `net.narrow({hosts})`) handed down.
+[host modules](host_modules.md#where-to-import-them) has the how-to.
+`net.fetch` is bound, so it can be handed to any library that accepts an injected `fetch`,
+and `const {fetch} = net` gives the bare name in one module; `net.WebSocket` and `net.EventSource` hand the same way.
 
 A single-file script is its own root and imports directly.
 The cost is that the policy sees [reach](glossary.md#reach-need-and-use) only at the roots.
