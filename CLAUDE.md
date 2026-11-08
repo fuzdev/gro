@@ -385,7 +385,7 @@ Core systems (src/lib/):
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
 - Plugins: `plugin.ts`, `gro_plugin_*.ts` (gen, sveltekit_app,
-  sveltekit_library, server, deno_server)
+  sveltekit_library, deno_server)
 - Config: `gro_config.ts`, `gro.config.default.ts`
 - Loader: `loader.ts`, `register.ts`
 
