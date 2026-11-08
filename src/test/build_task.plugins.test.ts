@@ -4,6 +4,7 @@ import { task as build_task } from '#lib/build.task.ts';
 import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -14,10 +15,9 @@ vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	}))
 }));
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
@@ -71,7 +71,7 @@ describe('build_task plugin lifecycle', () => {
 	});
 
 	test('runs plugin lifecycle in correct order', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 		const mock_plugins = create_mock_plugins();
@@ -93,7 +93,7 @@ describe('build_task plugin lifecycle', () => {
 	});
 
 	test('creates plugins with correct context', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 
@@ -115,7 +115,7 @@ describe('build_task plugin lifecycle', () => {
 	});
 
 	test('calls clean_fs before building', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { clean_fs } = vi.mocked(await import('#lib/clean_fs.ts'));
 
@@ -134,7 +134,7 @@ describe('build_task plugin lifecycle', () => {
 
 	describe('error handling', () => {
 		test('propagates error when setup() throws', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 			const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 			const mock_plugins = create_mock_plugins();
@@ -161,7 +161,7 @@ describe('build_task plugin lifecycle', () => {
 		});
 
 		test('propagates error when adapt() throws', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 			const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 			const mock_plugins = create_mock_plugins();
@@ -190,7 +190,7 @@ describe('build_task plugin lifecycle', () => {
 		});
 
 		test('propagates error when teardown() throws', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 			const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 			const mock_plugins = create_mock_plugins();
@@ -217,7 +217,7 @@ describe('build_task plugin lifecycle', () => {
 		});
 
 		test('propagates error when Plugins.create() throws', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 			const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
 

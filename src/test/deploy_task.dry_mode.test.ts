@@ -11,25 +11,12 @@ import {
 	FIRST_COMMIT_HASH
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -52,7 +39,7 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode behavior', () => {
 		test('performs all steps except git commit and push', async () => {
-			const { git_checkout, git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_checkout, git_pull } = git_ops;
 			const { copy } = await get_mock_project();
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { exists, remove } = await get_mock_project();
@@ -203,7 +190,7 @@ describe('deploy_task dry mode', () => {
 
 	describe('dry mode integration', () => {
 		test('dry mode works with custom branches', async () => {
-			const { git_checkout } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_checkout } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -272,9 +259,7 @@ describe('deploy_task dry mode', () => {
 
 		test('a first dry deploy creates the target branch locally, pushing nothing', async () => {
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-			const { git_remote_branch_exists, git_push_to_create } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_remote_branch_exists, git_push_to_create } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
 			vi.mocked(exists).mockImplementation(async (path: any) => String(path).includes('build'));
@@ -308,9 +293,13 @@ describe('deploy_task dry mode', () => {
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'deployment'], {
 				cwd: resolve('.gro/deploy')
 			});
-			expect(spawn).toHaveBeenCalledWith('git', ['push', 'origin', 'deploy', '-f'], {
-				cwd: resolve('.gro/deploy')
-			});
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['push', '-f', '--end-of-options', 'origin', 'deploy'],
+				{
+					cwd: resolve('.gro/deploy')
+				}
+			);
 		});
 
 		test('logs deployed message when dry=false', async () => {

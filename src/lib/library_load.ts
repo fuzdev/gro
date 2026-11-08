@@ -3,11 +3,6 @@ import { basename, dirname, join } from 'node:path';
 import { styleText as st } from 'node:util';
 import { analyzeFromFiles } from 'svelte-docinfo';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import {
-	git_current_commit_hash,
-	git_check_workspace,
-	git_workspace_is_clean
-} from '@fuzdev/fuz_util/git.ts';
 import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
@@ -20,8 +15,12 @@ import {
 	TSCONFIG_FILENAME
 } from './constants.ts';
 import { sveltekit_tsconfig_is_unsynced } from './sveltekit_helpers.ts';
+import type { FsDir } from './fs.ts';
+import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
+import { git_check_workspace, git_current_commit_hash, git_workspace_is_clean } from './git.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
+import type { SpawnProgram } from './spawn.ts';
 
 // the cache's filename in a repo's `.gro` directory
 const LIBRARY_CACHE_FILENAME = 'library.json';
@@ -75,6 +74,17 @@ export interface LibraryCache extends LibraryLoadResult {
 	svelte_docinfo_version: string;
 }
 
+/**
+ * What loading a repo's library reaches: its files, and git to read its cache key.
+ */
+export interface LibraryLoadDeps {
+	fs_paths: FsPaths;
+	/**
+	 * Reads only, so `to_git_program(spawn, {pass_env: GIT_LOCAL_PASS_ENV})` is enough.
+	 */
+	git: SpawnProgram;
+}
+
 export interface LibraryLoadOptions {
 	log?: Logger;
 	/** Set to `false` to bypass the `.gro` cache (always re-analyze, but still write the result). */
@@ -82,20 +92,48 @@ export interface LibraryLoadOptions {
 }
 
 /**
+ * Opens `repo_dir` as a handle, `null` for a directory that isn't there,
+ * a repo elsewhere than the project included, as `FsPaths` opens any path.
+ */
+const open_repo_dir = async (fs_paths: FsPaths, repo_dir: string): Promise<FsDir | null> => {
+	try {
+		const opened = await fs_paths.open_dir_path(repo_dir);
+		if (opened === null) return null;
+		return opened.path ? opened.dir.dir(opened.path) : opened.dir;
+	} catch (error) {
+		if (is_fs_error(error, 'not_found') || is_fs_error(error, 'not_a_directory')) return null;
+		throw error;
+	}
+};
+
+/**
  * Computes the cache key for a repo at `repo_dir`: the git `HEAD` commit hash.
  *
  * Returns `null` (uncacheable — analysis still runs, caching is skipped) when
- * the dir is not a git repo OR when the working tree is dirty. A dirty tree is
+ * the dir is missing, or not a git repo, OR when the working tree is dirty. A dirty tree is
  * deliberately uncacheable: the commit hash doesn't capture uncommitted edits,
  * so a single `-dirty` key would serve a stale analysis across successive edits.
  * Skipping the cache while dirty guarantees fresh metadata; clean commits cache.
+ *
+ * A repo git can't read (a corrupt index, dubious ownership) or a stopped read is also
+ * `null`: the status isn't known, so its analysis runs fresh, and one unreadable sibling
+ * repo in a scan doesn't fail the scan.
  */
-export const library_cache_key = async (repo_dir: string): Promise<string | null> => {
-	const options = { cwd: repo_dir };
-	const commit = await git_current_commit_hash('HEAD', options);
-	if (!commit) return null;
-	const status = await git_check_workspace(options);
-	return git_workspace_is_clean(status) ? commit : null;
+export const library_cache_key = async (
+	{ fs_paths, git }: LibraryLoadDeps,
+	repo_dir: string
+): Promise<string | null> => {
+	const cwd = await open_repo_dir(fs_paths, repo_dir);
+	if (cwd === null) return null;
+	const options = { cwd };
+	try {
+		const commit = await git_current_commit_hash(git, options);
+		if (!commit) return null;
+		const status = await git_check_workspace(git, options);
+		return git_workspace_is_clean(status) ? commit : null;
+	} catch {
+		return null;
+	}
 };
 
 /**
@@ -201,7 +239,8 @@ export const library_cache_write = async (
  * The repo's files are read through `fs_paths` by path, not beneath a handle on the repo,
  * so a `package.json`, `tsconfig.json`, or `.gro` symlinked from outside the repo is followed.
  *
- * @param fs_paths - reads the repo's files and the cache, from the caller's root
+ * @param deps - `fs_paths` reads the repo's files and the cache, from the caller's root,
+ *   and `git` reads the commit and status of the repo for the cache key
  * @param repo_dir - absolute path to the repo to analyze
  * @returns the repo's `LibraryLoadResult` (`library_json` + full `package_json`)
  * @throws Error if the repo extends `$app/tsconfig` without
@@ -209,15 +248,16 @@ export const library_cache_write = async (
  *   run `gro sync` in it
  */
 export const library_load_from_repo = async (
-	fs_paths: FsPaths,
+	deps: LibraryLoadDeps,
 	repo_dir: string,
 	options?: LibraryLoadOptions
 ): Promise<LibraryLoadResult> => {
+	const { fs_paths } = deps;
 	const { log, cache = true } = options ?? {};
 
 	const cache_path = join(repo_dir, GRO_DIRNAME, LIBRARY_CACHE_FILENAME);
 
-	const key = await library_cache_key(repo_dir);
+	const key = await library_cache_key(deps, repo_dir);
 
 	// Try the cache first. A `null` key (not a git repo, or a dirty tree) is never cacheable.
 	if (cache && key !== null) {

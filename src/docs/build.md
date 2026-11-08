@@ -97,6 +97,9 @@ The build cache only works with a clean git workspace.
 With uncommitted changes, the git commit hash doesn't reflect your actual code state,
 so Gro disables caching to ensure builds always match your working directory.
 
+With no commit to key on, in a directory that isn't a repo or one with no commits yet,
+a build never reuses the cache for the same reason.
+
 This conservative approach prevents a subtle issue:
 uncommitted changes could be reverted after building,
 leaving cached outputs from code that no longer exists in your workspace.

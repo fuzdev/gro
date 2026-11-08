@@ -15,25 +15,12 @@ import {
 	ORIGIN_URL
 } from './deploy_task_test_helpers.ts';
 import { create_mock_fs_dir, get_mock_project, to_mock_file_info } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -56,7 +43,7 @@ describe('deploy_task safety checks', () => {
 
 	describe('deploy dir validation', () => {
 		const assert_refused_before_git = async (deploy_dir: string): Promise<void> => {
-			const git = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const git = git_ops;
 			const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { remove } = await get_mock_project();
 
@@ -106,7 +93,7 @@ describe('deploy_task safety checks', () => {
 			message: string,
 			args: Partial<Args> = {}
 		): Promise<void> => {
-			const git = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const git = git_ops;
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { remove, mkdir } = await get_mock_project();
 
@@ -141,7 +128,8 @@ describe('deploy_task safety checks', () => {
 		): Promise<void> => {
 			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			vi.mocked(spawn_out).mockImplementation(async (_command, args = [], options) => {
-				const cwd = options?.cwd === undefined ? undefined : String(options.cwd);
+				// no cwd is the project, spawn's default
+				const cwd = options?.cwd === undefined ? process.cwd() : String(options.cwd);
 				const stdout =
 					args[0] === 'config'
 						? tag
@@ -160,7 +148,7 @@ describe('deploy_task safety checks', () => {
 				remote_target_exists ? 'with the remote target' : 'without the remote target',
 				() => {
 					beforeEach(async () => {
-						const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+						const { git_remote_branch_exists } = git_ops;
 						vi.mocked(git_remote_branch_exists).mockResolvedValue(remote_target_exists);
 					});
 
@@ -254,7 +242,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test("a tagged clone with the project's origin is accepted and synced", async () => {
-			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_pull } = git_ops;
 			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 
 			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
@@ -377,7 +365,7 @@ describe('deploy_task safety checks', () => {
 
 	describe('workspace cleanliness check', () => {
 		test('throws TaskError when workspace has uncommitted changes', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(
 				'Modified files:\n  src/lib/foo.ts\n  src/lib/bar.ts'
@@ -390,7 +378,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('throws TaskError when workspace has untracked files', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			vi.mocked(git_check_clean_workspace).mockResolvedValue('Untracked files:\n  temp.ts');
 
@@ -401,7 +389,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('allows deploy when workspace is clean', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
@@ -416,7 +404,7 @@ describe('deploy_task safety checks', () => {
 
 	describe('git pull.rebase setting check', () => {
 		test('throws TaskError when pull.rebase is not configured', async () => {
-			const { git_check_setting_pull_rebase } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_setting_pull_rebase } = git_ops;
 
 			vi.mocked(git_check_setting_pull_rebase).mockResolvedValue(false);
 
@@ -428,7 +416,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('allows deploy when pull.rebase is configured', async () => {
-			const { git_check_setting_pull_rebase } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_setting_pull_rebase } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_check_setting_pull_rebase).mockResolvedValue(true);
@@ -443,7 +431,7 @@ describe('deploy_task safety checks', () => {
 
 	describe('post-pull workspace check', () => {
 		test('throws TaskError when workspace is dirty after pull', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			// Clean initially, dirty after pull
 			let call_count = 0;
@@ -468,7 +456,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('succeeds when workspace stays clean after pull', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { exists } = await get_mock_project();
 
 			// Clean throughout
@@ -484,7 +472,7 @@ describe('deploy_task safety checks', () => {
 
 	describe('combined safety checks', () => {
 		test('checks are performed in correct order (custom target checked first)', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			// Set dirty workspace
 			vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified: src/foo.ts');
@@ -499,7 +487,7 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('checks dangerous branch before workspace check', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			// Set dirty workspace
 			vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified: src/foo.ts');

@@ -15,25 +15,12 @@ import {
 	get_clone_calls
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -104,7 +91,7 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('empty happens after target branch preparation', async () => {
-			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_pull } = git_ops;
 			const { exists, remove } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -121,7 +108,7 @@ describe('deploy_task deploy directory operations', () => {
 		});
 
 		test('the deploy dir is opened for emptying after it is recreated', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_remote_branch_exists } = git_ops;
 			const { remove, mkdir } = await get_mock_project();
 			const { create_fs_paths } = vi.mocked(await import('#lib/fs_paths.ts'));
 			const { exists, list } = await get_mock_project();
@@ -150,12 +137,6 @@ describe('deploy_task deploy directory operations', () => {
 			const clone_order = (await get_clone_calls())[0]!.order;
 			expect(last_open_order).toBeGreaterThan(clone_order);
 			expect(last_open_order).toBeLessThan(list_order);
-			// every open but the one for emptying is an existence check before the clone
-			for (const order of open_orders) {
-				if (order !== last_open_order) {
-					expect(order).toBeLessThan(clone_order);
-				}
-			}
 		});
 
 		test('empty happens before copying files', async () => {

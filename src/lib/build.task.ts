@@ -1,7 +1,6 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
-import { git_check_clean_workspace, git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { Plugins, to_plugin_context } from './plugin.ts';
@@ -17,6 +16,13 @@ import { load_build_cache_dependencies } from './build_cache_dependencies.ts';
 import { fs } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import {
+	GIT_LOCAL_PASS_ENV,
+	git_check_clean_workspace,
+	git_current_commit_hash,
+	to_git_program
+} from './git.ts';
+import { spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -61,7 +67,9 @@ export const task: Task<Args> = {
 		const { args, invoke_task, log, config } = ctx;
 		const { sync, gen, install, force_build, allow_dirty } = args;
 		const fs_paths = create_fs_paths(fs);
-		const cache_deps = { fs_paths, log };
+		// only reads the local repo, so the named set is all it needs
+		const git = to_git_program(spawn, { pass_env: GIT_LOCAL_PASS_ENV });
+		const cache_deps = { fs_paths, log, git };
 
 		if (sync || install) {
 			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
@@ -75,8 +83,8 @@ export const task: Task<Args> = {
 		// Batch git calls upfront for performance (spawning processes is expensive),
 		// and load the dependency key components once so the check and the save agree
 		const [workspace_status, initial_commit, cache_dependencies] = await Promise.all([
-			git_check_clean_workspace(),
-			git_current_commit_hash(),
+			git_check_clean_workspace(git),
+			git_current_commit_hash(git),
 			load_build_cache_dependencies(fs_paths)
 		]);
 		const workspace_dirty = !!workspace_status;
@@ -132,7 +140,7 @@ export const task: Task<Args> = {
 
 		// Verify workspace didn't become dirty during build
 		if (!allow_dirty) {
-			const final_workspace_status = await git_check_clean_workspace();
+			const final_workspace_status = await git_check_clean_workspace(git);
 			if (final_workspace_status !== workspace_status) {
 				// Workspace state changed during build - this indicates a problem
 				throw new TaskError(
@@ -149,7 +157,7 @@ export const task: Task<Args> = {
 		// Save build cache metadata after successful build (only if workspace is clean)
 		if (!workspace_dirty) {
 			// Race condition protection: verify git commit didn't change during build
-			const current_commit = await git_current_commit_hash();
+			const current_commit = await git_current_commit_hash(git);
 
 			if (current_commit !== initial_commit) {
 				log.warn(

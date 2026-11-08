@@ -9,16 +9,19 @@ import {
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 import { create_mock_project_fs_paths } from './fs_mocks.ts';
+import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
 
 const fs_paths = create_mock_project_fs_paths();
+const git = create_mock_git_program();
+
 const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
 
 describe('race condition: cache file modification during validation', () => {
@@ -28,7 +31,7 @@ describe('race condition: cache file modification during validation', () => {
 
 	test('handles cache file being modified while reading', async () => {
 		const { read_text_if_exists } = fs_paths.project;
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
@@ -56,7 +59,7 @@ describe('race condition: cache file modification during validation', () => {
 
 		// Metadata is loaded once and used throughout validation,
 		// so later file modifications don't affect the result
-		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, { dependencies });
 
 		// initial metadata matches current git commit, so cache is valid
 		expect(result).toBe(true);
@@ -74,7 +77,7 @@ describe('race condition: cache file modification during validation', () => {
 		vi.mocked(write).mockResolvedValue(undefined);
 
 		// actually concurrent writes via Promise.all
-		const deps = { fs_paths, log: create_mock_logger() };
+		const deps = { fs_paths, log: create_mock_logger(), git };
 		await Promise.all([
 			save_build_cache_metadata(deps, metadata1),
 			save_build_cache_metadata(deps, metadata2)
@@ -87,7 +90,7 @@ describe('race condition: cache file modification during validation', () => {
 
 	test('handles multiple concurrent build validation operations', async () => {
 		const { read_text_if_exists } = fs_paths.project;
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		// hash_blake3 mock returns 'hash123', so config's build_cache_config_hash will be 'hash123'
@@ -105,9 +108,9 @@ describe('race condition: cache file modification during validation', () => {
 
 		// multiple concurrent validations should all succeed
 		const validations = await Promise.all([
-			is_build_cache_valid({ fs_paths, log }, config, { dependencies }),
-			is_build_cache_valid({ fs_paths, log }, config, { dependencies }),
-			is_build_cache_valid({ fs_paths, log }, config, { dependencies })
+			is_build_cache_valid({ fs_paths, log, git }, config, { dependencies }),
+			is_build_cache_valid({ fs_paths, log, git }, config, { dependencies }),
+			is_build_cache_valid({ fs_paths, log, git }, config, { dependencies })
 		]);
 
 		// all validations should return true since metadata matches

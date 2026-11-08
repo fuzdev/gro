@@ -5,6 +5,7 @@ import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -15,10 +16,9 @@ vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	}))
 }));
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
@@ -72,9 +72,7 @@ describe('build_task cache race conditions', () => {
 	});
 
 	test('detects commit change during build and skips cache save', async () => {
-		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts')
-		);
+		const { git_check_clean_workspace, git_current_commit_hash } = git_ops;
 		const { is_build_cache_valid, save_build_cache_metadata } = vi.mocked(
 			await import('#lib/build_cache.ts')
 		);
@@ -120,9 +118,7 @@ describe('build_task cache race conditions', () => {
 	});
 
 	test('saves cache when commit is stable throughout build', async () => {
-		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts')
-		);
+		const { git_check_clean_workspace, git_current_commit_hash } = git_ops;
 		const { is_build_cache_valid, create_build_cache_metadata, save_build_cache_metadata } =
 			vi.mocked(await import('#lib/build_cache.ts'));
 		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
@@ -157,7 +153,11 @@ describe('build_task cache race conditions', () => {
 
 		// Should save cache (commit was stable)
 		expect(save_build_cache_metadata).toHaveBeenCalledWith(
-			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
+			{
+				fs_paths: expect.objectContaining({ project: fs.project }),
+				log: ctx.log,
+				git: expect.objectContaining({ name: 'git' })
+			},
 			mock_metadata
 		);
 
@@ -170,9 +170,7 @@ describe('build_task cache race conditions', () => {
 	});
 
 	test('logs commit hashes when race condition detected', async () => {
-		const { git_check_clean_workspace, git_current_commit_hash } = vi.mocked(
-			await import('@fuzdev/fuz_util/git.ts')
-		);
+		const { git_check_clean_workspace, git_current_commit_hash } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { hash_blake3 } = vi.mocked(await import('@fuzdev/fuz_util/hash_blake3.ts'));
 

@@ -1,9 +1,11 @@
-import { spawn, spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { join, resolve } from 'node:path';
+
+import { is_silent_error, TaskError, type Task } from './task.ts';
 import {
 	git_check_clean_workspace,
 	git_checkout,
@@ -17,14 +19,16 @@ import {
 	git_pull,
 	git_fetch,
 	git_check_setting_pull_rebase,
-	git_current_branch_name
-} from '@fuzdev/fuz_util/git.ts';
-
-import { is_silent_error, TaskError, type Task } from './task.ts';
+	git_current_branch_name,
+	to_git_program
+} from './git.ts';
 import { paths, print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
-import { fs } from './fs.ts';
+import { fs, type FsDir } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
+import { spawn_result_is_ok } from './cli.ts';
+// TODO drop the alias once `touch` leaves fuz_util's `spawn`
+import { spawn as host_spawn, type SpawnCallOptions, type SpawnProgram } from './spawn.ts';
 import {
 	is_protected_dir,
 	PROTECTED_DIRS_TEXT,
@@ -135,12 +139,18 @@ export const task: Task<Args> = {
 		} = args;
 
 		const fs_paths = create_fs_paths(fs);
+		// a named unconfined phase, `-A`-equivalent: it signs and pushes with the user's git setup
+		const git = to_git_program(host_spawn, { pass_env: 'all' });
 
 		// Checks
 		// the deploy dir is removed, emptied, and run git in below, so before anything else,
 		// it must be somewhere Gro may own, and if it exists, a clone Gro made
 		const resolved_deploy_dir = resolve(deploy_dir);
-		await assert_deploy_dir_owned(await open_deploy_dir(fs_paths, resolved_deploy_dir), origin);
+		await assert_deploy_dir_owned(
+			git,
+			await open_deploy_dir(fs_paths, resolved_deploy_dir),
+			origin
+		);
 		if (!force && target !== TARGET_BRANCH) {
 			throw new TaskError(
 				`Warning! You are deploying to a custom target branch '${target}',` +
@@ -158,13 +168,13 @@ export const task: Task<Args> = {
 					` both locally and remotely, pass --dangerous to suppress this error.`
 			);
 		}
-		const clean_error_message = await git_check_clean_workspace();
+		const clean_error_message = await git_check_clean_workspace(git);
 		if (clean_error_message) {
 			throw new TaskError(
 				'Deploy failed because the git workspace has uncommitted changes: ' + clean_error_message
 			);
 		}
-		if (!(await git_check_setting_pull_rebase())) {
+		if (!(await git_check_setting_pull_rebase(git))) {
 			throw new TaskError(
 				'Deploying currently requires `git config --global pull.rebase true`,' +
 					' but this restriction could be lifted with more work'
@@ -172,16 +182,16 @@ export const task: Task<Args> = {
 		}
 
 		// Fetch the source branch in the cwd if it's not there
-		if (!(await git_local_branch_exists(source))) {
-			await git_fetch(origin, source);
+		if (!(await git_local_branch_exists(git, source))) {
+			await git_fetch(git, origin, source);
 		}
 
 		// Prepare the source branch in the cwd
-		await git_checkout(source);
+		await git_checkout(git, source);
 		if (pull) {
-			await git_pull(origin, source);
+			await git_pull(git, origin, source);
 		}
-		if (await git_check_clean_workspace()) {
+		if (await git_check_clean_workspace(git)) {
 			throw new TaskError(
 				'Deploy failed because the local source branch is out of sync with the remote one,' +
 					' finish rebasing manually or reset with `git rebase --abort`'
@@ -194,8 +204,11 @@ export const task: Task<Args> = {
 			const opened = await fs_paths.open_path(resolved_deploy_dir);
 			return opened.dir.exists(opened.path);
 		};
-		const target_spawn_options = { cwd: resolved_deploy_dir };
-		const remote_target_exists = await git_remote_branch_exists(origin, target);
+		// reopened for each call, since the steps below remove and recreate the directory
+		const to_target_cwd = async (): Promise<SpawnCallOptions> => ({
+			cwd: await open_deploy_cwd(fs_paths, resolved_deploy_dir)
+		});
+		const remote_target_exists = await git_remote_branch_exists(git, origin, target);
 		if (remote_target_exists) {
 			// Remote target branch already exists, so sync up efficiently
 
@@ -203,14 +216,14 @@ export const task: Task<Args> = {
 			// If anything goes wrong, delete the directory and we'll initialize it
 			// using the same code path as if it didn't exist in the first place.
 			if (await deploy_dir_exists()) {
-				if (target !== (await git_current_branch_name(target_spawn_options))) {
+				if (target !== (await git_current_branch_name(git, await to_target_cwd()))) {
 					// We're in a bad state because the target branch has changed,
 					// so delete the directory and continue as if it wasn't there.
 					await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 				} else {
 					// in case it's dirty
-					const reset_result = await spawn('git', ['reset', '--hard'], target_spawn_options);
-					if (!reset_result.ok) {
+					const reset_result = await git.run(['reset', '--hard'], await to_target_cwd());
+					if (!spawn_result_is_ok(reset_result)) {
 						// We're in a bad state because the deploy dir can't be reset,
 						// so delete the directory and continue as if it wasn't there.
 						log.warn(
@@ -221,8 +234,8 @@ export const task: Task<Args> = {
 						await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 					} else if (!reset) {
 						// Skip pulling target branch when resetting (optimization - we reset after anyway)
-						await git_pull(origin, target, target_spawn_options);
-						if (await git_check_clean_workspace(target_spawn_options)) {
+						await git_pull(git, origin, target, await to_target_cwd());
+						if (await git_check_clean_workspace(git, await to_target_cwd())) {
 							// We're in a bad state because the local branch lost continuity with the remote,
 							// so delete the directory and continue as if it wasn't there.
 							await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
@@ -234,25 +247,27 @@ export const task: Task<Args> = {
 			// Second, initialize the deploy dir if needed.
 			// It may not exist, or it may have been deleted after failing to sync above.
 			if (!(await deploy_dir_exists())) {
-				const local_deploy_branch_exists = await git_local_branch_exists(target);
-				await git_fetch(origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
-				await clone_deploy_dir(fs_paths, origin, target, resolved_deploy_dir);
+				const local_deploy_branch_exists = await git_local_branch_exists(git, target);
+				await git_fetch(git, origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
+				await clone_deploy_dir(git, fs_paths, origin, target, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd
 				if (!local_deploy_branch_exists) {
-					await git_delete_local_branch(target);
+					await git_delete_local_branch(git, target);
 				}
 			}
 
 			// Local target branch is now synced with remote, but do we need to reset?
 			// The reset is local, so a dry deploy pushes nothing, and the final force push publishes it.
 			if (reset) {
-				const first_commit_hash = await git_current_branch_first_commit_hash(target_spawn_options);
-				const reset_result = await spawn(
-					'git',
-					['reset', '--hard', first_commit_hash],
-					target_spawn_options
+				const first_commit_hash = await git_current_branch_first_commit_hash(
+					git,
+					await to_target_cwd()
 				);
-				if (!reset_result.ok) {
+				const reset_result = await git.run(
+					['reset', '--hard', first_commit_hash],
+					await to_target_cwd()
+				);
+				if (!spawn_result_is_ok(reset_result)) {
 					throw new TaskError(
 						`\`git reset --hard ${first_commit_hash}\` failed resetting the target branch '${target}'` +
 							` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
@@ -271,32 +286,34 @@ export const task: Task<Args> = {
 			}
 
 			// Delete the target branch locally in the cwd if it exists
-			if (await git_local_branch_exists(target)) {
-				await git_delete_local_branch(target);
+			if (await git_local_branch_exists(git, target)) {
+				await git_delete_local_branch(git, target);
 			}
 
 			// Create the target branch locally and remotely.
 			// This is more complex to avoid churning the cwd.
-			await clone_deploy_dir(fs_paths, origin, source, resolved_deploy_dir);
-			const spawn_init = async (command: string, command_args: Array<string>): Promise<void> => {
-				const result = await spawn(command, command_args, target_spawn_options);
-				if (!result.ok) {
-					throw new TaskError(
-						`\`${command} ${command_args.join(' ')}\` failed creating the target branch '${target}'` +
-							` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
-							' resolve the failure, then deploy again'
-					);
-				}
+			await clone_deploy_dir(git, fs_paths, origin, source, resolved_deploy_dir);
+			const to_init_error = (command: string): TaskError =>
+				new TaskError(
+					`\`${command}\` failed creating the target branch '${target}'` +
+						` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
+						' resolve the failure, then deploy again'
+				);
+			const git_init = async (git_args: Array<string>): Promise<void> => {
+				const result = await git.run(git_args, await to_target_cwd());
+				if (!spawn_result_is_ok(result)) throw to_init_error(`git ${git_args.join(' ')}`);
 			};
-			await spawn_init('git', ['checkout', '--orphan', target]);
+			await git_init(['checkout', '--orphan', target]);
 			// TODO there's definitely a better way to do this
-			await spawn_init('git', ['rm', '-rf', '.']);
-			await spawn_init('touch', [INITIAL_FILE_PATH]);
-			await spawn_init('git', ['add', INITIAL_FILE_PATH]);
-			await spawn_init('git', ['commit', '-m', 'init']);
+			await git_init(['rm', '-rf', '.']);
+			// TODO write the file through `fs`, leaving this module's last fuz_util `spawn`
+			const touched = await spawn('touch', [INITIAL_FILE_PATH], { cwd: resolved_deploy_dir });
+			if (!touched.ok) throw to_init_error(`touch ${INITIAL_FILE_PATH}`);
+			await git_init(['add', '--', INITIAL_FILE_PATH]);
+			await git_init(['commit', '-m', 'init']);
 			// a dry deploy pushes nothing; a real one creates the remote branch here, with upstream tracking
-			if (!dry) await git_push_to_create(origin, target, target_spawn_options);
-			await git_delete_local_branch(source, target_spawn_options);
+			if (!dry) await git_push_to_create(git, origin, target, await to_target_cwd());
+			await git_delete_local_branch(git, source, await to_target_cwd());
 		}
 
 		// Remove everything except .git from the deploy directory to avoid stale files,
@@ -361,22 +378,22 @@ export const task: Task<Args> = {
 			` resolve the failure, then deploy again`;
 		// no `-f`: the deploy dir is its own clone, so only its own ignore rules apply -
 		// a `.gitignore` the build emits and the user's global excludes - and they're respected
-		const add_result = await spawn('git', ['add', '.'], target_spawn_options);
-		if (!add_result.ok) {
+		const commit_cwd = await to_target_cwd();
+		const add_result = await git.run(['add', '.'], commit_cwd);
+		if (!spawn_result_is_ok(add_result)) {
 			throw new TaskError(bad_state_message('git add'));
 		}
 		// fail loud on what the add skipped: without `--directory`, files in ignored directories
 		// are listed one by one, and `-z` keeps names unquoted
-		const ignored = await spawn_out(
-			'git',
+		const ignored = await git.out(
 			['ls-files', '-z', '--others', '--ignored', '--exclude-standard'],
-			target_spawn_options
+			commit_cwd
 		);
-		if (!ignored.result.ok) {
+		if (!spawn_result_is_ok(ignored)) {
 			if (ignored.stderr) log.error(ignored.stderr.trimEnd());
 			throw new TaskError(bad_state_message('git ls-files --others --ignored'));
 		}
-		const ignored_paths = ignored.stdout?.split('\0').filter(Boolean) ?? [];
+		const ignored_paths = ignored.stdout.split('\0').filter(Boolean);
 		if (ignored_paths.length) {
 			log.warn(
 				st('yellow', 'not deploying files the deploy clone ignores') +
@@ -388,24 +405,23 @@ export const task: Task<Args> = {
 		}
 		// `git diff --cached --quiet` exits 0 with nothing staged and 1 with changes,
 		// so a redeploy of an identical build commits nothing and still pushes
-		const diff_result = await spawn('git', ['diff', '--cached', '--quiet'], target_spawn_options);
-		const changed = !diff_result.ok;
+		const diff_result = await git.run(['diff', '--cached', '--quiet'], commit_cwd);
+		const changed = !spawn_result_is_ok(diff_result);
 		if (changed && !(diff_result.kind === 'exited' && diff_result.code === 1)) {
 			throw new TaskError(bad_state_message('git diff --cached --quiet'));
 		}
 		if (changed) {
-			const commit_result = await spawn(
-				'git',
-				['commit', '-m', 'deployment'],
-				target_spawn_options
-			);
-			if (!commit_result.ok) {
+			const commit_result = await git.run(['commit', '-m', 'deployment'], commit_cwd);
+			if (!spawn_result_is_ok(commit_result)) {
 				throw new TaskError(bad_state_message('git commit'));
 			}
 		}
 		// force push because we may be resetting the branch, see the checks above to make this safer
-		const push_result = await spawn('git', ['push', origin, target, '-f'], target_spawn_options);
-		if (!push_result.ok) {
+		const push_result = await git.run(
+			['push', '-f', '--end-of-options', origin, target],
+			commit_cwd
+		);
+		if (!spawn_result_is_ok(push_result)) {
 			throw new TaskError(bad_state_message(`git push ${origin} ${target} -f`));
 		}
 
@@ -463,7 +479,11 @@ export const DEPLOY_CLONE_CONFIG_KEY = 'gro.deploy-clone';
  * the `origin` remote `clone_deploy_dir` sets, the project's. A missing one passes.
  * Gro never removes a refused deploy dir, which the message leaves to the user.
  */
-const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin): Promise<void> => {
+const assert_deploy_dir_owned = async (
+	git: SpawnProgram,
+	opened: FsOpenedPath,
+	origin: GitOrigin
+): Promise<void> => {
 	if (!(await opened.dir.exists(opened.path))) return;
 	const real = to_opened_real_path(opened);
 	const refuse = (reason: string): TaskError =>
@@ -475,15 +495,16 @@ const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin):
 	if ((await opened.dir.stat(opened.path))?.kind !== 'directory') {
 		throw refuse('it is not a directory');
 	}
-	const toplevel = await spawn_out('git', ['rev-parse', '--show-toplevel'], { cwd: real });
-	const toplevel_path = toplevel.result.ok ? toplevel.stdout?.trim() : undefined;
+	const cwd = opened.path ? opened.dir.dir(opened.path) : opened.dir;
+	const toplevel = await git.out(['rev-parse', '--show-toplevel'], { cwd });
+	const toplevel_path = spawn_result_is_ok(toplevel) ? toplevel.stdout.trim() : undefined;
 	if (!toplevel_path) throw refuse('it is not in a git repo');
 	if (toplevel_path !== real) throw refuse(`it is inside the git repo at ${toplevel_path}`);
 	// its own `.git` directory, so a layout like a committed bare repo with `core.worktree`,
 	// whose config could carry a forged tag, isn't taken for a clone
 	const own_git_dir = real + '/' + GIT_DIRNAME;
-	const git_dir = await spawn_out('git', ['rev-parse', '--absolute-git-dir'], { cwd: real });
-	const git_dir_path = git_dir.result.ok ? git_dir.stdout?.trim() : undefined;
+	const git_dir = await git.out(['rev-parse', '--absolute-git-dir'], { cwd });
+	const git_dir_path = spawn_result_is_ok(git_dir) ? git_dir.stdout.trim() : undefined;
 	if (git_dir_path !== own_git_dir) {
 		throw refuse(`its git dir is ${git_dir_path ?? 'unknown'}, not its own ${own_git_dir}`);
 	}
@@ -493,11 +514,11 @@ const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin):
 	if (git_dir_info?.kind !== 'directory') {
 		throw refuse(`its ${GIT_DIRNAME} is not a directory`);
 	}
-	const expected = await to_origin_url(origin, dir);
+	const expected = await to_origin_url(git, origin);
 	if (expected === null) {
 		throw refuse(`the project has no \`${origin}\` remote to compare it with`);
 	}
-	const actual = await to_origin_url(origin, real);
+	const actual = await to_origin_url(git, origin, { cwd });
 	if (actual !== expected) {
 		throw refuse(
 			actual === null
@@ -505,10 +526,8 @@ const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin):
 				: `its \`${origin}\` remote is ${actual}, not the project's ${expected}`
 		);
 	}
-	const tag = await spawn_out('git', ['config', '--local', '--get', DEPLOY_CLONE_CONFIG_KEY], {
-		cwd: real
-	});
-	if (!tag.result.ok || tag.stdout?.trim() !== 'true') {
+	const tag = await git.out(['config', '--local', '--get', DEPLOY_CLONE_CONFIG_KEY], { cwd });
+	if (!spawn_result_is_ok(tag) || tag.stdout.trim() !== 'true') {
 		throw refuse(
 			`it lacks the local git config \`${DEPLOY_CLONE_CONFIG_KEY} true\` that marks a deploy clone` +
 				' (a clone from before the mark, which Gro re-clones once it is removed, or another checkout)'
@@ -516,9 +535,21 @@ const assert_deploy_dir_owned = async (opened: FsOpenedPath, origin: GitOrigin):
 	}
 };
 
-const to_origin_url = async (origin: GitOrigin, cwd: string): Promise<string | null> => {
-	const { result, stdout } = await spawn_out('git', ['remote', 'get-url', origin], { cwd });
-	return (result.ok && stdout?.trim()) || null;
+const to_origin_url = async (
+	git: SpawnProgram,
+	origin: GitOrigin,
+	options?: SpawnCallOptions
+): Promise<string | null> => {
+	const output = await git.out(['remote', 'get-url', '--end-of-options', origin], options);
+	return (spawn_result_is_ok(output) && output.stdout.trim()) || null;
+};
+
+/**
+ * Opens the deploy dir as a handle, for a `cwd`.
+ */
+const open_deploy_cwd = async (fs_paths: FsPaths, resolved_deploy_dir: string): Promise<FsDir> => {
+	const opened = await fs_paths.open_path(resolved_deploy_dir);
+	return opened.path ? opened.dir.dir(opened.path) : opened.dir;
 };
 
 /**
@@ -528,6 +559,7 @@ const to_origin_url = async (origin: GitOrigin, cwd: string): Promise<string | n
  * Makes the project's `.gro/` first, with its marker, when the deploy dir is beneath it.
  */
 const clone_deploy_dir = async (
+	git: SpawnProgram,
 	fs_paths: FsPaths,
 	origin: GitOrigin,
 	branch: GitBranch,
@@ -539,23 +571,22 @@ const clone_deploy_dir = async (
 			`\`${step}\` failed preparing the deploy dir ${print_path(resolved_deploy_dir)},` +
 				' so nothing was pushed - see the output above, resolve the failure, then deploy again'
 		);
-	const clone = await spawn('git', [
+	const clone = await git.run([
 		'clone',
 		'-b',
 		branch,
 		'--single-branch',
+		'--end-of-options',
 		dir,
 		resolved_deploy_dir
 	]);
-	if (!clone.ok) throw fail(`git clone -b ${branch} --single-branch`);
-	const url = await to_origin_url(origin, dir);
+	if (!spawn_result_is_ok(clone)) throw fail(`git clone -b ${branch} --single-branch`);
+	const url = await to_origin_url(git, origin);
 	if (url === null) throw fail(`git remote get-url ${origin}`);
-	const set_url = await spawn('git', ['remote', 'set-url', origin, url], {
-		cwd: resolved_deploy_dir
-	});
-	if (!set_url.ok) throw fail(`git remote set-url ${origin}`);
-	const set_tag = await spawn('git', ['config', '--local', DEPLOY_CLONE_CONFIG_KEY, 'true'], {
-		cwd: resolved_deploy_dir
-	});
-	if (!set_tag.ok) throw fail(`git config --local ${DEPLOY_CLONE_CONFIG_KEY} true`);
+	const cwd = await open_deploy_cwd(fs_paths, resolved_deploy_dir);
+	const set_url = await git.run(['remote', 'set-url', '--end-of-options', origin, url], { cwd });
+	if (!spawn_result_is_ok(set_url)) throw fail(`git remote set-url ${origin}`);
+	const set_tag = await git.run(['config', '--local', DEPLOY_CLONE_CONFIG_KEY, 'true'], { cwd });
+	if (!spawn_result_is_ok(set_tag))
+		throw fail(`git config --local ${DEPLOY_CLONE_CONFIG_KEY} true`);
 };

@@ -1,9 +1,10 @@
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
-import { GitOrigin, git_current_branch_name, git_push } from '@fuzdev/fuz_util/git.ts';
 
-import type { Task } from './task.ts';
+import { spawn_result_is_ok } from './cli.ts';
+import { GitOrigin, git_current_branch_name, git_push, to_git_program } from './git.ts';
+import { spawn } from './spawn.ts';
+import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -27,9 +28,15 @@ export const task: Task<Args> = {
 			origin
 		} = args;
 
-		const branch = await git_current_branch_name();
+		// signs and pushes with whatever the user's git is set up with, so the whole environment
+		const git = to_git_program(spawn, { pass_env: 'all' });
 
-		await spawn('git', ['commit', '-a', '-m', message!]);
-		await git_push(origin, branch, undefined, true);
+		const branch = await git_current_branch_name(git);
+
+		const commit_result = await git.run(['commit', '-a', '-m', message!]);
+		if (!spawn_result_is_ok(commit_result)) {
+			throw new TaskError('`git commit` failed, so nothing was pushed');
+		}
+		await git_push(git, origin, branch, undefined, true);
 	}
 };

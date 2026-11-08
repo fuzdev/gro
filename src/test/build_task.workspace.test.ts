@@ -4,6 +4,7 @@ import { task as build_task, GIT_SHORT_HASH_LENGTH } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -14,10 +15,9 @@ vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	}))
 }));
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -83,7 +83,7 @@ describe('build_task workspace state', () => {
 	});
 
 	test('deletes cache and dist outputs when workspace is dirty', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { exists, remove } = await get_mock_project();
 		const { list } = await get_mock_project();
 
@@ -128,7 +128,7 @@ describe('build_task workspace state', () => {
 	});
 
 	test('runs full build when workspace is dirty', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { list } = await get_mock_project();
 		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
@@ -153,7 +153,7 @@ describe('build_task workspace state', () => {
 	});
 
 	test('does not save cache when workspace is dirty', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { save_build_cache_metadata } = vi.mocked(await import('#lib/build_cache.ts'));
 		const { list } = await get_mock_project();
 
@@ -170,7 +170,7 @@ describe('build_task workspace state', () => {
 	});
 
 	test('handles missing cache file gracefully when workspace is dirty', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { exists, remove } = await get_mock_project();
 		const { list } = await get_mock_project();
 		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
@@ -201,7 +201,7 @@ describe('build_task workspace state', () => {
 	});
 
 	test('handles missing dist directories gracefully when workspace is dirty', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { exists, remove } = await get_mock_project();
 		const { list } = await get_mock_project();
 		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
@@ -232,7 +232,7 @@ describe('build_task workspace state', () => {
 
 	describe('post-build workspace verification', () => {
 		test('throws TaskError when plugin modifies source files during build', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 			// Workspace starts clean, but becomes dirty after build
@@ -247,21 +247,21 @@ describe('build_task workspace state', () => {
 
 			const ctx = create_mock_build_task_context();
 
-			// Should throw TaskError with specific message about modified files
+			// Should throw TaskError with the status after the build
 			await expect(build_task.run(ctx)).rejects.toThrow(
-				/Build process modified tracked files.*src\/lib\/foo\.ts/s
+				/Build process modified tracked files.*git has unstaged changes/s
 			);
 		});
 
 		test('throws TaskError when clean workspace becomes dirty with untracked files', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 			// Workspace starts clean, but has untracked files after build
 			let call_count = 0;
 			vi.mocked(git_check_clean_workspace).mockImplementation(async () => {
 				call_count++;
-				return call_count === 1 ? null : 'Untracked files:\n  src/generated_file.ts';
+				return call_count === 1 ? null : '?? src/generated_file.ts\0';
 			});
 			vi.mocked(is_build_cache_valid).mockResolvedValue(false);
 
@@ -269,12 +269,12 @@ describe('build_task workspace state', () => {
 
 			// Should throw TaskError mentioning untracked files
 			await expect(build_task.run(ctx)).rejects.toThrow(
-				/Build process modified tracked files.*Untracked files/s
+				/Build process modified tracked files.*git has untracked files/s
 			);
 		});
 
 		test('succeeds when workspace stays clean throughout build', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 			// Workspace stays clean throughout
@@ -288,7 +288,7 @@ describe('build_task workspace state', () => {
 		});
 
 		test('succeeds when dirty workspace stays dirty with same status', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { list } = await get_mock_project();
 
 			// Workspace stays dirty with same status throughout
@@ -303,16 +303,14 @@ describe('build_task workspace state', () => {
 		});
 
 		test('throws TaskError when dirty workspace gets different dirty status during build', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 			const { list } = await get_mock_project();
 
 			// Workspace starts with one dirty status, changes to different dirty status
 			let call_count = 0;
 			vi.mocked(git_check_clean_workspace).mockImplementation(async () => {
 				call_count++;
-				return call_count === 1
-					? 'Modified files:\n  src/foo.ts'
-					: 'Modified files:\n  src/foo.ts\n  src/bar.ts'; // Added file!
+				return call_count === 1 ? ' M src/foo.ts\0' : ' M src/foo.ts\0?? src/bar.ts\0'; // Added file!
 			});
 			vi.mocked(list).mockImplementation(() => to_mock_listing([]));
 

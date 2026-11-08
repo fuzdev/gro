@@ -15,23 +15,9 @@ import {
 import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -170,9 +156,13 @@ describe('deploy_task commit and push', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(spawn).toHaveBeenCalledWith('git', ['push', 'origin', 'deploy', '-f'], {
-				cwd: resolve('.gro/deploy')
-			});
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['push', '-f', '--end-of-options', 'origin', 'deploy'],
+				{
+					cwd: resolve('.gro/deploy')
+				}
+			);
 		});
 
 		test('uses custom origin and target branch', async () => {
@@ -189,9 +179,13 @@ describe('deploy_task commit and push', () => {
 
 			await deploy_task.run(ctx);
 
-			expect(spawn).toHaveBeenCalledWith('git', ['push', 'upstream', 'gh-pages', '-f'], {
-				cwd: resolve('.gro/deploy')
-			});
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['push', '-f', '--end-of-options', 'upstream', 'gh-pages'],
+				{
+					cwd: resolve('.gro/deploy')
+				}
+			);
 		});
 
 		test('uses custom deploy_dir for git push', async () => {
@@ -410,9 +404,13 @@ describe('deploy_task commit and push', () => {
 				cwd: resolve('.gro/deploy')
 			});
 			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
-			expect(spawn).toHaveBeenCalledWith('git', ['push', 'origin', 'deploy', '-f'], {
-				cwd: resolve('.gro/deploy')
-			});
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['push', '-f', '--end-of-options', 'origin', 'deploy'],
+				{
+					cwd: resolve('.gro/deploy')
+				}
+			);
 			expect(ctx.log.info).toHaveBeenCalledWith(
 				expect.stringContaining('deployed with no changes')
 			);

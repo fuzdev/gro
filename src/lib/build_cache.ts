@@ -3,7 +3,6 @@ import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
@@ -19,6 +18,8 @@ import type { BuildCacheDependencies } from './build_cache_dependencies.ts';
 import type { DirEntry, FsDir } from './fs.ts';
 import { FsError, is_fs_error } from './fs_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
+import { git_current_commit_hash } from './git.ts';
+import type { SpawnProgram } from './spawn.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
@@ -30,12 +31,25 @@ export const BUILD_CACHE_VERSION = '3';
 export const BUILD_CACHE_METADATA_PATH = GRO_DIRNAME + '/' + BUILD_CACHE_METADATA_FILENAME;
 
 /**
- * What the build cache's checks and saves reach: the project's paths and a log.
+ * What the build cache key reads when its commit wasn't given: git and a log.
  */
-export interface BuildCacheDeps {
+export interface BuildCacheKeyDeps {
+	git: SpawnProgram;
+	log: Logger;
+}
+
+/**
+ * What saving the build cache's metadata reaches: the project's paths and a log.
+ */
+export interface BuildCacheSaveDeps {
 	fs_paths: FsPaths;
 	log: Logger;
 }
+
+/**
+ * What the build cache's checks reach, its key and its save.
+ */
+export interface BuildCacheDeps extends BuildCacheKeyDeps, BuildCacheSaveDeps {}
 
 /**
  * The inputs to the build cache key beside the config.
@@ -112,17 +126,17 @@ export interface BuildCacheKey extends BuildCacheDependencies {
  * Computes the cache key components for a build.
  * This determines whether a cached build can be reused.
  *
- * @param log - warned without a git commit
+ * @param deps - `log` is warned without a git commit, and `git` reads the commit when none is given
  * @param config - Gro config (`build_cache_config_hash` is already computed during config load)
  */
 export const compute_build_cache_key = async (
-	log: Logger,
+	{ git, log }: BuildCacheKeyDeps,
 	config: GroConfig,
 	{ dependencies: deps, git_commit }: BuildCacheKeyOptions
 ): Promise<BuildCacheKey> => {
-	const commit = git_commit !== undefined ? git_commit : await git_current_commit_hash();
+	const commit = git_commit !== undefined ? git_commit : await git_current_commit_hash(git);
 	if (!commit) {
-		log.warn('Not in a git repository - build cache will use null git commit');
+		log.warn('Not in a git repository or no commits yet - the build cache will not be reused');
 	}
 	if (deps.package_lock_hash === null) {
 		log.debug(
@@ -184,7 +198,7 @@ export const load_build_cache_metadata = async (
  * Errors are logged but don't fail the build (cache is optional).
  */
 export const save_build_cache_metadata = async (
-	{ fs_paths, log }: BuildCacheDeps,
+	{ fs_paths, log }: BuildCacheSaveDeps,
 	metadata: BuildCacheMetadata
 ): Promise<void> => {
 	try {
@@ -262,7 +276,7 @@ export const validate_build_cache = async (
  * @param config - Gro config
  */
 export const is_build_cache_valid = async (
-	{ fs_paths, log }: BuildCacheDeps,
+	{ fs_paths, log, git }: BuildCacheDeps,
 	config: GroConfig,
 	options: BuildCacheKeyOptions
 ): Promise<boolean> => {
@@ -274,7 +288,13 @@ export const is_build_cache_valid = async (
 	}
 
 	// Compute current cache key
-	const current = await compute_build_cache_key(log, config, options);
+	const current = await compute_build_cache_key({ git, log }, config, options);
+
+	// with no commit nothing ties the outputs to the source, so they can't be reused
+	if (current.git_commit === null) {
+		log.debug('Build cache invalid: no git commit');
+		return false;
+	}
 
 	// Check if cache keys have changed
 	if (metadata.git_commit !== current.git_commit) {
@@ -476,11 +496,11 @@ export const discover_dist_dirs = async (fs_paths: FsPaths): Promise<Array<strin
  * @param config - Gro config
  */
 export const create_build_cache_metadata = async (
-	{ fs_paths, log }: BuildCacheDeps,
+	{ fs_paths, log, git }: BuildCacheDeps,
 	config: GroConfig,
 	{ build_dirs, ...key_options }: BuildCacheMetadataOptions
 ): Promise<BuildCacheMetadata> => {
-	const cache_key = await compute_build_cache_key(log, config, key_options);
+	const cache_key = await compute_build_cache_key({ git, log }, config, key_options);
 	const dirs = build_dirs ?? (await discover_build_output_dirs(fs_paths));
 	const outputs = await collect_build_outputs(fs_paths, dirs);
 

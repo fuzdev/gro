@@ -15,25 +15,12 @@ import {
 	is_clone_call
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -56,7 +43,7 @@ describe('deploy_task error handling', () => {
 
 	describe('git operation failures', () => {
 		test('propagates git_check_clean_workspace errors', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			vi.mocked(git_check_clean_workspace).mockRejectedValue(new Error('Git not installed'));
 
@@ -66,7 +53,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_check_setting_pull_rebase errors', async () => {
-			const { git_check_setting_pull_rebase } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_setting_pull_rebase } = git_ops;
 
 			vi.mocked(git_check_setting_pull_rebase).mockRejectedValue(
 				new Error('Failed to read git config')
@@ -78,7 +65,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_local_branch_exists errors', async () => {
-			const { git_local_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_local_branch_exists } = git_ops;
 
 			vi.mocked(git_local_branch_exists).mockRejectedValue(new Error('Git command failed'));
 
@@ -88,9 +75,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_fetch errors', async () => {
-			const { git_local_branch_exists, git_fetch } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_local_branch_exists, git_fetch } = git_ops;
 
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false); // trigger fetch
 			vi.mocked(git_fetch).mockRejectedValue(new Error('Network error'));
@@ -101,7 +86,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_checkout errors', async () => {
-			const { git_checkout } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_checkout } = git_ops;
 
 			vi.mocked(git_checkout).mockRejectedValue(new Error('Branch not found'));
 
@@ -111,7 +96,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_pull errors', async () => {
-			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_pull } = git_ops;
 
 			vi.mocked(git_pull).mockRejectedValue(new Error('Pull failed: merge conflicts'));
 
@@ -121,7 +106,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_remote_branch_exists errors', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_remote_branch_exists } = git_ops;
 
 			vi.mocked(git_remote_branch_exists).mockRejectedValue(new Error('Remote not found'));
 
@@ -131,7 +116,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('a failed clone or remote step fails the deploy at that step', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_remote_branch_exists } = git_ops;
 			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 			const { exists } = await get_mock_project();
 
@@ -162,7 +147,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates git_current_branch_name errors', async () => {
-			const { git_current_branch_name } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_current_branch_name } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
@@ -175,7 +160,7 @@ describe('deploy_task error handling', () => {
 
 		test('propagates git_delete_local_branch errors', async () => {
 			const { git_local_branch_exists, git_delete_local_branch, git_remote_branch_exists } =
-				vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+				git_ops;
 			const { exists } = await get_mock_project();
 
 			// Trigger local branch deletion (line 182 - deploy_dir doesn't exist, remote exists, local branch doesn't exist before fetch)
@@ -227,7 +212,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates errors removing the deploy dir', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_remote_branch_exists } = git_ops;
 			const { remove, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger deletion
@@ -240,7 +225,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates mkdir errors', async () => {
-			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_remote_branch_exists } = git_ops;
 			const { mkdir, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
@@ -292,7 +277,7 @@ describe('deploy_task error handling', () => {
 	describe('spawn operation failures', () => {
 		test('a failed git reset recreates the deploy dir', async () => {
 			const { remove } = await get_mock_project();
-			const { git_pull } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_pull } = git_ops;
 			const { exists } = await get_mock_project();
 
 			// the deploy dir exists until it's removed
@@ -323,9 +308,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('propagates spawn errors for orphan branch creation', async () => {
-			const { git_remote_branch_exists, git_push_to_create } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_remote_branch_exists, git_push_to_create } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger new branch
@@ -404,7 +387,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('dirty workspace error includes git status output', async () => {
-			const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_check_clean_workspace } = git_ops;
 
 			vi.mocked(git_check_clean_workspace).mockResolvedValue(
 				'Modified files:\n  src/foo.ts\n  src/bar.ts'

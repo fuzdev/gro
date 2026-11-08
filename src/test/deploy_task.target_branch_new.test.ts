@@ -13,25 +13,12 @@ import {
 	ORIGIN_URL
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual,
-		git_check_clean_workspace: vi.fn(),
-		git_check_setting_pull_rebase: vi.fn(),
-		git_local_branch_exists: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn(),
-		git_remote_branch_exists: vi.fn(),
-		git_current_branch_name: vi.fn(),
-		git_delete_local_branch: vi.fn(),
-		git_push_to_create: vi.fn(),
-		git_current_branch_first_commit_hash: vi.fn()
-	};
-});
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn(),
@@ -48,7 +35,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		await setup_successful_spawn_mock();
 
 		// Default: remote target does NOT exist
-		const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_remote_branch_exists } = git_ops;
 		vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
 	});
 
@@ -108,9 +95,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('local target branch cleanup', () => {
 		test('deletes local target branch if it exists', async () => {
-			const { git_local_branch_exists, git_delete_local_branch } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_local_branch_exists, git_delete_local_branch } = git_ops;
 
 			// Mock target branch exists locally
 			vi.mocked(git_local_branch_exists).mockImplementation(async (branch) => {
@@ -126,9 +111,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('skips deletion when local target branch does not exist', async () => {
-			const { git_local_branch_exists, git_delete_local_branch } = vi.mocked(
-				await import('@fuzdev/fuz_util/git.ts')
-			);
+			const { git_local_branch_exists, git_delete_local_branch } = git_ops;
 
 			// Mock target branch doesn't exist locally
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false);
@@ -160,12 +143,17 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 				'-b',
 				'main',
 				'--single-branch',
+				'--end-of-options',
 				process.cwd(),
 				resolve('.gro/deploy')
 			]);
-			expect(spawn).toHaveBeenCalledWith('git', ['remote', 'set-url', 'origin', ORIGIN_URL], {
-				cwd: resolve('.gro/deploy')
-			});
+			expect(spawn).toHaveBeenCalledWith(
+				'git',
+				['remote', 'set-url', '--end-of-options', 'origin', ORIGIN_URL],
+				{
+					cwd: resolve('.gro/deploy')
+				}
+			);
 			// tagged, so a later deploy knows it for a clone Gro made
 			expect(spawn).toHaveBeenCalledWith(
 				'git',
@@ -224,7 +212,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			await deploy_task.run(ctx);
 
 			// Should add .gitkeep
-			expect(spawn).toHaveBeenCalledWith('git', ['add', '.gitkeep'], {
+			expect(spawn).toHaveBeenCalledWith('git', ['add', '--', '.gitkeep'], {
 				cwd: expect.stringContaining('.gro/deploy')
 			});
 		});
@@ -273,7 +261,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('remote branch creation', () => {
 		test('pushes to create remote target branch', async () => {
-			const { git_push_to_create } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_push_to_create } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({ dry: false });
 
@@ -286,7 +274,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('uses custom origin and target', async () => {
-			const { git_push_to_create } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_push_to_create } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({
 				origin: 'upstream',
@@ -305,7 +293,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('cleanup after creation', () => {
 		test('deletes source branch from deploy dir', async () => {
-			const { git_delete_local_branch } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_delete_local_branch } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({
 				source: 'main',
@@ -321,7 +309,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('deletes custom source branch from deploy dir', async () => {
-			const { git_delete_local_branch } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_delete_local_branch } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({
 				source: 'develop',
@@ -362,7 +350,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('propagates error when push fails', async () => {
-			const { git_push_to_create } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+			const { git_push_to_create } = git_ops;
 
 			vi.mocked(git_push_to_create).mockRejectedValue(new Error('Push failed'));
 

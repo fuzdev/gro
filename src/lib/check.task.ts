@@ -1,13 +1,13 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
-import { git_check_clean_workspace } from '@fuzdev/fuz_util/git.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
+import { spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -129,15 +129,22 @@ export const task: Task<Args> = {
 		}
 
 		if (workspace) {
-			const error_message = await git_check_clean_workspace();
-			if (error_message) {
-				log.error(st('red', 'git status'));
-				await spawn('git', ['status']);
-				throw new TaskError(
-					'Failed check for git_check_clean_workspace:' +
-						error_message +
-						' - do you need to run `gro sync` or commit some files?'
-				);
+			// only reads the local repo, so the named set is all it needs
+			const git = spawn.find('git', { pass_env: GIT_LOCAL_PASS_ENV });
+			if (!git) {
+				// no git means nothing to compare against, the same as a directory that's no repo
+				log.warn(st('yellow', 'git not found on PATH, skipping the workspace check'));
+			} else {
+				const error_message = await git_check_clean_workspace(git);
+				if (error_message) {
+					log.error(st('red', 'git status'));
+					await git.run(['status']);
+					throw new TaskError(
+						'Failed check for git_check_clean_workspace:' +
+							error_message +
+							' - do you need to run `gro sync` or commit some files?'
+					);
+				}
 			}
 		}
 	}

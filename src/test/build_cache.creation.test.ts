@@ -8,10 +8,11 @@ import {
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 import { create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
+import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 // Mock the fs host module
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
@@ -19,6 +20,8 @@ vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 }));
 
 const fs_paths = create_mock_project_fs_paths();
+const git = create_mock_git_program();
+
 const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
 
 describe('create_build_cache_metadata', () => {
@@ -28,7 +31,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('creates complete metadata object', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -37,7 +40,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		expect(result).toMatchObject({
 			version: BUILD_CACHE_VERSION,
@@ -49,7 +54,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('creates metadata with actual build outputs', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -64,7 +69,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		expect(result.outputs).toHaveLength(2);
 		expect(result.outputs[0]).toMatchObject({
@@ -80,7 +87,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('creates metadata with multiple build directories', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -98,7 +105,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should have files from all three directories
 		expect(result.outputs.map((o) => o.path)).toEqual([
@@ -109,7 +118,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('handles empty build directories', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -119,7 +128,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should succeed with empty outputs
 		expect(result.outputs).toEqual([]);
@@ -127,7 +138,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('creates metadata with deeply nested file structures', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -139,7 +150,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should find the deeply nested file
 		expect(result.outputs).toHaveLength(1);
@@ -148,7 +161,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('handles build directories with many files', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -162,7 +175,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should hash all 15 files in parallel
 		expect(result.outputs).toHaveLength(15);
@@ -173,7 +188,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('creates metadata with null git commit', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue(null);
@@ -182,7 +197,9 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should have null git commit
 		expect(result.git_commit).toBeNull();
@@ -192,7 +209,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('uses pre-passed build_dirs and skips discovery', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 		const project = fs_paths.project;
 
@@ -203,7 +220,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, {
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
 			dependencies,
 			git_commit: 'abc123',
 			build_dirs: ['custom_out']
@@ -216,7 +233,7 @@ describe('create_build_cache_metadata', () => {
 	});
 
 	test('includes correct build_cache_config_hash', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
@@ -230,7 +247,9 @@ describe('create_build_cache_metadata', () => {
 		});
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
+		const result = await create_build_cache_metadata({ fs_paths, log, git }, config, {
+			dependencies
+		});
 
 		// Should include the hashed config
 		expect(result.build_cache_config_hash).toBe('custom_config_hash');

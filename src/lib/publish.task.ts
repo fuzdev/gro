@@ -1,17 +1,17 @@
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
+
+import { TaskError, type Task } from './task.ts';
 import {
 	GitBranch,
 	GitOrigin,
 	git_check_clean_workspace,
 	git_checkout,
 	git_fetch,
-	git_pull
-} from '@fuzdev/fuz_util/git.ts';
-
-import { TaskError, type Task } from './task.ts';
+	git_pull,
+	to_git_program
+} from './git.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { package_json_load, package_json_parse_repo_url } from './package_json.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
@@ -21,8 +21,7 @@ import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
-// TODO drop the alias once this task's `git` calls leave fuz_util's `spawn`
-import { spawn as host_spawn } from './spawn.ts';
+import { spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -107,21 +106,24 @@ export const task: Task<Args> = {
 		const changelog_file = await fs_paths.open_path(changelog);
 		const changelog_exists = await changelog_file.dir.exists(changelog_file.path);
 
-		const found_changeset_cli = find_cli(host_spawn, changeset_cli, { pass_env: 'all' });
+		const found_changeset_cli = find_cli(spawn, changeset_cli, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found, install @changesets/cli locally or globally'
 			);
 		}
 
+		// a named unconfined phase, `-A`-equivalent: it pushes and signs with the user's git setup
+		const git = to_git_program(spawn, { pass_env: 'all' });
+
 		// Make sure we're on the right branch:
-		await git_fetch(origin, branch);
-		await git_checkout(branch);
+		await git_fetch(git, origin, branch);
+		await git_checkout(git, branch);
 		if (pull) {
-			if (await git_check_clean_workspace()) {
+			if (await git_check_clean_workspace(git)) {
 				throw new TaskError('The git workspace is not clean, pass --no-pull to bypass git pull');
 			}
-			await git_pull(origin, branch);
+			await git_pull(git, origin, branch);
 		}
 
 		// Install packages to ensure deps are current.
@@ -195,7 +197,7 @@ export const task: Task<Args> = {
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
 				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
-				await sveltekit_sync(host_spawn, { pm_cli: config.pm_cli });
+				await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
 			}
 
 			// Regenerate files that depend on package.json version.
@@ -244,17 +246,17 @@ export const task: Task<Args> = {
 		}
 
 		if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
-			await spawn('git', ['add', changelog]);
+			await git.run(['add', '--', changelog]);
 		}
-		const commit_result = await spawn('git', ['commit', '-a', '-m', `publish v${version}`]);
-		if (!commit_result.ok) {
+		const commit_result = await git.run(['commit', '-a', '-m', `publish v${version}`]);
+		if (!spawn_result_is_ok(commit_result)) {
 			throw new TaskError(
 				`the release commit failed, but v${version} is already published to the registry -` +
 					` resolve the failure, commit, then push with \`git push --follow-tags\``
 			);
 		}
-		const push_result = await spawn('git', ['push', '--follow-tags']);
-		if (!push_result.ok) {
+		const push_result = await git.run(['push', '--follow-tags']);
+		if (!spawn_result_is_ok(push_result)) {
 			throw new TaskError(
 				`\`git push --follow-tags\` failed: the release commit and tag v${version} are local only,` +
 					` but v${version} is already published to the registry - resolve the failure,` +

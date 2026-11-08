@@ -3,6 +3,9 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
+import { git_ops } from './git_mocks.ts';
+import { get_mock_spawn } from './spawn_mocks.ts';
+import { GIT_LOCAL_PASS_ENV } from '#lib/git.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -13,10 +16,9 @@ vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	}))
 }));
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
@@ -69,8 +71,18 @@ describe('build_task args and sync/install', () => {
 		vi.resetAllMocks();
 	});
 
+	test('builds its git with the named set a local read needs', async () => {
+		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
+		vi.mocked(is_build_cache_valid).mockResolvedValue(true);
+
+		await build_task.run(create_mock_build_task_context());
+
+		const git = (await get_mock_spawn()).calls.find((call) => call.name === 'git');
+		expect(git?.program_options).toEqual({ pass_env: GIT_LOCAL_PASS_ENV });
+	});
+
 	test('calls sync task when sync is true', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
@@ -85,7 +97,7 @@ describe('build_task args and sync/install', () => {
 	});
 
 	test('skips sync task when sync is false', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
@@ -100,7 +112,7 @@ describe('build_task args and sync/install', () => {
 	});
 
 	test('warns when sync is false but install is true', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);

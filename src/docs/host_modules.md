@@ -191,6 +191,15 @@ const result = await check.closed;
   Named `pass_env` stays, forwarding one host value at a time, so a narrowed caller names each variable.
   To give a library a program with an environment, build the `SpawnProgram` at the root and hand that down.
 
+Git is library code over such a handle, not a host module: `git.ts` takes the `git` program
+as its first argument and a `cwd` handle in its options, and the root decides its environment.
+A root that only reads the local repo, like `gro build`, passes `GIT_LOCAL_PASS_ENV` as `pass_env`.
+One that commits or reaches a remote, like `gro publish` and `gro deploy`, passes `'all'`,
+since its signing, credential helpers, and hooks are the user's setup and not a closed set of variables,
+as strong as `-A` and to be reviewed as such.
+A read of the local repo captures with `out`, and anything that may prompt uses `run`,
+since a child with no inherited stdio has no terminal for ssh, a credential helper, or a pinentry.
+
 The module's TSDoc has each op's contract.
 
 ## Where to import them
@@ -231,7 +240,7 @@ The module's TSDoc has each op's contract.
   while the loader that renders them never loads the host module on its hooks thread.
   Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
   A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
-  like `library_load_from_repo(fs_paths, repo_dir)`,
+  like `library_load_from_repo({fs_paths, git}, repo_dir)`,
   since a repo's `package.json`, `tsconfig.json`, or `.gro/` can be a symlink out of it,
   which a handle on the repo would refuse.
   Where a directory's files come from its own listing or search, Gro opens the directory once

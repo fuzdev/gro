@@ -1,5 +1,4 @@
 import { basename, dirname, resolve } from 'node:path';
-import { GitOrigin, git_pull } from '@fuzdev/fuz_util/git.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
@@ -7,6 +6,7 @@ import { to_forwarded_argv } from './args.ts';
 import { find_cli, spawn_cli } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
+import { GitOrigin, git_pull, to_git_program } from './git.ts';
 import {
 	package_json_extract_dependencies,
 	package_json_load,
@@ -93,7 +93,8 @@ export const task: Task<Args> = {
 
 		// TODO maybe a different task that pulls and does other things, like `gro ready`
 		if (pull) {
-			await git_pull(origin);
+			// reaches the remote and the user's credential helpers, so the whole environment
+			await git_pull(to_git_program(spawn, { pass_env: 'all' }), origin);
 		}
 
 		if (delete_node_modules) {

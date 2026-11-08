@@ -8,6 +8,8 @@ import type { GroConfig } from '#lib/gro_config.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_project, to_mock_file_info, to_mock_listing } from './fs_mocks.ts';
+import type { FsDir } from '#lib/fs.ts';
+import { git_ops } from './git_mocks.ts';
 
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 
@@ -68,8 +70,16 @@ export const setup_successful_git_mocks = async () => {
 		git_current_branch_name,
 		git_delete_local_branch,
 		git_push_to_create,
-		git_current_branch_first_commit_hash
-	} = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		git_current_branch_first_commit_hash,
+		git_command,
+		git_command_out
+	} = git_ops;
+
+	// the commands with no operation of their own land on the fuz_util `spawn` and `spawn_out`
+	// mocks, which `mock_spawn_results` scripts and the suites assert on, `touch` beside them
+	const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+	git_command.mockImplementation(spawn as never);
+	git_command_out.mockImplementation(spawn_out as never);
 
 	vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 	vi.mocked(git_check_setting_pull_rebase).mockResolvedValue(true);
@@ -114,8 +124,13 @@ export const mock_listings = async (
  * Sets up common fs mocks for successful scenarios.
  */
 export const setup_successful_fs_mocks = async () => {
-	const { exists, remove, copy, mkdir, stat, write } = await get_mock_project();
+	const project = await get_mock_project();
+	const { exists, remove, copy, mkdir, stat, write, dir } = project;
 
+	// a `cwd` handle on the deploy dir carries its path for the call to report
+	vi.mocked(dir).mockImplementation(
+		(path) => ({ path: resolve(project.path, path) }) as unknown as FsDir
+	);
 	vi.mocked(exists).mockResolvedValue(true);
 	await mock_listings();
 	vi.mocked(remove).mockResolvedValue(undefined);
@@ -210,6 +225,14 @@ export const setup_successful_spawn_mock = async () => {
 export const expect_cloned = async (branch: string, deploy_dir = '.gro/deploy') => {
 	const calls = await get_clone_calls();
 	expect(calls.map((c) => c.args)).toEqual([
-		['clone', '-b', branch, '--single-branch', process.cwd(), resolve(deploy_dir)]
+		[
+			'clone',
+			'-b',
+			branch,
+			'--single-branch',
+			'--end-of-options',
+			process.cwd(),
+			resolve(deploy_dir)
+		]
 	]);
 };

@@ -10,16 +10,19 @@ import {
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 import { create_mock_project_fs_paths } from './fs_mocks.ts';
+import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
 
 const fs_paths = create_mock_project_fs_paths();
+const git = create_mock_git_program();
+
 const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
 
 describe('is_build_cache_valid', () => {
@@ -28,7 +31,7 @@ describe('is_build_cache_valid', () => {
 	});
 
 	test('returns true when cache keys match and outputs valid', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { read_text_if_exists } = fs_paths.project;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -44,7 +47,7 @@ describe('is_build_cache_valid', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, { dependencies });
 
 		expect(result).toBe(true);
 		expect(log.info).toHaveBeenCalledWith(
@@ -61,14 +64,14 @@ describe('is_build_cache_valid', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, { dependencies });
 
 		expect(result).toBe(false);
 		expect(log.debug).toHaveBeenCalledWith('No build cache metadata found');
 	});
 
 	test('returns false when git commit differs', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { read_text_if_exists } = fs_paths.project;
 
 		const metadata = create_mock_build_cache_metadata({ git_commit: 'old_commit' });
@@ -79,14 +82,14 @@ describe('is_build_cache_valid', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, { dependencies });
 
 		expect(result).toBe(false);
 		expect(log.debug).toHaveBeenCalledWith('Build cache invalid: git commit changed');
 	});
 
 	test('uses pre-computed git_commit and skips git_current_commit_hash', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { read_text_if_exists } = fs_paths.project;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -101,7 +104,7 @@ describe('is_build_cache_valid', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, {
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, {
 			dependencies,
 			git_commit: 'precomputed_abc'
 		});
@@ -110,8 +113,26 @@ describe('is_build_cache_valid', () => {
 		expect(git_current_commit_hash).not.toHaveBeenCalled();
 	});
 
+	test('returns false with no git commit, even when the metadata has none too', async () => {
+		const { read_text_if_exists } = fs_paths.project;
+
+		const metadata = create_mock_build_cache_metadata({ git_commit: null });
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
+
+		const config = await create_mock_config();
+		const log = create_mock_logger();
+
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, {
+			dependencies,
+			git_commit: null
+		});
+
+		expect(result).toBe(false);
+		expect(log.debug).toHaveBeenCalledWith('Build cache invalid: no git commit');
+	});
+
 	test('returns false when build_cache_config hash differs', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { read_text_if_exists } = fs_paths.project;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -129,7 +150,7 @@ describe('is_build_cache_valid', () => {
 		});
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, { dependencies });
 
 		expect(result).toBe(false);
 		expect(log.debug).toHaveBeenCalledWith('Build cache invalid: build_cache_config changed');
@@ -151,7 +172,7 @@ describe('is_build_cache_valid', () => {
 	] as const)(
 		'returns false when %s differs',
 		async (_name, changed: Partial<BuildCacheDependencies>, message) => {
-			const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+			const { git_current_commit_hash } = git_ops;
 			const { read_text_if_exists } = fs_paths.project;
 			const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -164,7 +185,7 @@ describe('is_build_cache_valid', () => {
 			const config = await create_mock_config();
 			const log = create_mock_logger();
 
-			const result = await is_build_cache_valid({ fs_paths, log }, config, {
+			const result = await is_build_cache_valid({ fs_paths, log, git }, config, {
 				dependencies: { ...MOCK_BUILD_CACHE_DEPENDENCIES, ...changed }
 			});
 
@@ -174,7 +195,7 @@ describe('is_build_cache_valid', () => {
 	);
 
 	test('returns true when the package lock hash is null on both sides', async () => {
-		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
+		const { git_current_commit_hash } = git_ops;
 		const { read_text_if_exists } = fs_paths.project;
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -187,7 +208,7 @@ describe('is_build_cache_valid', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await is_build_cache_valid({ fs_paths, log }, config, {
+		const result = await is_build_cache_valid({ fs_paths, log, git }, config, {
 			dependencies: { ...MOCK_BUILD_CACHE_DEPENDENCIES, package_lock_hash: null }
 		});
 

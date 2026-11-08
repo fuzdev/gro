@@ -2,6 +2,7 @@ import type {
 	Spawn,
 	SpawnCallOptions,
 	SpawnChild,
+	SpawnOutput,
 	SpawnProgram,
 	SpawnProgramOptions,
 	SpawnResult
@@ -12,7 +13,7 @@ import { SpawnError } from '#lib/spawn_error.ts';
  * A call a mock program received.
  */
 export interface MockSpawnCall {
-	method: 'run' | 'start';
+	method: 'run' | 'out' | 'start';
 	name: string;
 	args: ReadonlyArray<string>;
 	options: SpawnCallOptions | undefined;
@@ -25,7 +26,12 @@ export interface MockSpawnCall {
  */
 export interface MockSpawn extends Spawn {
 	available: (name: string) => boolean;
-	result: SpawnResult | ((call: MockSpawnCall) => SpawnResult);
+	result: SpawnResult | ((call: MockSpawnCall) => SpawnResult | Promise<SpawnResult>);
+	/**
+	 * What `out` resolves to for a call, `null` for a program whose `out` throws,
+	 * so code reaching an op the test didn't expect fails loudly.
+	 */
+	out_result: ((call: MockSpawnCall) => SpawnOutput | Promise<SpawnOutput>) | null;
 	/**
 	 * What `find` throws for a name, `undefined` to find it normally.
 	 */
@@ -112,11 +118,11 @@ export const create_mock_stream = (): MockSpawnStream => {
 };
 
 /**
- * Creates a mock `Spawn`, whose `narrow` and whose programs' `out` throw,
- * so code reaching an op the test didn't expect fails loudly.
+ * Creates a mock `Spawn`, whose `narrow` throws, and whose programs' `out` throws
+ * until `out_result` is set, so code reaching an op the test didn't expect fails loudly.
  */
 export const create_mock_spawn = (): MockSpawn => {
-	const to_result = (call: MockSpawnCall, error: Error | undefined): SpawnResult => {
+	const to_result = async (call: MockSpawnCall, error: Error | undefined): Promise<SpawnResult> => {
 		mock.calls.push(call);
 		if (error !== undefined) throw error;
 		return typeof mock.result === 'function' ? mock.result(call) : mock.result;
@@ -131,12 +137,15 @@ export const create_mock_spawn = (): MockSpawn => {
 			const call: MockSpawnCall = { method: 'run', name, args, options, program_options };
 			return to_result(call, mock.run_error(call));
 		},
-		out: () => {
-			throw Error(`mock SpawnProgram.out not set: ${name}`);
+		out: async (args, options) => {
+			if (mock.out_result === null) throw Error(`mock SpawnProgram.out not set: ${name}`);
+			const call: MockSpawnCall = { method: 'out', name, args, options, program_options };
+			mock.calls.push(call);
+			return mock.out_result(call);
 		},
 		start: async (args, options) => {
 			const call: MockSpawnCall = { method: 'start', name, args, options, program_options };
-			const result = to_result(call, mock.start_error(call));
+			const result = await to_result(call, mock.start_error(call));
 			return mock.create_child?.(call) ?? create_mock_child({ closed: Promise.resolve(result) });
 		}
 	});
@@ -149,6 +158,7 @@ export const create_mock_spawn = (): MockSpawn => {
 	const mock: MockSpawn = {
 		available: (name) => name.startsWith(LOCAL_BIN),
 		result: OK_RESULT,
+		out_result: null,
 		find_error: NO_ERROR,
 		run_error: NO_ERROR,
 		start_error: NO_ERROR,
@@ -167,6 +177,7 @@ export const create_mock_spawn = (): MockSpawn => {
 		reset: () => {
 			mock.available = (name) => name.startsWith(LOCAL_BIN);
 			mock.result = OK_RESULT;
+			mock.out_result = null;
 			mock.find_error = NO_ERROR;
 			mock.run_error = NO_ERROR;
 			mock.start_error = NO_ERROR;

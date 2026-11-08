@@ -5,21 +5,7 @@ import { TaskError, type TaskContext } from '#lib/task.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
-
-vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
-	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
-	return {
-		...actual, // preserves GitBranch, GitOrigin, and other exports
-		git_check_clean_workspace: vi.fn(),
-		git_fetch: vi.fn(),
-		git_checkout: vi.fn(),
-		git_pull: vi.fn()
-	};
-});
-
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn()
-}));
+import { git_ops, install_mock_git } from './git_mocks.ts';
 
 vi.mock('#lib/package_json.ts', async (import_original) => {
 	const actual = await import_original<typeof import('#lib/package_json.ts')>();
@@ -29,7 +15,9 @@ vi.mock('#lib/package_json.ts', async (import_original) => {
 	};
 });
 
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/sveltekit_helpers.ts', () => ({
 	has_sveltekit_library: vi.fn(),
@@ -89,13 +77,13 @@ describe('publish_task version bump', () => {
 
 		const mock_spawn = await get_mock_spawn();
 		mock_spawn.reset();
-		mock_spawn.available = (name) => name === 'changeset'; // found on `PATH`, not installed locally
+		install_mock_git(mock_spawn);
+		mock_spawn.available = (name) => name === 'changeset' || name === 'git'; // on `PATH`, not installed locally
 
 		const { has_sveltekit_library } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 		has_sveltekit_library.mockResolvedValue({ ok: true });
 
-		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-		spawn.mockResolvedValue({ kind: 'exited', ok: true, child: {} as any, code: 0 });
+		git_ops.git_command.mockResolvedValue({ kind: 'exited', code: 0 });
 	});
 
 	test('re-syncs SvelteKit after the post-bump install and before gen', async () => {
@@ -144,11 +132,9 @@ describe('publish_task version bump', () => {
 	});
 
 	test('fails loud when the final git push is rejected', async () => {
-		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		const spawn = git_ops.git_command;
 		spawn.mockImplementation(async (_command, args) =>
-			args?.[0] === 'push'
-				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
-				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
+			args?.[0] === 'push' ? { kind: 'exited', code: 1 } : { kind: 'exited', code: 0 }
 		);
 		const ctx = create_mock_publish_task_context();
 
@@ -167,11 +153,9 @@ describe('publish_task version bump', () => {
 	});
 
 	test('fails loud when the release commit fails, without pushing', async () => {
-		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+		const spawn = git_ops.git_command;
 		spawn.mockImplementation(async (_command, args) =>
-			args?.[0] === 'commit'
-				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
-				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
+			args?.[0] === 'commit' ? { kind: 'exited', code: 1 } : { kind: 'exited', code: 0 }
 		);
 		const ctx = create_mock_publish_task_context();
 
@@ -202,7 +186,10 @@ describe('publish_task version bump', () => {
 
 		assert(error instanceof TaskError, 'expected a failed version bump to throw a TaskError');
 		assert.include(error.message, 'changeset version failed: no commits were made');
-		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-		assert.ok(!spawn.mock.calls.some(([, args]) => args?.[0] === 'commit'), 'expected no commit');
+		const { calls } = await get_mock_spawn();
+		assert.ok(
+			!calls.some(({ name, args }) => name === 'git' && args[0] === 'commit'),
+			'expected no commit'
+		);
 	});
 });

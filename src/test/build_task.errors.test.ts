@@ -4,6 +4,7 @@ import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
+import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -14,10 +15,9 @@ vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	}))
 }));
 
-vi.mock('@fuzdev/fuz_util/git.js', () => ({
-	git_check_clean_workspace: vi.fn(),
-	git_current_commit_hash: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () =>
+	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
+);
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -73,7 +73,7 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles git command failures gracefully', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 
 		// Git command throws an error
 		vi.mocked(git_check_clean_workspace).mockRejectedValue(new Error('git command not found'));
@@ -85,7 +85,7 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles file system errors during cache deletion', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { exists, remove } = await get_mock_project();
 		const { list } = await get_mock_project();
 
@@ -104,7 +104,7 @@ describe('build_task error handling', () => {
 	});
 
 	test('handles cache validation errors gracefully', async () => {
-		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
+		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
 
 		// Workspace is clean, but cache validation throws

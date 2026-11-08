@@ -1,17 +1,17 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import type { WrittenConfig } from '@changesets/types';
 import { join } from 'node:path';
+
+import { TaskError, type Task } from './task.ts';
 import {
 	GitOrigin,
 	git_check_fully_staged_workspace,
-	git_push_to_create
-} from '@fuzdev/fuz_util/git.ts';
-
-import { TaskError, type Task } from './task.ts';
-import { find_cli, spawn_cli } from './cli.ts';
+	git_push_to_create,
+	to_git_program
+} from './git.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import {
@@ -25,8 +25,7 @@ import {
 import { package_json_load } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
-// TODO drop the alias once this task's `git` calls leave fuz_util's `spawn`
-import { spawn as host_spawn } from './spawn.ts';
+import { spawn, type SpawnProgram } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -102,9 +101,12 @@ export const task: Task<Args> = {
 		if (!message && (minor || major)) throw new TaskError('cannot bump version without a message');
 		if (minor && major) throw new TaskError('cannot bump both minor and major');
 
+		// commits and pushes with the user's git setup, so the whole environment
+		const git = to_git_program(spawn, { pass_env: 'all' });
+
 		const bump: ChangesetBump = minor ? 'minor' : major ? 'major' : 'patch';
 
-		const found_changeset_cli = find_cli(host_spawn, changeset_cli, { pass_env: 'all' });
+		const found_changeset_cli = find_cli(spawn, changeset_cli, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found: install @changesets/cli locally or globally'
@@ -145,7 +147,7 @@ export const task: Task<Args> = {
 				});
 			}
 
-			await spawn('git', ['add', dir]);
+			await git.run(['add', '--', dir]);
 
 			if (dep) {
 				await install_with_cache_healing_or_throw(config.pm_cli, {
@@ -163,6 +165,7 @@ export const task: Task<Args> = {
 		if (message) {
 			// TODO see the helper below, simplify this to CLI flags when support is added to Changesets
 			const changeset_adder = await create_changeset_adder(
+				git,
 				fs_paths,
 				package_json.name,
 				dir,
@@ -171,13 +174,16 @@ export const task: Task<Args> = {
 			);
 			await spawn_cli(found_changeset_cli, ['add', '--empty'], log);
 			await changeset_adder();
-			if (!(await git_check_fully_staged_workspace())) {
-				await spawn('git', ['commit', '-m', message]);
-				await git_push_to_create(origin);
+			if (!(await git_check_fully_staged_workspace(git))) {
+				const commit_result = await git.run(['commit', '-m', message]);
+				if (!spawn_result_is_ok(commit_result)) {
+					throw new TaskError('`git commit` failed, so nothing was pushed');
+				}
+				await git_push_to_create(git, origin);
 			}
 		} else {
 			await spawn_cli(found_changeset_cli, [], log);
-			await spawn('git', ['add', dir]);
+			await git.run(['add', '--', dir]);
 		}
 	}
 };
@@ -187,6 +193,7 @@ export const task: Task<Args> = {
  * @see https://github.com/changesets/changesets/pull/1121
  */
 const create_changeset_adder = async (
+	git: SpawnProgram,
 	fs_paths: FsPaths,
 	repo_name: string,
 	dir: string,
@@ -209,7 +216,7 @@ const create_changeset_adder = async (
 		const path = join(dir, filename);
 		const contents = create_new_changeset(repo_name, message, bump);
 		await changesets.dir.write(join(changesets.path, filename), contents);
-		await spawn('git', ['add', path]);
+		await git.run(['add', '--', path]);
 	};
 };
 
