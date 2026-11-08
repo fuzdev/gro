@@ -692,32 +692,13 @@ fn corpora_checkout(dir: &Path, files: &[(&str, &str)]) {
     commit_all(&corpora);
 }
 
-#[test]
-fn a_corpora_checkout_off_its_pin_is_an_input_error() {
-    let dir = scratch("corpora", &[("a.sh", "")]);
-    corpora_checkout(&dir, &[("x.ts", "")]);
-    let mut suite = suite(vec![sh(Vec::new())], &["a.sh"], 2);
-    suite.corpora = Some(CorporaPin {
-        path: PathBuf::from("corpora"),
-        tree: "0".repeat(40),
-    });
-    let error = run(&suite, &dir, context(&dir)).unwrap_err();
-    let BenchError::CorporaTree { found, .. } = &error else {
-        panic!("expected CorporaTree, got {error:?}");
-    };
-    assert!(error.is_input_error());
-    // at its pin, the run records the tree
-    suite.corpora = Some(CorporaPin {
-        path: PathBuf::from("corpora"),
-        tree: found.clone(),
-    });
-    let record = run_in(&dir, &suite).unwrap();
-    assert_eq!(record.corpora.as_ref(), Some(found));
-}
-
-/// The `collections/` tree id of the checkout `corpora_checkout` made in `dir`.
-fn corpora_tree(dir: &Path) -> String {
-    git(&dir.join("corpora"), &["rev-parse", "HEAD:collections"])
+/// The tree id of the collection `name` of the checkout `corpora_checkout`
+/// made in `dir`.
+fn collection_tree(dir: &Path, name: &str) -> String {
+    git(
+        &dir.join("corpora"),
+        &["rev-parse", &format!("HEAD:collections/{name}")],
+    )
 }
 
 /// A suite whose workloads run `scripts` inside the collection `c` of a
@@ -734,7 +715,7 @@ fn collection_suite(dir: &Path, scripts: &[&str]) -> (Suite, RunContext) {
     let mut suite = suite(vec![sh(Vec::new())], scripts, 2);
     suite.corpora = Some(CorporaPin {
         path: PathBuf::from("corpora"),
-        tree: corpora_tree(dir),
+        collections: BTreeMap::from([("c".to_owned(), collection_tree(dir, "c"))]),
     });
     for workload in &mut suite.workloads {
         workload.collection = Some("c".to_owned());
@@ -753,7 +734,7 @@ fn a_collection_workload_runs_from_a_fresh_copy() {
     suite.workloads[1].collection = None;
     let canonical = dir.canonicalize().unwrap();
     suite.runtimes[0].env = BTreeMap::from([("SUITE".to_owned(), canonical.display().to_string())]);
-    let tree = suite.corpora.as_ref().unwrap().tree.clone();
+    let tree = suite.corpora.as_ref().unwrap().collections["c"].clone();
     let copy = dir.join("work/corpora").join(&tree).join("c");
     // a stale copy, which the run replaces
     fs::create_dir_all(&copy).unwrap();
@@ -773,7 +754,103 @@ fn a_collection_workload_runs_from_a_fresh_copy() {
         record.artifacts.keys().collect::<Vec<_>>(),
         ["entry.sh", "plain.sh"]
     );
-    assert_eq!(record.corpora, Some(tree));
+    assert_eq!(record.collections, BTreeMap::from([("c".to_owned(), tree)]));
+}
+
+#[test]
+fn a_collection_off_its_pin_is_an_input_error() {
+    let dir = scratch("corpora_off_pin", &[("a.sh", "true\n")]);
+    let (mut suite, context) = collection_suite(&dir, &["a.sh"]);
+    let found = collection_tree(&dir, "c");
+    let pinned = "0".repeat(40);
+    suite.corpora.as_mut().unwrap().collections =
+        BTreeMap::from([("c".to_owned(), pinned.clone())]);
+    let error = run(&suite, &dir, context).unwrap_err();
+    let message = error.to_string();
+    let BenchError::CorporaCollection {
+        collection,
+        pinned: error_pinned,
+        found: error_found,
+        ..
+    } = &error
+    else {
+        panic!("expected CorporaCollection, got {error:?}");
+    };
+    assert_eq!(
+        (collection.as_str(), error_pinned, error_found),
+        ("c", &pinned, &found)
+    );
+    assert!(
+        message.contains(&format!(
+            "the collection `c` at tree {found}, but the suite pins {pinned}"
+        )),
+        "{message}"
+    );
+    assert!(error.is_input_error());
+}
+
+#[test]
+fn a_corpora_change_outside_the_collections_read_doesnt_refuse() {
+    let dir = scratch("corpora_elsewhere", &[("a.sh", "true\n")]);
+    let (suite, context) = collection_suite(&dir, &["a.sh"]);
+    let corpora = dir.join("corpora");
+    // a commit that edits, renames, and adds other collections
+    fs::write(corpora.join("collections/d/other.sh"), "edited\n").unwrap();
+    fs::rename(
+        corpora.join("collections/d"),
+        corpora.join("collections/d2"),
+    )
+    .unwrap();
+    fs::create_dir_all(corpora.join("collections/e")).unwrap();
+    fs::write(corpora.join("collections/e/new.sh"), "").unwrap();
+    git(&corpora, &["add", "--all"]);
+    git(&corpora, &["commit", "--quiet", "-m", "others"]);
+    // and local changes outside `collections/c/`
+    fs::write(corpora.join("collections/d2/other.sh"), "dirty\n").unwrap();
+    fs::write(corpora.join("collections/untracked.sh"), "").unwrap();
+    let record = run(&suite, &dir, context.clone()).unwrap();
+    assert_eq!(
+        record.collections,
+        BTreeMap::from([("c".to_owned(), collection_tree(&dir, "c"))])
+    );
+    // a local change inside it refuses, naming it
+    fs::write(corpora.join("collections/c/lib.sh"), "LIB=2\n").unwrap();
+    let error = run(&suite, &dir, context).unwrap_err();
+    assert!(
+        matches!(&error, BenchError::CorporaDirty { collection, .. } if collection == "c"),
+        "{error:?}"
+    );
+    assert!(error.is_input_error());
+}
+
+#[test]
+fn a_corpora_change_mid_run_in_a_pinned_collection_discards_the_run() {
+    // the script writes into the corpora checkout itself, not the run's copy
+    let mid_run = |collection: &str| {
+        let script = format!(": > \"$SUITE/corpora/collections/{collection}/mid.ts\"\n");
+        let dir = scratch(
+            &format!("corpora_mid_run_{collection}"),
+            &[("mid.sh", &script)],
+        );
+        let (mut suite, context) = collection_suite(&dir, &["mid.sh"]);
+        let canonical = dir.canonicalize().unwrap();
+        suite.runtimes[0].env =
+            BTreeMap::from([("SUITE".to_owned(), canonical.display().to_string())]);
+        (
+            run(&suite, &dir, context),
+            canonical.join("corpora/collections/c"),
+        )
+    };
+    let (pinned, collection) = mid_run("c");
+    match pinned {
+        Err(BenchError::ArtifactsChanged { paths }) => {
+            assert!(paths.contains(&collection), "{paths:?}");
+        }
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+    // another collection, which no workload reads
+    let (other, _) = mid_run("d");
+    assert!(other.is_ok(), "{other:?}");
 }
 
 #[test]
@@ -787,7 +864,7 @@ fn a_path_written_into_a_copy_discards_the_run() {
     let result = run(&suite, &dir, context);
     let lock = dir
         .join("work/corpora")
-        .join(&suite.corpora.as_ref().unwrap().tree)
+        .join(&suite.corpora.as_ref().unwrap().collections["c"])
         .join("c/lock.json")
         .canonicalize()
         .unwrap();
@@ -811,7 +888,7 @@ fn a_file_rewritten_in_a_copy_discards_the_run() {
     let result = run(&suite, &dir, context);
     let lib = dir
         .join("work/corpora")
-        .join(&suite.corpora.as_ref().unwrap().tree)
+        .join(&suite.corpora.as_ref().unwrap().collections["c"])
         .join("c/lib.sh")
         .canonicalize()
         .unwrap();
@@ -826,8 +903,12 @@ fn a_collection_entry_must_be_new_to_the_collection() {
     let dir = scratch("collection_collides", &[("lib.sh", "true\n")]);
     let (mut suite, context) = collection_suite(&dir, &["lib.sh"]);
     let collides = run(&suite, &dir, context.clone()).unwrap_err();
-    // and the collection must exist in the pinned tree
+    // and the collection must exist in the checkout
     suite.workloads[0].collection = Some("nope".to_owned());
+    suite.corpora = Some(CorporaPin {
+        path: PathBuf::from("corpora"),
+        collections: BTreeMap::from([("nope".to_owned(), "0".repeat(40))]),
+    });
     let error = run(&suite, &dir, context).unwrap_err();
     assert!(
         matches!(collides, BenchError::EntryCollides { ref entry, .. } if entry == Path::new("lib.sh")),

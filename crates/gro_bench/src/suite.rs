@@ -36,8 +36,11 @@
 //! (`NODE_OPTIONS`, `DENO_DIR`, cargo's `LD_LIBRARY_PATH`) changes what a run
 //! measures.
 //!
-//! A workload can name a `collection` of the pinned corpora: the run then
-//! writes a fresh copy of that collection from the pinned tree, puts the
+//! A workload can name a `collection` of the corpora checkout the suite pins,
+//! and the suite pins each collection its workloads name by that
+//! collection's own tree id, so a corpora commit that leaves those
+//! collections alone doesn't move the pin. The run writes a fresh copy of the
+//! collection from its pinned tree, puts the
 //! workload's script at the copy's root under its own file name, and runs it
 //! from there ([`collection`](crate::collection)), so the script's relative
 //! imports are relative to the copy (`./src/lib/array.ts`) and stay inside
@@ -94,9 +97,10 @@ pub struct Suite {
     pub runtimes: Vec<Runtime>,
     /// The workloads, each run by every runtime.
     pub workloads: Vec<Workload>,
-    /// The corpora checkout the workloads read, pinned: the run refuses a
-    /// checkout at another tree or with local changes, so a re-pin is a suite
-    /// change (and a version bump), never a silent one.
+    /// The corpora checkout the workloads' collections are copied from, each
+    /// collection pinned: the run refuses a collection at another tree or
+    /// with local changes, so a re-pin is a suite change, never a silent
+    /// one.
     #[serde(default)]
     pub corpora: Option<CorporaPin>,
     /// Runtimes whose stdout values ([`Stdout`]) must be equal on every
@@ -193,20 +197,25 @@ pub enum Stdout {
     Json,
 }
 
-/// A pinned corpora checkout, a clone of `fuzdev/corpora`.
+/// A corpora checkout, a clone of `fuzdev/corpora`, and the collections of it
+/// the workloads read, each pinned,
+/// `{"path": …, "collections": {"fuz_util": "<tree id>"}}`.
+///
+/// Only what a workload reads is pinned: a corpora commit that adds, renames,
+/// or edits other collections leaves the suite valid. A workload's
+/// `collection`, a copy written from the pinned tree, is the supported way to
+/// read the corpora; a script that imports the corpora checkout by path reads
+/// it unpinned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CorporaPin {
-    /// The checkout, relative to the suite file's directory. A workload with
-    /// a `collection` runs inside a copy written from this checkout's objects;
-    /// one without must import from this same checkout, since its imports
-    /// hard-code their own relative path to it: the pin checks this path, the
-    /// scripts read theirs.
+    /// The checkout, relative to the suite file's directory.
     pub path: PathBuf,
-    /// The tree id of its `collections/` at `HEAD`
-    /// (`git rev-parse HEAD:collections`), which names the bytes the workloads read, and the
-    /// tree a workload's collection is copied from.
-    pub tree: String,
+    /// Each collection a workload names, by its directory name under
+    /// `collections/`, with the tree id of that directory at `HEAD`
+    /// (`git rev-parse HEAD:collections/<name>`): the bytes its workloads
+    /// read, and the tree its copy is written from.
+    pub collections: BTreeMap<String, String>,
 }
 
 /// A JS runtime and how to invoke it.
@@ -313,11 +322,11 @@ pub struct Workload {
     #[serde(default = "default_weight")]
     pub weight: u32,
     /// A collection of the suite's pinned corpora (a directory of its
-    /// `collections/`) the workload runs inside: the run copies it from the
-    /// pinned tree and runs the script from the copy's root, so the script's
-    /// relative imports are written relative to that root. Absent runs the
-    /// script where it is, and serializes as no key, so the config hash of a
-    /// suite that names none doesn't depend on the field.
+    /// `collections/`) the workload runs inside: the run copies it from its
+    /// pin in `corpora.collections` and runs the script from the copy's
+    /// root, so the script's relative imports are written relative to that
+    /// root. Absent runs the script where it is, and serializes as no key, so
+    /// the config hash of a suite that names none doesn't depend on the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
     /// A committed project the workload runs inside: the run copies it fresh,
@@ -407,8 +416,9 @@ impl Suite {
     /// Checks what the types can't: something to run, an even sample count,
     /// unique names, a `cold` entry on every runtime when a workload is cold,
     /// workload projects that hold their scripts, workload collections that
-    /// name a corpora pin's directory, each with one script per entry file
-    /// name, and `parity` and `gate` naming what the suite has.
+    /// the corpora pin names, each with one script per entry file name, a
+    /// pin for no collection no workload names, and `parity` and `gate`
+    /// naming what the suite has.
     ///
     /// # Errors
     ///
@@ -595,22 +605,23 @@ impl Suite {
         Ok(())
     }
 
-    /// Checks each workload's `collection`: it needs the suite's `corpora`, it
-    /// names a directory of `collections/` (one plain path segment), and the
-    /// scripts sharing a collection's copy have distinct file names, since
-    /// each sits at the copy's root under its own.
+    /// Checks each workload's `collection`: it needs the suite's `corpora`
+    /// and a pin there, it names a directory of `collections/` (one plain
+    /// path segment), and the scripts sharing a collection's copy have
+    /// distinct file names, since each sits at the copy's root under its own.
+    /// Then checks the pin names only collections a workload names.
     fn validate_collections(&self) -> Result<(), BenchError> {
         let mut entries: BTreeMap<(&str, &OsStr), &Path> = BTreeMap::new();
         for workload in &self.workloads {
             let Some(collection) = &workload.collection else {
                 continue;
             };
-            if self.corpora.is_none() {
+            let Some(corpora) = &self.corpora else {
                 return Err(BenchError::SuiteInvalid(format!(
                     "the workload `{}` names the collection `{collection}`, but the suite pins no `corpora`",
                     workload.name
                 )));
-            }
+            };
             if !is_plain_segment(collection) {
                 return Err(BenchError::SuiteInvalid(format!(
                     "the workload `{}` names the collection `{collection}`, which isn't a single directory name",
@@ -633,6 +644,29 @@ impl Suite {
                     script.display(),
                     workload.script.display(),
                     entry.to_string_lossy()
+                )));
+            }
+            if !corpora.collections.contains_key(collection) {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` names the collection `{collection}`, which `corpora.collections` doesn't pin",
+                    workload.name
+                )));
+            }
+        }
+        if let Some(corpora) = &self.corpora {
+            if corpora.collections.is_empty() {
+                return Err(BenchError::SuiteInvalid(
+                    "`corpora` pins no collection, so no workload reads it".to_owned(),
+                ));
+            }
+            let named = |name: &str| {
+                self.workloads
+                    .iter()
+                    .any(|w| w.collection.as_deref() == Some(name))
+            };
+            if let Some(name) = corpora.collections.keys().find(|name| !named(name)) {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "`corpora.collections` pins `{name}`, which no workload names"
                 )));
             }
         }
@@ -756,8 +790,8 @@ mod tests {
                         {{"name": "deno", "program": "deno", "env": {{"A": "1"}}, "cold": {{"args": ["--no-code-cache"], "env": {{"B": "0"}}}}}},
                         {{"name": "node", "program": "node"{node_cold}}}
                     ],
-                    "workloads": [{{"name": "w", "script": "w.js", "cold": true, "weight": 3}}],
-                    "corpora": {{"path": "../corpora", "tree": "abc"}}
+                    "workloads": [{{"name": "w", "script": "w.js", "cold": true, "weight": 3, "collection": "c"}}],
+                    "corpora": {{"path": "../corpora", "collections": {{"c": "abc"}}}}
                 }}"#
             )
         };
@@ -777,7 +811,7 @@ mod tests {
             parsed.corpora,
             Some(CorporaPin {
                 path: PathBuf::from("../corpora"),
-                tree: "abc".to_owned()
+                collections: BTreeMap::from([("c".to_owned(), "abc".to_owned())])
             })
         );
     }
@@ -808,12 +842,11 @@ mod tests {
 
     #[test]
     fn a_workload_can_run_inside_a_corpora_collection() {
-        let suite = |corpora: bool, workloads: &str| {
-            let corpora = if corpora {
-                r#", "corpora": {"path": "../corpora", "tree": "abc"}"#
-            } else {
-                ""
-            };
+        // `pins` is the `corpora.collections` object's body, none without one
+        let suite = |pins: Option<&str>, workloads: &str| {
+            let corpora = pins.map_or(String::new(), |pins| {
+                format!(r#", "corpora": {{"path": "../corpora", "collections": {{{pins}}}}}"#)
+            });
             format!(
                 r#"{{"name": "s", "version": 1, "samples": 2,
                     "runtimes": [{{"name": "r", "program": "r"}}],
@@ -821,7 +854,7 @@ mod tests {
             )
         };
         let parsed = parse(&suite(
-            true,
+            Some(r#""fuz_util": "abc""#),
             r#"{"name": "w", "script": "dir/w.js", "collection": "fuz_util"},
                {"name": "v", "script": "dir/w.js", "collection": "fuz_util"},
                {"name": "x", "script": "x.js", "collection": "fuz_util"},
@@ -830,16 +863,20 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.workloads[0].collection.as_deref(), Some("fuz_util"));
         assert_eq!(parsed.workloads[3].collection, None);
+        assert_eq!(
+            parsed.corpora.unwrap().collections,
+            BTreeMap::from([("fuz_util".to_owned(), "abc".to_owned())])
+        );
         // a collection needs the corpora it's copied from
         assert!(matches!(
-            parse(&suite(false, r#"{"name": "w", "script": "w.js", "collection": "c"}"#)),
+            parse(&suite(None, r#"{"name": "w", "script": "w.js", "collection": "c"}"#)),
             Err(BenchError::SuiteInvalid(message)) if message.contains("pins no `corpora`")
         ));
         // one plain directory name
         for bad in ["", ".", "..", "a/b", "/a", "a/", r"a\\b"] {
             assert!(
                 matches!(
-                    parse(&suite(true, &format!(r#"{{"name": "w", "script": "w.js", "collection": "{bad}"}}"#))),
+                    parse(&suite(Some(r#""c": "a""#), &format!(r#"{{"name": "w", "script": "w.js", "collection": "{bad}"}}"#))),
                     Err(BenchError::SuiteInvalid(ref message)) if message.contains("single directory name")
                 ),
                 "{bad}"
@@ -848,7 +885,7 @@ mod tests {
         // two scripts can't be one entry of a collection
         assert!(matches!(
             parse(&suite(
-                true,
+                Some(r#""c": "a""#),
                 r#"{"name": "w", "script": "a/w.js", "collection": "c"},
                    {"name": "v", "script": "b/w.js", "collection": "c"}"#
             )),
@@ -857,7 +894,7 @@ mod tests {
         // but they can in different collections
         assert!(
             parse(&suite(
-                true,
+                Some(r#""c": "a", "d": "b""#),
                 r#"{"name": "w", "script": "a/w.js", "collection": "c"},
                    {"name": "v", "script": "b/w.js", "collection": "d"}"#
             ))
@@ -865,28 +902,88 @@ mod tests {
         );
         // a script naming no file
         assert!(matches!(
-            parse(&suite(true, r#"{"name": "w", "script": "..", "collection": "c"}"#)),
+            parse(&suite(Some(r#""c": "a""#), r#"{"name": "w", "script": "..", "collection": "c"}"#)),
             Err(BenchError::SuiteInvalid(message)) if message.contains("names no file")
         ));
     }
 
     #[test]
-    fn an_absent_collection_leaves_the_config_hash_alone() {
-        let json = |collection: &str| {
+    fn the_corpora_pin_names_exactly_the_collections_read() {
+        let suite = |pins: &str, collections: &[&str]| {
+            let workloads: Vec<String> = collections
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    format!(r#"{{"name": "w{i}", "script": "w{i}.js", "collection": "{c}"}}"#)
+                })
+                .chain(std::iter::once(
+                    r#"{"name": "plain", "script": "p.js"}"#.to_owned(),
+                ))
+                .collect();
             format!(
-                r#"{{"name":"s","version":1,"samples":4,"runtimes":[{{"name":"r","program":"r"}}],
-                    "workloads":[{{"name":"w","script":"w.js"{collection}}}],
-                    "corpora":{{"path":"c","tree":"t"}}}}"#
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [{{"name": "r", "program": "r"}}],
+                    "workloads": [{}],
+                    "corpora": {{"path": "../corpora", "collections": {{{pins}}}}}}}"#,
+                workloads.join(", ")
             )
         };
-        let absent = parse(&json("")).unwrap();
+        assert!(parse(&suite(r#""a": "1", "b": "2""#, &["a", "b", "a"])).is_ok());
+        // a workload naming a collection the pin doesn't
+        assert!(matches!(
+            parse(&suite(r#""a": "1""#, &["a", "b"])),
+            Err(BenchError::SuiteInvalid(message))
+                if message.contains("`w1` names the collection `b`, which `corpora.collections` doesn't pin")
+        ));
+        // a pin for a collection no workload names
+        assert!(matches!(
+            parse(&suite(r#""a": "1", "z": "2""#, &["a"])),
+            Err(BenchError::SuiteInvalid(message))
+                if message.contains("pins `z`, which no workload names")
+        ));
+        // a pin of nothing
+        assert!(matches!(
+            parse(&suite("", &[])),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("pins no collection")
+        ));
+        // the whole-tree pin is gone, so naming it is an unknown field
+        assert!(matches!(
+            parse(&suite(r#""a": "1"}, "tree": {"x": "y""#, &["a"])),
+            Err(BenchError::SuiteParse { .. })
+        ));
+    }
+
+    #[test]
+    fn an_absent_collection_leaves_the_config_hash_alone() {
+        let json = |collection: &str, corpora: &str| {
+            format!(
+                r#"{{"name":"s","version":1,"samples":4,"runtimes":[{{"name":"r","program":"r"}}],
+                    "workloads":[{{"name":"w","script":"w.js"{collection}}}]{corpora}}}"#
+            )
+        };
+        let absent = parse(&json("", "")).unwrap();
         let value = serde_json::to_value(&absent).unwrap();
         // absent serializes as no key, so the hash of a suite without collections is unchanged
         assert!(value["workloads"][0].get("collection").is_none(), "{value}");
-        let present = parse(&json(r#","collection":"c""#)).unwrap();
+        let present = parse(&json(
+            r#","collection":"c""#,
+            r#","corpora":{"path":"p","collections":{"c":"t"}}"#,
+        ))
+        .unwrap();
         assert_ne!(absent.config_hash(), present.config_hash());
-        let other = parse(&json(r#","collection":"d""#)).unwrap();
+        let other = parse(&json(
+            r#","collection":"d""#,
+            r#","corpora":{"path":"p","collections":{"d":"t"}}"#,
+        ))
+        .unwrap();
         assert_ne!(present.config_hash(), other.config_hash());
+        // a re-pin moves the hash
+        let repinned = parse(&json(
+            r#","collection":"c""#,
+            r#","corpora":{"path":"p","collections":{"c":"u"}}"#,
+        ))
+        .unwrap();
+        assert_ne!(present.config_hash(), repinned.config_hash());
     }
 
     #[test]

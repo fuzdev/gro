@@ -6,10 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::prepare::{Copies, resolve_file};
+use super::prepare::{Copies, Corpora, resolve_file};
 use crate::collection::list_paths;
 use crate::error::BenchError;
-use crate::git::{checkout_root, read_corpora_tree};
+use crate::git::{checkout_root, read_corpora_collection};
 use crate::record::CheckoutState;
 use crate::suite::Suite;
 
@@ -53,14 +53,15 @@ pub(super) fn list_copies(copies: &Copies) -> Result<Vec<BTreeSet<PathBuf>>, Ben
 
 /// What changed since `before` and `listed` were read, read again after the
 /// run's samples: each artifact whose hash moved from `before`, each path a
-/// copy gained or lost against `listed`, the corpora checkout when its tree
-/// moved, and each other checkout whose state moved.
+/// copy gained or lost against `listed`, each pinned collection's directory
+/// in the corpora checkout when its tree moved or it gained a local change,
+/// and each other checkout whose state moved.
 pub(super) fn changed_during_run(
     artifacts: &BTreeSet<PathBuf>,
     before: &BTreeMap<PathBuf, String>,
     copies: &Copies,
     listed: &[BTreeSet<PathBuf>],
-    corpora: Option<&(PathBuf, String)>,
+    corpora: Option<&Corpora>,
     checkouts: &BTreeMap<String, (PathBuf, CheckoutState)>,
 ) -> Result<Vec<PathBuf>, BenchError> {
     let after = hash_artifacts(artifacts)?;
@@ -70,10 +71,16 @@ pub(super) fn changed_during_run(
         let after = list_paths(root)?;
         changed.extend(before.symmetric_difference(&after).cloned());
     }
-    if let Some((path, tree)) = corpora {
-        // a re-pin or a local change mid-run, which the tree id wouldn't name
-        if read_corpora_tree(path).ok().as_ref() != Some(tree) {
-            changed.push(path.clone());
+    if let Some(corpora) = corpora {
+        for (collection, tree) in &corpora.collections {
+            // a commit or a local change mid-run, which the tree id wouldn't name
+            if read_corpora_collection(&corpora.path, collection)
+                .ok()
+                .as_ref()
+                != Some(tree)
+            {
+                changed.push(corpora.path.join("collections").join(collection));
+            }
         }
     }
     let roots: BTreeMap<&PathBuf, &CheckoutState> = checkouts

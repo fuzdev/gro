@@ -11,33 +11,42 @@ use super::command::{Program, RowCommand, resolve_program, row_args};
 use super::sample::Sampler;
 use crate::collection::materialize;
 use crate::error::BenchError;
-use crate::git::read_corpora_tree;
+use crate::git::read_corpora_collection;
 use crate::phases::PHASES_FILE_ENV;
 use crate::project::materialize_project;
 use crate::suite::{FileArg, Suite};
 
-/// Checks the suite's corpora checkout, when it pins one, against the pinned
-/// tree, returning its resolved path and the tree.
-pub(super) fn check_corpora_pin(
-    suite: &Suite,
-    dir: &Path,
-) -> Result<Option<(PathBuf, String)>, BenchError> {
-    suite
-        .corpora
-        .as_ref()
-        .map(|pin| -> Result<_, BenchError> {
-            let path = resolve_file(dir, &pin.path)?;
-            let found = read_corpora_tree(&path)?;
-            if found != pin.tree {
-                return Err(BenchError::CorporaTree {
-                    path,
-                    pinned: pin.tree.clone(),
-                    found,
-                });
-            }
-            Ok((path, found))
-        })
-        .transpose()
+/// The suite's corpora checkout, checked against its pin.
+pub(super) struct Corpora {
+    /// The checkout, resolved.
+    pub(super) path: PathBuf,
+    /// Each pinned collection's tree id, by name, as the checkout has it.
+    pub(super) collections: BTreeMap<String, String>,
+}
+
+/// Checks each collection the suite's corpora pin names, when it pins any,
+/// against its pinned tree, refusing the first one off its pin, missing, or
+/// with local changes.
+pub(super) fn check_corpora_pin(suite: &Suite, dir: &Path) -> Result<Option<Corpora>, BenchError> {
+    let Some(pin) = &suite.corpora else {
+        return Ok(None);
+    };
+    let path = resolve_file(dir, &pin.path)?;
+    for (collection, pinned) in &pin.collections {
+        let found = read_corpora_collection(&path, collection)?;
+        if found != *pinned {
+            return Err(BenchError::CorporaCollection {
+                path,
+                collection: collection.clone(),
+                pinned: pinned.clone(),
+                found,
+            });
+        }
+    }
+    Ok(Some(Corpora {
+        path,
+        collections: pin.collections.clone(),
+    }))
 }
 
 /// What a run measures, resolved: each runtime's program, each row's
@@ -83,7 +92,7 @@ pub(super) fn plan_rows(
     suite: &Suite,
     dir: &Path,
     work_dir: &Path,
-    corpora: Option<&(PathBuf, String)>,
+    corpora: Option<&Corpora>,
     sampler: &Sampler,
 ) -> Result<Plan, BenchError> {
     let programs = suite
@@ -177,13 +186,13 @@ pub(super) struct Copies {
     pub(super) entries: BTreeMap<String, PathBuf>,
 }
 
-/// Copies each collection the suite's workloads name, once, from the pinned
+/// Copies each collection the suite's workloads name, once, from its pinned
 /// tree into `<work_dir>/corpora/<tree>/<collection>`, and writes each of its
 /// workloads' scripts (by their resolved paths in `scripts`) at its root
 /// under the script's own file name, refusing one the collection already has.
 fn materialize_collections(
     suite: &Suite,
-    corpora: Option<&(PathBuf, String)>,
+    corpora: Option<&Corpora>,
     work_dir: &Path,
     scripts: &BTreeMap<&str, PathBuf>,
 ) -> Result<Copies, BenchError> {
@@ -197,9 +206,10 @@ fn materialize_collections(
         };
         // `Suite::validate` refuses this before any run gets here; kept as
         // the backstop, since the copy can't be made without a pin
-        let Some((corpora_path, tree)) = corpora else {
+        let Some((corpora, tree)) = corpora.and_then(|c| Some((c, c.collections.get(collection)?)))
+        else {
             return Err(BenchError::SuiteInvalid(format!(
-                "the workload `{}` names a collection, but the suite pins no `corpora`",
+                "the workload `{}` names the collection `{collection}`, which `corpora.collections` doesn't pin",
                 workload.name
             )));
         };
@@ -219,7 +229,7 @@ fn materialize_collections(
             let root = work_dir.join("corpora").join(tree).join(collection);
             copies
                 .files
-                .extend(materialize(corpora_path, tree, collection, &root)?);
+                .extend(materialize(&corpora.path, tree, collection, &root)?);
             copies.roots.push(root.clone());
             roots.insert(collection, root.clone());
             root

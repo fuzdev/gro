@@ -5,8 +5,8 @@
 //! (Node, Deno, Bun) as readily as gro's own.
 //!
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
-//! - [`collection`]: a fresh copy of one collection of the pinned corpora,
-//!   for workloads that run inside the collection's own root
+//! - [`collection`]: a fresh copy of one corpora collection at its pinned
+//!   tree, for workloads that run inside the collection's own root
 //! - [`project`]: a fresh copy of a committed project with a generated
 //!   `node_modules`, for workloads that run inside a project
 //! - [`counters`]: counter mode, each sample under `perf stat`
@@ -39,9 +39,10 @@
 //!   `fgro` on startup scripts and on `fuz_util`'s TS module graph, cold and
 //!   warm (`fgro` has no on-disk cache, so its cold and warm graph rows run
 //!   the same command). The graph is `fuz_util`'s collection in a sibling
-//!   `corpora` checkout, pinned by tree id. Its workload weights are
-//!   provisional, and its file holds `fgro`'s size budgets, which
-//!   `cargo xtask build --verify` also checks.
+//!   `corpora` checkout, pinned by that collection's own tree id, so a
+//!   corpora commit that leaves `fuz_util` alone keeps the suite valid. Its
+//!   workload weights are provisional, and its file holds `fgro`'s size
+//!   budgets, which `cargo xtask build --verify` also checks.
 //! - `eval`: `fgro eval --driver -` against `deno run` with the flags,
 //!   pinned environment, and stdin wrapper zap's eval passed Deno before
 //!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`), each with zap's own

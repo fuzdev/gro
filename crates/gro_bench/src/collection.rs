@@ -1,4 +1,4 @@
-//! Materializing a corpora collection: a fresh copy of one collection of the
+//! Materializing a corpora collection: a fresh copy of one collection at its
 //! pinned tree, written from git's objects, for workloads that run inside the
 //! collection's own root.
 //!
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crate::error::BenchError;
-use crate::git::{git, git_command, git_output, read_command};
+use crate::git::{git_command, git_output, read_command};
 use crate::suite::is_plain_relative;
 
 /// One file of a collection's tree.
@@ -39,46 +39,25 @@ struct TreeFile {
     executable: bool,
 }
 
-/// Writes the collection `name` of the corpora tree `tree`, read from the
-/// repository of the checkout at `corpora`, into `dest`, after removing
-/// anything already there, and returns the paths of the files written.
+/// Writes the collection `name`, the tree `tree` of the checkout at
+/// `corpora`, into `dest`, replacing anything there, and returns the paths of
+/// the files written.
+///
+/// `tree` is the collection's pinned id, as
+/// [`read_corpora_collection`](crate::git::read_corpora_collection) reads it.
 ///
 /// # Errors
 ///
-/// Fails with [`BenchError::CollectionNotFound`] when the tree has no
-/// directory `name`, [`BenchError::CollectionEntry`] when the collection
-/// holds anything but regular and executable files, and otherwise when `git`
-/// or a write fails.
+/// Fails with [`BenchError::CollectionEntry`] when the collection holds
+/// anything but regular and executable files, and otherwise when `git` or a
+/// write fails, as on an id that names no object.
 pub fn materialize(
     corpora: &Path,
     tree: &str,
     name: &str,
     dest: &Path,
 ) -> Result<Vec<PathBuf>, BenchError> {
-    let not_found = || BenchError::CollectionNotFound {
-        corpora: corpora.to_owned(),
-        tree: tree.to_owned(),
-        name: name.to_owned(),
-    };
-    // `<tree>:<path>` names the entry; its type says whether it's a directory
-    let collection = git(
-        corpora,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{tree}:{name}"),
-        ],
-    )
-    .map_err(|error| match error {
-        BenchError::CommandFailed { .. } => not_found(),
-        other => other,
-    })?;
-    let collection = collection.trim();
-    if git(corpora, &["cat-file", "-t", collection])?.trim() != "tree" {
-        return Err(not_found());
-    }
-    let listing = git_output(corpora, &["ls-tree", "-r", "-z", collection])?;
+    let listing = git_output(corpora, &["ls-tree", "-r", "-z", tree])?;
     let files = parse_tree(&listing).map_err(|(path, mode)| BenchError::CollectionEntry {
         name: name.to_owned(),
         path,
@@ -282,10 +261,10 @@ pub fn list_paths(dir: &Path) -> Result<BTreeSet<PathBuf>, BenchError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::test_git;
+    use crate::git::{git, test_git};
 
     /// A corpora checkout at `<temp>/<name>/corpora` holding `files` under
-    /// `collections/`, committed, and its `collections/` tree id.
+    /// `collections/`, committed, and the tree id of its collection `c`.
     fn corpora(name: &str, files: &[(&str, &[u8])]) -> (PathBuf, PathBuf, String) {
         let base = std::env::temp_dir().join(format!("{name}_{}", std::process::id()));
         let root = base.join("corpora");
@@ -298,7 +277,7 @@ mod tests {
         }
         test_git(&root, &["add", "."]);
         test_git(&root, &["commit", "--quiet", "-m", "init"]);
-        let tree = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
+        let tree = git(&root, &["rev-parse", "HEAD:collections/c"]).unwrap();
         (base, root, tree.trim().to_owned())
     }
 
@@ -324,7 +303,7 @@ mod tests {
         }
         test_git(&root, &["add", "."]);
         test_git(&root, &["commit", "--quiet", "-m", "exec"]);
-        let tree_with_exec = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
+        let tree_with_exec = git(&root, &["rev-parse", "HEAD:collections/c"]).unwrap();
         let tree_with_exec = tree_with_exec.trim();
         let dest = base.join("copy/c");
         // a stale copy, with a file the tree doesn't have
@@ -351,8 +330,6 @@ mod tests {
         // the earlier tree, without the script, replaces this copy wholesale
         materialize(&root, &tree, "c", &dest).unwrap();
         let replaced = list_paths(&dest).unwrap();
-        let missing = materialize(&root, &tree, "nope", &base.join("copy/nope"));
-        let not_a_dir = materialize(&root, &tree, "c/package.json", &base.join("copy/x"));
         fs::remove_dir_all(&base).unwrap();
 
         assert_eq!(a, raw);
@@ -391,14 +368,6 @@ mod tests {
                 "src/lib/deep/b.ts",
             ]
         );
-        assert!(matches!(
-            missing,
-            Err(BenchError::CollectionNotFound { ref name, .. }) if name == "nope"
-        ));
-        assert!(matches!(
-            not_a_dir,
-            Err(BenchError::CollectionNotFound { .. })
-        ));
     }
 
     #[test]
@@ -447,7 +416,7 @@ mod tests {
         fs::write(root.join("collections/c").join(name), "").unwrap();
         test_git(&root, &["add", "."]);
         test_git(&root, &["commit", "--quiet", "-m", "non-utf8"]);
-        let tree = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
+        let tree = git(&root, &["rev-parse", "HEAD:collections/c"]).unwrap();
         let result = materialize(&root, tree.trim(), "c", &base.join("copy/c"));
         fs::remove_dir_all(&base).unwrap();
         assert!(

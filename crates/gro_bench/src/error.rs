@@ -85,32 +85,32 @@ pub enum BenchError {
     /// A version probe printed no non-empty line to stdout.
     #[error("`{command}` printed no version")]
     NoVersion { command: String },
-    /// The corpora checkout isn't at the tree the suite pins.
+    /// A collection of the corpora checkout isn't at the tree the suite pins
+    /// for it.
     #[error(
-        "the corpora at {} are at tree {found}, but the suite pins {pinned}",
+        "the corpora at {} have the collection `{collection}` at tree {found}, but the suite pins {pinned}",
         path.display()
     )]
-    CorporaTree {
+    CorporaCollection {
         path: PathBuf,
+        collection: String,
         pinned: String,
         found: String,
     },
-    /// The corpora checkout has local changes under `collections/`.
+    /// The corpora checkout has local changes under a collection the suite
+    /// pins.
     #[error(
-        "the corpora at {} have local changes under `collections/`, so the tree id doesn't name the bytes the workloads read",
+        "the corpora at {} have local changes under `collections/{collection}/`, which the run's copy, written from the pinned tree, wouldn't include",
         path.display()
     )]
-    CorporaDirty { path: PathBuf },
-    /// A workload names a collection the pinned corpora tree doesn't have.
+    CorporaDirty { path: PathBuf, collection: String },
+    /// A workload names a collection the corpora checkout's `HEAD` doesn't
+    /// have.
     #[error(
-        "the corpora tree {tree} (in {}) has no collection `{name}`",
+        "the corpora at {} have no collection `{name}` at `HEAD`",
         corpora.display()
     )]
-    CollectionNotFound {
-        corpora: PathBuf,
-        tree: String,
-        name: String,
-    },
+    CollectionNotFound { corpora: PathBuf, name: String },
     /// A collection holds something a materialized copy doesn't support: a
     /// symlink, a submodule, or a path that isn't UTF-8 or isn't plain
     /// relative segments.
@@ -192,7 +192,7 @@ pub enum BenchError {
         #[source]
         source: io::Error,
     },
-    /// An artifact's hash, the corpora's tree, or the state of another
+    /// An artifact's hash, a pinned collection's tree, or the state of another
     /// checkout a workload reads (its commit, or its changes) moved during
     /// the run, or a materialized copy gained or lost a path.
     #[error(
@@ -242,8 +242,8 @@ fn link_problem(error: &io::Error) -> String {
 
 impl BenchError {
     /// Whether the input is at fault (the suite, a program or file it names, a
-    /// command that fails or prints no version, a corpora checkout off its pin,
-    /// a collection the pinned tree lacks or a copy can't hold, an entry
+    /// command that fails or prints no version, a corpora collection off its
+    /// pin or missing, a collection a copy can't hold, an entry
     /// colliding with a collection's file, a project's missing or unversioned
     /// link or unsupported entry, a failed correctness run, values that break
     /// the suite's parity, counters the machine can't give, a phases run's
@@ -264,7 +264,7 @@ impl BenchError {
             | Self::TimedOut { .. }
             | Self::WorkDirLocked { .. }
             | Self::NoVersion { .. }
-            | Self::CorporaTree { .. }
+            | Self::CorporaCollection { .. }
             | Self::CorporaDirty { .. }
             | Self::CollectionNotFound { .. }
             | Self::CollectionEntry { .. }

@@ -4,8 +4,9 @@
 //! version, the gro checkout's commit, the config hash, the runtimes' versions,
 //! binary hashes, and sizes, the hashes of the scripts and files the suite
 //! names, the state of the other checkouts the workloads read, the machine, the
-//! corpus pins, and every row's samples beside their statistics. Raw samples
-//! stay in the line, so later comparisons can recompute from them.
+//! corpora collections' pins, and every row's samples beside their
+//! statistics. Raw samples stay in the line, so later comparisons can
+//! recompute from them.
 //!
 //! A run measures in one [`Mode`]: wall time alone, wall time with fgro's
 //! phase timings, or wall time with hardware counters (`perf stat`). The
@@ -18,8 +19,11 @@
 //! Line versions: 5 added `checkouts`; 6 added `mode`, `counters`, and each
 //! row's (and the noise row's) `instructions`, `cycles`, and `phases`; 7
 //! added each row's `peak_rss_kib` and `kernel_instructions`, the run's
-//! `rss_floor_kib`, and `snapshot_bytes`. A line of an older version still reads as this shape,
-//! as a wall run, with the fields it lacks empty.
+//! `rss_floor_kib`, and `snapshot_bytes`; 8 replaced `corpora`, the tree id of
+//! the corpora's whole `collections/`, with `collections`, each read
+//! collection's own tree id. A line of an older version still reads as this
+//! shape, as a wall run, with the fields it lacks empty (an older line's
+//! `corpora` is ignored).
 //!
 //! A row's peak memory is each process's `ru_maxrss` as its reaping returns
 //! it (`wait4`), which counts from the memory the process ran in before it
@@ -44,7 +48,7 @@ use crate::stats::Stats;
 /// The line shape's version, bumped on any change to it, additive ones
 /// included, so a harness older than a line skips it rather than read it
 /// without the fields it doesn't know.
-pub const RECORD_VERSION: u32 = 7;
+pub const RECORD_VERSION: u32 = 8;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,9 +74,11 @@ pub struct RunRecord {
     pub machine: Machine,
     /// Whether the machine was quieted for the run.
     pub machine_quiet: MachineQuiet,
-    /// The tree id of the corpora's `collections/`, when the suite reads
-    /// them: the suite's pin, checked before and after the run.
-    pub corpora: Option<String>,
+    /// The tree id of each corpora collection the workloads read, by name:
+    /// the suite's pins, checked before and after the run. Absent before
+    /// version 8, and left out of the line when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub collections: BTreeMap<String, String>,
     /// The runtimes, in suite order.
     pub runtimes: Vec<RuntimeInfo>,
     /// The blake3 hash of every workload script, file argument, and runtime
@@ -413,7 +419,10 @@ mod tests {
                 arch: "x86_64".to_owned(),
             },
             machine_quiet: MachineQuiet::Attested,
-            corpora: Some("4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_owned()),
+            collections: BTreeMap::from([(
+                "fuz_util".to_owned(),
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_owned(),
+            )]),
             runtimes: vec![
                 RuntimeInfo {
                     name: "node".to_owned(),
@@ -539,12 +548,12 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                7,
+                8,
                 vec![
                     "artifacts",
                     "checkouts",
+                    "collections",
                     "config_hash",
-                    "corpora",
                     "counters",
                     "git",
                     "machine",
@@ -604,6 +613,35 @@ mod tests {
         assert_eq!(parsed.counters, None);
         assert_eq!(parsed.rows[0].instructions, None);
         assert!(parsed.rows[0].phases.is_empty());
+    }
+
+    /// A line from before version 8, with the whole-tree `corpora` (a tree
+    /// id, or null), reads with no `collections`.
+    #[test]
+    fn a_line_with_the_whole_tree_pin_reads_without_collections() {
+        let mut value: serde_json::Value = serde_json::from_str(&record().to_line()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("record_version".to_owned(), 7.into());
+        object.remove("collections");
+        for corpora in [
+            serde_json::Value::from("1a".repeat(20)),
+            serde_json::Value::Null,
+        ] {
+            let mut value = value.clone();
+            value["corpora"] = corpora;
+            let parsed: RunRecord = serde_json::from_value(value).unwrap();
+            assert_eq!(parsed.record_version, 7);
+            assert!(parsed.collections.is_empty());
+        }
+    }
+
+    #[test]
+    fn no_collections_leave_the_line_without_the_key() {
+        let mut record = record();
+        record.collections.clear();
+        let line = record.to_line();
+        assert!(!line.contains("collections"), "{line}");
+        assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
     }
 
     #[test]

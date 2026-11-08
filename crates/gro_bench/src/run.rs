@@ -2,7 +2,8 @@
 //!
 //! A run:
 //!
-//! 1. checks the suite's corpora checkout against its pin, resolves each
+//! 1. checks each corpora collection the suite pins against its pinned tree
+//!    (only those: a corpora commit elsewhere doesn't count), resolves each
 //!    runtime's executable, refusing a script (a file starting with `#!`),
 //!    writes a fresh copy of each collection a workload names, with the
 //!    workload's script at its root ([`collection`](crate::collection)), and
@@ -22,13 +23,13 @@
 //!    interleaved order of [`schedule`](crate::schedule::schedule), with the
 //!    first row's A/A copy as one more row (a row is a workload and a
 //!    runtime);
-//! 5. hashes the artifacts, lists each copy, and reads the corpora's tree
-//!    and the other checkouts' states again, and discards the run if any
-//!    changed (a copy gaining or losing a path counts), since a rebuild or an
-//!    edit mid-run means the samples timed different code: the copies cover
-//!    what a collection's workloads run, the corpora's tree what the others
-//!    read from it, and a checkout's state what a link or script reaches in
-//!    it;
+//! 5. hashes the artifacts, lists each copy, and reads the pinned
+//!    collections' trees and the other checkouts' states again, and discards
+//!    the run if any changed (a copy gaining or losing a path counts), since
+//!    a rebuild or an edit mid-run means the samples timed different code:
+//!    the copies cover what a collection's workloads run, the collections'
+//!    trees that the checkout still holds what was copied, and a checkout's
+//!    state what a link or script reaches in it;
 //! 6. computes each row's statistics.
 //!
 //! The context's [`Measure`] says what a sample measures beside wall time:
@@ -219,7 +220,9 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         git: context.git,
         machine: context.machine,
         machine_quiet: context.machine_quiet,
-        corpora: corpora.map(|(_, tree)| tree),
+        collections: corpora
+            .map(|corpora| corpora.collections)
+            .unwrap_or_default(),
         runtimes,
         artifacts: artifact_hashes,
         checkouts: checkouts

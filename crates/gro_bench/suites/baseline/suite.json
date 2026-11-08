@@ -2,7 +2,7 @@
 	"name": "baseline",
 	"version": 6,
 	"samples": 200,
-	"corpora": {"path": "../../../../../corpora", "tree": "1a14f15ac4a624d889e3969323d069cd6766cc29"},
+	"corpora": {"path": "../../../../../corpora", "collections": {"fuz_util": "84315fb37508694b35779f53958ff36dfc3f5665"}},
 	"runtimes": [
 		{"name": "bun", "program": "bun", "cold": {"env": {"BUN_RUNTIME_TRANSPILER_CACHE_PATH": "0"}}},
 		{"name": "node", "program": "node", "v8_args": ["-p", "process.versions.v8"], "cold": {}},

@@ -1,8 +1,8 @@
 //! The git reads behind the run record: each checkout's state.
 //!
 //! They cover the gro checkout, the other checkouts a workload reads, and the
-//! corpora checkout, beside the `git` calls they and the collections' copies
-//! are made of.
+//! corpora collections a suite pins, beside the `git` calls they and the
+//! collections' copies are made of.
 
 use std::fs;
 use std::io;
@@ -154,23 +154,45 @@ impl CheckoutState {
     }
 }
 
-/// The subtree of a corpora checkout that is the corpus, what its tree id
-/// names.
-const CORPORA_TREE: &str = "collections";
-
-/// Reads the tree id of the corpora checkout at `path`, refusing local changes
-/// under its `collections/`, which the tree id wouldn't name.
+/// Reads the tree id of the corpora collection `name` (`collections/<name>`
+/// at `HEAD`) of the checkout at `path`, refusing local changes under it.
+///
+/// The tree id wouldn't name a local change. Changes elsewhere in the
+/// checkout, other collections included, don't count: no workload reads
+/// them.
 ///
 /// # Errors
 ///
-/// Fails when `git` can't run or fails, as outside a checkout, or with
-/// [`BenchError::CorporaDirty`].
-pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
-    let tree = git(path, &["rev-parse", &format!("HEAD:{CORPORA_TREE}")])?
-        .trim()
-        .to_owned();
-    // untracked files count: a workload could import one, under any name
-    // (listed whatever `status.showUntrackedFiles` says)
+/// Fails with [`BenchError::CollectionNotFound`] when `HEAD` has no directory
+/// `collections/<name>`, [`BenchError::CorporaDirty`] on a local change under
+/// it, and otherwise when `git` can't run or fails, as outside a checkout.
+pub fn read_corpora_collection(path: &Path, name: &str) -> Result<String, BenchError> {
+    let dir = format!("collections/{name}");
+    let not_found = || BenchError::CollectionNotFound {
+        corpora: path.to_owned(),
+        name: name.to_owned(),
+    };
+    // `HEAD` itself must resolve, so a path outside a checkout fails as one
+    git(path, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])?;
+    let tree = git(
+        path,
+        &["rev-parse", "--verify", "--quiet", &format!("HEAD:{dir}")],
+    )
+    .map_err(|error| match error {
+        BenchError::CommandFailed { .. } => not_found(),
+        other => other,
+    })?
+    .trim()
+    .to_owned();
+    // a file of that name isn't a collection
+    if git(path, &["cat-file", "-t", &tree])?.trim() != "tree" {
+        return Err(not_found());
+    }
+    // untracked files count too: the copy is written from the pinned tree, so
+    // a local change of any kind would go unmeasured (listed whatever
+    // `status.showUntrackedFiles` says); the pathspec is literal, so the name
+    // never globs, and it matches the directory only, not a sibling sharing
+    // its prefix
     let status = git_output(
         path,
         &[
@@ -178,12 +200,13 @@ pub fn read_corpora_tree(path: &Path) -> Result<String, BenchError> {
             "--porcelain",
             "--untracked-files=normal",
             "--",
-            CORPORA_TREE,
+            &format!(":(literal){dir}/"),
         ],
     )?;
     if !status.trim_ascii().is_empty() {
         return Err(BenchError::CorporaDirty {
             path: path.to_owned(),
+            collection: name.to_owned(),
         });
     }
     Ok(tree)
@@ -333,16 +356,16 @@ mod tests {
     #[test]
     fn a_checkouts_config_changes_neither_its_dirty_flag_nor_its_hash() {
         let (base, root) = git_checkout("gro_bench_git_config");
-        fs::create_dir_all(root.join("collections")).unwrap();
-        fs::write(root.join("collections/x.ts"), "a\n\nb\n").unwrap();
+        fs::create_dir_all(root.join("collections/c")).unwrap();
+        fs::write(root.join("collections/c/x.ts"), "a\n\nb\n").unwrap();
         fs::write(root.join("é.txt"), "a").unwrap();
         git(&root, &["add", "."]).unwrap();
         commit(&root, &[], "add");
         let history = root.join("history.jsonl");
         // only untracked changes first, then edits too
-        fs::write(root.join("collections/new.ts"), "c").unwrap();
+        fs::write(root.join("collections/c/new.ts"), "c").unwrap();
         let untracked_plain = CheckoutState::read(&root).unwrap();
-        fs::write(root.join("collections/x.ts"), "a\n\nB\n").unwrap();
+        fs::write(root.join("collections/c/x.ts"), "a\n\nB\n").unwrap();
         fs::write(root.join("é.txt"), "b").unwrap();
         let edited_plain = CheckoutState::read(&root).unwrap();
         for setting in [
@@ -364,7 +387,7 @@ mod tests {
         git(&root, &["checkout", "--quiet", "--", "."]).unwrap();
         let untracked = CheckoutState::read(&root).unwrap();
         let git_dirty = GitState::read(&root, &history).unwrap().dirty;
-        let corpora = read_corpora_tree(&root);
+        let corpora = read_corpora_collection(&root, "c");
         fs::remove_dir_all(&base).unwrap();
         assert!(untracked.dirty);
         assert_eq!(untracked, untracked_plain);
@@ -374,26 +397,93 @@ mod tests {
         assert!(matches!(corpora, Err(BenchError::CorporaDirty { .. })));
     }
 
+    /// Writes `files` (relative to `collections/`) in the checkout at `root`
+    /// and commits them.
+    fn commit_collections(root: &Path, files: &[(&str, &str)], message: &str) {
+        for (path, content) in files {
+            let path = root.join("collections").join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+        git(root, &["add", "--all"]).unwrap();
+        commit(root, &[], message);
+    }
+
     #[test]
-    fn the_corpora_tree_is_read_and_local_changes_refused() {
+    fn a_corpora_collection_is_read_by_its_own_tree() {
         let (base, root) = git_checkout("gro_bench_git_corpora");
-        fs::create_dir_all(root.join("collections/a")).unwrap();
-        fs::write(root.join("collections/a/x.ts"), "export {};\n").unwrap();
-        git(&root, &["add", "."]).unwrap();
-        commit(&root, &[], "add");
-        let tree = read_corpora_tree(&root).unwrap();
-        let expected = git(&root, &["rev-parse", "HEAD:collections"]).unwrap();
-        // a change outside `collections/` doesn't count
-        fs::write(root.join("README.md"), "x").unwrap();
-        let outside = read_corpora_tree(&root).unwrap();
-        // an untracked file inside it does
-        fs::write(root.join("collections/a/y.ts"), "").unwrap();
-        let inside = read_corpora_tree(&root);
+        commit_collections(&root, &[("a/x.ts", "export {};\n"), ("b/y.ts", "")], "add");
+        let tree = read_corpora_collection(&root, "a").unwrap();
+        let expected = git(&root, &["rev-parse", "HEAD:collections/a"]).unwrap();
+        // a commit that adds, edits, and renames other collections leaves it
+        fs::rename(root.join("collections/b"), root.join("collections/b2")).unwrap();
+        commit_collections(&root, &[("b2/y.ts", "edited"), ("new/z.ts", "")], "others");
+        let after_others = read_corpora_collection(&root, "a").unwrap();
+        // a commit inside it moves it
+        commit_collections(&root, &[("a/x.ts", "export const x = 1;\n")], "edit a");
+        let after_edit = read_corpora_collection(&root, "a").unwrap();
+        let missing = read_corpora_collection(&root, "nope");
+        // a file of the name isn't a collection
+        commit_collections(&root, &[("file", "")], "file");
+        let not_a_dir = read_corpora_collection(&root, "file");
+        let outside = read_corpora_collection(&base, "a");
         fs::remove_dir_all(&base).unwrap();
         assert_eq!(tree, expected.trim());
         assert_eq!(tree.len(), 40);
-        assert_eq!(outside, tree);
-        assert!(matches!(inside, Err(BenchError::CorporaDirty { .. })));
+        assert_eq!(after_others, tree);
+        assert_ne!(after_edit, tree);
+        assert!(
+            matches!(&missing, Err(BenchError::CollectionNotFound { name, .. }) if name == "nope"),
+            "{missing:?}"
+        );
+        assert!(
+            matches!(&not_a_dir, Err(BenchError::CollectionNotFound { name, .. }) if name == "file"),
+            "{not_a_dir:?}"
+        );
+        // outside a checkout is git failing, not a missing collection
+        assert!(
+            matches!(outside, Err(BenchError::CommandFailed { .. })),
+            "{outside:?}"
+        );
+    }
+
+    #[test]
+    fn only_local_changes_in_the_collection_read_are_refused() {
+        let (base, root) = git_checkout("gro_bench_git_corpora_dirty");
+        commit_collections(
+            &root,
+            &[("a/x.ts", ""), ("ab/y.ts", ""), ("b/z.ts", "")],
+            "add",
+        );
+        let tree = read_corpora_collection(&root, "a").unwrap();
+        // changes outside `collections/a/`: the root, another collection, and
+        // a sibling sharing its name's prefix, edited and untracked
+        fs::write(root.join("README.md"), "x").unwrap();
+        fs::write(root.join("collections/b/z.ts"), "edited").unwrap();
+        fs::write(root.join("collections/b/new.ts"), "").unwrap();
+        fs::write(root.join("collections/ab/y.ts"), "edited").unwrap();
+        fs::write(root.join("collections/a.ts"), "").unwrap();
+        let elsewhere = read_corpora_collection(&root, "a");
+        // an untracked file inside it
+        fs::write(root.join("collections/a/new.ts"), "").unwrap();
+        let untracked = read_corpora_collection(&root, "a");
+        fs::remove_file(root.join("collections/a/new.ts")).unwrap();
+        // an edit inside it
+        fs::write(root.join("collections/a/x.ts"), "edited").unwrap();
+        let edited = read_corpora_collection(&root, "a");
+        let other = read_corpora_collection(&root, "ab");
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(elsewhere.unwrap(), tree);
+        for dirty in [untracked, edited] {
+            assert!(
+                matches!(&dirty, Err(BenchError::CorporaDirty { collection, .. }) if collection == "a"),
+                "{dirty:?}"
+            );
+        }
+        assert!(
+            matches!(&other, Err(BenchError::CorporaDirty { collection, .. }) if collection == "ab"),
+            "{other:?}"
+        );
     }
 
     #[test]
