@@ -2,6 +2,7 @@ import { describe, test, assert, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 
 import {
 	task_registry_find,
@@ -17,8 +18,12 @@ import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { paths } from '#lib/paths.ts';
 import { to_builtin_task_id, type InvokeTask } from '#lib/task.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
+import { fs } from '#lib/fs.ts';
+import { LIB_PATH } from '#lib/constants.ts';
 
 import { create_mock_logger, create_mock_timings } from './test_helpers.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
 
 let dirs: Array<string> = [];
 
@@ -40,6 +45,14 @@ const create_project = (files: Array<string>): string => {
 
 const to_names = (entries: Array<TaskRegistryEntry>): Array<string> => entries.map((e) => e.name);
 
+// searches `dir` through a real `FsPaths` whose project is `root`
+const find_tasks = async (
+	dir: string,
+	search_filters: Array<PathFilter>,
+	root: string
+): Promise<Array<TaskRegistryEntry>> =>
+	task_registry_find(await create_project_fs_paths(root), dir, search_filters, root);
+
 describe('task_registry_find', () => {
 	const { search_filters } = create_empty_gro_config();
 
@@ -51,7 +64,7 @@ describe('task_registry_find', () => {
 			'src/test/fixtures/update.task.ts',
 			'outside.task.ts'
 		]);
-		const entries = await task_registry_find(join(dir, 'src'), search_filters, dir);
+		const entries = await find_tasks(join(dir, 'src'), search_filters, dir);
 		assert.deepEqual(to_names(entries), [
 			'src/lib/db/migrate.task.ts',
 			'src/lib/greet.task.ts',
@@ -61,7 +74,7 @@ describe('task_registry_find', () => {
 
 	test('a subdirectory keeps names relative to the root', async () => {
 		const dir = create_project(['src/lib/greet.task.ts', 'src/test/x.task.ts']);
-		const entries = await task_registry_find(join(dir, 'src/lib/'), search_filters, dir);
+		const entries = await find_tasks(join(dir, 'src/lib/'), search_filters, dir);
 		assert.deepEqual(entries, [
 			{ name: 'src/lib/greet.task.ts', id: join(dir, 'src/lib/greet.task.ts') }
 		]);
@@ -69,7 +82,7 @@ describe('task_registry_find', () => {
 
 	test('finds `.task.js` files', async () => {
 		const dir = create_project(['src/lib/a.task.js', 'src/lib/b.task.ts']);
-		const entries = await task_registry_find(join(dir, 'src'), search_filters, dir);
+		const entries = await find_tasks(join(dir, 'src'), search_filters, dir);
 		assert.deepEqual(entries, [
 			{ name: 'src/lib/a.task.js', id: join(dir, 'src/lib/a.task.js') },
 			{ name: 'src/lib/b.task.ts', id: join(dir, 'src/lib/b.task.ts') }
@@ -84,19 +97,19 @@ describe('task_registry_find', () => {
 			'.svelte-kit/e.task.js',
 			'a.task.ts'
 		]);
-		const entries = await task_registry_find(dir, search_filters, dir);
+		const entries = await find_tasks(dir, search_filters, dir);
 		assert.deepEqual(to_names(entries), ['a.task.ts']);
 	});
 
 	test('skips dot-directories inside the project', async () => {
 		const dir = create_project(['src/.hidden/a.task.ts', 'src/b.task.ts']);
-		const entries = await task_registry_find(join(dir, 'src'), search_filters, dir);
+		const entries = await find_tasks(join(dir, 'src'), search_filters, dir);
 		assert.deepEqual(to_names(entries), ['src/b.task.ts']);
 	});
 
 	test('finds tasks in a project under a dot-directory', async () => {
 		const dir = join(create_project(['.cache/project/src/lib/a.task.ts']), '.cache/project');
-		const entries = await task_registry_find(join(dir, 'src'), search_filters, dir);
+		const entries = await find_tasks(join(dir, 'src'), search_filters, dir);
 		assert.deepEqual(to_names(entries), ['src/lib/a.task.ts']);
 	});
 
@@ -108,7 +121,7 @@ describe('task_registry_find', () => {
 			'.cache/other/src/node_modules/d.task.ts'
 		]);
 		const root = join(tmp, 'project');
-		const entries = await task_registry_find(join(tmp, '.cache/other/src'), search_filters, root);
+		const entries = await find_tasks(join(tmp, '.cache/other/src'), search_filters, root);
 		assert.deepEqual(
 			entries.map((e) => e.id),
 			[join(tmp, '.cache/other/src/b.task.ts')]
@@ -119,7 +132,7 @@ describe('task_registry_find', () => {
 		const dir = create_project(['src/lib/a.task.ts', 'src/lib/fixtures/b.task.ts']);
 		const filters = [(p: string) => !p.startsWith('src/lib/fixtures')];
 		for (const start of ['src', 'src/lib']) {
-			const entries = await task_registry_find(join(dir, start), filters, dir);
+			const entries = await find_tasks(join(dir, start), filters, dir);
 			assert.deepEqual(to_names(entries), ['src/lib/a.task.ts']);
 		}
 	});
@@ -127,7 +140,7 @@ describe('task_registry_find', () => {
 
 describe('task_registry_find_builtins', () => {
 	test("finds Gro's builtins with their summaries, matching the generated ones", async () => {
-		const entries = await task_registry_find_builtins(paths.lib);
+		const entries = await task_registry_find_builtins(fs.project.dir(LIB_PATH).readonly());
 		assert.deepEqual(
 			Object.fromEntries(entries.map((e) => [e.name, e.summary])),
 			GRO_BUILTIN_TASK_SUMMARIES
@@ -224,7 +237,9 @@ describe('gen_task_registry', () => {
 			},
 			join(paths.source, 'gro_tasks.gen.ts')
 		);
-		const rendered = await gen_task_registry.generate(ctx);
+		const rendered = await gen_task_registry(await create_project_fs_paths(paths.root)).generate(
+			ctx
+		);
 		assert.ok(typeof rendered === 'string');
 		// Gro's own `src/` stands in for a project's
 		assert.include(rendered, "import type * as src_lib_check_task from './lib/check.task.ts';");
@@ -232,8 +247,27 @@ describe('gen_task_registry', () => {
 		assert.notInclude(rendered, '\t\tcheck:');
 	});
 
+	test('searches the project of the `FsPaths` it was created with', async () => {
+		const dir = create_project(['src/lib/a.task.ts', 'outside.task.ts']);
+		const ctx = create_gen_context(
+			{
+				config: create_empty_gro_config(),
+				log: create_mock_logger(),
+				timings: create_mock_timings(),
+				invoke_task: vi.fn()
+			},
+			join(dir, 'src/gro_tasks.gen.ts')
+		);
+		const rendered = await gen_task_registry(await create_project_fs_paths(dir)).generate(ctx);
+		assert.ok(typeof rendered === 'string');
+		assert.include(rendered, "import type * as src_lib_a_task from './lib/a.task.ts';");
+		assert.include(rendered, '\t\t"src/lib/a.task.ts": typeof src_lib_a_task;');
+		assert.notInclude(rendered, 'check.task.ts');
+		assert.notInclude(rendered, 'outside');
+	});
+
 	test('regenerates when a task file changes', () => {
-		const { inputs } = gen_task_registry;
+		const { inputs } = gen_task_registry(create_mock_fs_paths());
 		assert.ok(inputs);
 		const matches = (id: string) => gen_inputs_match(inputs, id, '/p/');
 		assert.ok(matches('/p/src/lib/a.task.ts'));

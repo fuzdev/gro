@@ -8,13 +8,16 @@ import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { run_task } from '#lib/run_task.ts';
 import { load_gro_config } from '#lib/gro_config.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 import { create_node_module_graph } from '#lib/module_graph_node.ts';
 
 async function runTest() {
 	console.log('Testing run_task passes args and returns output...\n');
 
 	const args = { a: 1, _: [] };
-	const config = await load_gro_config();
+	const fs_paths = create_fs_paths(fs);
+	const config = await load_gro_config(fs_paths);
 	const graph = create_node_module_graph({ watch: config.watch });
 	const log = new Logger('test');
 	const result = await run_task(
@@ -31,6 +34,7 @@ async function runTest() {
 		{
 			invoke_task: () => Promise.resolve(),
 			config,
+			fs_paths,
 			graph,
 			log,
 			timings: new Timings()

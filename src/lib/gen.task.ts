@@ -19,6 +19,8 @@ import {
 	type GenResults
 } from './gen.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 // read once when the module loads, so every parse fills in the same directory
 const root_dir_default = process.cwd();
@@ -48,9 +50,10 @@ export const task: Task<Args> = {
 		const { _: raw_input_paths, root_dirs, check } = args;
 
 		const input_paths = to_input_paths(raw_input_paths);
+		const fs_paths = create_fs_paths(fs);
 
 		// load all of the gen modules
-		const found = await find_genfiles(input_paths, root_dirs, config, timings);
+		const found = await find_genfiles(fs_paths, input_paths, root_dirs, config, timings);
 		if (!found.ok) {
 			if (found.type === 'input_directories_with_no_files') {
 				// TODO maybe let this error like the normal case, but only call `gro gen` if we find gen files? problem is the args would need to be hoisted to callers like `gro sync`
@@ -86,7 +89,7 @@ export const task: Task<Args> = {
 		timing_to_generate_code();
 
 		const fail_count = gen_results.failures.length;
-		const analyzed_gen_results = await analyze_gen_results(gen_results);
+		const analyzed_gen_results = await analyze_gen_results(fs_paths, gen_results);
 		if (check) {
 			// check if any files changed, and if so, throw errors,
 			// but if there are gen failures, skip the check and defer to their errors
@@ -118,7 +121,7 @@ export const task: Task<Args> = {
 			}
 		} else {
 			const timing_to_output_results = timings.start('output results');
-			await write_gen_results(gen_results, analyzed_gen_results, log);
+			await write_gen_results(fs_paths, gen_results, analyzed_gen_results, log);
 			timing_to_output_results();
 		}
 

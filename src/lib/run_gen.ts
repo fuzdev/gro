@@ -1,10 +1,10 @@
 import { styleText as st } from 'node:util';
-import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 
 import {
+	type GenFile,
 	type GenResults,
 	type GenfileModuleResult,
 	type GenfileModuleMeta,
@@ -53,24 +53,39 @@ export const run_gen = async (
 			}
 
 			// Convert the module's return value to a normalized form.
-			const gen_result = to_gen_result(id, raw_gen_result);
+			let gen_result;
+			try {
+				gen_result = to_gen_result(id, raw_gen_result);
+			} catch (error) {
+				return {
+					ok: false,
+					id,
+					error,
+					reason: st('red', `Error generating ${print_path(id)}`),
+					elapsed: timing_for_module()
+				};
+			}
 
 			// Format the files if needed. `format_file` is synchronous and throws
-			// on a real formatting error, so log and fall back to the unformatted file.
-			const files = format_file
-				? gen_result.files.map((file) => {
-						if (!file.format) return file;
-						try {
-							return { ...file, content: format_file(file.content, { filepath: file.id }) };
-						} catch (error) {
-							log.error(
-								st('red', `Error formatting ${print_path(file.id)} via ${print_path(id)}`),
-								print_error(error)
-							);
-							return file;
-						}
-					})
-				: gen_result.files;
+			// on a real formatting error, which fails the genfile, so none of its files are written.
+			const files: Array<GenFile> = [];
+			for (const file of gen_result.files) {
+				if (!format_file || !file.format) {
+					files.push(file);
+					continue;
+				}
+				try {
+					files.push({ ...file, content: format_file(file.content, { filepath: file.id }) });
+				} catch (error) {
+					return {
+						ok: false,
+						id,
+						error,
+						reason: st('red', `Error formatting ${print_path(file.id)} via ${print_path(id)}`),
+						elapsed: timing_for_module()
+					};
+				}
+			}
 
 			output_count += files.length;
 			return {

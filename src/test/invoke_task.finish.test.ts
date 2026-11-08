@@ -8,13 +8,17 @@ import { format } from 'node:util';
 import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import { SilentError, type TaskContext } from '#lib/task.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 let dir: string;
 let config: GroConfig;
+let fs_paths: FsPaths;
 let lines: Array<string>;
 
-beforeEach(() => {
+beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), 'gro_invoke_task_finish_'));
+	fs_paths = await create_project_fs_paths(dir);
 	// the owned graph watches only the empty temp dir, should it ever load
 	config = { ...create_empty_gro_config(), watch: { dir, filter: null } };
 	lines = [];
@@ -47,7 +51,7 @@ describe('invoke_task finish', () => {
 			`export const task = {run: ({invoke_task}) => invoke_task(${JSON.stringify(inner)})};\n`
 		);
 
-		await invoke_task(outer, {}, { config, parent_log: create_log() });
+		await invoke_task(outer, {}, { config, fs_paths, parent_log: create_log() });
 
 		const totals = lines.filter((line) => line.includes('🕒'));
 		assert.strictEqual(totals.length, 1, lines.join('\n'));
@@ -68,7 +72,7 @@ describe('invoke_task finish', () => {
 
 		let error;
 		try {
-			await invoke_task(failing, {}, { config, parent_log: create_log() });
+			await invoke_task(failing, {}, { config, fs_paths, parent_log: create_log() });
 		} catch (e) {
 			error = e;
 		}

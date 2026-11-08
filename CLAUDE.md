@@ -57,8 +57,12 @@ errors and exit codes. Where it lives:
 - Typed `invoke_task` - `InvokeTask` checks literals against `TaskRegistry`
   (`task_registry.ts`); builtins from the generated `GroBuiltinTasks`
   (`gro_builtin_tasks.gen.ts`), project tasks from a genfile exporting
-  `gen_task_registry` (augments `ProjectTasks`)
+  `gen_task_registry(create_fs_paths(fs))` (augments `ProjectTasks`)
   ([docs](src/docs/task.md#types-for-invoke_task))
+- Fs boundary - `invoke_task` takes the root's `FsPaths` as `fs_paths` in
+  `InvokeTaskOptions`, built by the CLI entry (`invoke.ts`), and `run_task`
+  passes it to the tasks a task invokes; it's never on `TaskContext`, so a task
+  that reaches fs imports the host module itself
 - Wrapping a builtin is composition: a project task calls it by name and the
   `package.json` script points at the wrapper's path; nothing shadows a builtin
 

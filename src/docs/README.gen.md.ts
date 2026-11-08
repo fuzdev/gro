@@ -1,7 +1,8 @@
 import { basename, join } from 'node:path';
 
 import type { Gen } from '../lib/gen.ts';
-import { fs_open_path, fs_search_path } from '../lib/internal/fs_path.ts';
+import { fs } from '../lib/fs.ts';
+import { create_fs_paths } from '../lib/fs_paths.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -37,12 +38,13 @@ const parse_listed_doc_paths = (content: string): Array<string> => {
 export const gen: Gen = {
 	inputs: { files: ['src/docs/runtime.md'] }, // `RUNTIME_INDEX_FILE`, as a literal
 	generate: async ({ origin_id }) => {
+		const fs_paths = create_fs_paths(fs);
 		const ctx = create_gen_doc_context(origin_id);
 		const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
 
 		// TODO this is GitHub-specific
 		const root_link = create_root_link(root_path);
-		const doc_files = await fs_search_path(origin_dir);
+		const doc_files = await fs_paths.search_path(origin_dir);
 		const doc_paths: Array<string> = [];
 		for (const { path } of doc_files) {
 			if (path === output_file_name || !path.endsWith('.md')) {
@@ -51,7 +53,7 @@ export const gen: Gen = {
 			doc_paths.push(path);
 		}
 
-		const runtime_index_file = await fs_open_path(join(origin_dir, RUNTIME_INDEX_FILE));
+		const runtime_index_file = await fs_paths.open_path(join(origin_dir, RUNTIME_INDEX_FILE));
 		const runtime_index = await runtime_index_file.dir.read_text_if_exists(runtime_index_file.path);
 		const runtime_paths =
 			runtime_index === null

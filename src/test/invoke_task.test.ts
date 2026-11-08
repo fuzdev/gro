@@ -12,6 +12,7 @@ import { SilentError, to_builtin_task_id } from '#lib/task.ts';
 import { paths } from '#lib/paths.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { to_task_args as parse_cli_task_args, type CliTaskArgs } from '#lib/args.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -51,6 +52,14 @@ const to_task_args = (
 	args: CliTaskArgs['args'] = {}
 ): CliTaskArgs => ({ task_name, task_path, args });
 
+// resolves through a real `FsPaths` whose project is `root`, the temp project by default
+const resolve = async (task_name: string, root: string = dir) =>
+	resolve_task(await create_project_fs_paths(root), task_name, root);
+
+// invokes the CLI with a real `FsPaths` whose project is the cwd when called, as the CLI's is
+const cli = async (task_args: CliTaskArgs, cli_config: GroConfig): Promise<void> =>
+	invoke_cli(await create_project_fs_paths(process.cwd()), task_args, cli_config);
+
 const error_text = (): string =>
 	vi
 		.mocked(log_error_reasons)
@@ -62,7 +71,7 @@ describe('resolve_task', () => {
 		mkdirSync(join(dir, 'locked'));
 		chmodSync(join(dir, 'locked'), 0o000);
 		try {
-			const resolved = await resolve_task('locked/x.task.ts', dir);
+			const resolved = await resolve('locked/x.task.ts');
 			assert.ok(!resolved.ok);
 			assert.match(
 				resolved.reasons.join('\n'),
@@ -74,20 +83,20 @@ describe('resolve_task', () => {
 	});
 
 	test('a bare name is a builtin', async () => {
-		const resolved = await resolve_task('check', dir);
+		const resolved = await resolve('check');
 		assert.deepEqual(resolved, { ok: true, id: to_builtin_task_id('check'), name: 'check' });
 	});
 
 	test('a bare name is never a project task, even when one exists by that name', async () => {
 		write_tasks(['src/lib/check.task.ts', 'src/lib/greet.task.ts', 'greet.task.ts']);
-		const resolved = await resolve_task('check', dir);
+		const resolved = await resolve('check');
 		assert.ok(resolved.ok);
 		assert.strictEqual(resolved.id, to_builtin_task_id('check'));
-		assert.ok(!(await resolve_task('greet', dir)).ok);
+		assert.ok(!(await resolve('greet')).ok);
 	});
 
 	test('an unknown name lists the builtins and hints the path, saying the file is missing', async () => {
-		const resolved = await resolve_task('greet', dir);
+		const resolved = await resolve('greet');
 		assert.ok(!resolved.ok);
 		assert.strictEqual(resolved.reasons[0], 'No builtin `greet`.');
 		assert.include(resolved.reasons[1], 'Builtins: build, changeset, check,');
@@ -99,7 +108,7 @@ describe('resolve_task', () => {
 
 	test('an unknown name says when the hinted file exists', async () => {
 		write_tasks(['src/lib/greet.task.ts']);
-		const resolved = await resolve_task('greet', dir);
+		const resolved = await resolve('greet');
 		assert.ok(!resolved.ok);
 		assert.strictEqual(
 			resolved.reasons[2],
@@ -108,7 +117,7 @@ describe('resolve_task', () => {
 	});
 
 	test('a name that could not be a file stem gets no path hint', async () => {
-		const resolved = await resolve_task('task.ts', dir);
+		const resolved = await resolve('task.ts');
 		assert.deepEqual(resolved, {
 			ok: false,
 			reasons: [
@@ -119,7 +128,7 @@ describe('resolve_task', () => {
 	});
 
 	test('`task` is the CLI verb, not a builtin, naming the path form', async () => {
-		assert.deepEqual(await resolve_task('task', dir), {
+		assert.deepEqual(await resolve('task'), {
 			ok: false,
 			reasons: [
 				'`task` is the CLI verb `gro task <path>`, not a builtin: ' +
@@ -129,19 +138,19 @@ describe('resolve_task', () => {
 	});
 
 	test('the `gro/` prefix errors naming the plain builtin', async () => {
-		const resolved = await resolve_task('gro/check', dir);
+		const resolved = await resolve('gro/check');
 		assert.deepEqual(resolved, {
 			ok: false,
 			reasons: [
 				'The `gro/` prefix is removed, builtins are plain names: use `check`, as in `gro check`.'
 			]
 		});
-		const unknown = await resolve_task('gro/greet', dir);
+		const unknown = await resolve('gro/greet');
 		assert.deepEqual(unknown, {
 			ok: false,
 			reasons: ["The `gro/` prefix is removed, and there's no builtin `greet`."]
 		});
-		assert.deepEqual(await resolve_task('gro/', dir), {
+		assert.deepEqual(await resolve('gro/'), {
 			ok: false,
 			reasons: ['The `gro/` prefix is removed, builtins are plain names: run `gro` to list them.']
 		});
@@ -151,14 +160,14 @@ describe('resolve_task', () => {
 		write_tasks(['src/lib/greet.task.ts', 'src/lib/hi.task.js', 'src/lib/hi/a.task.ts']);
 		const not_a_task_path = (input: string) =>
 			`\`${input}\` is not a task path: task paths end in \`.task.ts\` or \`.task.js\`.`;
-		assert.deepEqual(await resolve_task('src/lib/greet', dir), {
+		assert.deepEqual(await resolve('src/lib/greet'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/greet'),
 				'Run the task file with `gro task src/lib/greet.task.ts`.'
 			]
 		});
-		assert.deepEqual(await resolve_task('src/lib/hi', dir), {
+		assert.deepEqual(await resolve('src/lib/hi'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/hi'),
@@ -167,28 +176,28 @@ describe('resolve_task', () => {
 			]
 		});
 		write_tasks(['src/lib/ok.task.ts']);
-		assert.deepEqual(await resolve_task('src/lib/ok.task', dir), {
+		assert.deepEqual(await resolve('src/lib/ok.task'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/ok.task'),
 				'Run the task file with `gro task src/lib/ok.task.ts`.'
 			]
 		});
-		assert.deepEqual(await resolve_task('src/lib/no.task', dir), {
+		assert.deepEqual(await resolve('src/lib/no.task'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/no.task'),
 				'Nothing is at `src/lib/no.task`, `src/lib/no.task.ts`, or `src/lib/no.task.js`.'
 			]
 		});
-		assert.deepEqual(await resolve_task('src/lib/hi/', dir), {
+		assert.deepEqual(await resolve('src/lib/hi/'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/hi/'),
 				"List the directory's tasks with `gro task src/lib/hi/`."
 			]
 		});
-		assert.deepEqual(await resolve_task('src/lib/missing', dir), {
+		assert.deepEqual(await resolve('src/lib/missing'), {
 			ok: false,
 			reasons: [
 				not_a_task_path('src/lib/missing'),
@@ -197,7 +206,7 @@ describe('resolve_task', () => {
 		});
 		// a file without a task suffix needs no more than the suffix rule
 		writeFileSync(join(dir, 'src/lib/plain.ts'), '');
-		assert.deepEqual(await resolve_task('src/lib/plain.ts', dir), {
+		assert.deepEqual(await resolve('src/lib/plain.ts'), {
 			ok: false,
 			reasons: [not_a_task_path('src/lib/plain.ts')]
 		});
@@ -205,7 +214,7 @@ describe('resolve_task', () => {
 
 	test('a task path naming a directory is not a task file', async () => {
 		mkdirSync(join(dir, 'src/lib/x.task.ts'), { recursive: true });
-		assert.deepEqual(await resolve_task('src/lib/x.task.ts', dir), {
+		assert.deepEqual(await resolve('src/lib/x.task.ts'), {
 			ok: false,
 			reasons: ["`src/lib/x.task.ts` is not a task file: it's a directory or a special file."]
 		});
@@ -215,11 +224,11 @@ describe('resolve_task', () => {
 		write_tasks(['src/lib/greet.task.ts', 'top.task.js']);
 		const id = join(dir, 'src/lib/greet.task.ts');
 		const expected = { ok: true as const, id, name: 'src/lib/greet.task.ts' };
-		assert.deepEqual(await resolve_task('src/lib/greet.task.ts', dir), expected);
-		assert.deepEqual(await resolve_task('./src/lib/greet.task.ts', dir), expected);
-		assert.deepEqual(await resolve_task('src/lib/../lib/greet.task.ts', dir), expected);
-		assert.deepEqual(await resolve_task(id, dir), expected);
-		assert.deepEqual(await resolve_task('top.task.js', dir), {
+		assert.deepEqual(await resolve('src/lib/greet.task.ts'), expected);
+		assert.deepEqual(await resolve('./src/lib/greet.task.ts'), expected);
+		assert.deepEqual(await resolve('src/lib/../lib/greet.task.ts'), expected);
+		assert.deepEqual(await resolve(id), expected);
+		assert.deepEqual(await resolve('top.task.js'), {
 			ok: true,
 			id: join(dir, 'top.task.js'),
 			name: 'top.task.js'
@@ -227,7 +236,7 @@ describe('resolve_task', () => {
 	});
 
 	test('a missing task file errors with its normalized path', async () => {
-		const resolved = await resolve_task('./src/lib/missing.task.ts', dir);
+		const resolved = await resolve('./src/lib/missing.task.ts');
 		assert.deepEqual(resolved, {
 			ok: false,
 			reasons: ['No task file at `src/lib/missing.task.ts`.']
@@ -237,13 +246,13 @@ describe('resolve_task', () => {
 
 describe('invoke_cli', () => {
 	test('`gro` lists the builtins', async () => {
-		await invoke_cli(to_task_args(''), config);
+		await cli(to_task_args(''), config);
 		assert.strictEqual(vi.mocked(log_builtin_tasks).mock.calls.length, 1);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 0);
 	});
 
 	test('`gro <name>` runs the builtin', async () => {
-		await invoke_cli(to_task_args('typecheck'), config);
+		await cli(to_task_args('typecheck'), config);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 1);
 		assert.strictEqual(vi.mocked(run_task).mock.calls[0]![0].name, 'typecheck');
 	});
@@ -251,7 +260,7 @@ describe('invoke_cli', () => {
 	test('`gro task <path>` runs the task file, named by its root-relative path', async () => {
 		write_tasks(['src/lib/greet.task.ts']);
 		const id = join(dir, 'src/lib/greet.task.ts');
-		await invoke_cli(to_task_args('task', id, { a: 1 }), config);
+		await cli(to_task_args('task', id, { a: 1 }), config);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 1);
 		const [task_meta, args] = vi.mocked(run_task).mock.calls[0]!;
 		assert.strictEqual(task_meta.id, id);
@@ -262,7 +271,7 @@ describe('invoke_cli', () => {
 
 	test('`gro task <dir>` lists the tasks under it, without running them', async () => {
 		write_tasks(['src/lib/b.task.ts', 'src/a.task.js', 'top.task.ts']);
-		await invoke_cli(to_task_args('task', join(dir, 'src')), config);
+		await cli(to_task_args('task', join(dir, 'src')), config);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 0);
 		const calls = vi.mocked(log_tasks).mock.calls;
 		assert.strictEqual(calls.length, 1);
@@ -273,7 +282,7 @@ describe('invoke_cli', () => {
 	});
 
 	test('`gro task` with no path lists `src/`', async () => {
-		await invoke_cli(to_task_args('task'), { ...config, search_filters: [() => false] });
+		await cli(to_task_args('task'), { ...config, search_filters: [() => false] });
 		const calls = vi.mocked(log_tasks).mock.calls;
 		assert.strictEqual(calls.length, 1);
 		assert.include(calls[0]![2], 'src');
@@ -282,7 +291,7 @@ describe('invoke_cli', () => {
 	test('`gro task <path>` that is neither a directory nor a task file errors, naming the task file', async () => {
 		write_tasks(['src/lib/greet.task.ts']);
 		const path = join(dir, 'src/lib/greet');
-		await assert_silent(invoke_cli(to_task_args('task', path), config));
+		await assert_silent(cli(to_task_args('task', path), config));
 		assert.strictEqual(
 			error_text(),
 			`\`${path}\` is not a directory or a task file: task paths end in \`.task.ts\` or \`.task.js\`.\n` +
@@ -290,7 +299,7 @@ describe('invoke_cli', () => {
 		);
 		vi.clearAllMocks();
 		const missing = join(dir, 'src/lib/missing');
-		await assert_silent(invoke_cli(to_task_args('task', missing), config));
+		await assert_silent(cli(to_task_args('task', missing), config));
 		assert.include(
 			error_text(),
 			`Nothing is at \`${missing}\`, \`${missing}.task.ts\`, or \`${missing}.task.js\`.`
@@ -302,7 +311,7 @@ describe('invoke_cli', () => {
 		mkdirSync(join(dir, 'src/fixtures/update'));
 		const info = vi.spyOn(Logger.prototype, 'info');
 		try {
-			await in_dir(dir, () => invoke_cli(to_task_args('task', 'src/fixtures/update'), config));
+			await in_dir(dir, () => cli(to_task_args('task', 'src/fixtures/update'), config));
 			assert.deepEqual(info.mock.calls, [
 				['Run the task file with `gro task src/fixtures/update.task.ts`.']
 			]);
@@ -313,7 +322,7 @@ describe('invoke_cli', () => {
 	});
 
 	test('`gro task <builtin>` says how to run the builtin', async () => {
-		await assert_silent(invoke_cli(to_task_args('task', 'check'), config));
+		await assert_silent(cli(to_task_args('task', 'check'), config));
 		assert.strictEqual(
 			error_text(),
 			'`check` is not a directory or a task file: task paths end in `.task.ts` or `.task.js`.\n' +
@@ -325,7 +334,7 @@ describe('invoke_cli', () => {
 		write_tasks(['src/a.task.ts', 'src/c.task.ts']);
 		writeFileSync(join(dir, 'src/b.task.ts'), 'export const task = {};\n');
 		writeFileSync(join(dir, 'src/d.task.ts'), 'throw new Error("broken");\n');
-		await assert_silent(invoke_cli(to_task_args('task', join(dir, 'src')), config));
+		await assert_silent(cli(to_task_args('task', join(dir, 'src')), config));
 		const calls = vi.mocked(log_tasks).mock.calls;
 		assert.strictEqual(calls.length, 1);
 		assert.deepEqual(
@@ -341,7 +350,7 @@ describe('invoke_cli', () => {
 	test('`gro task <dir>` with only broken tasks reports them without an empty listing', async () => {
 		mkdirSync(join(dir, 'src'));
 		writeFileSync(join(dir, 'src/b.task.ts'), 'export const task = {};\n');
-		await assert_silent(invoke_cli(to_task_args('task', join(dir, 'src')), config));
+		await assert_silent(cli(to_task_args('task', join(dir, 'src')), config));
 		assert.strictEqual(vi.mocked(log_tasks).mock.calls.length, 0);
 		assert.include(error_text(), 'b.task.ts');
 	});
@@ -352,7 +361,7 @@ describe('invoke_cli', () => {
 		const cwd = process.cwd();
 		try {
 			process.chdir(project); // the CLI's cwd is the project root
-			await invoke_cli(to_task_args('task', 'src'), config);
+			await cli(to_task_args('task', 'src'), config);
 		} finally {
 			process.chdir(cwd);
 		}
@@ -364,30 +373,30 @@ describe('invoke_cli', () => {
 	});
 
 	test('a path without `gro task` errors with the hint', async () => {
-		await assert_silent(invoke_cli(to_task_args('src/lib/greet.task.ts'), config));
+		await assert_silent(cli(to_task_args('src/lib/greet.task.ts'), config));
 		assert.strictEqual(
 			error_text(),
 			'`src/lib/greet.task.ts` is a path: run a task file with `gro task src/lib/greet.task.ts`.'
 		);
 		vi.clearAllMocks();
-		await assert_silent(invoke_cli(to_task_args('greet.task.ts'), config));
+		await assert_silent(cli(to_task_args('greet.task.ts'), config));
 		assert.include(error_text(), 'run a task file with `gro task greet.task.ts`');
 		vi.clearAllMocks();
-		await assert_silent(invoke_cli(to_task_args('src/lib'), config));
+		await assert_silent(cli(to_task_args('src/lib'), config));
 		assert.strictEqual(
 			error_text(),
 			"`src/lib` is a path, not a builtin name. List the directory's tasks with `gro task src/lib`."
 		);
 		vi.clearAllMocks();
 		write_tasks(['src/fixtures/update.task.ts']);
-		await in_dir(dir, () => assert_silent(invoke_cli(to_task_args('src/fixtures/update'), config)));
+		await in_dir(dir, () => assert_silent(cli(to_task_args('src/fixtures/update'), config)));
 		assert.strictEqual(
 			error_text(),
 			'`src/fixtures/update` is a path, not a builtin name. ' +
 				'Run the task file with `gro task src/fixtures/update.task.ts`.'
 		);
 		vi.clearAllMocks();
-		await in_dir(dir, () => assert_silent(invoke_cli(to_task_args('src/fixtures/none'), config)));
+		await in_dir(dir, () => assert_silent(cli(to_task_args('src/fixtures/none'), config)));
 		assert.strictEqual(
 			error_text(),
 			'`src/fixtures/none` is a path, not a builtin name. ' +
@@ -398,26 +407,23 @@ describe('invoke_cli', () => {
 	});
 
 	test('`gro gro/<name>` errors naming the plain builtin', async () => {
-		await assert_silent(invoke_cli(to_task_args('gro/check'), config));
+		await assert_silent(cli(to_task_args('gro/check'), config));
 		assert.include(error_text(), 'use `check`, as in `gro check`');
 	});
 
 	test('`gro <unknown>` errors with no listing fallthrough', async () => {
-		await assert_silent(invoke_cli(to_task_args('greet'), config));
+		await assert_silent(cli(to_task_args('greet'), config));
 		assert.include(error_text(), 'No builtin `greet`.');
 		assert.strictEqual(vi.mocked(log_tasks).mock.calls.length, 0);
 		assert.strictEqual(vi.mocked(log_builtin_tasks).mock.calls.length, 0);
 	});
 
 	test('`gro task` is the verb, never a builtin name', async () => {
-		assert.ok(!(await resolve_task('task', paths.root)).ok);
+		assert.ok(!(await resolve('task', paths.root)).ok);
 		write_tasks(['src/lib/a.task.ts']);
 		await in_dir(dir, async () => {
-			await invoke_cli(parse_cli_task_args(['node', 'gro', 'task']), config);
-			await invoke_cli(
-				parse_cli_task_args(['node', 'gro', 'task', 'src/lib/a.task.ts', '--x']),
-				config
-			);
+			await cli(parse_cli_task_args(['node', 'gro', 'task']), config);
+			await cli(parse_cli_task_args(['node', 'gro', 'task', 'src/lib/a.task.ts', '--x']), config);
 		});
 		const listed = vi.mocked(log_tasks).mock.calls;
 		assert.strictEqual(listed.length, 1);
@@ -432,7 +438,7 @@ describe('invoke_cli', () => {
 	});
 
 	test('`gro task` in a project with no `src/` says so, blaming no path', async () => {
-		await in_dir(dir, () => assert_silent(invoke_cli(to_task_args('task'), config)));
+		await in_dir(dir, () => assert_silent(cli(to_task_args('task'), config)));
 		assert.strictEqual(
 			error_text(),
 			"`gro task` lists the tasks under `src/`, and there's no `src/` directory here: " +

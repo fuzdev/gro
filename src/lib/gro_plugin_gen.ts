@@ -6,6 +6,8 @@ import type { Plugin } from './plugin.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
 import { spawn_cli } from './cli.ts';
 
@@ -32,6 +34,7 @@ export const gro_plugin_gen = ({
 	flush_debounce_delay = FLUSH_DEBOUNCE_DELAY
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
+	const fs_paths = create_fs_paths(fs);
 
 	let cleanup_watch: (() => Promise<void>) | undefined;
 
@@ -48,7 +51,7 @@ export const gro_plugin_gen = ({
 				// Some parts of the build may have already happened,
 				// making us miss `build` events for gen dependencies,
 				// so we run a full `gen` here even if it's usually wasteful.
-				const found = await find_genfiles([paths.source], [paths.source], config);
+				const found = await find_genfiles(fs_paths, [paths.source], [paths.source], config);
 				if (found.ok && found.value.resolved_input_files.length > 0) {
 					await gen();
 				}

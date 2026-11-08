@@ -8,6 +8,8 @@ import { to_task_args, type CliTaskArgs } from './args.ts';
 import { SilentError, is_silent_error, is_task_error } from './task.ts';
 import { load_gro_config } from './gro_config.ts';
 import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /*
 
@@ -51,6 +53,10 @@ if (!process.env.NO_COLOR) {
 	configure_print_colors(styleText);
 }
 
+// the CLI's composition root, where the fs host module enters
+const fs_paths = create_fs_paths(fs);
+
+// TODO pass `fs_paths` once `sveltekit_helpers.ts` takes it
 await sveltekit_sync_if_obviously_needed();
 
 let task_args: CliTaskArgs;
@@ -61,4 +67,4 @@ try {
 	new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
 	throw new SilentError();
 }
-await invoke_cli(task_args, await load_gro_config());
+await invoke_cli(fs_paths, task_args, await load_gro_config(fs_paths));

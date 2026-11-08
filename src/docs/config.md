@@ -343,7 +343,7 @@ Be aware that these values may also appear in:
 
 ### how it works
 
-The `build_cache_config` is hashed early during config normalization (in `load_gro_config()`),
+The `build_cache_config` is hashed early during config normalization (in `load_gro_config(fs_paths, dir?)`),
 which then drops the raw value from the config, so plugins and tasks see only the hash.
 
 During the build:

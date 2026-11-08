@@ -4,7 +4,7 @@ import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
 import type { FileInfo } from './fs.ts';
-import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 // TODO Flavored doesn't work when used in schemas, `flavor` from fuz_schema could carry it
 export const InputPath = s.string;
@@ -47,9 +47,12 @@ export interface PossiblePath {
 
 /**
  * Gets a list of possible source ids for each input path with `extensions`,
- * duplicating each under `root_dirs`, without checking the filesystem.
+ * duplicating each under `root_dirs`, checking the filesystem only
+ * for whether an absolute input path is a directory.
+ * @param fs_paths - stats an absolute input path
  */
 export const get_possible_paths = async (
+	fs_paths: FsPaths,
 	input_path: InputPath,
 	root_dirs: Array<PathId>,
 	extensions: Array<string>
@@ -66,7 +69,7 @@ export const get_possible_paths = async (
 	};
 
 	if (isAbsolute(input_path)) {
-		const is_directory = (await stat_path(input_path))?.kind === 'directory';
+		const is_directory = (await stat_path(fs_paths, input_path))?.kind === 'directory';
 		add_possible_paths(input_path, is_directory ? input_path : dirname(input_path));
 	} else {
 		for (const root_dir of root_dirs) {
@@ -98,8 +101,10 @@ export interface ResolvedInputPaths {
  * Gets the path data for each input path, checking the filesystem for the possibilities
  * and stopping at the first existing file or falling back to the first existing directory.
  * If none is found for an input path, it's added to `unmapped_input_paths`.
+ * @param fs_paths - stats the possible paths
  */
 export const resolve_input_paths = async (
+	fs_paths: FsPaths,
 	input_paths: Array<InputPath>,
 	root_dirs: Array<PathId>,
 	extensions: Array<string>
@@ -110,11 +115,11 @@ export const resolve_input_paths = async (
 		let found_file: [PathInfo, PossiblePath] | null = null;
 		let found_dirs: Array<[PathInfo, PossiblePath]> | null = null;
 
-		const possible_paths = await get_possible_paths(input_path, root_dirs, extensions);
+		const possible_paths = await get_possible_paths(fs_paths, input_path, root_dirs, extensions);
 
 		// Find the first existing file path or fallback to the first directory path.
 		for (const possible_path of possible_paths) {
-			const info = await stat_path(possible_path.id);
+			const info = await stat_path(fs_paths, possible_path.id);
 			if (info === null) continue;
 
 			if (info.kind === 'directory') {
@@ -156,10 +161,11 @@ export interface ResolvedInputFiles {
 /**
  * Finds all of the matching files for the given input paths.
  * De-dupes source ids.
+ * @param search - finds the files under an input directory, like `FsPaths.search_path`
  */
 export const resolve_input_files = async (
 	resolved_input_paths: Array<ResolvedInputPath>,
-	search: (dir: string) => Promise<Array<ResolvedPath>> = fs_search_path
+	search: (dir: string) => Promise<Array<ResolvedPath>>
 ): Promise<ResolvedInputFiles> => {
 	const resolved_input_files: Array<ResolvedInputFile> = [];
 	// Add all input paths initially, and remove each when resolved to a file.
@@ -217,8 +223,8 @@ export const resolve_input_files = async (
 	};
 };
 
-// the info at an absolute or cwd-relative path, or `null` when nothing is there
-const stat_path = async (path: string): Promise<FileInfo | null> => {
-	const opened = await fs_open_path(path);
+// the info at an absolute or project-relative path, or `null` when nothing is there
+const stat_path = async (fs_paths: FsPaths, path: string): Promise<FileInfo | null> => {
+	const opened = await fs_paths.open_path(path);
 	return opened.dir.stat(opened.path);
 };

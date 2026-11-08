@@ -11,6 +11,8 @@ const run_test = async () => {
 
 	const { run_gen } = await import('#lib/run_gen.ts');
 	const { load_gro_config } = await import('#lib/gro_config.ts');
+	const { fs } = await import('#lib/fs.ts');
+	const { create_fs_paths } = await import('#lib/fs_paths.ts');
 
 	// console.log('✓ All imports work');
 
@@ -35,7 +37,7 @@ const run_test = async () => {
 
 	const gen_results = await run_gen(
 		[mod],
-		await load_gro_config(),
+		await load_gro_config(create_fs_paths(fs)),
 		log,
 		new Timings(),
 		Function.prototype as any

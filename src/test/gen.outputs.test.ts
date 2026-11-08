@@ -1,4 +1,4 @@
-import { describe, test, assert, vi, beforeEach, afterEach } from 'vitest';
+import { describe, test, assert, beforeEach, afterEach } from 'vitest';
 import {
 	existsSync,
 	mkdirSync,
@@ -13,46 +13,41 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+	analyze_gen_results,
+	to_gen_result,
+	write_gen_results,
+	type GenResults
+} from '#lib/gen.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
 import { create_mock_logger } from './test_helpers.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
-/*
-
-Hermetic: the cwd moves to a sandbox project and the modules reload,
-so `fs.project` is the sandbox, and no gen output reaches the repo.
-`process.chdir` needs Vitest's default `forks` pool.
-
-*/
+// hermetic: the `FsPaths` is over a sandbox project, so no gen output reaches the repo
 
 let base: string;
 let project: string;
 let outside: string;
-let cwd: string;
-let gen: typeof import('#lib/gen.ts');
+let fs_paths: FsPaths;
 
 beforeEach(async () => {
-	cwd = process.cwd();
 	base = realpathSync(mkdtempSync(join(tmpdir(), 'gro-gen-outputs-')));
 	project = join(base, 'project');
 	outside = join(base, 'outside');
 	mkdirSync(join(project, 'src/a'), { recursive: true });
 	mkdirSync(outside);
 	writeFileSync(join(outside, 'existing.txt'), 'outside');
-	process.chdir(project);
-	vi.resetModules();
-	gen = await import('#lib/gen.ts');
-	assert.strictEqual((await import('#lib/fs.ts')).fs.project.path, project);
+	fs_paths = await create_project_fs_paths(project);
 });
 
 afterEach(() => {
-	process.chdir(cwd);
-	vi.resetModules();
 	rmSync(base, { recursive: true, force: true });
 });
 
 const origin = (): string => join(project, 'src/a/x.gen.ts');
 
-const to_results = (filename: string): import('#lib/gen.ts').GenResults => {
-	const { files } = gen.to_gen_result(origin(), { content: 'generated\n', filename });
+const to_results = (filename: string): GenResults => {
+	const { files } = to_gen_result(origin(), { content: 'generated\n', filename });
 	return {
 		results: [],
 		successes: [{ ok: true, id: origin(), files, elapsed: 0 }],
@@ -65,9 +60,10 @@ const to_results = (filename: string): import('#lib/gen.ts').GenResults => {
 
 const run_gen = async (filename: string): Promise<void> => {
 	const results = to_results(filename);
-	await gen.write_gen_results(
+	await write_gen_results(
+		fs_paths,
 		results,
-		await gen.analyze_gen_results(results),
+		await analyze_gen_results(fs_paths, results),
 		create_mock_logger()
 	);
 };
@@ -95,7 +91,7 @@ describe('gen outputs', () => {
 	test('an output outside the project is refused, relative or absolute, before any read or write', async () => {
 		for (const filename of ['../../../outside/new.txt', join(outside, 'existing.txt')]) {
 			// `--check` analyzes without writing, so the read is refused too
-			await assert_refused(gen.analyze_gen_results(to_results(filename)));
+			await assert_refused(analyze_gen_results(fs_paths, to_results(filename)));
 			await assert_refused(run_gen(filename));
 		}
 		assert.deepEqual(readdirSync(outside), ['existing.txt']);
@@ -104,7 +100,7 @@ describe('gen outputs', () => {
 
 	test('an output resolving to the project directory itself is refused as that', async () => {
 		try {
-			await gen.analyze_gen_results(to_results('../..'));
+			await analyze_gen_results(fs_paths, to_results('../..'));
 			assert.fail('expected a refusal');
 		} catch (error) {
 			assert.include(String(error), 'resolves to the project directory itself');

@@ -11,6 +11,20 @@ import {
 	type ResolvedInputFile
 } from '#lib/input_path.ts';
 import { paths } from '#lib/paths.ts';
+import type { FileInfo } from '#lib/fs.ts';
+import {
+	create_mock_fs_dir,
+	create_mock_fs_paths,
+	create_mock_project_fs_paths,
+	type MockFsPaths
+} from './fs_mocks.ts';
+
+// a mock project on the cwd where `stat` finds `info` at every path
+const create_stat_fs_paths = (info: FileInfo | null = null): MockFsPaths => {
+	const project = create_mock_fs_dir(process.cwd());
+	project.stat.mockResolvedValue(info);
+	return create_mock_project_fs_paths(project);
+};
 
 test('to_input_path', () => {
 	expect(to_input_path(resolve('foo.ts'))).toBe(resolve('foo.ts'));
@@ -34,7 +48,9 @@ test('to_input_paths', () => {
 test('get_possible_paths with an implicit relative path', async () => {
 	const input_path = 'src/foo/bar';
 	expect(
+		// a relative input path is never statted, so the mock's ops all throw
 		await get_possible_paths(
+			create_mock_fs_paths(),
 			input_path,
 			[resolve('src/foo'), resolve('src/baz'), resolve('src'), resolve('.')],
 			['.ext.ts']
@@ -85,29 +101,47 @@ test('get_possible_paths with an implicit relative path', async () => {
 
 test('get_possible_paths in the gro directory', async () => {
 	const input_path = resolve('src/foo/bar');
-	expect(await get_possible_paths(input_path, [], ['.ext.ts'])).toEqual([
+	const fs_paths = create_stat_fs_paths();
+	expect(await get_possible_paths(fs_paths, input_path, [], ['.ext.ts'])).toEqual([
 		{ id: input_path, input_path: resolve('src/foo/bar'), root_dir: resolve('src/foo') },
 		{ id: input_path + '.ext.ts', input_path: resolve('src/foo/bar'), root_dir: resolve('src/foo') }
+	]);
+	expect(fs_paths.project.stat).toHaveBeenCalledWith('src/foo/bar');
+});
+
+test('get_possible_paths roots an absolute directory at itself', async () => {
+	const input_path = resolve('src/foo/bar');
+	const fs_paths = create_stat_fs_paths({ kind: 'directory' } as FileInfo);
+	expect(await get_possible_paths(fs_paths, input_path, [], ['.ext.ts'])).toEqual([
+		{ id: input_path, input_path, root_dir: input_path },
+		{ id: input_path + '.ext.ts', input_path, root_dir: input_path }
 	]);
 });
 
 test('get_possible_paths does not repeat the extension', async () => {
 	const input_path = resolve('src/foo/bar.ext.ts');
-	expect(await get_possible_paths(input_path, [], ['.ext.ts'])).toEqual([
+	expect(await get_possible_paths(create_stat_fs_paths(), input_path, [], ['.ext.ts'])).toEqual([
 		{ id: input_path, input_path: resolve('src/foo/bar.ext.ts'), root_dir: resolve('src/foo') }
 	]);
 });
 
 test('get_possible_paths does not repeat with the same root directory', async () => {
 	const input_path = resolve('src/foo/bar.ext.ts');
-	expect(await get_possible_paths(input_path, [paths.root, paths.root], ['.ext.ts'])).toEqual([
+	expect(
+		await get_possible_paths(
+			create_stat_fs_paths(),
+			input_path,
+			[paths.root, paths.root],
+			['.ext.ts']
+		)
+	).toEqual([
 		{ id: input_path, input_path: resolve('src/foo/bar.ext.ts'), root_dir: resolve('src/foo') }
 	]);
 });
 
 test('get_possible_paths implied to be a directory by trailing slash', async () => {
 	const input_path = resolve('src/foo/bar') + '/';
-	expect(await get_possible_paths(input_path, [], ['.ext.ts'])).toEqual([
+	expect(await get_possible_paths(create_stat_fs_paths(), input_path, [], ['.ext.ts'])).toEqual([
 		{ id: input_path, input_path: resolve('src/foo/bar') + '/', root_dir: resolve('src/foo') }
 	]);
 });

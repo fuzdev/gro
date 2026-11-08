@@ -1,7 +1,8 @@
-import { relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 import type { Gen } from '../lib/gen.ts';
-import { paths } from '../lib/paths.ts';
+import { fs } from '../lib/fs.ts';
+import { create_fs_paths } from '../lib/fs_paths.ts';
 import { task_registry_find_builtins } from '../lib/task_registry.ts';
 import {
 	create_gen_doc_context,
@@ -23,7 +24,11 @@ import {
 
 export const gen: Gen = async ({ origin_id }) => {
 	// read from the task modules, not the generated summaries, so one `gro gen` pass is enough
-	const tasks = await task_registry_find_builtins(paths.lib);
+	// Gro's `src/lib/`, beside this genfile's `src/docs/`
+	const src_lib_path = join(dirname(origin_id), '../lib');
+	const opened = await create_fs_paths(fs).open_dir_path(src_lib_path);
+	if (!opened) throw Error(`no directory at ${src_lib_path}`);
+	const tasks = await task_registry_find_builtins(opened.dir.dir(opened.path).readonly());
 
 	const ctx = create_gen_doc_context(origin_id);
 	const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;

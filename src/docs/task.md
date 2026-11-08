@@ -222,13 +222,16 @@ and args are checked against the input type of the task's exported `Args` schema
 so args with defaults are optional and args without defaults are required.
 
 Gro's builtins are typed out of the box.
-To type your project's tasks, add a genfile that exports `gen_task_registry`:
+To type your project's tasks, add a genfile that exports the config `gen_task_registry` creates,
+handing it the fs boundary the genfile builds as its composition root:
 
 ```ts
 // src/gro_tasks.gen.ts
+import {fs} from '@fuzdev/gro/fs.ts';
+import {create_fs_paths} from '@fuzdev/gro/fs_paths.ts';
 import {gen_task_registry} from '@fuzdev/gro/task_registry.ts';
 
-export const gen = gen_task_registry;
+export const gen = gen_task_registry(create_fs_paths(fs));
 ```
 
 `gro gen` then writes `src/gro_tasks.ts`, which augments the `ProjectTasks` interface

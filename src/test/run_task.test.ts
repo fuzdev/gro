@@ -16,6 +16,7 @@ import {
 	create_mock_logger,
 	create_mock_timings
 } from './test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
 
 test(
 	'run_task passes args and returns output',
@@ -74,6 +75,7 @@ test(
 const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	invoke_task: vi.fn(),
 	config: await create_mock_config(),
+	fs_paths: create_mock_fs_paths(),
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()
@@ -170,8 +172,9 @@ test('run_task reports a `TaskError` subclass by its message, not as an unexpect
 	assert.notInclude(result.reason, 'Unexpected error');
 });
 
-test('run_task passes the graph to the task and to the tasks it invokes', async () => {
+test('run_task passes the graph to the task, and it and `fs_paths` to the tasks it invokes', async () => {
 	const graph = create_mock_module_graph();
+	const fs_paths = create_mock_fs_paths();
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const config = await create_mock_config();
 	const other_config = await create_mock_config({ pm_cli: 'other_pm_cli' });
@@ -194,6 +197,7 @@ test('run_task passes the graph to the task and to the tasks it invokes', async 
 		{
 			invoke_task,
 			config,
+			fs_paths,
 			graph,
 			log: create_mock_logger(),
 			timings: create_mock_timings()
@@ -202,14 +206,17 @@ test('run_task passes the graph to the task and to the tasks it invokes', async 
 	assert(result.ok);
 	const ctx = result.output as TaskContext;
 	assert.strictEqual(ctx.graph, graph);
+	assert.ok(!('fs_paths' in ctx));
 	expect(invoke_task).toHaveBeenNthCalledWith(1, 'other', undefined, {
 		config,
+		fs_paths,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
 	});
 	expect(invoke_task).toHaveBeenNthCalledWith(2, 'other', undefined, {
 		config: other_config,
+		fs_paths,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()

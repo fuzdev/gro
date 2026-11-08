@@ -13,6 +13,7 @@ import {
 	to_task_path_without_verb_message
 } from '#lib/internal/task_hints.ts';
 import { create_mock_module_graph } from './test_helpers.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -33,6 +34,9 @@ vi.mock('#lib/task.ts', async (import_original) => ({
 
 const original_argv = process.argv;
 
+// the task paths resolve to Gro's own task files
+const fs_paths = await create_project_fs_paths(process.cwd());
+
 afterEach(() => {
 	process.argv = original_argv;
 	vi.clearAllMocks();
@@ -51,6 +55,7 @@ describe('invoke_task forwarded args', () => {
 			{ color: true, C: true },
 			{
 				config: {} as unknown as GroConfig,
+				fs_paths,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -66,6 +71,7 @@ describe('invoke_task forwarded args', () => {
 			{ b: true },
 			{
 				config: {} as unknown as GroConfig,
+				fs_paths,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -82,6 +88,7 @@ describe('invoke_task forwarded args', () => {
 			{ b: true },
 			{
 				config: {} as unknown as GroConfig,
+				fs_paths,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -97,6 +104,7 @@ describe('invoke_task forwarded args', () => {
 					{},
 					{
 						config: {} as unknown as GroConfig,
+						fs_paths,
 						graph: create_mock_module_graph()
 					}
 				)
@@ -117,6 +125,7 @@ describe('invoke_task forwarded args', () => {
 			{},
 			{
 				config: {} as unknown as GroConfig,
+				fs_paths,
 				graph: create_mock_module_graph()
 			}
 		);

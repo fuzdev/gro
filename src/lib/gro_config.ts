@@ -6,7 +6,7 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import { paths } from './paths.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
@@ -187,13 +187,21 @@ export interface GroConfigModule {
 	readonly default: RawGroConfig | CreateGroConfig;
 }
 
-export const load_gro_config = async (dir = paths.root): Promise<GroConfig> => {
+/**
+ * Loads the project's `gro.config.ts`, or the default config when there's none.
+ * @param fs_paths - checks for the config file
+ * @param dir - the directory holding `gro.config.ts`, defaults to the project of `fs_paths`
+ */
+export const load_gro_config = async (
+	fs_paths: FsPaths,
+	dir: string = fs_paths.project.path
+): Promise<GroConfig> => {
 	const default_config = await cook_gro_config(
 		await create_default_config(create_empty_gro_config())
 	);
 
 	const config_path = join(dir, GRO_CONFIG_FILENAME);
-	const config_file = await fs_open_path(config_path);
+	const config_file = await fs_paths.open_path(config_path);
 	if (!(await config_file.dir.exists(config_file.path))) {
 		// No user config file found, so return the default.
 		return default_config;

@@ -6,7 +6,7 @@ import { styleText as st } from 'node:util';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
 
-import { paths, print_path, to_root_path, to_search_filters_relative } from './paths.ts';
+import { print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
@@ -18,9 +18,7 @@ import {
 	type ResolvedInputPath
 } from './input_path.ts';
 import { TaskError, type InvokeTask } from './task.ts';
-import { fs } from './fs.ts';
-import type { FsOpenedPath } from './fs_paths.ts';
-import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
+import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
@@ -154,6 +152,12 @@ export interface GenfileModuleResultFailure {
 	elapsed: number;
 }
 
+/**
+ * Normalizes what a genfile returned into its output files.
+ * @throws `TaskError` - for a result that's not a `RawGenResult`, like a file whose `content`
+ * isn't a string, naming the genfile and what it returned
+ * @throws `Error` - for an invalid or duplicate output file name
+ */
 export const to_gen_result = (origin_id: PathId, raw_result: RawGenResult): GenResult => {
 	return {
 		origin_id,
@@ -171,7 +175,26 @@ const to_gen_files = (origin_id: PathId, raw_result: RawGenResult): Array<GenFil
 		validate_gen_files(files);
 		return files;
 	}
+	if (typeof raw_result !== 'object' || typeof raw_result.content !== 'string') {
+		throw new TaskError(
+			`Genfile ${print_path(origin_id)} returned ${describe_raw_gen_result(raw_result)},` +
+				' expected a string, `{content: string}`, an array of them, or `null`' +
+				' (a `gen` export that is a factory, like `gen_task_registry`, must be called)'
+		);
+	}
 	return [to_gen_file(origin_id, raw_result)];
+};
+
+// what a genfile returned, for the error when it's no `RawGenResult`
+const describe_raw_gen_result = (raw_result: unknown): string => {
+	if (raw_result === undefined) return 'undefined';
+	if (typeof raw_result !== 'object' || raw_result === null) return 'a ' + typeof raw_result;
+	const keys = Object.keys(raw_result);
+	const content = (raw_result as { content?: unknown }).content;
+	return (
+		`an object with ${keys.length ? 'keys ' + keys.map((k) => `\`${k}\``).join(', ') : 'no keys'}` +
+		` whose \`content\` is ${content === undefined ? 'missing' : content === null ? 'null' : 'a ' + typeof content}`
+	);
 };
 
 const to_gen_file = (origin_id: PathId, raw_gen_file: RawGenFile): GenFile => {
@@ -251,11 +274,16 @@ export type AnalyzedGenResult =
 			has_changed: true;
 	  };
 
+/**
+ * Reads each output of the successful genfiles to say whether it's new or changed.
+ * @param fs_paths - opens the outputs, which must resolve beneath its project
+ */
 export const analyze_gen_results = async (
+	fs_paths: FsPaths,
 	gen_results: GenResults
 ): Promise<Array<AnalyzedGenResult>> => {
 	const files = gen_results.successes.flatMap((result) => result.files);
-	return map_concurrent(files, 10, (file) => analyze_gen_result(file));
+	return map_concurrent(files, 10, (file) => analyze_gen_result(fs_paths, file));
 };
 
 /**
@@ -266,9 +294,9 @@ export const analyze_gen_results = async (
  * like `'../elsewhere/x.ts'`, is fine.
  * @throws `TaskError` - for an output outside the project or at the project directory itself
  */
-const open_gen_output = async (file: GenFile): Promise<FsOpenedPath> => {
-	const output = await fs_open_path(file.id);
-	if (output.dir !== fs.project) {
+const open_gen_output = async (fs_paths: FsPaths, file: GenFile): Promise<FsOpenedPath> => {
+	const output = await fs_paths.open_path(file.id);
+	if (output.dir !== fs_paths.project) {
 		throw new TaskError(
 			`Gen output ${file.id} from ${print_path(file.origin_id)} resolves outside the project` +
 				` (${output.path ? output.dir.path + '/' + output.path : output.dir.path}),` +
@@ -284,8 +312,16 @@ const open_gen_output = async (file: GenFile): Promise<FsOpenedPath> => {
 	return output;
 };
 
-export const analyze_gen_result = async (file: GenFile): Promise<AnalyzedGenResult> => {
-	const output = await open_gen_output(file);
+/**
+ * Reads a gen output to say whether it's new or changed.
+ * @param fs_paths - opens the output, which must resolve beneath its project
+ * @throws `TaskError` - for an output outside the project or at the project directory itself
+ */
+export const analyze_gen_result = async (
+	fs_paths: FsPaths,
+	file: GenFile
+): Promise<AnalyzedGenResult> => {
+	const output = await open_gen_output(fs_paths, file);
 	const existing_content = await output.dir.read_text_if_exists(output.path);
 	if (existing_content === null) {
 		return {
@@ -303,7 +339,13 @@ export const analyze_gen_result = async (file: GenFile): Promise<AnalyzedGenResu
 	};
 };
 
+/**
+ * Writes the new and changed outputs of the successful genfiles.
+ * @param fs_paths - opens the outputs, which must resolve beneath its project
+ * @throws `TaskError` - for an output outside the project or at the project directory itself
+ */
 export const write_gen_results = async (
+	fs_paths: FsPaths,
 	gen_results: GenResults,
 	analyzed_gen_results: Array<AnalyzedGenResult>,
 	log: Logger
@@ -315,13 +357,13 @@ export const write_gen_results = async (
 		const log_args = [print_path(file.id), 'generated from', print_path(file.origin_id)];
 		if (analyzed.is_new) {
 			log.info('writing new', ...log_args);
-			const output = await open_gen_output(file);
+			const output = await open_gen_output(fs_paths, file);
 			const parent = dirname(output.path);
 			if (parent !== '.') await output.dir.mkdir(parent, { recursive: true });
-			await write_gen_output(file);
+			await write_gen_output(fs_paths, file);
 		} else if (analyzed.has_changed) {
 			log.info('writing changed', ...log_args);
-			await write_gen_output(file);
+			await write_gen_output(fs_paths, file);
 		} else {
 			log.info('skipping unchanged', ...log_args);
 		}
@@ -329,8 +371,8 @@ export const write_gen_results = async (
 };
 
 // opened at the write, after any directory it needs is made
-const write_gen_output = async (file: GenFile): Promise<void> => {
-	const output = await open_gen_output(file);
+const write_gen_output = async (fs_paths: FsPaths, file: GenFile): Promise<void> => {
+	const output = await open_gen_output(fs_paths, file);
 	await output.dir.write(output.path, file.content);
 };
 
@@ -357,20 +399,24 @@ export type FindGenfilesFailure =
 
 /**
  * Finds modules from input paths. (see `input_path.ts` for more)
- * @param root - the project root `config.search_filters` test paths relative to
+ * @param fs_paths - stats the input paths and searches the directories among them
+ * @param root - the project root `config.search_filters` test paths relative to,
+ * defaults to the project of `fs_paths`
  */
 export const find_genfiles = async (
+	fs_paths: FsPaths,
 	input_paths: Array<InputPath>,
 	root_dirs: Array<PathId>,
 	config: GroConfig,
 	timings?: Timings,
-	root: PathId = paths.root
+	root: PathId = fs_paths.project.path
 ): Promise<FindGenfilesResult> => {
 	const extensions: Array<string> = [GEN_FILE_PATTERN];
 
 	// Check which extension variation works - if it's a directory, prefer others first!
 	const timing_to_resolve_input_paths = timings?.start('resolve input paths');
 	const { resolved_input_paths, unmapped_input_paths } = await resolve_input_paths(
+		fs_paths,
 		input_paths,
 		root_dirs,
 		extensions
@@ -395,7 +441,7 @@ export const find_genfiles = async (
 	const { resolved_input_files, input_directories_with_no_files } = await resolve_input_files(
 		resolved_input_paths,
 		async (id) =>
-			await fs_search_path(id, {
+			await fs_paths.search_path(id, {
 				filter: to_search_filters_relative(config.search_filters, root, id),
 				file_filter: is_gen_path
 			})

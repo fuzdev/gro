@@ -6,6 +6,7 @@ import { format_issue } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { ModuleGraph } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
+import type { FsPaths } from './fs_paths.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
 import {
@@ -33,15 +34,20 @@ export type RunTaskResult =
 
 /**
  * What `run_task` builds the task's context from:
- * `config`, `graph`, `log`, and `timings` become its fields of the same name.
+ * `config`, `graph`, `log`, and `timings` become its fields of the same name,
+ * and `fs_paths` passes to the tasks it invokes, never onto its context.
  */
 export interface RunTaskOptions {
 	/**
 	 * The `invoke_task` the task's own `invoke_task` calls,
-	 * passing it this task's `config`, `graph`, `timings`, and `log`.
+	 * passing it this task's `config`, `fs_paths`, `graph`, `timings`, and `log`.
 	 */
 	invoke_task: typeof base_invoke_task;
 	config: GroConfig;
+	/**
+	 * The invoking root's boundary, passed to the tasks this task invokes.
+	 */
+	fs_paths: FsPaths;
 	graph: ModuleGraph;
 	log: Logger;
 	timings: Timings;
@@ -61,7 +67,7 @@ export const run_task = async (
 	unparsed_args: Args,
 	options: RunTaskOptions
 ): Promise<RunTaskResult> => {
-	const { invoke_task, config, graph, log, timings } = options;
+	const { invoke_task, config, fs_paths, graph, log, timings } = options;
 	const { task } = task_meta.mod;
 
 	if (unparsed_args.help) {
@@ -104,6 +110,7 @@ export const run_task = async (
 			) =>
 				invoke_task(invoked_task_name, invoked_args, {
 					config: invoked_options?.config ?? config,
+					fs_paths,
 					graph,
 					timings,
 					parent_log: log

@@ -6,9 +6,11 @@ import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
-import { paths, to_search_filters_relative } from './paths.ts';
+import { to_search_filters_relative } from './paths.ts';
 import { is_path_specifier } from './resolve_specifier.ts';
-import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
+import type { FsReadDir } from './fs.ts';
+import type { FsPaths } from './fs_paths.ts';
+import { SOURCE_DIRNAME } from './constants.ts';
 import {
 	is_task_path,
 	load_task,
@@ -20,8 +22,8 @@ import {
 
 /**
  * The project's own tasks by normalized path, empty until augmented by a generated file.
- * Create a genfile like `src/gro_tasks.gen.ts` exporting `gen_task_registry` as `gen`
- * to type the project's task paths and args for `invoke_task`.
+ * Create a genfile like `src/gro_tasks.gen.ts` exporting `gen_task_registry(create_fs_paths(fs))`
+ * as `gen` to type the project's task paths and args for `invoke_task`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ProjectTasks {}
@@ -68,17 +70,20 @@ export interface TaskRegistryEntry {
 /**
  * Finds the task files under `dir`, named by their paths relative to `root`,
  * the names `invoke_task` and `gro task` give them, sorted by name.
- * @param dir - the directory to search
+ * @param fs_paths - searches `dir`
+ * @param dir - the directory to search, absolute or relative to the project of `fs_paths`
  * @param search_filters - the filters each file and directory must pass, given paths relative to `root`,
  * or to `dir` for the paths outside `root`
- * @param root - the project root the names and filtered paths are relative to, defaults to the cwd
+ * @param root - the project root the names and filtered paths are relative to,
+ * defaults to the project of `fs_paths`
  */
 export const task_registry_find = async (
+	fs_paths: FsPaths,
 	dir: PathId,
 	search_filters: Array<PathFilter>,
-	root: PathId = process.cwd()
+	root: PathId = fs_paths.project.path
 ): Promise<Array<TaskRegistryEntry>> => {
-	const found = await fs_search_path(dir, {
+	const found = await fs_paths.search_path(dir, {
 		filter: to_search_filters_relative(search_filters, root, dir),
 		file_filter: is_task_path
 	});
@@ -150,23 +155,22 @@ export interface BuiltinTaskEntry extends TaskRegistryEntry {
 }
 
 /**
- * Finds Gro's builtin tasks, the `*.task.ts` files directly in `dir`,
+ * Finds Gro's builtin tasks, the `*.task.ts` files directly in `src_lib`,
  * importing each to read its summary.
- * @param dir - Gro's `src/lib/`
+ * @param src_lib - Gro's `src/lib/`
  */
 export const task_registry_find_builtins = async (
-	dir: PathId
+	src_lib: FsReadDir
 ): Promise<Array<BuiltinTaskEntry>> => {
-	const opened = await fs_open_path(dir);
 	const filenames: Array<string> = [];
-	for await (const { name } of opened.dir.list(opened.path)) {
+	for await (const { name } of src_lib.list()) {
 		if (name.endsWith(TASK_FILE_SUFFIX_TS)) filenames.push(name);
 	}
 	filenames.sort();
 	const entries: Array<BuiltinTaskEntry> = [];
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
-		const id = join(dir, filename);
+		const id = join(src_lib.path, filename);
 		const loaded = await load_task(id, name);
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		entries.push({ name, id, summary: loaded.value.mod.task.summary ?? '' });
@@ -206,17 +210,25 @@ ${summaries}};
 };
 
 /**
- * The genfile config that types a project's tasks for `invoke_task`.
+ * Creates the genfile config that types a project's tasks for `invoke_task`.
  * Export it as `gen` from a genfile like `src/gro_tasks.gen.ts`,
+ * `export const gen = gen_task_registry(create_fs_paths(fs));`,
  * which writes `src/gro_tasks.ts` augmenting `ProjectTasks`
  * with every task file under `src/`, keyed by its path relative to the project root.
  * In `gro dev` it regenerates when a task file is added or changed;
  * `gro dev` ignores deletes, so run `gro gen` after removing a task.
+ * @param fs_paths - searches the project's `src/`, its project the root the tasks are keyed relative to
  */
-export const gen_task_registry: GenConfig = {
+export const gen_task_registry = (fs_paths: FsPaths): GenConfig => ({
 	generate: async ({ config, origin_id, origin_path }) => {
-		const entries = await task_registry_find(paths.source, config.search_filters, paths.root);
+		const root = fs_paths.project.path;
+		const entries = await task_registry_find(
+			fs_paths,
+			join(root, SOURCE_DIRNAME),
+			config.search_filters,
+			root
+		);
 		return task_registry_render_project(entries, dirname(origin_id), origin_path);
 	},
 	inputs: { patterns: ['*.task.ts', '*.task.js'] }
-};
+});

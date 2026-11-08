@@ -47,7 +47,7 @@ import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
 import type { FileInfo } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -57,6 +57,11 @@ export interface InvokeTaskOptions {
 	 * The Gro configuration.
 	 */
 	config: GroConfig;
+	/**
+	 * Opens the task's path and the paths of the hints for a missing one,
+	 * built by the composition root and passed to nested tasks.
+	 */
+	fs_paths: FsPaths;
 	/**
 	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
@@ -96,14 +101,14 @@ export const invoke_task = async (
 	args: Args | undefined,
 	options: InvokeTaskOptions
 ): Promise<void> => {
-	const { config, graph: initial_graph, timings: initial_timings, parent_log } = options;
+	const { config, fs_paths, graph: initial_graph, timings: initial_timings, parent_log } = options;
 	// Create child logger if parent exists, otherwise root logger,
 	// labeled by the name the task is displayed by when it's a normalized path
 	const log_label = is_task_path(task_name) ? to_task_path(task_name) : task_name || 'gro';
 	const log = parent_log ? parent_log.child(log_label) : new Logger(log_label);
 	log.info('invoking', st('cyan', log_label));
 
-	const resolved = await resolve_task(task_name);
+	const resolved = await resolve_task(fs_paths, task_name);
 	if (!resolved.ok) {
 		log_error_reasons(log, resolved.reasons);
 		throw new SilentError();
@@ -146,6 +151,7 @@ export const invoke_task = async (
 		result = await run_task(task, merge_forwarded_args(args, forwarded), {
 			invoke_task,
 			config,
+			fs_paths,
 			graph,
 			log,
 			timings
@@ -182,12 +188,14 @@ export type ResolveTaskResult =
 /**
  * Resolves a builtin name or a task path to the task module's id and display name,
  * with no search: a name is a builtin or an error, a path is a task file or an error.
+ * @param fs_paths - stats the task file, and for a name that's no builtin, the file it hints
  * @param task_name - a builtin name or a task path
- * @param root - the project root task paths are relative to, defaults to the cwd
+ * @param root - the project root task paths are relative to, defaults to the project of `fs_paths`
  */
 export const resolve_task = async (
+	fs_paths: FsPaths,
 	task_name: string,
-	root: string = process.cwd()
+	root: string = fs_paths.project.path
 ): Promise<ResolveTaskResult> => {
 	if (!is_task_path_input(task_name)) {
 		if (task_name === TASK_VERB) {
@@ -202,7 +210,7 @@ export const resolve_task = async (
 		if (is_builtin_task_name(task_name)) {
 			return { ok: true, id: to_builtin_task_id(task_name), name: task_name };
 		}
-		return { ok: false, reasons: await to_no_builtin_reasons(task_name, root) };
+		return { ok: false, reasons: await to_no_builtin_reasons(fs_paths, task_name, root) };
 	}
 	if (!is_task_path(task_name)) {
 		if (is_removed_builtin_prefix(task_name)) {
@@ -215,7 +223,7 @@ export const resolve_task = async (
 	}
 	const name = to_task_path(task_name, root);
 	const id = resolve(root, name);
-	const stat = await stat_path(id);
+	const stat = await stat_path(fs_paths, id);
 	if (!stat.ok) {
 		return { ok: false, reasons: [`Can't read \`${name}\`: ${stat.message}`] };
 	}
@@ -239,10 +247,11 @@ export const resolve_task = async (
  * and any other fs failure the message for a reason, never thrown.
  */
 const stat_path = async (
+	fs_paths: FsPaths,
 	path: string
 ): Promise<{ ok: true; info: FileInfo | null } | { ok: false; message: string }> => {
 	try {
-		const opened = await fs_open_path(path);
+		const opened = await fs_paths.open_path(path);
 		return { ok: true, info: await opened.dir.stat(opened.path) };
 	} catch (error) {
 		if (is_fs_error(error, 'not_a_directory')) return { ok: true, info: null };
@@ -261,14 +270,18 @@ const TASK_STEM_MATCHER = /^[\w-]+$/;
  * the builtin list and, for a name that could be a file's stem,
  * the path that runs a project task of that name, with one stat to say whether that file exists.
  */
-const to_no_builtin_reasons = async (task_name: string, root: string): Promise<Array<string>> => {
+const to_no_builtin_reasons = async (
+	fs_paths: FsPaths,
+	task_name: string,
+	root: string
+): Promise<Array<string>> => {
 	const reasons = [
 		`No builtin \`${task_name}\`.`,
 		`Builtins: ${Object.keys(GRO_BUILTIN_TASK_SUMMARIES).join(', ')}`
 	];
 	if (!TASK_STEM_MATCHER.test(task_name)) return reasons; // like `task.ts`, no sensible path to hint
 	const hint_path = LIB_DIR + task_name + TASK_FILE_SUFFIX_TS;
-	const hint_file = await fs_open_path(join(root, hint_path));
+	const hint_file = await fs_paths.open_path(join(root, hint_path));
 	reasons.push(
 		(await hint_file.dir.exists(hint_file.path))
 			? `\`${hint_path}\` exists, run it by path: \`gro task ${hint_path}\``
@@ -285,10 +298,15 @@ const to_no_builtin_reasons = async (task_name: string, root: string): Promise<A
  * `gro task <dir>` lists the tasks under `dir`;
  * `gro task <path>` runs the task file at `path`.
  * A path without `gro task` is an error with a hint, as listing is never a fallthrough.
+ * @param fs_paths - opens the paths the args name, passed to the task it invokes
  * @param task_args - the parsed CLI args
  * @param config - the Gro configuration
  */
-export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Promise<void> => {
+export const invoke_cli = async (
+	fs_paths: FsPaths,
+	task_args: CliTaskArgs,
+	config: GroConfig
+): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
 
 	if (!task_name) {
@@ -304,10 +322,10 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) {
-			await invoke_task(task_path, args, { config });
+			await invoke_task(task_path, args, { config, fs_paths });
 			return;
 		}
-		await list_tasks(task_path, config, new Logger('gro task'));
+		await list_tasks(fs_paths, task_path, config, new Logger('gro task'));
 		return;
 	}
 
@@ -320,6 +338,7 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
 	// `gro run` is like `node`, so the CLI gives it timings no one prints
 	await invoke_task(task_name, args, {
 		config,
+		fs_paths,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});
 };
@@ -329,9 +348,14 @@ export const invoke_cli = async (task_args: CliTaskArgs, config: GroConfig): Pro
  * then reports each task that fails to load and fails.
  * @param dir - the directory the user named, `null` for the default `src/`
  */
-const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): Promise<void> => {
-	const dir_id = resolve(dir ?? SOURCE_DIR);
-	const stat = await stat_path(dir_id);
+const list_tasks = async (
+	fs_paths: FsPaths,
+	dir: string | null,
+	config: GroConfig,
+	log: Logger
+): Promise<void> => {
+	const dir_id = resolve(fs_paths.project.path, dir ?? SOURCE_DIR);
+	const stat = await stat_path(fs_paths, dir_id);
 	if (!stat.ok) {
 		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${stat.message}`]);
 		throw new SilentError();
@@ -355,7 +379,7 @@ const list_tasks = async (dir: string | null, config: GroConfig, log: Logger): P
 		log_error_reasons(log, reasons);
 		throw new SilentError();
 	}
-	const entries = await task_registry_find(dir_id, config.search_filters);
+	const entries = await task_registry_find(fs_paths, dir_id, config.search_filters);
 	const modules: Array<TaskModuleMeta> = [];
 	const reasons: Array<string> = [];
 	for (const { id, name } of entries) {

@@ -5,6 +5,7 @@ import { to_task_args } from '#lib/args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { SilentError, TaskError } from '#lib/task.ts';
 import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
 
 vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
@@ -25,7 +26,7 @@ const SCRIPT = 'package.json';
 // the script args `gro run` spawns for the CLI args after `gro`
 const run_cli = async (argv: Array<string>): Promise<Array<string>> => {
 	process.argv = ['node', 'gro', ...argv];
-	await invoke_cli(to_task_args(), await create_mock_config());
+	await invoke_cli(create_mock_fs_paths(), to_task_args(), await create_mock_config());
 	expect(vi.mocked(spawn_with_loader)).toHaveBeenCalledTimes(1);
 	const [loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
 	expect(loader_path).toBe('/loader.js');
@@ -73,6 +74,7 @@ describe('gro run script args', () => {
 			{ _: [SCRIPT, 'a'], port: 3000, watch: true },
 			{
 				config: await create_mock_config(),
+				fs_paths: create_mock_fs_paths(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -96,7 +98,7 @@ describe('gro run failure', () => {
 		process.argv = ['node', 'gro', 'run', SCRIPT];
 		let error;
 		try {
-			await invoke_cli(to_task_args(), await create_mock_config());
+			await invoke_cli(create_mock_fs_paths(), to_task_args(), await create_mock_config());
 		} catch (e) {
 			error = e;
 		}

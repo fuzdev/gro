@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { to_gen_result, find_genfiles, is_gen_path, validate_gen_module } from '#lib/gen.ts';
 import { paths } from '#lib/paths.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 const origin_id = resolve('src/foo.gen.ts');
 
@@ -284,6 +285,23 @@ test('to_gen_result fail with duplicate explicit and implicit names', () => {
 	}).toThrow();
 });
 
+test('to_gen_result refuses a result whose content is not a string, naming the genfile and the result', () => {
+	// like a stale `export const gen = gen_task_registry;`, whose call returns a `GenConfig`
+	const stale = { generate: () => '', inputs: {} };
+	for (const [raw, described] of [
+		[stale, 'an object with keys `generate`, `inputs` whose `content` is missing'],
+		[{ content: 1 }, 'an object with keys `content` whose `content` is a number'],
+		[{ content: null }, 'an object with keys `content` whose `content` is null'],
+		[undefined, 'undefined'],
+		[1, 'a number'],
+		[['ok', stale], 'an object with keys `generate`, `inputs` whose `content` is missing']
+	] as const) {
+		expect(() => to_gen_result(origin_id, raw as any)).toThrow(
+			`Genfile ./src/foo.gen.ts returned ${described},`
+		);
+	}
+});
+
 test('validate_gen_module basic behavior', () => {
 	expect(validate_gen_module({ gen: Function.prototype })).toBeTruthy();
 	expect(validate_gen_module({ gen: {} })).toBeFalsy();
@@ -292,6 +310,7 @@ test('validate_gen_module basic behavior', () => {
 
 test('find_genfiles_result finds gen modules in a directory', async () => {
 	const find_genfiles_result = await find_genfiles(
+		await create_project_fs_paths(paths.root),
 		['../docs'],
 		[paths.lib],
 		create_empty_gro_config()
@@ -311,11 +330,10 @@ test('find_genfiles finds gen modules in a project under a dot-directory', async
 			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
 		}
 		const result = await find_genfiles(
+			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config(),
-			undefined,
-			dir
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -337,11 +355,10 @@ test('find_genfiles finds gen modules outside the root under a dot-directory', a
 			writeFileSync(join(other, file), 'export const gen = () => "";\n');
 		}
 		const result = await find_genfiles(
+			await create_project_fs_paths(root),
 			[join(other, 'src')],
 			[root],
-			create_empty_gro_config(),
-			undefined,
-			root
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -365,7 +382,12 @@ test('find_genfiles filters relative to the root, whichever directory it searche
 			(p) => !/^src\/(test|spec)\//.test(p) // a root-anchored regexp
 		];
 		for (const input of ['src', 'src/lib']) {
-			const result = await find_genfiles([join(dir, input)], [dir], config, undefined, dir);
+			const result = await find_genfiles(
+				await create_project_fs_paths(dir),
+				[join(dir, input)],
+				[dir],
+				config
+			);
 			if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 			expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
 				join(dir, 'src/lib/a.gen.ts')
@@ -392,11 +414,10 @@ test('find_genfiles in a project under a `.gen.` directory finds only genfiles',
 			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
 		}
 		const result = await find_genfiles(
+			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config(),
-			undefined,
-			dir
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([

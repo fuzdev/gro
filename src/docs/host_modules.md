@@ -98,7 +98,10 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
   Gro's own code reaches every path it names through it, its well-known paths like `build/` and `.gro/` too,
   and resolves beneath a handle only what it got from that handle, like a listing's entries,
   so confinement applies to those.
-  `gro build`, `gro clean`, and `gro deploy`'s `.gro/` pass theirs down to the build cache and the cleaning;
+  `gro build`, `gro clean`, and `gro deploy`'s `.gro/` pass theirs down to the build cache and the cleaning.
+  `gro gen`, the gen plugin, and Gro's genfiles pass theirs to gen, its input paths, and the task registry.
+  The CLI's entry passes its own to the config's loading and to `invoke_task`,
+  which carries it in its options to the tasks a task invokes, never on the task's context.
   Gro's other library modules still open paths themselves, through an internal copy of the boundary
   bound to the cwd.
   Where a directory's files come from its own listing or search, Gro opens the directory once
