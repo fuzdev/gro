@@ -1578,9 +1578,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smallvec"
-version = "1.16.3"
+version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "socket2"
@@ -1841,9 +1841,9 @@ dependencies = [
 
 [[package]]
 name = "tsv_lang"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7d0526a2f3ec93bd68f6bb0288a5d8333e1553296a9b1f061692ad4e0feed1a"
+checksum = "562f08eb04cd425786daaf60665c60b197217e2c50d847563e5d246c3588b234"
 dependencies = [
  "smallvec",
  "unicode-ident",
@@ -1853,9 +1853,9 @@ dependencies = [
 
 [[package]]
 name = "tsv_ts"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac9810ac881f3f5a0e0e7bf2cd5a7255eabefcbf57d507315e0225a1c3a962c0"
+checksum = "d353bd44d7b329dd5832219140ca9b618cfcf699ff0498d70bc4b9828d8983f8"
 dependencies = [
  "bumpalo",
  "smallvec",
@@ -1892,9 +1892,9 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "url"

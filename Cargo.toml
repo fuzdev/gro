@@ -49,7 +49,7 @@ tokio = { version = "1", features = ["rt"] }
 # past them a parse error, not a stack overflow, on a thread of its
 # `STACK_SIZE`. Without default features: the strip needs none of tsv's
 # wire-JSON layer (its `json` feature)
-tsv_ts = { version = "0.8.0", default-features = false }
+tsv_ts = { version = "0.8.1", default-features = false }
 url = "2.5"
 # the V8 binding itself, for gro_v8's calls `deno_core` doesn't wrap; pinned to
 # the exact version `deno_core` re-exports as `deno_core::v8`, with the features

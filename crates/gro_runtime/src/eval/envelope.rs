@@ -21,11 +21,11 @@ pub const DENO_CORE_VERSION: &str = "0.412.0";
 
 /// The tsv commit the type strip is built from: the one the `tsv_ts` release
 /// at [`TSV_VERSION`] was published from (its crate's `.cargo_vcs_info.json`).
-pub const TSV_REV: &str = "522a2f0db56f8f9d90aeb5f2cc4d01aa9c7541dc";
+pub const TSV_REV: &str = "2c9119cd2773de89299cdf077fed0c8d40995ead";
 
 /// The `tsv_ts` version the type strip is built from, as `Cargo.lock` pins it,
 /// which a test checks; [`TSV_REV`] moves with it.
-pub const TSV_VERSION: &str = "0.8.0";
+pub const TSV_VERSION: &str = "0.8.1";
 
 /// What `fgro eval` wrote: the runtime and entry, the value or the error, and
 /// what the run tried to reach and was refused.
