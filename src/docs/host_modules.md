@@ -159,6 +159,10 @@ These exist because the Node implementation resolves paths itself, in JS, before
   so no `Symbol.hasInstance` runs mid-op.
 - The Node functions the module calls are copied at load,
   so `syncBuiltinESMExports` can't rebind them under a handle.
+- The walk is synchronous, in the async ops too, reading components `realpath` just resolved,
+  so a path through a symlink doesn't pay a threadpool trip per component.
+  It blocks the event loop for those lookups, bounded by the path's components and `MAX_SYMLINKS`,
+  and on a network or FUSE filesystem for however long the server takes to revalidate them.
 - Symlink targets, real paths, and listed names are read as bytes and must be UTF-8,
   else the op fails with `io_error`, rather than a lossy name reaching a different entry
   or the kernel following bytes the walk never saw.

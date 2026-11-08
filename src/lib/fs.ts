@@ -81,7 +81,6 @@ const {
 	mkdtemp,
 	opendir,
 	readFile,
-	readlink,
 	realpath,
 	rename,
 	rm,
@@ -90,7 +89,9 @@ const {
 	unlink,
 	writeFile
 } = node_fs_promises;
-const { lstatSync, readFileSync, readlinkSync, realpathSync, statSync } = node_fs;
+const { lstatSync, readFileSync, readlinkSync, statSync } = node_fs;
+// libuv's `realpath`, a syscall per component, where `realpathSync` runs Node's JS walk
+const realpath_sync_native = node_fs.realpathSync.native;
 const { tmpdir } = node_os;
 const { dirname, isAbsolute } = node_path;
 
@@ -300,6 +301,9 @@ export interface Fs {
 // the most symlinks one path resolution follows, Linux's own limit
 const MAX_SYMLINKS = 40;
 
+// the most bytes Linux takes in a path, its NUL included
+const PATH_MAX = 4096;
+
 const to_kind = (code: unknown): FsErrorKind => {
 	switch (code) {
 		case 'ENOENT':
@@ -485,10 +489,21 @@ A component the walk passes through must be a directory, as the kernel requires,
 symlink to `a.txt/` or `a.txt/..` is `not_a_directory`, never the file or the root.
 
 Async confinement first tries `realpath`: a path that is its own real path holds no symlink,
-which settles the common case in one call. A missing final component whose parent is its own
-real path, and that `lstat` finds no symlink at, settles in two more, so a miss skips the walk.
-The sync walk reads with `lstatSync` and `throwIfNoEntry: false`, so a missing entry constructs
-no error.
+which settles the common case in one call. A missing final component whose parent is its own real
+path, and that `lstat` finds no symlink at, settles in two more, so a miss skips the walk.
+When an async op passes `existing`, nothing being at the path is `not_found` at once, without
+the final op, unless the path may be too long for the kernel, which the final op then reports;
+a sync miss constructs no error to spare, so the sync ops don't.
+
+The walk is synchronous, in the async ops too, so its `lstat`s and `readlink`s don't each cost a
+trip through the libuv threadpool. An async op's walk runs after `realpath` has just resolved
+the same components, which leaves them in the kernel's dentry cache, so it blocks the event
+loop only for those lookups, and on a network or FUSE filesystem for however long the server
+takes to revalidate them, bounded by the path's components and `MAX_SYMLINKS`.
+
+A real path beneath the root's prefix can't have come through a symlink in the root's own
+path, since a real path holds no symlink, so the walk skips the root re-check after one.
+Reads use `lstatSync` with `throwIfNoEntry: false`, so a missing entry constructs no error.
 
 */
 
@@ -593,7 +608,7 @@ const realpath_text = async (path: string): Promise<string> =>
 	decode_name(await realpath(path, { encoding: 'buffer' }), path, 'has the real path');
 
 const realpath_text_sync = (path: string): string =>
-	decode_name(realpathSync(path, { encoding: 'buffer' }), path, 'has the real path');
+	decode_name(realpath_sync_native(path, { encoding: 'buffer' }), path, 'has the real path');
 
 // printable ASCII as itself, every other byte as `\xNN`
 const to_escaped_bytes = (bytes: Uint8Array): string => {
@@ -630,85 +645,64 @@ const enter_link = (
  * Whether nothing is at `path` and its parent holds no symlink, so the path is inside any
  * root it lexically is: a parent that is its own real path has no symlink to leave through,
  * and `lstat` finds a final symlink, dangling or not, which the walk must see.
+ * Synchronous, since `realpath` just failed on these components and left them cached.
  */
-const is_missing_beneath_real_parent = async (path: string): Promise<boolean> => {
+const is_missing_beneath_real_parent = (path: string): boolean => {
 	const parent = dirname(path);
-	const parent_real = await realpath_text(parent).catch(() => null);
-	if (parent_real !== parent) return false;
-	return lstat(path).then(
-		() => false,
-		(error: unknown) => code_of(error) === 'ENOENT'
-	);
+	try {
+		return (
+			realpath_text_sync(parent) === parent &&
+			lstatSync(path, { throwIfNoEntry: false }) === undefined
+		);
+	} catch {
+		return false;
+	}
 };
 
-const confine = async (
+/**
+ * Whether the kernel can't refuse `path` as too long, a requested trailing `/` and the NUL
+ * counted. `path` is the whole op path, root included, and always well-formed text whose
+ * UTF-8 bytes are what the op passes, at most 3 per UTF-16 code unit. Checked before answering
+ * a miss without the final op, which alone would report `ENAMETOOLONG`.
+ */
+const is_within_path_max = (path: string): boolean => path.length * 3 + 2 <= PATH_MAX;
+
+/**
+ * The walk, once the fast path hasn't settled the path. Synchronous for sync and async ops alike.
+ * @param real - the real path the fast path found, or `null` when it failed
+ * @param existing - see `confine`
+ */
+const confine_walk = (
 	root: Root,
 	requested: string,
 	lexical: LexicalPath,
-	follow: boolean
-): Promise<string> => {
-	const { path } = lexical;
-	const head = follow || path === root.path ? path : dirname(path);
-	try {
-		if ((await realpath_text(head)) === head) return path;
-	} catch (error) {
-		// missing, or not a directory, which the walk sorts out, but for the common miss
-		if (
-			code_of(error) === 'ENOENT' &&
-			head === path &&
-			path !== root.path &&
-			(await is_missing_beneath_real_parent(path))
-		) {
-			return path;
-		}
-	}
-	const root_real = await realpath_text(root.path);
-	if (root_real !== root.path) {
-		throw to_moved_root_error(root, requested, root_real);
+	follow: boolean,
+	real: string | null,
+	existing: boolean
+): string => {
+	// a real path beneath the prefix holds no symlink, so the root's own path has none
+	if (real === null || !real.startsWith(root.prefix)) {
+		const root_real = realpath_text_sync(root.path);
+		if (root_real !== root.path) throw to_moved_root_error(root, requested, root_real);
 	}
 	const walk = create_walk(root, lexical.segments);
 	while (walk.stack.length > 0) {
 		const next = step_walk(root, requested, walk);
 		if (next === null) continue;
 		if (!follow && walk.stack.length === 0) return next;
-		let s: Stats;
+		let s: Stats | undefined;
 		try {
-			s = await lstat(next);
+			// `undefined` when missing; `lstatSync` throws `ENOTDIR` instead
+			s = lstatSync(next, { throwIfNoEntry: false });
 		} catch (error) {
-			const code = code_of(error);
-			if (code === 'ENOENT' || code === 'ENOTDIR') return to_missing_path(walk, next);
+			if (code_of(error) === 'ENOTDIR') return to_missing_path(walk, next);
 			throw error;
 		}
-		if (s.isSymbolicLink()) {
-			enter_link(requested, walk, next, await readlink(next, { encoding: 'buffer' }));
-		} else {
-			// a component the walk passes through must be a directory, as the kernel requires
-			if (walk.stack.length > 0 && !s.isDirectory()) throw new FsError('not_a_directory', next);
-			walk.current = next;
+		if (s === undefined) {
+			const missing = to_missing_path(walk, next);
+			if (existing && is_within_path_max(missing)) throw new FsError('not_found', lexical.path);
+			return missing;
 		}
-	}
-	return walk.current;
-};
-
-// the sync twin of `confine`
-const confine_sync = (
-	root: Root,
-	requested: string,
-	lexical: LexicalPath,
-	follow: boolean
-): string => {
-	const root_real = realpath_text_sync(root.path);
-	if (root_real !== root.path) {
-		throw to_moved_root_error(root, requested, root_real);
-	}
-	const walk = create_walk(root, lexical.segments);
-	while (walk.stack.length > 0) {
-		const next = step_walk(root, requested, walk);
-		if (next === null) continue;
-		if (!follow && walk.stack.length === 0) return next;
-		// `undefined` when missing; Node's `lstatSync` throws `ENOTDIR`, which the op classifies
-		const s = lstatSync(next, { throwIfNoEntry: false });
-		if (s === undefined) return to_missing_path(walk, next);
 		if (s.isSymbolicLink()) {
 			enter_link(requested, walk, next, readlinkSync(next, { encoding: 'buffer' }));
 		} else {
@@ -719,6 +713,51 @@ const confine_sync = (
 	}
 	return walk.current;
 };
+
+/**
+ * Finds the path beneath `root` an op should run on.
+ * @param existing - the op needs an entry at the path, so a miss throws `not_found`
+ * here rather than returning a path for the op to fail on, sparing the final op
+ * when the path is short enough that the op couldn't fail another way
+ */
+const confine = async (
+	root: Root,
+	requested: string,
+	lexical: LexicalPath,
+	follow: boolean,
+	existing = false
+): Promise<string> => {
+	const { path } = lexical;
+	const head = follow || path === root.path ? path : dirname(path);
+	let real: string | null = null;
+	try {
+		real = await realpath_text(head);
+		if (real === head) return path;
+	} catch (error) {
+		// missing, or not a directory, which the walk sorts out, but for the common miss
+		if (
+			code_of(error) === 'ENOENT' &&
+			head === path &&
+			path !== root.path &&
+			is_missing_beneath_real_parent(path)
+		) {
+			if (existing && is_within_path_max(path)) throw new FsError('not_found', path);
+			return path;
+		}
+	}
+	return confine_walk(root, requested, lexical, follow, real, existing);
+};
+
+/**
+ * The sync twin of `confine`, always walking. A `realpath` fast path here constructs an
+ * error on every miss, which measured costlier than the `lstat`s it saves on a hit.
+ */
+const confine_sync = (
+	root: Root,
+	requested: string,
+	lexical: LexicalPath,
+	follow: boolean
+): string => confine_walk(root, requested, lexical, follow, null, false);
 
 /**
  * Why a sync stat found nothing at `target`, a path a walk returned. Node's `statSync`
@@ -750,7 +789,7 @@ const stat_beneath = async (
 	// a trailing `/` follows a final symlink, as in the kernel
 	const follow = (options?.follow ?? true) || lexical.dir;
 	try {
-		const target = to_op_path(await confine(root, path, lexical, follow), lexical);
+		const target = to_op_path(await confine(root, path, lexical, follow, true), lexical);
 		return to_file_info(await (follow ? stat(target) : lstat(target)));
 	} catch (error) {
 		if (is_not_found(error)) return null;
@@ -833,7 +872,7 @@ class NodeFsReadDir implements FsReadDir {
 	async read_if_exists(path: string): Promise<Uint8Array | null> {
 		const lexical = to_lexical_path(this.#root, path);
 		try {
-			const target = await confine(this.#root, path, lexical, true);
+			const target = await confine(this.#root, path, lexical, true, true);
 			return to_bytes(await readFile(to_op_path(target, lexical)));
 		} catch (error) {
 			if (is_not_found(error)) return null;
@@ -844,7 +883,7 @@ class NodeFsReadDir implements FsReadDir {
 	async read_text_if_exists(path: string): Promise<string | null> {
 		const lexical = to_lexical_path(this.#root, path);
 		try {
-			const target = await confine(this.#root, path, lexical, true);
+			const target = await confine(this.#root, path, lexical, true, true);
 			return await readFile(to_op_path(target, lexical), 'utf8');
 		} catch (error) {
 			if (is_not_found(error)) return null;

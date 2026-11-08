@@ -5,7 +5,9 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
 	symlinkSync,
+	unlinkSync,
 	writeFileSync
 } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
@@ -222,6 +224,238 @@ describe('resolve beneath', () => {
 	});
 });
 
+describe('the fast path', () => {
+	beforeEach(() => {
+		mkdirSync(join(sandbox.root, 'sub'));
+		writeFileSync(join(sandbox.root, 'sub/f.txt'), 'f');
+		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
+	});
+
+	test('a symlink swapped in at a component is walked, whatever the path read before', async () => {
+		assert.strictEqual(await dir.read_text('sub/f.txt'), 'f');
+		assert.strictEqual(dir.read_text_sync('sub/f.txt'), 'f');
+		rmSync(join(sandbox.root, 'sub'), { recursive: true });
+		symlinkSync(sandbox.outside, join(sandbox.root, 'sub'));
+		await assert_fs_error_rejects(dir.read_text('sub/secret.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.stat('sub/missing'), 'outside_root');
+		assert_fs_error_throws(() => dir.read_text_sync('sub/secret.txt'), 'outside_root');
+		assert_fs_error_throws(() => dir.stat_sync('sub/missing'), 'outside_root');
+
+		assert.strictEqual((await dir.stat('a.txt'))!.kind, 'file');
+		assert.strictEqual(dir.stat_sync('a.txt')!.kind, 'file');
+		unlinkSync(join(sandbox.root, 'a.txt'));
+		symlinkSync(join(sandbox.outside, 'secret.txt'), join(sandbox.root, 'a.txt'));
+		await assert_fs_error_rejects(dir.stat('a.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.read_if_exists('a.txt'), 'outside_root');
+		assert_fs_error_throws(() => dir.exists_sync('a.txt'), 'outside_root');
+	});
+
+	test('a root moved and reached through a symlink to its new place is `outside_root`', async () => {
+		const sub = dir.dir('sub');
+		renameSync(sandbox.root, join(sandbox.base, 'moved'));
+		symlinkSync('moved', sandbox.root);
+		await assert_fs_error_rejects(dir.read_text('sub/f.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.stat(''), 'outside_root');
+		await assert_fs_error_rejects(dir.stat('missing'), 'outside_root');
+		assert_fs_error_throws(() => dir.read_text_sync('sub/f.txt'), 'outside_root');
+		assert_fs_error_throws(() => dir.stat_sync(''), 'outside_root');
+		assert_fs_error_throws(() => dir.stat_sync('missing'), 'outside_root');
+		// the moved path is an ancestor of the narrowed handle's
+		await assert_fs_error_rejects(sub.read_text('f.txt'), 'outside_root');
+		await assert_fs_error_rejects(sub.stat('missing'), 'outside_root');
+		assert_fs_error_throws(() => sub.read_text_sync('f.txt'), 'outside_root');
+		assert_fs_error_throws(() => sub.stat_sync('missing'), 'outside_root');
+	});
+
+	test('a root moved to a sibling sharing its prefix is `outside_root` through a symlink', async () => {
+		const moved = join(sandbox.base, 'root2');
+		renameSync(sandbox.root, moved);
+		symlinkSync('root2', sandbox.root);
+		await assert_fs_error_rejects(dir.stat(''), 'outside_root');
+		await assert_fs_error_rejects(dir.stat('a.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.stat('a.txt', { follow: false }), 'outside_root');
+		await assert_fs_error_rejects(dir.exists('sub/f.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.read('a.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.read_text('sub/f.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.read_if_exists('a.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.read_text_if_exists('a.txt'), 'outside_root');
+		const list = async (): Promise<void> => {
+			for await (const _ of dir.list('sub'));
+		};
+		await assert_fs_error_rejects(list(), 'outside_root');
+		await assert_fs_error_rejects(dir.write('a.txt', 'x'), 'outside_root');
+		await assert_fs_error_rejects(dir.mkdir('sub'), 'outside_root');
+		await assert_fs_error_rejects(dir.remove('a.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.rename('a.txt', 'sub/g.txt'), 'outside_root');
+		await assert_fs_error_rejects(dir.copy('a.txt', 'sub/g.txt'), 'outside_root');
+		assert.strictEqual(readFileSync(join(moved, 'a.txt'), 'utf8'), 'a');
+		assert.ok(!existsSync(join(moved, 'sub/g.txt')));
+	});
+
+	test('a root replaced by a directory at the same path is followed, a handle binding a path', async () => {
+		renameSync(sandbox.root, join(sandbox.base, 'gone'));
+		mkdirSync(sandbox.root);
+		writeFileSync(join(sandbox.root, 'new.txt'), 'new');
+		assert.strictEqual(await dir.read_text('new.txt'), 'new');
+		assert.strictEqual(dir.read_text_sync('new.txt'), 'new');
+		assert.isNull(await dir.stat('a.txt'));
+		assert.isNull(dir.stat_sync('a.txt'));
+	});
+
+	test('a root opened through a symlink is bound to its real path', async () => {
+		const link = join(sandbox.base, 'root_link');
+		symlinkSync('root', link);
+		const linked = await fs.open_dir(link);
+		assert.strictEqual(linked.path, sandbox.root);
+		assert.strictEqual(await linked.read_text('a.txt'), 'a');
+		assert.strictEqual(linked.read_text_sync('sub/f.txt'), 'f');
+		unlinkSync(link);
+		symlinkSync('outside', link);
+		assert.strictEqual(await linked.read_text('a.txt'), 'a');
+		assert.isNull(await linked.stat('secret.txt'));
+		assert.isNull(linked.stat_sync('secret.txt'));
+	});
+
+	test('`.`, `..`, empty, and repeated `/` segments name what they lexically name', async () => {
+		for (const path of ['', '.', './', 'sub/..', 'sub/../', './sub/..', 'sub/.././']) {
+			assert.strictEqual((await dir.stat(path))!.kind, 'directory', path);
+			assert.strictEqual(dir.stat_sync(path)!.kind, 'directory', path);
+			assert.isTrue(dir.exists_sync(path), path);
+		}
+		for (const path of ['sub//f.txt', './sub/./f.txt', 'sub/../sub/f.txt', 'a.txt/../sub/f.txt']) {
+			assert.strictEqual(await dir.read_text(path), 'f', path);
+			assert.strictEqual(dir.read_text_sync(path), 'f', path);
+		}
+	});
+
+	test('a miss is `null` from every value-returning op, sync and async', async () => {
+		symlinkSync('sub', join(sandbox.root, 'link'));
+		for (const path of [
+			'missing',
+			'missing/',
+			'deep/missing/x',
+			'sub/missing',
+			'sub/missing/',
+			'link/missing'
+		]) {
+			assert.isNull(await dir.stat(path), path);
+			assert.isFalse(await dir.exists(path), path);
+			assert.isNull(await dir.read_if_exists(path), path);
+			assert.isNull(await dir.read_text_if_exists(path), path);
+			assert.isNull(dir.stat_sync(path), path);
+			assert.isFalse(dir.exists_sync(path), path);
+			const error = await assert_fs_error_rejects(dir.read_text(path), 'not_found');
+			assert.strictEqual(error.path, join(sandbox.root, path.replace(/\/$/, '')), path);
+			assert_fs_error_throws(() => dir.read_text_sync(path), 'not_found');
+		}
+	});
+
+	test('a dangling symlink inside is a miss through it, and itself without `follow`', async () => {
+		symlinkSync('nowhere', join(sandbox.root, 'dangling'));
+		assert.isNull(await dir.stat('dangling'));
+		assert.isFalse(await dir.exists('dangling'));
+		assert.isNull(await dir.read_text_if_exists('dangling'));
+		assert.isNull(dir.stat_sync('dangling'));
+		assert.isNull(await dir.stat('dangling/'));
+		assert.isNull(dir.stat_sync('dangling/'));
+		assert.strictEqual((await dir.stat('dangling', { follow: false }))!.kind, 'symlink');
+		assert.strictEqual(dir.stat_sync('dangling', { follow: false })!.kind, 'symlink');
+		await assert_fs_error_rejects(dir.read_text('dangling'), 'not_found');
+		assert_fs_error_throws(() => dir.read_text_sync('dangling'), 'not_found');
+	});
+});
+
+describe('the kernel path length limit', () => {
+	// the longest path the kernel takes, in bytes, without its NUL
+	const LIMIT = 4095;
+	const SEGMENT = 200;
+
+	/**
+	 * The relative path that makes `prefix` + it `bytes` long, in segments `readlink` and
+	 * `lstat` accept.
+	 */
+	const to_fill = (prefix: string, bytes: number): string => {
+		const segments: Array<string> = [];
+		let remaining = bytes - Buffer.byteLength(prefix);
+		while (remaining > SEGMENT) {
+			segments.push('x'.repeat(SEGMENT - 1));
+			remaining -= SEGMENT;
+		}
+		segments.push('x'.repeat(remaining));
+		return segments.join('/');
+	};
+
+	const assert_miss = async (d: FsReadDir, path: string): Promise<void> => {
+		assert.isNull(await d.stat(path));
+		assert.isFalse(await d.exists(path));
+		assert.isNull(await d.read_if_exists(path));
+		assert.isNull(await d.read_text_if_exists(path));
+		await assert_fs_error_rejects(d.read_text(path), 'not_found');
+		assert.isNull(d.stat_sync(path));
+		assert.isFalse(d.exists_sync(path));
+		assert_fs_error_throws(() => d.read_text_sync(path), 'not_found');
+	};
+
+	const assert_too_long = async (d: FsReadDir, path: string): Promise<void> => {
+		await assert_fs_error_rejects(d.stat(path), 'io_error');
+		await assert_fs_error_rejects(d.exists(path), 'io_error');
+		await assert_fs_error_rejects(d.read_if_exists(path), 'io_error');
+		await assert_fs_error_rejects(d.read_text_if_exists(path), 'io_error');
+		await assert_fs_error_rejects(d.read_text(path), 'io_error');
+		assert_fs_error_throws(() => d.stat_sync(path), 'io_error');
+		assert_fs_error_throws(() => d.exists_sync(path), 'io_error');
+		assert_fs_error_throws(() => d.read_text_sync(path), 'io_error');
+	};
+
+	test('a miss past a missing directory is a miss at the limit and `io_error` over it', async () => {
+		const prefix = join(sandbox.root, 'missing') + '/';
+		const to_path = (bytes: number) => 'missing/' + to_fill(prefix, bytes);
+		assert.strictEqual(Buffer.byteLength(sandbox.root + '/' + to_path(LIMIT)), LIMIT);
+		await assert_miss(dir, to_path(LIMIT));
+		await assert_too_long(dir, to_path(LIMIT + 1));
+	});
+
+	test('a trailing `/` counts toward the limit on a miss beneath a real parent', async () => {
+		const parent = to_fill(sandbox.root + '/', LIMIT - SEGMENT);
+		mkdirSync(join(sandbox.root, parent), { recursive: true });
+		const prefix = join(sandbox.root, parent) + '/';
+		// the final component alone is missing, the common miss, here at the limit once `/` is added
+		const name = (bytes: number) => 'y'.repeat(bytes - Buffer.byteLength(prefix));
+		assert.strictEqual(Buffer.byteLength(prefix + name(LIMIT - 1) + '/'), LIMIT);
+		await assert_miss(dir, parent + '/' + name(LIMIT - 1) + '/');
+		await assert_too_long(dir, parent + '/' + name(LIMIT) + '/');
+		await assert_miss(dir, parent + '/' + name(LIMIT));
+	});
+
+	test('the limit counts UTF-8 bytes, not UTF-16 code units', async () => {
+		// 3 bytes a character, so far fewer code units than bytes
+		const segment = '語'.repeat(80);
+		const to_path = (count: number) => 'missing/' + Array(count).fill(segment).join('/');
+		await assert_miss(dir, to_path(12));
+		const over = to_path(17);
+		assert.ok(Buffer.byteLength(sandbox.root + '/' + over) > LIMIT);
+		assert.ok(over.length * 2 < LIMIT);
+		await assert_too_long(dir, over);
+	});
+
+	test('the limit is on the path the walk found, not the path requested', async () => {
+		const deep = to_fill(sandbox.root + '/', 3900);
+		mkdirSync(join(sandbox.root, deep), { recursive: true });
+		symlinkSync(deep, join(sandbox.root, 'ln'));
+		const prefix = join(sandbox.root, deep, 'missing') + '/';
+		const to_path = (bytes: number) => 'ln/missing/' + to_fill(prefix, bytes);
+		await assert_miss(dir, to_path(LIMIT));
+		await assert_too_long(dir, to_path(LIMIT + 1));
+		// so short as requested that only the walk's path goes over
+		assert.ok(Buffer.byteLength(sandbox.root + '/' + to_path(LIMIT + 1)) * 3 < LIMIT);
+	});
+
+	test('a long missing path under the limit is a clean miss', async () => {
+		const prefix = join(sandbox.root, 'missing') + '/';
+		await assert_miss(dir, 'missing/' + to_fill(prefix, 2000));
+	});
+});
+
 describe('trailing slash', () => {
 	beforeEach(() => {
 		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
@@ -347,6 +581,13 @@ describe('names that are not UTF-8', () => {
 		mkdirSync(to_byte_path(sandbox.root, new Uint8Array([0xfe])));
 		symlinkSync(Buffer.from([0xfe]), join(sandbox.root, 'R'));
 		await assert_fs_error_rejects(fs.open_dir(join(sandbox.root, 'R')), 'io_error');
+	});
+
+	test('a root moved behind a symlink that is not UTF-8 is refused, sync and async', async () => {
+		renameSync(sandbox.root, to_byte_path(sandbox.base, new Uint8Array([0xfe])));
+		symlinkSync(Buffer.from([0xfe]), sandbox.root);
+		await assert_fs_error_rejects(dir.stat('missing'), 'io_error');
+		assert_fs_error_throws(() => dir.stat_sync('missing'), 'io_error');
 	});
 
 	test('a symlink itself is still removed and renamed, its target never read', async () => {
@@ -480,6 +721,25 @@ describe('forged path segments', () => {
 });
 
 describe('builtin exports rebound after load', () => {
+	test("patching `realpathSync.native` can't fool the root re-check it was copied for", () => {
+		const require = createRequire(import.meta.url);
+		const { realpathSync } = require('node:fs');
+		const { native } = realpathSync;
+		renameSync(sandbox.root, join(sandbox.base, 'moved'));
+		symlinkSync('outside', sandbox.root);
+		try {
+			// every path its own real path, which would pass the re-check
+			realpathSync.native = (path: string, options: unknown) =>
+				(options as { encoding?: string } | undefined)?.encoding === 'buffer'
+					? Buffer.from(path)
+					: path;
+			assert_fs_error_throws(() => dir.read_text_sync('secret.txt'), 'outside_root');
+			assert_fs_error_throws(() => dir.stat_sync('missing'), 'outside_root');
+		} finally {
+			realpathSync.native = native;
+		}
+	});
+
 	test("`syncBuiltinESMExports` can't rebind the Node functions the module copied at load", async () => {
 		const require = createRequire(import.meta.url);
 		const fs_promises = require('node:fs/promises');
