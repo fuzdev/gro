@@ -470,7 +470,8 @@ pub fn dispatch_exception<'s, 'i>(
 }
 
 #[inline(always)]
-pub(crate) fn call_site_evals_key<'s, 'i>(
+// gro patch: public, so gro's prepare-stack-trace callback stores call sites under the same key
+pub fn call_site_evals_key<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
 ) -> v8::Local<'s, v8::Private> {
   let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();

@@ -197,3 +197,29 @@ fn the_hints_name_the_fix() {
         run.stdout
     );
 }
+
+/// fgro applies no source map: a throw in a module with an inline map, and a
+/// failed import's position in one, are at the positions in the code that
+/// ran, never the map's (`original.ts:10:5`).
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn no_source_map_applies() {
+    let url = fixtures_url();
+    let run = eval(&["mapped.js"]);
+    run.assert_failed("module_threw", 1);
+    assert_eq!(
+        run.message(),
+        format!(
+            "Uncaught (in promise) Error: mapped\n    at fail ({url}/mapped_lib.js:2:8)\n    at {url}/mapped.js:3:1"
+        )
+    );
+    let run = eval(&["import_attribute_mapped.js"]);
+    run.assert_failed("link", 1);
+    assert_eq!(
+        run.envelope["error"]["at"],
+        format!("{url}/import_attribute_mapped_dep.js:1:19")
+    );
+}

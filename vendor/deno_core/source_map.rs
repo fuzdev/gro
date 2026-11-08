@@ -151,7 +151,8 @@ impl SourceMapper {
     module_name: ModuleName,
     source_map_url: String,
   ) {
-    self.source_map_urls.insert(module_name, source_map_url);
+    // gro patch: nothing kept, since fgro applies no source maps (and a bundle's inline map isn't retained)
+    let _ = (module_name, source_map_url);
   }
 
   /// Returns the decoded source map for `file_name`, decoding it on first
@@ -211,12 +212,15 @@ impl SourceMapper {
   /// changed values are returned.
   ///
   /// Line and column numbers are 1-based.
+  // gro patch: fgro applies no source maps, so every location stays the one V8 reported
+  #[allow(unreachable_code, unused_variables)]
   pub fn apply_source_map(
     &mut self,
     file_name: &str,
     line_number: u32,
     column_number: u32,
   ) -> SourceMapApplication {
+    return SourceMapApplication::Unchanged;
     // Lookup expects 0-based line and column numbers, but ours are 1-based.
     let line_number = line_number - 1;
     let column_number = column_number - 1;

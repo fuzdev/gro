@@ -25,6 +25,20 @@ index 0000000..262238f
 +LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 +OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 +SOFTWARE.
+diff --git a/error.rs b/error.rs
+index cdf8de8..132f2fe 100644
+--- a/error.rs
++++ b/error.rs
+@@ -470,7 +470,8 @@ pub fn dispatch_exception<'s, 'i>(
+ }
+ 
+ #[inline(always)]
+-pub(crate) fn call_site_evals_key<'s, 'i>(
++// gro patch: public, so gro's prepare-stack-trace callback stores call sites under the same key
++pub fn call_site_evals_key<'s, 'i>(
+   scope: &mut v8::PinScope<'s, 'i>,
+ ) -> v8::Local<'s, v8::Private> {
+   let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();
 diff --git a/modules/module_map_data.rs b/modules/module_map_data.rs
 index a5070ed..ebccba8 100644
 --- a/modules/module_map_data.rs
@@ -153,3 +167,33 @@ index fb31eca..ccabeb4 100644
        e.str(k);
        e.bytes(v);
      });
+diff --git a/source_map.rs b/source_map.rs
+index 0f9d3b3..7da03de 100644
+--- a/source_map.rs
++++ b/source_map.rs
+@@ -151,7 +151,8 @@ impl SourceMapper {
+     module_name: ModuleName,
+     source_map_url: String,
+   ) {
+-    self.source_map_urls.insert(module_name, source_map_url);
++    // gro patch: nothing kept, since fgro applies no source maps (and a bundle's inline map isn't retained)
++    let _ = (module_name, source_map_url);
+   }
+ 
+   /// Returns the decoded source map for `file_name`, decoding it on first
+@@ -211,12 +212,15 @@ impl SourceMapper {
+   /// changed values are returned.
+   ///
+   /// Line and column numbers are 1-based.
++  // gro patch: fgro applies no source maps, so every location stays the one V8 reported
++  #[allow(unreachable_code, unused_variables)]
+   pub fn apply_source_map(
+     &mut self,
+     file_name: &str,
+     line_number: u32,
+     column_number: u32,
+   ) -> SourceMapApplication {
++    return SourceMapApplication::Unchanged;
+     // Lookup expects 0-based line and column numbers, but ours are 1-based.
+     let line_number = line_number - 1;
+     let column_number = column_number - 1;

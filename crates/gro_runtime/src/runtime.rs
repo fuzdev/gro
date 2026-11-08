@@ -11,6 +11,7 @@ use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
 use crate::report::{report, report_js};
 use crate::snapshot::StartupSnapshot;
+use crate::stack;
 use crate::{ConsoleOptions, eval};
 
 /// What kind of runtime to build: `fgro run`'s, or eval's.
@@ -72,7 +73,7 @@ fn new_runtime(
                 .allow_atomics_wait(false),
         ),
     };
-    JsRuntime::try_new(deno_core::RuntimeOptions {
+    let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
         module_loader: Some(loader),
         // the same list the snapshot was made from, in the same order
         extensions: bootstrap::extensions(
@@ -87,7 +88,10 @@ fn new_runtime(
         create_params,
         ..Default::default()
     })
-    .map_err(|error| report(&error))
+    .map_err(|error| report(&error))?;
+    // the isolate's own settings, never the snapshot's
+    stack::install(runtime.v8_isolate());
+    Ok(runtime)
 }
 
 #[cfg(test)]
@@ -221,5 +225,49 @@ for (const name of {}) {{
         let run = on_new_runtime("refused_run", Mode::Run, call(source));
         assert_eq!(run["op_timer_now"], "ran");
         assert_eq!(run["op_memory_usage"], "ran");
+    }
+
+    /// An op that raises a `DOMException` class reaches JS as a
+    /// `DOMException` of that name, built by the bootstrap's builders:
+    /// `atob`'s op and the geometry ops (which no global reaches) among
+    /// them, and every class the bootstrap registers builds one.
+    #[test]
+    fn op_errors_of_a_dom_exception_class_are_dom_exceptions() {
+        let source = "const read = (f) => {
+\ttry {
+\t\tf();
+\t\treturn 'ran';
+\t} catch (error) {
+\t\treturn error instanceof DOMException ? `${error.name} ${error.code}: ${error.message}` : `not a DOMException: ${error}`;
+\t}
+};
+const {ops} = Deno.core;
+JSON.stringify([
+\tread(() => atob('!')),
+\tread(() => ops.op_base64_atob('!')),
+\tread(() => ops.op_geometry_matrix_to_string(new ops.DOMMatrix([NaN, 0, 0, 1, 0, 0]))),
+\t...['IndexSizeError', 'InvalidCharacterError', 'InvalidStateError', 'OperationError', 'SyntaxError'].map(
+\t\t(name) => read(() => { throw Deno.core.buildCustomError(`DOMException${name}`, 'm'); })
+\t)
+])";
+        let results = on_new_runtime("dom_exceptions", Mode::Run, move |runtime| {
+            let value = runtime.execute_script("<test>", source).unwrap();
+            deno_core::scope!(scope, runtime);
+            let json = deno_core::v8::Local::new(scope, value).to_rust_string_lossy(scope);
+            serde_json::from_str::<Vec<String>>(&json).unwrap()
+        });
+        assert_eq!(
+            results,
+            [
+                "InvalidCharacterError 5: Failed to decode base64",
+                "InvalidCharacterError 5: Failed to decode base64",
+                "InvalidStateError 11: Cannot be serialized with NaN or Infinity values",
+                "IndexSizeError 1: m",
+                "InvalidCharacterError 5: m",
+                "InvalidStateError 11: m",
+                "OperationError 0: m",
+                "SyntaxError 12: m",
+            ]
+        );
     }
 }

@@ -21,6 +21,10 @@
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest) and removes `Deno` and
 //!   `__bootstrap` from the global object
+//! - `stack`: an error's stack, with V8's detailed capture for uncaught
+//!   exceptions off, and its `.stack` text formatted as `deno_core` formats
+//!   it by a cheaper callback, with no source map applied (the vendored
+//!   `deno_core` is patched to apply none anywhere)
 //! - [`engine`]: V8's process-wide setup ([`engine::EngineOptions`]), applied
 //!   once per process by [`engine::init_engine`] before the first runtime,
 //!   whose token ([`engine::Engine`]) every runtime start takes, apart from
@@ -71,6 +75,7 @@ pub mod resolver;
 mod run;
 mod runtime;
 pub mod snapshot;
+mod stack;
 #[cfg(test)]
 mod test_support;
 

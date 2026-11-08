@@ -7,6 +7,8 @@ declare module 'ext:core/mod.js' {
 		loadExtScript: (specifier: string) => any;
 		/** Writes to stdout, or to stderr when `is_err` is true. */
 		print: (message: string, is_err: boolean) => void;
+		/** Registers how to build the error an op raises with the class name `class_name`. */
+		registerErrorBuilder: (class_name: string, build: (message: string) => Error) => void;
 	};
 }
 

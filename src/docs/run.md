@@ -94,7 +94,13 @@ Errors print to stderr prefixed `error:`.
 An uncaught error prints `Uncaught Error: message`, read `Uncaught (in promise)` for a module's top-level throw
 or an unhandled rejection, then V8's frames as `at file:///path:line:column`,
 then each `cause` as `Caused by:` with its frames.
-TypeScript positions are the source's, with no source map.
+A frame's path prints percent-decoded, so a directory with a space reads as it does on disk.
+fgro applies no source maps, as Node doesn't by default, so a position always names the code that ran,
+in a stack, a report, and a failed import's position alike (its vendored `deno_core` is patched to apply none).
+TypeScript needs none, since the type strip blanks types to whitespace,
+so every line and UTF-16 column is the source's.
+Bundled JS that carries a map (`//# sourceMappingURL=…`) shows positions in the bundle.
+A web API that fails with a `DOMException` throws one of its name, like `InvalidCharacterError` from `atob('!')`.
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
 A dynamic `import()` that fails rejects with an error the code can catch, a `TypeError`,

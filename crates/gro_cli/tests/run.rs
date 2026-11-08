@@ -841,6 +841,107 @@ fn errors_made_at_one_site_all_print() {
     );
 }
 
+/// The reports beyond a plain throw: an async rejection across modules, its
+/// path holding a space and non-ASCII letters, printed decoded; a thrown
+/// value that isn't an error, which has no frames; an error whose stack a
+/// program's `Error.prepareStackTrace` formats with no frames in its text,
+/// reported at its first frame, read from the call sites kept on it; a web
+/// API's `DOMException`, built by the builder the bootstrap registers for its
+/// class; and a throw in a module with an inline source map, at its position
+/// in the code that ran.
+#[test]
+fn reports_carry_their_stacks() {
+    let fixtures = temp_fixtures(
+        "reports",
+        &[
+            (
+                "sub d\u{ed}r/m.js",
+                "export async function load() { await null; throw new TypeError('async boom'); }\n",
+            ),
+            (
+                "async_nested.js",
+                "import {load} from './sub d\u{ed}r/m.js';\nasync function main() { await load(); }\nmain();\n",
+            ),
+            ("non_error.js", "function f() { throw {code: 42}; }\nf();\n"),
+            (
+                "user_prepare.js",
+                "Error.prepareStackTrace = (error, sites) => `custom ${sites.length}`;\n\
+                 function f() { throw new Error('x'); }\nf();\n",
+            ),
+            ("atob.js", "function decode() { atob('!'); }\ndecode();\n"),
+            (
+                "mapped_lib.js",
+                "export function fail() { throw new Error('mapped'); }\n\
+                 //# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIm9yaWdpbmFsLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQVNJLDBCQUFBIn0=\n",
+            ),
+            (
+                "mapped.js",
+                "const {fail} = await import('./mapped_lib.js');\nfail();\n",
+            ),
+        ],
+    );
+    // the reports print a module's URL percent-decoded, so as its path
+    let dir = format!("file://{}", fixtures.0.display());
+    let cases = [
+        (
+            "async_nested.js",
+            format!(
+                "error: Uncaught (in promise) TypeError: async boom\n    at load ({dir}/sub d\u{ed}r/m.js:1:50)\n    at async main ({dir}/async_nested.js:2:25)\n"
+            ),
+        ),
+        (
+            "non_error.js",
+            "error: Uncaught (in promise) #<Object>\n".to_owned(),
+        ),
+        (
+            "user_prepare.js",
+            format!("error: Uncaught (in promise) Error: x\n    at {dir}/user_prepare.js:2:22\n"),
+        ),
+        (
+            "atob.js",
+            format!(
+                "error: Uncaught (in promise) InvalidCharacterError: Failed to decode base64\n    at atob (ext:deno_web/05_base64.js:21:12)\n    at decode ({dir}/atob.js:1:21)\n    at {dir}/atob.js:2:1\n"
+            ),
+        ),
+        // the map would place `fail` at original.ts:10:5; fgro applies none
+        (
+            "mapped.js",
+            format!(
+                "error: Uncaught (in promise) Error: mapped\n    at fail ({dir}/mapped_lib.js:1:32)\n    at {dir}/mapped.js:2:1\n"
+            ),
+        ),
+    ];
+    for (file, expected) in cases {
+        let run = run_in(&fixtures, file);
+        assert_eq!(run.code, 1, "{file}");
+        assert_eq!(run.stderr, expected, "{file}");
+    }
+}
+
+/// No source map applies to the call sites a program's
+/// `Error.prepareStackTrace` reads, even in a dynamically imported module's
+/// top-level code, which runs before `deno_core` finishes that import's load.
+#[test]
+fn no_source_map_applies_in_a_dynamic_imports_top_level() {
+    let fixtures = temp_fixtures(
+        "dynamic_top_level",
+        &[
+            (
+                "top.js",
+                "Error.prepareStackTrace = (error, sites) => sites.map((site) => \
+                 `${site.getLineNumber()}:${site.getColumnNumber()}`).join(','); \
+                 console.log(new Error('top').stack); delete Error.prepareStackTrace;\n\
+                 //# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbIm9yaWdpbmFsLnRzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQVNJLDBCQUFBIn0=\n",
+            ),
+            ("main.js", "await import('./top.js');\n"),
+        ],
+    );
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    // the map would place line 1 at original.ts:10:5
+    assert_eq!(run.stdout, "1:141\n");
+}
+
 #[test]
 fn a_symlinked_module_resolves_its_imports_from_its_real_location() {
     let run = run("import_link.js");

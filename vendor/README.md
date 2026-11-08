@@ -41,7 +41,9 @@ against the extracted `.crate`.
   published crate doesn't ship
 
 The patch makes a V8 startup snapshot a function of its inputs: the same
-sources make the same blob, byte for byte, in every process and checkout.
+sources make the same blob, byte for byte, in every process and checkout. It
+also turns off source maps and makes one internal key public for gro's
+prepare-stack-trace callback (the sections after the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -83,6 +85,34 @@ hands JS fresh buffers as before. In ordinary teardown no JS runs after
 `destroy`, so the detach changes nothing but closing the dangling views.
 
 Reportable upstream: yes, as a memory-safety bug.
+
+### No source maps
+
+fgro applies no source maps, as Node doesn't by default: a position names the
+code that ran (TypeScript needs none, since the type strip keeps every line and
+column). `deno_core` maps locations through a module's inline map wherever it
+reads one: a `JsError`'s frames, the call sites a program's
+`Error.prepareStackTrace` reads, and a failed import's position.
+
+- `source_map.rs`, `SourceMapper::apply_source_map`: returns `Unchanged`
+  first, the one place every mapping goes through
+- `source_map.rs`, `SourceMapper::add_source_map_url`: keeps nothing, so a
+  bundle's inline map isn't retained for each module that carries one
+
+`ext_source_maps` stays as it is: no extension gro links has one, and the
+snapshot carries the same bytes.
+
+Reportable upstream: no, a policy of gro's.
+
+### The call sites' key, public
+
+gro's prepare-stack-trace callback keeps an error's call sites where
+`deno_core`'s `JsError` reads its frames from, under `deno_core`'s private
+symbol.
+
+- `error.rs`, `call_site_evals_key`: `pub`, was `pub(crate)`
+
+Reportable upstream: yes, for embedders that set their own callback.
 
 ## Upgrading a vendored crate
 

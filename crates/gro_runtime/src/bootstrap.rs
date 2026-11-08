@@ -12,6 +12,11 @@
 //! starts from it embeds the rest ([`crate::snapshot`]); without one, the
 //! runtime runs only from its build tree.
 //!
+//! The bootstrap also registers how to build the error of each `DOMException`
+//! class an op can raise (`atob`'s `InvalidCharacterError` among them), which
+//! `deno_core` builds from the class name the op gives; with no builder, such
+//! an error reaches JS as `undefined`.
+//!
 //! The console's choices are the run's, never the snapshot's: which stream
 //! each level writes to and whether each stream is colored come from the
 //! run's [`ConsoleOptions`], which the embedder puts in the runtime's

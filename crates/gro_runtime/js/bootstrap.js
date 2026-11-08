@@ -124,6 +124,25 @@ for (const [name, value] of Object.entries(globals)) {
 	});
 }
 
+// The DOMException names an op's error can carry: deno_core builds an op's
+// error from the class name the op gives, and a `DOMException<name>` class with
+// no builder reaches JS as `undefined`. The list is every such class deno_web's
+// ops raise (`atob`'s `InvalidCharacterError` among them) and deno_core's own
+// (`OperationError`, from structured serialization); each builds the
+// `DOMException` of that name, as Deno's runtime registers them.
+for (const name of [
+	'IndexSizeError',
+	'InvalidCharacterError',
+	'InvalidStateError',
+	'OperationError',
+	'SyntaxError'
+]) {
+	core.registerErrorBuilder(
+		`DOMException${name}`,
+		(/** @type {string} */ message) => new dom_exception_ns.DOMException(message, name)
+	);
+}
+
 // the steps that must happen in each run, never in a snapshot: the
 // runtime calls this once it has started, from a snapshot or not. deno_core
 // reads `Deno.core` while it starts from a snapshot, so the internals stay
