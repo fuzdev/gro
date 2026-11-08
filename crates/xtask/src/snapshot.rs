@@ -9,8 +9,10 @@
 //!    doesn't carry, embedded by absolute path). The step is skipped when it
 //!    last ran after the plain binary was built (a stamp file records the
 //!    run), since nothing else feeds the snapshot: the registry sources it
-//!    reads are immutable per version. Snapshots aren't byte-identical from
-//!    run to run, so a rerun always relinks stage two.
+//!    reads are immutable per version. The same sources make the same
+//!    snapshot, byte for byte (gro patches `deno_core` for it, see
+//!    `vendor/README.md`), and a rerun leaves identical files untouched, so
+//!    it relinks stage two only when the snapshot changed.
 //! 2. `cargo build -p gro_cli --features snapshot`, with `GRO_SNAPSHOT_DIR`
 //!    naming that directory, embeds them, and the binary is hard-linked to
 //!    `<target>/gro_snapshot/<profile>/fgro`, so later plain builds, which
@@ -36,15 +38,17 @@
 //!
 //! `--verify` then checks the result: the baseline suite's `fgro` size
 //! budgets (the executable's in a release build only, the snapshot's in
-//! both), clippy over the `snapshot` feature's code, alone and with
-//! `prices`, `fgro`'s integration tests against the snapshot build, its
-//! phases and prices tests against builds with each feature too, and a fixture
-//! run with the cargo registry's sources (`$CARGO_HOME/registry/src`) and
-//! gro's own extension sources hidden (tmpfs mounts in a private user and
-//! mount namespace, `unshare -rm`), its output compared with a run that can
-//! see them. The fixture is TypeScript, so the strip runs off the build tree
-//! too. A machine without unprivileged user namespaces fails that check
-//! rather than skipping it.
+//! both), that the snapshot `fgro`'s own `make-snapshot` reproduces the
+//! snapshot it embeds byte for byte ([`reproduce`]), clippy over the
+//! `snapshot` feature's code, alone and with `prices`, `fgro`'s integration
+//! tests against the snapshot build, its phases and prices tests against
+//! builds with each feature too, and a fixture run with the cargo registry's
+//! sources (`$CARGO_HOME/registry/src`), the vendored `deno_core`, and gro's
+//! own extension sources hidden (tmpfs mounts in a private user and mount
+//! namespace, `unshare -rm`), its output compared with a run that can see
+//! them. The fixture is TypeScript, so the strip runs off the build tree too.
+//! A machine without unprivileged user namespaces fails that check rather
+//! than skipping it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -159,7 +163,7 @@ pub fn build(
             &["make-snapshot", &dir_arg],
             Stdio::null(),
         )?;
-        // the outputs are rewritten on every run and differ each time, so the stamp records when it ran
+        // identical outputs aren't rewritten, so the stamp records when it ran
         fs::write(&stamp, b"").map_err(|error| {
             XtaskError::Failed(format!("failed to write {}: {error}", stamp.display()))
         })?;
@@ -213,6 +217,9 @@ pub fn build(
     })
 }
 
+/// The files `make-snapshot` writes, which stage two embeds.
+const SNAPSHOT_FILES: [&str; 2] = ["snapshot.bin", "residual.rs"];
+
 /// Whether `snapshot.bin` and `residual.rs` exist in `dir` and stage one last
 /// ran (the `stamp`) after the plain binary was built.
 fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
@@ -221,18 +228,17 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
             .and_then(|metadata| metadata.modified())
             .ok()
     };
-    ["snapshot.bin", "residual.rs"]
-        .iter()
-        .all(|file| dir.join(file).is_file())
+    SNAPSHOT_FILES.iter().all(|file| dir.join(file).is_file())
         && matches!((modified(stamp), modified(plain)), (Some(ran), Some(built)) if ran > built)
 }
 
-/// Checks the snapshot `build`: the size budgets, clippy over the
-/// `snapshot` feature, the integration tests against it, then the
-/// off-build-tree run.
+/// Checks the snapshot `build`: the size budgets, that it reproduces its
+/// snapshot, clippy over the `snapshot` feature, the integration tests
+/// against it, then the off-build-tree run.
 pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let binary = &build.binary;
     check_budgets(root, release, binary)?;
+    reproduce(root, binary)?;
     let dir = binary.parent().unwrap_or(root).display().to_string();
     // the stage-two environment, so these builds reuse its gro_cli
     let env = [
@@ -374,12 +380,67 @@ fn check_budgets(root: &Path, release: bool, binary: &Path) -> StepResult {
     Ok(())
 }
 
+/// Runs `binary`'s `make-snapshot` into a fresh directory beside it and fails
+/// unless each file matches, byte for byte, the one beside `binary` that its
+/// build embedded (cargo rebuilds `gro_cli` when either changes). A second
+/// process making the same snapshot proves it a function of its sources: a
+/// difference is hash order or uninitialized memory reaching the blob.
+fn reproduce(root: &Path, binary: &Path) -> StepResult {
+    let embedded = binary.parent().unwrap_or(root);
+    let fresh = embedded.join("reproduce");
+    let fresh_arg = fresh.display().to_string();
+    let _ = fs::remove_dir_all(&fresh);
+    // its stdout carries only deno_core's progress lines; its errors go to stderr
+    crate::cmd::run_program_to(
+        root,
+        &[],
+        binary,
+        &crate::cmd::relative(root, binary),
+        &["make-snapshot", &fresh_arg],
+        Stdio::null(),
+    )?;
+    for file in SNAPSHOT_FILES {
+        let read = |path: &Path| {
+            fs::read(path).map_err(|error| {
+                XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
+            })
+        };
+        let (expected, made) = (embedded.join(file), fresh.join(file));
+        let (expected_bytes, made_bytes) = (read(&expected)?, read(&made)?);
+        if expected_bytes != made_bytes {
+            let offset = expected_bytes
+                .iter()
+                .zip(&made_bytes)
+                .position(|(a, b)| a != b)
+                .unwrap_or_else(|| expected_bytes.len().min(made_bytes.len()));
+            return Err(XtaskError::Failed(format!(
+                "the snapshot isn't reproducible: {} ({} bytes) differs from the embedded {} \
+                 ({} bytes), first at byte {offset}; the made files are kept in {}",
+                made.display(),
+                made_bytes.len(),
+                expected.display(),
+                expected_bytes.len(),
+                fresh.display()
+            )));
+        }
+    }
+    let _ = fs::remove_dir_all(&fresh);
+    println!(
+        "[xtask] {} reproduces its embedded snapshot byte for byte",
+        crate::cmd::relative(root, binary)
+    );
+    Ok(())
+}
+
 /// Runs the smoke fixture with `binary` twice, once seeing the build tree and
-/// once with the registry's sources and gro's extension sources hidden, and
-/// fails unless both succeed with the same output.
+/// once with the registry's sources, the vendored `deno_core`, and gro's
+/// extension sources hidden, and fails unless both succeed with the same
+/// output.
 fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
     let fixtures = root.join("crates/gro_cli/tests/fixtures/run");
     let gro_js = root.join("crates/gro_runtime/js");
+    // the patched deno_core, a path dependency, so its sources sit in the checkout
+    let deno_core = root.join("vendor/deno_core");
     // every crate's sources, the `deno_web` and `deno_webidl` JS among them
     let registry = cargo_home().join("registry/src");
     // a residual source must vanish with it, or the check proves nothing
@@ -415,26 +476,30 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
     }
 
     println!(
-        "\n[xtask] {} run {SMOKE_FIXTURE}, seeing the build tree and then with {} and {} hidden",
+        "\n[xtask] {} run {SMOKE_FIXTURE}, seeing the build tree and then with {}, {}, and {} hidden",
         crate::cmd::relative(root, binary),
         registry.display(),
+        crate::cmd::relative(root, &deno_core),
         crate::cmd::relative(root, &gro_js)
     );
     let seen = Command::new(binary)
         .args(["run", SMOKE_FIXTURE])
         .current_dir(&fixtures)
         .output();
-    // tmpfs over both, then prove the files are gone before running
-    let script = "mount -t tmpfs tmpfs \"$1\" && mount -t tmpfs tmpfs \"$2\" || exit 90\n\
-                  for hidden in \"$3\" \"$4\"; do\n\
+    // tmpfs over all three, then prove the files are gone before running
+    let script = "mount -t tmpfs tmpfs \"$1\" && mount -t tmpfs tmpfs \"$2\" \
+                  && mount -t tmpfs tmpfs \"$3\" || exit 90\n\
+                  for hidden in \"$4\" \"$5\" \"$6\"; do\n\
                   if [ -e \"$hidden\" ]; then echo \"still visible: $hidden\" >&2; exit 91; fi\n\
                   done\n\
-                  exec \"$5\" run \"$6\"";
+                  exec \"$7\" run \"$8\"";
     let hidden = Command::new("unshare")
         .args(["-rm", "sh", "-c", script, "sh"])
         .arg(&registry)
+        .arg(&deno_core)
         .arg(&gro_js)
         .arg(&probe_source)
+        .arg(deno_core.join("lib.rs"))
         .arg(gro_js.join("bootstrap.js"))
         .arg(binary)
         .arg(SMOKE_FIXTURE)
@@ -479,7 +544,7 @@ fn registry_source(residual: &Path) -> Option<PathBuf> {
 }
 
 /// Cargo's home: `CARGO_HOME`, else `~/.cargo`.
-fn cargo_home() -> PathBuf {
+pub fn cargo_home() -> PathBuf {
     std::env::var_os("CARGO_HOME").map_or_else(
         || {
             std::env::var_os("HOME")

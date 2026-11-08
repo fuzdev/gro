@@ -130,6 +130,8 @@ pub struct ContextState {
   /// Shared timer info buffer exposed to JS as an Int32Array.
   /// Index 0: refed timer count (managed by JS)
   pub(crate) timer_info: Box<[i32; 1]>,
+  // gro patch: JS's buffers over the three info boxes, detached in `destroy`, or a snapshot copies the freed bytes
+  pub(crate) shared_info_buffers: RefCell<Vec<v8::Global<v8::ArrayBuffer>>>,
   /// Active JS-managed timers tracked for the leak sanitizer.
   /// Maps timer ID → (is_repeat, is_system). System timers (e.g.
   /// AbortSignal.timeout) are excluded from sanitizer stats.
@@ -223,6 +225,8 @@ impl ContextState {
       task_spawner_factory: Default::default(),
       user_timer: Default::default(),
       timer_info: Box::new([0i32; 1]),
+      // gro patch: filled by `store_js_callbacks`, detached in `destroy`
+      shared_info_buffers: Default::default(),
       active_timers: Default::default(),
       unrefed_ops,
       external_ops_tracker,
@@ -354,6 +358,11 @@ impl JsRealmInner {
     std::mem::take(&mut *state.js_handle_rejections_cb.borrow_mut());
     std::mem::take(&mut *state.run_immediate_callbacks_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
+    // gro patch: detach JS's buffers over `ContextState` before it's freed below, so no snapshot copies freed bytes
+    for buffer in std::mem::take(&mut *state.shared_info_buffers.borrow_mut())
+    {
+      v8::Local::new(scope, buffer).detach(None);
+    }
 
     {
       let ctx = self.context().open(scope);

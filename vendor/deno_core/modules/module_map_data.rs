@@ -105,8 +105,15 @@ impl<T> ModuleNameTypeMap<T> {
     mut f: impl FnMut(usize, &RequestedModuleType, ModuleName, T),
   ) {
     let mut i = 0;
-    for (ty, value) in self.map_index.into_iter() {
-      for (key, value) in self.submaps.get_mut(value).unwrap().drain() {
+    // gro patch: submaps in creation order, entries by name, not random hash order, since this order reaches the snapshot
+    let mut types: Vec<(RequestedModuleType, usize)> =
+      self.map_index.into_iter().collect();
+    types.sort_by_key(|(_, index)| *index);
+    for (ty, value) in types {
+      let mut entries: Vec<(ModuleName, T)> =
+        self.submaps.get_mut(value).unwrap().drain().collect();
+      entries.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
+      for (key, value) in entries {
         f(i, &ty, key, value);
         i += 1;
       }
@@ -565,10 +572,15 @@ impl ModuleMapData {
 
     ser.lazy_esm_specifiers =
       self.known_lazy_esm.into_inner().into_iter().collect();
+    // gro patch: sorted by name, so the hash set's random order never reaches the snapshot
+    ser.lazy_esm_specifiers.sort();
 
     // Move out of the Rc<RefCell<...>> so we can consume the values.
     let cached_results: HashMap<ModuleName, v8::Global<v8::Value>> =
       std::mem::take(&mut *self.loaded_script_results.borrow_mut());
+    // gro patch: sorted by name, so the hash map's random order reaches neither the snapshot nor V8's part of it
+    let mut cached_results: Vec<_> = cached_results.into_iter().collect();
+    cached_results.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
     ser.loaded_script_results = cached_results
       .into_iter()
       .map(|(name, value)| (name, data_store.register(value)))

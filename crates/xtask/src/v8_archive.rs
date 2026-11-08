@@ -121,10 +121,14 @@ pub enum ArchiveError {
         expected: PathBuf,
     },
     /// A download's hash didn't match the pin; the file was deleted.
-    #[error("the downloaded V8 archive's SHA-256 is {actual}, not the pinned {SHA256}; deleted it")]
+    #[error("{url} downloaded with SHA-256 {actual}, not the pinned {expected}; deleted it")]
     HashMismatch {
+        /// What was downloaded.
+        url: String,
         /// The hash of what was downloaded.
         actual: String,
+        /// The pinned hash.
+        expected: String,
     },
     /// A command failed.
     #[error("{0}")]
@@ -199,7 +203,7 @@ pub fn ensure(root: &Path) -> Result<PathBuf, ArchiveError> {
         })?;
         clean_v8(root)?;
     }
-    download(&path)?;
+    download(&url(), &path, SHA256)?;
     Ok(path)
 }
 
@@ -346,20 +350,20 @@ pub fn verify_linked(target_dir: &Path, profile: &str) -> Result<(), ArchiveErro
     })
 }
 
-/// Downloads the archive to a temporary name beside `path`, verifies it, and
-/// renames it into place, deleting it on a mismatch. Leftovers of an earlier
-/// download that died before cleaning up are removed first: the caller holds
-/// the directory's lock, so no other download is live.
-fn download(path: &Path) -> Result<(), ArchiveError> {
+/// Downloads `url` to a temporary name beside `path`, verifies its SHA-256
+/// against `expected`, and renames it into place, deleting it on a mismatch.
+/// Leftovers of an earlier download of the same file that died before
+/// cleaning up are removed first: the caller holds the directory's lock, so
+/// no other download is live.
+pub fn download(url: &str, path: &Path, expected: &str) -> Result<(), ArchiveError> {
     let io_error = |path: &Path| {
         let path = path.to_path_buf();
         move |source| ArchiveError::Io { path, source }
     };
     let dir = path.parent().unwrap_or(path);
     fs::create_dir_all(dir).map_err(io_error(dir))?;
-    remove_partials(dir)?;
+    remove_partials(dir, &partial_prefix(path))?;
     let partial = path.with_extension(format!("partial-{}", std::process::id()));
-    let url = url();
     println!("[xtask] downloading {url}");
     let status = Command::new("curl")
         .args([
@@ -374,7 +378,7 @@ fn download(path: &Path) -> Result<(), ArchiveError> {
             "-o",
         ])
         .arg(&partial)
-        .arg(&url)
+        .arg(url)
         .status()
         .map_err(|error| ArchiveError::Command(format!("failed to run curl: {error}")))?;
     if !status.success() {
@@ -384,9 +388,13 @@ fn download(path: &Path) -> Result<(), ArchiveError> {
         )));
     }
     let hash = sha256(&partial)?;
-    if hash != SHA256 {
+    if hash != expected {
         fs::remove_file(&partial).map_err(io_error(&partial))?;
-        return Err(ArchiveError::HashMismatch { actual: hash });
+        return Err(ArchiveError::HashMismatch {
+            url: url.to_owned(),
+            actual: hash,
+            expected: expected.to_owned(),
+        });
     }
     fs::rename(&partial, path).map_err(io_error(path))?;
     println!("[xtask] verified and saved {}", path.display());
@@ -394,21 +402,22 @@ fn download(path: &Path) -> Result<(), ArchiveError> {
 }
 
 /// The start of a temporary download's file name: `download` names it after
-/// the archive with its `.gz` replaced by `.partial-<pid>`.
-fn partial_prefix() -> String {
-    format!("{}.partial-", FILE_NAME.trim_end_matches(".gz"))
+/// `path` with its extension replaced by `.partial-<pid>`.
+fn partial_prefix(path: &Path) -> String {
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    format!("{stem}.partial-")
 }
 
-/// Removes the temporary files of earlier downloads from `dir`.
-fn remove_partials(dir: &Path) -> Result<(), ArchiveError> {
+/// Removes the temporary files of earlier downloads, named from `prefix`,
+/// from `dir`.
+fn remove_partials(dir: &Path, prefix: &str) -> Result<(), ArchiveError> {
     let io_error = |source| ArchiveError::Io {
         path: dir.to_path_buf(),
         source,
     };
-    let prefix = partial_prefix();
     for entry in fs::read_dir(dir).map_err(io_error)? {
         let entry = entry.map_err(io_error)?;
-        if entry.file_name().to_string_lossy().starts_with(&prefix) {
+        if entry.file_name().to_string_lossy().starts_with(prefix) {
             fs::remove_file(entry.path()).map_err(io_error)?;
         }
     }
@@ -416,7 +425,7 @@ fn remove_partials(dir: &Path) -> Result<(), ArchiveError> {
 }
 
 /// The file's SHA-256 as lowercase hex, by `sha256sum`.
-fn sha256(path: &Path) -> Result<String, ArchiveError> {
+pub fn sha256(path: &Path) -> Result<String, ArchiveError> {
     let output = Command::new("sha256sum")
         .arg(path)
         .output()
@@ -536,7 +545,7 @@ mod tests {
     fn a_partial_download_is_named_for_cleanup() {
         // `download` names its temporary file this way, and `remove_partials` matches it
         let partial = Path::new(FILE_NAME).with_extension("partial-1");
-        let prefix = partial_prefix();
+        let prefix = partial_prefix(Path::new(FILE_NAME));
         assert!(
             partial.to_string_lossy().starts_with(&prefix),
             "{partial:?}"

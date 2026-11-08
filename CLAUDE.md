@@ -253,10 +253,10 @@ agent editing `crates/` needs beside them.
 
 Crates:
 
-- `gro_runtime` - the JS host: a deno_core `JsRuntime` with `deno_webidl`,
-  `deno_web`, and Gro's bootstrap extension; the resolver, the loader, the
-  engine, the box (`confine/`), and `fgro eval`'s protocol (`eval/`). Start
-  at its `lib.rs`
+- `gro_runtime` - the JS host: a deno_core `JsRuntime` (deno_core patched,
+  in `vendor/`) with `deno_webidl`, `deno_web`, and Gro's bootstrap
+  extension; the resolver, the loader, the engine, the box (`confine/`), and
+  `fgro eval`'s protocol (`eval/`). Start at its `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
@@ -268,8 +268,8 @@ Crates:
 - `gro_bench` - the measurement harness, independent of the runtime crates;
   its `lib.rs` lists its modules and suites
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
-  `check-rust`, `check-js`, `bench`; its `main.rs` has the commands and exit
-  codes
+  `check-rust`, `check-js`, `vendor-patch`, `bench`; its `main.rs` has the
+  commands and exit codes
 
 Invariants that live in the code:
 
@@ -325,6 +325,18 @@ whose threads would refuse the box). They need Landlock ABI 6 and fail below
 it, naming the kernel's ABI. `gro_sys`'s tests that close descriptors, clear
 the environment, cap memory, or signal run in a child process, harness off.
 
+**Vendored crates.** `vendor/` holds patched copies of published crates
+(`deno_core`, patched for deterministic snapshots), wired through
+`[patch.crates-io]` and outside the workspace and its checks (their own rustc
+warnings print but fail nothing). [vendor/README.md](vendor/README.md) is the
+index of every patch and the upgrade procedure, so a `deno_core` upgrade
+re-vendors it per the README; edit vendored code only as a marked
+`// gro patch:` ([vendor/CLAUDE.md](vendor/CLAUDE.md)). `check-rust` proves
+each tree is its published crate plus its patch, and
+`cargo xtask vendor-patch <name>` regenerates a patch. With the patch, the
+same sources, toolchain, and cargo home build the same `fgro`, byte for byte,
+from any checkout.
+
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
 `v8` build script never downloads one. Plain cargo copies whatever file is at
@@ -343,7 +355,8 @@ it.
   the xtask only (`crates/xtask/src/check.rs`)
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in
   two stages, at `<target>/gro_snapshot/<profile>/fgro`; `--verify` adds
-  clippy over the `snapshot` feature, the integration tests against that
+  the snapshot remade by that `fgro` and compared byte for byte, clippy over
+  the `snapshot` feature, the integration tests against that
   build, the size budgets, and a run with the build tree hidden
   (`unshare -rm`, which needs unprivileged user namespaces). A plain
   `cargo build` makes an `fgro` with no snapshot that runs only from its

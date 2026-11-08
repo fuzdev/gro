@@ -9,14 +9,18 @@
 //! - `build [--release] [--verify]` builds `fgro` with an embedded startup
 //!   snapshot at `<target>/gro_snapshot/<profile>/fgro` ([`snapshot`])
 //! - `check`, `check-rust`, `check-js`: the repo's gates ([`check`])
+//! - `vendor-patch <name>` regenerates `vendor/<name>.patch` from the
+//!   vendored tree ([`vendor`])
 //! - `bench <suite.json>` and `bench report`: the measurement harness
 //!   ([`bench`](mod@bench))
 //!
 //! Exit codes are the xtask's contract: `0` success; `2` the caller must
 //! change something before re-running, since unchanged it fails the same way
 //! (a usage error, flags that don't combine, a wrong or failed `fgro` build,
-//! a crossed budget, and a bench's input, which
-//! `gro_bench::error::BenchError::is_input_error` lists); `1` anything else
+//! a crossed budget, a bench's input, which
+//! `gro_bench::error::BenchError::is_input_error` lists, and a vendored crate
+//! that isn't its published crate plus its patch, or that `vendor/README.md`
+//! doesn't describe); `1` anything else
 //! (an artifact or linked checkout changing mid-run, a failed read or write,
 //! a failed fetch). A program a step ran exits with its own code. Each
 //! failure ([`error::XtaskError`], whose `exit_code` is the full mapping)
@@ -31,6 +35,7 @@ mod error;
 mod lints;
 mod snapshot;
 mod v8_archive;
+mod vendor;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -72,6 +77,7 @@ enum Subcommand {
     CheckRust(CheckRust),
     CheckJs(CheckJs),
     FetchV8(FetchV8),
+    VendorPatch(VendorPatch),
     Build(Build),
     Bench(Bench),
 }
@@ -92,6 +98,16 @@ struct CheckJs {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "fetch-v8")]
 struct FetchV8 {}
+
+/// regenerate a vendored crate's patch, vendor/NAME.patch: its tree's diff
+/// against its published crate
+#[derive(FromArgs)]
+#[argh(subcommand, name = "vendor-patch")]
+struct VendorPatch {
+    /// the vendored crate, a directory under vendor/
+    #[argh(positional)]
+    name: String,
+}
 
 /// build fgro with an embedded startup snapshot, in two stages
 #[derive(FromArgs)]
@@ -199,6 +215,7 @@ fn main() -> ExitCode {
         Subcommand::CheckRust(CheckRust {}) => check::check_rust(&root),
         Subcommand::CheckJs(CheckJs {}) => check::check_crates_js(&root),
         Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root).map(|_| ()),
+        Subcommand::VendorPatch(VendorPatch { name }) => vendor::write_patch(&root, &name),
         Subcommand::Build(Build { release, verify }) => {
             check::fetch_v8(&root).and_then(|target_dir| {
                 let build = snapshot::build(&root, &target_dir, release, Measurement::None)?;

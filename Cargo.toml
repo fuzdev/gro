@@ -8,6 +8,9 @@ members = [
     "crates/gro_bench",
     "crates/xtask",
 ]
+# the patched deno_core (see `[patch.crates-io]`), a path dependency, not a
+# member, so the workspace's lints and checks don't reach it
+exclude = ["vendor/deno_core"]
 
 [workspace.package]
 version = "0.0.0"
@@ -52,6 +55,11 @@ url = "2.5"
 # the exact version `deno_core` re-exports as `deno_core::v8`, with the features
 # it enables, so both name one crate and V8 builds once
 v8 = { version = "=150.4.0", default-features = false, features = ["simdutf", "use_custom_libcxx"] }
+
+# deno_core as published, plus gro's patch for deterministic snapshots:
+# vendor/README.md indexes the patches
+[patch.crates-io]
+deno_core = { path = "vendor/deno_core" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

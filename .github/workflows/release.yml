@@ -82,13 +82,13 @@ jobs:
       # The build runs from neutral paths, not the checkout under the runner's
       # home. `--remap-path-prefix` rewrites the paths rustc writes, like panic
       # locations, but not paths a crate takes from `env!("CARGO_MANIFEST_DIR")`
-      # (deno_core's `include_js_files!` for deno_web and deno_webidl, and
-      # gro_runtime's snapshot builder), which the binary keeps. So the tree is
-      # copied, `.git` and all, to `$BUILD_ROOT/gro` (checkout's `path` can't
-      # leave the workspace), and cargo's home moves to `$BUILD_ROOT/cargo`,
-      # fresh, so no config or source from the runner image's ~/.cargo reaches
-      # the build. With both there, no remap is needed: std's paths are already
-      # `/rustc/<hash>`. Every later step runs in the copy.
+      # (deno_core's `include_js_files!` for deno_web and deno_webidl), which
+      # the binary keeps. So the tree is copied, `.git` and all, to
+      # `$BUILD_ROOT/gro` (checkout's `path` can't leave the workspace), and
+      # cargo's home moves to `$BUILD_ROOT/cargo`, fresh, so no config or source
+      # from the runner image's ~/.cargo reaches the build. With both there, no
+      # remap is needed: std's paths are already `/rustc/<hash>`. Every later
+      # step runs in the copy.
       - name: Move to the neutral paths
         run: |
           if [ -e "$BUILD_ROOT" ]; then
@@ -125,10 +125,10 @@ jobs:
         run: cargo xtask fetch-v8
 
       # The release build with its startup snapshot, then its checks: the size
-      # budgets, clippy over the snapshot feature, the integration tests against
-      # the snapshot build, and a run with the build tree's sources hidden in a
-      # private user and mount namespace, which the runner's AppArmor policy
-      # forbids by default.
+      # budgets, the snapshot remade byte for byte, clippy over the snapshot
+      # feature, the integration tests against the snapshot build, and a run
+      # with the build tree's sources hidden in a private user and mount
+      # namespace, which the runner's AppArmor policy forbids by default.
       - name: Build and verify
         working-directory: ${{ env.BUILD_ROOT }}/gro
         run: |
@@ -159,11 +159,11 @@ jobs:
       # The prefix itself stays in the binary: in the dependencies' panic
       # locations under `cargo/registry/src/` and `cargo/git/checkouts/`, which
       # a remap could rewrite, and in paths from `env!("CARGO_MANIFEST_DIR")`,
-      # which it can't, under `gro/crates/gro_runtime` and deno_web's and
-      # deno_webidl's registry sources, from the snapshot builder code the
-      # shipped binary carries (`fgro make-snapshot`). They name the build
-      # layout, nothing of the builder; leaving that code out of the shipped
-      # binary would drop the second kind.
+      # which it can't, under deno_web's and deno_webidl's registry sources,
+      # from the snapshot builder code the shipped binary carries
+      # (`fgro make-snapshot`). They name the build layout, nothing of the
+      # builder; leaving that code out of the shipped binary would drop the
+      # second kind.
       - name: Check for builder paths
         working-directory: ${{ env.BUILD_ROOT }}/gro
         run: |

@@ -1,0 +1,155 @@
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..262238f
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2018-2026 the Deno authors
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/modules/module_map_data.rs b/modules/module_map_data.rs
+index a5070ed..ebccba8 100644
+--- a/modules/module_map_data.rs
++++ b/modules/module_map_data.rs
+@@ -105,8 +105,15 @@ impl<T> ModuleNameTypeMap<T> {
+     mut f: impl FnMut(usize, &RequestedModuleType, ModuleName, T),
+   ) {
+     let mut i = 0;
+-    for (ty, value) in self.map_index.into_iter() {
+-      for (key, value) in self.submaps.get_mut(value).unwrap().drain() {
++    // gro patch: submaps in creation order, entries by name, not random hash order, since this order reaches the snapshot
++    let mut types: Vec<(RequestedModuleType, usize)> =
++      self.map_index.into_iter().collect();
++    types.sort_by_key(|(_, index)| *index);
++    for (ty, value) in types {
++      let mut entries: Vec<(ModuleName, T)> =
++        self.submaps.get_mut(value).unwrap().drain().collect();
++      entries.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
++      for (key, value) in entries {
+         f(i, &ty, key, value);
+         i += 1;
+       }
+@@ -565,10 +572,15 @@ impl ModuleMapData {
+ 
+     ser.lazy_esm_specifiers =
+       self.known_lazy_esm.into_inner().into_iter().collect();
++    // gro patch: sorted by name, so the hash set's random order never reaches the snapshot
++    ser.lazy_esm_specifiers.sort();
+ 
+     // Move out of the Rc<RefCell<...>> so we can consume the values.
+     let cached_results: HashMap<ModuleName, v8::Global<v8::Value>> =
+       std::mem::take(&mut *self.loaded_script_results.borrow_mut());
++    // gro patch: sorted by name, so the hash map's random order reaches neither the snapshot nor V8's part of it
++    let mut cached_results: Vec<_> = cached_results.into_iter().collect();
++    cached_results.sort_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
+     ser.loaded_script_results = cached_results
+       .into_iter()
+       .map(|(name, value)| (name, data_store.register(value)))
+diff --git a/runtime/jsrealm.rs b/runtime/jsrealm.rs
+index eb03a44..0eb3325 100644
+--- a/runtime/jsrealm.rs
++++ b/runtime/jsrealm.rs
+@@ -130,6 +130,8 @@ pub struct ContextState {
+   /// Shared timer info buffer exposed to JS as an Int32Array.
+   /// Index 0: refed timer count (managed by JS)
+   pub(crate) timer_info: Box<[i32; 1]>,
++  // gro patch: JS's buffers over the three info boxes, detached in `destroy`, or a snapshot copies the freed bytes
++  pub(crate) shared_info_buffers: RefCell<Vec<v8::Global<v8::ArrayBuffer>>>,
+   /// Active JS-managed timers tracked for the leak sanitizer.
+   /// Maps timer ID → (is_repeat, is_system). System timers (e.g.
+   /// AbortSignal.timeout) are excluded from sanitizer stats.
+@@ -223,6 +225,8 @@ impl ContextState {
+       task_spawner_factory: Default::default(),
+       user_timer: Default::default(),
+       timer_info: Box::new([0i32; 1]),
++      // gro patch: filled by `store_js_callbacks`, detached in `destroy`
++      shared_info_buffers: Default::default(),
+       active_timers: Default::default(),
+       unrefed_ops,
+       external_ops_tracker,
+@@ -354,6 +358,11 @@ impl JsRealmInner {
+     std::mem::take(&mut *state.js_handle_rejections_cb.borrow_mut());
+     std::mem::take(&mut *state.run_immediate_callbacks_cb.borrow_mut());
+     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
++    // gro patch: detach JS's buffers over `ContextState` before it's freed below, so no snapshot copies freed bytes
++    for buffer in std::mem::take(&mut *state.shared_info_buffers.borrow_mut())
++    {
++      v8::Local::new(scope, buffer).detach(None);
++    }
+ 
+     {
+       let ctx = self.context().open(scope);
+diff --git a/runtime/jsruntime.rs b/runtime/jsruntime.rs
+index 3107f35..c8bcfd1 100644
+--- a/runtime/jsruntime.rs
++++ b/runtime/jsruntime.rs
+@@ -1799,6 +1799,11 @@ impl JsRuntime {
+         let backing_store_shared = backing_store.make_shared();
+         let ab =
+           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
++        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
++        state_rc
++          .shared_info_buffers
++          .borrow_mut()
++          .push(v8::Global::new(scope, ab));
+         let tick_info_array = v8::Uint8Array::new(scope, ab, 0, 2).unwrap();
+         let set_tick_info_fn: v8::Local<v8::Function> = bindings::get(
+           scope,
+@@ -1831,6 +1836,11 @@ impl JsRuntime {
+         let backing_store_shared = backing_store.make_shared();
+         let ab =
+           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
++        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
++        state_rc
++          .shared_info_buffers
++          .borrow_mut()
++          .push(v8::Global::new(scope, ab));
+         let imm_info_array = v8::Uint32Array::new(scope, ab, 0, 3).unwrap();
+         let set_imm_info_fn: v8::Local<v8::Function> = bindings::get(
+           scope,
+@@ -1862,6 +1872,11 @@ impl JsRuntime {
+         let backing_store_shared = backing_store.make_shared();
+         let ab =
+           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
++        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
++        state_rc
++          .shared_info_buffers
++          .borrow_mut()
++          .push(v8::Global::new(scope, ab));
+         let timer_info_array = v8::Int32Array::new(scope, ab, 0, 1).unwrap();
+         let set_timer_info_fn: v8::Local<v8::Function> = bindings::get(
+           scope,
+diff --git a/runtime/snapshot.rs b/runtime/snapshot.rs
+index fb31eca..ccabeb4 100644
+--- a/runtime/snapshot.rs
++++ b/runtime/snapshot.rs
+@@ -328,7 +328,10 @@ impl SnapshottedData<'_> {
+     e.usize(self.op_count);
+     e.usize(self.source_count);
+     e.usize(self.addl_refs_count);
+-    e.seq(self.ext_source_maps.iter(), |e, (k, v)| {
++    // gro patch: sorted by key, so the hash map's random order never reaches the snapshot
++    let mut ext_source_maps: Vec<_> = self.ext_source_maps.iter().collect();
++    ext_source_maps.sort_by_key(|(k, _)| **k);
++    e.seq(ext_source_maps.into_iter(), |e, (k, v)| {
+       e.str(k);
+       e.bytes(v);
+     });

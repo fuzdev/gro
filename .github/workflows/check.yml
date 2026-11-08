@@ -85,11 +85,13 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # The Rust gates as `cargo xtask check` runs them, in one command: the
-      # pinned V8 archive (fetched, SHA-256 verified), fmt, clippy, the V8
-      # library copy checked before the tests run V8 code, test, doc, and fgro
-      # with an embedded startup snapshot, verified by its tests and a run with
-      # the build tree's sources hidden in a private user and mount namespace,
-      # which the runner's AppArmor policy forbids by default.
+      # pinned V8 archive (fetched, SHA-256 verified), the vendored crates
+      # (each its published crate, fetched and verified, plus its patch), fmt,
+      # clippy, the V8 library copy checked before the tests run V8 code, test,
+      # doc, and fgro with an embedded startup snapshot, verified by remaking
+      # the snapshot byte for byte, by its tests, and by a run with the build
+      # tree's sources hidden in a private user and mount namespace, which the
+      # runner's AppArmor policy forbids by default.
       - name: Check
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

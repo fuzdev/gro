@@ -6,7 +6,8 @@
 //! `check-rust` runs 1 to 3 (CI's rust job), `check-js` only 4 (CI's Node
 //! job, which has no V8 build):
 //!
-//! 1. the V8 archive, as `fetch-v8`
+//! 1. the V8 archive, as `fetch-v8`, and the vendored crates, each its
+//!    published crate plus its patch ([`crate::vendor::check`])
 //! 2. the Rust gates: `cargo fmt`, `cargo clippy` (again with the `phases`
 //!    and `prices` features on `gro_runtime` and `gro_cli`), `cargo test`
 //!    (again for `gro_runtime`'s unit tests with the features), and
@@ -63,6 +64,7 @@ pub fn check(root: &Path) -> StepResult {
 /// snapshot build with its verification.
 pub fn check_rust(root: &Path) -> StepResult {
     let target_dir = fetch_v8(root)?;
+    crate::vendor::check(root)?;
     run(root, &[], "cargo", &["fmt", "--all", "--check"])?;
     run(
         root,

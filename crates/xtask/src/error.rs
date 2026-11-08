@@ -62,6 +62,9 @@ pub enum BenchStage {
     Run,
     /// `bench report` (`bench report: `).
     Report,
+    /// The vendored crates: a tree that isn't its crate plus its patch, or
+    /// an index that doesn't describe it (`vendor: `).
+    Vendor,
 }
 
 impl BenchStage {
@@ -71,6 +74,7 @@ impl BenchStage {
             Self::Usage => "bench: ",
             Self::Run => "bench failed: ",
             Self::Report => "bench report: ",
+            Self::Vendor => "vendor: ",
         }
     }
 }
@@ -88,6 +92,15 @@ impl XtaskError {
     pub fn bench_input(message: impl Into<String>) -> Self {
         Self::Input {
             stage: BenchStage::Run,
+            message: message.into(),
+        }
+    }
+
+    /// A vendored crate, or its entry in `vendor/README.md`, refused with
+    /// `message`.
+    pub fn vendor_input(message: impl Into<String>) -> Self {
+        Self::Input {
+            stage: BenchStage::Vendor,
             message: message.into(),
         }
     }

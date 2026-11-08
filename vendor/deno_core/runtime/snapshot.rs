@@ -328,7 +328,10 @@ impl SnapshottedData<'_> {
     e.usize(self.op_count);
     e.usize(self.source_count);
     e.usize(self.addl_refs_count);
-    e.seq(self.ext_source_maps.iter(), |e, (k, v)| {
+    // gro patch: sorted by key, so the hash map's random order never reaches the snapshot
+    let mut ext_source_maps: Vec<_> = self.ext_source_maps.iter().collect();
+    ext_source_maps.sort_by_key(|(k, _)| **k);
+    e.seq(ext_source_maps.into_iter(), |e, (k, v)| {
       e.str(k);
       e.bytes(v);
     });

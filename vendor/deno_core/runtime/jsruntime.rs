@@ -1799,6 +1799,11 @@ impl JsRuntime {
         let backing_store_shared = backing_store.make_shared();
         let ab =
           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
+        state_rc
+          .shared_info_buffers
+          .borrow_mut()
+          .push(v8::Global::new(scope, ab));
         let tick_info_array = v8::Uint8Array::new(scope, ab, 0, 2).unwrap();
         let set_tick_info_fn: v8::Local<v8::Function> = bindings::get(
           scope,
@@ -1831,6 +1836,11 @@ impl JsRuntime {
         let backing_store_shared = backing_store.make_shared();
         let ab =
           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
+        state_rc
+          .shared_info_buffers
+          .borrow_mut()
+          .push(v8::Global::new(scope, ab));
         let imm_info_array = v8::Uint32Array::new(scope, ab, 0, 3).unwrap();
         let set_imm_info_fn: v8::Local<v8::Function> = bindings::get(
           scope,
@@ -1862,6 +1872,11 @@ impl JsRuntime {
         let backing_store_shared = backing_store.make_shared();
         let ab =
           v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+        // gro patch: kept so `JsRealmInner::destroy` detaches it before the memory under it is freed
+        state_rc
+          .shared_info_buffers
+          .borrow_mut()
+          .push(v8::Global::new(scope, ab));
         let timer_info_array = v8::Int32Array::new(scope, ab, 0, 1).unwrap();
         let set_timer_info_fn: v8::Local<v8::Function> = bindings::get(
           scope,

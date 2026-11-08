@@ -63,8 +63,10 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// Writes `snapshot.bin` (the heap) and `residual.rs` (the residual
-    /// table, as Rust source) into `dir`, which must exist. Both are always
-    /// rewritten: snapshots differ from run to run.
+    /// table, as Rust source) into `dir`, which must exist. A file already
+    /// holding the same bytes is left as it is, so its unchanged modification
+    /// time doesn't relink what embeds it: the same sources make the same
+    /// snapshot.
     ///
     /// `residual.rs` defines the static `RESIDUAL_LAZY_JS` that
     /// [`StartupSnapshot`]'s table comes from, one
@@ -88,6 +90,9 @@ impl Snapshot {
             ("residual.rs", residual_rs.as_bytes()),
         ] {
             let path = dir.join(name);
+            if std::fs::read(&path).is_ok_and(|existing| existing == content) {
+                continue;
+            }
             std::fs::write(&path, content)
                 .map_err(|source| SnapshotError::Write { path, source })?;
         }
@@ -173,7 +178,9 @@ pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
 
     let output = create_snapshot(
         CreateSnapshotOptions {
-            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+            // deno_core never reads it, and `env!("CARGO_MANIFEST_DIR")` would
+            // bake the checkout's path into the binary
+            cargo_manifest_dir: "",
             startup_snapshot: None,
             skip_op_registration: false,
             extensions: bootstrap::extensions(Ops::Kept),
