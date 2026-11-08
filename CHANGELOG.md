@@ -1,5 +1,14 @@
 # @fuzdev/gro
 
+## 0.226.0
+
+### Minor Changes
+
+- Update dependencies (BREAKING CHANGES) ([913a246](https://github.com/fuzdev/gro/commit/913a246))
+  
+  Breaking dependency changes:
+  - @fuzdev/fuz_util: 0.79.1 → 0.80.0 (minor)
+
 ## 0.225.1
 
 ### Patch Changes
