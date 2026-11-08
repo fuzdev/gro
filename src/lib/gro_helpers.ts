@@ -2,6 +2,7 @@
 import { realpathSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// TODO move onto the spawn host module
 import { spawn, type SpawnResult } from '@fuzdev/fuz_util/process.ts';
 
 import { NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';

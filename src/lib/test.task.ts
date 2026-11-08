@@ -1,13 +1,13 @@
-import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_argv, to_implicit_forwarded_argv } from './args.ts';
-import { find_cli, spawn_cli } from './cli.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { paths } from './paths.ts';
 import { fs } from './fs.ts';
+import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { TaskError, type Task } from './task.ts';
 
@@ -44,7 +44,8 @@ export const task: Task<Args> = {
 			throw new TaskError('no test runner found, install vitest');
 		}
 
-		if (!(await find_cli(VITEST_CLI))) {
+		const vitest = find_cli(spawn, VITEST_CLI, { pass_env: 'all' });
+		if (!vitest) {
 			throw new TaskError('vitest is a dependency but not installed; run `npm i`?');
 		}
 
@@ -64,11 +65,9 @@ export const task: Task<Args> = {
 			...to_forwarded_argv(VITEST_CLI)
 		);
 
-		const spawned = await spawn_cli(VITEST_CLI, vitest_args);
-		if (!spawned?.ok) {
-			throw new TaskError(
-				`vitest failed: ${spawned ? spawn_result_to_message(spawned) : 'unknown error'}`
-			);
+		const result = await spawn_cli(vitest, vitest_args);
+		if (!spawn_result_is_ok(result)) {
+			throw new TaskError(`vitest failed: ${to_spawn_result_message(result)}`);
 		}
 	}
 };

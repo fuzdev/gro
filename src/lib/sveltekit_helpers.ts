@@ -1,11 +1,16 @@
 import { join } from 'node:path';
-import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './args.ts';
-import { find_cli, spawn_cli, to_cli_name, type Cli } from './cli.ts';
+import {
+	find_cli,
+	find_local_cli,
+	spawn_cli,
+	spawn_result_is_ok,
+	to_spawn_result_message
+} from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
 	SVELTE_PACKAGE_DEP_NAME,
@@ -20,6 +25,7 @@ import {
 import { package_json_has_dependency } from './package_json.ts';
 import { TaskError } from './task.ts';
 import type { FsPaths } from './fs_paths.ts';
+import type { Spawn } from './spawn.ts';
 
 /**
  * Detected from `package.json` rather than the Svelte config,
@@ -69,10 +75,10 @@ export const has_sveltekit_library = async (
 
 export interface SveltekitSyncOptions {
 	/**
-	 * The SvelteKit CLI's name or a found `Cli`.
+	 * The SvelteKit CLI's name.
 	 * @default `SVELTEKIT_CLI`
 	 */
-	sveltekit_cli?: string | Cli;
+	sveltekit_cli?: string;
 	/**
 	 * The package manager named in the install hint when the CLI isn't found.
 	 * @default `PM_CLI_DEFAULT`
@@ -80,37 +86,43 @@ export interface SveltekitSyncOptions {
 	pm_cli?: string; // TODO source from config when possible, is just needed for error messages
 }
 
+// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
+const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
+
 /**
  * Runs `svelte-kit sync`.
+ * @param spawn - finds and runs the CLI
+ * @param options - the CLI's name and the install hint
  * @throws `TaskError` if the CLI isn't found or fails
  */
-export const sveltekit_sync = async ({
-	sveltekit_cli = SVELTEKIT_CLI,
-	pm_cli = PM_CLI_DEFAULT
-}: SveltekitSyncOptions = {}): Promise<void> => {
-	const result = await spawn_cli(sveltekit_cli, ['sync']);
-	if (!result) {
+export const sveltekit_sync = async (
+	spawn: Spawn,
+	{ sveltekit_cli = SVELTEKIT_CLI, pm_cli = PM_CLI_DEFAULT }: SveltekitSyncOptions = {}
+): Promise<void> => {
+	const found_sveltekit_cli = find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS);
+	if (!found_sveltekit_cli) {
 		throw new TaskError(
-			`Failed to find SvelteKit CLI \`${to_cli_name(sveltekit_cli)}\`, do you need to run \`${
-				pm_cli
-			} install\`?`
+			`Failed to find SvelteKit CLI \`${sveltekit_cli}\`, do you need to run \`${pm_cli} install\`?`
 		);
-	} else if (!result.ok) {
-		throw new TaskError(`Failed ${to_cli_name(sveltekit_cli)} sync`);
+	}
+	const result = await spawn_cli(found_sveltekit_cli, ['sync']);
+	if (!spawn_result_is_ok(result)) {
+		throw new TaskError(`Failed ${sveltekit_cli} sync`);
 	}
 };
 
 // TODO maybe this shouldn't exist, instead error if `package.json` has SvelteKit but it's not found (with install message above)
 /**
  * If the SvelteKit CLI is found, run `svelte-kit sync`.
+ * @param spawn - finds and runs the CLI
+ * @param sveltekit_cli - the SvelteKit CLI's name
  */
 export const sveltekit_sync_if_available = async (
-	sveltekit_cli: string | Cli = SVELTEKIT_CLI
+	spawn: Spawn,
+	sveltekit_cli: string = SVELTEKIT_CLI
 ): Promise<void> => {
-	const found_sveltekit_cli =
-		typeof sveltekit_cli === 'string' ? await find_cli(sveltekit_cli) : sveltekit_cli;
-	if (found_sveltekit_cli) {
-		return sveltekit_sync({ sveltekit_cli: found_sveltekit_cli });
+	if (find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS)) {
+		return sveltekit_sync(spawn, { sveltekit_cli });
 	}
 };
 
@@ -119,11 +131,13 @@ export const sveltekit_sync_if_available = async (
  * or its generated `$app/tsconfig` is not, run `svelte-kit sync`.
  * The tsconfig is checked because it lives in `node_modules`, which reinstalls wipe.
  * @param fs_paths - checks for the project's synced files
- * @param sveltekit_cli - the SvelteKit CLI's name or a found `Cli`
+ * @param spawn - finds and runs the CLI
+ * @param sveltekit_cli - the SvelteKit CLI's name
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	fs_paths: FsPaths,
-	sveltekit_cli: string | Cli = SVELTEKIT_CLI
+	spawn: Spawn,
+	sveltekit_cli: string = SVELTEKIT_CLI
 ): Promise<void> => {
 	if (
 		(await path_exists(fs_paths, SVELTEKIT_DEV_DIRNAME)) &&
@@ -131,12 +145,7 @@ export const sveltekit_sync_if_obviously_needed = async (
 	) {
 		return;
 	}
-	const found_sveltekit_cli =
-		typeof sveltekit_cli === 'string' ? await find_cli(sveltekit_cli) : sveltekit_cli;
-	if (!found_sveltekit_cli) {
-		return;
-	}
-	return sveltekit_sync({ sveltekit_cli: found_sveltekit_cli });
+	return sveltekit_sync_if_available(spawn, sveltekit_cli);
 };
 
 /**
@@ -232,9 +241,9 @@ export interface RunSveltePackageOptions {
 	 */
 	svelte_package_options?: SveltePackageOptions;
 	/**
-	 * The `svelte-package` CLI's name or a found `Cli`.
+	 * The `svelte-package` CLI's name, found only in the project's `node_modules/.bin`.
 	 */
-	svelte_package_cli: string | Cli;
+	svelte_package_cli: string;
 	log: Logger;
 	/**
 	 * The package manager named in the install hint when the CLI isn't found.
@@ -245,12 +254,14 @@ export interface RunSveltePackageOptions {
 /**
  * Runs `svelte-package` for a SvelteKit library, with any forwarded `-- svelte-package` args.
  * @param fs_paths - checks for the project's lib directory
+ * @param spawn - finds and runs the CLI
  * @param options - the project's `package.json`, the CLI and its options, and the install hint
  * @throws `TaskError` if the project isn't a SvelteKit library, the CLI isn't installed locally,
  * or `svelte-package` fails
  */
 export const run_svelte_package = async (
 	fs_paths: FsPaths,
+	spawn: Spawn,
 	{
 		package_json,
 		svelte_package_options,
@@ -265,25 +276,21 @@ export const run_svelte_package = async (
 			'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
 		);
 	}
-	const cli_name = typeof cli === 'string' ? cli : cli.name;
-	const found_svelte_package_cli = cli === cli_name ? await find_cli(cli) : (cli as Cli);
-	if (found_svelte_package_cli?.kind !== 'local') {
+	// a local install only, and it loads the project's Vite config, code whose environment Gro can't know
+	const found_svelte_package_cli = find_local_cli(spawn, cli, { pass_env: 'all' });
+	if (!found_svelte_package_cli) {
 		throw new TaskError(
-			`Failed to find SvelteKit packaging CLI \`${cli_name}\`, do you need to run \`${
-				pm_cli
-			} install\`?`
+			`Failed to find SvelteKit packaging CLI \`${cli}\`, do you need to run \`${pm_cli} install\`?`
 		);
 	}
-	const forwarded_argv = to_forwarded_argv(cli_name);
+	const forwarded_argv = to_forwarded_argv(cli);
 	const serialized_args = [
 		...serialize_svelte_package_options(svelte_package_options, forwarded_argv),
 		...forwarded_argv
 	];
-	const spawned = await spawn_cli(found_svelte_package_cli, serialized_args, log);
-	if (!spawned?.ok) {
-		throw new TaskError(
-			`\`${cli_name}\` failed` + (spawned ? `: ${print_spawn_result(spawned)}` : '')
-		);
+	const result = await spawn_cli(found_svelte_package_cli, serialized_args, log);
+	if (!spawn_result_is_ok(result)) {
+		throw new TaskError(`\`${cli}\` failed: ${to_spawn_result_message(result)}`);
 	}
 };
 

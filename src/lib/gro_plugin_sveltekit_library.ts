@@ -9,6 +9,8 @@ import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+// TODO drop the alias once this plugin's other calls leave fuz_util's `spawn`
+import { spawn as host_spawn } from './spawn.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -27,14 +29,14 @@ export const gro_plugin_sveltekit_library = ({
 	svelte_package_options,
 	svelte_package_cli = SVELTE_PACKAGE_CLI
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
-	// the plugin is a composition root, where the fs host module enters
+	// the plugin is a composition root, where the fs and spawn host modules enter
 	const fs_paths = create_fs_paths(fs);
 	return {
 		name: 'gro_plugin_sveltekit_library',
 		setup: async ({ dev, log, config }) => {
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
-				await run_svelte_package(fs_paths, {
+				await run_svelte_package(fs_paths, host_spawn, {
 					package_json,
 					svelte_package_options,
 					svelte_package_cli,

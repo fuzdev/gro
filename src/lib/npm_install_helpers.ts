@@ -1,4 +1,5 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
+// TODO move this module onto the spawn host module, taking a `SpawnProgram`
 import { spawn_process, spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import { dirname, join } from 'node:path';

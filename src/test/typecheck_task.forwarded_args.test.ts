@@ -1,15 +1,10 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
 
 import { task } from '#lib/typecheck.task.ts';
-import { find_cli, spawn_cli, spawn_cli_process } from '#lib/cli.ts';
 import { create_mock_task_context } from './test_helpers.ts';
+import { get_mock_spawn } from './spawn_mocks.ts';
 
-vi.mock('#lib/cli.ts', async (import_original) => ({
-	...(await import_original<typeof import('#lib/cli.ts')>()),
-	find_cli: vi.fn(),
-	spawn_cli: vi.fn(async () => ({ ok: true })),
-	spawn_cli_process: vi.fn(async () => undefined)
-}));
+vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
 vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
@@ -18,9 +13,10 @@ vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 
 const original_argv = process.argv;
 
-afterEach(() => {
+afterEach(async () => {
 	process.argv = original_argv;
 	vi.clearAllMocks();
+	(await get_mock_spawn()).reset();
 });
 
 const ARGS = {
@@ -31,27 +27,32 @@ const ARGS = {
 };
 
 // finds only the named CLI
-const find_only = (found: string): void => {
-	vi.mocked(find_cli).mockImplementation(async (name) =>
-		name === found ? { kind: 'local', name, id: '/' + name } : null
-	);
+const find_only = async (found: string): Promise<void> => {
+	(await get_mock_spawn()).available = (name) => name === 'node_modules/.bin/' + found;
 };
 
 const run_tsc = async (forwarded: Array<string>): Promise<Array<string>> => {
-	find_only('tsc');
+	await find_only('tsc');
 	process.argv = ['node', 'gro', 'typecheck', '--', 'tsc', ...forwarded];
 	await task.run(create_mock_task_context(ARGS));
-	expect(vi.mocked(spawn_cli)).toHaveBeenCalledTimes(1);
-	return vi.mocked(spawn_cli).mock.calls[0]![1]!;
+	const { calls } = await get_mock_spawn();
+	expect(calls).toHaveLength(1);
+	expect(calls[0]!.method).toBe('run');
+	expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
+	return [...calls[0]!.args];
 };
 
 describe('typecheck task forwarded args', () => {
 	test('svelte-check gets the text verbatim', async () => {
-		find_only('svelte-check');
+		await find_only('svelte-check');
 		const forwarded = ['--threshold', 'error', '--tsconfig', './x.json', '--no-cache', '--x='];
 		process.argv = ['node', 'gro', 'typecheck', '--', 'svelte-check', ...forwarded];
 		await task.run(create_mock_task_context(ARGS));
-		expect(vi.mocked(spawn_cli_process).mock.calls[0]![1]).toEqual(forwarded);
+		const { calls } = await get_mock_spawn();
+		expect(calls[0]!.method).toBe('start');
+		expect(calls[0]!.args).toEqual(forwarded);
+		expect(calls[0]!.options).toEqual({ stdio: ['inherit', 'pipe', 'pipe'] });
+		expect(calls[0]!.program_options).toEqual({ pass_env: 'all', env: { FORCE_COLOR: '1' } });
 	});
 
 	test('tsc gets the text verbatim and `--noEmit` last', async () => {
@@ -66,14 +67,14 @@ describe('typecheck task forwarded args', () => {
 
 	test("a forwarded `--build` or `-b` stays tsc's first arg", async () => {
 		for (const build of ['--build', '-b']) {
-			vi.clearAllMocks();
+			(await get_mock_spawn()).reset();
 			expect(await run_tsc([build, 'tsconfig.json'])).toEqual([build, 'tsconfig.json', '--noEmit']);
 		}
 	});
 
 	test('a forwarded `--noEmit` in any case drops the default', async () => {
 		for (const forwarded of [['--noEmit', 'false'], ['--noemit'], ['--NOEMIT=false']]) {
-			vi.clearAllMocks();
+			(await get_mock_spawn()).reset();
 			expect(await run_tsc(forwarded)).toEqual(forwarded);
 		}
 	});

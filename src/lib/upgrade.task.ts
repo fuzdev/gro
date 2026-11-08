@@ -4,7 +4,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_argv } from './args.ts';
-import { spawn_cli } from './cli.ts';
+import { find_cli, spawn_cli } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
 import {
@@ -15,6 +15,7 @@ import {
 import { TaskError, type Task } from './task.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
+import { spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -147,7 +148,8 @@ export const task: Task<Args> = {
 		}
 
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.
-		await spawn_cli('gro', ['sync']); // don't install because we do above
+		const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
+		if (gro) await spawn_cli(gro, ['sync']); // don't install because we do above
 	}
 };
 

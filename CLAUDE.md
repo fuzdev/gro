@@ -417,13 +417,14 @@ Key utilities:
   `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
   `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
   handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
-  plugin modules, the rendered `$app/env/*` shims) import `fs` - `cli.ts`'s `find_cli` is
-  the one library exception, until the spawn host module;
+  plugin modules, the rendered `$app/env/*` shims) import `fs`;
   Gro's library and task code uses no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;
   `src/test/host_module_declarations.test.ts`
   fails if a host module's emitted declarations name a type outside the ES libs
   and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
+- CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
+  `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
 - Build tools: `build_cache.ts`, `build_cache_dependencies.ts`

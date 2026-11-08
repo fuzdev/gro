@@ -14,13 +14,15 @@ import {
 import { TaskError, type Task } from './task.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { package_json_load, package_json_parse_repo_url } from './package_json.ts';
-import { find_cli, spawn_cli } from './cli.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
 import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+// TODO drop the alias once this task's `git` calls leave fuz_util's `spawn`
+import { spawn as host_spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -105,7 +107,7 @@ export const task: Task<Args> = {
 		const changelog_file = await fs_paths.open_path(changelog);
 		const changelog_exists = await changelog_file.dir.exists(changelog_file.path);
 
-		const found_changeset_cli = await find_cli(changeset_cli);
+		const found_changeset_cli = find_cli(host_spawn, changeset_cli, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found, install @changesets/cli locally or globally'
@@ -161,7 +163,7 @@ export const task: Task<Args> = {
 			// This is the first line that alters the repo.
 
 			const changeset_version_result = await spawn_cli(found_changeset_cli, ['version'], log);
-			if (!changeset_version_result?.ok) {
+			if (!spawn_result_is_ok(changeset_version_result)) {
 				throw new TaskError('changeset version failed: no commits were made: see the error above');
 			}
 
@@ -193,7 +195,7 @@ export const task: Task<Args> = {
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
 				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
-				await sveltekit_sync({ pm_cli: config.pm_cli });
+				await sveltekit_sync(host_spawn, { pm_cli: config.pm_cli });
 			}
 
 			// Regenerate files that depend on package.json version.
@@ -233,7 +235,7 @@ export const task: Task<Args> = {
 		}
 
 		const changeset_publish_result = await spawn_cli(found_changeset_cli, ['publish'], log);
-		if (!changeset_publish_result?.ok) {
+		if (!spawn_result_is_ok(changeset_publish_result)) {
 			throw new TaskError(
 				`\`${
 					changeset_cli

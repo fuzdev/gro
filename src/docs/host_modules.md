@@ -98,7 +98,8 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
-  can't shadow `spawn.program('git')`.
+  can't shadow `spawn.program('git')`. Gro's own tasks use `find_cli` (`cli.ts`),
+  which tries the project's `node_modules/.bin/<name>` first and then the bare name.
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
@@ -235,11 +236,8 @@ The module's TSDoc has each op's contract.
   which a handle on the repo would refuse.
   Where a directory's files come from its own listing or search, Gro opens the directory once
   and reads and writes them beneath its handle.
-- These library modules reach further than the parameters they're given, until the ops they need exist.
-  `cli.ts` imports `fs` itself for `find_cli`'s check of a local `node_modules/.bin`,
-  since its callers, through `spawn_cli`, are library code too;
-  it takes an `FsPaths` with the spawn host module, from the roots that find CLIs.
-  And the boundary's machinery (`internal/fs_boundary.ts`) reads real paths and symlinks from `node:fs` itself,
+- The boundary's machinery (`internal/fs_boundary.ts`) reaches further than the parameters it's given,
+  until the op it needs exists: it reads real paths and symlinks from `node:fs` itself,
   so an `FsPaths` reaches the filesystem beyond the `Fs` it's built from until that read is an op on the root,
   beside `open_dir`, reached through the `Fs` passed in.
 - Gro's library and task code otherwise reaches the filesystem only through the fs host module,

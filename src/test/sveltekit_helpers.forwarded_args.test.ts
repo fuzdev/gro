@@ -1,21 +1,18 @@
-import { describe, test, expect, vi, afterEach } from 'vitest';
+import { describe, test, expect, afterEach } from 'vitest';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { run_svelte_package, type SveltePackageOptions } from '#lib/sveltekit_helpers.ts';
-import { spawn_cli, type Cli } from '#lib/cli.ts';
 import { LIB_PATH, SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
 import { create_mock_fs_dir, create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
-
-vi.mock('#lib/cli.ts', async (import_original) => ({
-	...(await import_original<typeof import('#lib/cli.ts')>()),
-	spawn_cli: vi.fn(async () => ({ ok: true }))
-}));
+import { create_mock_spawn } from './spawn_mocks.ts';
 
 const original_argv = process.argv;
 
+const spawn = create_mock_spawn();
+
 afterEach(() => {
 	process.argv = original_argv;
-	vi.clearAllMocks();
+	spawn.reset();
 });
 
 const PACKAGE_JSON = {
@@ -36,16 +33,16 @@ const run = async (
 	forwarded: Array<string>
 ): Promise<Array<string>> => {
 	process.argv = ['node', 'gro', 'build', '--', 'svelte-package', ...forwarded];
-	const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
-	await run_svelte_package(to_fs_paths(), {
+	await run_svelte_package(to_fs_paths(), spawn, {
 		package_json: PACKAGE_JSON,
 		svelte_package_options: options,
-		svelte_package_cli: cli,
+		svelte_package_cli: 'svelte-package',
 		log: new Logger('test'),
 		pm_cli: 'npm'
 	});
-	expect(vi.mocked(spawn_cli)).toHaveBeenCalledTimes(1);
-	return vi.mocked(spawn_cli).mock.calls[0]![1]!;
+	expect(spawn.calls).toHaveLength(1);
+	expect(spawn.calls[0]!.program_options).toEqual({ pass_env: 'all' });
+	return [...spawn.calls[0]!.args];
 };
 
 describe('run_svelte_package forwarded args', () => {
@@ -95,16 +92,29 @@ describe('run_svelte_package forwarded args', () => {
 
 describe('run_svelte_package failure', () => {
 	test('a failed `svelte-package` throws', async () => {
-		vi.mocked(spawn_cli).mockResolvedValueOnce({ ok: false } as never);
+		spawn.result = { kind: 'exited', code: 1 };
 		process.argv = ['node', 'gro', 'build'];
-		const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
 		await expect(
-			run_svelte_package(to_fs_paths(), {
+			run_svelte_package(to_fs_paths(), spawn, {
 				package_json: PACKAGE_JSON,
-				svelte_package_cli: cli,
+				svelte_package_cli: 'svelte-package',
 				log: new Logger('test'),
 				pm_cli: 'npm'
 			})
-		).rejects.toThrow('`svelte-package` failed');
+		).rejects.toThrow('`svelte-package` failed: code 1');
+	});
+
+	test('a CLI only on `PATH` is not found, since it must be local', async () => {
+		spawn.available = (name) => name === 'svelte-package';
+		process.argv = ['node', 'gro', 'build'];
+		await expect(
+			run_svelte_package(to_fs_paths(), spawn, {
+				package_json: PACKAGE_JSON,
+				svelte_package_cli: 'svelte-package',
+				log: new Logger('test'),
+				pm_cli: 'npm'
+			})
+		).rejects.toThrow('Failed to find SvelteKit packaging CLI');
+		expect(spawn.finds).toEqual(['node_modules/.bin/svelte-package']);
 	});
 });

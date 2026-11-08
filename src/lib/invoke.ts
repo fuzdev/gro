@@ -9,6 +9,7 @@ import { SilentError, is_silent_error, is_task_error } from './task.ts';
 import { load_gro_config } from './gro_config.ts';
 import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { fs } from './fs.ts';
+import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
 
 /*
@@ -53,10 +54,10 @@ if (!process.env.NO_COLOR) {
 	configure_print_colors(styleText);
 }
 
-// the CLI's composition root, where the fs host module enters
+// the CLI's composition root, where the fs and spawn host modules enter
 const fs_paths = create_fs_paths(fs);
 
-await sveltekit_sync_if_obviously_needed(fs_paths);
+await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
 
 let task_args: CliTaskArgs;
 try {

@@ -25,6 +25,8 @@ import {
 import { package_json_load } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
+// TODO drop the alias once this task's `git` calls leave fuz_util's `spawn`
+import { spawn as host_spawn } from './spawn.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -102,7 +104,7 @@ export const task: Task<Args> = {
 
 		const bump: ChangesetBump = minor ? 'minor' : major ? 'major' : 'patch';
 
-		const found_changeset_cli = await find_cli(changeset_cli);
+		const found_changeset_cli = find_cli(host_spawn, changeset_cli, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found: install @changesets/cli locally or globally'

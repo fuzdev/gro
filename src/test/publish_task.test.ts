@@ -4,6 +4,7 @@ import { task as publish_task, type Args } from '#lib/publish.task.ts';
 import { TaskError, type TaskContext } from '#lib/task.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
+import { get_mock_spawn } from './spawn_mocks.ts';
 
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
 	const actual = await import_original<typeof import('@fuzdev/fuz_util/git.ts')>();
@@ -28,10 +29,7 @@ vi.mock('#lib/package_json.ts', async (import_original) => {
 	};
 });
 
-vi.mock('#lib/cli.ts', () => ({
-	find_cli: vi.fn(),
-	spawn_cli: vi.fn()
-}));
+vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
 vi.mock('#lib/sveltekit_helpers.ts', () => ({
 	has_sveltekit_library: vi.fn(),
@@ -89,9 +87,9 @@ describe('publish_task version bump', () => {
 			.mockResolvedValueOnce(to_package_json(VERSION_BEFORE))
 			.mockResolvedValueOnce(to_package_json(VERSION_AFTER));
 
-		const { find_cli, spawn_cli } = vi.mocked(await import('#lib/cli.ts'));
-		find_cli.mockResolvedValue({ name: 'changeset', id: '/bin/changeset', kind: 'global' });
-		spawn_cli.mockResolvedValue({ kind: 'exited', ok: true, child: {} as any, code: 0 });
+		const mock_spawn = await get_mock_spawn();
+		mock_spawn.reset();
+		mock_spawn.available = (name) => name === 'changeset'; // found on `PATH`, not installed locally
 
 		const { has_sveltekit_library } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 		has_sveltekit_library.mockResolvedValue({ ok: true });
@@ -117,7 +115,7 @@ describe('publish_task version bump', () => {
 			context: 'after version bump'
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
-		assert.deepEqual(sveltekit_sync.mock.calls[0], [{ pm_cli: 'npm' }]);
+		assert.deepEqual(sveltekit_sync.mock.calls[0], [await get_mock_spawn(), { pm_cli: 'npm' }]);
 
 		const gen_call_index = invoke_task.mock.calls.findIndex(([name]) => name === 'gen');
 		assert.ok(gen_call_index !== -1, 'expected gen to run after the version bump');
@@ -191,12 +189,8 @@ describe('publish_task version bump', () => {
 	});
 
 	test('a failed `changeset version` is a TaskError, before anything is committed', async () => {
-		const { spawn_cli } = vi.mocked(await import('#lib/cli.ts'));
-		spawn_cli.mockImplementation(async (_cli, args) =>
-			args?.[0] === 'version'
-				? { kind: 'exited', ok: false, child: {} as any, code: 1 }
-				: { kind: 'exited', ok: true, child: {} as any, code: 0 }
-		);
+		(await get_mock_spawn()).result = ({ args }) =>
+			args[0] === 'version' ? { kind: 'exited', code: 1 } : { kind: 'exited', code: 0 };
 		const ctx = create_mock_publish_task_context();
 
 		let error;

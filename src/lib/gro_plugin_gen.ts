@@ -9,11 +9,15 @@ import { find_genfiles, is_gen_path } from './gen.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
-import { spawn_cli } from './cli.ts';
+import { find_cli, spawn_cli } from './cli.ts';
+import { spawn } from './spawn.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
-const gen = (files: Array<string> = []) => spawn_cli('gro', ['gen', ...files]);
+const gen = async (files: Array<string> = []): Promise<void> => {
+	const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
+	if (gro) await spawn_cli(gro, ['gen', ...files]);
+};
 
 /**
  * Options for `gro_plugin_gen`.
@@ -73,7 +77,12 @@ export const gro_plugin_gen = ({
 					);
 					queued_files.clear();
 					// a file queued while this runs opens the throttle's next window, which takes it
-					await gen(files);
+					try {
+						await gen(files);
+					} catch (error) {
+						// nothing awaits the flush, and a dev server shouldn't die to a broken `.bin/gro`
+						log.error('[gen] failed to run gen', error);
+					}
 				},
 				{ delay: flush_debounce_delay, when: 'trailing' }
 			);

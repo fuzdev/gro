@@ -6,6 +6,7 @@ import { package_json_sync } from './package_json.ts';
 import { sveltekit_sync } from './sveltekit_helpers.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { fs } from './fs.ts';
+import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
@@ -43,7 +44,7 @@ export const task: Task<Args> = {
 		}
 
 		if (sveltekit) {
-			await sveltekit_sync({ pm_cli: config.pm_cli });
+			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
 			log.info('synced SvelteKit');
 		}
 

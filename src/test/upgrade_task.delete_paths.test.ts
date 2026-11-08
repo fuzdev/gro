@@ -30,10 +30,7 @@ vi.mock('#lib/npm_install_helpers.ts', async (import_original) => ({
 	install_with_cache_healing_or_throw: vi.fn(async () => undefined)
 }));
 
-vi.mock('#lib/cli.ts', async (import_original) => ({
-	...(await import_original<typeof import('#lib/cli.ts')>()),
-	spawn_cli: vi.fn(async () => ({ ok: true }))
-}));
+vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
 vi.mock('#lib/package_json.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/package_json.ts')>()),

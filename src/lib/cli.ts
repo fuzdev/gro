@@ -1,104 +1,158 @@
-import type { SpawnOptions } from 'node:child_process';
-import {
-	spawn,
-	spawn_out,
-	spawn_process,
-	type SpawnResult,
-	type SpawnedProcess
-} from '@fuzdev/fuz_util/process.ts';
-import { join } from 'node:path';
-import { fileURLToPath, type URL } from 'node:url';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import { styleText as st } from 'node:util';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
-// TODO: take `FsPaths` with the spawn host module, from the composition roots that find CLIs,
-// rather than import the fs host module here, the one library module that does
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
+import type {
+	Spawn,
+	SpawnCallOptions,
+	SpawnChild,
+	SpawnProgram,
+	SpawnProgramOptions,
+	SpawnResult,
+	SpawnStartOptions
+} from './spawn.ts';
+import { is_spawn_error, type SpawnError } from './spawn_error.ts';
+import { TaskError } from './task.ts';
 
-// TODO maybe upstream to fuz_util?
-
-export type Cli =
-	{ kind: 'local'; name: string; id: PathId } | { kind: 'global'; name: string; id: PathId };
+const LOCAL_BIN_PREFIX = `${NODE_MODULES_DIRNAME}/.bin/`;
 
 /**
- * Searches the filesystem for the CLI `name`, first local to the cwd and then globally.
- * @returns `null` if not found locally or globally
+ * A program that couldn't be reached or started fails the task with that message,
+ * a known failure rather than an unexpected error.
  */
-export const find_cli = async (
+const to_cli_task_error = (error: SpawnError): TaskError =>
+	new TaskError(error.message, { cause: error });
+
+const find_program = (
+	spawn: Spawn,
 	name: string,
-	cwd: string | URL = process.cwd(),
-	options?: SpawnOptions
-): Promise<Cli | null> => {
-	const final_cwd = typeof cwd === 'string' ? cwd : fileURLToPath(cwd);
-	const local_id = join(final_cwd, NODE_MODULES_DIRNAME, `.bin/${name}`);
-	const local = await create_fs_paths(fs).open_path(local_id);
-	if (await local.dir.exists(local.path)) {
-		return { name, id: local_id, kind: 'local' };
+	options: SpawnProgramOptions | undefined
+): SpawnProgram | null => {
+	try {
+		return spawn.find(name, options);
+	} catch (error) {
+		if (is_spawn_error(error)) throw to_cli_task_error(error);
+		throw error;
 	}
-	const { stdout } = await spawn_out('sh', ['-c', 'command -v "$1"', 'sh', name], options);
-	const global_id = stdout?.trim();
-	if (!global_id) return null;
-	return { name, id: global_id, kind: 'global' };
 };
 
 /**
- * Spawns a CLI if available using fuz_util's `spawn`.
- * If a string is provided for `name_or_cli`, it checks first local to the cwd and then globally.
- * @returns `undefined` if no CLI is found, or the spawn result
+ * Finds the project's own install of the CLI `name` in `node_modules/.bin`.
+ * @param spawn - resolves the program
+ * @param name - the CLI's name
+ * @param options - the program's environment, fixed when its handle is made
+ * @returns the program, or `null` if the project doesn't have it
+ * @throws `TaskError` - if the file isn't one the kernel will run or the name isn't allowed,
+ * with the `SpawnError`'s message and the error as its `cause`
+ */
+export const find_local_cli = (
+	spawn: Spawn,
+	name: string,
+	options?: SpawnProgramOptions
+): SpawnProgram | null => find_program(spawn, LOCAL_BIN_PREFIX + name, options);
+
+/**
+ * Finds the CLI `name`, first in the project's `node_modules/.bin` and then on `PATH`.
+ * Only this lookup reads `node_modules/.bin`, so a dependency's `.bin/git`
+ * can't shadow a bare `spawn.program('git')`.
+ * @param spawn - resolves the program
+ * @param name - the CLI's name
+ * @param options - the program's environment, fixed when its handle is made
+ * @returns the program, or `null` if not found locally or on `PATH`
+ * @throws `TaskError` - if the file isn't one the kernel will run or the name isn't allowed,
+ * like an absolute one, with the `SpawnError`'s message and the error as its `cause`
+ */
+export const find_cli = (
+	spawn: Spawn,
+	name: string,
+	options?: SpawnProgramOptions
+): SpawnProgram | null =>
+	find_local_cli(spawn, name, options) ?? find_program(spawn, name, options);
+
+/**
+ * A program's name for a log line, a local bin by its bare name.
+ */
+const to_cli_name = ({ name }: SpawnProgram): string =>
+	name.startsWith(LOCAL_BIN_PREFIX) ? name.slice(LOCAL_BIN_PREFIX.length) : name;
+
+const log_cli = (program: SpawnProgram, args: ReadonlyArray<string>, log?: Logger): void => {
+	if (log) log.info(print_command_args([to_cli_name(program), ...args]));
+};
+
+/**
+ * Runs a CLI with stdio inherited, resolving when it ends.
+ * @param program - the CLI, usually from `find_cli`
+ * @param args - the arguments after `argv[0]`
+ * @param log - logs the command when present
+ * @param options - the call's options
+ * @returns how it ended, a non-zero exit being a result
+ * @throws `TaskError` - if it couldn't start, with the `SpawnError`'s message and the error
+ * as its `cause`
  */
 export const spawn_cli = async (
-	name_or_cli: string | Cli,
-	args: Array<string> = [],
+	program: SpawnProgram,
+	args: ReadonlyArray<string> = [],
 	log?: Logger,
-	options?: SpawnOptions
-): Promise<SpawnResult | undefined> => {
-	const cli = await resolve_cli(name_or_cli, args, options?.cwd, log, options);
-	if (!cli) return;
-	return spawn(cli.id, args, options);
+	options?: SpawnCallOptions
+): Promise<SpawnResult> => {
+	log_cli(program, args, log);
+	try {
+		return await program.run(args, options);
+	} catch (error) {
+		if (is_spawn_error(error)) throw to_cli_task_error(error);
+		throw error;
+	}
 };
 
 /**
- * Spawns a CLI if available using fuz_util's `spawn_process`.
- * If a string is provided for `name_or_cli`, it checks first local to the cwd and then globally.
- * @returns `undefined` if no CLI is found, or the spawn result
+ * Starts a long-lived CLI, stdio inherited unless `options` says otherwise.
+ * @param program - the CLI, usually from `find_cli`
+ * @param args - the arguments after `argv[0]`
+ * @param log - logs the command when present
+ * @param options - the call's options
+ * @returns the running child
+ * @throws `TaskError` - if it couldn't start, with the `SpawnError`'s message and the error
+ * as its `cause`
  */
 export const spawn_cli_process = async (
-	name_or_cli: string | Cli,
-	args: Array<string> = [],
+	program: SpawnProgram,
+	args: ReadonlyArray<string> = [],
 	log?: Logger,
-	options?: SpawnOptions
-): Promise<SpawnedProcess | undefined> => {
-	const cli = await resolve_cli(name_or_cli, args, options?.cwd, log, options);
-	if (!cli) return;
-	return spawn_process(cli.id, args, options);
+	options?: SpawnStartOptions
+): Promise<SpawnChild> => {
+	log_cli(program, args, log);
+	try {
+		return await program.start(args, options);
+	} catch (error) {
+		if (is_spawn_error(error)) throw to_cli_task_error(error);
+		throw error;
+	}
 };
 
-export const resolve_cli = async (
-	name_or_cli: string | Cli,
-	args: Array<string> = [],
-	cwd: string | URL | undefined,
-	log?: Logger,
-	options?: SpawnOptions
-): Promise<Cli | undefined> => {
-	let final_cli;
-	if (typeof name_or_cli === 'string') {
-		const found = await find_cli(name_or_cli, cwd, options);
-		if (!found) return;
-		final_cli = found;
-	} else {
-		final_cli = name_or_cli;
-	}
-	if (log) {
-		log.info(print_command_args([final_cli.name].concat(args)));
-	}
-	return final_cli;
-};
+/**
+ * Whether a program finished by exiting 0.
+ */
+export const spawn_result_is_ok = (result: SpawnResult): boolean =>
+	result.kind === 'exited' && result.code === 0;
 
-export const to_cli_name = (cli: string | Cli): string =>
-	typeof cli === 'string' ? cli : cli.name;
+/**
+ * Formats how a program ended, for an error message.
+ */
+export const to_spawn_result_message = (result: SpawnResult): string => {
+	switch (result.kind) {
+		case 'exited':
+			return `code ${result.code}`;
+		case 'signaled':
+			return `signal ${result.signal}`;
+		case 'timed_out':
+			return 'timed out';
+		case 'aborted':
+			return 'aborted';
+		default:
+			throw new UnreachableError(result);
+	}
+};
 
 /**
  * Formats a command and its args for the log line that announces running it.
