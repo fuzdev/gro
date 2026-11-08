@@ -6,6 +6,7 @@ import type { Args } from '#lib/deploy.task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
+import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 
@@ -85,13 +86,20 @@ export const setup_successful_git_mocks = async () => {
 };
 
 /**
+ * The entries of the mocked deploy dir before it's emptied, `.git` among them.
+ */
+export const DEPLOY_DIR_ENTRIES = ['.git', 'index.html', 'assets'];
+
+/**
  * Sets up common fs mocks for successful scenarios.
  */
 export const setup_successful_fs_mocks = async () => {
-	const { fs_exists } = await import('@fuzdev/fuz_util/fs.ts');
+	const { exists, list, remove } = await get_mock_project();
 	const { cp, mkdir, rm, readdir } = await import('node:fs/promises');
 
-	vi.mocked(fs_exists).mockResolvedValue(true);
+	vi.mocked(exists).mockResolvedValue(true);
+	vi.mocked(list).mockImplementation(() => to_mock_listing(DEPLOY_DIR_ENTRIES, ['.git', 'assets']));
+	vi.mocked(remove).mockResolvedValue(undefined);
 	vi.mocked(readdir).mockResolvedValue(['index.html', 'assets'] as any);
 	vi.mocked(cp).mockResolvedValue(undefined);
 	vi.mocked(mkdir).mockResolvedValue(undefined);

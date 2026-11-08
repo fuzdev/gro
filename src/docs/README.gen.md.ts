@@ -1,8 +1,7 @@
 import { basename, join } from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
 
 import type { Gen } from '../lib/gen.ts';
+import { fs_open_path, fs_search_path } from '../lib/internal/fs_path.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -43,7 +42,7 @@ export const gen: Gen = {
 
 		// TODO this is GitHub-specific
 		const root_link = create_root_link(root_path);
-		const doc_files = await fs_search(origin_dir);
+		const doc_files = await fs_search_path(origin_dir);
 		const doc_paths: Array<string> = [];
 		for (const { path } of doc_files) {
 			if (path === output_file_name || !path.endsWith('.md')) {
@@ -52,12 +51,12 @@ export const gen: Gen = {
 			doc_paths.push(path);
 		}
 
-		const runtime_index_id = join(origin_dir, RUNTIME_INDEX_FILE);
-		const runtime_paths = (await fs_exists(runtime_index_id))
-			? parse_listed_doc_paths(await readFile(runtime_index_id, 'utf8')).filter((path) =>
-					doc_paths.includes(path)
-				)
-			: [];
+		const runtime_index_file = await fs_open_path(join(origin_dir, RUNTIME_INDEX_FILE));
+		const runtime_index = await runtime_index_file.dir.read_text_if_exists(runtime_index_file.path);
+		const runtime_paths =
+			runtime_index === null
+				? []
+				: parse_listed_doc_paths(runtime_index).filter((path) => doc_paths.includes(path));
 		const other_paths = doc_paths.filter((path) => !runtime_paths.includes(path));
 
 		// TODO do we want to use absolute paths instead of relative paths,

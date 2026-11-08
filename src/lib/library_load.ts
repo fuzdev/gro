@@ -1,4 +1,3 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { styleText as st } from 'node:util';
@@ -9,7 +8,6 @@ import {
 	git_check_workspace,
 	git_workspace_is_clean
 } from '@fuzdev/fuz_util/git.ts';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
@@ -22,11 +20,11 @@ import {
 	TSCONFIG_FILENAME
 } from './constants.ts';
 import { sveltekit_tsconfig_is_unsynced } from './sveltekit_helpers.ts';
+// TODO: take handles from the tasks, the composition roots, instead of opening paths here
+import { fs_open_path } from './internal/fs_path.ts';
 
-/**
- * Cache filename inside a repo's `.gro` directory for `library_load_from_repo`.
- */
-export const LIBRARY_CACHE_FILENAME = 'library.json';
+// the cache's filename in a repo's `.gro` directory
+const LIBRARY_CACHE_FILENAME = 'library.json';
 
 /**
  * Format version for the `.gro/library.json` cache. The cache key is the git
@@ -119,9 +117,10 @@ export const library_cache_read = async (
 	key: string,
 	log?: Logger
 ): Promise<LibraryLoadResult | null> => {
-	if (!(await fs_exists(cache_path))) return null;
 	try {
-		const contents = await readFile(cache_path, 'utf-8');
+		const cache_file = await fs_open_path(cache_path);
+		const contents = await cache_file.dir.read_text_if_exists(cache_file.path);
+		if (contents === null) return null;
 		const parsed: LibraryCache = JSON.parse(contents);
 		if (
 			parsed.hash === key &&
@@ -158,14 +157,16 @@ export const library_cache_write = async (
 	log?: Logger
 ): Promise<void> => {
 	try {
-		await mkdir(dirname(cache_path), { recursive: true });
+		const cache_dir = await fs_open_path(dirname(cache_path));
+		await cache_dir.dir.mkdir(cache_dir.path, { recursive: true });
 		const data: LibraryCache = {
 			hash: key,
 			version: LIBRARY_CACHE_VERSION,
 			svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
 			...result
 		};
-		await writeFile(cache_path, JSON.stringify(data, null, '\t') + '\n', 'utf-8');
+		const cache_file = await fs_open_path(cache_path);
+		await cache_file.dir.write(cache_file.path, JSON.stringify(data, null, '\t') + '\n');
 		log?.debug('library cache written', st('dim', `(${cache_path})`));
 	} catch (error) {
 		log?.warn(
@@ -229,7 +230,8 @@ export const library_load_from_repo = async (
 
 	// Read and validate the repo's package.json directly (not the CWD's).
 	const package_json_path = join(repo_dir, 'package.json');
-	const package_json_contents = await readFile(package_json_path, 'utf-8');
+	const package_json_file = await fs_open_path(package_json_path);
+	const package_json_contents = await package_json_file.dir.read_text(package_json_file.path);
 	const package_json = s.parse_or_throw(PackageJson, JSON.parse(package_json_contents));
 	if (!package_json.name) {
 		throw Error(`library_load_from_repo: missing \`name\` in ${package_json_path}`);

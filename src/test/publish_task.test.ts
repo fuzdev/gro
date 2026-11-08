@@ -20,10 +20,6 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn: vi.fn()
 }));
 
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn()
-}));
-
 vi.mock('#lib/package_json.ts', async (import_original) => {
 	const actual = await import_original<typeof import('#lib/package_json.ts')>();
 	return {
@@ -99,9 +95,6 @@ describe('publish_task version bump', () => {
 
 		const { has_sveltekit_library } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 		has_sveltekit_library.mockResolvedValue({ ok: true });
-
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		fs_exists.mockResolvedValue(true);
 
 		const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
 		spawn.mockResolvedValue({ kind: 'exited', ok: true, child: {} as any, code: 0 });

@@ -1,5 +1,4 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
 import { readdir } from 'node:fs/promises';
@@ -10,6 +9,7 @@ import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import { paths, to_search_filters_relative } from './paths.ts';
 import { is_path_specifier } from './resolve_specifier.ts';
+import { fs_search_path } from './internal/fs_path.ts';
 import {
 	is_task_path,
 	load_task,
@@ -79,7 +79,7 @@ export const task_registry_find = async (
 	search_filters: Array<PathFilter>,
 	root: PathId = process.cwd()
 ): Promise<Array<TaskRegistryEntry>> => {
-	const found = await fs_search(dir, {
+	const found = await fs_search_path(dir, {
 		filter: to_search_filters_relative(search_filters, root, dir),
 		file_filter: is_task_path
 	});

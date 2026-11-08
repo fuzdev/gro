@@ -2,7 +2,6 @@ import { spawn } from '@fuzdev/fuz_util/process.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitBranch,
 	GitOrigin,
@@ -20,6 +19,7 @@ import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -99,7 +99,8 @@ export const task: Task<Args> = {
 			);
 		}
 
-		const changelog_exists = await fs_exists(changelog);
+		const changelog_file = await fs_open_path(changelog);
+		const changelog_exists = await changelog_file.dir.exists(changelog_file.path);
 
 		const found_changeset_cli = await find_cli(changeset_cli);
 		if (!found_changeset_cli) {
@@ -236,7 +237,7 @@ export const task: Task<Args> = {
 			);
 		}
 
-		if (!changelog_exists && (await fs_exists(changelog))) {
+		if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
 			await spawn('git', ['add', changelog]);
 		}
 		const commit_result = await spawn('git', ['commit', '-a', '-m', `publish v${version}`]);

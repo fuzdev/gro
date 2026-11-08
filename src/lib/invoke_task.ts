@@ -1,5 +1,4 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { print_ms, print_timings } from '@fuzdev/fuz_util/print.ts';
 import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
@@ -47,6 +46,7 @@ import { task_registry_find } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -245,8 +245,9 @@ const to_no_builtin_reasons = async (task_name: string, root: string): Promise<A
 	];
 	if (!TASK_STEM_MATCHER.test(task_name)) return reasons; // like `task.ts`, no sensible path to hint
 	const hint_path = LIB_DIR + task_name + TASK_FILE_SUFFIX_TS;
+	const hint_file = await fs_open_path(join(root, hint_path));
 	reasons.push(
-		(await fs_exists(join(root, hint_path)))
+		(await hint_file.dir.exists(hint_file.path))
 			? `\`${hint_path}\` exists, run it by path: \`gro task ${hint_path}\``
 			: `Project tasks run by path, like \`gro task ${hint_path}\` (no file there).`
 	);

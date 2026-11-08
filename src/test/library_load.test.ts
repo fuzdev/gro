@@ -1,4 +1,4 @@
-import { assert, describe, test, expect, vi, beforeEach } from 'vitest';
+import { assert, describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import { SchemaError } from '@fuzdev/fuz_schema/schema.ts';
 
@@ -8,17 +8,6 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn(),
 	git_check_workspace: vi.fn(),
 	git_workspace_is_clean: vi.fn()
-}));
-
-// Mock the filesystem so the cache read/write helpers can be tested without
-// touching disk.
-vi.mock('node:fs/promises', () => ({
-	readFile: vi.fn(),
-	writeFile: vi.fn(),
-	mkdir: vi.fn()
-}));
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn()
 }));
 
 // Mock the analyzer and the `LibraryJson` assembly so `library_load_from_repo`
@@ -35,9 +24,9 @@ import {
 	git_check_workspace,
 	git_workspace_is_clean
 } from '@fuzdev/fuz_util/git.ts';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { analyzeFromFiles } from 'svelte-docinfo';
+import { symlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 
 import {
@@ -48,14 +37,12 @@ import {
 	library_cache_write,
 	library_load_from_repo
 } from '#lib/library_load.ts';
+import { SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
+import { fs, type FsDir } from '#lib/fs.ts';
 
 const mocked_commit = vi.mocked(git_current_commit_hash);
 const mocked_workspace = vi.mocked(git_check_workspace);
 const mocked_is_clean = vi.mocked(git_workspace_is_clean);
-const mocked_read = vi.mocked(readFile);
-const mocked_write = vi.mocked(writeFile);
-const mocked_mkdir = vi.mocked(mkdir);
-const mocked_exists = vi.mocked(fs_exists);
 const mocked_analyze = vi.mocked(analyzeFromFiles);
 const mocked_library_json_from_modules = vi.mocked(library_json_from_modules);
 
@@ -65,26 +52,46 @@ const fake_library = { name: 'example', version: '1.0.0' } as unknown as Library
 const fake_package_json = { name: 'example', version: '1.0.0' } as unknown as PackageJson;
 const fake_result = { library_json: fake_library, package_json: fake_package_json };
 
-/**
- * Serves `files` (absolute path to contents) through the mocked `readFile`,
- * rejecting any other path the way a missing file does.
- */
-const mock_files = (files: Record<string, string>): void => {
-	mocked_read.mockImplementation(async (path) => {
-		const contents = files[path as string];
-		if (contents === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-		return contents;
-	});
-};
+const fresh_cache_contents = JSON.stringify({
+	hash: 'abc123',
+	version: LIBRARY_CACHE_VERSION,
+	svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
+	...fake_result
+});
 
 /**
- * Makes the mocked `fs_exists` report exactly `paths` as present.
+ * A real repo directory named `repo` in a fresh temp directory,
+ * so the log child is labelled with a known name.
  */
-const mock_existing = (paths: Array<string>): void => {
-	mocked_exists.mockImplementation(async (path) => paths.includes(path));
+let temp: FsDir & AsyncDisposable;
+let repo: FsDir;
+let repo_dir: string;
+
+const LIBRARY_CACHE_PATH = '.gro/library.json';
+
+const cache_path = (): string => join(repo_dir, LIBRARY_CACHE_PATH);
+
+const write = async (path: string, contents: string): Promise<void> => {
+	const slash = path.lastIndexOf('/');
+	if (slash !== -1) await repo.mkdir(path.slice(0, slash), { recursive: true });
+	await repo.write(path, contents);
 };
 
-const KIT_TSCONFIG = '/repo/node_modules/$app/tsconfig.json';
+const read_cache = async (): Promise<any> => {
+	const contents = await repo.read_text_if_exists(LIBRARY_CACHE_PATH);
+	return contents === null ? null : JSON.parse(contents);
+};
+
+beforeEach(async () => {
+	temp = await fs.temp_dir('gro-library-load-');
+	await temp.mkdir('repo');
+	repo = temp.dir('repo');
+	repo_dir = repo.path;
+});
+
+afterEach(async () => {
+	await temp[Symbol.asyncDispose]();
+});
 
 const create_mock_log = (): any => {
 	const child_log = { debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -163,23 +170,15 @@ describe('library_cache_read', () => {
 	});
 
 	test('returns the cached result on a hash match', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(
-			JSON.stringify({
-				hash: 'abc123',
-				version: LIBRARY_CACHE_VERSION,
-				svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
-				...fake_result
-			})
-		);
+		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toEqual(fake_result);
 	});
 
 	test('returns null when the cache version is stale', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(
+		await write(
+			LIBRARY_CACHE_PATH,
 			JSON.stringify({
 				hash: 'abc123',
 				version: LIBRARY_CACHE_VERSION - 1,
@@ -188,7 +187,7 @@ describe('library_cache_read', () => {
 			})
 		);
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -196,8 +195,8 @@ describe('library_cache_read', () => {
 	// doesn't move when the *analyzer's* svelte-docinfo changes output shape, so
 	// the stamped version is what invalidates.
 	test('returns null when the cache was analyzed by a different svelte-docinfo version', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(
+		await write(
+			LIBRARY_CACHE_PATH,
 			JSON.stringify({
 				hash: 'abc123',
 				version: LIBRARY_CACHE_VERSION,
@@ -206,60 +205,66 @@ describe('library_cache_read', () => {
 			})
 		);
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
 	test('returns null when the cache has no svelte-docinfo version stamp', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(
+		await write(
+			LIBRARY_CACHE_PATH,
 			JSON.stringify({ hash: 'abc123', version: LIBRARY_CACHE_VERSION, ...fake_result })
 		);
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
 	// The realistic migration case: a legacy cache written before versioning has a
 	// matching `hash` but no `version` field, and must be treated as stale.
 	test('returns null for a legacy cache with a matching hash but no version', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(JSON.stringify({ hash: 'abc123', library_json: fake_library }));
+		await write(LIBRARY_CACHE_PATH, JSON.stringify({ hash: 'abc123', library_json: fake_library }));
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
-	test('returns null and never reads when the cache file is absent', async () => {
-		mocked_exists.mockResolvedValue(false);
+	test('returns null without logging a bad read when the cache file is absent', async () => {
+		const log = create_mock_log();
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123', log);
 		expect(result).toBeNull();
-		expect(mocked_read).not.toHaveBeenCalled();
+		expect(log.debug).not.toHaveBeenCalled();
 	});
 
 	test('returns null when the cached hash is stale', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(JSON.stringify({ hash: 'old', ...fake_result }));
+		await write(LIBRARY_CACHE_PATH, JSON.stringify({ hash: 'old', ...fake_result }));
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'new');
+		const result = await library_cache_read(cache_path(), 'new');
 		expect(result).toBeNull();
 	});
 
 	test('returns null when the cache is corrupt (invalid JSON)', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue('not json {');
+		await write(LIBRARY_CACHE_PATH, 'not json {');
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
 	test('returns null when the read itself throws', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockRejectedValue(new Error('EACCES'));
+		// a directory where the cache file should be, which reading fails on
+		await repo.mkdir(LIBRARY_CACHE_PATH, { recursive: true });
 
-		const result = await library_cache_read('/repo/.gro/library.json', 'abc123');
+		const result = await library_cache_read(cache_path(), 'abc123');
 		expect(result).toBeNull();
+	});
+
+	test('reads the cache through a symlinked `.gro` outside the repo', async () => {
+		await temp.mkdir('shared');
+		await temp.write('shared/library.json', fresh_cache_contents);
+		symlinkSync(join(temp.path, 'shared'), join(repo_dir, '.gro'));
+
+		const result = await library_cache_read(cache_path(), 'abc123');
+		expect(result).toEqual(fake_result);
 	});
 });
 
@@ -269,15 +274,9 @@ describe('library_cache_write', () => {
 	});
 
 	test('creates the parent dir and writes the keyed cache', async () => {
-		mocked_mkdir.mockResolvedValue(undefined);
-		mocked_write.mockResolvedValue(undefined);
+		await library_cache_write(cache_path(), 'abc123', fake_result);
 
-		await library_cache_write('/repo/.gro/library.json', 'abc123', fake_result);
-
-		expect(mocked_mkdir).toHaveBeenCalledWith('/repo/.gro', { recursive: true });
-		const [path, contents] = mocked_write.mock.calls[0]!;
-		expect(path).toBe('/repo/.gro/library.json');
-		expect(JSON.parse(contents as string)).toEqual({
+		expect(await read_cache()).toEqual({
 			hash: 'abc123',
 			version: LIBRARY_CACHE_VERSION,
 			svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
@@ -286,34 +285,27 @@ describe('library_cache_write', () => {
 	});
 
 	test('swallows write failures (best effort) and warns', async () => {
-		mocked_mkdir.mockResolvedValue(undefined);
-		mocked_write.mockRejectedValue(new Error('ENOSPC'));
+		// a directory where the cache file should be, which writing fails on
+		await repo.mkdir(LIBRARY_CACHE_PATH, { recursive: true });
 		const log = { warn: vi.fn(), debug: vi.fn() } as any;
 
 		await expect(
-			library_cache_write('/repo/.gro/library.json', 'abc123', fake_result, log)
+			library_cache_write(cache_path(), 'abc123', fake_result, log)
 		).resolves.toBeUndefined();
 		expect(log.warn).toHaveBeenCalled();
 	});
 
 	test('swallows mkdir failures (best effort)', async () => {
-		mocked_mkdir.mockRejectedValue(new Error('EACCES'));
+		// a file where the `.gro` directory should be
+		await repo.write('.gro', '');
 
-		await expect(
-			library_cache_write('/repo/.gro/library.json', 'abc123', fake_result)
-		).resolves.toBeUndefined();
-		expect(mocked_write).not.toHaveBeenCalled();
+		await expect(library_cache_write(cache_path(), 'abc123', fake_result)).resolves.toBeUndefined();
+		expect(await repo.read_text('.gro')).toBe('');
 	});
 });
 
 describe('library_load_from_repo', () => {
 	const valid_package_json_contents = JSON.stringify({ name: 'example', version: '1.0.0' });
-	const fresh_cache_contents = JSON.stringify({
-		hash: 'abc123',
-		version: LIBRARY_CACHE_VERSION,
-		svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
-		...fake_result
-	});
 
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -322,76 +314,76 @@ describe('library_load_from_repo', () => {
 		mocked_is_clean.mockReturnValue(true);
 		mocked_analyze.mockResolvedValue({ modules: [] } as any);
 		mocked_library_json_from_modules.mockReturnValue(fake_library);
-		mocked_mkdir.mockResolvedValue(undefined);
-		mocked_write.mockResolvedValue(undefined);
 	});
 
 	test('returns the cached result without analyzing on a cache hit', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockResolvedValue(fresh_cache_contents);
+		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		const result = await library_load_from_repo('/repo');
+		const result = await library_load_from_repo(repo_dir);
 		expect(result).toEqual(fake_result);
 		expect(mocked_analyze).not.toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
 	});
 
 	// The end-to-end behavior of the version stamps: a cache analyzed by a
 	// different svelte-docinfo re-analyzes and rewrites with the current stamp.
 	test('re-analyzes and rewrites when the svelte-docinfo stamp is stale', async () => {
-		mocked_exists.mockResolvedValue(true);
-		mocked_read.mockImplementation(async (path) =>
-			(path as string).endsWith('library.json')
-				? JSON.stringify({
-						hash: 'abc123',
-						version: LIBRARY_CACHE_VERSION,
-						svelte_docinfo_version: '0.0.0-other',
-						...fake_result
-					})
-				: valid_package_json_contents
+		await write('package.json', valid_package_json_contents);
+		await write(
+			LIBRARY_CACHE_PATH,
+			JSON.stringify({
+				hash: 'abc123',
+				version: LIBRARY_CACHE_VERSION,
+				svelte_docinfo_version: '0.0.0-other',
+				...fake_result
+			})
 		);
 
-		const result = await library_load_from_repo('/repo');
-		expect(mocked_analyze).toHaveBeenCalledWith({ projectRoot: '/repo' });
+		const result = await library_load_from_repo(repo_dir);
+		expect(mocked_analyze).toHaveBeenCalledWith({ projectRoot: repo_dir });
 		expect(result.library_json).toBe(fake_library);
-		const [path, contents] = mocked_write.mock.calls[0]!;
-		expect(path).toBe('/repo/.gro/library.json');
-		expect(JSON.parse(contents as string).svelte_docinfo_version).toBe(SVELTE_DOCINFO_VERSION);
+		expect((await read_cache()).svelte_docinfo_version).toBe(SVELTE_DOCINFO_VERSION);
 	});
 
 	test('`cache: false` skips the cache read but still writes the result', async () => {
-		mocked_read.mockResolvedValue(valid_package_json_contents);
+		await write('package.json', valid_package_json_contents);
+		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		await library_load_from_repo('/repo', { cache: false });
-		expect(mocked_exists).not.toHaveBeenCalled();
+		await library_load_from_repo(repo_dir, { cache: false });
 		expect(mocked_analyze).toHaveBeenCalled();
-		expect(mocked_write).toHaveBeenCalled();
+		expect(await read_cache()).toEqual({
+			hash: 'abc123',
+			version: LIBRARY_CACHE_VERSION,
+			svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
+			library_json: fake_library,
+			package_json: JSON.parse(valid_package_json_contents)
+		});
 	});
 
 	test('a dirty tree analyzes fresh and skips both cache read and write', async () => {
 		mocked_is_clean.mockReturnValue(false);
-		mocked_read.mockResolvedValue(valid_package_json_contents);
+		await write('package.json', valid_package_json_contents);
+		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		await library_load_from_repo('/repo');
-		expect(mocked_exists).not.toHaveBeenCalled();
+		await library_load_from_repo(repo_dir);
 		expect(mocked_analyze).toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
 	});
 
 	// An empty name passes the `PackageJson` schema (`s.string`), so this
 	// exercises gro's own guard rather than schema validation.
 	test('throws on an empty package.json name', async () => {
 		mocked_is_clean.mockReturnValue(false);
-		mocked_read.mockResolvedValue(JSON.stringify({ name: '', version: '1.0.0' }));
+		await write('package.json', JSON.stringify({ name: '', version: '1.0.0' }));
 
-		await expect(library_load_from_repo('/repo')).rejects.toThrow(/name/);
+		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/name/);
 	});
 
 	test('throws `SchemaError` on an invalid package.json, before analyzing', async () => {
 		mocked_is_clean.mockReturnValue(false);
-		mocked_read.mockResolvedValue(JSON.stringify({ name: 1, version: '1.0.0' }));
+		await write('package.json', JSON.stringify({ name: 1, version: '1.0.0' }));
 
-		const error = await library_load_from_repo('/repo').catch((e: unknown) => e);
+		const error = await library_load_from_repo(repo_dir).catch((e: unknown) => e);
 		assert(error instanceof SchemaError);
 		assert.strictEqual(error.message, 'name: expected string, received number');
 		expect(mocked_analyze).not.toHaveBeenCalled();
@@ -403,105 +395,99 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 	const kit_tsconfig_contents =
 		'{\n\t// SvelteKit projects extend the synced config\n\t"extends": "$app/tsconfig"\n}';
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		vi.clearAllMocks();
 		mocked_commit.mockResolvedValue('abc123');
 		mocked_workspace.mockResolvedValue({} as any);
 		mocked_is_clean.mockReturnValue(true);
 		mocked_analyze.mockResolvedValue({ modules: [] } as any);
 		mocked_library_json_from_modules.mockReturnValue(fake_library);
-		mocked_mkdir.mockResolvedValue(undefined);
-		mocked_write.mockResolvedValue(undefined);
-		mock_files({
-			'/repo/package.json': package_json_contents,
-			'/repo/tsconfig.json': kit_tsconfig_contents
-		});
+		await write('package.json', package_json_contents);
+		await write('tsconfig.json', kit_tsconfig_contents);
 	});
 
 	// An unsynced tree would analyze on default compiler options (external types
 	// as `any`), so it's refused before analysis and nothing is cached.
 	test('an unsynced tree throws without analyzing or writing the cache', async () => {
-		mock_existing([]);
-
-		const error = await library_load_from_repo('/repo').catch((e: unknown) => e);
+		const error = await library_load_from_repo(repo_dir).catch((e: unknown) => e);
 		assert(error instanceof Error);
-		expect(error.message).toContain('/repo/node_modules/$app/tsconfig.json');
+		expect(error.message).toContain(repo_dir + '/node_modules/$app/tsconfig.json');
 		expect(error.message).toMatch(/npm install/);
 		expect(error.message).toMatch(/gro sync/);
 		expect(mocked_analyze).not.toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await read_cache()).toBeNull();
 	});
 
 	test('an unsynced dirty tree throws', async () => {
 		mocked_is_clean.mockReturnValue(false);
-		mock_existing([]);
 
-		await expect(library_load_from_repo('/repo')).rejects.toThrow(/gro sync/);
+		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/gro sync/);
 		expect(mocked_analyze).not.toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await read_cache()).toBeNull();
 	});
 
 	// The check runs only on a cache miss - a hit is served as written.
 	test('a cache hit for an unsynced tree is served without the unsynced check', async () => {
-		mock_files({
-			'/repo/package.json': package_json_contents,
-			'/repo/tsconfig.json': kit_tsconfig_contents,
-			'/repo/.gro/library.json': JSON.stringify({
-				hash: 'abc123',
-				version: LIBRARY_CACHE_VERSION,
-				svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
-				...fake_result
-			})
-		});
-		mock_existing(['/repo/.gro/library.json']);
+		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 		const log = create_mock_log();
 
-		const result = await library_load_from_repo('/repo', { log });
+		const result = await library_load_from_repo(repo_dir, { log });
 		expect(result).toEqual(fake_result);
 		expect(mocked_analyze).not.toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
 		expect(log.warn).not.toHaveBeenCalled();
 	});
 
 	test('an unsynced tree throws under `cache: false` too', async () => {
-		mock_existing([]);
-
-		await expect(library_load_from_repo('/repo', { cache: false })).rejects.toThrow(/gro sync/);
+		await expect(library_load_from_repo(repo_dir, { cache: false })).rejects.toThrow(/gro sync/);
 		expect(mocked_analyze).not.toHaveBeenCalled();
-		expect(mocked_write).not.toHaveBeenCalled();
+		expect(await read_cache()).toBeNull();
 	});
 
 	test('a synced tree analyzes and caches as before', async () => {
-		mock_existing([KIT_TSCONFIG]);
+		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
 		const log = create_mock_log();
 
-		const result = await library_load_from_repo('/repo', { log });
+		const result = await library_load_from_repo(repo_dir, { log });
 		expect(result.library_json).toBe(fake_library);
 		expect(log.warn).not.toHaveBeenCalled();
-		expect(mocked_exists).toHaveBeenCalledWith(KIT_TSCONFIG);
 		expect(mocked_analyze).toHaveBeenCalled();
-		const [path] = mocked_write.mock.calls[0]!;
-		expect(path).toBe('/repo/.gro/library.json');
+		expect((await read_cache()).hash).toBe('abc123');
+	});
+
+	test('reads a tsconfig.json and package.json symlinked from outside the repo', async () => {
+		await repo.remove('tsconfig.json');
+		await repo.remove('package.json');
+		await temp.write('tsconfig.shared.json', kit_tsconfig_contents);
+		await temp.write('package.shared.json', JSON.stringify({ name: 'linked', version: '2.0.0' }));
+		symlinkSync(join(temp.path, 'tsconfig.shared.json'), join(repo_dir, 'tsconfig.json'));
+		symlinkSync('../package.shared.json', join(repo_dir, 'package.json'));
+
+		// the linked tsconfig extends `$app/tsconfig`, so the repo is unsynced until it's generated
+		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/gro sync/);
+		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
+
+		await library_load_from_repo(repo_dir);
+		expect(mocked_library_json_from_modules.mock.calls[0]![0]).toEqual({
+			name: 'linked',
+			version: '2.0.0'
+		});
 	});
 
 	test('a non-SvelteKit tsconfig analyzes and caches as before', async () => {
-		mock_files({
-			'/repo/package.json': package_json_contents,
-			'/repo/tsconfig.json': '{"compilerOptions": {"strict": true}}'
-		});
-		mock_existing([]);
+		await write('tsconfig.json', '{"compilerOptions": {"strict": true}}');
 
-		await library_load_from_repo('/repo');
+		await library_load_from_repo(repo_dir);
 		expect(mocked_analyze).toHaveBeenCalled();
-		expect(mocked_write).toHaveBeenCalled();
+		expect(await read_cache()).not.toBeNull();
 	});
 
 	test('logs the analysis to a child of `log`, with its progress at debug level', async () => {
-		mock_existing([KIT_TSCONFIG]);
+		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
 		const log = create_mock_log();
 		const { child_log } = log;
 
-		await library_load_from_repo('/repo', { log });
+		await library_load_from_repo(repo_dir, { log });
 		expect(log.child).toHaveBeenCalledWith('repo');
 		const analysis_log = mocked_analyze.mock.calls[0]![0].log!;
 		analysis_log.info('progress');

@@ -9,6 +9,7 @@ import {
 	create_mock_build_cache_metadata,
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
+import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -32,18 +33,22 @@ vi.mock('#lib/paths.ts', () => ({
 	}
 }));
 
-vi.mock('node:fs/promises', () => ({
-	readFile: vi.fn(),
-	writeFile: vi.fn(),
-	mkdir: vi.fn(),
-	rm: vi.fn(),
-	stat: vi.fn(),
-	readdir: vi.fn()
-}));
+vi.mock('node:fs/promises', async (import_original) => {
+	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
+	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
+	return {
+		realpath,
+		readlink,
+		readFile: vi.fn(),
+		writeFile: vi.fn(),
+		mkdir: vi.fn(),
+		rm: vi.fn(),
+		stat: vi.fn(),
+		readdir: vi.fn()
+	};
+});
 
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn()
-}));
+vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
@@ -56,8 +61,7 @@ describe('is_build_cache_valid', () => {
 
 	test('returns true when cache keys match and outputs valid', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -65,8 +69,7 @@ describe('is_build_cache_valid', () => {
 			build_cache_config_hash: 'jkl012'
 		});
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('jkl012');
 
@@ -83,9 +86,9 @@ describe('is_build_cache_valid', () => {
 	});
 
 	test('returns false when no metadata exists', async () => {
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { read_text_if_exists } = await get_mock_project();
 
-		vi.mocked(fs_exists).mockResolvedValue(false);
+		vi.mocked(read_text_if_exists).mockResolvedValue(null);
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
@@ -98,13 +101,11 @@ describe('is_build_cache_valid', () => {
 
 	test('returns false when git commit differs', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 
 		const metadata = create_mock_build_cache_metadata({ git_commit: 'old_commit' });
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('new_commit');
 
 		const config = await create_mock_config();
@@ -118,8 +119,7 @@ describe('is_build_cache_valid', () => {
 
 	test('uses pre-computed git_commit and skips git_current_commit_hash', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -127,8 +127,7 @@ describe('is_build_cache_valid', () => {
 			build_cache_config_hash: 'jkl012'
 		});
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(hash_blake3).mockReturnValue('jkl012');
 
 		const config = await create_mock_config();
@@ -142,8 +141,7 @@ describe('is_build_cache_valid', () => {
 
 	test('returns false when build_cache_config hash differs', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({
@@ -151,8 +149,7 @@ describe('is_build_cache_valid', () => {
 			build_cache_config_hash: 'old_config_hash'
 		});
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('new_config_hash');
 
@@ -184,14 +181,12 @@ describe('is_build_cache_valid', () => {
 		'returns false when %s differs',
 		async (_name, changed: Partial<BuildCacheDependencies>, message) => {
 			const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-			const { readFile } = vi.mocked(await import('node:fs/promises'));
+			const { read_text_if_exists } = await get_mock_project();
 			const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 			const metadata = create_mock_build_cache_metadata();
 
-			vi.mocked(fs_exists).mockResolvedValue(true);
-			vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+			vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 			vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 			vi.mocked(hash_blake3).mockReturnValue('jkl012');
 
@@ -210,14 +205,12 @@ describe('is_build_cache_valid', () => {
 
 	test('returns true when the package lock hash is null on both sides', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		const metadata = create_mock_build_cache_metadata({ package_lock_hash: null });
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('jkl012');
 

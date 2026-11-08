@@ -1,9 +1,10 @@
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { stat } from 'node:fs/promises';
-import { fs_exists, fs_search } from '@fuzdev/fuz_util/fs.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
+
+import type { FileInfo } from './fs.ts';
+import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
 
 // TODO Flavored doesn't work when used in schemas, `flavor` from fuz_schema could carry it
 export const InputPath = s.string;
@@ -65,8 +66,7 @@ export const get_possible_paths = async (
 	};
 
 	if (isAbsolute(input_path)) {
-		const exists = await fs_exists(input_path);
-		const is_directory = exists && (await stat(input_path)).isDirectory();
+		const is_directory = (await stat_path(input_path))?.kind === 'directory';
 		add_possible_paths(input_path, is_directory ? input_path : dirname(input_path));
 	} else {
 		for (const root_dir of root_dirs) {
@@ -114,17 +114,14 @@ export const resolve_input_paths = async (
 
 		// Find the first existing file path or fallback to the first directory path.
 		for (const possible_path of possible_paths) {
-			if (!(await fs_exists(possible_path.id))) continue;
+			const info = await stat_path(possible_path.id);
+			if (info === null) continue;
 
-			const stats = await stat(possible_path.id);
-			if (stats.isDirectory()) {
+			if (info.kind === 'directory') {
 				found_dirs ??= [];
-				found_dirs.push([
-					{ id: possible_path.id, is_directory: stats.isDirectory() },
-					possible_path
-				]);
+				found_dirs.push([{ id: possible_path.id, is_directory: true }, possible_path]);
 			} else {
-				found_file = [{ id: possible_path.id, is_directory: stats.isDirectory() }, possible_path];
+				found_file = [{ id: possible_path.id, is_directory: false }, possible_path];
 				break;
 			}
 		}
@@ -162,7 +159,7 @@ export interface ResolvedInputFiles {
  */
 export const resolve_input_files = async (
 	resolved_input_paths: Array<ResolvedInputPath>,
-	search: (dir: string) => Promise<Array<ResolvedPath>> = fs_search
+	search: (dir: string) => Promise<Array<ResolvedPath>> = fs_search_path
 ): Promise<ResolvedInputFiles> => {
 	const resolved_input_files: Array<ResolvedInputFile> = [];
 	// Add all input paths initially, and remove each when resolved to a file.
@@ -218,4 +215,10 @@ export const resolve_input_files = async (
 		resolved_input_files,
 		input_directories_with_no_files: remaining.map((r) => r.input_path)
 	};
+};
+
+// the info at an absolute or cwd-relative path, or `null` when nothing is there
+const stat_path = async (path: string): Promise<FileInfo | null> => {
+	const opened = await fs_open_path(path);
+	return opened.dir.stat(opened.path);
 };

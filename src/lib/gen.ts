@@ -6,7 +6,6 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 
 import { paths, print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
@@ -20,6 +19,7 @@ import {
 	type ResolvedInputPath
 } from './input_path.ts';
 import type { InvokeTask } from './task.ts';
+import { fs_search_path } from './internal/fs_path.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
@@ -364,7 +364,7 @@ export const find_genfiles = async (
 	const { resolved_input_files, input_directories_with_no_files } = await resolve_input_files(
 		resolved_input_paths,
 		async (id) =>
-			await fs_search(id, {
+			await fs_search_path(id, {
 				filter: to_search_filters_relative(config.search_filters, root, id),
 				file_filter: is_gen_path
 			})

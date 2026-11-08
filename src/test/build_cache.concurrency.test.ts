@@ -7,6 +7,7 @@ import {
 	create_mock_config,
 	create_mock_build_cache_metadata
 } from './build_cache_test_helpers.ts';
+import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -30,18 +31,22 @@ vi.mock('#lib/paths.ts', () => ({
 	}
 }));
 
-vi.mock('node:fs/promises', () => ({
-	readFile: vi.fn(),
-	writeFile: vi.fn(),
-	mkdir: vi.fn(),
-	rm: vi.fn(),
-	stat: vi.fn(),
-	readdir: vi.fn()
-}));
+vi.mock('node:fs/promises', async (import_original) => {
+	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
+	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
+	return {
+		realpath,
+		readlink,
+		readFile: vi.fn(),
+		writeFile: vi.fn(),
+		mkdir: vi.fn(),
+		rm: vi.fn(),
+		stat: vi.fn(),
+		readdir: vi.fn()
+	};
+});
 
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn()
-}));
+vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
@@ -53,8 +58,7 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles cache file being modified while reading', async () => {
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -67,7 +71,7 @@ describe('race condition: cache file modification during validation', () => {
 
 		// Simulate cache file being modified during validation
 		let read_count = 0;
-		vi.mocked(readFile).mockImplementation(() => {
+		vi.mocked(read_text_if_exists).mockImplementation(() => {
 			read_count++;
 			// First read gets initial metadata, second read (during validation) gets modified
 			return Promise.resolve(
@@ -75,7 +79,6 @@ describe('race condition: cache file modification during validation', () => {
 			);
 		});
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
@@ -108,8 +111,7 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles multiple concurrent build validation operations', async () => {
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		const { readFile } = vi.mocked(await import('node:fs/promises'));
+		const { read_text_if_exists } = await get_mock_project();
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -119,8 +121,7 @@ describe('race condition: cache file modification during validation', () => {
 			build_cache_config_hash: 'hash123'
 		});
 
-		vi.mocked(fs_exists).mockResolvedValue(true);
-		vi.mocked(readFile).mockResolvedValue(JSON.stringify(metadata));
+		vi.mocked(read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
 

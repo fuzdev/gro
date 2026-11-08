@@ -1,11 +1,10 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, normalize } from 'node:path';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
@@ -17,6 +16,9 @@ import {
 	load_build_cache_dependencies,
 	type BuildCacheDependencies
 } from './build_cache_dependencies.ts';
+import { is_fs_error } from './fs.ts';
+// TODO: take handles from the tasks, the composition roots, instead of opening paths here
+import { fs_open_path, fs_remove_path } from './internal/fs_path.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
 export const BUILD_CACHE_VERSION = '2';
@@ -108,44 +110,40 @@ export const compute_build_cache_key = async (
 
 /**
  * Loads build cache metadata from .gro/ directory.
- * Invalid or corrupted cache files are automatically deleted.
+ * A cache file that's read but invalid (corrupt, the wrong shape, or an old version)
+ * is deleted, the file entry itself, never what a symlink there points at;
+ * one that can't be read is left in place.
  */
 export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | null> => {
 	const metadata_path = join(paths.build, BUILD_CACHE_METADATA_FILENAME);
 
-	if (!(await fs_exists(metadata_path))) {
-		return null;
+	let contents: string | null;
+	try {
+		const metadata_file = await fs_open_path(metadata_path);
+		contents = await metadata_file.dir.read_text_if_exists(metadata_file.path);
+	} catch (error) {
+		// unreadable, so there's nothing known to be invalid to delete
+		if (is_fs_error(error)) return null;
+		throw error;
 	}
+	if (contents === null) return null;
 
 	try {
-		const contents = await readFile(metadata_path, 'utf-8');
-		const parsed = JSON.parse(contents);
-
 		// Validate structure against the schema
-		const metadata = s.parse_or_throw(BuildCacheMetadata, parsed);
-
+		const metadata = s.parse_or_throw(BuildCacheMetadata, JSON.parse(contents));
 		// Validate version
-		if (metadata.version !== BUILD_CACHE_VERSION) {
-			// Clean up stale cache with old schema version
-			try {
-				await rm(metadata_path, { force: true });
-			} catch {
-				// Ignore cleanup errors
-			}
-			return null;
-		}
-
-		return metadata;
+		if (metadata.version === BUILD_CACHE_VERSION) return metadata;
 	} catch {
-		// Clean up corrupted/invalid cache file
-		// (catches JSON.parse, schema validation, and version errors)
-		try {
-			await rm(metadata_path, { force: true });
-		} catch {
-			// Ignore cleanup errors
-		}
-		return null;
+		// corrupt JSON or the wrong shape, deleted below like an old version
 	}
+
+	// Clean up the invalid or stale cache file
+	try {
+		await fs_remove_path(metadata_path, { missing_ok: true });
+	} catch {
+		// Ignore cleanup errors
+	}
+	return null;
 };
 
 /**
@@ -171,6 +169,13 @@ export const save_build_cache_metadata = async (
 	}
 };
 
+// whether `path` is relative and stays in the project, lexically
+const is_project_relative = (path: string): boolean => {
+	if (isAbsolute(path)) return false;
+	const normalized = normalize(path);
+	return normalized !== '..' && !normalized.startsWith('../');
+};
+
 /**
  * Validates that a cached build is still valid by checking stats and hashing outputs.
  * Uses size as a fast negative check before expensive hashing.
@@ -180,15 +185,20 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 	// Verify all tracked output files exist and have matching size
 	// Sequential checks with early return for performance
 	for (const output of metadata.outputs) {
-		if (!(await fs_exists(output.path))) {
-			return false;
-		}
-
 		// Fast negative check: size mismatch = definitely invalid
 		// This avoids expensive file reads and hashing for files that have clearly changed
-
-		const stats = await stat(output.path);
-		if (stats.size !== output.size) {
+		// a tampered path naming something outside the project is an invalid cache
+		if (!is_project_relative(output.path)) return false;
+		let info;
+		try {
+			const opened = await fs_open_path(output.path);
+			info = await opened.dir.stat(opened.path);
+		} catch (error) {
+			// unreadable is an invalid cache
+			if (is_fs_error(error)) return false;
+			throw error;
+		}
+		if (info === null || info.size !== output.size) {
 			return false;
 		}
 	}
@@ -319,7 +329,8 @@ export const collect_build_outputs = async (
 
 	// Collect files from all build directories sequentially
 	for (const build_dir of build_dirs) {
-		if (!(await fs_exists(build_dir))) {
+		const opened = await fs_open_path(build_dir);
+		if (!(await opened.dir.exists(opened.path))) {
 			continue; // Skip non-existent directories
 		}
 
@@ -355,10 +366,12 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 	const build_dirs: Array<string> = [];
 
 	// Check for SvelteKit app output (build/) and library output (dist/) in parallel
-	const [build_exists, dist_exists] = await Promise.all([
-		fs_exists(SVELTEKIT_BUILD_DIRNAME),
-		fs_exists(SVELTEKIT_DIST_DIRNAME)
-	]);
+	const [build_exists, dist_exists] = await Promise.all(
+		[SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME].map(async (dirname) => {
+			const opened = await fs_open_path(dirname);
+			return opened.dir.exists(opened.path);
+		})
+	);
 
 	if (build_exists) {
 		build_dirs.push(SVELTEKIT_BUILD_DIRNAME);

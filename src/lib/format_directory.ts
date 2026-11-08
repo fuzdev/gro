@@ -1,6 +1,5 @@
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { ensure_end } from '@fuzdev/fuz_util/string.ts';
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { globSync, readFileSync } from 'node:fs';
@@ -10,6 +9,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { GRO_CONFIG_FILENAME, VITE_CONFIG_FILENAMES } from './constants.ts';
 import { format_file } from './format_file.ts';
 import { paths, to_search_filters_relative } from './paths.ts';
+import { fs_search_path } from './internal/fs_path.ts';
 
 /**
  * File extensions the format sweep collects. `json` is intentionally omitted
@@ -233,7 +233,7 @@ const collect_source_files = async (
 	filter: PathFilter | Array<PathFilter> | undefined,
 	root: string
 ): Promise<Array<string>> => {
-	const found = await fs_search(dir, {
+	const found = await fs_search_path(dir, {
 		filter: to_search_filters_relative(filter, root, dir),
 		file_filter: (path) => FORMATTABLE_MATCHER.test(path)
 	});

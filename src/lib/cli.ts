@@ -7,13 +7,13 @@ import {
 	type SpawnedProcess
 } from '@fuzdev/fuz_util/process.ts';
 import { join } from 'node:path';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { fileURLToPath, type URL } from 'node:url';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { styleText as st } from 'node:util';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 // TODO maybe upstream to fuz_util?
 
@@ -31,7 +31,8 @@ export const find_cli = async (
 ): Promise<Cli | null> => {
 	const final_cwd = typeof cwd === 'string' ? cwd : fileURLToPath(cwd);
 	const local_id = join(final_cwd, NODE_MODULES_DIRNAME, `.bin/${name}`);
-	if (await fs_exists(local_id)) {
+	const local = await fs_open_path(local_id);
+	if (await local.dir.exists(local.path)) {
 		return { name, id: local_id, kind: 'local' };
 	}
 	const { stdout } = await spawn_out('sh', ['-c', 'command -v "$1"', 'sh', name], options);

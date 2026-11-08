@@ -1,5 +1,4 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 import { constants } from 'node:os';
 import { styleText as st } from 'node:util';
@@ -8,6 +7,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
 import { TaskError, type Task } from './task.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * Runs a TypeScript file with Gro's loader, forwarding all args to the script.
@@ -48,7 +48,8 @@ export const task: Task<Args> = {
 			return;
 		}
 
-		if (!(await fs_exists(path))) {
+		const file = await fs_open_path(path);
+		if (!(await file.dir.exists(file.path))) {
 			throw new TaskError('Cannot find file to run at path: ' + path);
 		}
 

@@ -5,7 +5,6 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 
 import { paths, gro_paths, IS_THIS_GRO } from './paths.ts';
 import {
@@ -20,6 +19,7 @@ import {
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
+import { fs_search_path } from './internal/fs_path.ts';
 
 export type PackageJsonMapper = (
 	package_json: PackageJson
@@ -66,7 +66,7 @@ export const package_json_sync = async (
 		async (package_json) => {
 			if ((await has_sveltekit_library(package_json)).ok) {
 				const final_exports_dir = exports_dir ?? join(paths.root, LIB_PATH);
-				const exported_files = await fs_search(final_exports_dir);
+				const exported_files = await fs_search_path(final_exports_dir);
 				package_json.exports = package_json_to_exports(exported_files.map((f) => f.path));
 			}
 			const mapped = await map_package_json(package_json);

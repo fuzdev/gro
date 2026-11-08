@@ -393,7 +393,11 @@ Key utilities:
 
 - Filesystem: `module_graph.ts`, `module_graph_node.ts`, `internal/filer.ts`, `paths.ts`
 - Host modules: `fs.ts`, the fs host module's Node implementation
-  ([docs](src/docs/host_modules.md)); `src/test/host_module_declarations.test.ts`
+  ([docs](src/docs/host_modules.md)); `fs_search.ts`, the recursive search over a handle;
+  `internal/fs_path.ts`, the boundary where a path from outside (a CLI arg, config, a
+  well-known path) becomes a handle, its symlinks followed (`fs_open_path`, `fs_search_path`,
+  `fs_remove_path`), the way Gro reaches every path it names;
+  `src/test/host_module_declarations.test.ts`
   fails if a host module's emitted declarations name a type outside the ES libs
   and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`

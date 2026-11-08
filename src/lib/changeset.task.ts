@@ -5,7 +5,6 @@ import { styleText as st } from 'node:util';
 import type { WrittenConfig } from '@changesets/types';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import {
 	GitOrigin,
 	git_check_fully_staged_workspace,
@@ -25,6 +24,7 @@ import {
 	CHANGESET_RESTRICTED_ACCESS
 } from './changeset_helpers.ts';
 import { package_json_load } from './package_json.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -120,7 +120,8 @@ export const task: Task<Args> = {
 
 		const path = join(dir, 'config.json');
 
-		const inited = await fs_exists(path);
+		const config_file = await fs_open_path(path);
+		const inited = await config_file.dir.exists(config_file.path);
 
 		if (!inited) {
 			await spawn_cli(found_changeset_cli, ['init'], log);

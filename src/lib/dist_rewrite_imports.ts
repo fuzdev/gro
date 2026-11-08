@@ -1,9 +1,9 @@
-import { fs_search } from '@fuzdev/fuz_util/fs.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
+import { fs_search_path } from './internal/fs_path.ts';
 
 /*
 
@@ -99,7 +99,7 @@ export const rewrite_dist_imports = async (
 	dist_dir: string = SVELTEKIT_DIST_DIRNAME,
 	log?: Logger
 ): Promise<RewriteDistImportsResult> => {
-	const found = await fs_search(dist_dir, {
+	const found = await fs_search_path(dist_dir, {
 		file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
 	});
 

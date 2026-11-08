@@ -4,7 +4,6 @@ import { styleText as st } from 'node:util';
 import { git_check_clean_workspace, git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { Plugins, to_plugin_context } from './plugin.ts';
@@ -13,9 +12,12 @@ import {
 	is_build_cache_valid,
 	create_build_cache_metadata,
 	save_build_cache_metadata,
-	discover_build_output_dirs
+	discover_build_output_dirs,
+	BUILD_CACHE_METADATA_FILENAME
 } from './build_cache.ts';
 import { load_build_cache_dependencies } from './build_cache_dependencies.ts';
+import { is_fs_error } from './fs.ts';
+import { fs_remove_path } from './internal/fs_path.ts';
 import { paths } from './paths.ts';
 
 /** @nodocs */
@@ -101,9 +103,13 @@ export const task: Task<Args> = {
 			// IMPORTANT: When workspace is dirty, we delete cache AND all outputs to prevent stale state.
 			// Rationale: Uncommitted changes could be reverted, leaving cached outputs from reverted code.
 			// This conservative approach prioritizes safety over convenience during development.
-			const cache_path = join(paths.build, 'build.json');
-			if (await fs_exists(cache_path)) {
-				await rm(cache_path, { force: true });
+			try {
+				await fs_remove_path(join(paths.build, BUILD_CACHE_METADATA_FILENAME), {
+					missing_ok: true
+				});
+			} catch (error) {
+				// `.gro` as a file means there's no cache to remove
+				if (!is_fs_error(error, 'not_a_directory')) throw error;
 			}
 
 			// Delete all build output directories

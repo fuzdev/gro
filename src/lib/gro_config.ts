@@ -1,12 +1,12 @@
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import { paths } from './paths.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
@@ -193,7 +193,8 @@ export const load_gro_config = async (dir = paths.root): Promise<GroConfig> => {
 	);
 
 	const config_path = join(dir, GRO_CONFIG_FILENAME);
-	if (!(await fs_exists(config_path))) {
+	const config_file = await fs_open_path(config_path);
+	if (!(await config_file.dir.exists(config_file.path))) {
 		// No user config file found, so return the default.
 		return default_config;
 	}

@@ -1,6 +1,4 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fs_exists } from '@fuzdev/fuz_util/fs.ts';
 import { print_spawn_result } from '@fuzdev/fuz_util/process.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
@@ -21,6 +19,8 @@ import {
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
 import { TaskError } from './task.ts';
+// TODO: take handles from the tasks, the composition roots, instead of opening paths here
+import { fs_open_path } from './internal/fs_path.ts';
 
 /**
  * Detected from `package.json` rather than the Svelte config,
@@ -54,7 +54,7 @@ export const has_sveltekit_library = async (
 		};
 	}
 
-	if (!(await fs_exists(LIB_PATH))) {
+	if (!(await path_exists(LIB_PATH))) {
 		return { ok: false, message: `no SvelteKit lib directory found at ${LIB_PATH}` };
 	}
 
@@ -116,7 +116,7 @@ export const sveltekit_sync_if_available = async (
 export const sveltekit_sync_if_obviously_needed = async (
 	sveltekit_cli: string | Cli = SVELTEKIT_CLI
 ): Promise<void> => {
-	if ((await fs_exists(SVELTEKIT_DEV_DIRNAME)) && (await fs_exists(SVELTEKIT_TSCONFIG_PATH))) {
+	if ((await path_exists(SVELTEKIT_DEV_DIRNAME)) && (await path_exists(SVELTEKIT_TSCONFIG_PATH))) {
 		return;
 	}
 	const found_sveltekit_cli =
@@ -141,14 +141,12 @@ export const sveltekit_sync_if_obviously_needed = async (
  *
  * @param dir - absolute path to the project root
  * @returns `true` when the project needs `svelte-kit sync`
+ * @throws `FsError` - when reading either file fails other than by its absence
  */
 export const sveltekit_tsconfig_is_unsynced = async (dir: string): Promise<boolean> => {
-	let contents: string;
-	try {
-		contents = await readFile(join(dir, TSCONFIG_FILENAME), 'utf-8');
-	} catch {
-		return false;
-	}
+	const tsconfig = await fs_open_path(join(dir, TSCONFIG_FILENAME));
+	const contents = await tsconfig.dir.read_text_if_exists(tsconfig.path);
+	if (contents === null) return false;
 	// lazy because this module loads on every `gro` invocation and few need TypeScript
 	const { default: ts } = await import('typescript');
 	const { config } = ts.parseConfigFileTextToJson(TSCONFIG_FILENAME, contents);
@@ -158,7 +156,7 @@ export const sveltekit_tsconfig_is_unsynced = async (dir: string): Promise<boole
 		(s) => s === SVELTEKIT_TSCONFIG_SPECIFIER || s === SVELTEKIT_TSCONFIG_SPECIFIER + '.json'
 	);
 	if (!extends_sveltekit) return false;
-	return !(await fs_exists(join(dir, SVELTEKIT_TSCONFIG_PATH)));
+	return !(await path_exists(join(dir, SVELTEKIT_TSCONFIG_PATH)));
 };
 
 /**
@@ -302,4 +300,10 @@ const serialize_svelte_package_options = (
 		else serialized.push(name, String(value));
 	}
 	return serialized;
+};
+
+// whether anything is at an absolute or cwd-relative path, following symlinks
+const path_exists = async (path: string): Promise<boolean> => {
+	const opened = await fs_open_path(path);
+	return opened.dir.exists(opened.path);
 };

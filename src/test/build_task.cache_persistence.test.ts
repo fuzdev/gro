@@ -4,6 +4,7 @@ import { task as build_task } from '#lib/build.task.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
+import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
@@ -20,16 +21,19 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 }));
 
 // Mock async fs functions used by build.task.ts and build_cache.ts (discover_build_output_dirs)
-vi.mock('node:fs/promises', () => ({
-	rm: vi.fn(),
-	readdir: vi.fn(),
-	stat: vi.fn()
-}));
+vi.mock('node:fs/promises', async (import_original) => {
+	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
+	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
+	return {
+		realpath,
+		readlink,
+		rm: vi.fn(),
+		readdir: vi.fn(),
+		stat: vi.fn()
+	};
+});
 
-// Mock fs_exists from fuz_util
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn()
-}));
+vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 vi.mock('#lib/clean_fs.ts', () => ({
 	clean_fs: vi.fn()
@@ -68,6 +72,10 @@ vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 describe('build_task cache persistence', () => {
 	beforeEach(async () => {
 		vi.clearAllMocks();
+
+		// a dirty workspace removes the build cache
+		const { remove } = await get_mock_project();
+		vi.mocked(remove).mockResolvedValue(undefined);
 
 		// Setup default mocks
 		const mock_plugins = create_mock_plugins();
@@ -171,12 +179,12 @@ describe('build_task cache persistence', () => {
 
 	test('still deletes dist when force_build with dirty workspace', async () => {
 		const { git_check_clean_workspace } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
-		const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+		const { exists } = await get_mock_project();
 		const { rm, readdir, stat } = vi.mocked(await import('node:fs/promises'));
 
 		// Workspace is dirty, force_build is true
 		vi.mocked(git_check_clean_workspace).mockResolvedValue('Modified files:\n  src/foo.ts');
-		vi.mocked(fs_exists).mockResolvedValue(true); // All files exist
+		vi.mocked(exists).mockResolvedValue(true); // All files exist
 		vi.mocked(readdir).mockResolvedValue(['dist_artifacts'] as any);
 		vi.mocked(stat).mockResolvedValue({ isDirectory: () => true } as any);
 

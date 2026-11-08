@@ -61,6 +61,10 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 
 The module's TSDoc has each op's contract.
 
+`fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
+finding the files beneath a directory through `list`, recursively.
+A symlink is a result like a file, never followed, and a missing directory finds nothing.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -77,6 +81,15 @@ The module's TSDoc has each op's contract.
   so narrowing happens at the root, where review sees it.
 - Gro's own code imports its host modules relatively (`./fs.ts`), like the rest of its `src/lib`;
   `@fuzdev/gro/fs.ts` is the specifier for every other package.
+- A path that arrives from outside, like a CLI arg, a config value, or one of Gro's well-known paths,
+  becomes a handle at one boundary, Gro's internal `fs_open_path`.
+  It follows the path's symlinks the way `fs.open_dir` does, the same inside and outside the project,
+  then hands back `fs.project` for a real path beneath the project, or else a handle on its parent.
+  Gro's own code reaches every path it names through it, its well-known paths like `build/` and `.gro/` too,
+  and resolves beneath a handle only what it got from that handle, like a listing's entries,
+  so confinement applies to those.
+  The target is for the tasks, the composition roots, to thread handles down to the library code they call,
+  which isn't done yet, so some of Gro's library modules still open paths through `fs_open_path` themselves.
 
 ## The Node implementation's gaps
 

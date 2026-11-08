@@ -5,7 +5,6 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { fs_exists, fs_empty_dir } from '@fuzdev/fuz_util/fs.ts';
 import {
 	git_check_clean_workspace,
 	git_checkout,
@@ -26,6 +25,7 @@ import {
 import { is_silent_error, TaskError, type Task } from './task.ts';
 import { print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 // docs at ../docs/deploy.md
 
@@ -179,6 +179,11 @@ export const task: Task<Args> = {
 
 		// Prepare the target branch remotely and locally
 		const resolved_deploy_dir = resolve(deploy_dir);
+		// resolved at each check, since the steps below remove and recreate the directory
+		const deploy_dir_exists = async (): Promise<boolean> => {
+			const opened = await fs_open_path(resolved_deploy_dir);
+			return opened.dir.exists(opened.path);
+		};
 		const target_spawn_options = { cwd: resolved_deploy_dir };
 		const remote_target_exists = await git_remote_branch_exists(origin, target);
 		if (remote_target_exists) {
@@ -187,7 +192,7 @@ export const task: Task<Args> = {
 			// First, check if the deploy dir exists, and if so, attempt to sync it.
 			// If anything goes wrong, delete the directory and we'll initialize it
 			// using the same code path as if it didn't exist in the first place.
-			if (await fs_exists(resolved_deploy_dir)) {
+			if (await deploy_dir_exists()) {
 				if (target !== (await git_current_branch_name(target_spawn_options))) {
 					// We're in a bad state because the target branch has changed,
 					// so delete the directory and continue as if it wasn't there.
@@ -218,7 +223,7 @@ export const task: Task<Args> = {
 
 			// Second, initialize the deploy dir if needed.
 			// It may not exist, or it may have been deleted after failing to sync above.
-			if (!(await fs_exists(resolved_deploy_dir))) {
+			if (!(await deploy_dir_exists())) {
 				const local_deploy_branch_exists = await git_local_branch_exists(target);
 				await git_fetch(origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
 				await git_clone_locally(origin, target, dir, resolved_deploy_dir);
@@ -249,7 +254,7 @@ export const task: Task<Args> = {
 			// Remote target branch does not exist, so start from scratch
 
 			// Delete the deploy dir and recreate it
-			if (await fs_exists(resolved_deploy_dir)) {
+			if (await deploy_dir_exists()) {
 				await rm(resolved_deploy_dir, { recursive: true });
 				await mkdir(resolved_deploy_dir, { recursive: true });
 			}
@@ -283,8 +288,16 @@ export const task: Task<Args> = {
 			await git_delete_local_branch(source, target_spawn_options);
 		}
 
-		// Remove everything except .git from the deploy directory to avoid stale files
-		await fs_empty_dir(resolved_deploy_dir, (name) => name !== GIT_DIRNAME);
+		// Remove everything except .git from the deploy directory to avoid stale files,
+		// opened now that it's in its final form, so the emptying never acts on a replaced directory
+		const deploy = await fs_open_path(resolved_deploy_dir);
+		const stale: Array<string> = [];
+		for await (const { name } of deploy.dir.list(deploy.path)) {
+			if (name !== GIT_DIRNAME) stale.push(name);
+		}
+		await Promise.all(
+			stale.map((name) => deploy.dir.remove(join(deploy.path, name), { recursive: true }))
+		);
 
 		// Build
 		try {
@@ -306,7 +319,8 @@ export const task: Task<Args> = {
 		}
 
 		// Verify build output exists
-		if (!(await fs_exists(build_dir))) {
+		const build_output = await fs_open_path(build_dir);
+		if (!(await build_output.dir.exists(build_output.path))) {
 			throw new TaskError(`Directory to deploy does not exist after building: ${build_dir}`);
 		}
 

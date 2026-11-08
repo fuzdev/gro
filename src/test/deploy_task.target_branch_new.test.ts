@@ -9,6 +9,7 @@ import {
 	setup_successful_spawn_mock,
 	mock_spawn_results
 } from './deploy_task_test_helpers.ts';
+import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('@fuzdev/fuz_util/git.js', async (import_original) => {
@@ -35,17 +36,20 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn()
 }));
 
-vi.mock('node:fs/promises', () => ({
-	cp: vi.fn(),
-	mkdir: vi.fn(),
-	rm: vi.fn(),
-	readdir: vi.fn()
-}));
+vi.mock('node:fs/promises', async (import_original) => {
+	// only the real `realpath` and `readlink`, which `fs_open_path` resolves paths with
+	const { realpath, readlink } = await import_original<typeof import('node:fs/promises')>();
+	return {
+		realpath,
+		readlink,
+		cp: vi.fn(),
+		mkdir: vi.fn(),
+		rm: vi.fn(),
+		readdir: vi.fn()
+	};
+});
 
-vi.mock('@fuzdev/fuz_util/fs.js', () => ({
-	fs_exists: vi.fn(),
-	fs_empty_dir: vi.fn()
-}));
+vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task target branch creation (remote does not exist)', () => {
 	beforeEach(async () => {
@@ -53,9 +57,6 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		await setup_successful_git_mocks();
 		await setup_successful_fs_mocks();
 		await setup_successful_spawn_mock();
-
-		const { fs_empty_dir } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
-		vi.mocked(fs_empty_dir).mockResolvedValue(undefined);
 
 		// Default: remote target does NOT exist
 		const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
@@ -68,10 +69,10 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('deploy directory cleanup', () => {
 		test('deletes existing deploy directory', async () => {
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { exists } = await get_mock_project();
 			const { rm, mkdir } = await import('node:fs/promises');
 
-			vi.mocked(fs_exists).mockResolvedValue(true); // deploy dir exists
+			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -86,11 +87,11 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('skips deletion when deploy directory does not exist', async () => {
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { exists } = await get_mock_project();
 			const { rm, mkdir } = await import('node:fs/promises');
 
 			// deploy dir doesn't exist, but build_dir does
-			vi.mocked(fs_exists).mockImplementation((path: any) => String(path).includes('build'));
+			vi.mocked(exists).mockImplementation((path: any) => String(path).includes('build'));
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -103,10 +104,10 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('uses custom deploy_dir path', async () => {
-			const { fs_exists } = vi.mocked(await import('@fuzdev/fuz_util/fs.ts'));
+			const { exists } = await get_mock_project();
 			const { rm, mkdir } = await import('node:fs/promises');
 
-			vi.mocked(fs_exists).mockResolvedValue(true);
+			vi.mocked(exists).mockResolvedValue(true);
 
 			const ctx = create_mock_deploy_task_context({
 				deploy_dir: 'custom/path',
