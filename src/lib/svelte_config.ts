@@ -190,7 +190,7 @@ export const parse_svelte_config = async (
 	const assets_url = svelte_config?.paths?.assets;
 
 	// Relative like the paths above: `env_dir` is serialized into
-	// the generated `$app/env/*` modules, which resolve it against the cwd.
+	// the generated `$app/env/*` modules, which resolve it against the project.
 	const env_dir = to_project_relative_path(svelte_config?.env?.dir);
 	const version_name = svelte_config?.version?.name;
 

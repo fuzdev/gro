@@ -26,12 +26,10 @@ import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.t
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
 import {
-	fs_copy_path,
-	fs_open_path,
-	fs_protected_dirs,
-	fs_remove_path
-} from './internal/fs_path.ts';
-import { is_protected_dir, PROTECTED_DIRS_TEXT } from './internal/fs_boundary.ts';
+	is_protected_dir,
+	PROTECTED_DIRS_TEXT,
+	to_protected_dirs
+} from './internal/fs_boundary.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 // docs at ../docs/deploy.md
@@ -136,14 +134,13 @@ export const task: Task<Args> = {
 			pull
 		} = args;
 
-		// TODO: thread `fs_paths` through the deploy dir's other ops, which still resolve against the cwd
 		const fs_paths = create_fs_paths(fs);
 
 		// Checks
 		// the deploy dir is removed, emptied, and run git in below, so before anything else,
 		// it must be somewhere Gro may own, and if it exists, a clone Gro made
 		const resolved_deploy_dir = resolve(deploy_dir);
-		await assert_deploy_dir_owned(await open_deploy_dir(resolved_deploy_dir), origin);
+		await assert_deploy_dir_owned(await open_deploy_dir(fs_paths, resolved_deploy_dir), origin);
 		if (!force && target !== TARGET_BRANCH) {
 			throw new TaskError(
 				`Warning! You are deploying to a custom target branch '${target}',` +
@@ -194,7 +191,7 @@ export const task: Task<Args> = {
 		// Prepare the target branch remotely and locally
 		// resolved at each check, since the steps below remove and recreate the directory
 		const deploy_dir_exists = async (): Promise<boolean> => {
-			const opened = await fs_open_path(resolved_deploy_dir);
+			const opened = await fs_paths.open_path(resolved_deploy_dir);
 			return opened.dir.exists(opened.path);
 		};
 		const target_spawn_options = { cwd: resolved_deploy_dir };
@@ -209,7 +206,7 @@ export const task: Task<Args> = {
 				if (target !== (await git_current_branch_name(target_spawn_options))) {
 					// We're in a bad state because the target branch has changed,
 					// so delete the directory and continue as if it wasn't there.
-					await fs_remove_path(resolved_deploy_dir, { recursive: true });
+					await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 				} else {
 					// in case it's dirty
 					const reset_result = await spawn('git', ['reset', '--hard'], target_spawn_options);
@@ -221,14 +218,14 @@ export const task: Task<Args> = {
 							print_path(resolved_deploy_dir),
 							'- recreating it'
 						);
-						await fs_remove_path(resolved_deploy_dir, { recursive: true });
+						await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 					} else if (!reset) {
 						// Skip pulling target branch when resetting (optimization - we reset after anyway)
 						await git_pull(origin, target, target_spawn_options);
 						if (await git_check_clean_workspace(target_spawn_options)) {
 							// We're in a bad state because the local branch lost continuity with the remote,
 							// so delete the directory and continue as if it wasn't there.
-							await fs_remove_path(resolved_deploy_dir, { recursive: true });
+							await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 						}
 					}
 				}
@@ -268,8 +265,8 @@ export const task: Task<Args> = {
 
 			// Delete the deploy dir and recreate it
 			if (await deploy_dir_exists()) {
-				await fs_remove_path(resolved_deploy_dir, { recursive: true });
-				const recreated = await fs_open_path(resolved_deploy_dir);
+				await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
+				const recreated = await fs_paths.open_path(resolved_deploy_dir);
 				await recreated.dir.mkdir(recreated.path, { recursive: true });
 			}
 
@@ -304,7 +301,7 @@ export const task: Task<Args> = {
 
 		// Remove everything except .git from the deploy directory to avoid stale files,
 		// opened now that it's in its final form, so the emptying never acts on a replaced directory
-		const deploy = await open_deploy_dir(resolved_deploy_dir);
+		const deploy = await open_deploy_dir(fs_paths, resolved_deploy_dir);
 		const stale: Array<string> = [];
 		for await (const { name } of deploy.dir.list(deploy.path)) {
 			if (name !== GIT_DIRNAME) stale.push(name);
@@ -333,7 +330,7 @@ export const task: Task<Args> = {
 		}
 
 		// Verify build output exists
-		const build_output = await fs_open_path(build_dir);
+		const build_output = await fs_paths.open_path(build_dir);
 		if (!(await build_output.dir.exists(build_output.path))) {
 			throw new TaskError(`Directory to deploy does not exist after building: ${build_dir}`);
 		}
@@ -345,7 +342,9 @@ export const task: Task<Args> = {
 		}
 		await Promise.all(
 			build_entries.map((name) =>
-				fs_copy_path(join(build_dir, name), join(resolved_deploy_dir, name), { recursive: true })
+				fs_paths.copy_path(join(build_dir, name), join(resolved_deploy_dir, name), {
+					recursive: true
+				})
 			)
 		);
 
@@ -419,16 +418,19 @@ export const task: Task<Args> = {
  * the project, `$HOME`, or an ancestor of either, or a directory inside the project
  * other than one strictly beneath `.gro/`, where the project's own files are.
  */
-const open_deploy_dir = async (resolved_deploy_dir: string): Promise<FsOpenedPath> => {
-	const opened = await fs_open_path(resolved_deploy_dir);
+const open_deploy_dir = async (
+	fs_paths: FsPaths,
+	resolved_deploy_dir: string
+): Promise<FsOpenedPath> => {
+	const opened = await fs_paths.open_path(resolved_deploy_dir);
 	const real = to_opened_real_path(opened);
-	if (is_protected_dir(real, await fs_protected_dirs())) {
+	if (is_protected_dir(real, await to_protected_dirs(fs_paths.project.path))) {
 		throw new TaskError(
 			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
 				` ${PROTECTED_DIRS_TEXT}`
 		);
 	}
-	if (opened.dir === fs.project) {
+	if (opened.dir === fs_paths.project) {
 		const segments = opened.path.split('/').filter(Boolean);
 		if (segments[0] !== GRO_DIRNAME || segments.length < 2) {
 			throw new TaskError(

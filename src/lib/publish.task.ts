@@ -166,7 +166,7 @@ export const task: Task<Args> = {
 			}
 
 			if (!preserve_changelog) {
-				const token = await load_from_env('SECRET_GITHUB_API_TOKEN');
+				const token = await load_from_env(fs_paths, 'SECRET_GITHUB_API_TOKEN');
 				if (!token) {
 					log.warn(
 						'the env var SECRET_GITHUB_API_TOKEN was not found in the env or `.env`,' +
@@ -178,6 +178,7 @@ export const task: Task<Args> = {
 					parsed_repo_url.owner,
 					parsed_repo_url.repo,
 					globalThis.fetch,
+					fs_paths,
 					changelog,
 					token,
 					log

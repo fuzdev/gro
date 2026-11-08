@@ -17,7 +17,7 @@ import {
 
 `create_fs_paths` on a sandbox project, with the cwd left where it is,
 so a relative path that reached the cwd would show as a path outside the project.
-The boundary's resolution itself is tested through `internal/fs_path.ts`.
+The boundary's resolution itself is tested in `internal/fs_boundary.test.ts`.
 
 */
 

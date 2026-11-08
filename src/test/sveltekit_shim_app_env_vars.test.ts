@@ -64,13 +64,20 @@ describe('resolve_env_vars', () => {
 });
 
 const ENV_MODULE_SPECIFIER = 'file:///gro/env.ts';
+const FS_MODULE_SPECIFIER = 'file:///gro/fs.ts';
+const FS_PATHS_MODULE_SPECIFIER = 'file:///gro/fs_paths.ts';
+const specifiers = {
+	env_module_specifier: ENV_MODULE_SPECIFIER,
+	fs_module_specifier: FS_MODULE_SPECIFIER,
+	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER
+};
 
 describe('render_sveltekit_shim_app_env_vars', () => {
 	test('renders an empty module without declarations', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'public',
 			entry: null,
-			env_module_specifier: ENV_MODULE_SPECIFIER,
+			...specifiers,
 			dev: true
 		});
 		expect(source).toContain('export {};');
@@ -80,11 +87,11 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'public',
 			entry: { id: '/project/src/env.ts', variables: { A: { public: true }, B: {} } },
-			env_module_specifier: ENV_MODULE_SPECIFIER,
+			...specifiers,
 			dev: true
 		});
 		expect(source).toContain('export const A = __gro_env.A;');
-		expect(source).toContain('__gro_load_env({"dev":true})');
+		expect(source).toContain('__gro_load_env(__gro_create_fs_paths(__gro_fs), {"dev":true})');
 		expect(source).not.toContain('export const B');
 	});
 
@@ -92,12 +99,30 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
 			entry: { id: '/project/src/env.ts', variables: { A: {} } },
-			env_module_specifier: ENV_MODULE_SPECIFIER,
+			...specifiers,
 			dev: false,
 			env_dir: '/project'
 		});
-		expect(source).toContain('__gro_load_env({"dev":false,"env_dir":"/project"})');
+		expect(source).toContain(
+			'__gro_load_env(__gro_create_fs_paths(__gro_fs), {"dev":false,"env_dir":"/project"})'
+		);
 		expect(source).toContain(`} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`);
+	});
+
+	// the rendered module is the root of its env read, its fs reach visible in its imports
+	test('imports the fs host module and builds the `FsPaths` it reads through', () => {
+		const source = render_sveltekit_shim_app_env_vars({
+			visibility: 'private',
+			entry: { id: '/project/src/env.ts', variables: { A: {} } },
+			...specifiers,
+			dev: true
+		});
+		expect(source).toContain(
+			`import {fs as __gro_fs} from ${JSON.stringify(FS_MODULE_SPECIFIER)};`
+		);
+		expect(source).toContain(
+			`import {create_fs_paths as __gro_create_fs_paths} from ${JSON.stringify(FS_PATHS_MODULE_SPECIFIER)};`
+		);
 	});
 
 	// declared names can't collide with the module's own bindings
@@ -105,7 +130,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
 			entry: { id: '/project/src/env.ts', variables: { env: {}, variables: {}, load_env: {} } },
-			env_module_specifier: ENV_MODULE_SPECIFIER,
+			...specifiers,
 			dev: true
 		});
 		expect(source).toContain('export const env = __gro_env.env;');

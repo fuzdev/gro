@@ -2,7 +2,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
 import { github_fetch_commit_prs } from './github.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * Updates a changelog produced by `@changesets/changelog-git` with better links and formatting.
@@ -10,18 +10,21 @@ import { fs_open_path } from './internal/fs_path.ts';
  * This may be better implemented as a standalone dependency
  * as an alternative to `@changesets/changelog-git`.
  * @param fetch - the `fetch` the GitHub API requests go through, handed in by the caller
+ * @param fs_paths - reads and writes the changelog, handed in by the caller
+ * @param path - absolute, or relative to the `fs_paths` project
  * @returns boolean indicating if the changelog changed
  */
 export const update_changelog = async (
 	owner: string,
 	repo: string,
 	fetch: typeof globalThis.fetch,
+	fs_paths: FsPaths,
 	path = 'CHANGELOG.md',
 	token?: string,
 	log?: Logger,
 	cache: FetchValueCache = new Map() // include a default cache to efficiently handle multiple changesets per commit
 ): Promise<boolean> => {
-	const changelog = await fs_open_path(path);
+	const changelog = await fs_paths.open_path(path);
 	const contents = await changelog.dir.read_text(changelog.path);
 	const parsed = parse_changelog(contents);
 	const mapped = await map_changelog(parsed, owner, repo, fetch, token, log, cache);

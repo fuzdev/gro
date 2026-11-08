@@ -8,6 +8,10 @@ import {
 	rewrite_svelte_ts_imports,
 	rewrite_dist_imports
 } from '#lib/dist_rewrite_imports.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
+
+const fs_paths = create_fs_paths(fs);
 
 describe('rewrite_relative_ts_imports', () => {
 	test('rewrites relative `.ts` specifiers to `.js`', () => {
@@ -212,7 +216,7 @@ describe('rewrite_dist_imports', () => {
 		await writeFile(join(dir, 'a.d.ts.map'), `{"sources":["../src/lib/a.ts"]}\n`);
 		await writeFile(join(dir, 'nested', 'c.d.ts'), `export * from '../a.ts';\n`);
 
-		const result = await rewrite_dist_imports(dir);
+		const result = await rewrite_dist_imports(fs_paths, dir);
 
 		assert.equal(await readFile(join(dir, 'a.d.ts'), 'utf8'), `import type {B} from './b.js';\n`);
 		assert.equal(
@@ -251,7 +255,7 @@ describe('rewrite_dist_imports', () => {
 	});
 
 	test('returns zero rewrites for a missing directory', async () => {
-		const result = await rewrite_dist_imports(join(dir, 'does-not-exist'));
+		const result = await rewrite_dist_imports(fs_paths, join(dir, 'does-not-exist'));
 		assert.equal(result.scanned, 0);
 		assert.equal(result.rewritten, 0);
 	});

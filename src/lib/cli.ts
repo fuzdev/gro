@@ -13,8 +13,10 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { styleText as st } from 'node:util';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
-// TODO: take `FsPaths` with the spawn host module, from the composition roots that find CLIs
-import { fs_open_path } from './internal/fs_path.ts';
+// TODO: take `FsPaths` with the spawn host module, from the composition roots that find CLIs,
+// rather than import the fs host module here, the one library module that does
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 // TODO maybe upstream to fuz_util?
 
@@ -32,7 +34,7 @@ export const find_cli = async (
 ): Promise<Cli | null> => {
 	const final_cwd = typeof cwd === 'string' ? cwd : fileURLToPath(cwd);
 	const local_id = join(final_cwd, NODE_MODULES_DIRNAME, `.bin/${name}`);
-	const local = await fs_open_path(local_id);
+	const local = await create_fs_paths(fs).open_path(local_id);
 	if (await local.dir.exists(local.path)) {
 		return { name, id: local_id, kind: 'local' };
 	}

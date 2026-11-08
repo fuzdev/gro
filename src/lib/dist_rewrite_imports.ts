@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { fs_search } from './fs_search.ts';
-import { fs_open_dir_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /*
 
@@ -93,21 +93,24 @@ const DIST_REWRITE_CONCURRENCY = 16;
  * `.js` runtime file and `.d.ts` declaration file (whole-file) and `.svelte` file
  * (`<script>` blocks only). Source maps (`*.map`) and symlinks are skipped.
  *
- * @param dist_dir - the packaged output directory; defaults to `dist`
+ * @param fs_paths - opens `dist_dir`, its symlinks followed, beneath which the files are rewritten
+ * @param dist_dir - the packaged output directory, absolute or relative to the `fs_paths` project;
+ * defaults to `dist`
  * @returns counts of files scanned and rewritten
  */
 export const rewrite_dist_imports = async (
+	fs_paths: FsPaths,
 	dist_dir: string = SVELTEKIT_DIST_DIRNAME,
 	log?: Logger
 ): Promise<RewriteDistImportsResult> => {
 	// opened once, the found files read and written beneath it
-	const dist = await fs_open_dir_path(dist_dir);
+	const dist = await fs_paths.open_dir_path(dist_dir);
 	if (dist === null) return { scanned: 0, rewritten: 0 };
 	// regular files only, a symlink never followed into what it points at
 	const found = (
 		await fs_search(dist.dir, {
 			path: dist.path,
-			id_dir: resolve(dist_dir),
+			id_dir: resolve(fs_paths.project.path, dist_dir),
 			file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
 		})
 	).filter((f) => f.kind === 'file');

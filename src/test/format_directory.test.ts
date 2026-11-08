@@ -13,8 +13,13 @@ import { join, resolve } from 'node:path';
 
 import { format_directory, read_format_ignore } from '#lib/format_directory.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
+
+// over the cwd, as `gro format` builds it, the tests' paths absolute in a temp dir
+const fs_paths = create_fs_paths(fs);
 
 let root: string;
 
@@ -35,7 +40,7 @@ afterEach(() => {
 });
 
 test('no ignore file skips nothing', async () => {
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	expect(is_ignored(resolve(root, 'notes.md'))).toBe(false);
 	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
@@ -45,7 +50,7 @@ test('anchored and non-anchored patterns match absolute ids', async () => {
 		join(root, '.formatignore'),
 		'# comment\nsrc/test/fixtures/generated/**\nsrc/test/fixtures/samples/sample_*.*\n\n*.md\n'
 	);
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
 	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_b.svelte'))).toBe(true);
 	expect(is_ignored(resolve(root, 'src/test/fixtures/generated/out.ts'))).toBe(true);
@@ -58,7 +63,7 @@ test('anchored and non-anchored patterns match absolute ids', async () => {
 
 test('a directory pattern skips everything beneath it, and a negation re-includes', async () => {
 	writeFileSync(join(root, '.formatignore'), 'fixtures/\n*.ts\n!keep.ts\n');
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_b.svelte'))).toBe(true);
 	expect(is_ignored(resolve(root, 'src/lib/other.ts'))).toBe(true);
 	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
@@ -66,20 +71,20 @@ test('a directory pattern skips everything beneath it, and a negation re-include
 
 test('a file outside the root is never ignored', async () => {
 	writeFileSync(join(root, '.formatignore'), '*.ts\n');
-	const is_ignored = await read_format_ignore(join(root, 'src'));
+	const is_ignored = await read_format_ignore(fs_paths, join(root, 'src'));
 	expect(is_ignored(resolve(root, 'outside.ts'))).toBe(false);
 });
 
 test('a blank/comment-only .formatignore skips nothing', async () => {
 	writeFileSync(join(root, '.formatignore'), '# only a comment\n\n');
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	expect(is_ignored(resolve(root, 'notes.md'))).toBe(false);
 });
 
 test('a .formatignore shadows a sibling .prettierignore, as tsv reads them', async () => {
 	writeFileSync(join(root, '.formatignore'), 'src/test/fixtures/samples/sample_*.*\n');
 	writeFileSync(join(root, '.prettierignore'), 'src/test/fixtures/generated/**\n');
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	// from .formatignore
 	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
 	// the shadowed .prettierignore is never read
@@ -89,7 +94,7 @@ test('a .formatignore shadows a sibling .prettierignore, as tsv reads them', asy
 
 test('.prettierignore alone (no .formatignore) is respected', async () => {
 	writeFileSync(join(root, '.prettierignore'), 'src/test/fixtures/samples/sample_*.*\n');
-	const is_ignored = await read_format_ignore(root);
+	const is_ignored = await read_format_ignore(fs_paths, root);
 	expect(is_ignored(resolve(root, 'src/test/fixtures/samples/sample_a.ts'))).toBe(true);
 	expect(is_ignored(resolve(root, 'src/lib/keep.ts'))).toBe(false);
 });
@@ -100,7 +105,7 @@ test('format_directory searches a project under a dot-directory', async () => {
 	mkdirSync(join(dir, 'src/.hidden'), { recursive: true });
 	writeFileSync(join(dir, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(dir, 'src/.hidden/b.ts'), 'const  b=1\n');
-	const result = await format_directory({
+	const result = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(dir, 'src'),
 		check: true,
@@ -120,7 +125,7 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 	writeFileSync(join(dir, 'node_modules/x/c.ts'), 'const  c=1\n');
 	const { search_filters } = create_empty_gro_config();
 	const format = (patterns: Array<string>) =>
-		format_directory({
+		format_directory(fs_paths, {
 			log: create_mock_logger(),
 			dir: join(dir, 'src'),
 			check: true,
@@ -149,7 +154,7 @@ test('format_directory finds files outside the root under a dot-directory, swept
 	writeFileSync(join(other, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(other, 'src/.hidden/b.ts'), 'const  b=1\n');
 	const { search_filters } = create_empty_gro_config();
-	const swept = await format_directory({
+	const swept = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(other, 'src'),
 		check: true,
@@ -158,7 +163,7 @@ test('format_directory finds files outside the root under a dot-directory, swept
 	});
 	expect(swept.formatted).toEqual([join(other, 'src/lib/a.ts')]);
 	const format = (patterns: Array<string>) =>
-		format_directory({
+		format_directory(fs_paths, {
 			log: create_mock_logger(),
 			dir: join(dir, 'src'),
 			check: true,
@@ -188,7 +193,7 @@ test('format_directory filters relative to the root, whichever directory it swee
 	writeFileSync(join(root, 'src/lib/fixtures/b.ts'), 'const  b=1\n');
 	const filter = (p: string) => !p.startsWith('src/lib/fixtures') && !p.startsWith('src/test');
 	for (const dir of ['src', 'src/lib']) {
-		const result = await format_directory({
+		const result = await format_directory(fs_paths, {
 			log: create_mock_logger(),
 			dir: join(root, dir),
 			check: true,
@@ -205,7 +210,7 @@ test('format_directory reads the ignore file from its root', async () => {
 	writeFileSync(join(dir, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(dir, 'src/lib/b.ts'), 'const  b=1\n');
 	writeFileSync(join(dir, '.formatignore'), 'src/lib/b.ts\n');
-	const result = await format_directory({
+	const result = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(dir, 'src'),
 		check: true,
@@ -219,7 +224,7 @@ test('format_directory matches a glob without `**` only at its depth', async () 
 	writeFileSync(join(root, 'src/a.ts'), 'const  a=1\n');
 	writeFileSync(join(root, 'src/lib/b.ts'), 'const  b=1\n');
 	const format = (patterns: Array<string>) =>
-		format_directory({
+		format_directory(fs_paths, {
 			log: create_mock_logger(),
 			dir: join(root, 'src'),
 			check: true,
@@ -243,7 +248,12 @@ test('a sweep skips symlinks and acts on regular files only', async () => {
 	symlinkSync('real/real.ts', join(root, 'src/lib/relative.ts'));
 	symlinkSync(join(root, 'outside.ts'), join(root, 'src/lib/absolute.ts'));
 	const format = (patterns?: Array<string>) =>
-		format_directory({ log: create_mock_logger(), dir: join(root, 'src/lib'), patterns, root });
+		format_directory(fs_paths, {
+			log: create_mock_logger(),
+			dir: join(root, 'src/lib'),
+			patterns,
+			root
+		});
 	const swept = await format();
 	expect(swept.ok).toBe(true);
 	expect(swept.formatted).toEqual([join(root, 'src/lib/real/real.ts')]);
@@ -256,7 +266,7 @@ test('a sweep skips symlinks and acts on regular files only', async () => {
 test('a file named explicitly is followed through a symlink', async () => {
 	writeFileSync(join(root, 'outside.ts'), 'const  o=1\n');
 	symlinkSync(join(root, 'outside.ts'), join(root, 'src/lib/absolute.ts'));
-	const result = await format_directory({
+	const result = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(root, 'src'),
 		patterns: [join(root, 'src/lib/absolute.ts')],
@@ -271,7 +281,7 @@ test('a root file that is a symlink is skipped, never followed', async () => {
 	writeFileSync(join(root, 'outside.ts'), 'const  o=1\n');
 	writeFileSync(join(root, 'vite.config.ts'), 'const  v=1\n');
 	symlinkSync(join(root, 'outside.ts'), join(root, 'gro.config.ts'));
-	const result = await format_directory({
+	const result = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(root, 'src/'),
 		root
@@ -290,7 +300,7 @@ test('an existing file is never a glob, even with glob syntax in its name', asyn
 	// what `[slug]` would match as a character class
 	writeFileSync(join(root, 'src/routes/s/+page.ts'), 'const  s=1\n');
 	const format = (patterns: Array<string>) =>
-		format_directory({
+		format_directory(fs_paths, {
 			log: create_mock_logger(),
 			dir: join(root, 'src'),
 			check: true,

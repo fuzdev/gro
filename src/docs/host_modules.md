@@ -98,23 +98,31 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
   Gro's own code reaches every path it names through it, its well-known paths like `build/` and `.gro/` too,
   and resolves beneath a handle only what it got from that handle, like a listing's entries,
   so confinement applies to those.
-  `gro build`, `gro clean`, and `gro deploy`'s `.gro/` pass theirs down to the build cache and the cleaning.
-  `gro gen`, the gen plugin, and Gro's genfiles pass theirs to gen, its input paths, and the task registry.
-  The CLI's entry passes its own to the config's loading, the check for a needed `svelte-kit sync`, and `invoke_task`,
+  Every library module that reaches the filesystem takes an `FsPaths` or a narrow handle as a parameter,
+  and only roots import `fs` and build one: the builtin tasks, the CLI's entry (`invoke.ts`),
+  genfiles, the default config, and the plugin modules like `gro_plugin_sveltekit_library`.
+  The CLI's entry passes its own to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context.
-  The default config and `gro_plugin_sveltekit_library` are roots that build their own,
-  as do the tasks that read or write `package.json`, like `gro sync`, `gro check`, and `gro publish`,
-  passing it to `package_json.ts`, `sveltekit_helpers.ts`, and the install's check of Gro's installed versions.
+  The rendered `$app/env/public` and `$app/env/private` modules are roots too,
+  importing `fs` and `create_fs_paths` to read the `.env` files when they run,
+  so a module importing `$app/env/*` shows that read in its import graph,
+  while the loader that renders them never loads the host module on its hooks thread.
   Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
-  Gro's other library modules still open paths themselves, through an internal copy of the boundary
-  bound to the cwd.
+  A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
+  like `library_load_from_repo(fs_paths, repo_dir)`,
+  since a repo's `package.json`, `tsconfig.json`, or `.gro/` can be a symlink out of it,
+  which a handle on the repo would refuse.
   Where a directory's files come from its own listing or search, Gro opens the directory once
   and reads and writes them beneath its handle.
-- Gro's library and task code reaches the filesystem only through the fs host module,
-  so it can run unchanged where the module is a builtin, with one exception:
-  the boundary's machinery (`internal/fs_boundary.ts`) reads real paths and symlinks from `node:fs` itself,
+- These library modules reach further than the parameters they're given, until the ops they need exist.
+  `cli.ts` imports `fs` itself for `find_cli`'s check of a local `node_modules/.bin`,
+  since its callers, through `spawn_cli`, are library code too;
+  it takes an `FsPaths` with the spawn host module, from the roots that find CLIs.
+  And the boundary's machinery (`internal/fs_boundary.ts`) reads real paths and symlinks from `node:fs` itself,
   so an `FsPaths` reaches the filesystem beyond the `Fs` it's built from until that read is an op on the root,
   beside `open_dir`, reached through the `Fs` passed in.
+- Gro's library and task code otherwise reaches the filesystem only through the fs host module,
+  so it can run unchanged where the module is a builtin.
   The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
   (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),

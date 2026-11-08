@@ -7,10 +7,14 @@ import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
 import { update_changelog } from '#lib/changelog.ts';
 import { load_from_env } from '#lib/env.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
 const log = new Logger();
 
-const token = await load_from_env('SECRET_GITHUB_API_TOKEN');
+const fs_paths = create_fs_paths(fs);
+
+const token = await load_from_env(fs_paths, 'SECRET_GITHUB_API_TOKEN');
 if (!token) {
 	log.warn('the env var SECRET_GITHUB_API_TOKEN was not found, so API calls with be unauthorized');
 }
@@ -35,6 +39,7 @@ test('update_changelog', async () => {
 		() => {
 			throw Error('the cache answers every request, so nothing fetches');
 		},
+		fs_paths,
 		changelog_path,
 		token,
 		log,

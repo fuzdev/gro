@@ -46,7 +46,7 @@ const to_rewritten_dir = async (
 		svelte_package_options: output === undefined ? undefined : { output }
 	}).setup!(ctx);
 	expect(vi.mocked(rewrite_dist_imports)).toHaveBeenCalledTimes(1);
-	return vi.mocked(rewrite_dist_imports).mock.calls[0]![0]!;
+	return vi.mocked(rewrite_dist_imports).mock.calls[0]![1]!;
 };
 
 describe('gro_plugin_sveltekit_library forwarded output', () => {

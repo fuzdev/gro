@@ -415,8 +415,10 @@ Key utilities:
   `fs_paths.ts`, `FsPaths`, the boundary where a path from outside (a CLI arg, config, a
   well-known path) becomes a handle, its symlinks followed, built at a composition root with
   `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
-  `is_protected_dir` guarding every removal; `internal/fs_path.ts` binds the same ops to the
-  cwd (`fs_open_path` and the rest) for the library modules not yet handed one;
+  `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
+  handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
+  plugin modules, the rendered `$app/env/*` shims) import `fs` - `cli.ts`'s `find_cli` is
+  the one library exception, until the spawn host module;
   Gro's library and task code uses no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;
   `src/test/host_module_declarations.test.ts`

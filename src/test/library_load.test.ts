@@ -39,6 +39,9 @@ import {
 } from '#lib/library_load.ts';
 import { SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
 import { fs, type FsDir } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
+
+const fs_paths = create_fs_paths(fs);
 
 const mocked_commit = vi.mocked(git_current_commit_hash);
 const mocked_workspace = vi.mocked(git_check_workspace);
@@ -172,7 +175,7 @@ describe('library_cache_read', () => {
 	test('returns the cached result on a hash match', async () => {
 		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toEqual(fake_result);
 	});
 
@@ -187,7 +190,7 @@ describe('library_cache_read', () => {
 			})
 		);
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -205,7 +208,7 @@ describe('library_cache_read', () => {
 			})
 		);
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -215,7 +218,7 @@ describe('library_cache_read', () => {
 			JSON.stringify({ hash: 'abc123', version: LIBRARY_CACHE_VERSION, ...fake_result })
 		);
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -224,14 +227,14 @@ describe('library_cache_read', () => {
 	test('returns null for a legacy cache with a matching hash but no version', async () => {
 		await write(LIBRARY_CACHE_PATH, JSON.stringify({ hash: 'abc123', library_json: fake_library }));
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
 	test('returns null without logging a bad read when the cache file is absent', async () => {
 		const log = create_mock_log();
 
-		const result = await library_cache_read(cache_path(), 'abc123', log);
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123', log);
 		expect(result).toBeNull();
 		expect(log.debug).not.toHaveBeenCalled();
 	});
@@ -239,14 +242,14 @@ describe('library_cache_read', () => {
 	test('returns null when the cached hash is stale', async () => {
 		await write(LIBRARY_CACHE_PATH, JSON.stringify({ hash: 'old', ...fake_result }));
 
-		const result = await library_cache_read(cache_path(), 'new');
+		const result = await library_cache_read(fs_paths, cache_path(), 'new');
 		expect(result).toBeNull();
 	});
 
 	test('returns null when the cache is corrupt (invalid JSON)', async () => {
 		await write(LIBRARY_CACHE_PATH, 'not json {');
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -254,7 +257,7 @@ describe('library_cache_read', () => {
 		// a directory where the cache file should be, which reading fails on
 		await repo.mkdir(LIBRARY_CACHE_PATH, { recursive: true });
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toBeNull();
 	});
 
@@ -263,7 +266,7 @@ describe('library_cache_read', () => {
 		await temp.write('shared/library.json', fresh_cache_contents);
 		symlinkSync(join(temp.path, 'shared'), join(repo_dir, '.gro'));
 
-		const result = await library_cache_read(cache_path(), 'abc123');
+		const result = await library_cache_read(fs_paths, cache_path(), 'abc123');
 		expect(result).toEqual(fake_result);
 	});
 });
@@ -274,7 +277,7 @@ describe('library_cache_write', () => {
 	});
 
 	test('creates the parent dir and writes the keyed cache', async () => {
-		await library_cache_write(cache_path(), 'abc123', fake_result);
+		await library_cache_write(fs_paths, cache_path(), 'abc123', fake_result);
 
 		expect(await read_cache()).toEqual({
 			hash: 'abc123',
@@ -290,7 +293,7 @@ describe('library_cache_write', () => {
 		const log = { warn: vi.fn(), debug: vi.fn() } as any;
 
 		await expect(
-			library_cache_write(cache_path(), 'abc123', fake_result, log)
+			library_cache_write(fs_paths, cache_path(), 'abc123', fake_result, log)
 		).resolves.toBeUndefined();
 		expect(log.warn).toHaveBeenCalled();
 	});
@@ -299,7 +302,9 @@ describe('library_cache_write', () => {
 		// a file where the `.gro` directory should be
 		await repo.write('.gro', '');
 
-		await expect(library_cache_write(cache_path(), 'abc123', fake_result)).resolves.toBeUndefined();
+		await expect(
+			library_cache_write(fs_paths, cache_path(), 'abc123', fake_result)
+		).resolves.toBeUndefined();
 		expect(await repo.read_text('.gro')).toBe('');
 	});
 });
@@ -319,7 +324,7 @@ describe('library_load_from_repo', () => {
 	test('returns the cached result without analyzing on a cache hit', async () => {
 		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		const result = await library_load_from_repo(repo_dir);
+		const result = await library_load_from_repo(fs_paths, repo_dir);
 		expect(result).toEqual(fake_result);
 		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
@@ -339,7 +344,7 @@ describe('library_load_from_repo', () => {
 			})
 		);
 
-		const result = await library_load_from_repo(repo_dir);
+		const result = await library_load_from_repo(fs_paths, repo_dir);
 		expect(mocked_analyze).toHaveBeenCalledWith({ projectRoot: repo_dir });
 		expect(result.library_json).toBe(fake_library);
 		expect((await read_cache()).svelte_docinfo_version).toBe(SVELTE_DOCINFO_VERSION);
@@ -349,7 +354,7 @@ describe('library_load_from_repo', () => {
 		await write('package.json', valid_package_json_contents);
 		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		await library_load_from_repo(repo_dir, { cache: false });
+		await library_load_from_repo(fs_paths, repo_dir, { cache: false });
 		expect(mocked_analyze).toHaveBeenCalled();
 		expect(await read_cache()).toEqual({
 			hash: 'abc123',
@@ -365,7 +370,7 @@ describe('library_load_from_repo', () => {
 		await write('package.json', valid_package_json_contents);
 		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 
-		await library_load_from_repo(repo_dir);
+		await library_load_from_repo(fs_paths, repo_dir);
 		expect(mocked_analyze).toHaveBeenCalled();
 		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
 	});
@@ -376,14 +381,14 @@ describe('library_load_from_repo', () => {
 		mocked_is_clean.mockReturnValue(false);
 		await write('package.json', JSON.stringify({ name: '', version: '1.0.0' }));
 
-		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/name/);
+		await expect(library_load_from_repo(fs_paths, repo_dir)).rejects.toThrow(/name/);
 	});
 
 	test('throws `SchemaError` on an invalid package.json, before analyzing', async () => {
 		mocked_is_clean.mockReturnValue(false);
 		await write('package.json', JSON.stringify({ name: 1, version: '1.0.0' }));
 
-		const error = await library_load_from_repo(repo_dir).catch((e: unknown) => e);
+		const error = await library_load_from_repo(fs_paths, repo_dir).catch((e: unknown) => e);
 		assert(error instanceof SchemaError);
 		assert.strictEqual(error.message, 'name: expected string, received number');
 		expect(mocked_analyze).not.toHaveBeenCalled();
@@ -409,7 +414,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 	// An unsynced tree would analyze on default compiler options (external types
 	// as `any`), so it's refused before analysis and nothing is cached.
 	test('an unsynced tree throws without analyzing or writing the cache', async () => {
-		const error = await library_load_from_repo(repo_dir).catch((e: unknown) => e);
+		const error = await library_load_from_repo(fs_paths, repo_dir).catch((e: unknown) => e);
 		assert(error instanceof Error);
 		expect(error.message).toContain(repo_dir + '/node_modules/$app/tsconfig.json');
 		expect(error.message).toMatch(/npm install/);
@@ -421,7 +426,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 	test('an unsynced dirty tree throws', async () => {
 		mocked_is_clean.mockReturnValue(false);
 
-		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/gro sync/);
+		await expect(library_load_from_repo(fs_paths, repo_dir)).rejects.toThrow(/gro sync/);
 		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(await read_cache()).toBeNull();
 	});
@@ -431,7 +436,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		await write(LIBRARY_CACHE_PATH, fresh_cache_contents);
 		const log = create_mock_log();
 
-		const result = await library_load_from_repo(repo_dir, { log });
+		const result = await library_load_from_repo(fs_paths, repo_dir, { log });
 		expect(result).toEqual(fake_result);
 		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(await repo.read_text(LIBRARY_CACHE_PATH)).toBe(fresh_cache_contents);
@@ -439,7 +444,9 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 	});
 
 	test('an unsynced tree throws under `cache: false` too', async () => {
-		await expect(library_load_from_repo(repo_dir, { cache: false })).rejects.toThrow(/gro sync/);
+		await expect(library_load_from_repo(fs_paths, repo_dir, { cache: false })).rejects.toThrow(
+			/gro sync/
+		);
 		expect(mocked_analyze).not.toHaveBeenCalled();
 		expect(await read_cache()).toBeNull();
 	});
@@ -448,7 +455,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
 		const log = create_mock_log();
 
-		const result = await library_load_from_repo(repo_dir, { log });
+		const result = await library_load_from_repo(fs_paths, repo_dir, { log });
 		expect(result.library_json).toBe(fake_library);
 		expect(log.warn).not.toHaveBeenCalled();
 		expect(mocked_analyze).toHaveBeenCalled();
@@ -464,10 +471,10 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		symlinkSync('../package.shared.json', join(repo_dir, 'package.json'));
 
 		// the linked tsconfig extends `$app/tsconfig`, so the repo is unsynced until it's generated
-		await expect(library_load_from_repo(repo_dir)).rejects.toThrow(/gro sync/);
+		await expect(library_load_from_repo(fs_paths, repo_dir)).rejects.toThrow(/gro sync/);
 		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
 
-		await library_load_from_repo(repo_dir);
+		await library_load_from_repo(fs_paths, repo_dir);
 		expect(mocked_library_json_from_modules.mock.calls[0]![0]).toEqual({
 			name: 'linked',
 			version: '2.0.0'
@@ -477,7 +484,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 	test('a non-SvelteKit tsconfig analyzes and caches as before', async () => {
 		await write('tsconfig.json', '{"compilerOptions": {"strict": true}}');
 
-		await library_load_from_repo(repo_dir);
+		await library_load_from_repo(fs_paths, repo_dir);
 		expect(mocked_analyze).toHaveBeenCalled();
 		expect(await read_cache()).not.toBeNull();
 	});
@@ -487,7 +494,7 @@ describe('library_load_from_repo with a SvelteKit tsconfig', () => {
 		const log = create_mock_log();
 		const { child_log } = log;
 
-		await library_load_from_repo(repo_dir, { log });
+		await library_load_from_repo(fs_paths, repo_dir, { log });
 		expect(log.child).toHaveBeenCalledWith('repo');
 		const analysis_log = mocked_analyze.mock.calls[0]![0].log!;
 		analysis_log.info('progress');

@@ -14,7 +14,8 @@ export interface LoadEnvOptions {
 	 */
 	dev: boolean;
 	/**
-	 * The directory the env files are resolved against, defaults to the cwd.
+	 * The directory the env files are resolved against, absolute or relative to the project
+	 * of the `FsPaths` that reads them, defaults to the project.
 	 */
 	env_dir?: string;
 	/**

@@ -12,6 +12,8 @@ import {
 } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
+import type { FsPaths } from '#lib/fs_paths.ts';
+
 import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
@@ -21,6 +23,7 @@ import {
 
 /*
 
+The boundary's resolution, through `create_fs_paths(fs)`.
 Hermetic: the cwd moves to a sandbox project and the modules reload,
 so `fs.project` is the sandbox, and no destructive op can reach the repo.
 `process.chdir` needs Vitest's default `forks` pool.
@@ -31,13 +34,13 @@ let sandbox: FsSandbox;
 let project: string;
 let cwd: string;
 let fs: (typeof import('#lib/fs.ts'))['fs'];
-let fs_copy_path: (typeof import('#lib/internal/fs_path.ts'))['fs_copy_path'];
-let fs_empty_dir_path: (typeof import('#lib/internal/fs_path.ts'))['fs_empty_dir_path'];
-let fs_open_dir_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_dir_path'];
-let fs_open_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_path'];
-let fs_remove_path: (typeof import('#lib/internal/fs_path.ts'))['fs_remove_path'];
-let fs_search_path: (typeof import('#lib/internal/fs_path.ts'))['fs_search_path'];
-let fs_protected_dirs: (typeof import('#lib/internal/fs_path.ts'))['fs_protected_dirs'];
+let fs_copy_path: FsPaths['copy_path'];
+let fs_empty_dir_path: FsPaths['empty_dir_path'];
+let fs_open_dir_path: FsPaths['open_dir_path'];
+let fs_open_path: FsPaths['open_path'];
+let fs_remove_path: FsPaths['remove_path'];
+let fs_search_path: FsPaths['search_path'];
+let fs_protected_dirs: () => Promise<Array<string>>;
 let is_protected_dir: (typeof import('#lib/internal/fs_boundary.ts'))['is_protected_dir'];
 
 beforeEach(async () => {
@@ -52,15 +55,17 @@ beforeEach(async () => {
 	process.chdir(project);
 	vi.resetModules();
 	({ fs } = await import('#lib/fs.ts'));
+	const { create_fs_paths } = await import('#lib/fs_paths.ts');
 	({
-		fs_copy_path,
-		fs_empty_dir_path,
-		fs_open_dir_path,
-		fs_open_path,
-		fs_remove_path,
-		fs_search_path,
-		fs_protected_dirs
-	} = await import('#lib/internal/fs_path.ts'));
+		copy_path: fs_copy_path,
+		empty_dir_path: fs_empty_dir_path,
+		open_dir_path: fs_open_dir_path,
+		open_path: fs_open_path,
+		remove_path: fs_remove_path,
+		search_path: fs_search_path
+	} = create_fs_paths(fs));
+	const { to_protected_dirs } = await import('#lib/internal/fs_boundary.ts');
+	fs_protected_dirs = () => to_protected_dirs(fs.project.path);
 	({ is_protected_dir } = await import('#lib/internal/fs_boundary.ts'));
 	assert.strictEqual(fs.project.path, project);
 });
@@ -117,7 +122,7 @@ describe('is_protected_dir', () => {
 		}
 	});
 
-	test('`fs_protected_dirs` holds the project', async () => {
+	test('`to_protected_dirs` holds the project', async () => {
 		const dirs = await fs_protected_dirs();
 		assert.include(dirs, project);
 		assert.ok(is_protected_dir(project, dirs));
@@ -134,7 +139,7 @@ const with_project_link = async (
 	target: string,
 	fn: (link: string) => Promise<void>
 ): Promise<void> => {
-	const link = join('.gro', `fs_path_test_${process.pid}_${Math.random().toString(36).slice(2)}`);
+	const link = join('.gro', `fs_boundary_test_${process.pid}_${Math.random().toString(36).slice(2)}`);
 	mkdirSync(join(fs.project.path, '.gro'), { recursive: true });
 	symlinkSync(target, join(fs.project.path, link));
 	try {

@@ -50,7 +50,7 @@ export const gro_plugin_sveltekit_library = ({
 					svelte_package_options?.output ??
 					svelte_package_options?.o ??
 					SVELTEKIT_DIST_DIRNAME;
-				await rewrite_dist_imports(output_dir, log);
+				await rewrite_dist_imports(fs_paths, output_dir, log);
 			}
 		},
 		adapt: async ({ log, timings, config }) => {

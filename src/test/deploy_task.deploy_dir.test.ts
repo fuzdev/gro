@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 import { task as deploy_task } from '#lib/deploy.task.ts';
 import { GIT_DIRNAME } from '#lib/constants.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
 
 import {
 	create_mock_deploy_task_context,
@@ -41,10 +42,16 @@ vi.mock('@fuzdev/fuz_util/process.js', () => ({
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
-// spied, to see when the deploy dir is opened for emptying
-vi.mock('#lib/internal/fs_path.ts', async (import_original) => {
-	const actual = await import_original<typeof import('#lib/internal/fs_path.ts')>();
-	return { ...actual, fs_open_path: vi.fn(actual.fs_open_path) };
+// the task's `open_path` spied, to see when the deploy dir is opened for emptying
+vi.mock('#lib/fs_paths.ts', async (import_original) => {
+	const actual = await import_original<typeof import('#lib/fs_paths.ts')>();
+	return {
+		...actual,
+		create_fs_paths: vi.fn((fs: Parameters<typeof actual.create_fs_paths>[0]) => {
+			const fs_paths = actual.create_fs_paths(fs);
+			return { ...fs_paths, open_path: vi.fn(fs_paths.open_path) };
+		})
+	};
 });
 
 describe('deploy_task deploy directory operations', () => {
@@ -116,7 +123,7 @@ describe('deploy_task deploy directory operations', () => {
 		test('the deploy dir is opened for emptying after it is recreated', async () => {
 			const { git_remote_branch_exists } = vi.mocked(await import('@fuzdev/fuz_util/git.ts'));
 			const { remove, mkdir } = await get_mock_project();
-			const { fs_open_path } = vi.mocked(await import('#lib/internal/fs_path.ts'));
+			const { create_fs_paths } = vi.mocked(await import('#lib/fs_paths.ts'));
 			const { exists, list } = await get_mock_project();
 
 			// no remote target, so the existing deploy dir is removed, recreated, and cloned into
@@ -127,6 +134,9 @@ describe('deploy_task deploy directory operations', () => {
 
 			await deploy_task.run(ctx);
 
+			const fs_open_path = vi.mocked<FsPaths['open_path']>(
+				create_fs_paths.mock.results.at(-1)!.value.open_path
+			);
 			const deploy_dir = resolve('.gro/deploy');
 			const open_orders = fs_open_path.mock.calls
 				.map(([path], i) => (path === deploy_dir ? fs_open_path.mock.invocationCallOrder[i]! : 0))

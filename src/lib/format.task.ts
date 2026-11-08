@@ -2,6 +2,8 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { format_directory } from './format_directory.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 import { paths } from './paths.ts';
 import { TaskError, type Task } from './task.ts';
 
@@ -22,7 +24,7 @@ export const task: Task<Args> = {
 	run: async ({ args, log, config }) => {
 		const { _: patterns, check } = args;
 
-		const result = await format_directory({
+		const result = await format_directory(create_fs_paths(fs), {
 			log,
 			dir: paths.source,
 			check,

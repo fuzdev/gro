@@ -62,6 +62,9 @@ const dir = paths.root;
 const sibling_ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
 const to_sibling_url = (name: string): string => new URL(name + sibling_ext, import.meta.url).href;
 const env_module_url = to_sibling_url('env');
+// imported by the rendered `$app/env/*` shims when they run, never by the hooks
+const fs_module_url = to_sibling_url('fs');
+const fs_paths_module_url = to_sibling_url('fs_paths');
 /**
  * Set while the loader imports a project's `src/env.ts` for its declarations.
  * The hooks thread's own imports run through these hooks inside that async context,
@@ -132,6 +135,8 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 			visibility,
 			entry,
 			env_module_specifier: env_module_url,
+			fs_module_specifier: fs_module_url,
+			fs_paths_module_specifier: fs_paths_module_url,
 			dev,
 			env_dir
 		});

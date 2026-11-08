@@ -20,8 +20,7 @@ import {
 	TSCONFIG_FILENAME
 } from './constants.ts';
 import { sveltekit_tsconfig_is_unsynced } from './sveltekit_helpers.ts';
-// TODO: take handles from the tasks, the composition roots, instead of opening paths here
-import { cwd_fs_paths, fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 // the cache's filename in a repo's `.gro` directory
@@ -109,17 +108,19 @@ export const library_cache_key = async (repo_dir: string): Promise<string | null
  * (different `hash` or stamps), or unreadable/corrupt - signalling the caller
  * to re-analyze.
  *
+ * @param fs_paths - opens the cache file, following its symlinks
  * @param cache_path - absolute path to the cache file
  * @param key - the expected cache key (a clean git commit hash)
  * @returns the cached result, or `null` on any miss
  */
 export const library_cache_read = async (
+	fs_paths: FsPaths,
 	cache_path: string,
 	key: string,
 	log?: Logger
 ): Promise<LibraryLoadResult | null> => {
 	try {
-		const cache_file = await fs_open_path(cache_path);
+		const cache_file = await fs_paths.open_path(cache_path);
 		const contents = await cache_file.dir.read_text_if_exists(cache_file.path);
 		if (contents === null) return null;
 		const parsed: LibraryCache = JSON.parse(contents);
@@ -147,25 +148,27 @@ export const library_cache_read = async (
  * Best effort: caching is optional, so write failures are logged as a warning
  * and swallowed rather than thrown.
  *
+ * @param fs_paths - makes the cache's directory and writes the file, following their symlinks
  * @param cache_path - absolute path to the cache file
  * @param key - the cache key to store (a clean git commit hash)
  * @param result - the `{library_json, package_json}` to cache
  */
 export const library_cache_write = async (
+	fs_paths: FsPaths,
 	cache_path: string,
 	key: string,
 	result: LibraryLoadResult,
 	log?: Logger
 ): Promise<void> => {
 	try {
-		await gro_dir_ensure(cwd_fs_paths, dirname(cache_path));
+		await gro_dir_ensure(fs_paths, dirname(cache_path));
 		const data: LibraryCache = {
 			hash: key,
 			version: LIBRARY_CACHE_VERSION,
 			svelte_docinfo_version: SVELTE_DOCINFO_VERSION,
 			...result
 		};
-		const cache_file = await fs_open_path(cache_path);
+		const cache_file = await fs_paths.open_path(cache_path);
 		await cache_file.dir.write(cache_file.path, JSON.stringify(data, null, '\t') + '\n');
 		log?.debug('library cache written', st('dim', `(${cache_path})`));
 	} catch (error) {
@@ -195,6 +198,10 @@ export const library_cache_write = async (
  * labelled with the repo dir's name: its diagnostics as warnings and errors,
  * its progress at debug level.
  *
+ * The repo's files are read through `fs_paths` by path, not beneath a handle on the repo,
+ * so a `package.json`, `tsconfig.json`, or `.gro` symlinked from outside the repo is followed.
+ *
+ * @param fs_paths - reads the repo's files and the cache, from the caller's root
  * @param repo_dir - absolute path to the repo to analyze
  * @returns the repo's `LibraryLoadResult` (`library_json` + full `package_json`)
  * @throws Error if the repo extends `$app/tsconfig` without
@@ -202,6 +209,7 @@ export const library_cache_write = async (
  *   run `gro sync` in it
  */
 export const library_load_from_repo = async (
+	fs_paths: FsPaths,
 	repo_dir: string,
 	options?: LibraryLoadOptions
 ): Promise<LibraryLoadResult> => {
@@ -213,11 +221,11 @@ export const library_load_from_repo = async (
 
 	// Try the cache first. A `null` key (not a git repo, or a dirty tree) is never cacheable.
 	if (cache && key !== null) {
-		const cached = await library_cache_read(cache_path, key, log);
+		const cached = await library_cache_read(fs_paths, cache_path, key, log);
 		if (cached !== null) return cached;
 	}
 
-	if (await sveltekit_tsconfig_is_unsynced(cwd_fs_paths, repo_dir)) {
+	if (await sveltekit_tsconfig_is_unsynced(fs_paths, repo_dir)) {
 		throw Error(
 			`library_load_from_repo: ${join(repo_dir, TSCONFIG_FILENAME)} extends` +
 				` \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${join(repo_dir, SVELTEKIT_TSCONFIG_PATH)} is missing,` +
@@ -230,7 +238,7 @@ export const library_load_from_repo = async (
 
 	// Read and validate the repo's package.json directly (not the CWD's).
 	const package_json_path = join(repo_dir, 'package.json');
-	const package_json_file = await fs_open_path(package_json_path);
+	const package_json_file = await fs_paths.open_path(package_json_path);
 	const package_json_contents = await package_json_file.dir.read_text(package_json_file.path);
 	const package_json = s.parse_or_throw(PackageJson, JSON.parse(package_json_contents));
 	if (!package_json.name) {
@@ -258,7 +266,7 @@ export const library_load_from_repo = async (
 	// Cache the result (best effort). Skip when there's no usable key, e.g. not a
 	// git repo or a dirty working tree.
 	if (key !== null) {
-		await library_cache_write(cache_path, key, result, log);
+		await library_cache_write(fs_paths, cache_path, key, result, log);
 	}
 
 	return result;

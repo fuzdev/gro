@@ -10,7 +10,7 @@ import { paths, to_search_filters_relative } from './paths.ts';
 import type { FsDir } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { fs_search } from './fs_search.ts';
-import { fs_open_dir_path, fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * File extensions the format sweep collects. `json` is intentionally omitted
@@ -110,20 +110,19 @@ export interface FormatDirectoryOptions {
  *
  * This is separated from `./format_file` so modules that only need directory
  * traversal don't pull in the formatter (which loads the `tsv` native addon).
+ *
+ * @param fs_paths - opens the swept directories, the patterns' files, and the ignore files,
+ * each directory once, its files read and written beneath its handle
  */
-export const format_directory = async ({
-	log,
-	dir,
-	check = false,
-	filter,
-	patterns,
-	root = paths.root
-}: FormatDirectoryOptions): Promise<FormatDirectoryResult> => {
+export const format_directory = async (
+	fs_paths: FsPaths,
+	{ log, dir, check = false, filter, patterns, root = paths.root }: FormatDirectoryOptions
+): Promise<FormatDirectoryResult> => {
 	const [collected, is_ignored] = await Promise.all([
 		patterns?.length
-			? collect_glob_files(patterns, filter, root)
-			: collect_source_files(dir, filter, root),
-		read_format_ignore(root)
+			? collect_glob_files(fs_paths, patterns, filter, root)
+			: collect_source_files(fs_paths, dir, filter, root),
+		read_format_ignore(fs_paths, root)
 	]);
 	const files = collected.filter((file) => !is_ignored(file.id));
 
@@ -180,11 +179,16 @@ export type FormatIgnore = (id: string) => boolean;
  * a pattern with no `/` matches at any depth, a pattern with `/` is anchored to the root,
  * a directory pattern skips everything beneath it, and `!` re-includes. A file outside
  * the root is never skipped, and no ignore file skips nothing.
+ * @param fs_paths - opens the ignore files, their symlinks followed
+ * @param root - the project root, absolute or relative to the cwd
  * @throws `FsError` - when reading an ignore file fails other than by its absence
  */
-export const read_format_ignore = async (root: string): Promise<FormatIgnore> => {
+export const read_format_ignore = async (
+	fs_paths: FsPaths,
+	root: string
+): Promise<FormatIgnore> => {
 	const read = async (name: string): Promise<string | null> => {
-		const opened = await fs_open_path(join(root, name));
+		const opened = await fs_paths.open_path(resolve(root, name));
 		return opened.dir.read_text_if_exists(opened.path);
 	};
 	const stack = new IgnoreStack();
@@ -231,13 +235,14 @@ const to_glob_parts = (pattern: string): { base_dir: string; rest: Array<string>
  * regular files match, never a symlink.
  */
 const collect_glob_files = async (
+	fs_paths: FsPaths,
 	patterns: Array<string>,
 	filter: PathFilter | Array<PathFilter> | undefined,
 	root: string
 ): Promise<Array<FormatFile>> => {
 	const files: Map<string, FormatFile> = new Map();
 	for (const pattern of patterns) {
-		const literal = await open_file(pattern);
+		const literal = await open_file(fs_paths, pattern);
 		if (literal !== null) {
 			if (FORMATTABLE_MATCHER.test(literal.id) && !files.has(literal.id)) {
 				files.set(literal.id, literal);
@@ -246,7 +251,7 @@ const collect_glob_files = async (
 		}
 		if (!GLOB_MAGIC_MATCHER.test(pattern)) continue; // names no file
 		const { base_dir, rest } = to_glob_parts(pattern);
-		const opened = await fs_open_dir_path(base_dir);
+		const opened = await fs_paths.open_dir_path(base_dir);
 		if (opened === null) continue;
 		const matcher = resolve(pattern);
 		const unbounded = rest.some((segment) => segment.includes('**'));
@@ -273,10 +278,10 @@ const collect_glob_files = async (
  * Opens the file a path names, its symlinks followed,
  * or `null` when nothing or something other than a file is there.
  */
-const open_file = async (path: string): Promise<FormatFile | null> => {
+const open_file = async (fs_paths: FsPaths, path: string): Promise<FormatFile | null> => {
 	const id = resolve(path);
 	try {
-		const opened = await fs_open_path(id);
+		const opened = await fs_paths.open_path(id);
 		const info = await opened.dir.stat(opened.path);
 		return info?.kind === 'file' ? { id, ...opened } : null;
 	} catch (error) {
@@ -287,13 +292,14 @@ const open_file = async (path: string): Promise<FormatFile | null> => {
 };
 
 const collect_source_files = async (
+	fs_paths: FsPaths,
 	dir: string,
 	filter: PathFilter | Array<PathFilter> | undefined,
 	root: string
 ): Promise<Array<FormatFile>> => {
 	const files: Array<FormatFile> = [];
 	// opened once, the found files read and written beneath it
-	const opened = await fs_open_dir_path(dir);
+	const opened = await fs_paths.open_dir_path(resolve(dir));
 	if (opened !== null) {
 		const found = await fs_search(opened.dir, {
 			path: opened.path,
@@ -308,7 +314,7 @@ const collect_source_files = async (
 	}
 	if (dir === join(root, 'src/')) {
 		// entries of the root, never followed, so a symlinked root file is skipped like a sweep's
-		const root_dir = await fs_open_dir_path(root);
+		const root_dir = await fs_paths.open_dir_path(resolve(root));
 		if (root_dir !== null) {
 			const root_files = await Promise.all(
 				ROOT_FILES_DEFAULT.map(async (name): Promise<FormatFile | null> => {

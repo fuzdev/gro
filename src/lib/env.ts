@@ -1,6 +1,6 @@
 import type { EnvVarConfig } from '@sveltejs/kit/env';
 import dotenv from 'dotenv';
-import { resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import {
 	env_var_has_visibility,
@@ -8,24 +8,25 @@ import {
 	type EnvVisibility,
 	type LoadEnvOptions
 } from './env_declarations.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * Loads every env var from the env files plus the ambient env, later sources winning,
  * so the ambient env overrides the files.
  * A missing env file is skipped; one that can't be read throws.
+ * @param fs_paths - reads the env files, a relative `env_dir` or file resolved against its project
  * @returns all loaded vars, unfiltered - `resolve_env_vars` picks out the declared ones
  * @throws `FsError` - when reading an env file fails other than by its absence
  */
-export const load_env = async ({
-	dev,
-	env_dir,
-	env_files = to_default_env_files(dev),
-	ambient_env = process.env
-}: LoadEnvOptions): Promise<Record<string, string>> => {
+export const load_env = async (
+	fs_paths: FsPaths,
+	{ dev, env_dir, env_files = to_default_env_files(dev), ambient_env = process.env }: LoadEnvOptions
+): Promise<Record<string, string>> => {
 	const env: Record<string, string> = {};
 	const loaded_files = await Promise.all(
-		env_files.map((path) => load(env_dir === undefined ? path : resolve(env_dir, path)))
+		env_files.map((path) =>
+			load(fs_paths, env_dir === undefined || isAbsolute(path) ? path : join(env_dir, path))
+		)
 	);
 	for (const loaded of loaded_files) {
 		if (loaded) Object.assign(env, loaded);
@@ -48,24 +49,33 @@ export const to_default_env_files = (dev: boolean): Array<string> => {
 
 /**
  * Loads a single env value without merging it into `process.env`.
- * Searches `process.env`, then each of `paths` that exists, by default only the cwd's `.env` -
+ * Searches `process.env`, then each of `paths` that exists, by default only the project's `.env` -
  * never a parent directory's, so one directory's `.env` isn't a secret channel to every repo under it.
  * Empty strings are semantically the same as `undefined` for more ergonomic fallbacks.
+ * @param fs_paths - reads the env files, a relative path resolved against its project
+ * @param paths - absolute, or relative to the project
  * @throws `FsError` - when reading one of `paths` fails other than by its absence
  */
-export const load_from_env = async (key: string, paths = ['.env']): Promise<string | undefined> => {
+export const load_from_env = async (
+	fs_paths: FsPaths,
+	key: string,
+	paths = ['.env']
+): Promise<string | undefined> => {
 	let v = process.env[key];
 	if (v) return v;
 	for (const path of paths) {
-		const env = await load(path);
+		const env = await load(fs_paths, path);
 		v = env?.[key];
 		if (v) return v;
 	}
 	return undefined;
 };
 
-const load = async (path: string): Promise<Record<string, string> | undefined> => {
-	const opened = await fs_open_path(path);
+const load = async (
+	fs_paths: FsPaths,
+	path: string
+): Promise<Record<string, string> | undefined> => {
+	const opened = await fs_paths.open_path(path);
 	const loaded = await opened.dir.read_text_if_exists(opened.path);
 	return loaded === null ? undefined : dotenv.parse(loaded);
 };
