@@ -17,7 +17,8 @@ import { is_error_class_named } from './internal/error_class.ts';
  * without execute permission, or one the module refuses (`.bat`, `.cmd`, a format that's neither
  * `#!` nor ELF); `not_granted` is a name outside what the handle allows, or an environment
  * a narrowed root can't give; `launch_failed` is a pinned
- * program that couldn't start, its cause on `cause`.
+ * program that couldn't start, its cause on `cause`, including one that wasn't started because
+ * the call's `signal` had already aborted.
  */
 export type SpawnErrorKind = 'not_found' | 'not_executable' | 'not_granted' | 'launch_failed';
 

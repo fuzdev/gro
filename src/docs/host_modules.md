@@ -3,8 +3,7 @@
 > the imports that reach the OS, `fs` and `spawn` so far: how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs` and `spawn` exist as the Node implementation in Gro's npm package,
-> `spawn` with inherited and captured calls, not yet long-lived children;
+> **status**: `fs` and `spawn` exist as the Node implementation in Gro's npm package;
 > process, watch, and net are designed, not built.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
 > ([runtime](runtime.md#imports-or-globals) has the design).
@@ -81,6 +80,16 @@ const git = spawn.program('git', {pass_env: ['GIT_*', 'SSH_AUTH_SOCK']});
 const status = await git.out(['status', '--porcelain']);
 if (status.kind === 'exited' && status.code === 0) console.log(status.stdout);
 await git.run(['fetch'], {cwd: repo_dir}); // `repo_dir` an fs handle, stdio inherited
+
+const dev = await spawn.program('node_modules/.bin/vite').start(['dev']); // stdio inherited, a live child
+await dev.closed; // or `dev.kill()`, or `await using` to stop it when the scope ends
+
+const check = await spawn.program('node_modules/.bin/svelte-check').start([], {
+	stdio: ['inherit', 'pipe', 'pipe'],
+	timeout_ms: 300_000
+});
+for await (const chunk of check.stdout!) process.stdout.write(chunk);
+const result = await check.closed;
 ```
 
 - `spawn.program(name, options?)` makes a `SpawnProgram`, the capability to run one executable,
@@ -116,6 +125,48 @@ await git.run(['fetch'], {cwd: repo_dir}); // `repo_dir` an fs handle, stdio inh
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
   matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
   so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `spawn`.
+- `program.start(args, options?)` resolves to a `SpawnChild` once the child is running,
+  its stdio set per stream with `stdio`, one of `'inherit'`, `'pipe'`, `'ignore'` for all or three in order,
+  defaulting to `'inherit'`. A launch failure rejects with `launch_failed`, as for `run` and `out`.
+  Its `pid` is for display, and nothing in the module takes a pid.
+  `closed` resolves to the result, and never rejects.
+  `stdin` is a writer or `null`: `write` resolves `false` when the child closed its stdin or ended,
+  and `close` ends the stream.
+  `stdout` and `stderr` are `AsyncIterable<Uint8Array>` or `null`, read once:
+  a second iteration is a `TypeError`, and leaving a `for await` early discards the rest while the child keeps running.
+  Each chunk is a plain `Uint8Array` copy. A stream nobody reads buffers to a limit and pauses,
+  so a child blocks once its pipe fills, as with any pipe nobody reads.
+- `child.kill(signal?)` sends a signal by name from a short allow-list, `SIGTERM` by default,
+  and any other name or a number is a `TypeError`.
+  It sends once per call, so `SIGTERM` then `SIGKILL` works,
+  and returns `false` once the child has ended, sending nothing, so it can't reach a reused pid.
+  Disposing the child (`await using`) stops it, `SIGTERM` then `SIGKILL` after a grace period, and waits for `closed`.
+- `timeout_ms`, a positive safe integer of at most `2147483647`, and `signal`, an `AbortSignal`,
+  stop a call's child on `run`, `out`, and `start`: `SIGTERM`, then `SIGKILL` after a grace period.
+  The result is of kind `timed_out` or `aborted`, with the `code` or `signal` the child then ended by,
+  the other `null`, so a child that exits 0 on `SIGTERM` isn't mistaken for one that finished,
+  and a call never rejects for it. A `signal` already aborted when the call is made starts nothing
+  and throws `launch_failed`, its reason on `cause`, since a result would claim a child ran.
+- A child with no inherited stream leads its own process group, and `timeout_ms`, `signal`, `kill`, and `out`'s cap reach the group,
+  so a stop or a kill sent while it runs reaches what it left in the background, and a stop's `SIGKILL`
+  still reaches the group after the leader exits. `out`'s child always leads one.
+  Grouping is a new session (`setsid`), which drops the controlling terminal,
+  so a child with an inherited stream stays in the terminal's session and foreground group,
+  where `/dev/tty` prompts and Ctrl-C still reach it, and is stopped by pid alone.
+- After the direct child exits, a call waits a bounded time for its pipes to close, then kills the group, if it leads one,
+  and stops reading, so a background process still holding a pipe can't hang the call.
+  `out` reports that with `truncated: true`, since output may be missing from the end.
+  A background process that redirected its pipes holds nothing the call waits on,
+  so unless a stop has begun, it outlives the call.
+  On a `SpawnChild`, a stream nobody reads ends at the bound, its buffered output still readable.
+  A reader behind at the bound keeps everything buffered and can read the rest:
+  the stream stays paused at its limit, the wait keeping an otherwise idle host alive only until the bound, and ends a bounded time after the reader catches up.
+- A child still running when the host exits is killed, `SIGKILL` to its group or its pid,
+  by one internal hook installed on the first spawn.
+  While a group-leading child runs, a signal that would end the host (`SIGINT`, `SIGTERM`, `SIGHUP`) kills its group first
+  and then takes its default action, unless something else listens for that signal, which then decides.
+  Another copy of this module doesn't count as something else: each copy kills its own groups, and the signal then takes its default action.
+  Nothing exposes the running children.
 - `.bat` and `.cmd` are refused, by the name and by the pin's real path. A call is argv only, never a shell string.
 - A name or argument must be a string without a NUL byte or a lone surrogate, else a `TypeError`,
   and a name can't be empty, while an argument can (`git commit -m ''`).
@@ -226,6 +277,11 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   so a method called on any other object throws `TypeError` and changing `path` changes nothing that runs.
 - Handles, their prototypes, `spawn`, results, and `SpawnError` with its prototype are frozen.
 - A result is a null-prototype record, so a polluted `Object.prototype.then` isn't consulted when it's awaited.
+- A `SpawnChild`, its stdin, its output iterables, and their iterators are frozen,
+  and hold their stream and child in private fields, so a reader can't reach the stream underneath.
+  Their prototypes are frozen and null-prototype, so none of them is thenable, even with a polluted `Object.prototype.then`,
+  and iterator results and chunks follow suit: null-prototype records and plain `Uint8Array`s, never a `Buffer`.
+- `kill` refuses anything but a name on its list, and a pid goes nowhere, so a `SpawnChild` can't signal another process.
 - A child's environment is a null-prototype object, since Node enumerates it with `for in`
   and `Object.prototype.X` would otherwise reach the child.
   The options to Node are null-prototype too, on top of Node's own null-prototype copy of them.
@@ -315,10 +371,25 @@ It documents each gap rather than weakening the API to match, and is a review si
   so a shell script dispatching on the symlink it was called through can't.
 - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`, since Node passes an empty signal name for one.
 - Intrinsics stay pollutable. The module copies at load the Node functions it calls,
-  `Array.isArray`, `Number.isSafeInteger`, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,
-  and its own objects are null-prototype, but code that patches `Array.prototype`, `String.prototype`,
+  `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,
+  and its own objects are null-prototype, but code that patches `Array.prototype`, `Set.prototype`, `String.prototype`,
   `Promise`, `Uint8Array`, `TextDecoder`, or `Error` after the module loads runs inside its ops.
 - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
+- Grouping needs Node's `detached`, a `setsid`, so a group-leading child has no controlling terminal:
+  a program prompting on `/dev/tty` under `out` can't, and fails rather than prompting.
+- A child with an inherited stream isn't grouped, so a stop or a kill reaches it by pid alone and anything it left in the background survives.
+  An inheriting child relies on the terminal for a signal that ends the host, so a `SIGTERM` sent only to the host leaves it running,
+  and the exit hook only sees exits Node runs, so a `SIGKILL` of the host leaves every child behind.
+- `SIGQUIT` isn't hooked, since a listener would move it to the event loop and a host stuck in synchronous code
+  could no longer be dumped by it, the signal's use, so a `SIGQUIT` of the host leaves a group running, as `SIGKILL` does.
+- The signal hook defers to any other listener on the signal, so a library that likewise stands down
+  when it sees another listener (`signal-exit`'s check) can defer to the hook while the hook defers to it, and the signal ends nothing.
+  A `once` listener prepended after a group started has removed itself before the hook counts it, so the hook decides.
+- Node can't read a signal's disposition, so while a group-leading child runs, a `SIGHUP` a `nohup` host would ignore
+  reaches the signal hook, kills the group, and ends the host.
+- A process group is signaled after its leader is reaped, by the drain bound, a stop's grace kill, and the exit and signal hooks,
+  so in the moment after the last member exits, the id could be reused by a process the kernel gave it after wrapping every pid.
+- The signal hook runs on the event loop, so a host stuck in synchronous code delays the kill of a group until it yields.
 - `spawn`, like `fs`, reads the project root when the module loads, so importing it throws
   in a removed or non-UTF-8 working directory.
 - Any module can import `node:child_process`, so a narrowed `spawn` bounds only the code that uses it.
@@ -346,4 +417,8 @@ What the runtime's builtin must do that the Node implementation can't:
 - Inherit only fds 0, 1, and 2 into the child, and confine it with the run's Landlock rules.
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel.
 - Report a child killed by any signal, real-time ones included, from `wait4`'s status.
+- Make a group-leading child's process group with `setpgid`, not a new session,
+  so a piped child keeps the controlling terminal, and guard it the way `guard_group` does,
+  with `kill_guarded_groups_on_signal` handling the signals that end the host.
+- Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
