@@ -25,6 +25,11 @@
 //! A move is measured the same either way, as a [`ratio_deviation`]: a 2%
 //! rise and a 2% drop are flagged alike.
 //!
+//! Above the rows, a note marks a compared record that ran another config of
+//! the suite, ran on another machine, or read another state of a checkout
+//! outside the suite's own (`checkouts`, naming each): a script read from a
+//! sibling checkout can move a row with the config unchanged.
+//!
 //! A line it can't read (not JSON, a version newer than this harness, a shape
 //! that doesn't parse) is named and skipped, never fatal; a line of an older
 //! version reads as a wall run with what it lacks left empty.
@@ -171,6 +176,16 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: Mode, records:
                 "  (the {label} record ran another config of the suite, so its rows may differ)"
             );
         }
+        if let Some(other) = other {
+            let moved = moved_checkouts(other, latest);
+            if !moved.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "  (the {label} record read another state of {}, so its rows may differ)",
+                    moved.join(", ")
+                );
+            }
+        }
         if let Some(other) = other
             && other.machine != latest.machine
         {
@@ -220,6 +235,25 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: Mode, records:
     if latest.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
         write_memory(out, latest, previous, width);
     }
+}
+
+/// The checkouts both records read whose state differs between `other` and
+/// `latest`, each named by its path as the suite writes it, backticked: one
+/// read at another commit or with other changes. A checkout only one of them
+/// read implies another config, which its own note covers, and a record from
+/// before checkouts were recorded has none.
+fn moved_checkouts(other: &RunRecord, latest: &RunRecord) -> Vec<String> {
+    latest
+        .checkouts
+        .iter()
+        .filter(|(path, state)| {
+            other
+                .checkouts
+                .get(*path)
+                .is_some_and(|other| other != *state)
+        })
+        .map(|(path, _)| format!("`{path}`"))
+        .collect()
 }
 
 /// The peak memory table: each row's median and largest peak in MB, the
@@ -453,7 +487,7 @@ const fn civil_from_days(days: u64) -> (u64, u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::{GitState, NoiseRecord, SuiteId};
+    use crate::record::{CheckoutState, GitState, NoiseRecord, SuiteId};
     use crate::test_support::{self, metric, run_record};
 
     fn record(sha: &str, quiet: MachineQuiet, wall: u64, instructions: Option<u64>) -> RunRecord {
@@ -537,6 +571,65 @@ mod tests {
             "{report}"
         );
         assert!(report.contains("attested: none"), "{report}");
+    }
+
+    #[test]
+    fn a_moved_checkout_is_noted_by_its_path() {
+        let state = |sha: &str, changes: Option<&str>| CheckoutState {
+            sha: sha.repeat(40),
+            dirty: changes.is_some(),
+            changes_blake3: changes.map(str::to_owned),
+        };
+        let with = |checkouts: &[(&str, CheckoutState)]| {
+            let mut record = record("a", MachineQuiet::Unchecked, 10_000_000, None);
+            record.checkouts = checkouts
+                .iter()
+                .map(|(path, state)| ((*path).to_owned(), state.clone()))
+                .collect();
+            record
+        };
+        let zap = "../../../../../zap/src/lib/builder_fgro.js";
+        let forge = "../../../../../fuz_forge/zap.config.ts";
+        let lines =
+            |records: &[RunRecord]| records.iter().map(RunRecord::to_line).collect::<String>();
+        // the same states: no note
+        let same = report(&lines(&[
+            with(&[(zap, state("a", None)), (forge, state("b", None))]),
+            with(&[(zap, state("a", None)), (forge, state("b", None))]),
+        ]));
+        assert!(!same.contains("another state"), "{same}");
+        // zap edited, uncommitted, with the config hash unchanged
+        let edited = report(&lines(&[
+            with(&[(zap, state("a", None)), (forge, state("b", None))]),
+            with(&[(zap, state("a", Some("d1"))), (forge, state("b", None))]),
+        ]));
+        assert!(
+            edited.contains(&format!(
+                "(the previous record read another state of `{zap}`, so its rows may differ)"
+            )),
+            "{edited}"
+        );
+        assert!(!edited.contains("another config"), "{edited}");
+        // a commit in both, and a checkout only one record read, which isn't named
+        let moved = report(&lines(&[
+            with(&[(zap, state("a", None)), (forge, state("b", None))]),
+            with(&[
+                (zap, state("c", None)),
+                (forge, state("e", None)),
+                ("../other.js", state("f", None)),
+            ]),
+        ]));
+        assert!(
+            moved.contains(&format!("another state of `{forge}`, `{zap}`,")),
+            "{moved}"
+        );
+        assert!(!moved.contains("other.js"), "{moved}");
+        // a record with no checkouts, as one from before they were recorded
+        let none = report(&lines(&[
+            with(&[]),
+            with(&[(zap, state("a", None)), (forge, state("b", None))]),
+        ]));
+        assert!(!none.contains("another state"), "{none}");
     }
 
     #[test]
