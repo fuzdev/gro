@@ -19,7 +19,8 @@ import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env.ts';
 import { CHANGESET_CLI } from './changeset_helpers.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -90,16 +91,18 @@ export const task: Task<Args> = {
 			log.info(st('green', 'dry run!'));
 		}
 
-		const package_json = await package_json_load();
+		const fs_paths = create_fs_paths(fs);
 
-		const has_sveltekit_library_result = await has_sveltekit_library(package_json);
+		const package_json = await package_json_load(fs_paths);
+
+		const has_sveltekit_library_result = await has_sveltekit_library(fs_paths, package_json);
 		if (!has_sveltekit_library_result.ok) {
 			throw new TaskError(
 				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
 			);
 		}
 
-		const changelog_file = await fs_open_path(changelog);
+		const changelog_file = await fs_paths.open_path(changelog);
 		const changelog_exists = await changelog_file.dir.exists(changelog_file.path);
 
 		const found_changeset_cli = await find_cli(changeset_cli);
@@ -196,7 +199,7 @@ export const task: Task<Args> = {
 			// The check above ensures gen is updated.
 			await invoke_task('gen');
 
-			const package_json_after_versioning = await package_json_load();
+			const package_json_after_versioning = await package_json_load(fs_paths);
 			version = package_json_after_versioning.version!;
 			if (package_json.version === version) {
 				// The version didn't change.

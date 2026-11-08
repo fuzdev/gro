@@ -14,7 +14,7 @@ import {
 } from './package_json.ts';
 import { TaskError, type Task } from './task.ts';
 import { fs } from './fs.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -88,6 +88,8 @@ export const task: Task<Args> = {
 			throw new TaskError('Cannot call `gro upgrade` with both rest args and --only.');
 		}
 
+		const fs_paths = create_fs_paths(fs);
+
 		// TODO maybe a different task that pulls and does other things, like `gro ready`
 		if (pull) {
 			await git_pull(origin);
@@ -95,17 +97,17 @@ export const task: Task<Args> = {
 
 		if (delete_node_modules) {
 			log.info(`deleting node_modules at `, node_modules_path);
-			const entry = await to_project_entry(node_modules_path, '--node_modules_path');
-			await fs.project.remove(entry, { recursive: true, missing_ok: true });
+			const entry = await to_project_entry(fs_paths, node_modules_path, '--node_modules_path');
+			await fs_paths.project.remove(entry, { recursive: true, missing_ok: true });
 		}
 
 		if (delete_lockfile) {
 			log.info(`deleting lockfile at`, lockfile_path);
-			const entry = await to_project_entry(lockfile_path, '--lockfile_path');
-			await fs.project.remove(entry, { missing_ok: true });
+			const entry = await to_project_entry(fs_paths, lockfile_path, '--lockfile_path');
+			await fs_paths.project.remove(entry, { missing_ok: true });
 		}
 
-		const package_json = await package_json_load();
+		const package_json = await package_json_load(fs_paths);
 
 		const all_deps = package_json_extract_dependencies(package_json);
 
@@ -155,11 +157,11 @@ export const task: Task<Args> = {
  * itself, can't be the project. Anything else is refused, so these flags never delete
  * outside the project.
  */
-const to_project_entry = async (path: string, flag: string): Promise<string> => {
-	const resolved = resolve(path);
+const to_project_entry = async (fs_paths: FsPaths, path: string, flag: string): Promise<string> => {
+	const resolved = resolve(fs_paths.project.path, path);
 	const name = basename(resolved);
-	const parent = name ? await fs_open_path(dirname(resolved)) : null;
-	if (parent === null || parent.dir !== fs.project) {
+	const parent = name ? await fs_paths.open_path(dirname(resolved)) : null;
+	if (parent === null || parent.dir !== fs_paths.project) {
 		throw new TaskError(
 			`\`${flag} ${path}\` resolves outside the project, and \`gro upgrade\` deletes only inside it`
 		);

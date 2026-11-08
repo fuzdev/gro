@@ -100,8 +100,12 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
   so confinement applies to those.
   `gro build`, `gro clean`, and `gro deploy`'s `.gro/` pass theirs down to the build cache and the cleaning.
   `gro gen`, the gen plugin, and Gro's genfiles pass theirs to gen, its input paths, and the task registry.
-  The CLI's entry passes its own to the config's loading and to `invoke_task`,
+  The CLI's entry passes its own to the config's loading, the check for a needed `svelte-kit sync`, and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context.
+  The default config and `gro_plugin_sveltekit_library` are roots that build their own,
+  as do the tasks that read or write `package.json`, like `gro sync`, `gro check`, and `gro publish`,
+  passing it to `package_json.ts`, `sveltekit_helpers.ts`, and the install's check of Gro's installed versions.
+  Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
   Gro's other library modules still open paths themselves, through an internal copy of the boundary
   bound to the cwd.
   Where a directory's files come from its own listing or search, Gro opens the directory once

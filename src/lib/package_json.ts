@@ -1,11 +1,11 @@
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { plural, strip_end } from '@fuzdev/fuz_util/string.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
-import { paths, gro_paths, IS_THIS_GRO } from './paths.ts';
 import {
 	PACKAGE_JSON_FILENAME,
 	SVELTEKIT_DIST_DIRNAME,
@@ -18,7 +18,7 @@ import {
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
-import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 export type PackageJsonMapper = (
 	package_json: PackageJson
@@ -26,8 +26,18 @@ export type PackageJsonMapper = (
 
 export const PACKAGE_JSON_EMPTY: PackageJson = { name: '', version: '' };
 
+/**
+ * Loads the `package.json` in `dir`, or `PACKAGE_JSON_EMPTY` when it can't be read or parsed as JSON.
+ * @param fs_paths - opens `dir`'s `package.json`
+ * @param dir - absolute, or relative to the project; defaults to the project of `fs_paths`
+ * @param cache - keyed by `dir` as given
+ * @param parse - whether to validate it against the `PackageJson` schema
+ * @param log - logs a failure to load
+ * @throws when `parse` and the loaded JSON fails the schema
+ */
 export const package_json_load = async (
-	dir = IS_THIS_GRO ? gro_paths.root : paths.root,
+	fs_paths: FsPaths,
+	dir: string = fs_paths.project.path,
 	cache?: Record<string, PackageJson>,
 	parse = true, // TODO pass `false` here in more places, especially anything perf-sensitive like work on startup
 	log?: Logger
@@ -37,7 +47,7 @@ export const package_json_load = async (
 		return cache[dir]!;
 	}
 	try {
-		package_json = JSON.parse(await package_json_load_contents(dir));
+		package_json = JSON.parse(await package_json_load_contents(fs_paths, dir));
 	} catch (error) {
 		log?.error(st('yellow', `Failed to load package.json in ${dir}`), error);
 		return PACKAGE_JSON_EMPTY;
@@ -52,20 +62,30 @@ export const package_json_load = async (
 };
 
 /**
- * @param exports_dir - the directory whose files become the `exports`, defaults to `LIB_PATH`
+ * Updates the `exports` of a SvelteKit library's `package.json` from the files in its lib directory,
+ * then applies `map_package_json`, writing only when the contents change.
+ * @param fs_paths - opens `package.json`, the lib directory, and the directories the paths name
+ * @param map_package_json - maps the updated `package.json`, or returns `null` to leave it unchanged
+ * @param log - logs the outcome
+ * @param write - when `false`, reports whether it would change without writing
+ * @param dir - the directory holding `package.json`, absolute or relative to the project;
+ * defaults to the project of `fs_paths`
+ * @param exports_dir - the directory whose files become the `exports`, relative to the project
+ * (not to `dir`), defaults to `LIB_PATH`; the library check also reads the project's lib directory
  */
 export const package_json_sync = async (
+	fs_paths: FsPaths,
 	map_package_json: PackageJsonMapper,
 	log: Logger,
 	write = true,
-	dir = paths.root,
+	dir: string = fs_paths.project.path,
 	exports_dir?: string
 ): Promise<{ package_json: PackageJson | null; changed: boolean }> => {
 	const updated = await package_json_update(
+		fs_paths,
 		async (package_json) => {
-			if ((await has_sveltekit_library(package_json)).ok) {
-				const final_exports_dir = exports_dir ?? join(paths.root, LIB_PATH);
-				const exported_files = await fs_search_path(final_exports_dir);
+			if ((await has_sveltekit_library(fs_paths, package_json)).ok) {
+				const exported_files = await fs_paths.search_path(exports_dir ?? LIB_PATH);
 				package_json.exports = package_json_to_exports(exported_files.map((f) => f.path));
 			}
 			const mapped = await map_package_json(package_json);
@@ -88,17 +108,40 @@ export const package_json_sync = async (
 	return updated;
 };
 
-export const package_json_load_for_gro = (): Promise<PackageJson> =>
-	package_json_load(gro_paths.root);
+const require = createRequire(import.meta.url);
 
+/**
+ * Loads the running Gro's own `package.json` through the module system,
+ * which resolves it from this module, so it needs no fs capability.
+ * @throws when it fails the `PackageJson` schema
+ */
+export const package_json_load_for_gro = (): PackageJson =>
+	parse_package_json(PackageJson, require('@fuzdev/gro/package.json'));
+
+/**
+ * Reads the text of the `package.json` in `dir`.
+ * @param fs_paths - opens the file
+ * @param dir - absolute, or relative to the project
+ * @throws `FsError` - when the file can't be read
+ */
 // TODO probably make this nullable and make callers handle failures
-const package_json_load_contents = async (dir: string): Promise<string> => {
-	const opened = await fs_open_path(join(dir, PACKAGE_JSON_FILENAME));
+const package_json_load_contents = async (fs_paths: FsPaths, dir: string): Promise<string> => {
+	const opened = await fs_paths.open_path(join(dir, PACKAGE_JSON_FILENAME));
 	return opened.dir.read_text(opened.path);
 };
 
-export const package_json_write = async (serialized_package_json: string): Promise<void> => {
-	const opened = await fs_open_path(join(paths.root, PACKAGE_JSON_FILENAME));
+/**
+ * Writes the `package.json` in `dir`.
+ * @param fs_paths - opens the file
+ * @param serialized_package_json - the file's contents, as `package_json_serialize` makes them
+ * @param dir - absolute, or relative to the project; defaults to the project of `fs_paths`
+ */
+export const package_json_write = async (
+	fs_paths: FsPaths,
+	serialized_package_json: string,
+	dir: string = fs_paths.project.path
+): Promise<void> => {
+	const opened = await fs_paths.open_path(join(dir, PACKAGE_JSON_FILENAME));
 	await opened.dir.write(opened.path, serialized_package_json);
 };
 
@@ -106,14 +149,19 @@ export const package_json_serialize = (package_json: PackageJson): string =>
 	JSON.stringify(parse_package_json(PackageJson, package_json), null, 2) + '\n';
 
 /**
- * Updates `package.json`. Writes to the filesystem only when contents change.
+ * Updates the `package.json` in `dir`. Writes to the filesystem only when contents change.
+ * @param fs_paths - opens the file
+ * @param update - maps the loaded JSON, or returns `null` to leave it unchanged
+ * @param dir - absolute, or relative to the project; defaults to the project of `fs_paths`
+ * @param write - when `false`, reports whether it would change without writing
  */
 export const package_json_update = async (
+	fs_paths: FsPaths,
 	update: (package_json: PackageJson) => PackageJson | null | Promise<PackageJson | null>,
-	dir = paths.root,
+	dir: string = fs_paths.project.path,
 	write = true
 ): Promise<{ package_json: PackageJson | null; changed: boolean }> => {
-	const original_contents = await package_json_load_contents(dir);
+	const original_contents = await package_json_load_contents(fs_paths, dir);
 	const original = JSON.parse(original_contents);
 	const updated = await update(original);
 	if (updated === null) {
@@ -123,7 +171,7 @@ export const package_json_update = async (
 	if (updated_contents === original_contents) {
 		return { package_json: original, changed: false };
 	}
-	if (write) await package_json_write(updated_contents);
+	if (write) await package_json_write(fs_paths, updated_contents, dir);
 	return { package_json: updated, changed: true };
 };
 

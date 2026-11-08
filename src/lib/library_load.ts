@@ -217,7 +217,7 @@ export const library_load_from_repo = async (
 		if (cached !== null) return cached;
 	}
 
-	if (await sveltekit_tsconfig_is_unsynced(repo_dir)) {
+	if (await sveltekit_tsconfig_is_unsynced(cwd_fs_paths, repo_dir)) {
 		throw Error(
 			`library_load_from_repo: ${join(repo_dir, TSCONFIG_FILENAME)} extends` +
 				` \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${join(repo_dir, SVELTEKIT_TSCONFIG_PATH)} is missing,` +

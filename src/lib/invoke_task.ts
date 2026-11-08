@@ -312,7 +312,7 @@ export const invoke_cli = async (
 	if (!task_name) {
 		const log = new Logger('gro');
 		if (args.version || args.v) {
-			const gro_package_json = await package_json_load_for_gro();
+			const gro_package_json = package_json_load_for_gro();
 			log.info(`${st('gray', 'v')}${st('cyan', gro_package_json.version ?? '[no version]')}`);
 			return;
 		}

@@ -6,7 +6,8 @@ import { git_check_clean_workspace } from '@fuzdev/fuz_util/git.ts';
 
 import { TaskError, type Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -64,6 +65,7 @@ export const task: Task<Args> = {
 			install,
 			workspace
 		} = args;
+		const fs_paths = create_fs_paths(fs);
 
 		// When checking the workspace, which was added for CI, never sync.
 		// Setup like installing packages and `sveltekit-sync` should be done in the CI setup.
@@ -93,7 +95,7 @@ export const task: Task<Args> = {
 		}
 
 		if (package_json && config.map_package_json) {
-			const { changed } = await package_json_sync(config.map_package_json, log, false);
+			const { changed } = await package_json_sync(fs_paths, config.map_package_json, log, false);
 			if (changed) {
 				throw new TaskError('package.json is out of date, run `gro sync` to update it');
 			} else {
@@ -114,9 +116,8 @@ export const task: Task<Args> = {
 
 		// Disallow TODO*.md files in the project root on CI.
 		if (process.env.CI === 'true') {
-			const root = await fs_open_path('.');
 			const todo_files: Array<string> = [];
-			for await (const { name } of root.dir.list(root.path)) {
+			for await (const { name } of fs_paths.project.list()) {
 				if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);
 			}
 			todo_files.sort();

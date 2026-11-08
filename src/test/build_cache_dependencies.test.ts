@@ -26,7 +26,7 @@ const write_lockfile = async (dir: string, contents: string): Promise<void> => {
 test('reads the running Gro and Node versions', async () => {
 	const dir = await create_temp_dir();
 	const deps = await load_build_cache_dependencies(await create_project_fs_paths(dir));
-	const gro_package_json = await package_json_load_for_gro();
+	const gro_package_json = package_json_load_for_gro();
 	assert.equal(deps.gro_version, gro_package_json.version);
 	assert.equal(deps.node_version, process.version);
 });

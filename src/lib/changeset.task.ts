@@ -23,8 +23,8 @@ import {
 	CHANGESET_RESTRICTED_ACCESS
 } from './changeset_helpers.ts';
 import { package_json_load } from './package_json.ts';
-import type { FsOpenedPath } from './fs_paths.ts';
-import { fs_open_path } from './internal/fs_path.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -109,9 +109,11 @@ export const task: Task<Args> = {
 			);
 		}
 
-		const package_json = await package_json_load();
+		const fs_paths = create_fs_paths(fs);
 
-		const has_sveltekit_library_result = await has_sveltekit_library(package_json);
+		const package_json = await package_json_load(fs_paths);
+
+		const has_sveltekit_library_result = await has_sveltekit_library(fs_paths, package_json);
 		if (!has_sveltekit_library_result.ok) {
 			throw new TaskError(
 				'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
@@ -120,7 +122,7 @@ export const task: Task<Args> = {
 
 		const path = join(dir, 'config.json');
 
-		const config_file = await fs_open_path(path);
+		const config_file = await fs_paths.open_path(path);
 		const inited = await config_file.dir.exists(config_file.path);
 
 		if (!inited) {
@@ -133,7 +135,7 @@ export const task: Task<Args> = {
 			const access_color = access === CHANGESET_RESTRICTED_ACCESS ? 'blue' : 'red';
 			log.info('initing changeset with ' + st(access_color, access) + ' access');
 			if (access !== CHANGESET_RESTRICTED_ACCESS) {
-				await update_changeset_config(path, (config) => {
+				await update_changeset_config(fs_paths, path, (config) => {
 					const updated = { ...config };
 					updated.access = access;
 					updated.changelog = changelog;
@@ -147,7 +149,8 @@ export const task: Task<Args> = {
 				await install_with_cache_healing_or_throw(config.pm_cli, {
 					install_args: ['-D', changelog],
 					log,
-					throw_if_gro_packages_changed: true
+					throw_if_gro_packages_changed: true,
+					fs_paths
 				});
 			}
 		}
@@ -157,7 +160,13 @@ export const task: Task<Args> = {
 
 		if (message) {
 			// TODO see the helper below, simplify this to CLI flags when support is added to Changesets
-			const changeset_adder = await create_changeset_adder(package_json.name, dir, message, bump);
+			const changeset_adder = await create_changeset_adder(
+				fs_paths,
+				package_json.name,
+				dir,
+				message,
+				bump
+			);
 			await spawn_cli(found_changeset_cli, ['add', '--empty'], log);
 			await changeset_adder();
 			if (!(await git_check_fully_staged_workspace())) {
@@ -176,13 +185,14 @@ export const task: Task<Args> = {
  * @see https://github.com/changesets/changesets/pull/1121
  */
 const create_changeset_adder = async (
+	fs_paths: FsPaths,
 	repo_name: string,
 	dir: string,
 	message: string,
 	bump: ChangesetBump
 ): Promise<() => Promise<void>> => {
 	// opened once, so the new file is found and written in the directory listed before
-	const changesets = await fs_open_path(dir);
+	const changesets = await fs_paths.open_path(dir);
 	const filenames_before = await list_names(changesets);
 	return async () => {
 		const filenames_after = await list_names(changesets);
@@ -214,12 +224,16 @@ ${message}
 
 type ChangesetCallback = (config: WrittenConfig) => WrittenConfig | Promise<WrittenConfig>;
 
-type UpdateWrittenConfig = (path: string, cb: ChangesetCallback) => Promise<boolean>;
+type UpdateWrittenConfig = (
+	fs_paths: FsPaths,
+	path: string,
+	cb: ChangesetCallback
+) => Promise<boolean>;
 
 // TODO refactor all of this with fuz_schema schemas and package_json helpers - util file helper? JSON parse pluggable
 
-const update_changeset_config: UpdateWrittenConfig = async (path, cb) => {
-	const config_contents = await load_changeset_config_contents(path);
+const update_changeset_config: UpdateWrittenConfig = async (fs_paths, path, cb) => {
+	const config_contents = await load_changeset_config_contents(fs_paths, path);
 	const config = parse_changeset_config(config_contents);
 
 	const updated = await cb(config);
@@ -230,7 +244,7 @@ const update_changeset_config: UpdateWrittenConfig = async (path, cb) => {
 		return false;
 	}
 
-	await write_changeset_config(path, serialized);
+	await write_changeset_config(fs_paths, path, serialized);
 	return true;
 };
 
@@ -240,13 +254,17 @@ const list_names = async ({ dir, path }: FsOpenedPath): Promise<Array<string>> =
 	return names;
 };
 
-const load_changeset_config_contents = async (path: string): Promise<string> => {
-	const opened = await fs_open_path(path);
+const load_changeset_config_contents = async (fs_paths: FsPaths, path: string): Promise<string> => {
+	const opened = await fs_paths.open_path(path);
 	return opened.dir.read_text(opened.path);
 };
 
-const write_changeset_config = async (path: string, serialized: string): Promise<void> => {
-	const opened = await fs_open_path(path);
+const write_changeset_config = async (
+	fs_paths: FsPaths,
+	path: string,
+	serialized: string
+): Promise<void> => {
+	const opened = await fs_paths.open_path(path);
 	await opened.dir.write(opened.path, serialized);
 };
 

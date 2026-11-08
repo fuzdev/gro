@@ -19,8 +19,7 @@ import {
 } from './constants.ts';
 import { package_json_has_dependency } from './package_json.ts';
 import { TaskError } from './task.ts';
-// TODO: take handles from the tasks, the composition roots, instead of opening paths here
-import { fs_open_path } from './internal/fs_path.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * Detected from `package.json` rather than the Svelte config,
@@ -37,7 +36,14 @@ export const has_sveltekit_app = (
 	return { ok: true };
 };
 
+/**
+ * Whether the project is a SvelteKit library: a SvelteKit app, as `has_sveltekit_app` detects one,
+ * with `@sveltejs/package` and the lib directory.
+ * @param fs_paths - checks for the project's lib directory
+ * @param package_json - the project's `package.json`
+ */
 export const has_sveltekit_library = async (
+	fs_paths: FsPaths,
 	package_json: PackageJson
 ): Promise<Result<object, { message: string }>> => {
 	const has_sveltekit_app_result = has_sveltekit_app(package_json);
@@ -54,7 +60,7 @@ export const has_sveltekit_library = async (
 		};
 	}
 
-	if (!(await path_exists(LIB_PATH))) {
+	if (!(await path_exists(fs_paths, LIB_PATH))) {
 		return { ok: false, message: `no SvelteKit lib directory found at ${LIB_PATH}` };
 	}
 
@@ -109,14 +115,20 @@ export const sveltekit_sync_if_available = async (
 };
 
 /**
- * If the SvelteKit CLI is found and either its `.svelte-kit` directory
+ * If the SvelteKit CLI is found and either the project's `.svelte-kit` directory
  * or its generated `$app/tsconfig` is not, run `svelte-kit sync`.
  * The tsconfig is checked because it lives in `node_modules`, which reinstalls wipe.
+ * @param fs_paths - checks for the project's synced files
+ * @param sveltekit_cli - the SvelteKit CLI's name or a found `Cli`
  */
 export const sveltekit_sync_if_obviously_needed = async (
+	fs_paths: FsPaths,
 	sveltekit_cli: string | Cli = SVELTEKIT_CLI
 ): Promise<void> => {
-	if ((await path_exists(SVELTEKIT_DEV_DIRNAME)) && (await path_exists(SVELTEKIT_TSCONFIG_PATH))) {
+	if (
+		(await path_exists(fs_paths, SVELTEKIT_DEV_DIRNAME)) &&
+		(await path_exists(fs_paths, SVELTEKIT_TSCONFIG_PATH))
+	) {
 		return;
 	}
 	const found_sveltekit_cli =
@@ -139,12 +151,16 @@ export const sveltekit_sync_if_obviously_needed = async (
  * it extends. A missing tsconfig, or one TypeScript's tolerant parser recovers
  * no `extends` from, returns `false`, left to whatever reads it next.
  *
- * @param dir - absolute path to the project root
+ * @param fs_paths - opens `dir`'s files
+ * @param dir - the project root, absolute or relative to the project of `fs_paths`
  * @returns `true` when the project needs `svelte-kit sync`
  * @throws `FsError` - when reading either file fails other than by its absence
  */
-export const sveltekit_tsconfig_is_unsynced = async (dir: string): Promise<boolean> => {
-	const tsconfig = await fs_open_path(join(dir, TSCONFIG_FILENAME));
+export const sveltekit_tsconfig_is_unsynced = async (
+	fs_paths: FsPaths,
+	dir: string
+): Promise<boolean> => {
+	const tsconfig = await fs_paths.open_path(join(dir, TSCONFIG_FILENAME));
 	const contents = await tsconfig.dir.read_text_if_exists(tsconfig.path);
 	if (contents === null) return false;
 	// lazy because this module loads on every `gro` invocation and few need TypeScript
@@ -156,7 +172,7 @@ export const sveltekit_tsconfig_is_unsynced = async (dir: string): Promise<boole
 		(s) => s === SVELTEKIT_TSCONFIG_SPECIFIER || s === SVELTEKIT_TSCONFIG_SPECIFIER + '.json'
 	);
 	if (!extends_sveltekit) return false;
-	return !(await path_exists(join(dir, SVELTEKIT_TSCONFIG_PATH)));
+	return !(await path_exists(fs_paths, join(dir, SVELTEKIT_TSCONFIG_PATH)));
 };
 
 /**
@@ -228,17 +244,22 @@ export interface RunSveltePackageOptions {
 
 /**
  * Runs `svelte-package` for a SvelteKit library, with any forwarded `-- svelte-package` args.
+ * @param fs_paths - checks for the project's lib directory
+ * @param options - the project's `package.json`, the CLI and its options, and the install hint
  * @throws `TaskError` if the project isn't a SvelteKit library, the CLI isn't installed locally,
  * or `svelte-package` fails
  */
-export const run_svelte_package = async ({
-	package_json,
-	svelte_package_options,
-	svelte_package_cli: cli,
-	log,
-	pm_cli
-}: RunSveltePackageOptions): Promise<void> => {
-	const has_sveltekit_library_result = await has_sveltekit_library(package_json);
+export const run_svelte_package = async (
+	fs_paths: FsPaths,
+	{
+		package_json,
+		svelte_package_options,
+		svelte_package_cli: cli,
+		log,
+		pm_cli
+	}: RunSveltePackageOptions
+): Promise<void> => {
+	const has_sveltekit_library_result = await has_sveltekit_library(fs_paths, package_json);
 	if (!has_sveltekit_library_result.ok) {
 		throw new TaskError(
 			'Failed to find SvelteKit library: ' + has_sveltekit_library_result.message
@@ -302,8 +323,8 @@ const serialize_svelte_package_options = (
 	return serialized;
 };
 
-// whether anything is at an absolute or cwd-relative path, following symlinks
-const path_exists = async (path: string): Promise<boolean> => {
-	const opened = await fs_open_path(path);
+// whether anything is at an absolute or project-relative path, following symlinks
+const path_exists = async (fs_paths: FsPaths, path: string): Promise<boolean> => {
+	const opened = await fs_paths.open_path(path);
 	return opened.dir.exists(opened.path);
 };

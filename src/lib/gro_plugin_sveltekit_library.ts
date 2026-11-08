@@ -7,6 +7,8 @@ import { to_forwarded_argv, to_forwarded_flag_value } from './args.ts';
 import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -25,12 +27,14 @@ export const gro_plugin_sveltekit_library = ({
 	svelte_package_options,
 	svelte_package_cli = SVELTE_PACKAGE_CLI
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
+	// the plugin is a composition root, where the fs host module enters
+	const fs_paths = create_fs_paths(fs);
 	return {
 		name: 'gro_plugin_sveltekit_library',
 		setup: async ({ dev, log, config }) => {
 			if (!dev) {
-				const package_json = await package_json_load();
-				await run_svelte_package({
+				const package_json = await package_json_load(fs_paths);
+				await run_svelte_package(fs_paths, {
 					package_json,
 					svelte_package_options,
 					svelte_package_cli,
@@ -50,7 +54,7 @@ export const gro_plugin_sveltekit_library = ({
 			}
 		},
 		adapt: async ({ log, timings, config }) => {
-			const package_json = await package_json_load();
+			const package_json = await package_json_load(fs_paths);
 			// link the CLI binaries if they exist
 			if (package_json.bin) {
 				const timing_to_link = timings.start(`${config.pm_cli} link`);

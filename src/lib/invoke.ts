@@ -56,8 +56,7 @@ if (!process.env.NO_COLOR) {
 // the CLI's composition root, where the fs host module enters
 const fs_paths = create_fs_paths(fs);
 
-// TODO pass `fs_paths` once `sveltekit_helpers.ts` takes it
-await sveltekit_sync_if_obviously_needed();
+await sveltekit_sync_if_obviously_needed(fs_paths);
 
 let task_args: CliTaskArgs;
 try {

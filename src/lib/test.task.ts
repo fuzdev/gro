@@ -7,6 +7,8 @@ import { find_cli, spawn_cli } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { paths } from './paths.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 import { TaskError, type Task } from './task.ts';
 
 const TEST_TASK_NAME = 'test';
@@ -37,7 +39,7 @@ export const task: Task<Args> = {
 	run: async ({ args }): Promise<void> => {
 		const { _: patterns, dir, fail_without_tests, t } = args;
 
-		const package_json = await package_json_load();
+		const package_json = await package_json_load(create_fs_paths(fs));
 		if (!package_json_has_dependency(VITEST_CLI, package_json)) {
 			throw new TaskError('no test runner found, install vitest');
 		}

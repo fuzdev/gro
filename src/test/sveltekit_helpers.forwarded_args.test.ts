@@ -3,7 +3,8 @@ import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { run_svelte_package, type SveltePackageOptions } from '#lib/sveltekit_helpers.ts';
 import { spawn_cli, type Cli } from '#lib/cli.ts';
-import { SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
+import { LIB_PATH, SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
+import { create_mock_fs_dir, create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 
 vi.mock('#lib/cli.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/cli.ts')>()),
@@ -23,13 +24,20 @@ const PACKAGE_JSON = {
 	devDependencies: { [SVELTEKIT_DEP_NAME]: '2', [SVELTE_PACKAGE_DEP_NAME]: '2' }
 };
 
+// a library project, whose lib directory `run_svelte_package` checks for
+const to_fs_paths = () => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, { [LIB_PATH + '/']: '' });
+	return create_mock_project_fs_paths(project);
+};
+
 const run = async (
 	options: SveltePackageOptions,
 	forwarded: Array<string>
 ): Promise<Array<string>> => {
 	process.argv = ['node', 'gro', 'build', '--', 'svelte-package', ...forwarded];
 	const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
-	await run_svelte_package({
+	await run_svelte_package(to_fs_paths(), {
 		package_json: PACKAGE_JSON,
 		svelte_package_options: options,
 		svelte_package_cli: cli,
@@ -91,7 +99,7 @@ describe('run_svelte_package failure', () => {
 		process.argv = ['node', 'gro', 'build'];
 		const cli: Cli = { kind: 'local', name: 'svelte-package', id: '/svelte-package' };
 		await expect(
-			run_svelte_package({
+			run_svelte_package(to_fs_paths(), {
 				package_json: PACKAGE_JSON,
 				svelte_package_cli: cli,
 				log: new Logger('test'),

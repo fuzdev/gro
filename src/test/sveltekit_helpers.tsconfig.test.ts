@@ -4,9 +4,12 @@ import { dirname } from 'node:path';
 import { sveltekit_tsconfig_is_unsynced } from '#lib/sveltekit_helpers.ts';
 import { SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
 import { fs, type FsDir } from '#lib/fs.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 describe('sveltekit_tsconfig_is_unsynced', () => {
 	let dir: FsDir & AsyncDisposable;
+	let fs_paths: FsPaths;
 
 	const write = async (path: string, contents: string): Promise<void> => {
 		await dir.mkdir(dirname(path), { recursive: true });
@@ -15,6 +18,7 @@ describe('sveltekit_tsconfig_is_unsynced', () => {
 
 	beforeEach(async () => {
 		dir = await fs.temp_dir('gro_sveltekit_tsconfig_');
+		fs_paths = await create_project_fs_paths(dir.path);
 	});
 
 	afterEach(async () => {
@@ -24,7 +28,7 @@ describe('sveltekit_tsconfig_is_unsynced', () => {
 	test('a string `$app/tsconfig` extends without the generated tsconfig is unsynced', async () => {
 		await write('tsconfig.json', '{"extends": "$app/tsconfig"}');
 
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(true);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(true);
 	});
 
 	test('reads JSONC and an array `extends`', async () => {
@@ -36,26 +40,26 @@ describe('sveltekit_tsconfig_is_unsynced', () => {
 			}`
 		);
 
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(true);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(true);
 	});
 
 	test('is synced when the generated tsconfig exists', async () => {
 		await write('tsconfig.json', '{"extends": "$app/tsconfig"}');
 		await write(SVELTEKIT_TSCONFIG_PATH, '{}');
 
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(false);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(false);
 	});
 
 	test('ignores a tsconfig that does not extend `$app/tsconfig`', async () => {
 		await write('tsconfig.json', '{"extends": "@tsconfig/svelte"}');
 
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(false);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(false);
 	});
 
 	test('a missing or unparseable tsconfig is not unsynced', async () => {
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(false);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(false);
 
 		await write('tsconfig.json', 'not json {');
-		expect(await sveltekit_tsconfig_is_unsynced(dir.path)).toBe(false);
+		expect(await sveltekit_tsconfig_is_unsynced(fs_paths, dir.path)).toBe(false);
 	});
 });

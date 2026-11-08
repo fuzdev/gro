@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { TaskError } from './task.ts';
 import { gro_paths } from './paths.ts';
 import { package_json_load } from './package_json.ts';
+import type { FsPaths } from './fs_paths.ts';
 
 /**
  * Env vars that tell npm to skip devDependencies. We strip these from the
@@ -196,11 +197,20 @@ export type GroPackageVersions = Map<string, string | null>;
  * Reads the installed version of `name` as Node would resolve it from `from_dir`,
  * searching each `node_modules` up to the filesystem root.
  */
-const installed_version_load = async (name: string, from_dir: string): Promise<string | null> => {
+const installed_version_load = async (
+	fs_paths: FsPaths,
+	name: string,
+	from_dir: string
+): Promise<string | null> => {
 	let dir = from_dir;
 	for (;;) {
 		// an unreadable package.json loads as `PACKAGE_JSON_EMPTY`, with an empty version
-		const { version } = await package_json_load(join(dir, 'node_modules', name), undefined, false);
+		const { version } = await package_json_load(
+			fs_paths,
+			join(dir, 'node_modules', name),
+			undefined,
+			false
+		);
 		if (version) return version;
 		const parent = dirname(dir);
 		if (parent === dir) return null;
@@ -213,18 +223,21 @@ const installed_version_load = async (name: string, from_dir: string): Promise<s
  * dependencies and peer dependencies, as they sit in `node_modules`. These are
  * the packages a running Gro has loaded, so comparing snapshots from before and
  * after an install tells whether the process is now stale.
+ * Read from disk, not through the module system, whose cache keeps what it first loaded.
  *
+ * @param fs_paths - opens the `package.json` files, beneath the project or not
  * @param gro_dir - the Gro package directory; defaults to the running Gro's
  * @param names - more packages to read beside the ones Gro's `package.json` names,
  *   so an after-install snapshot covers the deps an upgraded Gro dropped
  * @returns the versions keyed by package name, `@fuzdev/gro` included
  */
 export const gro_package_versions_load = async (
+	fs_paths: FsPaths,
 	gro_dir: string = gro_paths.root,
 	names: Iterable<string> = []
 ): Promise<GroPackageVersions> => {
 	const versions: GroPackageVersions = new Map();
-	const gro_package_json = await package_json_load(gro_dir, undefined, false);
+	const gro_package_json = await package_json_load(fs_paths, gro_dir, undefined, false);
 	versions.set('@fuzdev/gro', gro_package_json.version || null);
 	const dep_names = new Set([
 		...Object.keys(gro_package_json.dependencies ?? {}),
@@ -234,7 +247,7 @@ export const gro_package_versions_load = async (
 	dep_names.delete('@fuzdev/gro');
 	await Promise.all(
 		Array.from(dep_names, async (name) => {
-			versions.set(name, await installed_version_load(name, gro_dir));
+			versions.set(name, await installed_version_load(fs_paths, name, gro_dir));
 		})
 	);
 	return versions;
@@ -262,23 +275,30 @@ export const gro_package_versions_diff = (
 };
 
 /**
- * Options for `install_with_cache_healing_or_throw`.
+ * Options for `install_with_cache_healing_or_throw`,
+ * with `fs_paths` exactly when `throw_if_gro_packages_changed` is set.
  */
-export interface InstallOrThrowOptions extends InstallCacheHealingOptions {
+export type InstallOrThrowOptions = InstallCacheHealingOptions & {
 	/** clause appended after the command in the error, e.g. `'after version bump'` */
 	context?: string;
-	/**
-	 * Throw a `TaskError` when the install changed the installed version of Gro
-	 * or any of its dependencies. Set it when the task keeps running in this
-	 * process after installing (invoking other tasks, running gen), since this
-	 * process has the old versions loaded, and modules it imports afterward come
-	 * from the new ones, a mix that can fail in confusing ways. Rerunning the
-	 * command starts a process that loads only the new versions.
-	 */
-	throw_if_gro_packages_changed?: boolean;
-	/** the Gro package directory to check; defaults to the running Gro's, for tests */
-	gro_dir?: string;
-}
+} & (
+		| { throw_if_gro_packages_changed?: false; fs_paths?: undefined; gro_dir?: undefined }
+		| {
+				/**
+				 * Throw a `TaskError` when the install changed the installed version of Gro
+				 * or any of its dependencies. Set it when the task keeps running in this
+				 * process after installing (invoking other tasks, running gen), since this
+				 * process has the old versions loaded, and modules it imports afterward come
+				 * from the new ones, a mix that can fail in confusing ways. Rerunning the
+				 * command starts a process that loads only the new versions.
+				 */
+				throw_if_gro_packages_changed: true;
+				/** reads the installed versions, as `gro_package_versions_load` does */
+				fs_paths: FsPaths;
+				/** the Gro package directory to check; defaults to the running Gro's, for tests */
+				gro_dir?: string;
+		  }
+	);
 
 /**
  * `install_with_cache_healing` that throws a `TaskError` on failure instead of
@@ -296,8 +316,9 @@ export const install_with_cache_healing_or_throw = async (
 	pm_cli: string,
 	options: InstallOrThrowOptions = {}
 ): Promise<void> => {
-	const { throw_if_gro_packages_changed, gro_dir } = options;
-	const before = throw_if_gro_packages_changed ? await gro_package_versions_load(gro_dir) : null;
+	const { gro_dir } = options;
+	const fs_paths = options.throw_if_gro_packages_changed ? options.fs_paths : null;
+	const before = fs_paths ? await gro_package_versions_load(fs_paths, gro_dir) : null;
 	const result = await install_with_cache_healing(pm_cli, options);
 	const command = ['install', ...(options.install_args ?? [])].join(' ');
 	if (!result.ok) {
@@ -305,8 +326,8 @@ export const install_with_cache_healing_or_throw = async (
 		const detail = result.detail ? `: ${result.detail}` : '';
 		throw new TaskError(`Failed \`${pm_cli} ${command}\`${context}${detail}`);
 	}
-	if (!before) return;
-	const after = await gro_package_versions_load(gro_dir, before.keys());
+	if (!before || !fs_paths) return;
+	const after = await gro_package_versions_load(fs_paths, gro_dir, before.keys());
 	const changed = gro_package_versions_diff(before, after);
 	if (changed.length === 0) return;
 	throw new TaskError(

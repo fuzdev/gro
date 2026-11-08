@@ -4,6 +4,8 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Task } from './task.ts';
 import { has_sveltekit_library, has_sveltekit_app } from './sveltekit_helpers.ts';
 import { package_json_load } from './package_json.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -46,9 +48,10 @@ export const task: Task<Args> = {
 	run: async ({ args, invoke_task }) => {
 		const { dry, check, build, pull, sync, install, gen, force_build } = args;
 
-		const package_json = await package_json_load();
+		const fs_paths = create_fs_paths(fs);
+		const package_json = await package_json_load(fs_paths);
 
-		const publish = (await has_sveltekit_library(package_json)).ok;
+		const publish = (await has_sveltekit_library(fs_paths, package_json)).ok;
 		if (publish) {
 			await invoke_task('publish', { optional: true, dry, check, build, pull, sync, install });
 		}

@@ -1,18 +1,34 @@
 import { describe, test, expect, assert } from 'vitest';
 import { stripVTControlCharacters } from 'node:util';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
 import {
+	PACKAGE_JSON_EMPTY,
 	package_json_has_dependency,
 	package_json_load,
+	package_json_load_for_gro,
 	package_json_parse_repo_url,
 	package_json_serialize,
-	package_json_to_exports
+	package_json_sync,
+	package_json_to_exports,
+	package_json_update
 } from '#lib/package_json.ts';
+import {
+	create_fs_sandbox,
+	create_project_fs_paths,
+	remove_fs_sandbox
+} from './fs_test_helpers.ts';
+import { create_mock_fs_dir, create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
+import { create_mock_logger } from './test_helpers.ts';
+
+// this repo's own `package.json`
+const repo_fs_paths = await create_project_fs_paths(process.cwd());
 
 test('package_json_load', async () => {
-	const package_json = await package_json_load();
+	const package_json = await package_json_load(repo_fs_paths);
 	expect(package_json).toBeTruthy();
 	const parsed = s.parse_or_throw(PackageJson, package_json);
 	expect(parsed).toBeTruthy();
@@ -21,12 +37,135 @@ test('package_json_load', async () => {
 
 test('package_json_load with cache', async () => {
 	const cache = {};
-	const package_json1 = await package_json_load(undefined, cache);
+	const package_json1 = await package_json_load(repo_fs_paths, undefined, cache);
 	expect(package_json1).toBeTruthy();
 	expect(Object.keys(cache).length).toBe(1);
-	const package_json2 = await package_json_load(undefined, cache);
+	const package_json2 = await package_json_load(repo_fs_paths, undefined, cache);
 	expect(Object.keys(cache).length).toBe(1);
 	expect(package_json1).toBe(package_json2);
+});
+
+test('package_json_load reads `dir` relative to the project', async () => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, { 'sub/package.json': '{"name": "a", "version": "1.0.0"}' });
+	const package_json = await package_json_load(create_mock_project_fs_paths(project), 'sub');
+	assert.deepEqual(package_json, { name: 'a', version: '1.0.0' });
+});
+
+test('package_json_load returns the empty package.json when it is missing', async () => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, {});
+	const package_json = await package_json_load(create_mock_project_fs_paths(project));
+	assert.strictEqual(package_json, PACKAGE_JSON_EMPTY);
+});
+
+test('package_json_load_for_gro reads the running Gro through the module system', async () => {
+	const gro_package_json = package_json_load_for_gro();
+	assert.strictEqual(gro_package_json.name, '@fuzdev/gro');
+	assert.strictEqual(
+		gro_package_json.version,
+		(await package_json_load(repo_fs_paths)).version // this repo is the running Gro
+	);
+});
+
+test('package_json_update writes the package.json in `dir`', async () => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, { 'sub/package.json': '{"name": "a", "version": "1.0.0"}' });
+	project.write.mockResolvedValue(undefined);
+	const updated = await package_json_update(
+		create_mock_project_fs_paths(project),
+		(package_json) => ({ ...package_json, version: '2.0.0' }),
+		'sub'
+	);
+	assert.ok(updated.changed);
+	assert.strictEqual(project.write.mock.calls.length, 1);
+	const [path, contents] = project.write.mock.calls[0]!;
+	assert.strictEqual(path, 'sub/package.json');
+	assert.strictEqual(contents, '{\n  "name": "a",\n  "version": "2.0.0"\n}\n');
+});
+
+test('package_json_update writes nothing when the contents are unchanged', async () => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, { 'package.json': '{\n  "name": "a",\n  "version": "1.0.0"\n}\n' });
+	const updated = await package_json_update(create_mock_project_fs_paths(project), (p) => p);
+	assert.ok(!updated.changed);
+	assert.strictEqual(project.write.mock.calls.length, 0);
+});
+
+describe('package_json_sync', () => {
+	const write_library = (
+		root: string,
+		devDependencies: Record<string, string> = { '@sveltejs/kit': '2', '@sveltejs/package': '2' }
+	): void => {
+		mkdirSync(join(root, 'src/lib/internal'), { recursive: true });
+		writeFileSync(join(root, 'src/lib/a.ts'), '');
+		writeFileSync(join(root, 'src/lib/B.svelte'), '');
+		writeFileSync(join(root, 'src/lib/internal/c.ts'), '');
+		writeFileSync(
+			join(root, 'package.json'),
+			JSON.stringify({
+				name: 'lib',
+				version: '1.0.0',
+				devDependencies
+			})
+		);
+	};
+
+	test('writes the exports of the lib directory beneath the project', async () => {
+		const sandbox = await create_fs_sandbox();
+		try {
+			write_library(sandbox.root);
+			const fs_paths = await create_project_fs_paths(sandbox.root);
+			const { changed } = await package_json_sync(fs_paths, (p) => p, create_mock_logger());
+			assert.ok(changed);
+			const written = JSON.parse(readFileSync(join(sandbox.root, 'package.json'), 'utf8'));
+			assert.deepEqual(Object.keys(written.exports), [
+				'./package.json',
+				'./internal/*',
+				'./*.js',
+				'./*.ts',
+				'./*.svelte'
+			]);
+			// synced, so a second run changes nothing
+			const again = await package_json_sync(fs_paths, (p) => p, create_mock_logger());
+			assert.ok(!again.changed);
+		} finally {
+			remove_fs_sandbox(sandbox);
+		}
+	});
+
+	test('with `write` false reports a change without writing', async () => {
+		const sandbox = await create_fs_sandbox();
+		try {
+			write_library(sandbox.root);
+			const before = readFileSync(join(sandbox.root, 'package.json'), 'utf8');
+			const fs_paths = await create_project_fs_paths(sandbox.root);
+			const { changed } = await package_json_sync(fs_paths, (p) => p, create_mock_logger(), false);
+			assert.ok(changed);
+			assert.strictEqual(readFileSync(join(sandbox.root, 'package.json'), 'utf8'), before);
+		} finally {
+			remove_fs_sandbox(sandbox);
+		}
+	});
+
+	test('leaves the exports of a project that is not a library', async () => {
+		const sandbox = await create_fs_sandbox();
+		try {
+			write_library(sandbox.root, { '@sveltejs/kit': '2' });
+			const fs_paths = await create_project_fs_paths(sandbox.root);
+			const { changed } = await package_json_sync(
+				fs_paths,
+				(p) => ({ ...p, description: 'mapped' }),
+				create_mock_logger()
+			);
+			assert.ok(changed);
+			const written = JSON.parse(readFileSync(join(sandbox.root, 'package.json'), 'utf8'));
+			assert.strictEqual(written.exports, undefined);
+			assert.strictEqual(written.description, 'mapped');
+		} finally {
+			remove_fs_sandbox(sandbox);
+		}
+	});
 });
 
 test('PackageJson parses', () => {
@@ -170,7 +309,7 @@ describe('package_json_to_exports', () => {
 });
 
 test('package_json_parse_repo_url', async () => {
-	const parsed = package_json_parse_repo_url(await package_json_load());
+	const parsed = package_json_parse_repo_url(await package_json_load(repo_fs_paths));
 	expect(parsed?.owner).toBe('fuzdev');
 	expect(parsed?.repo).toBe('gro');
 });

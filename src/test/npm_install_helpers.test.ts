@@ -14,6 +14,8 @@ import {
 	type NpmCommandRunner
 } from '#lib/npm_install_helpers.ts';
 import { TaskError } from '#lib/task.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 describe('sanitize_install_env', () => {
 	test('preserves unrelated vars, including near-miss names', () => {
@@ -219,9 +221,9 @@ const write_package_json = async (dir: string, data: object): Promise<void> => {
 /**
  * Lays out a project with Gro installed in `node_modules`, its dependency
  * `dep_a` hoisted to the project, and its peer `peer_b` nested under Gro.
- * Returns the Gro package directory.
+ * Returns the Gro package directory and an `FsPaths` on the project.
  */
-const create_project = async (): Promise<{ root: string; gro_dir: string }> => {
+const create_project = async (): Promise<{ root: string; gro_dir: string; fs_paths: FsPaths }> => {
 	const root = await mkdtemp(join(tmpdir(), 'gro_install_'));
 	temp_dirs.push(root);
 	const gro_dir = join(root, 'node_modules/@fuzdev/gro');
@@ -233,13 +235,13 @@ const create_project = async (): Promise<{ root: string; gro_dir: string }> => {
 	});
 	await write_package_json(join(root, 'node_modules/dep_a'), { version: '1.0.0' });
 	await write_package_json(join(gro_dir, 'node_modules/peer_b'), { version: '2.0.0' });
-	return { root, gro_dir };
+	return { root, gro_dir, fs_paths: await create_project_fs_paths(root) };
 };
 
 describe('gro_package_versions_load', () => {
 	test('reads Gro and its deps and peers, searching up from the Gro directory', async () => {
-		const { gro_dir } = await create_project();
-		const versions = await gro_package_versions_load(gro_dir);
+		const { gro_dir, fs_paths } = await create_project();
+		const versions = await gro_package_versions_load(fs_paths, gro_dir);
 		expect(Object.fromEntries(versions)).toEqual({
 			'@fuzdev/gro': '1.0.0',
 			dep_a: '1.0.0',
@@ -249,16 +251,16 @@ describe('gro_package_versions_load', () => {
 	});
 
 	test('a package nested under Gro shadows a hoisted one', async () => {
-		const { root, gro_dir } = await create_project();
+		const { root, gro_dir, fs_paths } = await create_project();
 		await write_package_json(join(root, 'node_modules/peer_b'), { version: '9.0.0' });
-		const versions = await gro_package_versions_load(gro_dir);
+		const versions = await gro_package_versions_load(fs_paths, gro_dir);
 		assert.strictEqual(versions.get('peer_b'), '2.0.0');
 	});
 
 	test('reads the extra names beside the ones Gro declares', async () => {
-		const { root, gro_dir } = await create_project();
+		const { root, gro_dir, fs_paths } = await create_project();
 		await write_package_json(join(root, 'node_modules/extra'), { version: '4.0.0' });
-		const versions = await gro_package_versions_load(gro_dir, ['extra']);
+		const versions = await gro_package_versions_load(fs_paths, gro_dir, ['extra']);
 		assert.strictEqual(versions.get('extra'), '4.0.0');
 		assert.strictEqual(versions.get('dep_a'), '1.0.0');
 	});
@@ -294,7 +296,7 @@ describe('gro_package_versions_diff', () => {
 
 describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed', () => {
 	test('throws a TaskError naming each package the install changed', async () => {
-		const { root, gro_dir } = await create_project();
+		const { root, gro_dir, fs_paths } = await create_project();
 		const run: NpmCommandRunner = async () => {
 			await write_package_json(gro_dir, { name: '@fuzdev/gro', version: '1.1.0' });
 			await write_package_json(join(root, 'node_modules/dep_a'), { version: '1.2.0' });
@@ -303,7 +305,8 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 		const promise = install_with_cache_healing_or_throw('npm', {
 			run,
 			gro_dir,
-			throw_if_gro_packages_changed: true
+			throw_if_gro_packages_changed: true,
+			fs_paths
 		});
 		await expect(promise).rejects.toBeInstanceOf(TaskError);
 		await expect(promise).rejects.toThrow(/re-run the command/);
@@ -314,25 +317,27 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 	});
 
 	test('a failed install throws the install error, not a version change', async () => {
-		const { gro_dir } = await create_project();
+		const { gro_dir, fs_paths } = await create_project();
 		const { run } = make_run([{ ok: false, detail: 'code 1' }]);
 		await expect(
 			install_with_cache_healing_or_throw('npm', {
 				run,
 				gro_dir,
-				throw_if_gro_packages_changed: true
+				throw_if_gro_packages_changed: true,
+				fs_paths
 			})
 		).rejects.toThrow('Failed `npm install`: code 1');
 	});
 
 	test('resolves when the install left Gro and its deps unchanged', async () => {
-		const { gro_dir } = await create_project();
+		const { gro_dir, fs_paths } = await create_project();
 		const { run } = make_run([{ ok: true }]);
 		await expect(
 			install_with_cache_healing_or_throw('npm', {
 				run,
 				gro_dir,
-				throw_if_gro_packages_changed: true
+				throw_if_gro_packages_changed: true,
+				fs_paths
 			})
 		).resolves.toBeUndefined();
 	});
@@ -343,8 +348,6 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 			await write_package_json(gro_dir, { name: '@fuzdev/gro', version: '1.1.0' });
 			return { ok: true, stderr: '', detail: '' };
 		};
-		await expect(
-			install_with_cache_healing_or_throw('npm', { run, gro_dir })
-		).resolves.toBeUndefined();
+		await expect(install_with_cache_healing_or_throw('npm', { run })).resolves.toBeUndefined();
 	});
 });

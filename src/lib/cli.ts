@@ -13,6 +13,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { styleText as st } from 'node:util';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
+// TODO: take `FsPaths` with the spawn host module, from the composition roots that find CLIs
 import { fs_open_path } from './internal/fs_path.ts';
 
 // TODO maybe upstream to fuz_util?

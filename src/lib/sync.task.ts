@@ -5,6 +5,8 @@ import type { Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
 import { sveltekit_sync } from './sveltekit_helpers.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -30,11 +32,13 @@ export const task: Task<Args> = {
 	Args,
 	run: async ({ args, invoke_task, config, log }): Promise<void> => {
 		const { sveltekit, package_json, gen, install } = args;
+		const fs_paths = create_fs_paths(fs);
 
 		if (install) {
 			await install_with_cache_healing_or_throw(config.pm_cli, {
 				log,
-				throw_if_gro_packages_changed: true
+				throw_if_gro_packages_changed: true,
+				fs_paths
 			});
 		}
 
@@ -44,7 +48,7 @@ export const task: Task<Args> = {
 		}
 
 		if (package_json && config.map_package_json) {
-			await package_json_sync(config.map_package_json, log);
+			await package_json_sync(fs_paths, config.map_package_json, log);
 		}
 
 		if (gen) {

@@ -2,6 +2,7 @@ import { describe, test, assert, vi, beforeEach } from 'vitest';
 
 import { task as sync_task, type Args } from '#lib/sync.task.ts';
 import { TaskError, type TaskContext } from '#lib/task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 
@@ -42,10 +43,10 @@ describe('sync_task install', () => {
 		await sync_task.run(ctx);
 
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
-		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![1], {
-			log: ctx.log,
-			throw_if_gro_packages_changed: true
-		});
+		const { fs_paths, ...options } = install_with_cache_healing_or_throw.mock.calls[0]![1]!;
+		assert.deepEqual(options, { log: ctx.log, throw_if_gro_packages_changed: true });
+		// the task's own boundary, over the fs host module's project
+		assert.strictEqual(fs_paths?.project, fs.project);
 	});
 
 	test('stops before syncing and gen when the install throws', async () => {

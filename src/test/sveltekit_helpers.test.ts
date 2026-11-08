@@ -2,7 +2,13 @@ import { assert, describe, test, expect } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
 import { has_sveltekit_app, has_sveltekit_library } from '#lib/sveltekit_helpers.ts';
-import { SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
+import { LIB_PATH, SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
+import {
+	create_mock_fs_dir,
+	create_mock_fs_paths,
+	create_mock_project_fs_paths,
+	mock_tree
+} from './fs_mocks.ts';
 
 const to_package_json = (
 	deps: Partial<Pick<PackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>>
@@ -31,9 +37,18 @@ describe('has_sveltekit_app', () => {
 	});
 });
 
+// a project whose tree holds `paths`
+const to_project_fs_paths = (paths: Array<string>) => {
+	const project = create_mock_fs_dir('/project');
+	mock_tree(project, Object.fromEntries(paths.map((p) => [p, ''])));
+	return create_mock_project_fs_paths(project);
+};
+
 describe('has_sveltekit_library', () => {
+	// the mock throws on any op, so these checks read nothing
 	test('needs SvelteKit first', async () => {
 		const result = await has_sveltekit_library(
+			create_mock_fs_paths(),
 			to_package_json({ devDependencies: { [SVELTE_PACKAGE_DEP_NAME]: '2' } })
 		);
 		assert(!result.ok);
@@ -41,18 +56,19 @@ describe('has_sveltekit_library', () => {
 	});
 
 	// The packaging dep is checked before the lib directory so a project that isn't a library
-	// never reads the Svelte config, which is the only one of the three checks that costs anything.
-	test('needs the packaging dep, and reports it before reading the config', async () => {
+	// never reaches the filesystem, the only one of the three checks that costs anything.
+	test('needs the packaging dep, and reports it before checking the lib directory', async () => {
 		const result = await has_sveltekit_library(
+			create_mock_fs_paths(),
 			to_package_json({ devDependencies: { [SVELTEKIT_DEP_NAME]: '2' } })
 		);
 		assert(!result.ok);
 		expect(result.message).toContain(SVELTE_PACKAGE_DEP_NAME);
 	});
 
-	// Resolves this project's own config for the lib directory check, so it covers the whole path.
-	test('detects this project', async () => {
+	test('detects a library with its lib directory', async () => {
 		const result = await has_sveltekit_library(
+			to_project_fs_paths([LIB_PATH + '/']),
 			to_package_json({
 				devDependencies: { [SVELTEKIT_DEP_NAME]: '2', [SVELTE_PACKAGE_DEP_NAME]: '2' }
 			})
@@ -60,8 +76,20 @@ describe('has_sveltekit_library', () => {
 		expect(result.ok).toBe(true);
 	});
 
+	test('needs the lib directory', async () => {
+		const result = await has_sveltekit_library(
+			to_project_fs_paths(['src/routes/']),
+			to_package_json({
+				devDependencies: { [SVELTEKIT_DEP_NAME]: '2', [SVELTE_PACKAGE_DEP_NAME]: '2' }
+			})
+		);
+		assert(!result.ok);
+		expect(result.message).toContain(LIB_PATH);
+	});
+
 	test('ignores peer dependencies', async () => {
 		const result = await has_sveltekit_library(
+			create_mock_fs_paths(),
 			to_package_json({
 				devDependencies: { [SVELTEKIT_DEP_NAME]: '2' },
 				peerDependencies: { [SVELTE_PACKAGE_DEP_NAME]: '2' }

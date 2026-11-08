@@ -41,13 +41,9 @@ export interface BuildCacheDependencies {
 export const load_build_cache_dependencies = async (
 	fs_paths: FsPaths
 ): Promise<BuildCacheDependencies> => {
-	const [gro_package_json, package_lock_hash] = await Promise.all([
-		// TODO: read through `fs_paths` once `package_json.ts` takes it
-		package_json_load_for_gro(),
-		hash_npm_hidden_lockfile(fs_paths)
-	]);
+	const package_lock_hash = await hash_npm_hidden_lockfile(fs_paths);
 	return {
-		gro_version: gro_package_json.version ?? '',
+		gro_version: package_json_load_for_gro().version ?? '',
 		node_version: process.version,
 		package_lock_hash
 	};
