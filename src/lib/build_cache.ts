@@ -9,19 +9,57 @@ import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
 import type { GroConfig } from './gro_config.ts';
-import { paths } from './paths.ts';
-import { SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME, GRO_DIST_PREFIX } from './constants.ts';
 import {
-	load_build_cache_dependencies,
-	type BuildCacheDependencies
-} from './build_cache_dependencies.ts';
-import { FsError, is_fs_error, type DirEntry, type FsDir } from './fs.ts';
-// TODO: take handles from the tasks, the composition roots, instead of opening paths here
-import { fs_open_path, fs_remove_path, type FsOpenedPath } from './internal/fs_path.ts';
+	SVELTEKIT_BUILD_DIRNAME,
+	SVELTEKIT_DIST_DIRNAME,
+	GRO_DIST_PREFIX,
+	GRO_DIRNAME
+} from './constants.ts';
+import type { BuildCacheDependencies } from './build_cache_dependencies.ts';
+import type { DirEntry, FsDir } from './fs.ts';
+import { FsError, is_fs_error } from './fs_error.ts';
+import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
 export const BUILD_CACHE_VERSION = '3';
+
+/**
+ * The build cache metadata's path, relative to the project.
+ */
+export const BUILD_CACHE_METADATA_PATH = GRO_DIRNAME + '/' + BUILD_CACHE_METADATA_FILENAME;
+
+/**
+ * What the build cache's checks and saves reach: the project's paths and a log.
+ */
+export interface BuildCacheDeps {
+	fs_paths: FsPaths;
+	log: Logger;
+}
+
+/**
+ * The inputs to the build cache key beside the config.
+ */
+export interface BuildCacheKeyOptions {
+	/**
+	 * The Gro and Node versions and the installed-package hash, loaded once by the caller
+	 * (`load_build_cache_dependencies`) so one build checks and saves the same values.
+	 */
+	dependencies: BuildCacheDependencies;
+	/**
+	 * A pre-computed git commit hash, so a caller that has one needn't read it again;
+	 * read from git when omitted.
+	 */
+	git_commit?: string | null;
+}
+
+export interface BuildCacheMetadataOptions extends BuildCacheKeyOptions {
+	/**
+	 * Pre-discovered build directories, so a caller that has them avoids another scan;
+	 * discovered when omitted.
+	 */
+	build_dirs?: Array<string>;
+}
 
 /**
  * Metadata about a single build output file.
@@ -74,22 +112,15 @@ export interface BuildCacheKey extends BuildCacheDependencies {
  * Computes the cache key components for a build.
  * This determines whether a cached build can be reused.
  *
+ * @param log - warned without a git commit
  * @param config - Gro config (`build_cache_config_hash` is already computed during config load)
- * @param log - Logger
- * @param git_commit - optional pre-computed git commit hash (optimization to avoid re-reading)
- * @param dependencies - optional pre-loaded Gro and Node versions and installed-package hash,
- *   so one build checks and saves the same values
  */
 export const compute_build_cache_key = async (
-	config: GroConfig,
 	log: Logger,
-	git_commit?: string | null,
-	dependencies?: BuildCacheDependencies
+	config: GroConfig,
+	{ dependencies: deps, git_commit }: BuildCacheKeyOptions
 ): Promise<BuildCacheKey> => {
-	const [commit, deps] = await Promise.all([
-		git_commit !== undefined ? git_commit : git_current_commit_hash(),
-		dependencies ?? load_build_cache_dependencies()
-	]);
+	const commit = git_commit !== undefined ? git_commit : await git_current_commit_hash();
 	if (!commit) {
 		log.warn('Not in a git repository - build cache will use null git commit');
 	}
@@ -114,13 +145,14 @@ export const compute_build_cache_key = async (
  * A cache file that's read but invalid (corrupt, the wrong shape, or an old version)
  * is deleted, the file entry itself, never what a symlink there points at;
  * one that can't be read is left in place.
+ * @param fs_paths - opens the project's `.gro/`
  */
-export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | null> => {
-	const metadata_path = join(paths.build, BUILD_CACHE_METADATA_FILENAME);
-
+export const load_build_cache_metadata = async (
+	fs_paths: FsPaths
+): Promise<BuildCacheMetadata | null> => {
 	let contents: string | null;
 	try {
-		const metadata_file = await fs_open_path(metadata_path);
+		const metadata_file = await fs_paths.open_path(BUILD_CACHE_METADATA_PATH);
 		contents = await metadata_file.dir.read_text_if_exists(metadata_file.path);
 	} catch (error) {
 		// unreadable, so there's nothing known to be invalid to delete
@@ -140,7 +172,7 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
 
 	// Clean up the invalid or stale cache file
 	try {
-		await fs_remove_path(metadata_path, { missing_ok: true });
+		await fs_paths.remove_path(BUILD_CACHE_METADATA_PATH, { missing_ok: true });
 	} catch {
 		// Ignore cleanup errors
 	}
@@ -152,20 +184,17 @@ export const load_build_cache_metadata = async (): Promise<BuildCacheMetadata | 
  * Errors are logged but don't fail the build (cache is optional).
  */
 export const save_build_cache_metadata = async (
-	metadata: BuildCacheMetadata,
-	log?: Logger
+	{ fs_paths, log }: BuildCacheDeps,
+	metadata: BuildCacheMetadata
 ): Promise<void> => {
 	try {
-		await gro_dir_ensure();
+		await gro_dir_ensure(fs_paths);
 
-		const metadata_file = await fs_open_path(join(paths.build, BUILD_CACHE_METADATA_FILENAME));
+		const metadata_file = await fs_paths.open_path(BUILD_CACHE_METADATA_PATH);
 		await metadata_file.dir.write(metadata_file.path, JSON.stringify(metadata, null, '\t'));
 	} catch (error) {
 		// Cache writes are optional - log warning but don't fail the build
-		log?.warn(
-			st('yellow', 'Failed to save build cache'),
-			st('dim', `(${to_error_message(error)})`)
-		);
+		log.warn(st('yellow', 'Failed to save build cache'), st('dim', `(${to_error_message(error)})`));
 	}
 };
 
@@ -180,8 +209,12 @@ const is_project_relative = (path: string): boolean => {
  * Validates that a cached build is still valid by checking stats and hashing outputs.
  * Uses size as a fast negative check before expensive hashing.
  * This is comprehensive validation to catch manual tampering or corruption.
+ * @param fs_paths - opens each output, relative to the project
  */
-export const validate_build_cache = async (metadata: BuildCacheMetadata): Promise<boolean> => {
+export const validate_build_cache = async (
+	fs_paths: FsPaths,
+	metadata: BuildCacheMetadata
+): Promise<boolean> => {
 	// Verify all tracked output files exist and have matching size
 	// Sequential checks with early return for performance
 	// each opened file is kept for the hashing below, so each path is resolved once
@@ -193,7 +226,7 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
 		if (!is_project_relative(output.path)) return false;
 		let info;
 		try {
-			const opened = await fs_open_path(output.path);
+			const opened = await fs_paths.open_path(output.path);
 			info = await opened.dir.stat(opened.path);
 			opened_outputs.push(opened);
 		} catch (error) {
@@ -227,25 +260,21 @@ export const validate_build_cache = async (metadata: BuildCacheMetadata): Promis
  * Returns true if the cached build can be used, false if a fresh build is needed.
  *
  * @param config - Gro config
- * @param log - Logger
- * @param git_commit - optional pre-computed git commit hash (optimization)
- * @param dependencies - optional pre-loaded dependency components of the key
  */
 export const is_build_cache_valid = async (
+	{ fs_paths, log }: BuildCacheDeps,
 	config: GroConfig,
-	log: Logger,
-	git_commit?: string | null,
-	dependencies?: BuildCacheDependencies
+	options: BuildCacheKeyOptions
 ): Promise<boolean> => {
 	// Load existing metadata
-	const metadata = await load_build_cache_metadata();
+	const metadata = await load_build_cache_metadata(fs_paths);
 	if (!metadata) {
 		log.debug('No build cache metadata found');
 		return false;
 	}
 
 	// Compute current cache key
-	const current = await compute_build_cache_key(config, log, git_commit, dependencies);
+	const current = await compute_build_cache_key(log, config, options);
 
 	// Check if cache keys have changed
 	if (metadata.git_commit !== current.git_commit) {
@@ -274,7 +303,7 @@ export const is_build_cache_valid = async (
 	}
 
 	// Comprehensive validation: verify output files
-	const outputs_valid = await validate_build_cache(metadata);
+	const outputs_valid = await validate_build_cache(fs_paths, metadata);
 	if (!outputs_valid) {
 		log.debug('Build cache invalid: output files missing or corrupted');
 		return false;
@@ -293,9 +322,11 @@ export const is_build_cache_valid = async (
  * Files are hashed in parallel for performance. For very large builds (10k+ files),
  * this may take several seconds but ensures complete cache validation.
  *
+ * @param fs_paths - opens each directory, relative to the project
  * @param build_dirs - array of output directories to scan (e.g., ['build', 'dist'] and any `dist_*`)
  */
 export const collect_build_outputs = async (
+	fs_paths: FsPaths,
 	build_dirs: Array<string>
 ): Promise<Array<BuildOutputEntry>> => {
 	// Collect all files to hash first
@@ -341,7 +372,7 @@ export const collect_build_outputs = async (
 
 	// Collect files from all build directories sequentially
 	for (const build_dir of build_dirs) {
-		const opened = await fs_open_path(build_dir);
+		const opened = await fs_paths.open_path(build_dir);
 		if (!(await opened.dir.exists(opened.path))) {
 			continue; // Skip non-existent directories
 		}
@@ -355,8 +386,17 @@ export const collect_build_outputs = async (
 		20,
 		async ({ dir, path, cache_key }): Promise<BuildOutputEntry> => {
 			const info = await dir.stat(path);
-			if (info === null) throw new FsError('not_found', join(dir.path, path));
+			// a file removed since the listing fails here with `not_found`
 			const contents = await dir.read(path);
+			// read but not found by the stat before it, so replaced between the two
+			if (info === null) {
+				const target = join(dir.path, path);
+				throw new FsError(
+					'io_error',
+					target,
+					`io_error: ${target} was replaced while it was hashed`
+				);
+			}
 			const hash = hash_blake3(contents);
 
 			return {
@@ -371,16 +411,16 @@ export const collect_build_outputs = async (
 };
 
 /**
- * Discovers all build output directories in the current working directory.
+ * Discovers all build output directories in the project.
  * Returns an array of directory names that exist: build/, dist/, dist_*
  */
-export const discover_build_output_dirs = async (): Promise<Array<string>> => {
+export const discover_build_output_dirs = async (fs_paths: FsPaths): Promise<Array<string>> => {
 	const build_dirs: Array<string> = [];
 
 	// Check for SvelteKit app output (build/) and library output (dist/) in parallel
 	const [build_exists, dist_exists] = await Promise.all(
 		[SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME].map(async (dirname) => {
-			const opened = await fs_open_path(dirname);
+			const opened = await fs_paths.open_path(dirname);
 			return opened.dir.exists(opened.path);
 		})
 	);
@@ -392,16 +432,16 @@ export const discover_build_output_dirs = async (): Promise<Array<string>> => {
 		build_dirs.push(SVELTEKIT_DIST_DIRNAME);
 	}
 
-	build_dirs.push(...(await discover_dist_dirs()));
+	build_dirs.push(...(await discover_dist_dirs(fs_paths)));
 
 	return build_dirs;
 };
 
 /**
- * Discovers the `dist_*` plugin output directories in the current working directory.
+ * Discovers the `dist_*` plugin output directories in the project.
  */
-export const discover_dist_dirs = async (): Promise<Array<string>> => {
-	const root = await fs_open_path('.');
+export const discover_dist_dirs = async (fs_paths: FsPaths): Promise<Array<string>> => {
+	const root = await fs_paths.open_path('.');
 	const candidates: Array<Promise<string | null>> = [];
 	for await (const { name, kind } of root.dir.list(root.path)) {
 		if (!name.startsWith(GRO_DIST_PREFIX)) continue;
@@ -412,7 +452,7 @@ export const discover_dist_dirs = async (): Promise<Array<string>> => {
 			candidates.push(
 				(async () => {
 					try {
-						const opened = await fs_open_path(name);
+						const opened = await fs_paths.open_path(name);
 						const info = await opened.dir.stat(opened.path);
 						return info?.kind === 'directory' ? name : null;
 					} catch (error) {
@@ -434,21 +474,15 @@ export const discover_dist_dirs = async (): Promise<Array<string>> => {
  * Automatically discovers all build output directories (build/, dist/, dist_*).
  *
  * @param config - Gro config
- * @param log - Logger
- * @param git_commit - optional pre-computed git commit hash (optimization)
- * @param build_dirs - optional pre-discovered build directories (optimization to avoid redundant filesystem scans)
- * @param dependencies - optional pre-loaded dependency components of the key
  */
 export const create_build_cache_metadata = async (
+	{ fs_paths, log }: BuildCacheDeps,
 	config: GroConfig,
-	log: Logger,
-	git_commit?: string | null,
-	build_dirs?: Array<string>,
-	dependencies?: BuildCacheDependencies
+	{ build_dirs, ...key_options }: BuildCacheMetadataOptions
 ): Promise<BuildCacheMetadata> => {
-	const cache_key = await compute_build_cache_key(config, log, git_commit, dependencies);
-	const dirs = build_dirs ?? (await discover_build_output_dirs());
-	const outputs = await collect_build_outputs(dirs);
+	const cache_key = await compute_build_cache_key(log, config, key_options);
+	const dirs = build_dirs ?? (await discover_build_output_dirs(fs_paths));
+	const outputs = await collect_build_outputs(fs_paths, dirs);
 
 	return {
 		version: BUILD_CACHE_VERSION,

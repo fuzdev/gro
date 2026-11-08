@@ -406,11 +406,13 @@ Key utilities:
 
 - Filesystem: `module_graph.ts`, `module_graph_node.ts`, `internal/filer.ts`, `paths.ts`
 - Host modules: `fs.ts`, the fs host module's Node implementation
-  ([docs](src/docs/host_modules.md)); `fs_search.ts`, the recursive search over a handle;
-  `internal/fs_path.ts`, the boundary where a path from outside (a CLI arg, config, a
-  well-known path) becomes a handle, its symlinks followed (`fs_open_path`, `fs_open_dir_path`,
-  `fs_search_path`, `fs_copy_path`, `fs_empty_dir_path`, `fs_remove_path`), the way Gro
-  reaches every path it names, with `is_project_or_ancestor` guarding every removal;
+  ([docs](src/docs/host_modules.md)); `fs_error.ts`, its `FsError` and `is_fs_error`,
+  grant-free; `fs_search.ts`, the recursive search over a handle;
+  `fs_paths.ts`, `FsPaths`, the boundary where a path from outside (a CLI arg, config, a
+  well-known path) becomes a handle, its symlinks followed, built at a composition root with
+  `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
+  `is_protected_dir` guarding every removal; `internal/fs_path.ts` binds the same ops to the
+  cwd (`fs_open_path` and the rest) for the library modules not yet handed one;
   Gro's library and task code uses no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;
   `src/test/host_module_declarations.test.ts`

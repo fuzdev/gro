@@ -5,37 +5,21 @@ import { is_build_cache_valid, save_build_cache_metadata } from '#lib/build_cach
 import {
 	create_mock_logger,
 	create_mock_config,
-	create_mock_build_cache_metadata
+	create_mock_build_cache_metadata,
+	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
-import { get_mock_project } from './fs_mocks.ts';
-
-// Mock dependencies
-vi.mock('#lib/build_cache_dependencies.ts', () => ({
-	load_build_cache_dependencies: vi.fn(async () => ({
-		gro_version: '1.0.0',
-		node_version: 'v24.0.0',
-		package_lock_hash: 'lock123'
-	}))
-}));
+import { create_mock_project_fs_paths } from './fs_mocks.ts';
 
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
 
-vi.mock('#lib/paths.ts', () => ({
-	paths: {
-		root: './',
-		source: './src/',
-		lib: './src/lib/',
-		build: './.gro/'
-	}
-}));
-
-vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
-
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
+
+const fs_paths = create_mock_project_fs_paths();
+const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
 
 describe('race condition: cache file modification during validation', () => {
 	beforeEach(() => {
@@ -43,7 +27,7 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles cache file being modified while reading', async () => {
-		const { read_text_if_exists } = await get_mock_project();
+		const { read_text_if_exists } = fs_paths.project;
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -72,14 +56,14 @@ describe('race condition: cache file modification during validation', () => {
 
 		// Metadata is loaded once and used throughout validation,
 		// so later file modifications don't affect the result
-		const result = await is_build_cache_valid(config, log);
+		const result = await is_build_cache_valid({ fs_paths, log }, config, { dependencies });
 
 		// initial metadata matches current git commit, so cache is valid
 		expect(result).toBe(true);
 	});
 
 	test('handles concurrent cache writes', async () => {
-		const { write, mkdir, stat } = await get_mock_project();
+		const { write, mkdir, stat } = fs_paths.project;
 
 		const metadata1 = create_mock_build_cache_metadata({ git_commit: 'commit1' });
 		const metadata2 = create_mock_build_cache_metadata({ git_commit: 'commit2' });
@@ -90,7 +74,11 @@ describe('race condition: cache file modification during validation', () => {
 		vi.mocked(write).mockResolvedValue(undefined);
 
 		// actually concurrent writes via Promise.all
-		await Promise.all([save_build_cache_metadata(metadata1), save_build_cache_metadata(metadata2)]);
+		const deps = { fs_paths, log: create_mock_logger() };
+		await Promise.all([
+			save_build_cache_metadata(deps, metadata1),
+			save_build_cache_metadata(deps, metadata2)
+		]);
 
 		// both should complete without throwing
 		expect(write.mock.calls.filter(([path]) => path === '.gro/build.json')).toHaveLength(2);
@@ -98,7 +86,7 @@ describe('race condition: cache file modification during validation', () => {
 	});
 
 	test('handles multiple concurrent build validation operations', async () => {
-		const { read_text_if_exists } = await get_mock_project();
+		const { read_text_if_exists } = fs_paths.project;
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
@@ -117,9 +105,9 @@ describe('race condition: cache file modification during validation', () => {
 
 		// multiple concurrent validations should all succeed
 		const validations = await Promise.all([
-			is_build_cache_valid(config, log),
-			is_build_cache_valid(config, log),
-			is_build_cache_valid(config, log)
+			is_build_cache_valid({ fs_paths, log }, config, { dependencies }),
+			is_build_cache_valid({ fs_paths, log }, config, { dependencies }),
+			is_build_cache_valid({ fs_paths, log }, config, { dependencies })
 		]);
 
 		// all validations should return true since metadata matches

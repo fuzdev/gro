@@ -35,3 +35,9 @@ feat: `fs_search` results carry the entry's `kind`
 **breaking** feat: `BuildOutputEntry` drops `ctime` and its `mode` is the permission bits alone, and `BUILD_CACHE_VERSION` is `'3'`, so an existing build cache misses once
 
 feat: Gro refuses to load in a working directory whose path isn't UTF-8, which Node reports lossily as a different directory
+
+**breaking** feat: `FsError`, `FsErrorKind`, and `is_fs_error` move to `@fuzdev/gro/fs_error.ts`, a module that grants nothing, so code that only makes or matches an fs error doesn't import the host module
+
+feat: add `@fuzdev/gro/fs_paths.ts`, `FsPaths` and `create_fs_paths(fs)`, the boundary from paths that arrive from outside to fs handles (`open_path`, `open_dir_path`, `search_path`, `copy_path`, `empty_dir_path`, `remove_path`), resolving a relative path against `fs.project`, built at a composition root and passed down; its `remove_path` and `empty_dir_path` refuse the project, the working directory Gro loaded in, `$HOME`, and their ancestors, and `FsOpenedPath`, the handle and path it opens, is now public
+
+**breaking** feat: the build cache and `clean_fs` take an `FsPaths` and name their paths relative to its project: `load_build_cache_metadata(fs_paths)`, `validate_build_cache(fs_paths, metadata)`, `collect_build_outputs(fs_paths, build_dirs)`, `discover_build_output_dirs(fs_paths)`, `discover_dist_dirs(fs_paths)`, and `load_build_cache_dependencies(fs_paths)`, with `BUILD_CACHE_METADATA_PATH` the metadata's project-relative path; `save_build_cache_metadata`, `is_build_cache_valid`, and `create_build_cache_metadata` take `BuildCacheDeps` (`{fs_paths, log}`) first and their optional args as `BuildCacheKeyOptions` and `BuildCacheMetadataOptions`, whose `dependencies` is required; `compute_build_cache_key(log, config, options)`; `clean_fs(deps, options)` with `CleanFsDeps` (`{fs_paths, log?}`), `log` moving out of `CleanFsOptions`

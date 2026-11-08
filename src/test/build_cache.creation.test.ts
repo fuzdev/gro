@@ -7,32 +7,24 @@ import {
 	create_mock_config,
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
-import { get_mock_project, mock_tree } from './fs_mocks.ts';
-
-// Mock dependencies
-vi.mock('#lib/build_cache_dependencies.ts', () => ({
-	load_build_cache_dependencies: vi.fn(async () => ({
-		gro_version: '1.0.0',
-		node_version: 'v24.0.0',
-		package_lock_hash: 'lock123'
-	}))
-}));
+import { create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
 
 // Mock the fs host module
-vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
-
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
 
+const fs_paths = create_mock_project_fs_paths();
+const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
+
 describe('create_build_cache_metadata', () => {
 	beforeEach(async () => {
 		vi.resetAllMocks();
-		mock_tree(await get_mock_project(), {});
+		mock_tree(fs_paths.project, {});
 	});
 
 	test('creates complete metadata object', async () => {
@@ -45,7 +37,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		expect(result).toMatchObject({
 			version: BUILD_CACHE_VERSION,
@@ -61,7 +53,7 @@ describe('create_build_cache_metadata', () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		mock_tree(await get_mock_project(), {
+		mock_tree(fs_paths.project, {
 			'build/index.html': { size: 1024 },
 			'build/bundle.js': { size: 1024 }
 		});
@@ -72,7 +64,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		expect(result.outputs).toHaveLength(2);
 		expect(result.outputs[0]).toMatchObject({
@@ -92,7 +84,7 @@ describe('create_build_cache_metadata', () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		mock_tree(await get_mock_project(), {
+		mock_tree(fs_paths.project, {
 			'build/app.js': '',
 			'dist/lib.js': '',
 			'dist_artifacts/server.js': '',
@@ -106,7 +98,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should have files from all three directories
 		expect(result.outputs.map((o) => o.path)).toEqual([
@@ -121,13 +113,13 @@ describe('create_build_cache_metadata', () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		mock_tree(await get_mock_project(), { 'build/': '' });
+		mock_tree(fs_paths.project, { 'build/': '' });
 		vi.mocked(hash_blake3).mockReturnValue('hash123');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should succeed with empty outputs
 		expect(result.outputs).toEqual([]);
@@ -139,7 +131,7 @@ describe('create_build_cache_metadata', () => {
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
-		mock_tree(await get_mock_project(), {
+		mock_tree(fs_paths.project, {
 			'build/assets/js/lib/utils/helper.js': { size: 256 }
 		});
 		vi.mocked(hash_blake3).mockReturnValue('deep_hash');
@@ -147,7 +139,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should find the deeply nested file
 		expect(result.outputs).toHaveLength(1);
@@ -162,7 +154,7 @@ describe('create_build_cache_metadata', () => {
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		const tree: Record<string, string> = {};
 		for (let i = 0; i < 15; i++) tree[`build/file${i}.js`] = '';
-		mock_tree(await get_mock_project(), tree);
+		mock_tree(fs_paths.project, tree);
 
 		let hash_count = 0;
 		vi.mocked(hash_blake3).mockImplementation(() => `hash${++hash_count}`);
@@ -170,7 +162,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should hash all 15 files in parallel
 		expect(result.outputs).toHaveLength(15);
@@ -190,7 +182,7 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should have null git commit
 		expect(result.git_commit).toBeNull();
@@ -202,7 +194,7 @@ describe('create_build_cache_metadata', () => {
 	test('uses pre-passed build_dirs and skips discovery', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 		const { hash_blake3 } = await import('@fuzdev/fuz_util/hash_blake3.ts');
-		const project = await get_mock_project();
+		const project = fs_paths.project;
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 		mock_tree(project, { 'custom_out/app.js': '', 'build/other.js': '' });
@@ -211,7 +203,11 @@ describe('create_build_cache_metadata', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log, 'abc123', ['custom_out']);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, {
+			dependencies,
+			git_commit: 'abc123',
+			build_dirs: ['custom_out']
+		});
 
 		expect(result.outputs).toHaveLength(1);
 		expect(result.outputs[0]!.path).toBe('custom_out/app.js');
@@ -234,7 +230,7 @@ describe('create_build_cache_metadata', () => {
 		});
 		const log = create_mock_logger();
 
-		const result = await create_build_cache_metadata(config, log);
+		const result = await create_build_cache_metadata({ fs_paths, log }, config, { dependencies });
 
 		// Should include the hashed config
 		expect(result.build_cache_config_hash).toBe('custom_config_hash');

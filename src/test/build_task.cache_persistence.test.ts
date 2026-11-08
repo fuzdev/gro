@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { task as build_task } from '#lib/build.task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
@@ -110,10 +111,9 @@ describe('build_task cache persistence', () => {
 
 		// Should check cache with pre-computed git commit
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123',
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{ dependencies: MOCK_BUILD_CACHE_DEPENDENCIES, git_commit: 'abc123' }
 		);
 
 		// Should run full plugin lifecycle
@@ -123,13 +123,18 @@ describe('build_task cache persistence', () => {
 
 		// Should save cache after successful build
 		expect(create_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123',
-			undefined, // build_dirs not pre-discovered in clean workspace path
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{
+				dependencies: MOCK_BUILD_CACHE_DEPENDENCIES,
+				git_commit: 'abc123',
+				build_dirs: undefined // build_dirs not pre-discovered in clean workspace path
+			}
 		);
-		expect(save_build_cache_metadata).toHaveBeenCalledWith(mock_metadata, ctx.log);
+		expect(save_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
+			mock_metadata
+		);
 	});
 
 	test('saves cache when force_build with clean workspace', async () => {
@@ -161,7 +166,10 @@ describe('build_task cache persistence', () => {
 		await build_task.run(ctx);
 
 		// Should save cache after successful build (workspace is clean)
-		expect(save_build_cache_metadata).toHaveBeenCalledWith(mock_metadata, ctx.log);
+		expect(save_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
+			mock_metadata
+		);
 	});
 
 	test('still deletes dist when force_build with dirty workspace', async () => {
@@ -220,13 +228,15 @@ describe('build_task cache persistence', () => {
 
 		await build_task.run(ctx);
 
-		// Verify 4th parameter is undefined in clean workspace path
+		// `build_dirs` is undefined in the clean workspace path
 		expect(create_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123',
-			undefined, // build_dirs is not pre-discovered in clean path
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{
+				dependencies: MOCK_BUILD_CACHE_DEPENDENCIES,
+				git_commit: 'abc123',
+				build_dirs: undefined // build_dirs is not pre-discovered in clean path
+			}
 		);
 	});
 
@@ -268,13 +278,18 @@ describe('build_task cache persistence', () => {
 
 		// Should save cache with null git_commit
 		expect(create_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			null, // null git commit
-			undefined, // build_dirs not pre-discovered in clean workspace path
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{
+				dependencies: MOCK_BUILD_CACHE_DEPENDENCIES,
+				git_commit: null, // null git commit
+				build_dirs: undefined // build_dirs not pre-discovered in clean workspace path
+			}
 		);
-		expect(save_build_cache_metadata).toHaveBeenCalledWith(mock_metadata, ctx.log);
+		expect(save_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
+			mock_metadata
+		);
 	});
 
 	describe('cache metadata creation failures', () => {

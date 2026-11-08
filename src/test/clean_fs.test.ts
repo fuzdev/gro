@@ -14,28 +14,31 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { is_fs_error } from '#lib/fs.ts';
-import { GRO_DIR_MARKER_CONTENT, GRO_DIR_MARKER_FILENAME } from '#lib/internal/gro_dir.ts';
+import { clean_fs } from '#lib/clean_fs.ts';
+import { is_fs_error } from '#lib/fs_error.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
+import {
+	GRO_DIR_MARKER_CONTENT,
+	GRO_DIR_MARKER_FILENAME,
+	gro_dir_ensure
+} from '#lib/internal/gro_dir.ts';
 
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { create_mock_logger } from './test_helpers.ts';
 
 /*
 
-Hermetic: the cwd moves to a sandbox project and the modules reload,
-so `fs.project` and `paths` are the sandbox, and cleaning never reaches the repo.
-`process.chdir` needs Vitest's default `forks` pool.
+Hermetic: the `FsPaths` is on a sandbox project, and `clean_fs` names every path it cleans
+relative to it, so cleaning never reaches the repo.
 
 */
 
 let base: string;
 let project: string;
 let outside: string;
-let cwd: string;
-let clean_fs: (typeof import('#lib/clean_fs.ts'))['clean_fs'];
-let gro_dir_ensure: (typeof import('#lib/internal/gro_dir.ts'))['gro_dir_ensure'];
+let fs_paths: FsPaths;
 
 beforeEach(async () => {
-	cwd = process.cwd();
 	base = realpathSync(mkdtempSync(join(tmpdir(), 'gro-clean-fs-')));
 	project = join(base, 'project');
 	outside = join(base, 'outside');
@@ -43,18 +46,12 @@ beforeEach(async () => {
 	mkdirSync(join(outside, 'sub'), { recursive: true });
 	writeFileSync(join(outside, 'build.json'), '{}');
 	writeFileSync(join(outside, 'sub/a.txt'), 'a');
-	process.chdir(project);
-	vi.resetModules();
-	({ clean_fs } = await import('#lib/clean_fs.ts'));
-	({ gro_dir_ensure } = await import('#lib/internal/gro_dir.ts'));
-	// the reloaded modules see the sandbox, so no op reaches the repo
-	assert.strictEqual((await import('#lib/fs.ts')).fs.project.path, project);
-	assert.strictEqual((await import('#lib/paths.ts')).paths.root, project + '/');
+	fs_paths = await create_project_fs_paths(project);
+	// the sandbox, so no op reaches the repo
+	assert.strictEqual(fs_paths.project.path, project);
 });
 
 afterEach(() => {
-	process.chdir(cwd);
-	vi.resetModules();
 	rmSync(base, { recursive: true, force: true });
 });
 
@@ -74,7 +71,7 @@ describe('clean_fs', () => {
 		mkdirSync(join(project, '.gro'));
 		writeFileSync(join(project, '.gro/build.json'), '{}');
 
-		await clean_fs({ gro_dir: true, sveltekit: true });
+		await clean_fs({ fs_paths }, { gro_dir: true, sveltekit: true });
 
 		assert.deepEqual(readdirSync(project), []);
 	});
@@ -83,7 +80,7 @@ describe('clean_fs', () => {
 		writeFileSync(join(outside, GRO_DIR_MARKER_FILENAME), GRO_DIR_MARKER_CONTENT);
 		symlinkSync(outside, join(project, '.gro'));
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(is_link(join(project, '.gro')));
 		assert.ok(lstatSync(outside).isDirectory());
@@ -98,7 +95,7 @@ describe('clean_fs', () => {
 	test('a `.gro/` linked to an unmarked directory outside the project is unlinked, its target untouched', async () => {
 		symlinkSync(outside, join(project, '.gro'));
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.deepEqual(readdirSync(outside).sort(), ['build.json', 'sub']);
@@ -111,7 +108,7 @@ describe('clean_fs', () => {
 		writeFileSync(join(sibling, 'index.html'), 'sibling');
 		symlinkSync(sibling, join(project, '.gro'));
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.deepEqual(readdirSync(sibling).sort(), ['.git', 'index.html']);
@@ -124,7 +121,7 @@ describe('clean_fs', () => {
 		symlinkSync(empty, join(project, '.gro'));
 		const log = create_mock_logger();
 
-		await clean_fs({ gro_dir: true, log });
+		await clean_fs({ fs_paths, log }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.deepEqual(readdirSync(empty), []);
@@ -143,14 +140,14 @@ describe('clean_fs', () => {
 			symlinkSync(target, join(project, '.gro'));
 			const log = create_mock_logger();
 
-			await clean_fs({ gro_dir: true, log });
+			await clean_fs({ fs_paths, log }, { gro_dir: true });
 
 			assert.ok(is_link(join(project, '.gro')), target);
 			assert.strictEqual(vi.mocked(log.warn).mock.calls.length, 0, target);
 		}
 		rmSync(join(project, '.gro'));
 		symlinkSync(gone, join(project, '.gro'));
-		await gro_dir_ensure();
+		await gro_dir_ensure(fs_paths);
 		assert.deepEqual(readdirSync(gone), [GRO_DIR_MARKER_FILENAME]);
 	});
 
@@ -158,10 +155,10 @@ describe('clean_fs', () => {
 		const fresh = join(base, 'tmpfs/fresh');
 		mkdirSync(join(base, 'tmpfs'));
 		symlinkSync(fresh, join(project, '.gro'));
-		await gro_dir_ensure();
+		await gro_dir_ensure(fs_paths);
 		writeFileSync(join(fresh, 'build.json'), '{}');
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(is_link(join(project, '.gro')));
 		assert.deepEqual(readdirSync(fresh), [GRO_DIR_MARKER_FILENAME]);
@@ -176,7 +173,7 @@ describe('clean_fs', () => {
 		symlinkSync(join(repo, 'cache'), join(project, '.gro'));
 		const log = create_mock_logger();
 
-		await clean_fs({ gro_dir: true, log });
+		await clean_fs({ fs_paths, log }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.strictEqual(readFileSync(join(repo, 'cache/tracked.txt'), 'utf8'), 'tracked');
@@ -190,7 +187,7 @@ describe('clean_fs', () => {
 		symlinkSync(join(base, 'marker'), join(outside, GRO_DIR_MARKER_FILENAME));
 		symlinkSync(outside, join(project, '.gro'));
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.ok(existsSync(join(outside, 'sub/a.txt')));
@@ -202,7 +199,7 @@ describe('clean_fs', () => {
 		for (const target of ['inside', join(outside, 'build.json'), '.gro']) {
 			symlinkSync(target, join(project, '.gro'));
 
-			await clean_fs({ gro_dir: true });
+			await clean_fs({ fs_paths }, { gro_dir: true });
 
 			assert.ok(!is_link(join(project, '.gro')), target);
 		}
@@ -217,7 +214,7 @@ describe('clean_fs', () => {
 		symlinkSync('loop', join(project, 'loop'));
 		symlinkSync('loop', join(project, '.svelte-kit'));
 
-		await clean_fs({ sveltekit: true, dist_dirs: true });
+		await clean_fs({ fs_paths }, { sveltekit: true, dist_dirs: true });
 
 		for (const name of ['build', 'dist', 'dist_x', '.svelte-kit']) {
 			assert.ok(!is_link(join(project, name)), name);
@@ -228,7 +225,7 @@ describe('clean_fs', () => {
 	test('a `.gro/` linked to an unmarked ancestor of the project is unlinked, emptying nothing', async () => {
 		symlinkSync(base, join(project, '.gro'));
 
-		await clean_fs({ gro_dir: true });
+		await clean_fs({ fs_paths }, { gro_dir: true });
 
 		assert.ok(!is_link(join(project, '.gro')));
 		assert.ok(existsSync(join(project)));
@@ -240,7 +237,7 @@ describe('clean_fs', () => {
 		symlinkSync(base, join(project, '.gro'));
 
 		try {
-			await clean_fs({ gro_dir: true });
+			await clean_fs({ fs_paths }, { gro_dir: true });
 			assert.fail('expected a refusal');
 		} catch (error) {
 			assert.ok(is_fs_error(error, 'io_error'), String(error));

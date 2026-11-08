@@ -7,7 +7,8 @@ import { IgnoreStack } from '@fuzdev/tsv';
 import { GRO_CONFIG_FILENAME, VITE_CONFIG_FILENAMES } from './constants.ts';
 import { format_file } from './format_file.ts';
 import { paths, to_search_filters_relative } from './paths.ts';
-import { is_fs_error, type FsDir } from './fs.ts';
+import type { FsDir } from './fs.ts';
+import { is_fs_error } from './fs_error.ts';
 import { fs_search } from './fs_search.ts';
 import { fs_open_dir_path, fs_open_path } from './internal/fs_path.ts';
 

@@ -24,15 +24,14 @@ import { is_silent_error, TaskError, type Task } from './task.ts';
 import { paths, print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
+import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
 import {
 	fs_copy_path,
 	fs_open_path,
 	fs_protected_dirs,
-	fs_remove_path,
-	is_protected_dir,
-	PROTECTED_DIRS_TEXT,
-	type FsOpenedPath
+	fs_remove_path
 } from './internal/fs_path.ts';
+import { is_protected_dir, PROTECTED_DIRS_TEXT } from './internal/fs_boundary.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 // docs at ../docs/deploy.md
@@ -137,6 +136,9 @@ export const task: Task<Args> = {
 			pull
 		} = args;
 
+		// TODO: thread `fs_paths` through the deploy dir's other ops, which still resolve against the cwd
+		const fs_paths = create_fs_paths(fs);
+
 		// Checks
 		// the deploy dir is removed, emptied, and run git in below, so before anything else,
 		// it must be somewhere Gro may own, and if it exists, a clone Gro made
@@ -237,7 +239,7 @@ export const task: Task<Args> = {
 			if (!(await deploy_dir_exists())) {
 				const local_deploy_branch_exists = await git_local_branch_exists(target);
 				await git_fetch(origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
-				await clone_deploy_dir(origin, target, resolved_deploy_dir);
+				await clone_deploy_dir(fs_paths, origin, target, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd
 				if (!local_deploy_branch_exists) {
 					await git_delete_local_branch(target);
@@ -278,7 +280,7 @@ export const task: Task<Args> = {
 
 			// Create the target branch locally and remotely.
 			// This is more complex to avoid churning the cwd.
-			await clone_deploy_dir(origin, source, resolved_deploy_dir);
+			await clone_deploy_dir(fs_paths, origin, source, resolved_deploy_dir);
 			const spawn_init = async (command: string, command_args: Array<string>): Promise<void> => {
 				const result = await spawn(command, command_args, target_spawn_options);
 				if (!result.ok) {
@@ -524,11 +526,12 @@ const to_origin_url = async (origin: GitOrigin, cwd: string): Promise<string | n
  * Makes the project's `.gro/` first, with its marker, when the deploy dir is beneath it.
  */
 const clone_deploy_dir = async (
+	fs_paths: FsPaths,
 	origin: GitOrigin,
 	branch: GitBranch,
 	resolved_deploy_dir: string
 ): Promise<void> => {
-	if (resolved_deploy_dir.startsWith(paths.build)) await gro_dir_ensure();
+	if (resolved_deploy_dir.startsWith(paths.build)) await gro_dir_ensure(fs_paths);
 	const fail = (step: string): TaskError =>
 		new TaskError(
 			`\`${step}\` failed preparing the deploy dir ${print_path(resolved_deploy_dir)},` +

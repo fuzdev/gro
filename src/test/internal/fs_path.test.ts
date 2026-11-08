@@ -38,7 +38,7 @@ let fs_open_path: (typeof import('#lib/internal/fs_path.ts'))['fs_open_path'];
 let fs_remove_path: (typeof import('#lib/internal/fs_path.ts'))['fs_remove_path'];
 let fs_search_path: (typeof import('#lib/internal/fs_path.ts'))['fs_search_path'];
 let fs_protected_dirs: (typeof import('#lib/internal/fs_path.ts'))['fs_protected_dirs'];
-let is_protected_dir: (typeof import('#lib/internal/fs_path.ts'))['is_protected_dir'];
+let is_protected_dir: (typeof import('#lib/internal/fs_boundary.ts'))['is_protected_dir'];
 
 beforeEach(async () => {
 	sandbox = await create_fs_sandbox();
@@ -59,9 +59,9 @@ beforeEach(async () => {
 		fs_open_path,
 		fs_remove_path,
 		fs_search_path,
-		fs_protected_dirs,
-		is_protected_dir
+		fs_protected_dirs
 	} = await import('#lib/internal/fs_path.ts'));
+	({ is_protected_dir } = await import('#lib/internal/fs_boundary.ts'));
 	assert.strictEqual(fs.project.path, project);
 });
 

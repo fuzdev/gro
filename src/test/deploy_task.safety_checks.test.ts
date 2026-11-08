@@ -63,7 +63,7 @@ describe('deploy_task safety checks', () => {
 			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow(
-				'the project, the home directory, or one of their ancestors'
+				'the project, the working directory, the home directory, or one of their ancestors'
 			);
 			for (const fn of [
 				git.git_check_clean_workspace,

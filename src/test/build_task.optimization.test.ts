@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { task as build_task } from '#lib/build.task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
@@ -145,19 +146,20 @@ describe('build_task optimization', () => {
 
 		// is_build_cache_valid should receive pre-computed commit
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123', // pre-computed git commit
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{ dependencies: MOCK_BUILD_CACHE_DEPENDENCIES, git_commit: 'abc123' } // pre-computed git commit
 		);
 
 		// create_build_cache_metadata should receive pre-computed commit
 		expect(create_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123', // pre-computed git commit
-			undefined, // build_dirs not pre-discovered in clean workspace path
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{
+				dependencies: MOCK_BUILD_CACHE_DEPENDENCIES,
+				git_commit: 'abc123', // pre-computed git commit
+				build_dirs: undefined // build_dirs not pre-discovered in clean workspace path
+			}
 		);
 	});
 });

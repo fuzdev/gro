@@ -9,7 +9,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import { fs, FsError, is_fs_error, type FsDir } from '#lib/fs.ts';
+import { fs, type FsDir } from '#lib/fs.ts';
+import { FsError, is_fs_error } from '#lib/fs_error.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,

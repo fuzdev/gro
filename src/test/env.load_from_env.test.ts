@@ -2,7 +2,8 @@ import { describe, test, assert, beforeEach, afterEach } from 'vitest';
 import { symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { fs, is_fs_error, type FsDir } from '#lib/fs.ts';
+import { fs, type FsDir } from '#lib/fs.ts';
+import { is_fs_error } from '#lib/fs_error.ts';
 import { load_env, load_from_env } from '#lib/env.ts';
 
 const KEY = 'GRO_TEST_LOAD_FROM_ENV_KEY';

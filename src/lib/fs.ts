@@ -26,8 +26,8 @@
  * Symlink targets, real paths, and listed names are read as bytes, and one that isn't UTF-8 fails
  * with `io_error`, since no string names what the kernel would reach.
  *
- * Errors are typed: each op throws an `FsError` whose `kind` names the failure, and
- * `is_fs_error` recognizes one from any copy of Gro. Each op's one expected failure
+ * Errors are typed: each op throws an `FsError` (`fs_error.ts`) whose `kind` names the
+ * failure, and `is_fs_error` recognizes one from any copy of Gro. Each op's one expected failure
  * returns a value instead of throwing: `stat` returns `null` on `not_found`,
  * `exists` returns `false`, `read_if_exists` and `read_text_if_exists` return `null`,
  * `remove({missing_ok})` and `mkdir({exists_ok})` return normally,
@@ -68,7 +68,7 @@ import type { Dir, Dirent, Stats } from 'node:fs';
 import * as node_os from 'node:os';
 import * as node_path from 'node:path';
 
-import { is_error_class_named } from './internal/error_class.ts';
+import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -129,63 +129,6 @@ export interface DirEntry {
 	name: string;
 	kind: FileKind;
 }
-
-/**
- * Why an fs op failed. `outside_root` is a path that would leave its handle;
- * `io_error` is every failure without a kind of its own.
- */
-export type FsErrorKind =
-	| 'not_found'
-	| 'already_exists'
-	| 'permission_denied'
-	| 'not_a_directory'
-	| 'is_a_directory'
-	| 'not_empty'
-	| 'outside_root'
-	| 'io_error';
-
-// whether a value is an `FsError` from this copy of the module, by its private brand,
-// set in the class's static block, so classifying an error mid-op runs no caller's code
-// (`instanceof` would call a `Symbol.hasInstance`)
-let is_own_fs_error: (value: unknown) => value is FsError;
-
-/**
- * The error every fs op throws, typed by `kind`.
- * Match it with `is_fs_error`, which also recognizes one from another copy of Gro.
- * The class and its prototype are frozen.
- */
-export class FsError extends Error {
-	override name = 'FsError';
-	readonly kind: FsErrorKind;
-	/**
-	 * The absolute path the op targeted, or for `outside_root` the path as requested.
-	 */
-	readonly path: string;
-	readonly #brand = true;
-
-	static {
-		is_own_fs_error = (value): value is FsError =>
-			typeof value === 'object' && value !== null && #brand in value;
-	}
-
-	constructor(kind: FsErrorKind, path: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${path}`, options);
-		this.kind = kind;
-		this.path = path;
-	}
-}
-
-Object.freeze(FsError.prototype);
-Object.freeze(FsError);
-
-/**
- * Whether `error` is an `FsError` from any copy of Gro, optionally of one `kind`.
- * @param error - any thrown value
- * @param kind - when given, the kind the error must have
- */
-export const is_fs_error = (error: unknown, kind?: FsErrorKind): error is FsError =>
-	is_error_class_named(error, 'FsError') &&
-	(kind === undefined || (error as FsError).kind === kind);
 
 export interface FsStatOptions {
 	/**

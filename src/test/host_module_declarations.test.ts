@@ -24,7 +24,8 @@ because it isn't on the list.
 
 */
 
-const HOST_MODULES = ['fs.ts'];
+// with `fs_error.ts`, the errors `fs.ts` throws, apart from it so matching one grants nothing
+const HOST_MODULES = ['fs.ts', 'fs_error.ts'];
 
 /**
  * The DOM lib types a host module's API may name. Each is in the WinterTC Minimum Common

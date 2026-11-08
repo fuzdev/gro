@@ -17,10 +17,10 @@ import { strip_end } from '@fuzdev/fuz_util/string.ts';
 
 import { dirname } from 'node:path';
 
-import { GIT_DIRNAME } from '../constants.ts';
-import { paths } from '../paths.ts';
-import { fs, is_fs_error, type FsDir, type FsReadDir } from '../fs.ts';
-import { fs_open_path } from './fs_path.ts';
+import { GIT_DIRNAME, GRO_DIRNAME } from '../constants.ts';
+import type { FsDir, FsReadDir } from '../fs.ts';
+import { is_fs_error } from '../fs_error.ts';
+import type { FsPaths } from '../fs_paths.ts';
 
 /**
  * The name of the marker in a `.gro/` directory Gro made.
@@ -56,13 +56,19 @@ export const gro_dir_mark = async (dir: FsDir, path: string): Promise<void> => {
  * at it or any ancestor, one no-follow `stat` each.
  * Conservative: a `.git` anywhere above counts, whatever git would make of it,
  * and so does an ancestor that can't be read.
+ * @param fs_paths - opens each directory
  * @param real - an absolute real path, so its ancestors hold no symlink
  */
-export const gro_dir_is_in_git_work_tree = async (real: string): Promise<boolean> => {
+export const gro_dir_is_in_git_work_tree = async (
+	fs_paths: FsPaths,
+	real: string
+): Promise<boolean> => {
 	for (let path = real; ; path = dirname(path)) {
 		try {
-			const dir = await fs.open_dir(path);
-			if ((await dir.stat(GIT_DIRNAME, { follow: false })) !== null) return true;
+			const opened = await fs_paths.open_dir_path(path);
+			if (opened === null) return true;
+			const git_path = opened.path ? opened.path + '/' + GIT_DIRNAME : GIT_DIRNAME;
+			if ((await opened.dir.stat(git_path, { follow: false })) !== null) return true;
 		} catch {
 			return true;
 		}
@@ -74,10 +80,14 @@ export const gro_dir_is_in_git_work_tree = async (real: string): Promise<boolean
  * Makes a missing `.gro/` directory, its symlinks followed, and marks it as Gro's.
  * Only a directory this call creates is marked: one that exists, empty or not,
  * is left as it is, so the marker never claims a directory Gro didn't make.
- * @param gro_dir - absolute, or relative to the cwd, defaults to the project's `.gro/`
+ * @param fs_paths - opens `gro_dir`
+ * @param gro_dir - absolute, or relative to the project, defaults to the project's `.gro/`
  */
-export const gro_dir_ensure = async (gro_dir: string = paths.build): Promise<void> => {
-	const { dir, path } = await fs_open_path(strip_end(gro_dir, '/'));
+export const gro_dir_ensure = async (
+	fs_paths: FsPaths,
+	gro_dir: string = GRO_DIRNAME
+): Promise<void> => {
+	const { dir, path } = await fs_paths.open_path(strip_end(gro_dir, '/'));
 	if ((await dir.stat(path)) !== null) return;
 	const parent = dirname(path);
 	if (parent !== '.') await dir.mkdir(parent, { recursive: true });

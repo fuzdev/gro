@@ -49,6 +49,10 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - Errors are `FsError`, typed by `kind` (`not_found`, `already_exists`, `permission_denied`,
   `not_a_directory`, `is_a_directory`, `not_empty`, `outside_root`, `io_error`).
   Match one with `is_fs_error(error, kind?)`, which also recognizes one from another copy of Gro.
+  Both live in `@fuzdev/gro/fs_error.ts`, apart from the host module,
+  so code that only makes or matches an error imports no capability.
+  It's part of the host-module surface: on `fgro` it's a builtin that grants nothing,
+  resolved beside `fs`, so the builtin and every importer share one `FsError` class.
   An error's `path` is the absolute path the op was asked for, or for `outside_root` the path as given,
   never a path a symlink led to.
 - Each op's one expected failure returns a value instead of throwing:
@@ -84,19 +88,27 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
 - Gro's own code imports its host modules relatively (`./fs.ts`), like the rest of its `src/lib`;
   `@fuzdev/gro/fs.ts` is the specifier for every other package.
 - A path that arrives from outside, like a CLI arg, a config value, or one of Gro's well-known paths,
-  becomes a handle at one boundary, Gro's internal `fs_open_path`.
-  It follows the path's symlinks the way `fs.open_dir` does, the same inside and outside the project,
-  then hands back `fs.project` for a real path beneath the project, or else a handle on its parent.
+  becomes a handle at one boundary, an `FsPaths` (`@fuzdev/gro/fs_paths.ts`).
+  A composition root builds one from the root, `create_fs_paths(fs)`, and passes it down;
+  it opens any path, so nothing builds one from a handle.
+  It resolves a relative path against `fs.project`, follows the path's symlinks the way `fs.open_dir` does,
+  the same inside and outside the project, then hands back `fs.project` for a real path beneath the project,
+  or else a handle on its parent. Its `remove_path` and `empty_dir_path` refuse the protected directories
+  [below](#gros-guards-on-its-own-destructive-paths).
   Gro's own code reaches every path it names through it, its well-known paths like `build/` and `.gro/` too,
   and resolves beneath a handle only what it got from that handle, like a listing's entries,
   so confinement applies to those.
-  The target is for the tasks, the composition roots, to thread handles down to the library code they call,
-  which isn't done yet, so some of Gro's library modules still open paths through `fs_open_path` themselves.
+  `gro build`, `gro clean`, and `gro deploy`'s `.gro/` pass theirs down to the build cache and the cleaning;
+  Gro's other library modules still open paths themselves, through an internal copy of the boundary
+  bound to the cwd.
   Where a directory's files come from its own listing or search, Gro opens the directory once
   and reads and writes them beneath its handle.
 - Gro's library and task code reaches the filesystem only through the fs host module,
-  so it can run unchanged where the module is a builtin.
-  What stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
+  so it can run unchanged where the module is a builtin, with one exception:
+  the boundary's machinery (`internal/fs_boundary.ts`) reads real paths and symlinks from `node:fs` itself,
+  so an `FsPaths` reaches the filesystem beyond the `Fs` it's built from until that read is an op on the root,
+  beside `open_dir`, reached through the `Fs` passed in.
+  The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
   (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
   the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
@@ -142,7 +154,8 @@ These exist because the Node implementation resolves paths itself, in JS, before
 
 Gro's tooling, not the module, guards what it removes and writes:
 
-- Emptying or removing a path from outside refuses `/`, the project, `$HOME`, and an ancestor of either.
+- Emptying or removing a path from outside refuses `/`, the project, `$HOME`, and an ancestor of either,
+  and an `FsPaths` over another project still refuses the working directory Gro loaded in and its ancestors.
 - `gro clean` empties a symlinked `.gro/`'s target only when it holds the marker Gro writes
   into a `.gro/` it creates, and isn't inside a git work tree.
   It leaves a dangling link alone, with nothing to clean.

@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { fs, is_fs_error, type FsDir, type FsError, type FsErrorKind } from '#lib/fs.ts';
+import { fs, type FsDir } from '#lib/fs.ts';
+import { is_fs_error, type FsError, type FsErrorKind } from '#lib/fs_error.ts';
+import { create_fs_paths, type FsPaths } from '#lib/fs_paths.ts';
 
 /**
  * A real directory tree for fs tests: `root` is the handle's directory,
@@ -25,6 +27,14 @@ export const create_fs_sandbox = async (): Promise<FsSandbox> => {
 	writeFileSync(join(outside, 'secret.txt'), 'secret');
 	return { base, root, outside, dir: await fs.open_dir(root) };
 };
+
+/**
+ * A real `FsPaths` whose project is the directory at `project_path`, the rest of `fs` real,
+ * so library code runs on a temp project with no `chdir`, its relative paths beneath it.
+ * @param project_path - an absolute path to an existing directory
+ */
+export const create_project_fs_paths = async (project_path: string): Promise<FsPaths> =>
+	create_fs_paths({ ...fs, project: await fs.open_dir(project_path) });
 
 export const remove_fs_sandbox = (sandbox: FsSandbox): void => {
 	rmSync(sandbox.base, { recursive: true, force: true });

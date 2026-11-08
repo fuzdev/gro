@@ -12,7 +12,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { fs, FsError, type DirEntry, type FsDir } from '#lib/fs.ts';
+import { fs, type DirEntry, type FsDir } from '#lib/fs.ts';
+import { FsError } from '#lib/fs_error.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,

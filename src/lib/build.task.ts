@@ -2,7 +2,6 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 import { git_check_clean_workspace, git_current_commit_hash } from '@fuzdev/fuz_util/git.ts';
-import { join } from 'node:path';
 
 import { TaskError, type Task } from './task.ts';
 import { Plugins, to_plugin_context } from './plugin.ts';
@@ -12,12 +11,12 @@ import {
 	create_build_cache_metadata,
 	save_build_cache_metadata,
 	discover_build_output_dirs,
-	BUILD_CACHE_METADATA_FILENAME
+	BUILD_CACHE_METADATA_PATH
 } from './build_cache.ts';
 import { load_build_cache_dependencies } from './build_cache_dependencies.ts';
-import { is_fs_error } from './fs.ts';
-import { fs_remove_path } from './internal/fs_path.ts';
-import { paths } from './paths.ts';
+import { fs } from './fs.ts';
+import { is_fs_error } from './fs_error.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -61,6 +60,8 @@ export const task: Task<Args> = {
 	run: async (ctx): Promise<void> => {
 		const { args, invoke_task, log, config } = ctx;
 		const { sync, gen, install, force_build, allow_dirty } = args;
+		const fs_paths = create_fs_paths(fs);
+		const cache_deps = { fs_paths, log };
 
 		if (sync || install) {
 			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
@@ -76,7 +77,7 @@ export const task: Task<Args> = {
 		const [workspace_status, initial_commit, cache_dependencies] = await Promise.all([
 			git_check_clean_workspace(),
 			git_current_commit_hash(),
-			load_build_cache_dependencies()
+			load_build_cache_dependencies(fs_paths)
 		]);
 		const workspace_dirty = !!workspace_status;
 
@@ -85,12 +86,10 @@ export const task: Task<Args> = {
 
 		// Check build cache unless force_build is set or workspace is dirty
 		if (!workspace_dirty && !force_build) {
-			const cache_valid = await is_build_cache_valid(
-				config,
-				log,
-				initial_commit,
-				cache_dependencies
-			);
+			const cache_valid = await is_build_cache_valid(cache_deps, config, {
+				dependencies: cache_dependencies,
+				git_commit: initial_commit
+			});
 			if (cache_valid) {
 				log.info(
 					st('cyan', 'skipping build, cache is valid'),
@@ -103,18 +102,16 @@ export const task: Task<Args> = {
 			// Rationale: Uncommitted changes could be reverted, leaving cached outputs from reverted code.
 			// This conservative approach prioritizes safety over convenience during development.
 			try {
-				await fs_remove_path(join(paths.build, BUILD_CACHE_METADATA_FILENAME), {
-					missing_ok: true
-				});
+				await fs_paths.remove_path(BUILD_CACHE_METADATA_PATH, { missing_ok: true });
 			} catch (error) {
 				// `.gro` as a file means there's no cache to remove
 				if (!is_fs_error(error, 'not_a_directory')) throw error;
 			}
 
 			// Delete all build output directories
-			build_dirs = await discover_build_output_dirs();
+			build_dirs = await discover_build_output_dirs(fs_paths);
 			await Promise.all(
-				build_dirs.map((dir) => fs_remove_path(dir, { recursive: true, missing_ok: true }))
+				build_dirs.map((dir) => fs_paths.remove_path(dir, { recursive: true, missing_ok: true }))
 			);
 
 			log.info(st('yellow', 'workspace has uncommitted changes - skipping build cache'));
@@ -125,7 +122,7 @@ export const task: Task<Args> = {
 
 		// Clean build outputs (skip if workspace was dirty - already cleaned manually above)
 		if (!workspace_dirty) {
-			await clean_fs({ dist_dirs: true });
+			await clean_fs({ fs_paths }, { dist_dirs: true });
 		}
 
 		const plugins = await Plugins.create(to_plugin_context(ctx, false, false));
@@ -165,14 +162,12 @@ export const task: Task<Args> = {
 				);
 			} else {
 				// Commit is stable - safe to save cache
-				const metadata = await create_build_cache_metadata(
-					config,
-					log,
-					initial_commit,
-					build_dirs,
-					cache_dependencies
-				);
-				await save_build_cache_metadata(metadata, log);
+				const metadata = await create_build_cache_metadata(cache_deps, config, {
+					dependencies: cache_dependencies,
+					git_commit: initial_commit,
+					build_dirs
+				});
+				await save_build_cache_metadata(cache_deps, metadata);
 				log.debug('Build cache metadata saved');
 			}
 		}

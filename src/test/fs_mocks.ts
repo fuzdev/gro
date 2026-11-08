@@ -1,21 +1,9 @@
 import { vi, type Mock } from 'vitest';
+import { relative, resolve } from 'node:path';
 
-import type { DirEntry, FileInfo, FsDir, FsErrorKind, FsStatOptions } from '#lib/fs.ts';
-
-/**
- * A stand-in for the host module's `FsError`, which `is_fs_error` recognizes by its class name,
- * defined here since a test that mocks `#lib/fs.ts` builds the mock from this module.
- */
-class FsError extends Error {
-	override name = 'FsError';
-	readonly kind: FsErrorKind;
-	readonly path: string;
-	constructor(kind: FsErrorKind, path: string) {
-		super(`${kind}: ${path}`);
-		this.kind = kind;
-		this.path = path;
-	}
-}
+import type { DirEntry, FileInfo, FsDir, FsStatOptions } from '#lib/fs.ts';
+import { FsError } from '#lib/fs_error.ts';
+import type { FsOpenedPath, FsPaths } from '#lib/fs_paths.ts';
 
 /**
  * An `FsDir` whose ops are all `vi.fn` mocks.
@@ -62,8 +50,8 @@ export const create_mock_fs_dir = (path: string): MockFsDir => {
 };
 
 /**
- * The fs host module with `fs.project` a mock directory on the cwd and the rest real
- * (`FsError`, `is_fs_error`), for a test of a task, the composition root that imports it:
+ * The fs host module with `fs.project` a mock directory on the cwd,
+ * for a test of a task, the composition root that imports it:
  * `vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module())`.
  * `open_dir` and `temp_dir` throw, so a path outside the project fails loudly.
  */
@@ -218,4 +206,83 @@ export const mock_tree = (dir: MockFsDir, tree: Record<string, string | MockTree
 		}
 		return entries;
 	};
+};
+
+/**
+ * An `FsPaths` whose ops are all `vi.fn` mocks, over a mock project.
+ */
+export type MockFsPaths = FsPaths & {
+	[K in Exclude<keyof FsPaths, 'project'>]: FsPaths[K] extends (...args: infer A) => infer R
+		? Mock<(...args: A) => R>
+		: FsPaths[K];
+} & { readonly project: FsDir & MockFsDir };
+
+const FS_PATHS_OPS = [
+	'open_path',
+	'open_dir_path',
+	'search_path',
+	'copy_path',
+	'empty_dir_path',
+	'remove_path'
+] as const;
+
+/**
+ * Creates a mock `FsPaths` over `project` whose every op is a `vi.fn` of its override,
+ * or else throws, so code reaching an op the test didn't expect fails loudly.
+ * `vi.resetAllMocks` restores each op's override or throwing stub.
+ * @param project - the mock project directory, defaults to one at `/project`
+ * @param overrides - implementations for some ops
+ */
+export const create_mock_fs_paths = (
+	project: MockFsDir = create_mock_fs_dir('/project'),
+	overrides: Partial<Omit<FsPaths, 'project'>> = {}
+): MockFsPaths => {
+	const fs_paths: Record<string, unknown> = { project };
+	for (const op of FS_PATHS_OPS) {
+		fs_paths[op] = vi.fn(
+			overrides[op] ??
+				(() => {
+					throw Error(`mock FsPaths.${op} not set`);
+				})
+		);
+	}
+	return fs_paths as unknown as MockFsPaths;
+};
+
+/**
+ * Creates a mock `FsPaths` whose ops resolve every path beneath its project,
+ * lexically, following no symlink, a relative path against the project's `path`,
+ * each op then run on the mock project as the real boundary runs it on `fs.project`.
+ * A path outside the project throws, since the mock opens no other directory,
+ * and so does `search_path`. `vi.resetAllMocks` keeps the ops resolving.
+ * @param project - the mock project directory, defaults to one at `/project`
+ */
+export const create_mock_project_fs_paths = (
+	project: MockFsDir = create_mock_fs_dir('/project')
+): MockFsPaths => {
+	const to_relative = (path: string): string => {
+		const r = relative(project.path, resolve(project.path, path));
+		if (r === '..' || r.startsWith('../')) {
+			throw Error(`the mock FsPaths opens no path outside the project: ${path}`);
+		}
+		return r && path.endsWith('/') ? r + '/' : r;
+	};
+	const dir = project as unknown as FsDir;
+	const open = (path: string): FsOpenedPath => ({ dir, path: to_relative(path) });
+	const join_beneath = (path: string, name: string): string => (path ? path + '/' + name : name);
+	return create_mock_fs_paths(project, {
+		open_path: async (path) => open(path),
+		open_dir_path: async (path) => open(path),
+		copy_path: async (from, to, options) =>
+			project.copy(to_relative(from), to_relative(to), options),
+		remove_path: async (path, options) => project.remove(to_relative(path), options),
+		empty_dir_path: async (path) => {
+			const dir_path = to_relative(path);
+			const names: Array<string> = [];
+			for await (const { name } of project.list(dir_path)) names.push(name);
+			await Promise.all(
+				names.map((name) => project.remove(join_beneath(dir_path, name), { recursive: true }))
+			);
+		}
+	});
 };

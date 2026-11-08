@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { task as build_task } from '#lib/build.task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
@@ -92,10 +93,9 @@ describe('build_task cache validation', () => {
 
 		// Should check cache with pre-computed git commit
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			'abc123', // pre-computed git commit
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{ dependencies: MOCK_BUILD_CACHE_DEPENDENCIES, git_commit: 'abc123' } // pre-computed git commit
 		);
 
 		// Should not run plugins
@@ -159,10 +159,9 @@ describe('build_task cache validation', () => {
 
 		// Should check cache with null git_commit
 		expect(is_build_cache_valid).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
 			ctx.config,
-			ctx.log,
-			null, // null git commit
-			MOCK_BUILD_CACHE_DEPENDENCIES
+			{ dependencies: MOCK_BUILD_CACHE_DEPENDENCIES, git_commit: null } // null git commit
 		);
 
 		// Should skip build due to valid cache

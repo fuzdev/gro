@@ -5,6 +5,8 @@ import { GitOrigin } from '@fuzdev/fuz_util/git.ts';
 
 import type { Task } from './task.ts';
 import { clean_fs } from './clean_fs.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -43,7 +45,10 @@ export const task: Task<Args> = {
 	run: async ({ args, log }): Promise<void> => {
 		const { build_dist, sveltekit, nodemodules, git, git_origin } = args;
 
-		await clean_fs({ gro_dir: !build_dist, dist_dirs: true, sveltekit, nodemodules, log });
+		await clean_fs(
+			{ fs_paths: create_fs_paths(fs), log },
+			{ gro_dir: !build_dist, dist_dirs: true, sveltekit, nodemodules }
+		);
 
 		// lop off stale git branches
 		if (git) {

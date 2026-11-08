@@ -9,15 +9,6 @@ import {
 	MOCK_BUILD_CACHE_DEPENDENCIES
 } from './build_cache_test_helpers.ts';
 
-// Mock dependencies
-vi.mock('#lib/build_cache_dependencies.ts', () => ({
-	load_build_cache_dependencies: vi.fn(async () => ({
-		gro_version: '1.0.0',
-		node_version: 'v24.0.0',
-		package_lock_hash: 'lock123'
-	}))
-}));
-
 vi.mock('@fuzdev/fuz_util/git.js', () => ({
 	git_current_commit_hash: vi.fn()
 }));
@@ -25,6 +16,8 @@ vi.mock('@fuzdev/fuz_util/git.js', () => ({
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
+
+const dependencies = MOCK_BUILD_CACHE_DEPENDENCIES;
 
 describe('compute_build_cache_key', () => {
 	beforeEach(() => {
@@ -41,8 +34,8 @@ describe('compute_build_cache_key', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result1 = await compute_build_cache_key(config, log);
-		const result2 = await compute_build_cache_key(config, log);
+		const result1 = await compute_build_cache_key(log, config, { dependencies });
+		const result2 = await compute_build_cache_key(log, config, { dependencies });
 
 		expect(result1).toEqual(result2);
 		expect(result1.git_commit).toBe('abc123');
@@ -59,7 +52,7 @@ describe('compute_build_cache_key', () => {
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await compute_build_cache_key(config, log);
+		const result = await compute_build_cache_key(log, config, { dependencies });
 
 		expect(result.git_commit).toBeNull();
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Not in a git repository'));
@@ -77,7 +70,7 @@ describe('compute_build_cache_key', () => {
 		});
 		const log = create_mock_logger();
 
-		const result = await compute_build_cache_key(config, log);
+		const result = await compute_build_cache_key(log, config, { dependencies });
 
 		expect(result.build_cache_config_hash).toBeTruthy();
 		expect(hash_blake3).toHaveBeenCalledWith(
@@ -104,9 +97,12 @@ describe('compute_build_cache_key', () => {
 
 		const log = create_mock_logger();
 
-		const hash1 = (await compute_build_cache_key(config1, log)).build_cache_config_hash;
-		const hash2 = (await compute_build_cache_key(config2, log)).build_cache_config_hash;
-		const hash3 = (await compute_build_cache_key(config3, log)).build_cache_config_hash;
+		const hash1 = (await compute_build_cache_key(log, config1, { dependencies }))
+			.build_cache_config_hash;
+		const hash2 = (await compute_build_cache_key(log, config2, { dependencies }))
+			.build_cache_config_hash;
+		const hash3 = (await compute_build_cache_key(log, config3, { dependencies }))
+			.build_cache_config_hash;
 
 		expect(hash1).toBe(hash2);
 		expect(hash2).toBe(hash3);
@@ -122,41 +118,42 @@ describe('compute_build_cache_key', () => {
 		});
 		const log = create_mock_logger();
 
-		const result = await compute_build_cache_key(config, log);
+		const result = await compute_build_cache_key(log, config, { dependencies });
 
 		expect(result.build_cache_config_hash).toBeTruthy();
 	});
 
 	test('includes the Gro version, Node version, and package lock hash', async () => {
 		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
-		const { load_build_cache_dependencies } = await import('#lib/build_cache_dependencies.ts');
 
 		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
 
-		const result = await compute_build_cache_key(config, log);
+		const result = await compute_build_cache_key(log, config, { dependencies });
 
 		expect(result).toMatchObject(MOCK_BUILD_CACHE_DEPENDENCIES);
-		expect(load_build_cache_dependencies).toHaveBeenCalledTimes(1);
 	});
 
-	test('uses pre-loaded dependencies without loading them', async () => {
-		const { load_build_cache_dependencies } = await import('#lib/build_cache_dependencies.ts');
+	test('uses a given commit without reading git', async () => {
+		const { git_current_commit_hash } = await import('@fuzdev/fuz_util/git.ts');
 
 		const config = await create_mock_config();
 		const log = create_mock_logger();
-		const dependencies = {
+		const no_lockfile = {
 			gro_version: '9.9.9',
 			node_version: 'v1.2.3',
 			package_lock_hash: null
 		};
 
-		const result = await compute_build_cache_key(config, log, 'abc123', dependencies);
+		const result = await compute_build_cache_key(log, config, {
+			dependencies: no_lockfile,
+			git_commit: 'abc123'
+		});
 
-		expect(result).toMatchObject(dependencies);
-		expect(load_build_cache_dependencies).not.toHaveBeenCalled();
+		expect(result).toMatchObject({ ...no_lockfile, git_commit: 'abc123' });
+		expect(git_current_commit_hash).not.toHaveBeenCalled();
 		expect(log.debug).toHaveBeenCalledWith(
 			expect.stringContaining('No node_modules/.package-lock.json')
 		);

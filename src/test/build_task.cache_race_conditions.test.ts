@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { task as build_task } from '#lib/build.task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
@@ -155,7 +156,10 @@ describe('build_task cache race conditions', () => {
 		expect(mock_plugins.setup).toHaveBeenCalled();
 
 		// Should save cache (commit was stable)
-		expect(save_build_cache_metadata).toHaveBeenCalledWith(mock_metadata, ctx.log);
+		expect(save_build_cache_metadata).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }), log: ctx.log },
+			mock_metadata
+		);
 
 		// Should NOT log warning
 		expect(ctx.log.warn).not.toHaveBeenCalledWith(

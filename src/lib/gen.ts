@@ -19,7 +19,8 @@ import {
 } from './input_path.ts';
 import { TaskError, type InvokeTask } from './task.ts';
 import { fs } from './fs.ts';
-import { fs_open_path, fs_search_path, type FsOpenedPath } from './internal/fs_path.ts';
+import type { FsOpenedPath } from './fs_paths.ts';
+import { fs_open_path, fs_search_path } from './internal/fs_path.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';

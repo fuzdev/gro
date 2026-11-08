@@ -45,7 +45,8 @@ import { task_registry_find } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
-import { is_fs_error, type FileInfo } from './fs.ts';
+import type { FileInfo } from './fs.ts';
+import { is_fs_error } from './fs_error.ts';
 import { fs_open_path } from './internal/fs_path.ts';
 
 /**

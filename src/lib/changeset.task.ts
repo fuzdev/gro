@@ -23,7 +23,8 @@ import {
 	CHANGESET_RESTRICTED_ACCESS
 } from './changeset_helpers.ts';
 import { package_json_load } from './package_json.ts';
-import { fs_open_path, type FsOpenedPath } from './internal/fs_path.ts';
+import type { FsOpenedPath } from './fs_paths.ts';
+import { fs_open_path } from './internal/fs_path.ts';
 
 /** @nodocs */
 export const Args = s.object({

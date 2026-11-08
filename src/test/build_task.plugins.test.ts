@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { task as build_task } from '#lib/build.task.ts';
+import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
 
@@ -125,7 +126,10 @@ describe('build_task plugin lifecycle', () => {
 
 		await build_task.run(ctx);
 
-		expect(clean_fs).toHaveBeenCalledWith({ dist_dirs: true });
+		expect(clean_fs).toHaveBeenCalledWith(
+			{ fs_paths: expect.objectContaining({ project: fs.project }) },
+			{ dist_dirs: true }
+		);
 	});
 
 	describe('error handling', () => {
