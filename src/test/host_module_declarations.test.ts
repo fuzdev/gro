@@ -32,7 +32,9 @@ const HOST_MODULES = [
 	'spawn.ts',
 	'spawn_error.ts',
 	'process.ts',
-	'process_error.ts'
+	'process_error.ts',
+	'net.ts',
+	'net_error.ts'
 ];
 
 /**

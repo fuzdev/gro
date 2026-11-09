@@ -206,7 +206,7 @@ the loader enforces it at every link, and the policy diff attributes every newly
 Both columns describe code that doesn't patch shared prototypes;
 against a dependency that does, the [threat model](#threat-model) says where the bound is.
 
-The host's net module exports a `net` handle (`net.fetch`, `net.WebSocket`, `net.EventSource`,
+The host's net module exports a `net` handle (`net.fetch`, with `net.WebSocket` and `net.EventSource` when a consumer brings them,
 bound to the accepted hosts) that's narrowed and passed down like any other capability,
 so authority is visible at every use site.
 There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` (today a plain one; the hint naming the import is designed).
@@ -220,7 +220,7 @@ the task or entry module where authority enters, with library code taking capabi
 and the narrowest handle (a directory handle, `net.narrow({hosts})`) handed down.
 [host modules](host_modules.md#where-to-import-them) has the how-to.
 `net.fetch` is bound, so it can be handed to any library that accepts an injected `fetch`,
-and `const {fetch} = net` gives the bare name in one module; `net.WebSocket` and `net.EventSource` hand the same way.
+and `const {fetch} = net` gives the bare name in one module; `net.WebSocket` and `net.EventSource`, once a consumer brings them, hand the same way.
 
 A single-file script is its own root and imports directly.
 The cost is that the policy sees [reach](glossary.md#reach-need-and-use) only at the roots.

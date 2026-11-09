@@ -1,10 +1,10 @@
 # host modules
 
-> the imports that reach the OS, `fs`, `spawn`, and `process` so far: how to import them, hand them down,
+> the imports that reach the OS, `fs`, `spawn`, `process`, and `net` so far: how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs`, `spawn`, and `process` exist as the Node implementation in Gro's npm package;
-> watch and net are designed, not built.
+> **status**: `fs`, `spawn`, `process`, and `net` exist as the Node implementation in Gro's npm package;
+> watch is designed, not built.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
 > ([authority](authority.md#imports-or-globals) has the design).
 
@@ -279,6 +279,59 @@ and on `fgro` there's no global at all.
 
 The module's TSDoc has each op's contract.
 
+## net
+
+```ts
+import {net} from '@fuzdev/gro/net.ts';
+
+const res = await net.fetch('https://api.example.com/items');
+
+const api = net.narrow({hosts: ['api.example.com']}); // a handle limited to that host
+const {fetch} = api; // the bare name, in one module
+await use_library({fetch}); // any library taking an injected `fetch`
+```
+
+The network is an import rather than a global, and `net.fetch` is the only way to it from a handle.
+There's no bare `fetch` export, so a module using the network shows `net` in its imports.
+
+- Any `dispatcher` given in `init` or carried on a `Request` is replaced, so it can't send a request around the check.
+  undici's versioned global dispatcher still runs every send, so a proxy from `setGlobalDispatcher` keeps working.
+- `net.fetch(input, init?)` takes what `fetch` takes, `string | URL | Request` and an init,
+  and is assignable to `typeof globalThis.fetch`.
+  It's an own frozen closure, so it destructures and hands down as a bare function,
+  and a receiver can't change what it reaches.
+  It builds one `Request` from the input, checks that object's URL, and sends from it,
+  so a stateful `toString` can't differ between the check and the send.
+- `net.narrow({hosts})` is a handle limited to `hosts`, and it only shrinks,
+  as [`env.narrow`](#process) limits names.
+  The root handle allows every host, as the root `Env` allows every name.
+  An empty list reaches nothing.
+- A host is `hostname`, any port, or `hostname:port`, normalized through `URL`
+  (lowercase, IDNA, the IPv4 and IPv6 forms) with one trailing dot dropped, so `example.com.` is `example.com`
+  and `127.1` is `127.0.0.1`. A default port is compared as a number, so `example.com:443` covers `https://example.com/`
+  and not `http://example.com/`.
+  `*` is a `TypeError`, as for `env.narrow`, and so is anything but a host, like a scheme, a path, userinfo, or an empty port.
+- Only `http:` and `https:` are sent. `data:`, `blob:`, and every other scheme are `not_granted`, on the root handle too.
+- Errors are `NetError`, of kind `not_granted`, its `target` the refused `hostname:port` or scheme and never a whole URL, which can carry a token.
+  Match one with `is_net_error(error, kind?)`, in `@fuzdev/gro/net_error.ts`, apart from the host module,
+  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `net`.
+  A network failure stays a `TypeError`, as from any `fetch`.
+- Redirects are the escape a host check has to close, so a handle follows them itself:
+  each `Location` is resolved against its response and checked against the handle's hosts before anything is sent to it,
+  and a refused host rejects with `not_granted`, no request sent to it.
+  A caller's `redirect: 'manual'` or `'error'` passes through unchanged, so a `manual` caller sees the response and decides.
+- Following does what `fetch` does on a redirect, compared against native follow case by case:
+  `authorization`, `cookie`, `proxy-authorization`, and `host` are dropped when the origin changes;
+  a 301 or 302 POST and any non-GET/HEAD 303 become GET, losing the body and its `content-*` headers;
+  a 307 or 308 replays the body, its length kept, and a body given as a stream is a `TypeError` on any status but 303;
+  at most 20 redirects are followed; a missing `Location` returns the 3xx response as-is;
+  an invalid one is a `TypeError`; `signal`, `credentials`, `mode`, `cache`, and `referrer` carry across hops.
+  The final response has its own `url`, and `redirected` is `true` on it and any `clone()` of it.
+- An `https` to `http` redirect follows when the host is granted, as `fetch` does:
+  a grant is by host and port, not scheme, and the origin changing drops the credentials above.
+
+The module's TSDoc has each op's contract.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -357,7 +410,7 @@ The module's TSDoc has each op's contract.
   | `node:fs`, `node:fs/promises`                                              | fs               |
   | `node:child_process`                                                       | spawn            |
   | `node:process`                                                             | process          |
-  | `node:net`, `node:http`, `node:https`, `node:dns`, `node:tls`, `node:dgram` | net (designed)   |
+  | `node:net`, `node:http`, `node:https`, `node:dns`, `node:tls`, `node:dgram` | net              |
 
 ## Hardening
 
@@ -411,6 +464,18 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - `narrow` reads its array by index with its length read once, and a name it doesn't allow throws, never `undefined`.
 - An exit code is checked by `typeof` first, so nothing the caller passed runs before the refusal.
 - A chunk from `stdin` is a plain `Uint8Array` copy, never a `Buffer` or a view of Node's memory.
+
+### net's invariants
+
+- Handles come only from `net` and `narrow`, through a module-private key, and hold their hosts in private fields,
+  so `narrow` called on any other object throws `TypeError`. `fetch` is a closure, so a receiver can't reach or replace a handle's hosts.
+- `net`, a narrowed handle, its `fetch`, and their prototypes are frozen, and the prototypes are null-prototype.
+- One `Request` is built per call, its URL read back from that `Request`, so no caller `toString` runs between the check and the send.
+- Every redirect's target is checked before it's sent to, in the one loop `fetch` goes through unless the caller chose `manual` or `error`.
+- `narrow` reads `hosts` by own property and by index with its length read once, and a host it doesn't allow throws `not_granted`.
+- Every send names its `redirect` and dispatcher, and the request's own fields a polluted key would replace,
+  since undici's init dictionary reads a key the init doesn't own through `Object.prototype`, even for a null-prototype init.
+  It's no defense against pollution generally, as the [gaps](#net-1) say.
 
 ### The Node implementation's own measures
 
@@ -536,6 +601,28 @@ It documents each gap rather than weakening the API to match, and is a review si
 - `process`, like `fs`, reads the working directory when the module loads, so importing it throws
   in a removed or non-UTF-8 working directory.
 
+### net
+
+- The hostname is checked, not the address it connects to, so a granted name resolving to a private range, or rebinding between requests, isn't refused.
+- The global `fetch` stays, and any module can import `node:http` or `node:net`, so a handle bounds only the code that uses it.
+- The root handle allows every host, where the runtime's holds only the accepted ones.
+- Following relies on Node exposing a `manual` response's status and `Location`, where the Fetch standard filters them behind an `opaqueredirect`.
+- A dispatcher placed at undici's global key reroutes every send, as for the global `fetch`, and a missing one rejects rather than sends past it.
+- Beside native follow, following differs in five ways, each for the reason given:
+  - a response after a cross-origin hop has `type` `basic`, not `cors`, and a `no-cors` one isn't opaque, since each hop is its own request;
+  - a `Request` carrying a stream body is buffered and replayed, where native follow rejects, since a `Request`'s source isn't observable from JS.
+    It buffers whether or not a redirect comes, so a large upload streams through `init`, where a stream is refused as native follow refuses one;
+  - a redirected request with `integrity` rejects unless every hop's body matches, since the integrity check runs on each hop's response, not only the last;
+  - a `Location` with a scheme other than HTTP(S) is `not_granted` rather than a `TypeError`;
+  - a redirect's own `Referrer-Policy` isn't applied to the next hop, since no consumer needs it, while the caller's own `referrer` and policy carry.
+- Intrinsics stay pollutable. `fetch`, `Request`, `Response`, `Headers`, `URL`, and `Object`'s functions are copied at load,
+  so a `fetch` replaced before the module loads is the one called, but code that patches their prototypes after the module loads runs inside these ops,
+  and a `Response` is a real one, so awaiting it adopts a polluted `then`.
+- `Object.prototype` stays reachable. undici's init dictionary reads a key the init doesn't own through it, and undici's `Client` and `net.connect` read their connection options through it,
+  so a polluted `Object.prototype` can change the connection, including its destination, through options like `socketPath` and `lookup`.
+  That is part of this module being advisory, as any holder of a handle can already call the global `fetch` or `node:net`, and no list of polluted keys could be complete.
+  Every send names `redirect` and the dispatcher, so an ordinary option or a `Request` can't reroute or follow.
+
 ## Native requirements
 
 What the runtime's builtin must do that the Node implementation can't:
@@ -594,3 +681,16 @@ What the runtime's builtin must do that the Node implementation can't:
 - Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
   ignoring `SIGPIPE`.
 - Return `stdin` chunks as owned buffers, never a view of memory the runtime reuses.
+
+### net
+
+- Resolve a name inside the connector and check the connected address against a written range list
+  (loopback, link-local including `169.254.169.254`, CGNAT, ULA, IPv4-mapped IPv6, `0.0.0.0`), never the hostname alone,
+  with loopback an explicit grant for dev servers and tests.
+- Resolve and connect in the op, reading no JS object for connection options, so nothing on `Object.prototype` reaches the connection.
+- Hold only the accepted hosts on the root, a host outside them throwing `not_granted`.
+- Follow redirects in the op, each hop's host and connected address checked before anything is sent,
+  with this module's header stripping, method rewrite, cap, and refused schemes.
+- Apply the Fetch forbidden-header list, so `Host` and SNI can't be steered.
+- Ignore ambient `HTTP(S)_PROXY`.
+- Show a wildcard host grant like `*.github.com` as the blanket class, since a multi-tenant domain makes it one.

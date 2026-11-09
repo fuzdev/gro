@@ -12,7 +12,7 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules (`fs`, `spawn`, and `process` exist as their Node implementation,
+> Designed, not built: the host modules (`fs`, `spawn`, `process`, and `net` exist as their Node implementation,
 > [host modules](host_modules.md)), the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
 > Until they land, `fgro run` gives code no API past its own module graph and the console,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
@@ -27,7 +27,7 @@ The runtime's docs:
 - [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, why not namespaces, the box designed for runs and children, the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
-- [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, and `process` today, how to hand them down, and the Node implementation's gaps
+- [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `process`, and `net` today, how to hand them down, and the Node implementation's gaps
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size

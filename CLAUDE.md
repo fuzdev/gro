@@ -430,6 +430,7 @@ Key utilities:
   and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
   `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
+- Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run`, a caller's
   branch or tag name passes `assert_git_ref_name` so it's never a refspec or pattern,
