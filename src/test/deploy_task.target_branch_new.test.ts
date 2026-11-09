@@ -12,7 +12,8 @@ import {
 	setup_successful_spawn_mock,
 	mock_spawn_results,
 	is_clone_call,
-	ORIGIN_URL
+	ORIGIN_URL,
+	expect_cloned
 } from './deploy_task_test_helpers.ts';
 import { get_mock_project } from './fs_mocks.ts';
 import { git_ops } from './git_mocks.ts';
@@ -137,6 +138,8 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			// clones the source branch from the cwd, then points the clone's origin at the project's
 			expect(spawn).toHaveBeenCalledWith('git', [
 				'clone',
+				'--origin',
+				'origin',
 				'-b',
 				'main',
 				'--single-branch',
@@ -286,6 +289,8 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			expect(git_push_to_create).toHaveBeenCalledWith('upstream', 'gh-pages', {
 				cwd: expect.stringContaining('.gro/deploy')
 			});
+			// `remote set-url upstream` needs the clone's remote under that name
+			await expect_cloned('main', '.gro/deploy', 'upstream');
 		});
 	});
 

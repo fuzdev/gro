@@ -248,7 +248,10 @@ export const task: Task<Args> = {
 			// It may not exist, or it may have been deleted after failing to sync above.
 			if (!(await deploy_dir_exists())) {
 				const local_deploy_branch_exists = await git_local_branch_exists(git, target);
-				await git_fetch(git, origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
+				// a dry deploy leaves an existing local branch as it is, the clone's files get replaced
+				if (!dry || !local_deploy_branch_exists) {
+					await git_fetch(git, origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
+				}
 				await clone_deploy_dir(git, fs_paths, origin, target, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd
 				if (!local_deploy_branch_exists) {
@@ -565,8 +568,8 @@ const open_deploy_cwd = async (fs_paths: FsPaths, resolved_deploy_dir: string): 
 };
 
 /**
- * Clones the project's `branch` into the deploy dir, points the clone's `origin` remote
- * at the project's, and tags it with `DEPLOY_CLONE_CONFIG_KEY`, failing at the first step that fails, so `remote set-url`
+ * Clones the project's `branch` into the deploy dir, under the remote name `origin`, points
+ * that remote at the project's, and tags it with `DEPLOY_CLONE_CONFIG_KEY`, failing at the first step that fails, so `remote set-url`
  * never runs after a failed clone, in a directory that could be inside another repo.
  * Makes the project's `.gro/` first, with its marker, when the deploy dir is beneath it.
  */
@@ -585,6 +588,8 @@ const clone_deploy_dir = async (
 		);
 	const clone = await git.run([
 		'clone',
+		'--origin',
+		origin,
 		'-b',
 		branch,
 		'--single-branch',

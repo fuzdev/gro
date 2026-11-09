@@ -39,7 +39,8 @@ gro deploy --target custom-deploy-branch --force
 # TODO maybe it should be `--dangerous-target-branch` instead of `--target` and `--force`?
 
 # prepare the deploy dir and push nothing
-# (a first deploy still makes a local init commit for the new target branch)
+# (a first deploy still makes a local init commit for the new target branch,
+# and an existing local target branch is left as it is, where a real deploy overwrites it)
 gro deploy --dry
 
 # reset the target branch to its first commit before deploying,

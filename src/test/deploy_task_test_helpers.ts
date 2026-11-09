@@ -214,11 +214,17 @@ export const setup_successful_spawn_mock = async () => {
 /**
  * Expects the deploy dir to have been cloned once, from the cwd's `branch`.
  */
-export const expect_cloned = async (branch: string, deploy_dir = '.gro/deploy') => {
+export const expect_cloned = async (
+	branch: string,
+	deploy_dir = '.gro/deploy',
+	origin = 'origin'
+) => {
 	const calls = await get_clone_calls();
 	expect(calls.map((c) => c.args)).toEqual([
 		[
 			'clone',
+			'--origin',
+			origin,
 			'-b',
 			branch,
 			'--single-branch',

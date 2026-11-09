@@ -138,7 +138,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			});
 			vi.mocked(git_current_branch_name).mockResolvedValue('wrong-branch');
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 
@@ -198,7 +198,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 				return null;
 			});
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 
@@ -241,6 +241,30 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 			// Should delete target branch from cwd (cleanup after fetch created it)
 			expect(git_delete_local_branch).toHaveBeenCalledWith('deploy');
+		});
+
+		test('a dry deploy leaves an existing local target branch, cloning it as it is', async () => {
+			const { git_fetch, git_local_branch_exists } = git_ops;
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockImplementation((path: any) => String(path).includes('build'));
+			vi.mocked(git_local_branch_exists).mockResolvedValue(true);
+
+			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
+
+			expect(git_fetch).not.toHaveBeenCalledWith('origin', '+deploy:deploy');
+			await expect_cloned('deploy');
+		});
+
+		test('a real deploy syncs an existing local target branch before cloning it', async () => {
+			const { git_fetch, git_local_branch_exists } = git_ops;
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockImplementation((path: any) => String(path).includes('build'));
+			vi.mocked(git_local_branch_exists).mockResolvedValue(true);
+
+			await deploy_task.run(create_mock_deploy_task_context({ dry: false }));
+
+			expect(git_fetch).toHaveBeenCalledWith('origin', '+deploy:deploy');
+			await expect_cloned('deploy');
 		});
 
 		test('skips cleanup if local target branch existed before', async () => {
@@ -358,7 +382,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			vi.mocked(exists).mockResolvedValue(false); // deploy dir missing
 			vi.mocked(git_fetch).mockRejectedValue(new Error('Fetch failed'));
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Fetch failed');
 		});
