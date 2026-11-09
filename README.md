@@ -29,7 +29,7 @@ and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
 It's an in-progress design, and of the confinement only `fgro eval`'s kernel box is built so far.
 The experimental build runs modules with no API to the OS (no fs, network, env, or spawn), though `fgro run`'s process itself isn't sandboxed yet - see
-[the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
+[the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
 The Node tool includes:
@@ -72,8 +72,8 @@ The Node tool includes:
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
 - the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) and [`fgro eval`](/src/docs/eval.md) do today,
+  its [security model](/src/docs/authority.md) and the [kernel backstop](/src/docs/backstop.md) under it,
   how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
-  the [kernel backstop](/src/docs/backstop.md) under its checks,
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
 

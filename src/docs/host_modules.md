@@ -6,7 +6,7 @@
 > **status**: `fs`, `spawn`, and `process` exist as the Node implementation in Gro's npm package;
 > watch and net are designed, not built.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
-> ([runtime](runtime.md#imports-or-globals) has the design).
+> ([authority](authority.md#imports-or-globals) has the design).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
 Each is an import, so what a module can reach shows in its imports,
@@ -213,6 +213,7 @@ since a child with no inherited stdio has no terminal for ssh, a credential help
 
 `spawn_restartable` (`@fuzdev/gro/spawn_restartable.ts`) is library code over a `SpawnProgram` too:
 it starts a program and restarts it on request, every restart reusing the same handle,
+with `args` and `options` copied when it's created,
 so the pin and environment fixed at `program()` carry across restarts.
 `gro_plugin_deno_server` uses it, pinning `deno` once at setup.
 

@@ -3,7 +3,7 @@
 > The terms the runtime docs use, each defined once
 
 > **status**: most of these describe the design, not the build.
-> [run](run.md) covers what's built, and [runtime](runtime.md) marks the rest on its roadmap.
+> [run](run.md) covers what's built, [authority](authority.md) states the model, and [runtime](runtime.md) marks the rest on its roadmap.
 
 ## access manifest
 

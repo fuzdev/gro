@@ -9,7 +9,7 @@
 > checked against their documentation and probed on the versions the [bench](#measured) ran.
 > Corrections are welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
-Gro is the [runtime](runtime.md) this compares; its security model and design are there.
+Gro is the [runtime](runtime.md) this compares; its design is there and its security model is in [authority](authority.md).
 The short version: the four runtimes share most of the ingredients
 (V8 or JavaScriptCore, web standards, TypeScript without a build step, ES modules),
 and differ on what a run can reach and how that is decided.
@@ -104,10 +104,10 @@ and is treated like the lockfile, committed, diffed, and reviewed.
 Two limits belong beside that claim, and one cost.
 The cost is that `fetch`, `WebSocket`, and `EventSource` are imports on the host's `net` handle, never globals,
 so a package that reaches the network only through the global doesn't run on Gro
-([imports or globals](runtime.md#imports-or-globals) has the trade-off).
+([imports or globals](authority.md#imports-or-globals) has the trade-off).
 The import boundary holds against code that overreaches, not a dependency built to steal,
 which can patch a shared prototype in the same realm
-(the runtime's [threat model](runtime.md#threat-model) says where the bound is then).
+(the runtime's [threat model](authority.md#threat-model) says where the bound is then).
 And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
 while the grants by import are designed, not built.
 

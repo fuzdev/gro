@@ -25,7 +25,7 @@ The last part is `no snapshot` for a build without a startup snapshot.
 User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
-([runtime](runtime.md#threat-model) and [backstop](backstop.md) have what's designed).
+([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise that never settles ends the run as an error, not a hang.
 Linux x86_64 only.
@@ -79,7 +79,7 @@ Absent until a consumer needs them, with no grant involved, are `Headers`, `Requ
 `MessagePort`, and `FileReader`.
 The global object isn't an `EventTarget`, so there's no `addEventListener('unhandledrejection')`.
 It's still extensible, and a free `fetch` is a plain `ReferenceError` with no hint;
-the seal is designed ([runtime](runtime.md#design)).
+the seal is designed ([authority](authority.md#by-construction-or-by-default)).
 
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.
 `import.meta.resolve` runs the same strict resolver as an import,

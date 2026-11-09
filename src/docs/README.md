@@ -17,13 +17,14 @@
 - [test](test.md)
 - the experimental runtime
   - [runtime](runtime.md)
+  - [authority](authority.md)
+  - [backstop](backstop.md)
   - [run](run.md)
   - [eval](eval.md)
+  - [host_modules](host_modules.md)
   - [resolver](resolver.md)
   - [typescript](typescript.md)
   - [comparison](comparison.md)
-  - [host_modules](host_modules.md)
-  - [backstop](backstop.md)
   - [glossary](glossary.md)
 
 > <sub>[gro](/../..) / docs / README.md</sub>
