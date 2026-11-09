@@ -4,7 +4,7 @@
 
 > security-first JS runtime and toolchain on V8 🌰 generate, run, optimize
 
-> ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because it shells out to Bash;
+> ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because its spawn host module runs only ELF, Mach-O, and `#!` programs, not a Windows `.exe`, `.bat`, or `.cmd`;
 > the Rust [runtime](/src/docs/runtime.md) will.
 
 Today, Gro is a task runner and toolkit
@@ -56,7 +56,7 @@ The Node tool includes:
   linting with [ESLint](https://github.com/eslint/eslint)
   (I also maintain [`@ryanatkn/eslint-config`](https://github.com/ryanatkn/eslint-config)),
   and formatting with [`tsv`](https://github.com/fuzdev/tsv)
-- all of its internals exported from `src/lib`,
+- its modules exported from `src/lib`, except those under `internal/`,
   and [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
 
 ## Docs
@@ -113,7 +113,7 @@ builtin tasks:
 build      build the project
 changeset  call changeset with gro patterns
 check      check that everything is ready to commit
-clean      remove temporary dev and build files, and optionally prune git branches
+clean      remove build files, and optionally prune git branches
 commit     commit and push to a new branch
 deploy     deploy to a branch
 dev        start SvelteKit and other dev plugins

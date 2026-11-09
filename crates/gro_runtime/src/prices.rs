@@ -4,7 +4,7 @@
 //!
 //! Without the feature, [`start`] and [`off`] read nothing and [`off`] is
 //! always `false`, so a default build reads no such variable and keeps every
-//! default. Release and snapshot builds never enable it; the `prices` suite
+//! default. The binary that ships never enables it; the `prices` suite
 //! of `cargo xtask bench` builds a binary that does, and its `--version` says
 //! so (`fgro`'s `, prices`).
 //!

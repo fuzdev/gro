@@ -319,8 +319,8 @@ Invariants that live in the code:
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in. The `phases` and `prices` features (on
-  `gro_cli`, enabling `gro_runtime`'s) are never enabled in release or
-  snapshot builds; without them nothing reads the variables.
+  `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
+  without them nothing reads the variables.
 - A change to the seccomp allowlist reruns the census
   ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
 

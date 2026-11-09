@@ -76,8 +76,8 @@ When the cache is valid:
 
 ```bash
 gro build
-# Build cache valid (from 2025-10-21T10:30:00.000Z) (use --force_build to rebuild)
-# Skipping build, cache is valid
+# Build cache valid (from 2025-10-21T10:30:00.000Z)
+# skipping build, cache is valid (use --force_build to rebuild)
 ```
 
 Force a rebuild:
@@ -138,7 +138,7 @@ If tracked files were modified or untracked files were created, the build fails:
 Error: Build process modified tracked files or created untracked files.
 
 Git status after build:
-  Modified: src/lib/foo.ts
+git has unstaged changes
 
 Builds should only write to output directories (build/, dist/, etc.).
 This usually indicates a plugin or build step is incorrectly modifying source files.
@@ -193,10 +193,12 @@ use `build_cache_config` in `gro.config.ts` to invalidate the cache when they ch
 
 ```typescript
 // gro.config.ts
+import {fs} from '@fuzdev/gro/fs.ts';
+
 export default {
 	build_cache_config: {
 		api_endpoint: process.env.PUBLIC_API_URL,
-		data_version: fs.readFileSync('data/version.txt', 'utf-8'),
+		data_version: fs.project.read_text_sync('data/version.txt'),
 		features: {analytics: true, beta_ui: false},
 	},
 } satisfies GroConfig;

@@ -62,7 +62,7 @@ gro changeset --help # view the args docs
 changeset init # if needed -- prefix with `npx ` if installed only locally
 changeset
 git add .changeset/$FILE
-# TODO include a `git commit` flag or default behavior, maybe `gro changeset "message"`
+# with a message, `gro changeset "message"` writes the changeset itself, then commits and pushes if everything is staged
 ```
 
 After initing, optionally configure and install a custom changelog package
@@ -113,7 +113,7 @@ You'll get a warning if the token is unavailable, but for light usage you won't 
 
 ## `gro publish`
 
-The publish task builds the project, bumps the version, publishes to npm,
+The publish task bumps the version, builds the project, publishes to npm,
 commits the changes, and then pushes the commit and tag.
 
 Ensure `"dist"` is in the `"files"` property of `package.json`:
@@ -135,9 +135,10 @@ gro publish -- svelte-package --types # forward options
 See [the SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging) for more.
 
 If `changeset publish` fails during `gro publish`,
-the task exits without pushing anything to the remote origin.
-It does however create the version commit and tag.
+the task exits without committing or pushing,
+leaving the version bump uncommitted in the working tree.
 A common failure is not being logged into npm. (see the instructions above)
 If the builds are correct but `changeset publish` failed,
-and you don't want to undo the version commit and tag,
-you can continue manually with `changeset publish` or `npm publish`.
+you can continue manually with `changeset publish`,
+then commit and run `git push --follow-tags`,
+or undo the bump with `git reset --hard`.

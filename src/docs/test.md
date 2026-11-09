@@ -43,11 +43,11 @@ files in your project by default using the pattern `".test."`.
 So to add a new test, create a new file:
 
 ```ts
-// by convention, create `src/lib/thing.ts`
-// to test `src/lib/thing.test.ts`
+// by convention, create `src/test/thing.test.ts`
+// to test `src/lib/thing.ts`
 import {test, expect} from 'vitest';
 
-import {thing} from './thing.ts';
+import {thing} from '#lib/thing.ts';
 
 test('the thing', async () => {
 	expect(thing).toEqual({expected: true});

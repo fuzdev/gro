@@ -80,7 +80,7 @@ import type {CreateGroConfig} from '@fuzdev/gro';
 import {gro_plugin_sveltekit_app} from '@fuzdev/gro/gro_plugin_sveltekit_app.ts';
 
 const config: CreateGroConfig = async (cfg) => {
-	// `cfg`, which has type `GroConfig` and is equal to `create_empty_gro_config()`,
+	// `cfg`, which has type `GroConfig`, is the default config and
 	// can be mutated or you can return your own.
 	// A return value is required to avoid potential errors and reduce ambiguity.
 
@@ -377,11 +377,11 @@ build_cache_config: () => ({
   ),
 })
 
-// external data version
+// external data version, with `fs` from `@fuzdev/gro/fs.ts`
 build_cache_config: async () => ({
-  data_version: await fs.promises.readFile('data/version.txt', 'utf-8'),
+  data_version: await fs.project.read_text('data/version.txt'),
   // hash large files instead of including content
-  schema_hash: hash_blake3(await fs.promises.readFile('schema.sql')),
+  schema_hash: hash_blake3(await fs.project.read('schema.sql')),
 })
 ```
 

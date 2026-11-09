@@ -18,7 +18,7 @@
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
 //! fails, `2` a usage error, an entry that doesn't resolve included.
 //!
-//! Features (release and snapshot builds never enable `phases` or `prices`):
+//! Features (the binary that ships never enables `phases` or `prices`):
 //!
 //! - `snapshot` embeds a startup snapshot read from `GRO_SNAPSHOT_DIR` and
 //!   the commit from `GRO_COMMIT`; `cargo xtask build` makes it in two

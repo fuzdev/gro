@@ -342,7 +342,7 @@ a module refused at resolution, or one that isn't a project's own, exits 2 with 
   that code generation from strings is off for an uncaught `EvalError`
   (V8 throws one natively for nothing else),
   how to link a package for a read outside the box, and the build command for a build with no snapshot.
-  A resolve or load failure carries its fix inside `message`, after `. Fix:`, with `hint` `null`,
+  A resolve or load failure carries its fix inside `message`, after `. Fix:`, with no `hint`,
   so a caller finds a fix in `hint` when it's set and otherwise in the message.
 - `access.dynamic` lists each refused `import()` in the module's graph as `{specifier, importer}`,
   in specifier order, then importer order, one entry per specifier and importer.
@@ -460,8 +460,9 @@ The same table as [run](run.md#errors-and-exit-codes):
 | exit | when                                                                                                     |
 | ---- | -------------------------------------------------------------------------------------------------------- |
 | 0    | the value serialized, or `--help`                                                                        |
-| 1    | any failure after the module resolved, the kind in the envelope                                          |
+| 1    | any other failure, the kind in the envelope                                                              |
 | 2    | a usage error (an unknown flag, `--driver` other than `-`, `--driver` with `--export`, a `--timeout` below 1), or a module that doesn't resolve or isn't a project's own |
 
 A module that fails to resolve on an I/O error or a symlink loop exits 1, not 2, as in `run`.
+A panic exits 101 with no envelope in a debug build; a release build aborts.
 A failure writing the envelope (a closed pipe, a full disk) is reported on stderr and exits 1, whatever the eval's outcome.

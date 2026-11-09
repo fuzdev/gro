@@ -60,7 +60,7 @@ use crate::cmd::{StepResult, run};
 use crate::error::XtaskError;
 
 /// Which build of the snapshot `fgro` to make: the plain one, or a
-/// measurement build with one more feature, which release never carries.
+/// measurement build with one more feature, which the build that ships never carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Measurement {
     /// The build that ships.

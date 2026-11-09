@@ -3,8 +3,8 @@
 //!
 //! Without the feature, [`start`], [`mark`], [`open`], and [`finish`] are
 //! empty and inlined away, so a default build carries no clock read, no
-//! static, and no environment read for them. Release and snapshot builds
-//! never enable it; `cargo xtask bench --phases` builds a binary that does.
+//! static, and no environment read for them. The binary that ships never
+//! enables it; `cargo xtask bench --phases` builds a binary that does.
 //!
 //! With it, [`start`] reads the wall clock (`CLOCK_REALTIME`, as nanoseconds
 //! since the Unix epoch) and the monotonic clock once, back to back, at the

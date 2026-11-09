@@ -98,8 +98,9 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
-  can't shadow `spawn.program('git')`. Gro's own tasks use `find_cli` (`cli.ts`),
-  which tries the project's `node_modules/.bin/<name>` first and then the bare name.
+  can't shadow `spawn.program('git')`. Gro's own tasks find a project's tools, like `vite` and `eslint`,
+  with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name,
+  while `git`, `deno`, `node`, and the package manager go straight to `spawn`.
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
@@ -326,7 +327,8 @@ The module's TSDoc has each op's contract.
 - Gro's library and task code otherwise reaches the filesystem only through the fs host module,
   and starts programs only through the spawn host module, so it can run unchanged where the modules are builtins.
   The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
-  (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
+  (`resolve_specifier.ts`, `svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
+  `spawn.ts`'s `PATH` walk and pin,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
   the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
