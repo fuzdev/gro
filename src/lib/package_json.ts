@@ -18,6 +18,7 @@ import {
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
+import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 
 export type PackageJsonMapper = (
@@ -27,12 +28,13 @@ export type PackageJsonMapper = (
 export const PACKAGE_JSON_EMPTY: PackageJson = { name: '', version: '' };
 
 /**
- * Loads the `package.json` in `dir`, or `PACKAGE_JSON_EMPTY` when it can't be read or parsed as JSON.
+ * Loads the `package.json` in `dir`, or `PACKAGE_JSON_EMPTY` when it can't be read or parsed as JSON,
+ * or, when not `parse`, holds no object.
  * @param fs_paths - opens `dir`'s `package.json`
  * @param dir - absolute, or relative to the project; defaults to the project of `fs_paths`
  * @param cache - keyed by `dir` as given
  * @param parse - whether to validate it against the `PackageJson` schema
- * @param log - logs a failure to load
+ * @param log - logs a failure to load, other than a missing file
  * @throws when `parse` and the loaded JSON fails the schema
  */
 export const package_json_load = async (
@@ -49,11 +51,15 @@ export const package_json_load = async (
 	try {
 		package_json = JSON.parse(await package_json_load_contents(fs_paths, dir));
 	} catch (error) {
-		log?.error(st('yellow', `Failed to load package.json in ${dir}`), error);
+		if (!is_fs_error(error, 'not_found')) {
+			log?.error(st('yellow', `Failed to load package.json in ${dir}`), error);
+		}
 		return PACKAGE_JSON_EMPTY;
 	}
 	if (parse) {
 		package_json = parse_package_json(PackageJson, package_json);
+	} else if (typeof package_json !== 'object' || package_json === null) {
+		return PACKAGE_JSON_EMPTY; // valid JSON that callers still read fields from
 	}
 	if (cache) {
 		cache[dir] = package_json;

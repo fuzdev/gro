@@ -3,7 +3,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import type { Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
-import { sveltekit_sync } from './sveltekit_helpers.ts';
+import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { process } from './process.ts';
 import { fs } from './fs.ts';
@@ -45,7 +45,8 @@ export const task: Task<Args> = {
 			});
 		}
 
-		if (sveltekit) {
+		// a project declaring SvelteKit that isn't installed still gets the install hint
+		if (sveltekit && (await project_has_sveltekit_app(fs_paths, log))) {
 			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
 			log.info('synced SvelteKit');
 		}

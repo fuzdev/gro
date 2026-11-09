@@ -13,7 +13,7 @@ vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_m
 
 vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
-	sveltekit_sync_if_available: vi.fn(async () => undefined)
+	sveltekit_sync: vi.fn(async () => undefined)
 }));
 
 afterEach(async () => {

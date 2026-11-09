@@ -59,6 +59,18 @@ test('package_json_load returns the empty package.json when it is missing', asyn
 	assert.strictEqual(package_json, PACKAGE_JSON_EMPTY);
 });
 
+test('package_json_load without `parse` returns the empty package.json for JSON holding no object', async () => {
+	for (const contents of ['null', '1', '"a"']) {
+		const project = create_mock_fs_dir('/project');
+		mock_tree(project, { 'package.json': contents });
+		const fs_paths = create_mock_project_fs_paths(project);
+		assert.strictEqual(
+			await package_json_load(fs_paths, undefined, undefined, false),
+			PACKAGE_JSON_EMPTY
+		);
+	}
+});
+
 test('package_json_load_for_gro reads the running Gro through the module system', async () => {
 	const gro_package_json = package_json_load_for_gro();
 	assert.strictEqual(gro_package_json.name, '@fuzdev/gro');

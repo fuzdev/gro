@@ -141,7 +141,8 @@ export type PluginsCreateConfig<TPluginContext extends PluginContext = PluginCon
 The Gro config option `map_package_json` hooks into Gro's `package.json` automations.
 The `gro sync` task, which is called during the dev and build tasks among others,
 performs several steps to get a project's state ready,
-including `svelte-kit sync` and `package.json` automations.
+including `svelte-kit sync` for a project with SvelteKit in its dependencies,
+and `package.json` automations.
 
 When the `map_package_json` config value is truthy,
 `gro sync` writes to the root `package.json` on the filesystem with a mapped version.

@@ -23,7 +23,10 @@ test(
 		const cli = join(dir, 'node_modules/.bin/svelte-kit');
 		await writeFile(cli, '#!/bin/sh\nexit 1\n');
 		await chmod(cli, 0o755);
-		await writeFile(join(dir, 'package.json'), '{"type": "module"}\n');
+		await writeFile(
+			join(dir, 'package.json'),
+			JSON.stringify({ type: 'module', devDependencies: { '@sveltejs/kit': '3' } }) + '\n'
+		);
 
 		const result = spawnSync(
 			process.execPath,
@@ -41,6 +44,99 @@ test(
 
 const invoke_args = (argv: Array<string>): Array<string> =>
 	spawn_with_loader_args(LOADER_SOURCE_PATH, INVOKE_SOURCE_PATH, argv, undefined);
+
+describe('SvelteKit sync without SvelteKit in the dependencies', () => {
+	const KIT = { '@sveltejs/kit': '3' };
+
+	// a `svelte-kit` that fails loudly, at `node_modules/.bin` or on a bin directory on `PATH`
+	const write_cli = async (dir: string, bin: string): Promise<void> => {
+		const path = join(dir, bin, 'svelte-kit');
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, `#!/bin/sh\ntouch '${join(dir, 'ran')}'\nexit 1\n`);
+		await chmod(path, 0o755);
+	};
+
+	const run_cli = async (
+		argv: Array<string>,
+		package_json: string,
+		bin: string | null
+	): Promise<{ status: number | null; output: string; ran: boolean }> => {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_invoke_sync_'));
+		onTestFinished(() => rm(dir, { recursive: true, force: true }));
+		await writeFile(join(dir, 'package.json'), package_json);
+		if (bin !== null) await write_cli(dir, bin);
+		const env = cli_env();
+		env.PATH = `${join(dir, 'global_bin')}:${env.PATH}`;
+		const result = spawnSync(process.execPath, invoke_args(argv), {
+			cwd: dir,
+			encoding: 'utf8',
+			env
+		});
+		return {
+			status: result.status,
+			output: result.stderr + result.stdout,
+			ran: existsSync(join(dir, 'ran'))
+		};
+	};
+
+	const to_package_json = (fields: object): string =>
+		JSON.stringify({ type: 'module', ...fields }) + '\n';
+
+	const SYNC = ['sync', '--no-package_json', '--no-gen'];
+
+	test(
+		'before any task, a CLI runs for no project that does not declare SvelteKit',
+		async () => {
+			for (const [package_json, bin] of [
+				[to_package_json({}), 'node_modules/.bin'],
+				[to_package_json({}), 'global_bin'],
+				[to_package_json({ peerDependencies: KIT }), 'node_modules/.bin'],
+				['null\n', 'node_modules/.bin'],
+				['{\n', 'node_modules/.bin']
+			] as const) {
+				const { status, ran, output } = await run_cli([], package_json, bin);
+				assert.isFalse(ran, `${package_json} with ${bin}`);
+				assert.strictEqual(status, 0, output);
+				assert.notInclude(output, 'Failed to load package.json');
+			}
+		},
+		TEST_TIMEOUT_MD * 2
+	);
+
+	test(
+		'before any task, a project declaring SvelteKit with no CLI skips, as on a fresh clone',
+		async () => {
+			const { status, output } = await run_cli([], to_package_json({ devDependencies: KIT }), null);
+			assert.strictEqual(status, 0, output);
+		},
+		TEST_TIMEOUT_MD
+	);
+
+	test(
+		'`gro sync` passes for a project without SvelteKit, whatever CLI is around',
+		async () => {
+			const { status, ran, output } = await run_cli(SYNC, to_package_json({}), 'global_bin');
+			assert.strictEqual(status, 0, output);
+			assert.isFalse(ran);
+		},
+		TEST_TIMEOUT_MD
+	);
+
+	test(
+		'`gro sync` gives the install hint for a project declaring SvelteKit with no CLI',
+		async () => {
+			const { status, output } = await run_cli(
+				SYNC,
+				to_package_json({ devDependencies: KIT }),
+				null
+			);
+			assert.strictEqual(status, 1, output);
+			assert.include(output, 'Failed to find SvelteKit CLI `svelte-kit`');
+			assert.include(output, 'install');
+		},
+		TEST_TIMEOUT_MD
+	);
+});
 
 // quotes an arg for the bash pipelines below
 const to_shell_word = (arg: string): string => `'${arg.replaceAll("'", `'\\''`)}'`;

@@ -12,9 +12,11 @@ import {
 	to_spawn_result_message
 } from './cli.ts';
 import { SVELTE_CHECK_CLI } from './constants.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
 import { paths } from './paths.ts';
 import { spawn } from './spawn.ts';
-import { sveltekit_sync_if_available } from './sveltekit_helpers.ts';
+import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import { TaskError, type Task } from './task.ts';
 
 /** @nodocs */
@@ -39,10 +41,12 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run svelte-check or tsc on the project without emitting any files',
 	Args,
-	run: async ({ args, log }): Promise<void> => {
+	run: async ({ args, log, config }): Promise<void> => {
 		const { svelte_check_cli, typescript_cli, path_replacement, cwd } = args;
 
-		await sveltekit_sync_if_available(spawn);
+		if (await project_has_sveltekit_app(create_fs_paths(fs), log)) {
+			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
+		}
 
 		// Prefer svelte-check if available.
 		const found_svelte_check_cli = find_cli(spawn, svelte_check_cli, {

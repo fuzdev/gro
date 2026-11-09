@@ -1,7 +1,11 @@
-import { assert, describe, test, expect } from 'vitest';
+import { assert, describe, test, expect, vi } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
-import { has_sveltekit_app, has_sveltekit_library } from '#lib/sveltekit_helpers.ts';
+import {
+	has_sveltekit_app,
+	has_sveltekit_library,
+	project_has_sveltekit_app
+} from '#lib/sveltekit_helpers.ts';
 import { LIB_PATH, SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
 import {
 	create_mock_fs_dir,
@@ -9,10 +13,49 @@ import {
 	create_mock_project_fs_paths,
 	mock_tree
 } from './fs_mocks.ts';
+import { create_mock_logger } from './test_helpers.ts';
 
 const to_package_json = (
 	deps: Partial<Pick<PackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>>
 ): PackageJson => ({ name: 'a', version: '0', ...deps });
+
+describe('project_has_sveltekit_app', () => {
+	const to_project = (tree: Record<string, string>) => {
+		const project = create_mock_fs_dir('/project');
+		mock_tree(project, tree);
+		return create_mock_project_fs_paths(project);
+	};
+
+	test('a declared SvelteKit counts in a package.json the schema refuses', async () => {
+		const contents = JSON.stringify({ name: 1, devDependencies: { [SVELTEKIT_DEP_NAME]: '3' } });
+		expect(await project_has_sveltekit_app(to_project({ 'package.json': contents }))).toBe(true);
+	});
+
+	test('no declared SvelteKit is no app', async () => {
+		const fs_paths = to_project({ 'package.json': '{"devDependencies": {"typescript": "6"}}' });
+		expect(await project_has_sveltekit_app(fs_paths)).toBe(false);
+	});
+
+	test('a package.json that does not parse is no app, reported to the log', async () => {
+		const log = create_mock_logger();
+		expect(await project_has_sveltekit_app(to_project({ 'package.json': '{' }), log)).toBe(false);
+		expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
+		expect(String(vi.mocked(log.error).mock.calls[0]![0])).toContain('package.json');
+	});
+
+	test('a package.json that exists but cannot be read is no app, reported to the log', async () => {
+		const log = create_mock_logger();
+		// a directory at the path, as a permission error or a symlink loop would be
+		expect(await project_has_sveltekit_app(to_project({ 'package.json/x': '' }), log)).toBe(false);
+		expect(vi.mocked(log.error).mock.calls).toHaveLength(1);
+	});
+
+	test('a missing package.json is no app, with nothing to report', async () => {
+		const log = create_mock_logger();
+		expect(await project_has_sveltekit_app(to_project({}), log)).toBe(false);
+		expect(vi.mocked(log.error).mock.calls).toHaveLength(0);
+	});
+});
 
 describe('has_sveltekit_app', () => {
 	test('detects SvelteKit as a dep or dev dep', () => {

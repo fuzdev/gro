@@ -22,10 +22,10 @@ import {
 	TSCONFIG_FILENAME,
 	LIB_PATH
 } from './constants.ts';
-import { package_json_has_dependency } from './package_json.ts';
+import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { TaskError } from './task.ts';
 import type { FsPaths } from './fs_paths.ts';
-import type { Spawn } from './spawn.ts';
+import type { Spawn, SpawnProgram } from './spawn.ts';
 
 /**
  * Detected from `package.json` rather than the Svelte config,
@@ -41,6 +41,19 @@ export const has_sveltekit_app = (
 	}
 	return { ok: true };
 };
+
+/**
+ * Whether the project's `package.json` declares a SvelteKit app, as `has_sveltekit_app` detects one.
+ * Read without the schema, as only its dependencies matter, and one that can't be read is no app.
+ * @param fs_paths - reads the project's `package.json`
+ * @param log - reports a `package.json` that exists but can't be read or parsed; with none, stays silent
+ * @returns whether the project is a SvelteKit app
+ */
+export const project_has_sveltekit_app = async (
+	fs_paths: FsPaths,
+	log?: Logger
+): Promise<boolean> =>
+	has_sveltekit_app(await package_json_load(fs_paths, undefined, undefined, false, log)).ok;
 
 /**
  * Whether the project is a SvelteKit library: a SvelteKit app, as `has_sveltekit_app` detects one,
@@ -90,7 +103,8 @@ export interface SveltekitSyncOptions {
 const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
 
 /**
- * Runs `svelte-kit sync`.
+ * Runs `svelte-kit sync`, with nothing checking that the project uses SvelteKit.
+ * Callers gate on `project_has_sveltekit_app` unless something else already establishes it.
  * @param spawn - finds and runs the CLI
  * @param options - the CLI's name and the install hint
  * @throws `TaskError` if the CLI isn't found or fails
@@ -105,34 +119,28 @@ export const sveltekit_sync = async (
 			`Failed to find SvelteKit CLI \`${sveltekit_cli}\`, do you need to run \`${pm_cli} install\`?`
 		);
 	}
+	await run_sveltekit_sync(found_sveltekit_cli, sveltekit_cli);
+};
+
+const run_sveltekit_sync = async (
+	found_sveltekit_cli: SpawnProgram,
+	sveltekit_cli: string
+): Promise<void> => {
 	const result = await spawn_cli(found_sveltekit_cli, ['sync']);
 	if (!spawn_result_is_ok(result)) {
 		throw new TaskError(`Failed ${sveltekit_cli} sync`);
 	}
 };
 
-// TODO maybe this shouldn't exist, instead error if `package.json` has SvelteKit but it's not found (with install message above)
 /**
- * If the SvelteKit CLI is found, run `svelte-kit sync`.
+ * What runs before every task: `svelte-kit sync` for a project `has_sveltekit_app` detects whose
+ * `.svelte-kit` directory or generated `$app/tsconfig` is missing, the tsconfig checked because
+ * it lives in `node_modules`, which reinstalls wipe. A project with both pays only their checks.
+ * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone.
+ * @param fs_paths - checks for the project's synced files and reads its `package.json`
  * @param spawn - finds and runs the CLI
  * @param sveltekit_cli - the SvelteKit CLI's name
- */
-export const sveltekit_sync_if_available = async (
-	spawn: Spawn,
-	sveltekit_cli: string = SVELTEKIT_CLI
-): Promise<void> => {
-	if (find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS)) {
-		return sveltekit_sync(spawn, { sveltekit_cli });
-	}
-};
-
-/**
- * If the SvelteKit CLI is found and either the project's `.svelte-kit` directory
- * or its generated `$app/tsconfig` is not, run `svelte-kit sync`.
- * The tsconfig is checked because it lives in `node_modules`, which reinstalls wipe.
- * @param fs_paths - checks for the project's synced files
- * @param spawn - finds and runs the CLI
- * @param sveltekit_cli - the SvelteKit CLI's name
+ * @throws `TaskError` if the CLI fails
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	fs_paths: FsPaths,
@@ -145,7 +153,9 @@ export const sveltekit_sync_if_obviously_needed = async (
 	) {
 		return;
 	}
-	return sveltekit_sync_if_available(spawn, sveltekit_cli);
+	if (!(await project_has_sveltekit_app(fs_paths))) return;
+	const found_sveltekit_cli = find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS);
+	if (found_sveltekit_cli) await run_sveltekit_sync(found_sveltekit_cli, sveltekit_cli);
 };
 
 /**
