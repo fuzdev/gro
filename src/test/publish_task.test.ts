@@ -37,6 +37,8 @@ vi.mock('#lib/changeset_helpers.ts', async (import_original) => ({
 	changeset_has_pending: vi.fn()
 }));
 
+vi.mock('#lib/env.ts', () => ({ load_from_env: vi.fn() }));
+
 vi.mock('#lib/changelog.ts', () => ({
 	update_changelog: vi.fn()
 }));
@@ -406,6 +408,35 @@ describe('publish_task version bump', () => {
 		assert.include(error.message, '`git reset --hard HEAD~1`');
 		assert.include(to_steps(mock_spawn.calls), 'git commit');
 		assert.notInclude(to_steps(mock_spawn.calls), 'git push');
+	});
+
+	describe('the changelog token', () => {
+		const run_with_changelog = async (env_token: string | undefined) => {
+			const { load_from_env } = vi.mocked(await import('#lib/env.ts'));
+			const { update_changelog } = vi.mocked(await import('#lib/changelog.ts'));
+			load_from_env.mockReset();
+			load_from_env.mockResolvedValue(env_token);
+			const ctx = create_mock_publish_task_context({ preserve_changelog: false });
+			await publish_task.run(ctx);
+			return { ctx, load_from_env, token: update_changelog.mock.calls.at(-1)![5] };
+		};
+
+		test("reads the key from the env, `.env`, then the parent's `.env`", async () => {
+			const { ctx, load_from_env, token } = await run_with_changelog('the_token');
+			assert.strictEqual(token, 'the_token');
+			assert.deepEqual(load_from_env.mock.calls[0]!.slice(2), [
+				'SECRET_GITHUB_API_TOKEN',
+				['.env', '../.env']
+			]);
+			assert.strictEqual(vi.mocked(ctx.log.warn).mock.calls.length, 0);
+		});
+
+		test('warns and goes on with no token', async () => {
+			const { ctx, token } = await run_with_changelog(undefined);
+			assert.isUndefined(token);
+			const warning = String(vi.mocked(ctx.log.warn).mock.calls[0]![0]);
+			assert.include(warning, '`../.env`');
+		});
 	});
 
 	const stub_no_changesets = async () => {

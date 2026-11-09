@@ -203,13 +203,14 @@ export const task: Task<Args> = {
 				const token = await load_from_env(
 					fs_paths,
 					process.env.narrow(['SECRET_GITHUB_API_TOKEN']).get_all(),
-					'SECRET_GITHUB_API_TOKEN'
+					'SECRET_GITHUB_API_TOKEN',
+					// one key, named here, so a token in a workspace's `.env` serves its repos
+					['.env', '../.env']
 				);
 				if (!token) {
 					log.warn(
-						'the env var SECRET_GITHUB_API_TOKEN was not found in the env or `.env`,' +
-							' so API calls will be unauthorized - set it for one run with' +
-							' `SECRET_GITHUB_API_TOKEN=$(gh auth token) gro publish`'
+						'the env var SECRET_GITHUB_API_TOKEN was not found in the env, `.env`, or `../.env`,' +
+							' so API calls will be unauthorized'
 					);
 				}
 				await update_changelog(

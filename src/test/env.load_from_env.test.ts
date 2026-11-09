@@ -37,6 +37,17 @@ describe('load_from_env', () => {
 		assert.strictEqual(await load_from_env(child_paths, process.env, KEY), undefined);
 	});
 
+	test("an explicit `../.env` reads the parent, after the project's", async () => {
+		await temp.write('.env', `${KEY}=parent`);
+		await temp.mkdir('child');
+		const child = temp.dir('child');
+		const child_paths = create_fs_paths({ ...fs, project: child });
+		const paths = ['.env', '../.env'];
+		assert.strictEqual(await load_from_env(child_paths, process.env, KEY, paths), 'parent');
+		await child.write('.env', `${KEY}=project`);
+		assert.strictEqual(await load_from_env(child_paths, process.env, KEY, paths), 'project');
+	});
+
 	test('process.env wins over the files', async () => {
 		await temp.write('.env', `${KEY}=local`);
 		process.env[KEY] = 'ambient';
