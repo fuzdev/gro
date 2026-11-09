@@ -16,20 +16,19 @@ It runs on Node and is a dev tool, not for production use.
 [`npm i -D @fuzdev/gro`](https://www.npmjs.com/package/@fuzdev/gro)
 
 Gro is also becoming its own JS runtime,
-a Rust binary on V8 built for code you can't fully trust, like from your dependencies and agents,
-with granular control over what it can reach.
-By default a run is confined: code reaches only what its imports declare,
+a Rust binary on V8 with granular control over what your dependencies and agents can reach.
+As designed, a run is confined by default: code reaches only what its imports declare,
 reads of the project's own files without asking, and the network, processes, and anything outside the project
 only once accepted in a small policy file you review like a lockfile,
 so changing capabilities is a diff, and the runtime is designed to enforce it.
 A hermetic run is also confined but strictly deterministic, with its clock and randomness fixed or denied,
-so it replays and caches by construction;
+so it's designed to replay and cache;
 an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
 It's an in-progress design, and of the confinement only `fgro eval`'s kernel box is built so far.
-The experimental build runs modules with no access to the OS at all - see
+The experimental build runs modules with no API to the OS (no fs, network, env, or spawn), though `fgro run`'s process itself isn't sandboxed yet - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the security model, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -74,6 +73,7 @@ The Node tool includes:
 - [`gen`](/src/docs/gen.md) code generation
 - the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) and [`fgro eval`](/src/docs/eval.md) do today,
   how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
+  the [kernel backstop](/src/docs/backstop.md) under its checks,
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
 

@@ -13,9 +13,9 @@ Gro is the [runtime](runtime.md) this compares; its security model and design ar
 The short version: the four runtimes share most of the ingredients
 (V8 or JavaScriptCore, web standards, TypeScript without a build step, ES modules),
 and differ on what a run can reach and how that is decided.
-Node and Bun hand every module everything.
+Node (by default) and Bun hand every module everything.
 Deno denies by default and grants per process, by flag.
-Gro confines by default and grants per module graph, by import,
+Gro is designed to confine by default and grant per module graph, by import,
 with the grants recorded in a file beside the lockfile.
 
 ## Compared to Deno
@@ -26,14 +26,20 @@ The difference is where authority comes from.
 In Deno it's ambient: `Deno.*`, and through Node compat `process`, `require`, and `node:*`,
 are reachable from any module, and a permission granted to the process covers every module in it.
 In Gro it enters by import, so what a run can reach is a fact about its code, not its command line.
-Deno can't adopt that without breaking its users, and it's why Gro is a new runtime rather than a set of Deno flags.
-A second set of choices Deno could adopt without breaking anyone, and Gro turns them on by default.
+Deno can't make that its default without breaking its users, and it's why Gro is a new runtime rather than a set of Deno flags.
+A second set of choices Deno could adopt without breaking anyone, and Gro's design turns them on by default.
 
 There's also a practical reason, apart from the design:
 Deno is on bug and security fixes until its end of life in October 2027 ([why](runtime.md#why)),
-so even the choices it could adopt aren't likely to land.
+so we don't expect the choices it could adopt to land there.
 
-### What Deno can't adopt without breaking its users
+One thing the two share should be said plainly.
+Until Gro's kernel backstop lands for runs, its checks are, like Deno's, in-process checks in a process that holds the user's authority,
+and `fgro run` today is in the same class as Deno with no permissions granted, with fewer APIs.
+The structural differences are where authority enters and what a reviewer can infer from the code;
+how strongly a run is contained is the backstop's, built for `fgro eval` alone so far.
+
+### What Deno can't make its default without breaking its users
 
 - **Authority enters by import, and nothing is ambient.**
   Gro has no runtime namespace, no `process` global, no `require`, and no `node:*`.
@@ -48,7 +54,8 @@ so even the choices it could adopt aren't likely to land.
   Deno resolves `https:`, `jsr:`, and `npm:` specifiers, fetching code at run time
   (a static remote import from Deno's default hosts needs no permission, other hosts take `--allow-import`;
   `--no-remote` turns remote loading off, and `--cached-only` requires remote modules to be cached already).
-  Gro reads files on disk, resolved strictly, so the graph is whatever the lockfile installed,
+  Gro reads files on disk, resolved strictly, so the graph is whatever is in `node_modules`
+  (Gro doesn't check it against the lockfile at load, where Deno verifies what it caches; a declared-dependency check is designed),
   and every module stays inside its own project's or package's root.
   Deno offers parts of this as opt-outs, and can't make them the default
   without breaking the programs that import by URL or specifier.
@@ -57,21 +64,21 @@ The difference between a guarantee by omission and an opt-out flag is where the 
 In Deno, safety belongs to the invocation,
 so auditing a project means auditing every way it's run and the flags each one passes.
 In Gro it belongs to the repo: it holds for every run,
-so a reviewer reads the code and the policy file and nothing else.
+so a reviewer reads the code, the policy file, and any invocation that passes `--allow-*` or `-A` for one run.
 Gro commits to never adding these paths.
 Where it keeps a Node convention, like `exports` resolution through `node_modules`,
 it's because that's the global maximum for Gro across security, speed, and ergonomics,
 with security first, not compatibility for its own sake.
 
-Most of Gro's sandbox follows from the first of these:
+Most of Gro's permission model follows from the first of these:
 
 - **Who holds a grant.** A Gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
-  so the diff names the package that newly reaches the network, or any other authority, by construction.
+  so the diff names the package whose import newly reaches the network, or any other authority.
   A capability handed down by reference stays attributed to the module that imported it;
-  handing never widens.
+  handing never widens, and what a root hands to a library shows in the root's code, not the diff.
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
-  with a `NotCapable` error the code can catch and swallow.
+  with a `NotCapable` error the code can catch, so a denial can go unreported (it's still denied).
   Gro denies before the code runs: an ungranted host module doesn't link,
   and there's no global `fetch` to reach around it.
   What's left for the call is the scoped check inside a grant
@@ -83,10 +90,10 @@ Most of Gro's sandbox follows from the first of these:
   and the policy file changes only when the graph newly imports authority,
   which is lockfile cadence, not run cadence.
   Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only.
-- **Inference.** It's sound because every entry point is an import, the network included,
-  so the policy file can be generated from the code and reviewed;
-  no sound equivalent exists over `Deno.*` calls, which any expression can reach,
-  so Deno's permission set is written by hand.
+- **Inference.** Every entry point is an import, the network included,
+  so the policy file can be generated from the code and reviewed, and the loader enforces what the walk proposes;
+  no equivalent exists over `Deno.*` calls, which any expression can reach,
+  so Deno's permission set is written by hand (its `DENO_TRACE_PERMISSIONS` traces each check at run time, which finds needs without inferring them).
 - **WASM.** A WASM module imported as an ES module declares its capabilities by its imports too,
   so one policy file and one inference cover both.
 
@@ -109,18 +116,19 @@ while the grants by import are designed, not built.
 These are defaults, choices Deno could adopt without breaking anyone,
 some of which it already offers behind a flag.
 They matter, but they aren't why Gro exists.
+Gro's cells start with the words [By axis](#by-axis) defines.
 
 |                   | Deno                                                                     | Gro                                                                                                                                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prompts           | asks on a terminal, unless `--no-prompt`                                 | never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`                                                                  |
-| denials           | a thrown error the code can catch                                        | reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run                                                                                                             |
-| permission file   | a hand-written permission set in `deno.json` (`-P`)                      | the policy file, committed beside the lockfile and diffed in review, a widening failing the check until accepted; inferred from the imports, which Deno can't do (above)                                                   |
-| children          | `--allow-run` spawns outside the sandbox                                 | the grant set becomes kernel rules for every child, coarser than in-process (paths and ports, not hosts): an argv, never a shell string, executables resolved when granted, an environment that is empty plus an allowlist |
-| kernel            | the op checks stand alone                                                | Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box                                                                                                                      |
-| denied regardless | `--deny-read=…`, opted into per run                                      | inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A`; credentials reach one process as named grants, never file reads                                    |
-| native code       | FFI in-process under `--allow-ffi`, which `-A` includes                  | FFI planned as a grant, with the library in its own confined process and no part of `-A`; in-process loading isn't currently planned (feedback welcome in [discussions](https://github.com/fuzdev/gro/discussions)), and if a measured need brings it, it's a grant of its own, shown as leaving the runtime's checks |
-| determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | a hermetic run fixes or denies clock and randomness and replays exactly                                                                                                                                                    |
-| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | `gro eval`: its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap and a memory cap, and no environment variable configures it, every knob a flag                             |
+| prompts           | asks on a terminal, unless `--no-prompt`                                 | designed: never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`; built: `fgro` has no prompt |
+| denials           | a thrown error the code can catch                                        | designed: reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run |
+| permission file   | a hand-written permission set in `deno.json` (`-P`)                      | designed: the policy file, committed beside the lockfile and diffed in review, a widening failing the check until accepted; inferred from the imports, which Deno can't do (above) |
+| children          | `--allow-run` spawns outside the sandbox (it refuses the dynamic loader's variables under a scoped run grant) | designed: a coarsening of the grant set becomes kernel rules for every child (hierarchies and ports, not hosts), with the project read-only and only the declared write roots writable: an argv, never a shell string, executables resolved when granted, a cleared environment plus a small base set and an allowlist; a program's arguments are still code, so every spawn grant is shown as backstop-only |
+| kernel            | the op checks stand alone                                                | built for `fgro eval`, designed for every run: Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box ([backstop](backstop.md)) |
+| denied regardless | `--deny-read=…`, opted into per run                                      | designed: inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A` by the runtime's own checks; at the kernel, children get the project read-only apart from the declared write roots, and can still read `.env*` inside it; credentials reach one process as named grants, never file reads |
+| native code       | FFI in-process under `--allow-ffi`, which `-A` includes                  | later: FFI as a grant, with the library in its own confined process and no part of `-A`; in-process loading isn't currently planned (feedback welcome in [discussions](https://github.com/fuzdev/gro/discussions)), and if a measured need brings it, it's a grant of its own, shown as leaving the runtime's checks |
+| determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | built for `fgro eval`: clock and randomness denied; designed: a hermetic run fixes or denies them and replays exactly once the host orders async completions |
+| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | built: `gro eval`, its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap and a memory cap, and no environment variable configures it, every knob a flag                             |
 
 TypeScript is a simplicity choice rather than a security one:
 Deno transpiles the full language, and Gro strips erasable syntax only, so positions never move
@@ -245,12 +253,12 @@ Gro's cells for a feature start with one of these words:
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
 | opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch |
 | unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
-| a dependency's reach is attributable | no                                       | no                                                                  | —       | designed: by the import chain, for every grant                                              |
+| a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the import chain, for every grant                                              |
 | how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |
 | network scoping                 | not covered in 24; `--allow-net` since 25          | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
-| child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux)                                       |
+| child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux), the project read-only and the declared write roots writable                                       |
 | kernel backstop                 | none                                               | none                                                                | none    | built for `fgro eval`: Landlock and seccomp (Linux); designed for every run                 |
 | native code in-process          | N-API addons, `--allow-addons`                     | FFI under `--allow-ffi`, and N-API                                  | FFI (`bun:ffi`), and N-API | later: FFI as a grant in its own process; in-process loading not currently planned, open to feedback                                  |
 | code fetched at run time        | no                                                 | yes, imports                                                        | no      | no                                                                                          |

@@ -56,12 +56,20 @@ It's where host modules are best imported, so the policy diff points at a few fi
 ## confined
 
 The default [run kind](#run-kinds), bounded by its grants and not replayable.
+It's a policy property, not by itself an OS sandbox: the [kernel backstop](#kernel-backstop) is what makes it hold
+against code that escapes the engine, and neither is built for `fgro run` yet.
 
 ## declared
 
 A grant a person writes, in a static `grants` literal or a flag, rather than one [inferred](#inference):
 named hosts, a read root outside the project, a spawn allowlist.
 A declaration is a proposal until the [policy file](#policy-file) accepts it.
+
+## determinism modes
+
+How a run sees the clock and randomness: `real` (the default for `run` and tasks), `deny` (every read throws; `gro eval`'s one mode, built),
+and `fixed` and `seeded` (a fixed clock and a seeded generator, designed for hermetic runs that need a time or random values).
+[eval](eval.md#determinism) lists what `deny` refuses.
 
 ## driver
 
@@ -78,7 +86,7 @@ the value, or an error with its kind, which a caller branches on.
 ## escape hatch
 
 `-A` (`--allow-all`), which makes a run [unconfined](#unconfined).
-It's the one blanket escape hatch, never a default.
+It's the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
 ## grant
@@ -109,6 +117,8 @@ A grant limits what code can obtain, never what it's given.
 The strictest [run kind](#run-kinds), with no network, spawn, storage, or by-name channels,
 clock and randomness fixed or denied, and every read recorded,
 so the run replays exactly and its output can be cached.
+Designed; `gro eval` is the closest built thing to it, with the gaps [eval](eval.md#the-graph) lists
+(it records reads only with `--graph`, and its `import.meta.url` is the real path).
 
 ## host modules
 
@@ -119,7 +129,9 @@ Each is a visible edge in the import graph, so a run's host modules are [inferre
 ## inference
 
 Computing a run's grants from its import graph, before any code runs.
-It's sound, since every way to reach authority is an import.
+Every way to reach authority is an import, so the walk proposes the whole set,
+and the loader enforces it at every link, so an `import()` the walk couldn't see (a computed specifier) is still checked against its importer's grants.
+Inference proposes; the loader enforces.
 What a grant reaches past the defaults, like named hosts or a read root outside the project, is [declared](#declared).
 A global would defeat it, since any expression can name one, which is why Gro has no [authority globals](#authority-globals).
 
@@ -137,11 +149,11 @@ V8 running JS in its interpreter alone, with no JIT and no `WebAssembly`:
 
 ## kernel backstop
 
-On Linux, the grant set enforced again as kernel rules (Landlock and seccomp),
+On Linux, a coarsening of the grant set enforced as kernel rules (Landlock and seccomp),
 installed before V8 starts and inherited by every child process.
-It's coarser than the runtime's own checks (paths and ports, not single files or hostnames),
+It's coarser than the runtime's own checks (hierarchies and ports, not single files or hostnames),
 so it backs them up rather than replacing them.
-Built so far as `gro eval`'s [box](#box).
+Built so far as `gro eval`'s [box](#box); [backstop](backstop.md) has the design for the rest.
 
 ## link closure
 
@@ -195,7 +207,7 @@ Under a hermetic run the ones that reveal the clock or randomness are refused or
 Three views of what code can do, each answered in a different place:
 
 - **reach** is what code could get to, a static fact of the import graph and the policy file,
-  seen per root or package, and the only one of the three the runtime enforces
+  seen per root or package, and the only one of the three the runtime enforces (designed)
 - **need** is what a function asks for, static in its parameter types (`deps: FsDeps`),
   visible to reviewers and the type checker but not to the policy
 - **use** is what a run actually did, recorded dynamically in the [access manifest](#access-manifest),
@@ -233,7 +245,8 @@ derived from its grants and recorded in the policy file.
 ## security gate
 
 A suite of escape probes run under every grant set,
-the way the bench measures speed, and passed by every milestone after `gro eval`.
+the way the bench measures speed, to be passed by every milestone after `gro eval`.
+Designed; today's probes are `gro eval`'s acceptance tests.
 
 ## self-reference
 
@@ -247,5 +260,6 @@ like `dist/esm/package.json`. It sets a directory's module format without boundi
 
 ## unconfined
 
-The [run kind](#run-kinds) that reaches everything, under `-A` or a named unconfined phase,
-like Gro's `publish` and `deploy`, which push and use credentials.
+The [run kind](#run-kinds) under `-A` or a named unconfined phase,
+like Gro's `publish` and `deploy`, which push and use credentials:
+every grant at its widest, with no global added and native code still out of process.

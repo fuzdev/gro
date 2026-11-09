@@ -14,7 +14,9 @@
 >
 > Designed, not built: the host modules (`fs`, `spawn`, and `process` exist as their Node implementation,
 > [host modules](host_modules.md)), the grants, the policy file, the seal on the global object, and the kernel backstop for `run`.
-> Until they land, a run reaches nothing past its own module graph and the console.
+> Until they land, `fgro run` gives code no API past its own module graph and the console,
+> but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
+> the same class as Deno with no permissions granted.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -27,6 +29,7 @@ The runtime's docs:
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
 - [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, and `process` today, how to hand them down, and the Node implementation's gaps
+- [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, why not namespaces, the box designed for runs and children, the terminal, and limits
 - [glossary](glossary.md) - the terms these docs use, each defined once
 - installing a release - [install](#install), below
 - building it - the README's [Develop](../../README.md#develop) section
@@ -34,14 +37,15 @@ The runtime's docs:
 Gro is becoming its own JS runtime, a Rust binary that embeds V8,
 built on web standards instead of Node compat,
 with granular control over what code can reach.
-By default a run is confined.
+As designed, a run is confined by default.
 Its code reaches only what it imports or is handed,
-the way a function reaches only the bindings in scope,
-so what a run can reach is a static fact about its import graph and its policy,
-reviewed like a lockfile, and code that only reads and writes its own project's files has nothing to declare.
+much as a function reaches the bindings in scope
+(and, as in any JS, a module can still patch the realm's shared prototypes, which the [threat model](#threat-model) bounds),
+so what a run can reach is a static fact about its import graph, its policy file, and any flags the run is given,
+reviewed like a lockfile, and code that only reads its own project's files and writes its declared write roots has nothing to declare.
 Runs can be hermetic too, with clock and randomness fixed or denied,
-so what a run depends on is known and it replays and caches by construction.
-It's built for code you didn't write, like your dependencies and your agents.
+so what a run depends on is known and it's designed to replay and cache (`gro eval` does today, with the gaps [eval](eval.md#the-graph) lists).
+It's designed to make what your dependencies and your agents can reach visible, reviewable, and bounded.
 
 Its primary verb is `gro run <file>`,
 which runs one module graph with no ambient authority,
@@ -83,8 +87,8 @@ When [Cloudflare bought Deno](https://deno.com/blog/cloudflare) and put the runt
 until its end of life in October 2027, everything on it had to move.
 The scripts and tests go to Node.
 The sandbox was the part worth owning,
-since a security boundary is the last thing to leave on an unmaintained runtime,
-and the first thing to want by construction instead of by flag.
+since a security boundary is the last thing to leave on a runtime with a fixed end of life,
+and the first thing to want by default instead of by flag.
 
 That forced the question of what runtime the stack wants, and the answer was smaller than either.
 Gro already runs the stack's TypeScript in process (tasks, gen files, and config) through its Node loader.
@@ -94,7 +98,7 @@ and [deno_core](https://crates.io/crates/deno_core) as a bootstrap, kept thin, a
 One runtime we own in place of two we don't, and one embeddable host for the toolchain.
 It also couldn't be Deno with different defaults:
 the model the stack wants, authority by import with nothing ambient,
-is one Deno can't adopt without breaking its users
+is one Deno can't make its default without breaking its users
 ([compared to Deno](#compared-to-deno-node-and-bun)).
 The sandbox shipped first, as `gro eval`, long before Gro runs on itself.
 
@@ -106,13 +110,15 @@ any language compiled to it (see [polyglot sandboxing](#what-the-design-opens-up
 
 ## Secure by default
 
+> As designed. Built today: `gro eval`'s box. Nothing in this section is enforced for `fgro run` yet, and the [roadmap](#roadmap) says when.
+
 Code starts with nothing and gets only what it's granted.
-There's no flag or mode to turn confinement on.
-The default is the confined case, and widening it is a visible act, reviewed like a lockfile change.
-As designed, not yet built, a run gets:
+Confinement is the default, with no flag to turn it on; `-A` turns it off.
+Widening is a visible act, reviewed like a lockfile change.
+A run gets:
 
 - **without asking:** what project code reaches through the host modules it imports,
-  scoped to reads under the project root, writes to declared build roots,
+  scoped to reads under the project root, writes to declared write roots,
   and the public env names it declares
 - **only after it's accepted in review:** the network, by named hosts
   (a blanket grant exists, accepted the same way and shown as the widest class),
@@ -137,18 +143,21 @@ holds their union ([below](#gros-workflow-on-the-runtime)).
 The source proposes grants (the host modules it imports, plus a static `grants` literal
 naming hosts and the like) and the committed policy file authorizes them,
 so a dependency bump that newly imports the filesystem, spawn, or the network
-fails at link time, and in the project's check, until the diff is accepted,
+will fail at link time, and in the project's check, until the diff is accepted,
 the same shape as a lockfile change.
+Inference proposes and the loader enforces: every edge, literal or computed, is checked against the importer's accepted grants when it links,
+so the policy holds even where a static walk can't see an `import()` whose specifier is computed.
 A run outside any project, or one that needs a grant just once, takes it by flag instead,
 in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
 and `-A` is the same flag at its widest.
 The network included: `fetch` arrives by import, as `net.fetch`,
 so a dependency that starts fetching is a new edge in the graph, and the diff names the package.
 
-The policy file is also the guardrail for agents.
+The policy file is also a guardrail for the code agents write, not for the agent itself, which already holds your shell's authority.
 What an agent's code may reach sits in one small file a person can audit,
 the runtime will enforce it (nothing enforces it today), and a widening is a diff in review.
-Keeping an agent from editing that file itself is still open.
+Keeping an agent from editing that file itself is still open, and for a project without a review process,
+"accepted" means someone ran the accept command, which an agent can run.
 Review, harness rules, and a push gate cover the normal case but aren't a structural guarantee,
 and a signed acceptance is designed for when it's needed
 ([open questions](#open-questions)).
@@ -164,13 +173,15 @@ so an entry that stops being hermetic is a reviewed diff.
 | confined   | by grant          | real                 | by grant                      | no      |
 | unconfined | everything        | real                 | everything                    | no      |
 
-`gro eval` is hermetic by default, as are Gro's gen files.
+`gro eval` is hermetic (with the gaps [eval](eval.md#the-graph) lists), as Gro's gen files are designed to be.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 A net grant names hosts, or is a blanket grant.
 A hermetic run also gets no storage and no by-name channels, since persistence and cross-run channels break replay.
-Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined,
-and a grant as strong as `-A`, like spawning a shell, is flagged that way in the diff.
+Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined.
+Every spawn grant is shown in the diff as bounded by the kernel backstop alone,
+since for most programs the arguments are code (`git -c core.sshCommand=…`, `node -e`) and a handle on the binary bounds the binary, not what it does;
+a shell, or a child given the whole environment, is shown as `-A`.
 `-A` widens every grant and adds no global: a free `fetch` still fails.
 
 ### By construction or by default
@@ -179,17 +190,18 @@ The guarantees come in two kinds, and it's worth knowing which is which.
 Some hold by construction, with no setting that changes them.
 Authority enters by an import, so what a run can reach is a static fact,
 though which of its modules ends up holding a capability is not.
-There's no `process` global, no Node compat, no remote import,
-and no runtime namespace to reach around the loader.
-A WASM module's imports are its capability declaration the same way.
+There's no `process` global, no Node compat, and no remote import,
+and no runtime namespace: the core's own op table is removed from the global object at startup (built),
+and each host op checks its grant again (designed), so no leaked reference to the core reaches around the loader.
+A WASM module can reach only what its instantiator hands it, and one imported as an ES module declares that statically.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
 These are the read and write roots, the net hosts, the deny overlays,
-the empty environment for children, the kernel rules, whether a run stays hermetic,
+the cleared environment with a small base set for children, the kernel rules, whether a run stays hermetic,
 and native code kept out of the runtime's process.
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
-`-A` is the one blanket escape hatch, never a default.
+`-A` is the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 A tool built on the runtime can name unconfined phases, like Gro's `publish` and `deploy`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
@@ -199,9 +211,11 @@ they're shown that way in the policy diff, with credentials passed to the one pr
 Security-first runtimes earned a reputation for friction,
 with flags on every run, prompts mid-execution, and `-A` as the habit that follows.
 Gro is designed to have none of those (none of it is built yet, and today a run has no authority to widen).
-A normal run in a project has no flags, and code that only reads and writes the project's files has nothing to declare,
+A normal run in a project has no flags, and code that only reads its project's files and writes its declared write roots has nothing to declare,
 and the one moment worth a human's attention, when the graph newly reaches the network,
-a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt.
+a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt;
+a link-time denial fires before any confined code has written to your terminal, and the fix is a fixed command that recomputes the diff itself
+([backstop](backstop.md#the-terminal) has why that matters).
 The costs are elsewhere, and stated plainly:
 no Node compat and no runtime namespace, so code written for Node or Deno needs porting;
 strict ESM, so an npm package without `exports`, or one that's CommonJS, is refused;
@@ -210,7 +224,9 @@ and no global carries authority, so a package that reaches the network only thro
 
 ## Threat model
 
-Grants contain overreach.
+This is the model as designed. Built today: `gro eval`'s box. `fgro run` has no backstop yet, so an engine exploit in a run isn't contained.
+
+Grants are designed to contain overreach.
 A dependency, a task, or an agent that reaches for authority nobody accepted
 fails before it runs (an unaccepted host module fails at link time,
 and there's no global to reach around it), and the widening shows up as a diff in review.
@@ -226,9 +242,18 @@ Code that must be treated as hostile belongs in WASM or a separate process,
 not under a looser grant.
 WASM runs with V8's JIT on, so against an engine exploit
 what holds it is the kernel backstop, not the engine.
-Until the Node tools leave the loop, an invocation that spawns them
-is confined only as finely as the kernel backstop, by paths and ports rather than the grant set.
-Outside the model are `-A` and the named unconfined phases (Gro's `publish` and `deploy`).
+Until the Node tools leave the loop, which is the distant end of the roadmap, an invocation that spawns them
+is confined only as finely as the kernel backstop, by paths and ports rather than the grant set;
+that is the common verb, `gro check`, until then, and the strong claims above describe `gro run` and the dependency's own graph.
+A child process is where a box is weakest, since a program's arguments and its config files are code,
+so children get the project read-only and only the declared write roots writable, at the kernel
+([backstop](backstop.md#the-box-for-runs-and-children) has the rules and what they close).
+Availability is outside the model: a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
+`gro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
+The terminal is a channel: confined output can carry escape sequences, so the host escapes a run's own console output
+(a child's inherited terminal is unescaped) and never prints a grant diff inside a run's output
+([backstop](backstop.md#the-terminal)).
+Outside the model are `-A` and the named unconfined phases (Gro's `publish` and `deploy`), which run the build they contain unconfined too.
 Linux is the design target, and the kernel backstop and every claim that rests on it are Linux's.
 On macOS and Windows anything past the runtime's own checks is outside the model
 until each gets a sandbox design of its own, never a translation of Linux's.
@@ -237,12 +262,12 @@ until each gets a sandbox design of its own, never a translation of Linux's.
 
 The runtime prioritizes, in order:
 
-1. security, with no ambient authority, confinement by construction, and a kernel backstop under it,
+1. security, with no ambient authority, confinement as the default, and a kernel backstop under it,
    measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance, to the WinterTC minimum common API less its one member that carries authority,
    `fetch`, which is an import here (`net.fetch`) because security comes first;
    graded by its WPT subset, with the harness supplying `fetch` from `net`
-3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads and writes its project's files,
+3. developer control and ergonomics, with no prompts, nothing to declare for code that only reads its project's files and writes its declared write roots,
    and a way to widen beside every default (`-A`, a blanket net grant, the JIT flag for eval),
    since a boundary that's painful gets bypassed
 4. speed, startup first, since short-lived invocations dominate an agent-driven loop,
@@ -255,7 +280,8 @@ Staying simple and small is overarching, since the security story depends on
 a surface small enough to audit, where every path out of the run is an import.
 Gro runs on V8, as Node and Deno do, so steady-state compute will be at parity, version for version,
 and the wins are everything around the engine (startup, loading, caching, work avoided).
-Gro isn't security maximalism. The defaults are safe and the user decides when to widen them.
+Gro trades some hardening for speed and compatibility by default: one realm, intrinsics left mutable, the JIT on for runs.
+The defaults are safe against overreach, and the user decides when to widen them.
 
 The runtime is a Rust binary embedding V8 through [rusty_v8](https://github.com/denoland/rusty_v8).
 It's bootstrapped on [deno_core](https://crates.io/crates/deno_core)
@@ -291,19 +317,20 @@ so each piece can be rewritten on its own as measurements justify it.
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
   [typescript](typescript.md) has the rules, the refused list, and the file types.
-- **No ambient authority.** The grant set is a constructor argument of the runtime,
+- **No ambient authority** (designed). The grant set is a constructor argument of the runtime,
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
-  so an ungranted graph fails at link time, not at the first call.
+  so an ungranted module fails at link time, not at the first call,
+  and the scoped checks inside a grant (a path outside a root, a host not accepted) are the host's, at the call, reported so a `try/catch` can't hide them.
   The network is an import too, never a global.
   The host's net module exports a `net` handle (`net.fetch`, `net.WebSocket`, `net.EventSource`,
   bound to the accepted hosts) that's narrowed and passed down like any other capability,
   so authority is visible at every use site.
-  There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` whose hint names the import.
+  There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` (today a plain one; the hint naming the import is designed).
   The net grant is inferred from the graph like a filesystem one, and the hosts it reaches are declared.
   Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
   and ops check the scoped cases (reads under a root).
-- **No authority globals, and no new globals.** Nothing that reaches outside the run is a global:
+- **No authority globals, and no new globals** (the first built, the seal designed). Nothing that reaches outside the run is a global:
   not the network, not storage that outlives the run, not a channel found by name,
   not code outside the graph (`Worker` and `SharedWorker`); each is an import if Gro implements it.
   A global reaches every module in the graph, so a granted one could never be attributed
@@ -320,15 +347,16 @@ so each piece can be rewritten on its own as measurements justify it.
   and so obtain capabilities it was never handed.
   Against a dependency treated as hostile the realm isn't the boundary,
   and freezing the intrinsics is a per-tier hardening, not the default.
-- **A kernel backstop.** On Linux the grant set also becomes kernel rules for the whole invocation
-  (Landlock for the filesystem and TCP, seccomp for the rest of the socket and
-  process surface), installed before V8 starts a thread and inherited by every
+- **A kernel backstop.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation
+  (Landlock for the filesystem and TCP ports, seccomp for socket families, forking, executable memory, and the rest of the process surface),
+  installed before V8 starts a thread and inherited by every
   child process, so an op-check bug, an engine escape, or a spawned tool still lands in a box.
-  The kernel layer is coarser than the runtime's own checks (paths and ports, not
-  files carved out of a tree or hostnames), so it backstops them rather than replacing them.
+  The kernel layer is coarser than the runtime's own checks (hierarchies and ports, not
+  files carved out of a tree or hostnames), so it backstops them rather than replacing them,
+  and children get the declared write roots one by one rather than the project root.
   Built so far for `fgro eval` alone, as a fixed box with no grants to enforce yet:
   read-only to its project and the packages linked into it, with no writes, exec, or network
-  ([eval](eval.md#the-box) has its exact walls).
+  ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds and why not namespaces).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
@@ -345,7 +373,7 @@ so each piece can be rewritten on its own as measurements justify it.
   then serving (TCP, TLS, WebSocket) so fuz_app's TS backends run on it,
   a test runner, bundled dev and build, and types emitted from the binary.
   tsv formats, linked in as crates. Nothing lands before a consumer needs it.
-- **Embeddable.** `gro_runtime` is a library other Rust binaries embed,
+- **Embeddable** (designed). `gro_runtime` is a library other Rust binaries embed,
   with a registration API for their own host modules, and the `gro` binary is one embedder.
   The registration API is Gro's own, not deno_core's,
   so embedders don't break as the core underneath is rewritten.
@@ -355,9 +383,10 @@ so each piece can be rewritten on its own as measurements justify it.
   `engines.gro` in `package.json`, and the binary fails hard outside it.
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
-- **Startup.** A snapshot of the host, a code cache keyed by content, and lazy host init.
-  A cache entry is code to V8, so the cache directory is written only by Gro,
-  never by a confined run or its children, and `gro eval` and hermetic runs never read it.
+- **Startup.** A snapshot of the host (built), a code cache keyed by content, and lazy host init.
+  A cache entry is code to V8, so who writes the cache is the whole defense; `gro eval` and hermetic runs never read it,
+  and how a run is kept from reading an entry a less-trusted run wrote is open ([backstop](backstop.md#open)),
+  so the cache isn't built until that is.
   On a platform without the kernel backstop it stays off until that platform's sandbox exists.
 - **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
   (never a shell string) keep platform differences in a handful of files.
@@ -377,8 +406,8 @@ Authority could reach code two ways, and Gro has only the first. The table is wh
 | existing packages  | the ones written to take it                              | the ones that call the global today               |
 | in the code        | passed down the call graph                               | reachable from anywhere                           |
 
-With no authority global, every reach is an import edge, so inference is sound for all of it
-and the policy diff attributes every widening to a package.
+With no authority global, every reach is an import edge, so inference proposes the whole grant set,
+the loader enforces it at every link, and the policy diff attributes every newly imported authority to a package.
 Both columns describe code that doesn't patch shared prototypes;
 against a dependency that does, the [threat model](#threat-model) says where the bound is.
 
@@ -415,7 +444,7 @@ with the design differences from Deno in prose, [what moving a script from Deno 
 notes on Node and Bun, and the same ground as tables by axis, with the bench's measured startup and size.
 The ingredients are mostly shared.
 The difference that makes Gro a new runtime rather than a set of Deno flags
-is one Deno can't adopt without breaking its users:
+is one Deno can't make its default without breaking its users:
 authority enters by import, with nothing ambient
 (no runtime namespace, no `process`, no `require`, no `node:*`),
 so what a run can reach is a fact about its code, not its command line,
@@ -424,41 +453,44 @@ The second is that the module graph is closed and on disk, never fetched at run 
 Both are guarantees by omission, so they hold for every run,
 where Deno's equivalents are flags that hold for the runs that pass them.
 The rest, like the kernel backstop, no prompts, and deterministic runs,
-are defaults Deno could adopt without breaking anyone, and Gro turns them on;
-Deno's end of life in October 2027 is why they're unlikely to land there ([Why](#why)).
+are defaults Deno could adopt without breaking anyone, and Gro's design turns them on;
+with Deno in maintenance until its end of life in October 2027 ([Why](#why)), we don't expect them to land there.
+Until the backstop lands for runs, Gro's checks are, like Deno's, in-process checks in a process that holds your user's authority;
+the difference is where authority enters, not yet how strongly it's contained.
 
 ## What the design opens up
 
-- **Every reach attributed.** With the network an import, the policy diff names the package
-  that newly reaches it, for every kind of authority alike, and `const {fetch} = net` keeps the web's
+- **Every import of authority attributed.** With the network an import, the policy diff names the package
+  that newly imports it, for every kind of authority alike (what a root hands to a library shows in the root's code, not the diff), and `const {fetch} = net` keeps the web's
   spelling inside a module; the error for a free `fetch` names the import.
 - **Deterministic runs.** Clock and randomness stay the web's globals,
   set per run kind (real, denied, or fixed) rather than imported,
   and hermetic runs pin the time zone and locale,
   so an eval or other hermetic run replays exactly
   (for one that awaits reads, once the host orders async completions, an [open question](#open-questions)).
-  Hermetic runs see the project at a fixed root, never this machine's absolute paths,
-  so their output is the same on every machine.
+  Hermetic runs are designed to see the project at a fixed root, never this machine's absolute paths,
+  so their output is the same on every machine (`gro eval` doesn't yet: its `import.meta.url` is the real path).
 - **Memoized runs.** A hermetic run declares the inputs it may read,
   and its output is keyed by the runtime, its module graph, and the files it actually read,
   so rerunning one is a cache probe (Gro's `gen --check` becomes one).
 - **One module graph.** The loader's graph is the only graph.
   It keys caches and invalidation, drives watch,
   and lets a tool list its entries by parsing instead of executing them (Gro's task listing).
-- **Cheap isolation.** V8 isolates and contexts are cheap in one process,
-  so independent runs (Gro's gen files) can run in parallel, each confined, with no process spawn,
+- **Cheap separation.** V8 isolates and contexts are cheap in one process,
+  so independent runs (Gro's gen files) can run in parallel, each with its own grants under the process's one kernel box, with no process spawn,
   and trust tiers (project, ecosystem, third party) could get their own frozen intrinsics
   (per-tier contexts, an opt-in on the roadmap's future list).
-- **Polyglot sandboxing.** V8 runs WASM, and a WASM module imported as an ES module
+- **Polyglot confinement.** V8 runs WASM, and a WASM module imported as an ES module
   declares its capabilities by its imports, the same thing a JS module's imports are
-  (one instantiated from bytes at run time is a declared entry, like a computed import).
+  (one instantiated from bytes at run time gets exactly the import object the JS hands it, which is handing, not a grant).
   So one policy file, one inference, and one kernel backstop cover every language that targets WASM,
   and a tool, a plugin, or an agent's script written in Rust, C, Go, Zig, or Python
   runs under the grants its imports declare, beside the TS that calls it, in one process.
   The WASI shape maps onto it directly, with the grant set as the host side of the module's world
   and read roots as its preopens.
   This is where code treated as hostile can go instead of under a looser grant,
-  which is what lets the runtime's scope grow past JS without widening the boundary.
+  which is what lets the runtime's scope grow past JS without widening the boundary;
+  WASM needs the JIT, so against an engine exploit it leans on the kernel backstop more than jitless JS under `gro eval` does.
 
 ## Open questions
 
@@ -489,6 +521,13 @@ The design doesn't have every answer, and these are the ones it knows it's missi
 - **Free names through the global's prototype.** `Object.prototype.fetch = …` makes a free `fetch` resolve
   without touching the seal; how to close that, and at what cost to compatibility, is undecided.
 - **Where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime)).
+- **Freezing the intrinsics in the one realm.** Separate realms are the costly option above; freezing the shared prototypes
+  in the single realm needs no second realm and the seal already has a named-exception mechanism,
+  so whether lockdown is the default for third-party and agent-authored code, with a measured compatibility cost, is a separate decision, undecided.
+- **Which files under the project are secrets.** `.env*`, credential files, and `.git/config` are denied by the read overlay;
+  a project `.npmrc` token, `*.pem`, `.git/objects` (every secret ever committed), and the depth the overlay applies at are not yet listed,
+  and a pre-accepted write to a build root plus an unconfined `deploy` is a path out for any of them.
+- **The kernel layer's open ends:** name resolution for children, the code cache's writer, children that need `/proc` ([backstop](backstop.md#open)).
 
 ## Gro's workflow on the runtime
 
@@ -503,7 +542,7 @@ As designed, except where marked built:
   its own graph plus the tasks it invokes, since every task holds the shared context (config, `invoke_task`),
   and a Node tool it spawns is confined by the kernel backstop, not the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
-  diffs them against the committed policy file, and fails on a widening until `gro grants accept` records it.
+  diffs them against the committed policy file, and fails on a widening until `gro policy accept` records it.
   On the Node Gro it runs advisory first, since Node enforces none of it.
 - Gen files are hermetic by default, with each one's run kind shown in the task listing,
   so a gen file that stops being hermetic is a reviewed diff, and `gro gen --check` becomes a cache probe.
@@ -547,11 +586,14 @@ where the host modules and grants land with their first consumer.
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
       a transferred or revoked one is dead in its old holder),
       grown from `gro eval`'s acceptance tests and passed by every milestone after,
+      with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
+      an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, process, spawn, watch, net), the grants,
-      and the policy file, enforced, with the kernel backstop under every run, landing with Gro on Gro
+      and the policy file, enforced, with the kernel backstop under every run and its children
+      ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
 - [ ] serving and types from the binary, so fuz_app's server side runs on Gro

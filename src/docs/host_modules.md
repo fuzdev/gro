@@ -96,7 +96,11 @@ const result = await check.closed;
   resolved once when it's made and pinned for the handle's life.
   `spawn.find(name, options?)` is the same, returning `null` instead of throwing `not_found`,
   and any other failure, like `not_executable`, still throws.
+- A program handle bounds which binary runs, not what it does: for most tools the arguments are code
+  (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
+  so on `fgro` a spawn grant is bounded by the kernel backstop around the child, and the policy diff shows it that way ([backstop](backstop.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
+  The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd.
   Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
   can't shadow `spawn.program('git')`. Gro's own tasks find a project's tools, like `vite` and `eslint`,
   with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name,
@@ -543,6 +547,8 @@ What the runtime's builtin must do that the Node implementation can't:
 - Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`.
 - Return owned buffers from `read`, never a view of memory the runtime reuses.
+- Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the always-on read-deny overlay, since they're regular files, not magic links.
+- Refuse a read that reaches a denied file through another name (a hard link), by the rule [backstop](backstop.md#open) settles on.
 
 ### spawn
 
@@ -551,7 +557,13 @@ What the runtime's builtin must do that the Node implementation can't:
   the cwd by its directory handle. A shebang script runs by path, since `/proc/self/fd` can't reach one.
 - Clear the environment in the op (`env_clear`) and set only what the handle holds,
   with no way for a call to add to it.
-- Inherit only fds 0, 1, and 2 into the child, and confine it with the run's Landlock rules.
+- Inherit only fds 0, 1, and 2 into the child, and confine it with the run's kernel rules:
+  the project and the linked packages readable, only the declared write roots writable (the tool's own cache directory among them), never the project root,
+  TCP on the granted ports, and seccomp denying unix sockets, UDP, new namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
+  unless a grant names them ([backstop](backstop.md#the-box-for-runs-and-children)).
+- Give a child that needs `/proc` a further Landlock layer of its own before it runs, so the runtime's process falls outside the child's domain
+  and its environment stays unreadable.
+- Hand the child a `PATH` filtered to absolute entries.
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel.
 - Report a child killed by any signal, real-time ones included, from `wait4`'s status.
 - Make a group-leading child's process group with `setpgid`, not a new session,

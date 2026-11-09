@@ -22,7 +22,10 @@ untracked files included and the bench's history file excepted;
 The last part is `no snapshot` for a build without a startup snapshot.
 
 `run` takes only the entry file, so an extra argument is a usage error and there are no script arguments.
-User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`).
+User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
+That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
+and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
+([runtime](runtime.md#threat-model) and [backstop](backstop.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise that never settles ends the run as an error, not a hang.
 Linux x86_64 only.

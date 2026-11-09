@@ -145,7 +145,9 @@ Inert: `WeakRef` holds its target, so `deref()` always returns it;
 
 Every `import()` in the run is refused before anything is resolved, whatever it names,
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
-caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md).
+caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md),
+and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
+and the refusal names the real path, so evaluated code can tell whether a path exists and where a link points.
 
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 
@@ -153,7 +155,12 @@ Each `package.json` the run's resolutions read is read once, as [resolver](resol
 
 Eval's process is held in a kernel box before any of the module's code, or V8 itself, runs.
 The box's roots are the project root and each package linked into the project's `node_modules` from outside it,
-found from the directory structure alone before the box goes up:
+found from the directory structure alone before the box goes up.
+The evaluated project chooses them: a committed `node_modules/x` link to a sibling directory that holds a `package.json` makes that directory readable,
+so a caller treats the roots as the project's choice, not its own (they're reported under `--graph` as `local.box`).
+The roots are read in full at the kernel, `.env*` and `.git/config` inside the project included;
+what keeps those out of the eval is that only module extensions load, so the box is the layer against an engine escape, not against a read.
+The closure:
 every entry of the project's `node_modules` (and of each `@scope` directory in it) whose real path is a directory outside the roots so far,
 with a `package.json` file of its own (not a symlink), becomes a root,
 and its own `node_modules` is read the same way, until nothing new is found.
@@ -179,6 +186,7 @@ The walls, in order:
 - **`no_new_privs`**: nothing the process could run gains privileges.
 - **Landlock**: only files and directories under the roots can be read:
   no write anywhere, no execution, nothing outside the roots (`/proc` and `/dev` included);
+  the kernel resolves each path, so a symlink inside a root that points outside is refused, while a hard link is the file;
   no TCP socket can bind or connect;
   and no signal reaches a process outside the box, nor can it connect to an abstract unix socket outside it.
   Every rule is enforced in full, or eval doesn't run.
@@ -305,6 +313,10 @@ a key longer than 64 UTF-16 units, an identifier too, is cut to them and named b
 ## The envelope
 
 Eval writes one JSON object to stdout, on one line, once it has started.
+Console output goes to stderr, so the machine channel carries only the host's writes;
+that separation is the runtime's, not the kernel's (the box allows `write` on every open descriptor),
+so after an engine escape the envelope is as trustworthy as the engine, and a caller that caches on `graph` re-hashes the files it names.
+Stderr is text the evaluated code chose, escape sequences included, and a caller shows it as such.
 A usage error (a flag) prints to stderr with no envelope;
 a module refused at resolution, or one that isn't a project's own, exits 2 with a `resolve` envelope.
 
