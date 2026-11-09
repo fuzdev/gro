@@ -1,5 +1,37 @@
 # @fuzdev/gro
 
+## 0.230.0
+
+### Minor Changes
+
+- feat: every function in `git.ts` taking a branch or tag name refuses one git would read as more ([3cd38b6](https://github.com/fuzdev/gro/commit/3cd38b6))
+  
+  **breaking** a refspec or pattern like `:deploy`, `a:b`, or `ma*`, a name beginning with `-` or `+` or
+  `refs/`, `HEAD`, `@`, and anything else `git check-ref-format --branch` refuses throw a `TaskError`
+  before git runs. `git_fetch` no longer takes a refspec: use `git_fetch_force(git, origin, branch)` for
+  `+branch:branch`. On a detached `HEAD`, `git_push` and `git_push_to_create` refuse the current branch
+  and `git_remote_branch_exists` without a branch name throws.
+- feat: add the `net` host module, `net.fetch` and `net.narrow`, in `@fuzdev/gro/net.ts`, with `NetError` in `net_error.ts` ([5c2ebcf](https://github.com/fuzdev/gro/commit/5c2ebcf))
+- fix: `SpawnProgram.out` and `out_bytes` hold each stream in one array, so many small writes cost only their bytes ([01ad35b](https://github.com/fuzdev/gro/commit/01ad35b))
+- feat: add `SpawnProgram.out_bytes` and `SpawnOutOptions.stdin`, capturing bytes and keeping the terminal for commands that may prompt ([a2c030d](https://github.com/fuzdev/gro/commit/a2c030d))
+  
+  **breaking** `SpawnProgram` gains a required `out_bytes`, so a hand-written `SpawnProgram` needs one.
+- fix: `spawn_restartable` copies its `args` and `options` at creation ([b23957d](https://github.com/fuzdev/gro/commit/b23957d))
+  
+  A caller changing its array, options object, or `stdio` tuple afterward no longer changes what a
+  restart runs. `cwd` and `signal` stay the same handle and signal, so aborting still stops a child.
+- feat: `git_current_branch_name` throws on an unborn branch ([50d6eae](https://github.com/fuzdev/gro/commit/50d6eae))
+  
+  **breaking** it used to return the literal `HEAD`, which read as a branch name. The `TaskError` names
+  the case and the fix, and it now reaches what reads the branch first: `git_checkout` throws from an
+  unborn branch instead of switching away from it, so `gro deploy` and `gro publish` fail from an unborn
+  branch, as do `git_push`, `git_push_to_create`, and `git_remote_branch_exists` with no branch. A detached `HEAD` still returns `HEAD`. `gro deploy` still replaces a deploy clone left on
+  an unborn branch, and `gro commit` still makes a repo's first commit.
+- fix: a dry `gro upgrade` no longer runs `npm cache clean --force` on an ETARGET failure ([6ef66ec](https://github.com/fuzdev/gro/commit/6ef66ec))
+  
+  `install_with_cache_healing` takes `heal_cache`, `true` by default, and `gro upgrade` passes `false`
+  when dry, so the failure surfaces and nothing outside the dry install runs.
+
 ## 0.229.0
 
 ### Minor Changes
