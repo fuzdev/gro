@@ -136,6 +136,7 @@ const result = await check.closed;
   so a command that may prompt (ssh, a credential helper, a pinentry through `git commit`) can capture too.
 - A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
   A program that can't start throws `SpawnError` of kind `launch_failed`.
+  A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
   matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
   so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `spawn`.
@@ -462,7 +463,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
   Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
 - Every array argument (`args`, `narrow`'s names, `pass_env`, `omit_env`) is read by index with its length read once.
-- `out_bytes`'s `stdout` and `stderr` are plain `Uint8Array`s of their own, joined from the chunks into fresh memory,
+- `out_bytes`'s `stdout` and `stderr` are plain `Uint8Array`s of their own, copied out of the chunks into memory of their exact length,
   so no `Buffer` or view of memory Node reuses reaches a caller, and they reach it inside a null-prototype record.
 
 ### process's invariants

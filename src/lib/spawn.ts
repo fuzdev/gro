@@ -93,8 +93,8 @@
  *   kill, and the exit and signal hooks, so a kill could in theory reach a group the kernel handed that id to
  *   after a full wrap of pids.
  * - Intrinsics stay pollutable, as for fs. The module copies at load the Node functions it calls,
- *   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s
- *   `assign`, `create`, `freeze`, `keys`, and `hasOwn`, and its own objects are null-prototype, but
+ *   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, `Buffer.prototype.copy`,
+ *   and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`, and its own objects are null-prototype, but
  *   code that patches `Array.prototype`, `Set.prototype`, `String.prototype`, `Promise`, `Uint8Array`,
  *   `TextDecoder`, `Error`, `EventEmitter.prototype.on`, or the stream classes after this module
  *   loads runs inside these ops, and a patched `on` or stream method holds the raw `ChildProcess`
@@ -152,6 +152,15 @@ const set_timer = setTimeout;
 const clear_timer = clearTimeout;
 const AbortSignalClass = AbortSignal;
 const Uint8ArrayClass = Uint8Array;
+// uncurried, as a method read from a capture's array or chunk would find a later patch, and
+// it takes a range where `subarray` and `slice` look up a species through `constructor`
+const copy_bytes = Function.prototype.call.bind(Buffer.prototype.copy) as unknown as (
+	source: Uint8Array,
+	target: Uint8Array,
+	target_start: number,
+	source_start: number,
+	source_end: number
+) => number;
 
 /**
  * The project root, where a name containing `/` resolves and a call's cwd defaults to,
@@ -163,6 +172,11 @@ const PROJECT_ROOT = to_checked_cwd();
  * The default cap on each of a captured call's stdout and stderr.
  */
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The first allocation of a capture whose stream writes anything.
+ */
+const MIN_CAPTURE_BYTES = 4096;
 
 // fatal is off: `out` is the text view of output, and U+FFFD is what bad bytes become in it
 const output_decoder = new TextDecoder('utf-8', { ignoreBOM: true });
@@ -360,6 +374,7 @@ export interface SpawnProgram {
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
 	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `RangeError` - when memory for a stream can't be allocated, the child killed first
 	 */
 	out(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutput>;
 	/**
@@ -369,6 +384,7 @@ export interface SpawnProgram {
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
 	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `RangeError` - when memory for a stream can't be allocated, the child killed first
 	 */
 	out_bytes(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutputBytes>;
 	/**
@@ -1669,37 +1685,55 @@ const check_signal = (signal: unknown): NodeJS.Signals => {
 	return signal as NodeJS.Signals;
 };
 
+/**
+ * One captured stream, its bytes in a single array so that many small writes cost only
+ * their bytes. `bytes` has room to spare, and only the first `size` of it are output.
+ */
 interface Capture {
-	readonly chunks: Array<Uint8Array>;
+	bytes: Uint8Array;
 	size: number;
 }
 
-// joined into a fresh array, so a caller never holds a `Buffer` or a view of memory Node reuses
+const create_capture = (): Capture => ({ bytes: new Uint8ArrayClass(0), size: 0 });
+
+// exactly its length, so a caller holds no spare capacity and never a view of memory Node reuses
 const to_captured_bytes = (capture: Capture): Uint8Array => {
+	if (capture.size === capture.bytes.length) return capture.bytes;
 	const bytes = new Uint8ArrayClass(capture.size);
-	let offset = 0;
-	for (let i = 0; i < capture.chunks.length; i++) {
-		const chunk = capture.chunks[i]!;
-		bytes.set(chunk, offset);
-		offset += chunk.length;
-	}
+	copy_bytes(capture.bytes, bytes, 0, 0, capture.size);
 	return bytes;
 };
 
 // decoded whole, so a multi-byte character split across chunks stays one character
 const to_captured_text = (capture: Capture): string =>
-	output_decoder.decode(to_captured_bytes(capture));
+	output_decoder.decode(new Uint8ArrayClass(capture.bytes.buffer, 0, capture.size));
 
 /**
- * Stores `chunk`, keeping at most `max_bytes` of the stream.
+ * Moves `capture` to a larger array holding at least `needed` bytes, its capacity doubling
+ * and never past `max_bytes`.
+ * @mutates capture - replaces `bytes`
+ */
+const grow_capture = (capture: Capture, needed: number, max_bytes: number): void => {
+	let capacity = capture.bytes.length === 0 ? MIN_CAPTURE_BYTES : capture.bytes.length;
+	while (capacity < needed) capacity *= 2;
+	const bytes = new Uint8ArrayClass(capacity > max_bytes ? max_bytes : capacity);
+	copy_bytes(capture.bytes, bytes, 0, 0, capture.size);
+	capture.bytes = bytes;
+};
+
+/**
+ * Copies `chunk` into `capture`, keeping at most `max_bytes` of the stream.
  * @returns whether the stream went past `max_bytes`, in which case the rest was dropped
+ * @mutates capture - appends the bytes kept
  */
 const add_chunk = (capture: Capture, chunk: Uint8Array, max_bytes: number): boolean => {
 	const room = max_bytes - capture.size;
 	const exceeded = chunk.length > room;
-	const kept = exceeded ? chunk.subarray(0, room) : chunk;
-	capture.chunks[capture.chunks.length] = kept;
-	capture.size += kept.length;
+	const kept = exceeded ? room : chunk.length;
+	const size = capture.size + kept;
+	if (size > capture.bytes.length) grow_capture(capture, size, max_bytes);
+	copy_bytes(chunk, capture.bytes, capture.size, 0, kept);
+	capture.size = size;
 	return exceeded;
 };
 
@@ -1866,11 +1900,18 @@ class NodeSpawnProgram implements SpawnProgram {
 			is_grouped(stdio)
 		);
 		const { child } = watch;
-		const stdout: Capture = { chunks: [], size: 0 };
-		const stderr: Capture = { chunks: [], size: 0 };
+		const stdout = create_capture();
+		const stderr = create_capture();
 		let capped = false;
+		let failure = null as { readonly error: unknown } | null;
 		const collect = (capture: Capture) => (chunk: Uint8Array) => {
-			if (capped || !add_chunk(capture, chunk, max_bytes)) return;
+			if (capped) return;
+			try {
+				if (!add_chunk(capture, chunk, max_bytes)) return;
+			} catch (error) {
+				// a stream event would make this uncaught, so it's held for the caller
+				failure = create_record({ error });
+			}
 			capped = true;
 			watch.kill_for_cap();
 		};
@@ -1878,6 +1919,7 @@ class NodeSpawnProgram implements SpawnProgram {
 		child.stderr?.on('data', collect(stderr));
 		await watch.started;
 		const result = await watch.closed;
+		if (failure !== null) throw failure.error;
 		return freeze(
 			create_record({
 				...result,
