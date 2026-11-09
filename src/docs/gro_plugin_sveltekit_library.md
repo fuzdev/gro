@@ -37,6 +37,10 @@ so the published `dist` resolves for consumers without
 package `exports` `.js`/`.ts` mirror), `.svelte` component imports, and
 already-`.js` specifiers are left untouched.
 
+The rewrite in `.js` and `.svelte` files changes only real import requests, so a
+template string or comment holding an import statement ships as written. A file that
+doesn't parse is rewritten by pattern instead, with a warning.
+
 In development (`gro dev`), does nothing — `svelte-package` is a build-time tool.
 
 During `adapt`, if `package.json` has a `bin` field,

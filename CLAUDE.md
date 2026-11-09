@@ -146,7 +146,7 @@ and error handling; `plugin.ts` implements them. Builtin plugins:
 - `gro_plugin_sveltekit_app` - `vite dev` / `vite build`
   ([docs](src/docs/gro_plugin_sveltekit_app.md))
 - `gro_plugin_sveltekit_library` - `svelte-package`, then `.ts`→`.js`
-  specifier rewrites in the emitted `.d.ts`/`.svelte`
+  specifier rewrites in the emitted `.js`/`.d.ts`/`.svelte`
   ([docs](src/docs/gro_plugin_sveltekit_library.md))
 - `gro_plugin_deno_server` - a Deno server beside the Vite dev server,
   unbundled, its `deno` pinned once at setup and run through `spawn_restartable`

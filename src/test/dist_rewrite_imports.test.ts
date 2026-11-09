@@ -1,17 +1,24 @@
-import { describe, test, assert, beforeEach, afterEach } from 'vitest';
+import { describe, test, assert, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
 	rewrite_relative_ts_imports,
-	rewrite_svelte_ts_imports,
+	rewrite_dist_file_imports,
 	rewrite_dist_imports
 } from '#lib/dist_rewrite_imports.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
 
+import { create_mock_logger } from './test_helpers.ts';
+
 const fs_paths = create_fs_paths(fs);
+
+const rewrite_svelte = (content: string): string =>
+	rewrite_dist_file_imports('Comp.svelte', content);
+
+const rewrite_js = (content: string): string => rewrite_dist_file_imports('a.js', content);
 
 describe('rewrite_relative_ts_imports', () => {
 	test('rewrites relative `.ts` specifiers to `.js`', () => {
@@ -118,7 +125,120 @@ describe('rewrite_relative_ts_imports', () => {
 	});
 });
 
-describe('rewrite_svelte_ts_imports', () => {
+describe('rewrite_dist_file_imports in `.js`', () => {
+	const REWRITTEN: Array<[string, string]> = [
+		[`import {a} from './a.ts';`, `import {a} from './a.js';`],
+		[`import {a} from '../parent/a.ts';`, `import {a} from '../parent/a.js';`],
+		[`import {s} from './state.svelte.ts';`, `import {s} from './state.svelte.js';`],
+		[`import {a} from "./a.ts";`, `import {a} from "./a.js";`],
+		[`export {a} from './a.ts';`, `export {a} from './a.js';`],
+		[`export * from './a.ts';`, `export * from './a.js';`],
+		[`import './register.ts';`, `import './register.js';`],
+		[`const m = await import('./lazy.ts');`, `const m = await import('./lazy.js');`]
+	];
+	for (const [input, expected] of REWRITTEN) {
+		test(`rewrites ${input}`, () => {
+			assert.equal(rewrite_js(input), expected);
+		});
+	}
+
+	const UNCHANGED = [
+		`import {x} from '@fuzdev/fuz_util/string.ts';`,
+		`import Svg from './Svg.svelte';`,
+		`import {a} from './a.js';`,
+		`import X from './X.tsx';`,
+		`import {m} from './m.mts';`,
+		`import raw from './r.ts?raw';`,
+		`const a = Array.from('./x.ts');`
+	];
+	for (const input of UNCHANGED) {
+		test(`leaves ${input} alone`, () => {
+			assert.equal(rewrite_js(input), input);
+		});
+	}
+
+	test('leaves an import statement inside a template literal as written', () => {
+		const input = "export const t = `import {x} from './feed.ts';`;\n";
+		assert.equal(rewrite_js(input), input);
+	});
+
+	test('leaves an import statement inside a comment as written', () => {
+		const input = `// import {x} from './line.ts';\n/* export * from './block.ts'; */\nexport const a = 1;\n`;
+		assert.equal(rewrite_js(input), input);
+	});
+
+	test('rewrites the real imports around template literals and comments', () => {
+		assert.equal(
+			rewrite_js(
+				[
+					`import {a} from './a.ts';`,
+					`// import {b} from './b.ts';`,
+					"const t = `import {c} from './c.ts';`;",
+					`export {d} from './d.ts';`
+				].join('\n')
+			),
+			[
+				`import {a} from './a.js';`,
+				`// import {b} from './b.ts';`,
+				"const t = `import {c} from './c.ts';`;",
+				`export {d} from './d.js';`
+			].join('\n')
+		);
+	});
+
+	test('rewrites a dynamic import of a template literal without substitutions', () => {
+		assert.equal(
+			rewrite_js('const b = await import(`./b.ts`);'),
+			'const b = await import(`./b.js`);'
+		);
+	});
+
+	test('leaves `require` alone, which is not an import request', () => {
+		const input = `const r = require('./r.ts');`;
+		assert.equal(rewrite_js(input), input);
+	});
+
+	test('rewrites beside non-ASCII text and a BOM, its offsets in UTF-16', () => {
+		assert.equal(
+			rewrite_js(`\uFEFF// é😀\nimport {a} from './a.ts';`),
+			`\uFEFF// é😀\nimport {a} from './a.js';`
+		);
+	});
+
+	test('falls back to the pattern and warns when the file does not parse', () => {
+		const log = create_mock_logger();
+		assert.equal(
+			rewrite_dist_file_imports('broken.js', `import {a} from './a.ts';\nconst = ;\n`, log),
+			`import {a} from './a.js';\nconst = ;\n`
+		);
+		assert.equal(vi.mocked(log.warn).mock.calls.length, 1);
+		assert.include(String(vi.mocked(log.warn).mock.calls[0]![0]), 'broken.js');
+	});
+
+	test('does not warn when the file parses', () => {
+		const log = create_mock_logger();
+		rewrite_dist_file_imports('a.js', `import {a} from './a.ts';`, log);
+		assert.equal(vi.mocked(log.warn).mock.calls.length, 0);
+	});
+});
+
+describe('rewrite_dist_file_imports in `.d.ts`', () => {
+	test('rewrites a type-position `import()`', () => {
+		assert.equal(
+			rewrite_dist_file_imports('a.d.ts', `export declare const x: import('./y.ts').Y;\n`),
+			`export declare const x: import('./y.js').Y;\n`
+		);
+	});
+
+	test('rewrites a `.svelte.d.ts` as a declaration file', () => {
+		assert.equal(
+			rewrite_dist_file_imports('Comp.svelte.d.ts', `export type A = import('./y.ts').Y;\n`),
+			`export type A = import('./y.js').Y;\n`
+		);
+	});
+});
+
+describe('rewrite_dist_file_imports in `.svelte`', () => {
 	test('rewrites specifiers inside the `<script>` block only', () => {
 		const input = `<script lang="ts">
 	import {strip_start} from '@fuzdev/fuz_util/string.ts';
@@ -140,7 +260,7 @@ describe('rewrite_svelte_ts_imports', () => {
 
 <a href="./not-an-import.ts">{icon_link}</a>
 `;
-		assert.equal(rewrite_svelte_ts_imports(input), expected);
+		assert.equal(rewrite_svelte(input), expected);
 	});
 
 	test('rewrites both module and instance `<script>` blocks', () => {
@@ -158,7 +278,7 @@ describe('rewrite_svelte_ts_imports', () => {
 	import {local} from './local.js';
 </script>
 `;
-		assert.equal(rewrite_svelte_ts_imports(input), expected);
+		assert.equal(rewrite_svelte(input), expected);
 	});
 
 	test('preserves `$`-sequences ($$props, $:) while rewriting specifiers', () => {
@@ -174,7 +294,58 @@ describe('rewrite_svelte_ts_imports', () => {
 	$: doubled = x;
 </script>
 `;
-		assert.equal(rewrite_svelte_ts_imports(input), expected);
+		assert.equal(rewrite_svelte(input), expected);
+	});
+
+	test('leaves an import statement inside a `<script>` template literal as written', () => {
+		const input = `<script lang="ts">
+	import {x} from './x.ts';
+	const t = \`import {y} from './y.ts';\`;
+</script>
+`;
+		const expected = `<script lang="ts">
+	import {x} from './x.js';
+	const t = \`import {y} from './y.ts';\`;
+</script>
+`;
+		assert.equal(rewrite_svelte(input), expected);
+	});
+
+	test('leaves an import statement inside a `<script>` comment as written', () => {
+		const input = `<script lang="ts">
+	// import {y} from './y.ts';
+	import {x} from './x.ts';
+</script>
+`;
+		const expected = `<script lang="ts">
+	// import {y} from './y.ts';
+	import {x} from './x.js';
+</script>
+`;
+		assert.equal(rewrite_svelte(input), expected);
+	});
+
+	test('rewrites a file led by a BOM, keeping the BOM', () => {
+		assert.equal(
+			rewrite_svelte(
+				`\uFEFF<script lang="ts">\n\timport {x} from './x.ts';\n\timport {y} from './é.ts';\n</script>\n`
+			),
+			`\uFEFF<script lang="ts">\n\timport {x} from './x.js';\n\timport {y} from './é.js';\n</script>\n`
+		);
+	});
+
+	test('falls back to `<script>` blocks by pattern and warns when the file does not parse', () => {
+		const log = create_mock_logger();
+		assert.equal(
+			rewrite_dist_file_imports(
+				'Broken.svelte',
+				`<script lang="ts">\n\timport {x} from './x.ts';\n</script>\n<div>import './not-an-import.ts'</span>\n`,
+				log
+			),
+			`<script lang="ts">\n\timport {x} from './x.js';\n</script>\n<div>import './not-an-import.ts'</span>\n`
+		);
+		assert.equal(vi.mocked(log.warn).mock.calls.length, 1);
+		assert.include(String(vi.mocked(log.warn).mock.calls[0]![0]), 'Broken.svelte');
 	});
 
 	test('leaves a `.svelte` with no rewritable specifiers untouched', () => {
@@ -184,7 +355,7 @@ describe('rewrite_svelte_ts_imports', () => {
 </script>
 <div>hi</div>
 `;
-		assert.equal(rewrite_svelte_ts_imports(input), input);
+		assert.equal(rewrite_svelte(input), input);
 	});
 });
 
@@ -252,6 +423,29 @@ describe('rewrite_dist_imports', () => {
 		// nested/c.d.ts); the two `*.map` files are excluded. All 6 rewritten.
 		assert.equal(result.scanned, 6);
 		assert.equal(result.rewritten, 6);
+	});
+
+	test('keeps a BOM read from disk and warns of an unparsable file by name', async () => {
+		await writeFile(
+			join(dir, 'Bom.svelte'),
+			`\uFEFF<script>\n\timport {x} from './x.ts';\n</script>\n`
+		);
+		await writeFile(join(dir, 'broken.js'), `import {a} from './a.ts';\nconst = ;\n`);
+		const log = create_mock_logger();
+
+		const result = await rewrite_dist_imports(fs_paths, dir, log);
+
+		assert.equal(
+			await readFile(join(dir, 'Bom.svelte'), 'utf8'),
+			`\uFEFF<script>\n\timport {x} from './x.js';\n</script>\n`
+		);
+		assert.equal(
+			await readFile(join(dir, 'broken.js'), 'utf8'),
+			`import {a} from './a.js';\nconst = ;\n`
+		);
+		assert.equal(result.rewritten, 2);
+		assert.equal(vi.mocked(log.warn).mock.calls.length, 1);
+		assert.include(String(vi.mocked(log.warn).mock.calls[0]![0]), 'broken.js');
 	});
 
 	test('returns zero rewrites for a missing directory', async () => {
