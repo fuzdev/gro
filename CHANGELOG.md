@@ -1,5 +1,195 @@
 # @fuzdev/gro
 
+## 0.228.0
+
+### Minor Changes
+
+- feat: `gro build` no longer runs `npm link -f` for a package with `bin` ([1a65f41](https://github.com/fuzdev/gro/commit/1a65f41))
+  
+  **breaking** a build never writes outside its project. Run `npm link` once to get a package's CLI on
+  `PATH`, the link lasts across builds because the plugin still makes the binaries executable.
+- fix: `gro build` verifies only builds that started clean, and `--allow_dirty` no longer caches a changed tree ([62015d7](https://github.com/fuzdev/gro/commit/62015d7))
+  
+  The post-build check compared a coarse status, so a dirty start hid most changes while still failing
+  on some. It now applies only to a clean start. A clean start that changes under `--allow_dirty`
+  passes without saving its build cache, which used to record that tree under the commit.
+- Update dependencies (BREAKING CHANGES) ([d579c1b](https://github.com/fuzdev/gro/commit/d579c1b))
+  
+  Breaking dependency changes:
+  - @fuzdev/fuz_util: 0.80.0 → 0.81.0 (minor)
+- fix: `gro deploy --dry` keeps an existing local target branch, and `--origin` works on a fresh clone ([07d5076](https://github.com/fuzdev/gro/commit/07d5076))
+  
+  A dry deploy clones the local target branch as it is, where it used to overwrite it from the remote.
+  The deploy clone now names its remote after `--origin`, so `git remote set-url` finds it.
+- **breaking** feat: `rewrite_svelte_ts_imports` is no longer exported ([118edbc](https://github.com/fuzdev/gro/commit/118edbc))
+  
+  fix: the dist import rewrite leaves template strings and comments as written in `.js` and `.svelte` output, rewriting only the import requests tsv parses, so a generated-code template holding `from './x.ts'` ships intact; `require('./x.ts')` is no longer rewritten and `` import(`./x.ts`) `` now is; a type-position `import('./x.ts')` in a `.svelte` script, erased at compile time, is left as written; a file that doesn't parse falls back to the pattern with a warning; add `rewrite_dist_file_imports`
+- **breaking** feat: `should_trigger_gen` takes the changed file's `dependents` set instead of the graph, and `normalize_gen_config` takes the genfile's id ([245e7c5](https://github.com/fuzdev/gro/commit/245e7c5))
+  
+  fix: `gro dev --no-watch` runs gen once, in-process through the gen plugin, so it no longer needs a `gro` on `PATH` or in `.bin`; a config without `gro_plugin_gen` no longer gets a gen there, as in watch mode
+  
+  fix: `gro gen` prints a genfile's `TaskError` as its message, with no stack
+  
+  fix: a genfile deleted after `gro dev` queued it no longer fails the batch
+  
+  fix: invalid gen `inputs` are refused naming the genfile, failing it in `gro gen` and logging once per genfile in `gro dev`: `inputs` that aren't `'all'` or an object, `files` or `patterns` that aren't arrays of strings, and a pattern starting `./` or `../` or holding the project root's absolute path (a leading `/` is still the root anchor)
+  
+  fix: `gro task <dir>` reports an unreadable subdirectory as an error with no stack
+  
+  fix: `gro` exits `128` plus the signal's number for a task killed by a signal, like a shell
+- fix: `gro gen` fails for a named directory with no genfiles ([41bcad1](https://github.com/fuzdev/gro/commit/41bcad1))
+  
+  **breaking** `gro gen src/foo` used to pass doing nothing, with or without `--check`. The default
+  scan of `src/` still passes for a project with no genfiles.
+- add `git.ts`, git over a `SpawnProgram`, and move every git call in Gro onto it ([2915d1b](https://github.com/fuzdev/gro/commit/2915d1b))
+  
+  `git.ts` carries `GitOrigin`, `GitBranch`, and the `git_*` functions Gro uses, each taking the `git`
+  program as its first argument and a `cwd` handle in its options, so `@fuzdev/fuz_util/git.ts` is no
+  longer used here. A root builds the program, with `GIT_LOCAL_PASS_ENV` for a read of the local repo
+  and `pass_env: 'all'` where git commits or reaches a remote.
+  
+  `library_load_from_repo` and `library_cache_key` take a `LibraryLoadDeps` of `{fs_paths, git}` in
+  place of `fs_paths`. `BuildCacheDeps` gains `git`, and `compute_build_cache_key` takes
+  `{git, log}` in place of `log`; `save_build_cache_metadata` takes the new narrower `BuildCacheSaveDeps`.
+  
+  A name passed to git now follows `--end-of-options`, and `git_pull` throws for an origin or branch
+  beginning with `-`, closing a path where `--upload-pack=...` given as `--origin` ran that command.
+  A local read stopped before it finished now throws instead of returning what it had read.
+  Local reads capture with `out` under a cleared child environment.
+  
+  `git_current_commit_hash` takes no branch and reads `HEAD` through `rev-parse`, so a detached
+  `HEAD` has a commit, a branch named like another can't shadow it, and a remote's `HEAD` no longer
+  keys the cache. `gro build` in a directory that isn't a repo now builds, warning that the cache
+  isn't reused, where it used to fail reading the branch.
+  
+  A failed `git status` no longer reads as clean: `gro build`, `gro deploy`, `gro publish`, and
+  `gro check --workspace` throw on a repo git can't read, like a corrupt index or dubious ownership.
+  A directory that isn't a repo still reports no changes, and the library cache key is `null` for an
+  unreadable repo, so its analysis runs fresh. A local read whose output was truncated now throws.
+  
+  `gro commit` and `gro changeset` stop with a `TaskError` when `git commit` fails rather than
+  pushing anyway. A task that needs git and can't find it says so as a `TaskError`, and
+  `gro check --workspace` passes with a warning.
+- **breaking** feat: `to_root_path` and `print_path` no longer take a `Paths` parameter ([4ad10fe](https://github.com/fuzdev/gro/commit/4ad10fe))
+- add the process host module, `process.ts` and `process_error.ts` ([8f7752c](https://github.com/fuzdev/gro/commit/8f7752c))
+  
+  `process` is a frozen handle on the running process: `env` (`get`, `get_all`, `narrow`, a
+  read-only snapshot taken at load, narrowing by exact names only), `args`, `cwd()`, `exit`,
+  `set_exit_code`, `stdin`, `stdout`, `stderr`, `pid`, and `runtime_version`. `ProcessError` has
+  kinds `not_granted`, a name outside a narrowed `Env`, and `io_error`, with `is_process_error`.
+- move Gro's bare `process.*` onto the process host module, and keep the run's exit code on a broken pipe ([f74fbcd](https://github.com/fuzdev/gro/commit/f74fbcd))
+  
+  Roots (tasks, `invoke.ts`, `gro.ts`, plugin modules, the rendered `$app/env/*` shims) import `process`
+  from the host module, and library code takes what it needs as parameters, with no `process.cwd()`
+  or `process.argv` defaults:
+  
+  - `to_task_args`, `to_raw_rest_args`, `to_implicit_forwarded_argv`, `to_forwarded_argv`, `to_forwarded_args`,
+    and `to_forwarded_args_by_command` take the CLI args after the CLI's own path (`process.args`) or
+    the `raw_rest_args` derived from them, plus a `root` where a task path is normalized.
+    `to_implicit_forwarded_argv`'s order is now `(task_name, cli_args, root, command?)`.
+  - `invoke_task` and `run_task` take a `raw_rest_args` option, and `invoke_cli` a fourth `raw_rest_args`.
+  - `to_task_path`, `to_input_path`, `to_input_paths`, and the `internal/task_hints` functions require a `root`.
+  - `load_from_env(fs_paths, ambient_env, key, paths?)` takes a plain record of the ambient env,
+    and `LoadEnvOptions.ambient_env` is required.
+  - `configure_colored_output_with_path_replacement` and `map_child_process_output` take the output targets,
+    `install_with_cache_healing` an `stderr` or an injected `run`, and writes are awaited.
+  - `spawn_with_loader` and `spawn_with_loader_args` take `node_env`.
+  - `run_svelte_package` takes `forwarded_argv`, `load_build_cache_dependencies` takes `runtime_version`,
+    and the build cache's `node_version` becomes `runtime_version`, so an older `.gro/build.json` is a miss.
+  
+  A broken stdout or stderr pipe no longer crashes the CLI or changes its exit code: the run finishes
+  with its own, so `gro foo | head` exits `0` only when `foo` passed, a failing task or a
+  `process.exitCode` keeps its code, and a run that never ends on its own, like `gro dev | head`,
+  runs until signalled. An uncaught error waits a few seconds at most for its output to be accepted
+  before exiting with its code.
+  
+  `$app/env/*` read the ambient env through the process host module, so a task writing `process.env`
+  and then importing `$app/env/*` sees the value from when that module loaded, in the CLI before any task runs.
+- fix: `gro publish` commits the release before building, so its tag lands on the release commit ([8cc481e](https://github.com/fuzdev/gro/commit/8cc481e))
+  
+  `changeset publish` tags `HEAD`, and the release commit used to come after it, leaving every tag on
+  the commit before the version bump. The build and the publish now run on the release commit. A
+  failed commit stops before npm has the version, and a failed build or `changeset publish` leaves
+  the release commit local, undone with `git reset --hard HEAD~1`.
+- feat: `gro publish` resumes an untagged release commit, and `--optional` works on Changesets 3 ([8c75fbf](https://github.com/fuzdev/gro/commit/8c75fbf))
+  
+  A release commit with no tag is a publish that stopped at the build or `changeset publish`, and
+  rerunning `gro publish` now picks up from it. Gro reads `.changeset` itself to decide whether there
+  is anything to release, since `changeset version` exits `1` with no changesets on Changesets 3,
+  which failed `gro publish --optional` and `gro release` for a package with nothing to publish.
+  `gro publish` with no changesets now says so, `--dry` included.
+- fix: a `SIGTERM` sent to `gro` alone now reaches the whole task tree ([9892023](https://github.com/fuzdev/gro/commit/9892023))
+  
+  The spawn host module sends a host's `SIGTERM` on to children with an inherited stream, so each
+  layer of the CLI passes it down instead of leaving the rest running. `SIGINT` and `SIGHUP` still
+  come from the terminal.
+- move `cli.ts` onto the spawn host module ([7a61f36](https://github.com/fuzdev/gro/commit/7a61f36))
+  
+  `find_cli` is `find_cli(spawn, name, options?)`, synchronous, returning a `SpawnProgram` or `null`,
+  and `find_local_cli` finds only the project's `node_modules/.bin`. `Cli`, `resolve_cli`, and `to_cli_name`
+  are removed. `spawn_cli` and `spawn_cli_process` take a `SpawnProgram` and return a `SpawnResult` and a
+  `SpawnChild`, with the new `spawn_result_is_ok` and `to_spawn_result_message` to check a result.
+  `sveltekit_sync`, `sveltekit_sync_if_available`, `sveltekit_sync_if_obviously_needed`, and
+  `run_svelte_package` take a `Spawn`, and their CLI options take a name only.
+  `map_child_process_output` and `configure_colored_output_with_path_replacement` take a `SpawnChild`
+  and return a promise that resolves once its output is written.
+  
+  A CLI found through `find_cli` or `find_local_cli` now fails for a file the kernel won't run, without
+  execute permission or neither `#!` nor ELF, rather than being found by existence alone. A `--*_cli`
+  naming an absolute path or one above the project is refused. These and a program that can't start
+  are a `TaskError` with the message of the `SpawnError`, which is its `cause`, so a task fails with
+  that message instead of an unexpected error. A CLI that isn't found is still `null` from `find_cli`.
+  A program found on `PATH` gets its bare name as `argv[0]` rather than its full path, and a task's
+  child gets the environment as of the handle's creation, not of the spawn.
+- move every remaining spawn onto the spawn host module, off `@fuzdev/fuz_util/process.ts` ([c02f2c2](https://github.com/fuzdev/gro/commit/c02f2c2))
+  
+  `install_with_cache_healing` and `install_with_cache_healing_or_throw` take a `Spawn` first, and
+  their `cwd` is an fs handle; `NpmCommandRunner` receives the pinned `SpawnProgram`. Its environment
+  is every host variable but `NODE_ENV`, `npm_config_production`, and `npm_config_omit`, unset for
+  the child as before. `to_install_program_options` returns the program's options, and
+  `sanitize_install_env` and the helpers' `env` option are removed, no caller having used them.
+  
+  `SpawnProgramOptions` gains `omit_env`, exact case-sensitive names `pass_env: 'all'` leaves out,
+  refused with any other `pass_env`.
+  
+  `spawn_with_loader` takes the `node` program first, the root deciding its environment, and returns
+  the spawn host module's `SpawnResult`.
+  
+  New `spawn_restartable.ts`, `spawn_restartable(program, args, options)`, a restartable child over a
+  `SpawnProgram` for what `spawn_restartable_process` did. `gro_plugin_deno_server` uses it, resolving
+  `deno` once at setup with the host's environment plus its explicit values; a missing `deno` now
+  fails `gro dev` with the host module's message instead of logging a started server that never ran.
+  
+  `chmod` for a package's bins and `<pm_cli> link -f` go through the host module, a missing `chmod` or
+  package manager reported as the `SpawnError` message. `gro deploy` writes the initial `.gitkeep`
+  through `fs`. An uncaught `TaskError` prints its message without a stack. `pm_cli` is a name on `PATH` or a
+  project-relative path, and an absolute path is refused.
+  
+  A project still using `fuz_util`'s spawn for a long-lived child (a `gro.config` plugin) no longer has
+  it killed by Gro on an uncaught exception. `spawn_restartable` is the replacement.
+- fix: a `SpawnChild`'s output chunks no longer adopt a polluted `Object.prototype.then`, and `GIT_LOCAL_PASS_ENV` is frozen ([2ec8588](https://github.com/fuzdev/gro/commit/2ec8588))
+- fix: dry runs no longer act, and failed commands no longer exit `0` ([acf5236](https://github.com/fuzdev/gro/commit/acf5236))
+  
+  `gro deploy --dry` keeps the local target branch where it used to delete it when the remote one is
+  missing. `gro upgrade --dry` no longer pulls, deletes `node_modules` or the lockfile, or runs
+  `gro sync`, and still passes `--dry-run` to the package manager and refuses paths outside the
+  project. `gro publish --dry` now refuses a `package.json` with no version or no parseable
+  `repository`, as a real publish does.
+  
+  A `TaskError` now fails `gro changeset` for a failed `changeset init`, `changeset add --empty`, the
+  interactive `changeset`, or `git add`; `gro clean --git` for a failed
+  `git remote prune`; `gro upgrade` for a failed `gro sync`; and `gro dev --no-watch` for a failed
+  `gro gen` or genfiles with no `gro` to run them. Watch mode keeps running through a failed gen.
+  
+  `gro release --force_build` now reaches the build in `gro publish`, which gains `--force_build`.
+  `gro publish` pushes with `git push --follow-tags --end-of-options <origin> <branch>`, honoring
+  `--origin` and `--branch`, and its recovery messages name that command.
+  
+  `gro changeset` writes `--changelog` to the config whichever access is chosen, and logs when it
+  skips the commit and push because the workspace isn't fully staged. `gro deploy`'s build-failure log
+  says what happened to the remote branch rather than claiming no git changes. A `throw undefined` or
+  `throw null` reaching the CLI's uncaught handler now exits `1` rather than crashing it.
+
 ## 0.227.0
 
 ### Minor Changes
