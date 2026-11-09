@@ -431,8 +431,9 @@ Key utilities:
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
   `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
-  a read of the local repo captures with `out`, anything that may prompt uses `run`, and a
-  caller's name goes after `--end-of-options`, while `git_pull` refuses one beginning with `-`
+  a read of the local repo captures with `out`, anything that may prompt uses `run`, a caller's
+  branch or tag name passes `assert_git_ref_name` so it's never a refspec or pattern,
+  and an origin goes after `--end-of-options`, while `git_pull` refuses one beginning with `-`
 - Long-lived children: `spawn_restartable.ts`, restarts over one `SpawnProgram`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`

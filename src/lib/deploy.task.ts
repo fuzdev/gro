@@ -17,6 +17,7 @@ import {
 	git_current_branch_first_commit_hash,
 	git_pull,
 	git_fetch,
+	git_fetch_force,
 	git_check_setting_pull_rebase,
 	git_current_branch_name,
 	git_current_commit_hash,
@@ -256,7 +257,7 @@ export const task: Task<Args> = {
 				const local_deploy_branch_exists = await git_local_branch_exists(git, target);
 				// a dry deploy leaves an existing local branch as it is, the clone's files get replaced
 				if (!dry || !local_deploy_branch_exists) {
-					await git_fetch(git, origin, '+' + target + ':' + target); // fetch+merge and allow non-fastforward updates with the +
+					await git_fetch_force(git, origin, target);
 				}
 				await clone_deploy_dir(git, fs_paths, origin, target, resolved_deploy_dir);
 				// Clean up if we created the target branch in the cwd

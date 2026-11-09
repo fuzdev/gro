@@ -11,6 +11,7 @@ import {
 	git_current_commit_hash,
 	git_delete_local_branch,
 	git_fetch,
+	git_fetch_force,
 	git_local_branch_exists,
 	git_pull,
 	git_push,
@@ -71,6 +72,10 @@ describe('git argv and how each command runs', () => {
 	test('a command that reaches a remote or deletes a branch runs with `run`', async () => {
 		const cases: Array<[(git: SpawnProgram) => Promise<unknown>, ReadonlyArray<string>]> = [
 			[(git) => git_fetch(git, 'origin', 'main'), ['fetch', '--end-of-options', 'origin', 'main']],
+			[
+				(git) => git_fetch_force(git, 'origin', 'deploy'),
+				['fetch', '--end-of-options', 'origin', '+deploy:deploy']
+			],
 			[(git) => git_pull(git, 'origin', 'main'), ['pull', 'origin', 'main']],
 			[(git) => git_push(git, 'origin', 'main'), ['push', '--end-of-options', 'origin', 'main']],
 			[
@@ -147,23 +152,124 @@ describe('git argv and how each command runs', () => {
 	});
 });
 
-describe('git_pull names beginning with -', () => {
-	test('refuses an origin or a branch beginning with - without running git', async () => {
-		for (const [origin, branch] of [
-			['--upload-pack=touch /tmp/x', 'main'],
-			['origin', '--upload-pack=touch /tmp/x']
-		] as const) {
+describe('git_pull origins beginning with -', () => {
+	test('refuses one without running git', async () => {
+		const { program, calls } = create_recording_program();
+		let error: unknown;
+		try {
+			await git_pull(program, '--upload-pack=touch /tmp/x', 'main');
+		} catch (e) {
+			error = e;
+		}
+		assert.instanceOf(error, Error);
+		assert.include(error.message, 'beginning with -');
+		assert.deepEqual(calls, []);
+	});
+});
+
+describe('ref names from a caller', () => {
+	const REFUSED: ReadonlyArray<string> = [
+		':deploy',
+		'a:b',
+		'ma*',
+		'-x',
+		'--force',
+		'+x',
+		'+a:b',
+		'refs/heads/x',
+		'refs/tags/v1',
+		'HEAD',
+		'@',
+		'@{-1}',
+		'a..b',
+		'a b',
+		'a\x7fb',
+		'a~1',
+		'a^',
+		'a?b',
+		'a[b',
+		'a\\b',
+		'a.lock',
+		'a.lock/b',
+		'a/.b',
+		'.a',
+		'a.',
+		'/a',
+		'a/',
+		'a//b',
+		''
+	];
+	const ALLOWED: ReadonlyArray<string> = [
+		'main',
+		'feature/a.b',
+		'a@b',
+		'a./b',
+		'v1.0.0+build',
+		'a+b',
+		'a-b',
+		'a.locked',
+		'x/refs/y',
+		'日本語'
+	];
+	type Call = (git: SpawnProgram, name: string) => Promise<unknown>;
+	const CALLS: ReadonlyArray<[string, Call]> = [
+		['git_push', (git, name) => git_push(git, 'origin', name)],
+		['git_push_to_create', (git, name) => git_push_to_create(git, 'origin', name)],
+		['git_pull', (git, name) => git_pull(git, 'origin', name)],
+		['git_fetch', (git, name) => git_fetch(git, 'origin', name)],
+		['git_fetch_force', (git, name) => git_fetch_force(git, 'origin', name)],
+		['git_checkout', (git, name) => git_checkout(git, name)],
+		['git_delete_local_branch', (git, name) => git_delete_local_branch(git, name)],
+		['git_remote_branch_exists', (git, name) => git_remote_branch_exists(git, 'origin', name)],
+		['git_local_branch_exists', (git, name) => git_local_branch_exists(git, name)],
+		['git_tag_exists', (git, name) => git_tag_exists(git, name)]
+	];
+
+	test.each(CALLS)('%s refuses every non-plain name without running git', async (_, call) => {
+		for (const name of REFUSED) {
 			const { program, calls } = create_recording_program();
 			let error: unknown;
 			try {
-				await git_pull(program, origin, branch);
+				await call(program, name);
 			} catch (e) {
 				error = e;
 			}
-			assert.instanceOf(error, Error);
-			assert.include(error.message, 'beginning with -');
-			assert.deepEqual(calls, []);
+			assert.instanceOf(error, TaskError, `expected a refusal of '${name}'`);
+			assert.deepEqual(calls, [], `expected no git call for '${name}'`);
 		}
+	});
+
+	test.each(CALLS)('%s runs git for a legal name', async (_, call) => {
+		for (const name of ALLOWED) {
+			const { program, calls } = create_recording_program();
+			await call(program, name);
+			assert.isAbove(calls.length, 0, `expected a git call for '${name}'`);
+		}
+	});
+
+	test('the refusal holds for a name `git check-ref-format --branch` accepts', async () => {
+		const { program } = create_recording_program();
+		let error: unknown;
+		try {
+			await git_checkout(program, '@');
+		} catch (e) {
+			error = e;
+		}
+		assert.instanceOf(error, TaskError);
+		assert.include(error.message, 'not `HEAD` or `@`');
+	});
+
+	test('git_push refuses the current branch on a detached HEAD', async () => {
+		const { program, calls } = create_recording_program(EXITED_OK, to_output(EXITED_OK, 'HEAD\n'));
+		let error: unknown;
+		try {
+			await git_push(program, 'origin');
+		} catch (e) {
+			error = e;
+		}
+		assert.instanceOf(error, TaskError);
+		assert.include(error.message, 'detached');
+		assert.deepEqual(calls, [{ method: 'out', args: ['rev-parse', '--abbrev-ref', 'HEAD'] }]);
 	});
 });
 

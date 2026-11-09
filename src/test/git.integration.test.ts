@@ -338,7 +338,7 @@ describe('names beginning with -', () => {
 		await assert_no_marker();
 	});
 
-	test('git_pull refuses a name beginning with -', async () => {
+	test('git_pull refuses an origin beginning with -', async () => {
 		const marker = base.path + '/' + MARKER_NAME;
 		assert.include(
 			await to_message(git_pull(git, `--upload-pack=touch ${marker}`, 'main', { cwd: work })),
@@ -347,12 +347,41 @@ describe('names beginning with -', () => {
 		await assert_no_marker();
 	});
 
-	test('a branch beginning with - is a failed name, never an option', async () => {
+	test('a refspec, a pattern, and a leading - are refused before git runs', async () => {
+		await git_push(git, 'origin', 'main', { cwd: work });
 		await run_ok(work, ['branch', 'other']);
+		for (const name of [':main', 'ma*', 'main:other', '--force']) {
+			assert.include(
+				await to_message(git_push(git, 'origin', name, { cwd: work })),
+				'gro refuses the git branch'
+			);
+		}
 		await to_message(git_checkout(git, '--orphan=x', { cwd: work }));
-		assert.isFalse(await git_local_branch_exists(git, '--heads', { cwd: work }));
 		await to_message(git_delete_local_branch(git, '--force', { cwd: work }));
 		assert.strictEqual(await git_current_branch_name(git, { cwd: work }), 'main');
 		assert.isTrue(await git_local_branch_exists(git, 'other', { cwd: work }));
+		assert.isTrue(await git_remote_branch_exists(git, 'origin', 'main', { cwd: work }));
+	});
+
+	test('the refused names match git except where a command reads more into one', async () => {
+		const check = async (name: string): Promise<boolean> => {
+			const output = await git.out(['check-ref-format', '--branch', name], { cwd: work });
+			return output.kind === 'exited' && output.code === 0;
+		};
+		// `git check-ref-format --branch` accepts these, which is why they're refused here
+		for (const name of ['+x', 'refs/heads/x', '@']) {
+			assert.isTrue(await check(name), `expected git to accept '${name}'`);
+			assert.include(
+				await to_message(git_local_branch_exists(git, name, { cwd: work })),
+				'gro refuses'
+			);
+		}
+		for (const name of ['feature/a.b', 'a@b', 'a./b', 'v1.0.0+build', '日本語']) {
+			assert.isTrue(await check(name), `expected git to accept '${name}'`);
+			assert.isFalse(await git_local_branch_exists(git, name, { cwd: work }));
+		}
+		for (const name of [':a', 'ma*', 'a:b', '-x', 'HEAD', 'a..b', 'a.lock', 'a/.b', 'a.', 'a//b']) {
+			assert.isFalse(await check(name), `expected git to refuse '${name}'`);
+		}
 	});
 });

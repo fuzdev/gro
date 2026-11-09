@@ -10,9 +10,12 @@
  * and `reset`. `branch -D` can't prompt, and runs with `run` so its output reaches the user.
  * No function here parses a remote call's output.
  *
- * A name from a caller goes into argv after `--end-of-options`, so one beginning with `-`
- * can't be read as an option like `--upload-pack`. `git pull` drops that marker before it
- * calls `git fetch`, so `git_pull` refuses such a name itself.
+ * A branch or tag name from a caller passes `assert_git_ref_name` before it reaches git, so it
+ * is never a refspec like `:deploy` or `a:b`, a pattern like `ma*`, or a shorthand like `@{-1}`.
+ * It's still a name git resolves, so `git_checkout` detaches `HEAD` for a tag or a short hash.
+ * An origin goes into argv after `--end-of-options`, as a ref name does
+ * too, so one beginning with `-` can't be read as an option like `--upload-pack`. `git pull`
+ * drops that marker before it calls `git fetch`, so `git_pull` refuses such an origin itself.
  *
  * @module
  */
@@ -90,6 +93,57 @@ const git_out = async (
 };
 
 /**
+ * Whether `name` is one plain ref name, by the rules of `git check-ref-format --branch` plus
+ * refusals for names it allows but a command reads as more than a branch: a leading `+`,
+ * which forces a refspec, a leading `refs/`, which names a ref of any kind, and `@` and
+ * `@{-1}`-style shorthands, which that command expands. A branch can still have a name like `feature/a.b`.
+ */
+const is_plain_git_ref_name = (name: string): boolean => {
+	if (name === 'HEAD' || name === '@' || /^(?:[-+]|refs\/)/.test(name)) return false;
+	if (/\.\.|@\{|[~^:?*[\\]|\.$/.test(name)) return false;
+	for (let i = 0; i < name.length; i++) {
+		const code = name.charCodeAt(i);
+		if (code <= 32 || code === 127) return false;
+	}
+	return name
+		.split('/')
+		.every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'));
+};
+
+/**
+ * Refuses a name git would read as more than one ref. Every function here taking a ref name
+ * from a caller goes through this one check.
+ * @throws `TaskError` - if `name` isn't one plain ref name
+ */
+const assert_git_ref_name = (name: string, what: 'branch' | 'tag'): void => {
+	if (is_plain_git_ref_name(name)) return;
+	if (name === 'HEAD' && what === 'branch') {
+		throw new TaskError(
+			'gro refuses the git branch HEAD: it names no branch, and a detached HEAD has none, so check out a branch first'
+		);
+	}
+	throw new TaskError(
+		`gro refuses the git ${what} '${name}': it must be legal by \`git check-ref-format\`,` +
+			' not `HEAD` or `@`, without `@{`, and not begin with -, +, or refs/,' +
+			' so git reads it as one name and nothing more'
+	);
+};
+
+/**
+ * The branch a function acts on, `branch` or else the current one, checked as a ref name.
+ * @throws `TaskError` - if it isn't one plain ref name, or the current branch is unborn or detached
+ */
+const to_final_branch = async (
+	git: SpawnProgram,
+	branch: GitBranch | undefined,
+	options: SpawnCallOptions | undefined
+): Promise<GitBranch> => {
+	const final_branch = branch ?? (await git_current_branch_name(git, options));
+	assert_git_ref_name(final_branch, 'branch');
+	return final_branch;
+};
+
+/**
  * Returns the current git branch name, or the literal string `HEAD` on a detached `HEAD`,
  * which callers comparing it to a branch name read as not that branch.
  * @throws `TaskError` - on an unborn branch, one with no commits yet
@@ -113,6 +167,7 @@ export const git_current_branch_name = async (
 
 /**
  * Checks if a remote git branch exists. Contacts the remote, so it may prompt.
+ * @throws `TaskError` - if the branch isn't one plain ref name, as on a detached `HEAD`
  * @throws Error - if `git ls-remote` fails for a reason other than the branch not existing
  */
 export const git_remote_branch_exists = async (
@@ -121,7 +176,7 @@ export const git_remote_branch_exists = async (
 	branch?: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<boolean> => {
-	const final_branch = branch ?? (await git_current_branch_name(git, options));
+	const final_branch = await to_final_branch(git, branch, options);
 	const result = await git.run(
 		[
 			'ls-remote',
@@ -144,12 +199,14 @@ export const git_remote_branch_exists = async (
 
 /**
  * Checks if a local git branch exists.
+ * @throws `TaskError` - if `branch` isn't one plain ref name
  */
 export const git_local_branch_exists = async (
 	git: SpawnProgram,
 	branch: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<boolean> => {
+	assert_git_ref_name(branch, 'branch');
 	const output = await git_out(
 		git,
 		['show-ref', '--quiet', '--end-of-options', 'refs/heads/' + branch],
@@ -160,6 +217,7 @@ export const git_local_branch_exists = async (
 
 /**
  * @returns `true` if the local tag exists
+ * @throws `TaskError` - if `tag` isn't one plain ref name
  * @throws Error - if `git` was stopped rather than exiting
  */
 export const git_tag_exists = async (
@@ -167,6 +225,7 @@ export const git_tag_exists = async (
 	tag: string,
 	options?: SpawnCallOptions
 ): Promise<boolean> => {
+	assert_git_ref_name(tag, 'tag');
 	const output = await git_out(
 		git,
 		['show-ref', '--quiet', '--end-of-options', 'refs/tags/' + tag],
@@ -316,9 +375,27 @@ export const git_check_fully_staged_workspace = async (
 	return git_workspace_is_fully_staged(status) ? null : git_workspace_status_message(status);
 };
 
+const run_git_fetch = async (
+	git: SpawnProgram,
+	origin: GitOrigin,
+	refspec: string | undefined,
+	options: SpawnCallOptions | undefined
+): Promise<void> => {
+	const args = ['fetch', '--end-of-options', origin];
+	if (refspec !== undefined) args.push(refspec);
+	const result = await git.run(args, options);
+	if (!spawn_result_is_ok(result)) {
+		throw Error(
+			`git_fetch failed for origin '${origin}' and branch '${
+				refspec
+			}' with ${to_spawn_result_message(result)}`
+		);
+	}
+};
+
 /**
  * Calls `git fetch`. Contacts the remote, so it may prompt.
- * @param branch - a branch name or a refspec like `+deploy:deploy`
+ * @throws `TaskError` - if `branch` isn't one plain ref name
  * @throws Error - if the underlying git command fails
  */
 export const git_fetch = async (
@@ -327,21 +404,30 @@ export const git_fetch = async (
 	branch?: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<void> => {
-	const args = ['fetch', '--end-of-options', origin];
-	if (branch) args.push(branch);
-	const result = await git.run(args, options);
-	if (!spawn_result_is_ok(result)) {
-		throw Error(
-			`git_fetch failed for origin '${origin}' and branch '${
-				branch
-			}' with ${to_spawn_result_message(result)}`
-		);
-	}
+	if (branch !== undefined) assert_git_ref_name(branch, 'branch');
+	await run_git_fetch(git, origin, branch, options);
+};
+
+/**
+ * Sets the local `branch` to the remote's, even when that drops commits only the local one has,
+ * as the refspec `+branch:branch`. Contacts the remote, so it may prompt.
+ * @throws `TaskError` - if `branch` isn't one plain ref name
+ * @throws Error - if the underlying git command fails
+ */
+export const git_fetch_force = async (
+	git: SpawnProgram,
+	origin: GitOrigin,
+	branch: GitBranch,
+	options?: SpawnCallOptions
+): Promise<void> => {
+	assert_git_ref_name(branch, 'branch');
+	await run_git_fetch(git, origin, `+${branch}:${branch}`, options);
 };
 
 /**
  * Calls `git checkout`.
  * @returns the previous branch name, if it changed
+ * @throws `TaskError` - if `branch` isn't one plain ref name, or the current branch is unborn
  * @throws Error - if the underlying git command fails
  */
 export const git_checkout = async (
@@ -349,6 +435,7 @@ export const git_checkout = async (
 	branch: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<GitBranch | null> => {
+	assert_git_ref_name(branch, 'branch');
 	const current_branch = await git_current_branch_name(git, options);
 	if (branch === current_branch) return null;
 	const result = await git.run(['checkout', '--end-of-options', branch], options);
@@ -361,18 +448,9 @@ export const git_checkout = async (
 };
 
 /**
- * Refuses a name `git pull` would read as an option, as `--end-of-options` can't help it.
- * @throws Error - if `value` begins with `-`
- */
-const assert_not_pull_option = (value: string, what: string): void => {
-	if (value.startsWith('-')) {
-		throw Error(`git_pull refuses the ${what} '${value}' for beginning with -`);
-	}
-};
-
-/**
  * Calls `git pull`. Contacts the remote, so it may prompt.
- * @throws Error - if the underlying git command fails, or a name begins with `-`
+ * @throws `TaskError` - if `branch` isn't one plain ref name
+ * @throws Error - if the underlying git command fails, or `origin` begins with `-`
  */
 export const git_pull = async (
 	git: SpawnProgram,
@@ -380,10 +458,12 @@ export const git_pull = async (
 	branch?: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<void> => {
-	assert_not_pull_option(origin, 'origin');
-	if (branch) assert_not_pull_option(branch, 'branch');
+	if (origin.startsWith('-')) {
+		throw Error(`git_pull refuses the origin '${origin}' for beginning with -`);
+	}
+	if (branch !== undefined) assert_git_ref_name(branch, 'branch');
 	const args = ['pull', origin];
-	if (branch) args.push(branch);
+	if (branch !== undefined) args.push(branch);
 	const result = await git.run(args, options);
 	if (!spawn_result_is_ok(result)) {
 		throw Error(`git_pull failed for branch '${branch}' with ${to_spawn_result_message(result)}`);
@@ -392,6 +472,7 @@ export const git_pull = async (
 
 /**
  * Calls `git push`. Contacts the remote, so it may prompt.
+ * @throws `TaskError` - if the branch isn't one plain ref name, as on a detached `HEAD`
  * @throws Error - if the underlying git command fails
  */
 export const git_push = async (
@@ -401,7 +482,7 @@ export const git_push = async (
 	options?: SpawnCallOptions,
 	set_upstream = false
 ): Promise<void> => {
-	const final_branch = branch ?? (await git_current_branch_name(git, options));
+	const final_branch = await to_final_branch(git, branch, options);
 	const args = ['push'];
 	if (set_upstream) args.push('-u');
 	args.push('--end-of-options', origin, final_branch);
@@ -415,6 +496,7 @@ export const git_push = async (
 
 /**
  * Calls `git push`, setting upstream if the remote branch does not yet exist.
+ * @throws `TaskError` - if the branch isn't one plain ref name, as on a detached `HEAD`
  * @throws Error - if the underlying git command fails
  */
 export const git_push_to_create = async (
@@ -423,7 +505,7 @@ export const git_push_to_create = async (
 	branch?: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<void> => {
-	const final_branch = branch ?? (await git_current_branch_name(git, options));
+	const final_branch = await to_final_branch(git, branch, options);
 	const args = ['push'];
 	if (!(await git_remote_branch_exists(git, origin, final_branch, options))) args.push('-u');
 	args.push('--end-of-options', origin, final_branch);
@@ -437,6 +519,7 @@ export const git_push_to_create = async (
 
 /**
  * Deletes a branch locally.
+ * @throws `TaskError` - if `branch` isn't one plain ref name
  * @throws Error - if the underlying git command fails
  */
 export const git_delete_local_branch = async (
@@ -444,6 +527,7 @@ export const git_delete_local_branch = async (
 	branch: GitBranch,
 	options?: SpawnCallOptions
 ): Promise<void> => {
+	assert_git_ref_name(branch, 'branch');
 	const result = await git.run(['branch', '-D', '--end-of-options', branch], options);
 	if (!spawn_result_is_ok(result)) {
 		throw Error(
