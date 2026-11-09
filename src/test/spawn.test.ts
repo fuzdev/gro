@@ -193,6 +193,20 @@ describe('resolution', () => {
 		assert_throws_type(() => spawn.narrow('git' as any));
 	});
 
+	test('an env name with a `=` is refused without echoing what could be a value', () => {
+		for (const fn of [
+			() => spawn.find('a', { pass_env: ['GRO_FAKE=fake-secret'] }),
+			() => spawn.program('a', { env: { 'GRO_FAKE=fake-secret': 'x' } })
+		]) {
+			assert_throws_type(fn);
+			try {
+				fn();
+			} catch (error) {
+				assert.notInclude((error as Error).message, 'fake-secret');
+			}
+		}
+	});
+
 	test('options are read and checked before the name resolves', () => {
 		process.env.PATH = bin;
 		assert_throws_type(() => spawn.find('missing', { pass_env: 1 } as any));

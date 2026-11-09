@@ -26,7 +26,14 @@ because it isn't on the list.
 */
 
 // each host module with its error module, apart from it so matching an error grants nothing
-const HOST_MODULES = ['fs.ts', 'fs_error.ts', 'spawn.ts', 'spawn_error.ts'];
+const HOST_MODULES = [
+	'fs.ts',
+	'fs_error.ts',
+	'spawn.ts',
+	'spawn_error.ts',
+	'process.ts',
+	'process_error.ts'
+];
 
 /**
  * The DOM lib types a host module's API may name. Each is in the WinterTC Minimum Common

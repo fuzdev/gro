@@ -1,10 +1,10 @@
 # host modules
 
-> the imports that reach the OS, `fs` and `spawn` so far: how to import them, hand them down,
+> the imports that reach the OS, `fs`, `spawn`, and `process` so far: how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs` and `spawn` exist as the Node implementation in Gro's npm package;
-> process, watch, and net are designed, not built.
+> **status**: `fs`, `spawn`, and `process` exist as the Node implementation in Gro's npm package;
+> watch and net are designed, not built.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
 > ([runtime](runtime.md#imports-or-globals) has the design).
 
@@ -211,6 +211,66 @@ so the pin and environment fixed at `program()` carry across restarts.
 
 The module's TSDoc has each op's contract.
 
+## process
+
+```ts
+import {process} from '@fuzdev/gro/process.ts';
+
+const token = process.env.get('SOME_TOKEN'); // `undefined` when it's unset
+const ci = process.env.narrow(['CI']); // a handle limited to `CI`
+
+for await (const chunk of process.stdin) await process.stdout.write(chunk); // bytes
+process.set_exit_code(1);
+```
+
+The export deliberately shares its name with Node's global, so a module that imports it shadows the global.
+A module's use of the process shows in its imports, as for `fs` and `spawn`,
+and on `fgro` there's no global at all.
+
+- `process.env` is an `Env`. `get(name)` returns the value or `undefined` when it's unset,
+  and own names only, so `toString` is unset. `get_all()` returns a frozen null-prototype record of the variables,
+  which is what a library edge takes, as `load_env` takes a plain record.
+  `narrow(names)` is a handle limited to `names`, and it only shrinks.
+  A name outside a narrowed set throws `not_granted`, never `undefined`,
+  so a denied name can't be read as an unset one, in the same spirit as fs's "a permission error is never read as a missing file".
+  A name in the set that's unset reads as `undefined`.
+- Names given to `narrow` are exact and case-sensitive, never a glob, and a `*` is a `TypeError`:
+  a holder of a narrowed handle sees the names it was given, and review can read them from the call.
+  `spawn.narrow` refuses a `pass_env` glob for the same reason.
+- An `Env` is read-only and a snapshot taken when the module loads, the runtime's fixed environment.
+  A write to the global's `process.env` afterward changes nothing here, as on `fgro`, where there's no such write.
+  Spawned children keep reading the live environment when a `SpawnProgram` is made, since that's when the module reads it,
+  and restoring a tool's write to `process.env` (as Gro does around `resolveConfig`) still goes through the global.
+- A value can be a secret. The module prints none, and its errors name a variable, never its value.
+  What a read value becomes is the caller's concern, so hand a library a `narrow` or a plain record of only what it needs.
+- `process.args` are the arguments after the script, a frozen real array, what a script under `gro run` or plain `node` is given.
+  In the CLI's own process they're the CLI's arguments, the task name included;
+  a task reads its parsed args from its context, since a nested `invoke_task` shares this process.
+  With `node -e` the first argument is the first, and a script read from stdin as `-` keeps its arguments too.
+- `process.cwd()` is the working directory when the module loaded, checked as for `fs.project`.
+- `process.exit(code?)` exits, and without a `code` uses what `set_exit_code` set, else `0`.
+  `process.set_exit_code(code)` sets the code the process exits with when it ends on its own.
+  A code is an integer from 0 to 255, anything else a `TypeError`, checked with no value of the caller's run,
+  so a thenable or a `Symbol.toPrimitive` isn't called.
+  `exit` runs the spawn module's child cleanup, like any exit Node runs,
+  and it drops writes not yet accepted, so await a write before exiting.
+- `process.stdin` is an `AsyncIterable<Uint8Array>`, read once, each chunk a plain `Uint8Array` copy,
+  a second iteration a `TypeError`. Leaving a loop early stops reading, so a child inheriting stdin gets what the read hadn't taken,
+  and the process can exit with stdin still open.
+- `process.stdout` and `process.stderr` take `write(data)`, a string as UTF-8 or a `Uint8Array`,
+  resolving once it's accepted, so awaiting each write paces a writer against its reader, and writes not awaited queue in memory.
+  A broken pipe, a task piped to `head`, resolves `false` instead of throwing, and every later write resolves `false` too.
+  Data that's neither a well-formed string nor bytes is a `TypeError`.
+  Any other write failure, like a full disk, rejects with `ProcessError` of kind `io_error`.
+- Each stream has `is_terminal`, read from its descriptor without creating the stream.
+- `process.pid` is for display, as nothing in the module takes a pid.
+  `process.runtime_version` is opaque, like `node/v24.14.0`, for display and for keying a cache by the runtime that made it, compared for equality only.
+- Errors are `ProcessError`, typed by `kind` (`not_granted`, `io_error`), its `target` the variable or the stream.
+  Match one with `is_process_error(error, kind?)`, in `@fuzdev/gro/process_error.ts`, apart from the host module,
+  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `process`.
+
+The module's TSDoc has each op's contract.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -268,6 +328,16 @@ The module's TSDoc has each op's contract.
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
   `spawn.ts` is the one module on `node:child_process`.
 
+- Advisory grants, designed and not built, will count a `node:*` import on the Node Gro as the host module it corresponds to,
+  and report one with no entry here as ambient:
+
+  | Node builtin                                                               | host module      |
+  | -------------------------------------------------------------------------- | ---------------- |
+  | `node:fs`, `node:fs/promises`                                              | fs               |
+  | `node:child_process`                                                       | spawn            |
+  | `node:process`                                                             | process          |
+  | `node:net`, `node:http`, `node:https`, `node:dns`, `node:tls`, `node:dgram` | net (designed)   |
+
 ## Hardening
 
 ### The module's invariants
@@ -306,6 +376,19 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
   Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
 - Every array argument (`args`, `narrow`'s names, `pass_env`, `omit_env`) is read by index with its length read once.
+
+### process's invariants
+
+- Handles come only from `process` and `Env.narrow`, through a module-private key, and hold their state in private fields,
+  so a method or getter called on any other object throws `TypeError`.
+- `process`, its parts, `Env` handles and `get_all`'s records, and their prototypes are frozen,
+  and every prototype is null-prototype, so none of them is thenable even with a polluted `Object.prototype.then`.
+  `args` is the exception, a frozen real array, so its prototype is the unfrozen `Array.prototype` and awaiting it adopts a polluted `then`.
+- An environment read goes through a null-prototype snapshot holding only `process.env`'s own names,
+  so an inherited or polluted name reads as unset.
+- `narrow` reads its array by index with its length read once, and a name it doesn't allow throws, never `undefined`.
+- An exit code is checked by `typeof` first, so nothing the caller passed runs before the refusal.
+- A chunk from `stdin` is a plain `Uint8Array` copy, never a `Buffer` or a view of Node's memory.
 
 ### The Node implementation's own measures
 
@@ -411,6 +494,21 @@ It documents each gap rather than weakening the API to match, and is a review si
   in a removed or non-UTF-8 working directory.
 - Any module can import `node:child_process`, so a narrowed `spawn` bounds only the code that uses it.
 
+### process
+
+- The global `process` stays, so any module can read `process.env` or call `process.exit`,
+  and a narrowed `Env` bounds only the code that uses it.
+- The root `Env` allows every name. The runtime's holds only the granted names, and a name outside them throws `not_granted`.
+- The snapshot is taken when the module loads, so a write to `process.env` made before that shows.
+- `args` under `node -e` and `node -p` depends on the undocumented `process._eval`, since no documented API says the process has no script.
+- `exit` in a Node worker ends the thread rather than the process.
+- On POSIX Node's stdio writes to files and terminals block the event loop until the kernel takes them,
+  where the runtime's complete on their own schedule. Writes to pipes are asynchronous.
+- Node's stream `write` is the stream's own, and the streams are created on first use, so code that patched `write`
+  or replaced `process.stdout` by then runs inside a write. The module's other Node functions are copied at load.
+- `process`, like `fs`, reads the working directory when the module loads, so importing it throws
+  in a removed or non-UTF-8 working directory.
+
 ## Native requirements
 
 What the runtime's builtin must do that the Node implementation can't:
@@ -439,3 +537,14 @@ What the runtime's builtin must do that the Node implementation can't:
   with `kill_guarded_groups_on_signal` handling the signals that end the host.
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
+
+### process
+
+- Hold no ambient environment. A grant names each variable, and `get` for a name outside the grants throws `not_granted`,
+  `get_all` holding only the granted names that are set.
+- Refuse a name holding a NUL byte, a `=`, or a lone surrogate before it reaches the OS.
+- Make the environment fixed at startup, with no way for a run to change it.
+- Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
+- Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
+  ignoring `SIGPIPE`.
+- Return `stdin` chunks as owned buffers, never a view of memory the runtime reuses.

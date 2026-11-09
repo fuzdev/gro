@@ -685,7 +685,8 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 
 const check_env_name = (value: unknown, what: string): string => {
 	const name = check_nonempty_text(value, what);
-	if (name.includes('=')) throw new TypeError(`${what} holds a \`=\`: ${name}`);
+	// no echo of the text, as what follows a `=` can be a value
+	if (name.includes('=')) throw new TypeError(`${what} holds a \`=\``);
 	return name;
 };
 
