@@ -1,4 +1,6 @@
 import { describe, test, expect, assert } from 'vitest';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -197,6 +199,38 @@ describe('resolve_specifier', () => {
 			'./modules',
 			'it is not a regular file (a directory or a special file); name a module file'
 		);
+	});
+});
+
+// root reads through any permission, so this only runs unprivileged
+describe.skipIf(process.getuid?.() === 0)('resolve_specifier on an unreadable directory', () => {
+	test('rethrows the filesystem error naming the specifier and importer, the original as `cause`', () => {
+		const root = mkdtempSync(join(tmpdir(), 'gro-resolve-specifier-'));
+		const locked = join(root, 'locked');
+		mkdirSync(locked);
+		writeFileSync(join(locked, 'file.ts'), '');
+		chmodSync(locked, 0o000);
+		try {
+			const importer = join(root, 'importer.ts');
+			const specifier = './locked/file.ts';
+			let error;
+			try {
+				resolve_specifier(specifier, importer);
+			} catch (e) {
+				error = e;
+			}
+			assert(error instanceof Error, 'expected the unreadable path to throw');
+			const prefix = `cannot resolve '${specifier}' from ${importer}: `;
+			assert(error.message.startsWith(prefix), error.message);
+			expect(error.message).toContain('EACCES');
+			expect((error.cause as NodeJS.ErrnoException).code).toBe('EACCES');
+			// a filesystem failure isn't a refusal, so it carries neither of Node's refusal properties
+			expect(error).not.toHaveProperty('code');
+			expect(error).not.toHaveProperty('url');
+		} finally {
+			chmodSync(locked, 0o755);
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 

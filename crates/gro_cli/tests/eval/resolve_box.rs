@@ -1,5 +1,6 @@
 //! Entry resolution and the box: entries no project owns, packages linked in from
-//! outside, and the confinement of the process and its descriptors.
+//! outside, the confinement of the process and its descriptors, and a stdout the
+//! envelope can't be written to.
 
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 use std::path::PathBuf;
@@ -32,6 +33,28 @@ fn an_entry_that_does_not_resolve_is_a_resolve_exiting_2() {
     assert_eq!(run.envelope["entry"]["id"], "missing.js");
     assert_eq!(run.envelope["error"]["specifier"], "missing.js");
     assert!(run.message().contains("no such file"), "{}", run.message());
+}
+
+/// A failure writing the envelope outranks the eval's outcome: stdout on
+/// `/dev/full` fails the write, so a `resolve` that would exit 2 exits 1,
+/// the error on stderr, with no panic.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_stdout_fails_the_envelope_write_exiting_1() {
+    let full = std::fs::File::options()
+        .write(true)
+        .open("/dev/full")
+        .unwrap();
+    let mut command = crate::command("eval", &["missing.js"], &[]);
+    command.stdin(std::process::Stdio::null()).stdout(full);
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.starts_with("error: failed to write the envelope: "),
+        "{stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
 }
 
 /// Eval evaluates a project's own module: one inside `node_modules`, or one
