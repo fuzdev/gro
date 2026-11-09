@@ -1,5 +1,17 @@
 # @fuzdev/gro
 
+## 0.231.0
+
+### Minor Changes
+
+- feat: `SpawnProgram.out` and `out_bytes` take a `Uint8Array` as `stdin`, sent to the child while its output is read ([757cd8f](https://github.com/fuzdev/gro/commit/757cd8f))
+- fix: `gro sync` and `gro typecheck` run `svelte-kit sync` only for a project with SvelteKit in its dependencies ([e25287e](https://github.com/fuzdev/gro/commit/e25287e))
+  
+  **breaking** `sveltekit_sync_if_available` is removed: gate `sveltekit_sync` on the new `project_has_sveltekit_app`.
+  A project declaring SvelteKit without it installed now fails `gro typecheck` with the install hint.
+  The sync before every task reads `package.json` too, so a `svelte-kit` on `PATH` no longer runs in
+  a project that doesn't declare it. A project only peered on SvelteKit isn't synced by any of them.
+
 ## 0.230.0
 
 ### Minor Changes
