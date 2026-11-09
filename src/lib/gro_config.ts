@@ -51,7 +51,7 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	search_filters: Array<PathFilter>;
 	/**
-	 * The CLI to use that's compatible with `npm install` and `npm link`. Defaults to `'npm'`.
+	 * The CLI to use that's compatible with `npm install`. Defaults to `'npm'`.
 	 */
 	pm_cli: string;
 	/**

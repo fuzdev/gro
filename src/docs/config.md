@@ -243,7 +243,7 @@ a directory it rejects is still watched, and each path below it is filtered on i
 
 > ⚠️ support is currently partial, help is welcome
 
-The CLI to use that's compatible with `npm install` and `npm link`.
+The CLI to use that's compatible with `npm install`.
 Defaults to `'npm'`.
 It's a name found on `PATH` or a project-relative path, and an absolute path is refused.
 
