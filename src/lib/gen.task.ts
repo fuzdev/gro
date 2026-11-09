@@ -56,14 +56,15 @@ export const task: Task<Args> = {
 		// load all of the gen modules
 		const found = await find_genfiles(fs_paths, input_paths, root_dirs, config, timings);
 		if (!found.ok) {
-			if (found.type === 'input_directories_with_no_files') {
-				// TODO maybe let this error like the normal case, but only call `gro gen` if we find gen files? problem is the args would need to be hoisted to callers like `gro sync`
+			// most projects have no genfiles, so only paths someone named have to hold one
+			const is_default_input =
+				raw_input_paths.length === 1 && raw_input_paths[0] === SOURCE_DIRNAME;
+			if (found.type === 'input_directories_with_no_files' && is_default_input) {
 				log.info('no gen modules found in ' + input_paths.join(', '));
 				return;
-			} else {
-				log_error_reasons(log, found.reasons);
-				throw new TaskError('Failed to find gen modules.');
 			}
+			log_error_reasons(log, found.reasons);
+			throw new TaskError('Failed to find gen modules.');
 		}
 		const found_genfiles = found.value;
 		log.info(

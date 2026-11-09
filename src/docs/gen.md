@@ -80,7 +80,10 @@ and then it writes the results to the filesystem.
 ```bash
 gro gen # runs codegen for all *.gen.* files in src/
 gro gen --check # exits with error code 1 if anything is new or different; no-op to the fs
+gro gen src/foo # only the genfiles in src/foo, which must hold at least one
 ```
+
+A project with no genfiles in `src/` passes `gro gen` and `gro gen --check`, doing nothing.
 
 ### generate arbitrary TypeScript
 
