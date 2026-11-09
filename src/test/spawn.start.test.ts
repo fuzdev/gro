@@ -1037,6 +1037,77 @@ describe('cleanup when the host exits', () => {
 		await assert_gone(await read_pid_when_ready(ready), 'the piped child');
 	});
 
+	const start_inheriting_and_signal = (signal: string, ready: string): string =>
+		`await spawn.program('sleeper').start([], {stdio: 'inherit'});
+		 while (!(await import('node:fs')).existsSync(${JSON.stringify(ready)})) await new Promise(r=>setTimeout(r,5));
+		 process.kill(process.pid, ${JSON.stringify(signal)});
+		 await new Promise(() => {});`;
+
+	// the host inherits too, as a host in a group would have its group killed when it ends,
+	// reaching the child whether or not the signal was passed on
+	const run_ungrouped_fixture = async (name: string, body: string) => {
+		const path = join(sandbox.base, `${name}.ts`);
+		writeFileSync(path, `import {spawn} from ${JSON.stringify(module_url)};\n${body}\n`);
+		const host = await spawn.program('node').start([path], { stdio: 'inherit' });
+		return host.closed;
+	};
+
+	test("a host's `SIGTERM` reaches an inheriting child, and still ends the host", async () => {
+		const { ready } = write_child_scripts();
+		const result = await run_ungrouped_fixture(
+			'term_inheriting',
+			start_inheriting_and_signal('SIGTERM', ready)
+		);
+		assert.strictEqual(result.kind, 'signaled');
+		assert.strictEqual(result.kind === 'signaled' ? result.signal : null, 'SIGTERM');
+		await assert_gone(await read_pid_when_ready(ready), 'the inheriting child');
+	});
+
+	test('a `SIGTERM` passes down a chain of inheriting hosts', async () => {
+		const { ready } = write_child_scripts();
+		const middle = join(sandbox.base, 'middle.ts');
+		writeFileSync(
+			middle,
+			`import {spawn} from ${JSON.stringify(module_url)};
+			 await spawn.program('sleeper').run([]);`
+		);
+		const result = await run_ungrouped_fixture(
+			'term_chain',
+			`await spawn.program('node').start([${JSON.stringify(middle)}], {stdio: 'inherit'});
+			 while (!(await import('node:fs')).existsSync(${JSON.stringify(ready)})) await new Promise(r=>setTimeout(r,5));
+			 process.kill(process.pid, 'SIGTERM');
+			 await new Promise(() => {});`
+		);
+		assert.strictEqual(result.kind, 'signaled');
+		await assert_gone(await read_pid_when_ready(ready), 'the end of the chain');
+	});
+
+	for (const signal of ['SIGINT', 'SIGHUP']) {
+		test(`a host's \`${signal}\` isn't sent on to an inheriting child`, async () => {
+			const { ready } = write_child_scripts();
+			const result = await run_ungrouped_fixture(
+				`signal_${signal}`,
+				start_inheriting_and_signal(signal, ready)
+			);
+			assert.strictEqual(result.kind, 'signaled');
+			const pid = await read_pid_when_ready(ready);
+			await sleep(100);
+			assert.isTrue(is_process_alive(pid), 'expected the child to be left running');
+		});
+	}
+
+	test('another listener decides a `SIGTERM` with an inheriting child running', async () => {
+		const { ready } = write_child_scripts();
+		const result = await run_ungrouped_fixture(
+			'term_inheriting_handled',
+			`process.on('SIGTERM', () => setTimeout(() => process.exit(4), 20));
+			 ${start_inheriting_and_signal('SIGTERM', ready)}`
+		);
+		assert.strictEqual(result.kind, 'exited');
+		assert.strictEqual(result.kind === 'exited' ? result.code : null, 4);
+		await assert_gone(await read_pid_when_ready(ready), 'the inheriting child');
+	});
+
 	test('two copies of the module each kill their own group, and the signal still ends the host', async () => {
 		const first = join(sandbox.base, 'first_pid');
 		const second = join(sandbox.base, 'second_pid');
@@ -1159,7 +1230,7 @@ describe('cleanup when the host exits', () => {
 		vi.resetModules();
 	});
 
-	test('signal listeners exist only while a group runs', async () => {
+	test('`SIGTERM` is listened for while a child runs, the others while a group does', async () => {
 		await poll_until(
 			() => process.listenerCount('SIGTERM') === SIGTERM_LISTENERS,
 			'earlier stops to finish'
@@ -1171,10 +1242,13 @@ describe('cleanup when the host exits', () => {
 		await child.stdin!.close();
 		await child.closed;
 		assert.strictEqual(process.listenerCount('SIGTERM'), before);
-		// an inheriting child adds none
+		// an inheriting child adds only the `SIGTERM` one
+		const sigint_before = process.listenerCount('SIGINT');
 		const inheriting = await program_of('quiet', 'exit 0').start([]);
-		assert.strictEqual(process.listenerCount('SIGTERM'), before);
+		assert.strictEqual(process.listenerCount('SIGTERM'), before + 1);
+		assert.strictEqual(process.listenerCount('SIGINT'), sigint_before);
 		await inheriting.closed;
+		assert.strictEqual(process.listenerCount('SIGTERM'), before);
 	});
 });
 

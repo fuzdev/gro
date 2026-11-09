@@ -53,6 +53,8 @@
  * on, so when no stop has begun it outlives the call. A child still running when
  * the host exits is killed, by one hook installed on the first spawn, and while a child in
  * a group of its own runs, the signals that end the host, but for `SIGQUIT`, kill its group first.
+ * A child with an inherited stream is sent a `SIGTERM` of the host, so a chain of hosts passes it
+ * all the way down.
  *
  * Option objects are read once, each option's value read once into a null-prototype object
  * and checked, so a getter can't change one between its check and its use. Only own
@@ -75,8 +77,9 @@
  *   controlling terminal, so a program prompting on `/dev/tty` under `out` can't.
  *   A child with an inherited stream isn't grouped, so a stop reaches it by pid alone and
  *   anything it left behind survives. Node has no `PDEATHSIG`, so a `SIGKILL` of the host leaves
- *   every child behind, and a host killed by a signal leaves an inheriting child
- *   to what the terminal delivers.
+ *   every child behind, and a host killed by `SIGINT` or `SIGHUP` leaves an inheriting
+ *   child to what the terminal delivers. Passing `SIGINT` on would double a terminal's, which
+ *   makes some programs force-quit, and a listener for `SIGHUP` would end a `nohup` host.
  * - `SIGQUIT` isn't hooked, as a listener would keep a host stuck in synchronous code from
  *   dumping core, the signal's use, so a `SIGQUIT` of the host leaves a group running too.
  * - Node can't read a signal's disposition, so while a group runs, a `SIGHUP` a `nohup` host
@@ -1190,7 +1193,11 @@ let running_groups = 0;
 // must still dump core, the reason to send it
 const HOST_SIGNALS: ReadonlyArray<NodeJS.Signals> = freeze(['SIGINT', 'SIGTERM', 'SIGHUP']);
 
-// names the signal hook across copies of this module, each with its own groups to kill
+// the signals the hook takes only while a group runs, a child in the terminal's group getting
+// these from the terminal
+const GROUP_ONLY_HOST_SIGNALS: ReadonlyArray<NodeJS.Signals> = freeze(['SIGINT', 'SIGHUP']);
+
+// names the signal hook across copies of this module, each with its own children to signal
 const SIGNAL_HOOK_KEY = Symbol.for('@fuzdev/gro/spawn.signal_hook');
 
 /**
@@ -1220,19 +1227,21 @@ const on_host_exit = (): void => {
 };
 
 /**
- * Registered for the signals that end the host, only while a group is running, since
- * a terminal's interrupt never reaches a child in its own session, and prepended so it counts
- * a `process.once` listener before that listener removes itself. When another listener
- * is on the signal it decides what happens, and the `exit` hook covers the children
- * if that's an exit. Alone but for copies of itself, it kills its groups and raises the signal
- * again with this listener gone, so the host dies by the signal's default action,
- * each copy killing its own groups in turn.
+ * Registered for the signals that end the host: `SIGTERM` while any child runs, the others
+ * only while a group is running, since a terminal's interrupt never reaches a child in its own
+ * session. Prepended so it counts a `process.once` listener before that listener removes itself.
+ * When another listener is on the signal it decides what happens, and the `exit` hook covers
+ * the children if that's an exit. Alone but for copies of itself, it kills its groups, sends
+ * a `SIGTERM` on to the children sharing its group, which a `SIGKILL` wouldn't let pass it to
+ * their own, and raises the signal again with this listener gone, so the host dies by the
+ * signal's default action, each copy signaling its own children in turn.
  */
 const on_host_signal = (signal: NodeJS.Signals): void => {
 	if (has_other_signal_listener(signal)) return;
 	try {
 		for (const watch of running_children) {
 			if (watch.group) watch.kill_for_host_exit();
+			else if (signal === 'SIGTERM') watch.send('SIGTERM');
 		}
 	} catch {
 		// the signal still gets its default action below
@@ -1243,9 +1252,15 @@ const on_host_signal = (signal: NodeJS.Signals): void => {
 
 (on_host_signal as unknown as Record<symbol, unknown>)[SIGNAL_HOOK_KEY] = true;
 
-const arm_signal_hooks = (): void => {
-	for (let i = 0; i < HOST_SIGNALS.length; i++) {
-		process_prepend_listener(HOST_SIGNALS[i]!, on_host_signal);
+const arm_group_signal_hooks = (): void => {
+	for (let i = 0; i < GROUP_ONLY_HOST_SIGNALS.length; i++) {
+		process_prepend_listener(GROUP_ONLY_HOST_SIGNALS[i]!, on_host_signal);
+	}
+};
+
+const disarm_group_signal_hooks = (): void => {
+	for (let i = 0; i < GROUP_ONLY_HOST_SIGNALS.length; i++) {
+		process_off(GROUP_ONLY_HOST_SIGNALS[i]!, on_host_signal);
 	}
 };
 
@@ -1259,13 +1274,14 @@ const track_child = (watch: ChildWatch): void => {
 		process_on('exit', on_host_exit);
 	}
 	running_children.add(watch);
-	if (watch.group && running_groups++ === 0) arm_signal_hooks();
+	if (running_children.size === 1) process_prepend_listener('SIGTERM', on_host_signal);
+	if (watch.group && running_groups++ === 0) arm_group_signal_hooks();
 };
 
 const untrack_child = (watch: ChildWatch): void => {
-	if (running_children.delete(watch) && watch.group && --running_groups === 0) {
-		disarm_signal_hooks();
-	}
+	if (!running_children.delete(watch)) return;
+	if (watch.group && --running_groups === 0) disarm_group_signal_hooks();
+	if (running_children.size === 0) process_off('SIGTERM', on_host_signal);
 };
 
 /**
