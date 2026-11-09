@@ -124,6 +124,28 @@ describe('deploy_task target branch sync (remote exists)', () => {
 			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
 		});
 
+		test('deletes a deploy dir on an unborn branch without reading its name', async () => {
+			const { git_current_branch_name, git_current_commit_hash } = git_ops;
+			const { remove, exists } = await get_mock_project();
+
+			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
+			vi.mocked(git_current_commit_hash).mockResolvedValue(null); // no commit, an unborn branch
+			// the source checkout's read answers, the deploy clone's would throw on its unborn branch
+			vi.mocked(git_current_branch_name).mockImplementation(async (options) => {
+				if (options) throw new Error('unborn');
+				return 'main';
+			});
+
+			const ctx = create_mock_deploy_task_context({
+				target: 'deploy',
+				dry: true
+			});
+
+			await deploy_task.run(ctx);
+
+			expect(remove).toHaveBeenCalledWith('.gro/deploy', { recursive: true });
+		});
+
 		test('reinitializes deploy dir after deletion', async () => {
 			const { git_current_branch_name, git_fetch } = git_ops;
 			const { exists } = await get_mock_project();

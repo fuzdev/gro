@@ -28,6 +28,21 @@ describe('gro commit', () => {
 		assert.strictEqual(git_ops.git_push_to_create.mock.calls.length, 1);
 	});
 
+	test('a first commit on an unborn branch commits, then pushes the branch it created', async () => {
+		let committed = false;
+		git_ops.git_command.mockImplementation(async () => {
+			committed = true;
+			return { kind: 'exited', code: 0 };
+		});
+		git_ops.git_current_branch_name.mockImplementation(async () => {
+			if (!committed) throw new TaskError('unborn');
+			return 'main';
+		});
+		await run_commit();
+		assert.strictEqual(git_ops.git_push_to_create.mock.calls.length, 1);
+		assert.strictEqual(git_ops.git_push_to_create.mock.calls[0]![1], 'main');
+	});
+
 	test('a failed commit throws and pushes nothing', async () => {
 		git_ops.git_command.mockResolvedValue({ kind: 'exited', code: 1 });
 		let error: unknown;

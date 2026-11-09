@@ -19,6 +19,7 @@ import {
 	git_fetch,
 	git_check_setting_pull_rebase,
 	git_current_branch_name,
+	git_current_commit_hash,
 	to_git_program
 } from './git.ts';
 import { paths, print_path } from './paths.ts';
@@ -216,8 +217,13 @@ export const task: Task<Args> = {
 			// If anything goes wrong, delete the directory and we'll initialize it
 			// using the same code path as if it didn't exist in the first place.
 			if (await deploy_dir_exists()) {
-				if (target !== (await git_current_branch_name(git, await to_target_cwd()))) {
-					// We're in a bad state because the target branch has changed,
+				const target_cwd = await to_target_cwd();
+				if (
+					(await git_current_commit_hash(git, target_cwd)) === null ||
+					target !== (await git_current_branch_name(git, target_cwd))
+				) {
+					// We're in a bad state because the clone has no commit, as a failed first deploy
+					// leaves it on an unborn branch, or the target branch has changed,
 					// so delete the directory and continue as if it wasn't there.
 					await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
 				} else {

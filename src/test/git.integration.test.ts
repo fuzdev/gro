@@ -119,6 +119,21 @@ describe('git over a real repo', () => {
 		);
 	});
 
+	test('an unborn branch throws naming the case and the fix', async () => {
+		await base.mkdir('unborn');
+		const unborn = base.dir('unborn');
+		await run_ok(unborn, ['init', '-q', '-b', 'main']);
+		const message = await to_message(git_current_branch_name(git, { cwd: unborn }));
+		assert.include(message, 'unborn');
+		assert.include(message, 'make a first commit');
+		assert.strictEqual(await git_current_commit_hash(git, { cwd: unborn }), null);
+	});
+
+	test('a detached HEAD reads as the literal HEAD', async () => {
+		await run_ok(work, ['checkout', '-q', '--detach']);
+		assert.strictEqual(await git_current_branch_name(git, { cwd: work }), 'HEAD');
+	});
+
 	test('reads the workspace status', async () => {
 		assert.isNull(await git_check_clean_workspace(git, { cwd: work }));
 		await work.write('a.txt', 'changed');

@@ -90,17 +90,25 @@ const git_out = async (
 };
 
 /**
- * Returns the current git branch name, or the literal string `HEAD` on a detached `HEAD`
- * or an unborn branch, which callers comparing it to a branch name read as not that branch.
+ * Returns the current git branch name, or the literal string `HEAD` on a detached `HEAD`,
+ * which callers comparing it to a branch name read as not that branch.
+ * @throws `TaskError` - on an unborn branch, one with no commits yet
  * @throws Error - if `git` prints no name, as outside a repo, or was stopped or truncated
  */
 export const git_current_branch_name = async (
 	git: SpawnProgram,
 	options?: SpawnCallOptions
 ): Promise<GitBranch> => {
-	const { stdout } = await git_out(git, ['rev-parse', '--abbrev-ref', 'HEAD'], options);
-	if (!stdout) throw Error('git_current_branch_name failed');
-	return stdout.trim();
+	const output = await git_out(git, ['rev-parse', '--abbrev-ref', 'HEAD'], options);
+	const name = output.stdout.trim();
+	if (spawn_result_is_ok(output) && name) return name;
+	// on an unborn branch `rev-parse` prints its argument back, then fails to resolve it
+	if (name === 'HEAD') {
+		throw new TaskError(
+			'the current git branch is unborn, with no commits yet: make a first commit, or check out a branch that has one'
+		);
+	}
+	throw Error('git_current_branch_name failed');
 };
 
 /**

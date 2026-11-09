@@ -69,6 +69,7 @@ export const setup_successful_git_mocks = async () => {
 		git_pull,
 		git_remote_branch_exists,
 		git_current_branch_name,
+		git_current_commit_hash,
 		git_delete_local_branch,
 		git_push_to_create,
 		git_current_branch_first_commit_hash
@@ -82,6 +83,7 @@ export const setup_successful_git_mocks = async () => {
 	vi.mocked(git_pull).mockResolvedValue(undefined);
 	vi.mocked(git_remote_branch_exists).mockResolvedValue(true);
 	vi.mocked(git_current_branch_name).mockResolvedValue('deploy');
+	vi.mocked(git_current_commit_hash).mockResolvedValue(FIRST_COMMIT_HASH);
 	vi.mocked(git_delete_local_branch).mockResolvedValue(undefined);
 	vi.mocked(git_push_to_create).mockResolvedValue(undefined);
 	vi.mocked(git_current_branch_first_commit_hash).mockResolvedValue(FIRST_COMMIT_HASH);
