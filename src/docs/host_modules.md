@@ -380,8 +380,9 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - A result is a null-prototype record, so a polluted `Object.prototype.then` isn't consulted when it's awaited.
 - A `SpawnChild`, its stdin, its output iterables, and their iterators are frozen,
   and hold their stream and child in private fields, so a reader can't reach the stream underneath.
-  Their prototypes are frozen and null-prototype, so none of them is thenable, even with a polluted `Object.prototype.then`,
-  and iterator results and chunks follow suit: null-prototype records and plain `Uint8Array`s, never a `Buffer`.
+  Their prototypes are frozen and null-prototype, so none of them is thenable, even with a polluted `Object.prototype.then`.
+  Iterator results are null-prototype records and chunks plain `Uint8Array`s, never a `Buffer`,
+  and a chunk never passes through promise resolution bare, so a polluted `then` can't replace one on its way to the reader.
 - `kill` refuses anything but a name on its list, and a pid goes nowhere, so a `SpawnChild` can't signal another process.
 - A child's environment is a null-prototype object, since Node enumerates it with `for in`
   and `Object.prototype.X` would otherwise reach the child.
@@ -489,7 +490,8 @@ It documents each gap rather than weakening the API to match, and is a review si
 - Intrinsics stay pollutable. The module copies at load the Node functions it calls,
   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,
   and its own objects are null-prototype, but code that patches `Array.prototype`, `Set.prototype`, `String.prototype`,
-  `Promise`, `Uint8Array`, `TextDecoder`, or `Error` after the module loads runs inside its ops.
+  `Promise`, `Uint8Array`, `TextDecoder`, `Error`, `EventEmitter.prototype.on`, or the stream classes after the module loads runs inside its ops,
+  and a patched `on` or stream method holds the raw `ChildProcess` or stream.
 - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
 - Grouping needs Node's `detached`, a `setsid`, so a group-leading child has no controlling terminal:
   a program prompting on `/dev/tty` under `out` can't, and fails rather than prompting.
@@ -522,6 +524,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   where the runtime's complete on their own schedule. Writes to pipes are asynchronous.
 - Node's stream `write` is the stream's own, and the streams are created on first use, so code that patched `write`
   or replaced `process.stdout` by then runs inside a write. The module's other Node functions are copied at load.
+  `EventEmitter.prototype` and the stream classes aren't, so code that patches them runs inside these ops holding the raw stream.
+- A chunk read from stdin passes through Node's iterator, so a polluted `then` can replace it.
 - `process`, like `fs`, reads the working directory when the module loads, so importing it throws
   in a removed or non-UTF-8 working directory.
 
@@ -553,6 +557,13 @@ What the runtime's builtin must do that the Node implementation can't:
   with `kill_guarded_groups_on_signal` handling the signals that end the host.
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
+- Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
+- Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
+  so a patched `String.prototype.split` can't forge a segment.
+- Refuse `env`, `pass_env: 'all'`, and `pass_env` globs on a narrowed root natively,
+  so a patched `String.prototype.endsWith` can't pass a glob through.
+- Read stdin without passing a bare chunk through promise resolution.
+- Expand a `pass_env` glob against the host's environment natively, so script code never enumerates the variables' names.
 
 ### process
 

@@ -403,6 +403,54 @@ describe('child handle hardening', () => {
 		await child.closed;
 	});
 
+	// only a chunk or an object carrying one sees it, as a `then` on all would derail the test's awaits
+	const with_polluted_chunk_then = async <T>(fn: () => Promise<T>): Promise<T> => {
+		Object.defineProperty(Object.prototype as any, 'then', {
+			configurable: true,
+			get(this: unknown) {
+				const carries_chunk =
+					this instanceof Uint8Array ||
+					Object.values(this as object).some((value) => value instanceof Uint8Array);
+				if (!carries_chunk) return undefined;
+				return (resolve: (value: string) => void) => {
+					resolve('forged');
+				};
+			}
+		});
+		try {
+			return await fn();
+		} finally {
+			delete (Object.prototype as any).then;
+		}
+	};
+
+	const assert_chunk = (result: IteratorResult<Uint8Array>, expected: string): void => {
+		assert.isFalse(result.done);
+		assert.instanceOf(result.value, Uint8Array);
+		assert.strictEqual(new TextDecoder().decode(result.value), expected);
+	};
+
+	test('a buffered chunk comes through a polluted `Object.prototype.then` intact', async () => {
+		const child = await program_of('buffered', 'printf hello').start([], { stdio: 'pipe' });
+		await child.closed;
+		const iterator = child.stdout![Symbol.asyncIterator]();
+		assert_chunk(await with_polluted_chunk_then(() => iterator.next()), 'hello');
+	});
+
+	test('a chunk a reader waited for comes through a polluted `then` intact', async () => {
+		const child = await program_of('gated', 'read -r line; printf hello').start([], {
+			stdio: 'pipe'
+		});
+		const iterator = child.stdout![Symbol.asyncIterator]();
+		const result = await with_polluted_chunk_then(async () => {
+			const pending = iterator.next();
+			await child.stdin!.write('go\n');
+			return await pending;
+		});
+		assert_chunk(result, 'hello');
+		await child.closed;
+	});
+
 	test("a part's constructor makes no handle", async () => {
 		const { child } = await live_child();
 		const iterator = child.stdout![Symbol.asyncIterator]();

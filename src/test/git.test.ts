@@ -2,6 +2,7 @@ import { describe, test, assert } from 'vitest';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import {
+	GIT_LOCAL_PASS_ENV,
 	git_parse_workspace_status,
 	git_workspace_status_message,
 	git_workspace_is_clean,
@@ -474,6 +475,12 @@ describe('git_parse_workspace_status', () => {
 			staged_changes: true, // From R, C, M, and RM
 			untracked_files: true // From ??
 		});
+	});
+});
+
+describe('GIT_LOCAL_PASS_ENV', () => {
+	test('is frozen, so importing it grants no way to widen what later programs pass', () => {
+		assert.ok(Object.isFrozen(GIT_LOCAL_PASS_ENV));
 	});
 });
 

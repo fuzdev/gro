@@ -37,7 +37,11 @@ import { TaskError } from './task.ts';
  * invoking user's repo isn't refused as dubiously owned.
  * A `git` that commits or reaches a remote gets more, decided at its root.
  */
-export const GIT_LOCAL_PASS_ENV: ReadonlyArray<string> = ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'];
+export const GIT_LOCAL_PASS_ENV: ReadonlyArray<string> = Object.freeze([
+	'GIT_*',
+	'XDG_CONFIG_HOME',
+	'SUDO_UID'
+]);
 
 /**
  * A git remote's name, such as `origin`.

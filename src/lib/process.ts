@@ -40,6 +40,9 @@
  * - Intrinsics stay pollutable. The Node functions this module calls are copied at load, but
  *   Node's stream `write` is the stream's own, so code that patched it runs inside a write, and the
  *   streams are created on first use, so one replaced on the global by then is the one written to.
+ *   The stream classes and `EventEmitter.prototype` (`once`, `emit`, `listenerCount`) stay too, so
+ *   code that patches them runs inside these ops holding the raw stream.
+ * - A chunk read from stdin passes through Node's iterator, so a polluted `then` can replace it.
  * - Importing this module throws in a removed or non-UTF-8 working directory, as `fs` does.
  *
  * @module
@@ -62,6 +65,7 @@ const { isArray } = Array;
 const { isInteger } = Number;
 const { assign, create, freeze, keys, setPrototypeOf } = Object;
 const Uint8ArrayClass = Uint8Array;
+const set_immediate = setImmediate;
 
 // the key only this module holds, so a handle's `constructor` can't make another handle
 const HANDLE_KEY = Symbol('process handle');
@@ -367,7 +371,7 @@ class NodeProcessOutput implements ProcessOutput {
 				if (stream.listenerCount('error') === 0) stream.once('error', ignore_error);
 				if (is_reader_gone(error)) {
 					// on a later turn, so a write loop past a gone reader can't starve signal handling
-					setImmediate(resolve, false);
+					set_immediate(resolve, false);
 				} else {
 					reject(
 						new ProcessError('io_error', target, `io_error: ${target}: ${error.message}`, {
@@ -428,7 +432,7 @@ class NodeProcessInputIterator implements AsyncIterator<Uint8Array> {
 		}
 		if (result.done) return iterator_result(null);
 		const { value } = result;
-		// not bytes if something set an encoding on the stream or forged the result through `then`
+		// not bytes if something set an encoding on the stream, or forged it to something else through `then`
 		if (!isUint8Array(value)) {
 			await this.#stop();
 			throw new ProcessError('io_error', 'stdin', "io_error: stdin: a chunk isn't bytes");

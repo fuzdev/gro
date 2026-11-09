@@ -92,7 +92,9 @@
  *   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s
  *   `assign`, `create`, `freeze`, `keys`, and `hasOwn`, and its own objects are null-prototype, but
  *   code that patches `Array.prototype`, `Set.prototype`, `String.prototype`, `Promise`, `Uint8Array`,
- *   `TextDecoder`, or `Error` after this module loads runs inside these ops.
+ *   `TextDecoder`, `Error`, `EventEmitter.prototype.on`, or the stream classes after this module
+ *   loads runs inside these ops, and a patched `on` or stream method holds the raw `ChildProcess`
+ *   or stream.
  * - Any module can import `node:child_process`, so a narrowed `spawn` bounds only code
  *   that uses it, a review signal, not a boundary.
  * - The refusal of files with no `#!` reads only the first bytes, so a file with a native magic
@@ -535,7 +537,7 @@ const check_runnable_format = (name: string, path: string): void => {
 		throw to_uninspectable_error(name, path, error);
 	}
 	// zeroed, so a file shorter than the magic can't match it
-	const bytes = new Uint8Array(MAGIC_LENGTH);
+	const bytes = new Uint8ArrayClass(MAGIC_LENGTH);
 	try {
 		readSync(fd, bytes, 0, MAGIC_LENGTH, 0);
 	} catch (error) {
@@ -1344,6 +1346,14 @@ const to_ref_stream = (stream: Readable): Readable & { ref?: () => void; unref?:
 	stream;
 
 /**
+ * A chunk as it passes through promise resolution, null-prototype so it's never thenable,
+ * where a bare `Uint8Array` would adopt a polluted `Object.prototype.then`.
+ */
+interface OutputEntry {
+	readonly chunk: Uint8Array;
+}
+
+/**
  * A started child's piped output: chunks read from the stream, handed to one reader in order.
  * Reading starts at once, so nothing is lost before the reader arrives, up to the
  * buffer, past which the stream pauses for the reader to catch up.
@@ -1351,7 +1361,7 @@ const to_ref_stream = (stream: Readable): Readable & { ref?: () => void; unref?:
 class OutputFeed {
 	readonly #stream: Readable;
 	readonly #chunks: Array<Uint8Array> = [];
-	readonly #waiters: Array<(chunk: Uint8Array | null) => void> = [];
+	readonly #waiters: Array<(entry: OutputEntry | null) => void> = [];
 	#head = 0;
 	#buffered = 0;
 	#ended = false;
@@ -1380,7 +1390,7 @@ class OutputFeed {
 		// a copy, so a reader never holds a `Buffer` or a view of memory Node reuses
 		const copy = new Uint8ArrayClass(chunk);
 		if (this.#waiters.length > 0) {
-			this.#waiters.shift()!(copy);
+			this.#waiters.shift()!(create_record<OutputEntry>({ chunk: copy }));
 			return;
 		}
 		this.#chunks[this.#chunks.length] = copy;
@@ -1400,9 +1410,9 @@ class OutputFeed {
 	}
 
 	/**
-	 * The next chunk, or `null` once the output ends.
+	 * The next chunk in its entry, or `null` once the output ends.
 	 */
-	next(): Promise<Uint8Array | null> | Uint8Array | null {
+	next(): Promise<OutputEntry | null> | OutputEntry | null {
 		if (this.#head < this.#chunks.length) {
 			const chunk = this.#chunks[this.#head]!;
 			this.#chunks[this.#head++] = undefined as unknown as Uint8Array;
@@ -1412,7 +1422,7 @@ class OutputFeed {
 				this.#head = 0;
 			}
 			this.#resume_if_room();
-			return chunk;
+			return create_record<OutputEntry>({ chunk });
 		}
 		if (this.#ended || this.#discarding) return null;
 		return new Promise((resolve) => {
@@ -1502,7 +1512,8 @@ class NodeSpawnOutputIterator implements AsyncIterator<Uint8Array> {
 	}
 
 	async next(): Promise<IteratorResult<Uint8Array>> {
-		return iterator_result(await this.#feed.next());
+		const entry = await this.#feed.next();
+		return iterator_result(entry === null ? null : entry.chunk);
 	}
 
 	// reached by leaving a `for await` early
@@ -1616,7 +1627,7 @@ interface Capture {
 }
 
 const to_captured_text = (capture: Capture): string => {
-	const bytes = new Uint8Array(capture.size);
+	const bytes = new Uint8ArrayClass(capture.size);
 	let offset = 0;
 	for (let i = 0; i < capture.chunks.length; i++) {
 		const chunk = capture.chunks[i]!;
