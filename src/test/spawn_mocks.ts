@@ -3,6 +3,7 @@ import type {
 	SpawnCallOptions,
 	SpawnChild,
 	SpawnOutput,
+	SpawnOutputBytes,
 	SpawnProgram,
 	SpawnProgramOptions,
 	SpawnResult
@@ -13,7 +14,7 @@ import { SpawnError } from '#lib/spawn_error.ts';
  * A call a mock program received.
  */
 export interface MockSpawnCall {
-	method: 'run' | 'out' | 'start';
+	method: 'run' | 'out' | 'out_bytes' | 'start';
 	name: string;
 	args: ReadonlyArray<string>;
 	options: SpawnCallOptions | undefined;
@@ -32,6 +33,10 @@ export interface MockSpawn extends Spawn {
 	 * so code reaching an op the test didn't expect fails loudly.
 	 */
 	out_result: ((call: MockSpawnCall) => SpawnOutput | Promise<SpawnOutput>) | null;
+	/**
+	 * What `out_bytes` resolves to for a call, as `out_result` is for `out`.
+	 */
+	out_bytes_result: ((call: MockSpawnCall) => SpawnOutputBytes | Promise<SpawnOutputBytes>) | null;
 	/**
 	 * What `find` throws for a name, `undefined` to find it normally.
 	 */
@@ -143,6 +148,14 @@ export const create_mock_spawn = (): MockSpawn => {
 			mock.calls.push(call);
 			return mock.out_result(call);
 		},
+		out_bytes: async (args, options) => {
+			if (mock.out_bytes_result === null) {
+				throw Error(`mock SpawnProgram.out_bytes not set: ${name}`);
+			}
+			const call: MockSpawnCall = { method: 'out_bytes', name, args, options, program_options };
+			mock.calls.push(call);
+			return mock.out_bytes_result(call);
+		},
 		start: async (args, options) => {
 			const call: MockSpawnCall = { method: 'start', name, args, options, program_options };
 			const result = await to_result(call, mock.start_error(call));
@@ -159,6 +172,7 @@ export const create_mock_spawn = (): MockSpawn => {
 		available: (name) => name.startsWith(LOCAL_BIN),
 		result: OK_RESULT,
 		out_result: null,
+		out_bytes_result: null,
 		find_error: NO_ERROR,
 		run_error: NO_ERROR,
 		start_error: NO_ERROR,
@@ -178,6 +192,7 @@ export const create_mock_spawn = (): MockSpawn => {
 			mock.available = (name) => name.startsWith(LOCAL_BIN);
 			mock.result = OK_RESULT;
 			mock.out_result = null;
+			mock.out_bytes_result = null;
 			mock.find_error = NO_ERROR;
 			mock.run_error = NO_ERROR;
 			mock.start_error = NO_ERROR;

@@ -74,7 +74,8 @@
  * - No policy check, argv limit, or kernel confinement applies to the children: a running
  *   program reaches whatever its user can.
  * - Grouping is Node's `detached`, which is `setsid`: a child with no inherited stdio has no
- *   controlling terminal, so a program prompting on `/dev/tty` under `out` can't.
+ *   controlling terminal, so a program prompting on `/dev/tty` under `out` or `out_bytes` without
+ *   `stdin: 'inherit'` can't.
  *   A child with an inherited stream isn't grouped, so a stop reaches it by pid alone and
  *   anything it left behind survives. Node has no `PDEATHSIG`, so a `SIGKILL` of the host leaves
  *   every child behind, and a host killed by `SIGINT` or `SIGHUP` leaves an inheriting
@@ -272,6 +273,15 @@ export interface SpawnOutOptions extends SpawnCallOptions {
 	 * Past it the child is killed and the result is `truncated`. Defaults to 64 MiB.
 	 */
 	max_bytes?: number;
+	/**
+	 * The child's stdin. `'ignore'`, the default, is `/dev/null`, and the child leads its own
+	 * process group, in a new session with no terminal, so a stop and the cap reach what it
+	 * left behind. `'inherit'` shares the host's and keeps the child in the terminal's session,
+	 * as for any child with an inherited stream, so a command that may prompt (ssh, a credential
+	 * helper, a pinentry) still reaches `/dev/tty`. Such a child is stopped and capped by pid
+	 * alone, so a process it started outlives the call.
+	 */
+	stdin?: 'inherit' | 'ignore';
 }
 
 /**
@@ -304,6 +314,17 @@ export type SpawnOutput = SpawnResult & {
 };
 
 /**
+ * A byte-captured call's result. `stdout` and `stderr` are exactly the bytes the child wrote,
+ * each at most `max_bytes`, plain `Uint8Array`s holding their own memory. `truncated` is as for
+ * `SpawnOutput`.
+ */
+export type SpawnOutputBytes = SpawnResult & {
+	readonly stdout: Uint8Array;
+	readonly stderr: Uint8Array;
+	readonly truncated: boolean;
+};
+
+/**
  * One executable, pinned when the handle is made. `name` and `path` are for display:
  * the pin is private, so changing what `path` says changes nothing that runs.
  */
@@ -327,18 +348,29 @@ export interface SpawnProgram {
 	 */
 	run(args: ReadonlyArray<string>, options?: SpawnCallOptions): Promise<SpawnResult>;
 	/**
-	 * Runs the program with stdin from `/dev/null`, capturing stdout and stderr as UTF-8 text.
-	 * Output past `max_bytes` (64 MiB by default) on either stream kills the child with
-	 * `SIGKILL`, whose result is `truncated`, a multi-byte character cut at the end
-	 * becoming `U+FFFD`. The child leads its own process group, so the group is what's killed.
+	 * Runs the program, capturing stdout and stderr as UTF-8 text, with stdin from `/dev/null`
+	 * unless `stdin` says `'inherit'`. Output past `max_bytes` (64 MiB by default) on either stream
+	 * kills the child with `SIGKILL`, whose result is `truncated`, a multi-byte character cut at
+	 * the end becoming `U+FFFD`. A child leading its own process group is killed as the group,
+	 * and one with stdin inherited by pid alone.
 	 * After it exits, a background process still holding a pipe gets a bounded wait, then
-	 * the group is killed, the result `truncated` because output may be missing.
+	 * the group, if there is one, is killed and reading stops, the result `truncated` because
+	 * output may be missing.
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
 	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
 	 */
 	out(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutput>;
+	/**
+	 * Captures as `out` does, with the same options, keeping stdout and stderr as bytes,
+	 * for output that isn't text, like a git blob.
+	 * @param args - the arguments after `argv[0]`
+	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
+	 * or a malformed option
+	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 */
+	out_bytes(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutputBytes>;
 	/**
 	 * Starts the program and returns once it's running, the child held by the `SpawnChild`.
 	 * Stdio defaults to `'inherit'`. A child with nothing inherited leads its own group.
@@ -1642,7 +1674,8 @@ interface Capture {
 	size: number;
 }
 
-const to_captured_text = (capture: Capture): string => {
+// joined into a fresh array, so a caller never holds a `Buffer` or a view of memory Node reuses
+const to_captured_bytes = (capture: Capture): Uint8Array => {
 	const bytes = new Uint8ArrayClass(capture.size);
 	let offset = 0;
 	for (let i = 0; i < capture.chunks.length; i++) {
@@ -1650,8 +1683,12 @@ const to_captured_text = (capture: Capture): string => {
 		bytes.set(chunk, offset);
 		offset += chunk.length;
 	}
-	return output_decoder.decode(bytes);
+	return bytes;
 };
+
+// decoded whole, so a multi-byte character split across chunks stays one character
+const to_captured_text = (capture: Capture): string =>
+	output_decoder.decode(to_captured_bytes(capture));
 
 /**
  * Stores `chunk`, keeping at most `max_bytes` of the stream.
@@ -1671,15 +1708,29 @@ const add_chunk = (capture: Capture, chunk: Uint8Array, max_bytes: number): bool
  */
 const read_out_options = (
 	options: SpawnOutOptions | undefined
-): CallOptions & { max_bytes: number } => {
+): CallOptions & { max_bytes: number; stdin: 'inherit' | 'ignore' } => {
 	const raw = check_call_options(options);
-	const call = read_call_options(raw);
-	const max_bytes = read_own(raw, 'max_bytes');
-	if (max_bytes === undefined) return create_record({ ...call, max_bytes: DEFAULT_MAX_BYTES });
-	if (typeof max_bytes !== 'number' || !isSafeInteger(max_bytes) || max_bytes < 0) {
+	return create_record({
+		...read_call_options(raw),
+		max_bytes: read_max_bytes(read_own(raw, 'max_bytes')),
+		stdin: read_out_stdin(read_own(raw, 'stdin'))
+	});
+};
+
+const read_max_bytes = (raw: unknown): number => {
+	if (raw === undefined) return DEFAULT_MAX_BYTES;
+	if (typeof raw !== 'number' || !isSafeInteger(raw) || raw < 0) {
 		throw new TypeError('`max_bytes` is a non-negative safe integer');
 	}
-	return create_record({ ...call, max_bytes });
+	return raw;
+};
+
+const read_out_stdin = (raw: unknown): 'inherit' | 'ignore' => {
+	if (raw === undefined) return 'ignore';
+	if (raw !== 'inherit' && raw !== 'ignore') {
+		throw new TypeError("`stdin` is 'inherit' or 'ignore'");
+	}
+	return raw;
 };
 
 /**
@@ -1778,10 +1829,32 @@ class NodeSpawnProgram implements SpawnProgram {
 	}
 
 	async out(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutput> {
+		return this.#capture(args, options, to_captured_text);
+	}
+
+	async out_bytes(
+		args: ReadonlyArray<string>,
+		options?: SpawnOutOptions
+	): Promise<SpawnOutputBytes> {
+		return this.#capture(args, options, to_captured_bytes);
+	}
+
+	async #capture<TOutput>(
+		args: ReadonlyArray<string>,
+		options: SpawnOutOptions | undefined,
+		to_output: (capture: Capture) => TOutput
+	): Promise<
+		SpawnResult & {
+			readonly stdout: TOutput;
+			readonly stderr: TOutput;
+			readonly truncated: boolean;
+		}
+	> {
 		const pin = this.#pin;
 		const argv = to_argv(args);
 		const call = read_out_options(options);
 		const { max_bytes } = call;
+		const stdio: Array<SpawnStdio> = [call.stdin, 'pipe', 'pipe'];
 		const watch = launch_watched(
 			this.name,
 			this.#argv0,
@@ -1789,8 +1862,8 @@ class NodeSpawnProgram implements SpawnProgram {
 			this.#env,
 			argv,
 			call,
-			['ignore', 'pipe', 'pipe'],
-			true
+			stdio,
+			is_grouped(stdio)
 		);
 		const { child } = watch;
 		const stdout: Capture = { chunks: [], size: 0 };
@@ -1808,8 +1881,8 @@ class NodeSpawnProgram implements SpawnProgram {
 		return freeze(
 			create_record({
 				...result,
-				stdout: to_captured_text(stdout),
-				stderr: to_captured_text(stderr),
+				stdout: to_output(stdout),
+				stderr: to_output(stderr),
 				truncated: capped || watch.drain_cut
 			})
 		);

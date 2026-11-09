@@ -80,6 +80,8 @@ const git = spawn.program('git', {pass_env: ['GIT_*', 'SSH_AUTH_SOCK']});
 const status = await git.out(['status', '--porcelain']);
 if (status.kind === 'exited' && status.code === 0) console.log(status.stdout);
 await git.run(['fetch'], {cwd: repo_dir}); // `repo_dir` an fs handle, stdio inherited
+const commit = await git.out(['commit', '-m', message], {stdin: 'inherit'}); // captured, and may prompt
+const blob = await git.out_bytes(['cat-file', 'blob', hash]); // `blob.stdout` a `Uint8Array`
 
 const dev = await spawn.program('node_modules/.bin/vite').start(['dev']); // stdio inherited, a live child
 await dev.closed; // or `dev.kill()`, or `await using` to stop it when the scope ends
@@ -121,11 +123,17 @@ const result = await check.closed;
   A file with execute permission this user can't read passes, as it can't be inspected.
   `binfmt_misc` formats are refused along with the rest.
 - `program.run(args, options?)` runs with stdio inherited.
-  `program.out(args, options?)` gives the child `/dev/null` for stdin and captures stdout and stderr as UTF-8 text,
+  `program.out(args, options?)` captures stdout and stderr as UTF-8 text,
   with `U+FFFD` for bytes that aren't, up to `max_bytes` per stream, 64 MiB by default.
   Output past the cap kills the child with `SIGKILL` and the result has `truncated: true`,
   its `kind` then `signaled` unless the child had already exited,
   and a multi-byte character cut at the end becomes `U+FFFD`.
+- `program.out_bytes(args, options?)` is `out` keeping the output as bytes, for what isn't text,
+  like a git blob: the same options, cap, stops, and `truncated`, with `stdout` and `stderr` the exact
+  bytes the child wrote, each a plain `Uint8Array` holding its own memory, never a `Buffer`, nothing decoded.
+- `stdin`, on `out` and `out_bytes`, is `'ignore'` by default, `/dev/null`, or `'inherit'`,
+  which shares the host's stdin and keeps the child in the terminal's session, by the grouping rule below,
+  so a command that may prompt (ssh, a credential helper, a pinentry through `git commit`) can capture too.
 - A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
   A program that can't start throws `SpawnError` of kind `launch_failed`.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
@@ -148,20 +156,22 @@ const result = await check.closed;
   and returns `false` once the child has ended, sending nothing, so it can't reach a reused pid.
   Disposing the child (`await using`) stops it, `SIGTERM` then `SIGKILL` after a grace period, and waits for `closed`.
 - `timeout_ms`, a positive safe integer of at most `2147483647`, and `signal`, an `AbortSignal`,
-  stop a call's child on `run`, `out`, and `start`: `SIGTERM`, then `SIGKILL` after a grace period.
+  stop a call's child on `run`, `out`, `out_bytes`, and `start`: `SIGTERM`, then `SIGKILL` after a grace period.
   The result is of kind `timed_out` or `aborted`, with the `code` or `signal` the child then ended by,
   the other `null`, so a child that exits 0 on `SIGTERM` isn't mistaken for one that finished,
   and a call never rejects for it. A `signal` already aborted when the call is made starts nothing
   and throws `launch_failed`, its reason on `cause`, since a result would claim a child ran.
-- A child with no inherited stream leads its own process group, and `timeout_ms`, `signal`, `kill`, and `out`'s cap reach the group,
+- A child with no inherited stream leads its own process group, and `timeout_ms`, `signal`, `kill`, and the capture cap reach the group,
   so a stop or a kill sent while it runs reaches what it left in the background, and a stop's `SIGKILL`
-  still reaches the group after the leader exits. `out`'s child always leads one.
+  still reaches the group after the leader exits. A captured child leads one unless its `stdin` is `'inherit'`.
   Grouping is a new session (`setsid`), which drops the controlling terminal,
   so a child with an inherited stream stays in the terminal's session and foreground group,
-  where `/dev/tty` prompts and Ctrl-C still reach it, and is stopped by pid alone.
+  where `/dev/tty` prompts and Ctrl-C still reach it, and is stopped, and capped, by pid alone,
+  so what it started survives a stop.
 - After the direct child exits, a call waits a bounded time for its pipes to close, then kills the group, if it leads one,
   and stops reading, so a background process still holding a pipe can't hang the call.
-  `out` reports that with `truncated: true`, since output may be missing from the end.
+  `out` and `out_bytes` report that with `truncated: true`, since output may be missing from the end,
+  whether or not the child led a group.
   A background process that redirected its pipes holds nothing the call waits on,
   so unless a stop has begun, it outlives the call.
   On a `SpawnChild`, a stream nobody reads ends at the bound, its buffered output still readable.
@@ -210,6 +220,7 @@ since its signing, credential helpers, and hooks are the user's setup and not a 
 as strong as `-A` and to be reviewed as such.
 A read of the local repo captures with `out`, and anything that may prompt uses `run`,
 since a child with no inherited stdio has no terminal for ssh, a credential helper, or a pinentry.
+A caller that needs a prompting command's output passes `stdin: 'inherit'` to `out`.
 
 `spawn_restartable` (`@fuzdev/gro/spawn_restartable.ts`) is library code over a `SpawnProgram` too:
 it starts a program and restarts it on request, every restart reusing the same handle,
@@ -451,6 +462,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
   Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
 - Every array argument (`args`, `narrow`'s names, `pass_env`, `omit_env`) is read by index with its length read once.
+- `out_bytes`'s `stdout` and `stderr` are plain `Uint8Array`s of their own, joined from the chunks into fresh memory,
+  so no `Buffer` or view of memory Node reuses reaches a caller, and they reach it inside a null-prototype record.
 
 ### process's invariants
 
@@ -566,8 +579,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   and a patched `on` or stream method holds the raw `ChildProcess` or stream.
 - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
 - Grouping needs Node's `detached`, a `setsid`, so a group-leading child has no controlling terminal:
-  a program prompting on `/dev/tty` under `out` can't, and fails rather than prompting.
-- A child with an inherited stream isn't grouped, so a stop or a kill reaches it by pid alone and anything it left in the background survives.
+  a program prompting on `/dev/tty` under `out` or `out_bytes` without `stdin: 'inherit'` can't, and fails rather than prompting.
+- A child with an inherited stream isn't grouped, so a stop or a kill reaches it by pid alone and what it started survives.
   An inheriting child relies on the terminal for a signal that ends the host, so a `SIGTERM` sent only to the host leaves it running,
   and the exit hook only sees exits Node runs, so a `SIGKILL` of the host leaves every child behind.
 - `SIGQUIT` isn't hooked, since a listener would move it to the event loop and a host stuck in synchronous code
@@ -657,6 +670,12 @@ What the runtime's builtin must do that the Node implementation can't:
 - Make a group-leading child's process group with `setpgid`, not a new session,
   so a piped child keeps the controlling terminal, and guard it the way `guard_group` does,
   with `kill_guarded_groups_on_signal` handling the signals that end the host.
+  A captured child with `stdin: 'ignore'` must fail on `/dev/tty`, not stop on `SIGTTIN`, so it needs a new session or a refused read.
+- Leave a captured child with `stdin: 'inherit'` in the host's foreground group, with no `setpgid`,
+  since a background group's read of `/dev/tty` stops on `SIGTTIN`, stopping and capping it by pid alone.
+- Capture `out` and `out_bytes` in the op, enforcing `max_bytes` and reporting `truncated` there,
+  decoding only for `out`, whole, so a multi-byte character split across reads stays one character.
+  Return `out_bytes`'s streams as owned buffers, never a view of memory the runtime reuses.
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.

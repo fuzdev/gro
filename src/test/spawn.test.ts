@@ -1085,6 +1085,11 @@ describe('handles', () => {
 		assert.throws(() => {
 			(output as any).stdout = 'patched';
 		}, TypeError);
+		const bytes_output = await program.out_bytes([]);
+		assert.ok(Object.isFrozen(bytes_output));
+		assert.throws(() => {
+			(bytes_output as any).stdout = new Uint8Array();
+		}, TypeError);
 	});
 
 	test('results have no prototype, so no thenable or species trick reaches them', async () => {
@@ -1093,24 +1098,31 @@ describe('handles', () => {
 		const program = spawn.program('ok');
 		const run_result = await program.run([]);
 		const out_result = await program.out([]);
-		for (const result of [run_result, out_result] as Array<any>) {
+		const out_bytes_result = await program.out_bytes([]);
+		for (const result of [run_result, out_result, out_bytes_result] as Array<any>) {
 			assert.isNull(Object.getPrototypeOf(result));
 			assert.isUndefined(result.then);
 			assert.isUndefined(result.constructor);
 		}
 		assert.strictEqual(typeof out_result.stdout, 'string');
+		assert.instanceOf(out_bytes_result.stdout, Uint8Array);
 		// `resolve` reads `then` synchronously, so nothing awaits while it's polluted
 		(Object.prototype as any).then = function (resolve: (value: string) => void) {
 			resolve('forged');
 		};
 		let resolved: Array<Promise<unknown>>;
 		try {
-			resolved = [Promise.resolve(run_result), Promise.resolve(out_result)];
+			resolved = [
+				Promise.resolve(run_result),
+				Promise.resolve(out_result),
+				Promise.resolve(out_bytes_result)
+			];
 		} finally {
 			delete (Object.prototype as any).then;
 		}
 		assert.strictEqual(await resolved[0], run_result);
 		assert.strictEqual(await resolved[1], out_result);
+		assert.strictEqual(await resolved[2], out_bytes_result);
 	});
 
 	test("a handle's constructor makes no handle", () => {
@@ -1173,7 +1185,7 @@ describe('handles', () => {
 				}
 			}
 		}
-		for (const key of ['program', 'find', 'narrow', 'run', 'out']) {
+		for (const key of ['program', 'find', 'narrow', 'run', 'out', 'out_bytes']) {
 			assert.ok(seen.has(key), `enumerated ${key}`);
 		}
 	});

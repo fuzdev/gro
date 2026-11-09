@@ -232,6 +232,9 @@ export const create_mock_git_program = (ops: MockGitOps = git_ops): SpawnProgram
 		answer_git_call({ method: 'run', name: 'git', args, options, program_options: undefined }, ops),
 	out: (args, options) =>
 		answer_git_call({ method: 'out', name: 'git', args, options, program_options: undefined }, ops),
+	out_bytes: () => {
+		throw Error('mock git program has no out_bytes');
+	},
 	start: () => {
 		throw Error('mock git program has no start');
 	}

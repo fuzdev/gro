@@ -61,6 +61,9 @@ const create_recording_program = (
 				calls.push({ method: 'out', args });
 				return out_output;
 			},
+			out_bytes: () => {
+				throw Error('no out_bytes');
+			},
 			start: () => {
 				throw Error('no start');
 			}
