@@ -151,6 +151,35 @@ export const git_local_branch_exists = async (
 };
 
 /**
+ * @returns `true` if the local tag exists
+ * @throws Error - if `git` was stopped rather than exiting
+ */
+export const git_tag_exists = async (
+	git: SpawnProgram,
+	tag: string,
+	options?: SpawnCallOptions
+): Promise<boolean> => {
+	const output = await git_out(
+		git,
+		['show-ref', '--quiet', '--end-of-options', 'refs/tags/' + tag],
+		options
+	);
+	return spawn_result_is_ok(output);
+};
+
+/**
+ * @returns the subject line of the commit `HEAD` points at, or `null` when there is none
+ * @throws Error - if `git` was stopped rather than exiting, or its output was truncated
+ */
+export const git_head_subject = async (
+	git: SpawnProgram,
+	options?: SpawnCallOptions
+): Promise<string | null> => {
+	const output = await git_out(git, ['log', '-1', '--format=%s'], options);
+	return spawn_result_is_ok(output) ? output.stdout.trim() : null;
+};
+
+/**
  * Git workspace status flags indicating which types of changes are present.
  */
 export interface GitWorkspaceStatus {

@@ -9,7 +9,9 @@ import {
 	git_check_clean_workspace,
 	git_checkout,
 	git_fetch,
+	git_head_subject,
 	git_pull,
+	git_tag_exists,
 	to_git_program
 } from './git.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
@@ -18,7 +20,7 @@ import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
 import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env.ts';
-import { CHANGESET_CLI } from './changeset_helpers.ts';
+import { CHANGESET_CLI, changeset_has_pending } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { spawn } from './spawn.ts';
@@ -73,6 +75,8 @@ export const Args = s.object({
 	)
 });
 export type Args = s.Infer<typeof Args>;
+
+const to_release_commit_subject = (version: string): string => `publish v${version}`;
 
 /** @nodocs */
 export const task: Task<Args> = {
@@ -146,7 +150,7 @@ export const task: Task<Args> = {
 		}
 
 		let version!: string;
-		let optional_and_version_unchanged = false;
+		let nothing_to_publish = false;
 
 		// before the `dry` branch, so a dry run refuses what a real publish would
 		if (typeof package_json.version !== 'string') {
@@ -161,13 +165,32 @@ export const task: Task<Args> = {
 			);
 		}
 
+		// Changesets tags only after npm takes the version, and the release commit comes first,
+		// so a release commit without its tag is a publish that stopped short of npm
+		const resuming =
+			(await git_head_subject(git)) === to_release_commit_subject(package_json.version) &&
+			!(await git_tag_exists(git, `v${package_json.version}`));
+		const has_changesets = resuming || (await changeset_has_pending(fs_paths.project));
+		// before the `dry` branch, so a dry run refuses what a real publish would
+		if (!has_changesets && !optional) {
+			throw new TaskError('no changesets to publish, add one with `gro changeset`');
+		}
+
 		const undo_command = 'git reset --hard HEAD~1';
+		const resume_command = 'gro publish';
 		let release_committed = false;
 
 		// Bump and commit before building, so the build sees a clean workspace
 		// and the tag `changeset publish` puts on `HEAD` names the source that was built.
 		if (dry) {
 			log.info('dry run, skipping changeset version');
+		} else if (resuming) {
+			version = package_json.version;
+			release_committed = true;
+			log.info(`resuming the release of v${version}, its commit has no tag`);
+		} else if (!has_changesets) {
+			nothing_to_publish = true;
+			log.info('no changesets to publish');
 		} else {
 			// This is the first line that alters the repo.
 
@@ -222,7 +245,7 @@ export const task: Task<Args> = {
 				// The version didn't change.
 				// For now this is the best detection we have for a no-op `changeset version`.
 				if (optional) {
-					optional_and_version_unchanged = true;
+					nothing_to_publish = true;
 				} else {
 					// Doesn't build if the version didn't change and publishing isn't optional.
 					throw new TaskError(`\`${changeset_cli} version\` failed: are there any changes?`);
@@ -231,7 +254,12 @@ export const task: Task<Args> = {
 				if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
 					await git.run(['add', '--', changelog]);
 				}
-				const commit_result = await git.run(['commit', '-a', '-m', `publish v${version}`]);
+				const commit_result = await git.run([
+					'commit',
+					'-a',
+					'-m',
+					to_release_commit_subject(version)
+				]);
 				if (!spawn_result_is_ok(commit_result)) {
 					throw new TaskError(
 						`the release commit failed, and v${version} is not published - resolve the failure` +
@@ -244,15 +272,20 @@ export const task: Task<Args> = {
 
 		// Build after the version is bumped so the new version is in the build as needed.
 		// Skip sync and install because we already handled both above,
-		// and gen unless dry, because its output has to be in the release commit.
+		// and gen once the release is committed, because its output has to be in that commit.
 		if (build) {
 			try {
-				await invoke_task('build', { sync: false, install: false, gen: dry, force_build });
+				await invoke_task('build', {
+					sync: false,
+					install: false,
+					gen: !release_committed,
+					force_build
+				});
 			} catch (error) {
 				if (release_committed) {
 					log.error(
-						`the build failed, and v${version} is not published - its release commit is local` +
-							` only, undo it with \`${undo_command}\` and publish again`
+						`the build failed, and v${version} is not published - fix it and run` +
+							` \`${resume_command}\` to resume, or undo the release with \`${undo_command}\``
 					);
 				}
 				throw error;
@@ -263,7 +296,7 @@ export const task: Task<Args> = {
 		// so if callers want to optimize away building
 		// they need to do so manually like in `gro release`.
 		// TODO this could be cleaned up if tasks had a return value to callers, it could specifiy that it didn't build
-		if (optional_and_version_unchanged) return;
+		if (nothing_to_publish) return;
 
 		if (dry) {
 			log.info('publishing branch ' + branch);
@@ -275,9 +308,8 @@ export const task: Task<Args> = {
 		const changeset_publish_result = await spawn_cli(found_changeset_cli, ['publish'], log);
 		if (!spawn_result_is_ok(changeset_publish_result)) {
 			throw new TaskError(
-				`\`${changeset_cli} publish\` failed - the release commit is local only,` +
-					` continue with \`${changeset_cli} publish && ${push_command}\`` +
-					` or undo it with \`${undo_command}\``
+				`\`${changeset_cli} publish\` failed - fix it and run \`${resume_command}\` to resume,` +
+					` or undo the release with \`${undo_command}\``
 			);
 		}
 

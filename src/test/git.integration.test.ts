@@ -11,11 +11,13 @@ import {
 	git_current_commit_hash,
 	git_delete_local_branch,
 	git_fetch,
+	git_head_subject,
 	git_local_branch_exists,
 	git_pull,
 	git_push,
 	git_push_to_create,
-	git_remote_branch_exists
+	git_remote_branch_exists,
+	git_tag_exists
 } from '#lib/git.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
 import { library_cache_key } from '#lib/library_load.ts';
@@ -161,6 +163,27 @@ describe('git over a real repo', () => {
 		await base.write('gitconfig', '[pull]\n\trebase = true\n');
 		const configured = create_git({ GIT_CONFIG_GLOBAL: base.path + '/gitconfig' });
 		assert.isTrue(await git_check_setting_pull_rebase(configured, { cwd: work }));
+	});
+});
+
+describe('the release commit reads', () => {
+	test('`git_head_subject` reads the subject of `HEAD`, with no body', async () => {
+		await run_ok(work, ['commit', '-q', '--allow-empty', '-m', 'publish v1.0.0', '-m', 'body']);
+		assert.strictEqual(await git_head_subject(git, { cwd: work }), 'publish v1.0.0');
+	});
+
+	test('`git_head_subject` is null on an unborn branch', async () => {
+		await base.mkdir('unborn');
+		const unborn = base.dir('unborn');
+		await run_ok(unborn, ['init', '-q', '-b', 'main']);
+		assert.isNull(await git_head_subject(git, { cwd: unborn }));
+	});
+
+	test('`git_tag_exists` sees a tag and not a branch of that name', async () => {
+		await run_ok(work, ['branch', 'v2.0.0']);
+		assert.isFalse(await git_tag_exists(git, 'v2.0.0', { cwd: work }));
+		await run_ok(work, ['tag', 'v2.0.0', '-m', 'v2.0.0']);
+		assert.isTrue(await git_tag_exists(git, 'v2.0.0', { cwd: work }));
 	});
 });
 

@@ -3,6 +3,8 @@ import { describe, test, assert } from 'vitest';
 import {
 	git_check_setting_pull_rebase,
 	git_check_workspace,
+	git_head_subject,
+	git_tag_exists,
 	git_checkout,
 	git_current_branch_first_commit_hash,
 	git_current_branch_name,
@@ -121,6 +123,11 @@ describe('git argv and how each command runs', () => {
 		const cases: Array<[(git: SpawnProgram) => Promise<unknown>, ReadonlyArray<string>]> = [
 			[git_current_branch_name, ['rev-parse', '--abbrev-ref', 'HEAD']],
 			[git_check_workspace, ['status', '--porcelain', '-z']],
+			[git_head_subject, ['log', '-1', '--format=%s']],
+			[
+				(git) => git_tag_exists(git, 'v1.0.0'),
+				['show-ref', '--quiet', '--end-of-options', 'refs/tags/v1.0.0']
+			],
 			[
 				(git) => git_local_branch_exists(git, 'main'),
 				['show-ref', '--quiet', '--end-of-options', 'refs/heads/main']

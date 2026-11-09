@@ -134,17 +134,17 @@ gro publish -- svelte-package --types # forward options
 
 See [the SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging) for more.
 
+With no changesets `gro publish` fails, and with `--optional` it builds and stops,
+which is how `gro release` passes over a package with nothing to publish.
+
 Nothing reaches npm until the release is committed and built,
 so what a failure leaves behind depends on the step that failed:
 
 - Before the commit, the version bump is uncommitted in the working tree.
   Undo it with `git reset --hard`.
-- At the build, the release commit is local only.
-  Undo it with `git reset --hard HEAD~1`, which restores the changesets.
-- At `changeset publish`, the release commit is local only and untagged.
+- At the build or `changeset publish`, the release commit has no tag yet.
   A common failure is not being logged into npm. (see the instructions above)
-  Continue with `changeset publish && git push --follow-tags`,
-  or undo it with `git reset --hard HEAD~1`.
-  Rerunning `changeset publish` is safe, a version already on npm only gets its tag.
+  Fix it and run `gro publish` again, which sees the untagged release commit and resumes from it.
+  Or undo it with `git reset --hard HEAD~1`, which restores the changesets.
 - At the push, the version is on npm and the commit and tag are local only.
   Resolve the failure and run `git push --follow-tags`.

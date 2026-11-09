@@ -40,6 +40,8 @@ export interface MockGitOps {
 	git_current_branch_name: Mock<(...args: Array<any>) => Promise<string>>;
 	git_remote_branch_exists: Mock<(...args: Array<any>) => Promise<boolean>>;
 	git_local_branch_exists: Mock<(...args: Array<any>) => Promise<boolean>>;
+	git_tag_exists: Mock<(...args: Array<any>) => Promise<boolean>>;
+	git_head_subject: Mock<(...args: Array<any>) => Promise<string | null>>;
 	git_check_clean_workspace: Mock<(...args: Array<any>) => Promise<string | null>>;
 	git_fetch: Mock<(...args: Array<any>) => Promise<void>>;
 	git_checkout: Mock<(...args: Array<any>) => Promise<string | null>>;
@@ -76,6 +78,8 @@ export const git_ops: MockGitOps = {
 	git_push_to_create: vi.fn(),
 	git_delete_local_branch: vi.fn(),
 	git_current_commit_hash: vi.fn(),
+	git_tag_exists: vi.fn(),
+	git_head_subject: vi.fn(),
 	git_current_branch_first_commit_hash: vi.fn(),
 	git_check_setting_pull_rebase: vi.fn(),
 	git_command: vi.fn(),
@@ -160,7 +164,15 @@ export const answer_git_call = async (
 				return to_output((await ops.git_check_setting_pull_rebase()) ? 'true\n' : '');
 			}
 			return forward(call, ops);
+		case 'log':
+			return to_output(((await ops.git_head_subject(...to_call_args(opts))) ?? '') + '\n');
 		case 'show-ref':
+			if (args[1] === '--quiet' && rest[0]!.startsWith('refs/tags/')) {
+				return from_exit_code_answer(
+					await ops.git_tag_exists(...to_call_args(rest[0]!.replace('refs/tags/', ''), opts)),
+					1
+				);
+			}
 			if (args[1] === '--quiet') {
 				return from_exit_code_answer(
 					await ops.git_local_branch_exists(
