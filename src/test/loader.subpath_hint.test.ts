@@ -2,7 +2,7 @@ import { test, expect } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { spawnSync } from 'node:child_process';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
 
@@ -37,13 +37,13 @@ for (const specifier of ['#lib/y.js', '#cfg.js', '#lib/y.js?raw']) {
 console.log(JSON.stringify(messages));
 `
 			);
-			const { result, stdout } = await spawn_out(
-				'node',
+			const { status, stdout } = spawnSync(
+				process.execPath,
 				spawn_with_loader_args(LOADER_SOURCE_PATH, join(dir, 'main.ts'), []),
-				{ cwd: dir }
+				{ cwd: dir, encoding: 'utf8' }
 			);
-			expect(result.ok).toBe(true);
-			const [lib_message, cfg_message, raw_message] = JSON.parse(stdout!) as Array<string>;
+			expect(status).toBe(0);
+			const [lib_message, cfg_message, raw_message] = JSON.parse(stdout) as Array<string>;
 			expect(lib_message).toContain(
 				"; '#lib/y.ts' exists; write the real extension (.js never maps to .ts)"
 			);

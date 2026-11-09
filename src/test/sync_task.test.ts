@@ -43,7 +43,7 @@ describe('sync_task install', () => {
 		await sync_task.run(ctx);
 
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
-		const { fs_paths, ...options } = install_with_cache_healing_or_throw.mock.calls[0]![1]!;
+		const { fs_paths, ...options } = install_with_cache_healing_or_throw.mock.calls[0]![2]!;
 		assert.deepEqual(options, { log: ctx.log, throw_if_gro_packages_changed: true });
 		// the task's own boundary, over the fs host module's project
 		assert.strictEqual(fs_paths?.project, fs.project);

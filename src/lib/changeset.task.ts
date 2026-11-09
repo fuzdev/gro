@@ -150,7 +150,7 @@ export const task: Task<Args> = {
 			await git.run(['add', '--', dir]);
 
 			if (dep) {
-				await install_with_cache_healing_or_throw(config.pm_cli, {
+				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 					install_args: ['-D', changelog],
 					log,
 					throw_if_gro_packages_changed: true,

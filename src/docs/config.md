@@ -245,6 +245,7 @@ a directory it rejects is still watched, and each path below it is filtered on i
 
 The CLI to use that's compatible with `npm install` and `npm link`.
 Defaults to `'npm'`.
+It's a name found on `PATH` or a project-relative path, and an absolute path is refused.
 
 ## `build_cache_config`
 

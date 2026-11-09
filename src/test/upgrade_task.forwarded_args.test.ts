@@ -38,7 +38,7 @@ describe('upgrade task forwarded args', () => {
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
 		expect(vi.mocked(install_with_cache_healing_or_throw)).toHaveBeenCalledTimes(1);
-		const [pm_cli, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
+		const [, pm_cli, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
 		expect(pm_cli).toBe('npm');
 		expect(options?.install_args).toEqual(['b@latest', '--force', ...forwarded]);
 	});

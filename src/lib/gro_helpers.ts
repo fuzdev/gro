@@ -2,10 +2,9 @@
 import { realpathSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// TODO move onto the spawn host module
-import { spawn, type SpawnResult } from '@fuzdev/fuz_util/process.ts';
 
 import { NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
+import type { SpawnProgram, SpawnResult } from './spawn.ts';
 
 /*
 
@@ -77,15 +76,17 @@ export const resolve_gro_module_path = (path = ''): string => {
  * Uses conditional exports to correctly set up `esm-env` as development by default,
  * so if you want production set `NODE_ENV=production`.
  *
+ * @param node - the `node` program, whose environment the root decides
  * @param loader_path - path to loader
  * @param invoke_path - path to file to spawn with `node`
  * @see https://nodejs.org/api/packages.html#conditional-exports
  */
 export const spawn_with_loader = (
+	node: SpawnProgram,
 	loader_path: string,
 	invoke_path: string,
 	argv: Array<string>
-): Promise<SpawnResult> => spawn('node', spawn_with_loader_args(loader_path, invoke_path, argv));
+): Promise<SpawnResult> => node.run(spawn_with_loader_args(loader_path, invoke_path, argv));
 
 /**
  * The Node args that run `invoke_path` with Gro's loader registered.

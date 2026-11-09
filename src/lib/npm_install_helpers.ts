@@ -1,11 +1,13 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-// TODO move this module onto the spawn host module, taking a `SpawnProgram`
-import { spawn_process, spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 import { dirname, join } from 'node:path';
 
 import { TaskError } from './task.ts';
 import { gro_paths } from './paths.ts';
+import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
+import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
+import { is_spawn_error } from './spawn_error.ts';
+import type { FsReadDir } from './fs.ts';
 import { package_json_load } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
 
@@ -20,26 +22,25 @@ import type { FsPaths } from './fs_paths.ts';
  * Users who genuinely want a production-pruned install run it themselves
  * (e.g. `npm ci --omit=dev`) outside the Gro pipeline.
  */
-const PRUNE_TRIGGERING_ENV_VARS: ReadonlySet<string> = new Set([
+const PRUNE_TRIGGERING_ENV_VARS: ReadonlyArray<string> = [
 	'NODE_ENV',
 	'npm_config_production',
 	'npm_config_omit'
-]);
+];
 
 /**
- * Returns a copy of `env` with the devDependency-pruning vars removed.
+ * The options of the program that runs an install: every host variable but the pruning ones.
  *
- * @param env - the source environment to sanitize
- * @returns a fresh env object; the input is not mutated
+ * The pruning names are absent, not set to empty, as an empty `NODE_ENV` is a different value to
+ * a lifecycle script, and the host's `LC_ALL` stays exactly as it is, unset included,
+ * since an empty one changes the locale a Node lifecycle script gets.
+ *
+ * @returns the options for `spawn.program`, given on a root since a narrowed one refuses `'all'`
  */
-export const sanitize_install_env = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
-	const result: NodeJS.ProcessEnv = {};
-	for (const [key, value] of Object.entries(env)) {
-		if (PRUNE_TRIGGERING_ENV_VARS.has(key)) continue;
-		result[key] = value;
-	}
-	return result;
-};
+export const to_install_program_options = (): SpawnProgramOptions => ({
+	pass_env: 'all',
+	omit_env: PRUNE_TRIGGERING_ENV_VARS
+});
 
 /**
  * Checks if an npm install failure is caused by stale cache (ETARGET).
@@ -67,7 +68,7 @@ export interface NpmCommandResult {
 	ok: boolean;
 	/** captured stderr; the default runner also tees this live to the terminal */
 	stderr: string;
-	/** short human-readable outcome, e.g. `code 1` or `error: spawn ENOENT` */
+	/** short human-readable outcome, e.g. `code 1` or the `SpawnError` message */
 	detail: string;
 }
 
@@ -77,9 +78,9 @@ export interface NpmCommandResult {
  * spawns a real subprocess.
  */
 export type NpmCommandRunner = (
-	command: string,
+	program: SpawnProgram,
 	args: ReadonlyArray<string>,
-	options?: { cwd?: string; env?: NodeJS.ProcessEnv }
+	options?: { cwd?: FsReadDir }
 ) => Promise<NpmCommandResult>;
 
 /**
@@ -87,28 +88,35 @@ export type NpmCommandRunner = (
  * ETARGET-class failure can be detected. `stdin`/`stdout` inherit (live npm
  * output); `stderr` is teed to `process.stderr` and accumulated.
  */
-const run_npm_command: NpmCommandRunner = async (command, args, options) => {
-	const { child, closed } = spawn_process(command, args, {
-		...options,
-		stdio: ['inherit', 'inherit', 'pipe']
-	});
+const run_npm_command: NpmCommandRunner = async (program, args, options) => {
+	let child;
+	try {
+		child = await program.start(args, { ...options, stdio: ['inherit', 'inherit', 'pipe'] });
+	} catch (error) {
+		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
+		throw error;
+	}
+	const decoder = new TextDecoder();
 	let stderr = '';
-	child.stderr?.on('data', (data: Buffer) => {
-		stderr += data.toString();
-		process.stderr.write(data);
-	});
-	const result = await closed;
-	return { ok: result.ok, stderr, detail: spawn_result_to_message(result) };
+	for await (const chunk of child.stderr!) {
+		stderr += decoder.decode(chunk, { stream: true });
+		process.stderr.write(chunk);
+	}
+	stderr += decoder.decode();
+	const result = await child.closed;
+	return {
+		ok: spawn_result_is_ok(result),
+		stderr,
+		detail: to_spawn_result_message(result)
+	};
 };
 
 /**
  * Options for `install_with_cache_healing`.
  */
 export interface InstallCacheHealingOptions {
-	/** working directory for the install; defaults to the current directory */
-	cwd?: string;
-	/** base env; devDependency-pruning vars are stripped via `sanitize_install_env` */
-	env?: NodeJS.ProcessEnv;
+	/** working directory for the install; defaults to the project root */
+	cwd?: FsReadDir;
 	/** logger for cache-heal progress */
 	log?: Logger;
 	/** injectable command runner for tests; defaults to a live-teeing spawn */
@@ -143,23 +151,31 @@ export interface InstallCacheHealingOptions {
  * it's gated on `pm_cli === 'npm'`. A non-npm `pm_cli` surfaces the failure
  * unchanged rather than running a command it can't understand.
  *
- * The env is always passed through `sanitize_install_env` so the build's
- * devDependencies survive.
+ * The env is always `to_install_program_options` so the build's devDependencies survive,
+ * and the program is pinned once, for the install and its retry.
  *
+ * @param spawn - a root, which resolves `pm_cli` on `PATH` and takes the install's environment
  * @param pm_cli - the npm-compatible CLI to run (e.g. `config.pm_cli`)
- * @param options - cwd, env, logger, extra install args, and an injectable runner
+ * @param options - cwd, logger, extra install args, and an injectable runner
  * @returns the result of the (possibly retried) install
  */
 export const install_with_cache_healing = async (
+	spawn: Spawn,
 	pm_cli: string,
 	options: InstallCacheHealingOptions = {}
 ): Promise<NpmCommandResult> => {
-	const { cwd, env = process.env, log, run = run_npm_command, install_args = [] } = options;
-	const install_env = sanitize_install_env(env);
-	const install_options = { cwd, env: install_env };
+	const { cwd, log, run = run_npm_command, install_args = [] } = options;
+	let program: SpawnProgram;
+	try {
+		program = spawn.program(pm_cli, to_install_program_options());
+	} catch (error) {
+		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
+		throw error;
+	}
+	const install_options = { cwd };
 	const install_command_args = ['install', ...install_args];
 
-	const first = await run(pm_cli, install_command_args, install_options);
+	const first = await run(program, install_command_args, install_options);
 	if (first.ok) return first;
 
 	// Heal only npm's ETARGET-class failures; any other failure (or non-npm pm)
@@ -172,7 +188,7 @@ export const install_with_cache_healing = async (
 		st('yellow', `ETARGET detected — running \`${pm_cli} cache clean --force\` and retrying`)
 	);
 
-	const cache_clean = await run(pm_cli, ['cache', 'clean', '--force'], install_options);
+	const cache_clean = await run(program, ['cache', 'clean', '--force'], install_options);
 	if (!cache_clean.ok) {
 		return {
 			ok: false,
@@ -181,7 +197,7 @@ export const install_with_cache_healing = async (
 		};
 	}
 
-	const retry = await run(pm_cli, install_command_args, install_options);
+	const retry = await run(program, install_command_args, install_options);
 	if (retry.ok) {
 		log?.info(st('green', 'dependencies installed after cache heal'));
 	}
@@ -307,6 +323,7 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
  * message names the exact command (including `install_args`), an optional
  * `context` clause, and the failure `detail`.
  *
+ * @param spawn - a root, which resolves `pm_cli` on `PATH`
  * @param pm_cli - the npm-compatible CLI to run (e.g. `config.pm_cli`)
  * @param options - same as `install_with_cache_healing`, plus the error's
  *   `context` clause and the `throw_if_gro_packages_changed` check
@@ -314,13 +331,14 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
  *   with `throw_if_gro_packages_changed`, when it changed Gro or its dependencies
  */
 export const install_with_cache_healing_or_throw = async (
+	spawn: Spawn,
 	pm_cli: string,
 	options: InstallOrThrowOptions = {}
 ): Promise<void> => {
 	const { gro_dir } = options;
 	const fs_paths = options.throw_if_gro_packages_changed ? options.fs_paths : null;
 	const before = fs_paths ? await gro_package_versions_load(fs_paths, gro_dir) : null;
-	const result = await install_with_cache_healing(pm_cli, options);
+	const result = await install_with_cache_healing(spawn, pm_cli, options);
 	const command = ['install', ...(options.install_args ?? [])].join(' ');
 	if (!result.ok) {
 		const context = options.context ? ` ${options.context}` : '';

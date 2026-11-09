@@ -2,6 +2,7 @@ import { test, expect, assert } from 'vitest';
 import { resolve } from 'node:path';
 
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
+import { spawn } from '#lib/spawn.ts';
 import { run_gen } from '#lib/run_gen.ts';
 import type { GenfileModuleMeta } from '#lib/gen.ts';
 
@@ -18,11 +19,11 @@ test(
 	async () => {
 		const test_script = resolve('src/test/fixtures/test_run_gen.ts');
 
-		const result = await spawn_with_loader(LOADER_SOURCE_PATH, test_script, []);
+		const node = spawn.program('node', { pass_env: 'all' });
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, test_script, []);
 
 		// The spawn_with_loader function handles output automatically
-		// Just check if the process succeeded (ok implies code === 0)
-		expect(result.ok).toBe(true);
+		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
 	TEST_TIMEOUT_MD
 );

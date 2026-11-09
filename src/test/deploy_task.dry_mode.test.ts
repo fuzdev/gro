@@ -18,11 +18,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task dry mode', () => {
@@ -41,7 +36,7 @@ describe('deploy_task dry mode', () => {
 		test('performs all steps except git commit and push', async () => {
 			const { git_checkout, git_pull } = git_ops;
 			const { copy } = await get_mock_project();
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists, remove } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -114,7 +109,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('returns early after logging success', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -234,7 +229,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('dry mode works with reset flag', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -258,7 +253,7 @@ describe('deploy_task dry mode', () => {
 		});
 
 		test('a first dry deploy creates the target branch locally, pushing nothing', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { git_remote_branch_exists, git_push_to_create } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
@@ -278,7 +273,7 @@ describe('deploy_task dry mode', () => {
 
 	describe('non-dry mode', () => {
 		test('performs commit and push when dry=false', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 

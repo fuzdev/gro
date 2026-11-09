@@ -2,6 +2,8 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolve } from 'node:path';
 
 import { task as deploy_task, DEPLOY_CLONE_CONFIG_KEY } from '#lib/deploy.task.ts';
+import { FsError } from '#lib/fs_error.ts';
+import { TaskError } from '#lib/task.ts';
 
 import {
 	create_mock_deploy_task_context,
@@ -19,11 +21,6 @@ import { git_ops } from './git_mocks.ts';
 vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
-
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -127,7 +124,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('orphan branch creation', () => {
 		test('clones source branch locally to deploy dir', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({
 				source: 'main',
@@ -163,7 +160,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('creates orphan target branch in deploy dir', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({
 				target: 'deploy',
@@ -179,7 +176,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('removes all files in orphan branch', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -192,20 +189,18 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('creates initial .gitkeep file', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { write } = await get_mock_project();
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
 			await deploy_task.run(ctx);
 
 			// Should create .gitkeep
-			expect(spawn).toHaveBeenCalledWith('touch', ['.gitkeep'], {
-				cwd: expect.stringContaining('.gro/deploy')
-			});
+			expect(write).toHaveBeenCalledWith('.gro/deploy/.gitkeep', '');
 		});
 
 		test('adds .gitkeep to git', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -218,7 +213,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('commits initial commit', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -231,7 +226,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 		});
 
 		test('operations happen in correct order', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
 
@@ -242,20 +237,23 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 				(call[2]?.cwd as string | undefined)?.includes('.gro/deploy')
 			);
 
-			// Extract commands for verification
-			// For git commands: use args[0], for non-git commands: use cmd
-			const commands = deploy_calls.map((call) => {
-				if (call[0] === 'git') {
-					return call[1]?.[0]; // git subcommand
-				}
-				return call[0]; // command name (e.g., 'touch')
-			});
+			// the git subcommands and the initial file's write, by when each ran
+			const { write } = await get_mock_project();
+			const git_order = (subcommand: string): number =>
+				spawn.mock.invocationCallOrder[
+					spawn.mock.calls.findIndex((call) => call[1]?.[0] === subcommand)
+				]!;
+			const write_order =
+				write.mock.invocationCallOrder[
+					vi.mocked(write).mock.calls.findIndex(([path]) => path === '.gro/deploy/.gitkeep')
+				]!;
 
-			// Should happen in order: checkout --orphan, rm, touch, add, commit, push (skipped in dry)
-			expect(commands.indexOf('checkout')).toBeLessThan(commands.indexOf('rm'));
-			expect(commands.indexOf('rm')).toBeLessThan(commands.indexOf('touch'));
-			expect(commands.indexOf('touch')).toBeLessThan(commands.indexOf('add'));
-			expect(commands.indexOf('add')).toBeLessThan(commands.indexOf('commit'));
+			// Should happen in order: checkout --orphan, rm, the file, add, commit, push (skipped in dry)
+			expect(deploy_calls.length).toBeGreaterThan(0);
+			expect(git_order('checkout')).toBeLessThan(git_order('rm'));
+			expect(git_order('rm')).toBeLessThan(write_order);
+			expect(write_order).toBeLessThan(git_order('add'));
+			expect(git_order('add')).toBeLessThan(git_order('commit'));
 		});
 	});
 
@@ -326,7 +324,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 	describe('error handling', () => {
 		test('a failed clone fails the deploy before setting any remote', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			await mock_spawn_results(is_clone_call);
 
 			const ctx = create_mock_deploy_task_context({ dry: true });
@@ -358,5 +356,37 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow('Push failed');
 		});
+	});
+});
+
+describe('deploy_task initial file failure', () => {
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		await setup_successful_git_mocks();
+		await setup_successful_fs_mocks();
+		await setup_successful_spawn_mock();
+		vi.mocked(git_ops.git_remote_branch_exists).mockResolvedValue(false);
+	});
+
+	afterEach(() => {
+		vi.resetAllMocks();
+	});
+
+	test('an unwritable .gitkeep fails the deploy before committing and pushing', async () => {
+		const { write } = await get_mock_project();
+		const { git_command: spawn, git_push_to_create } = git_ops;
+		vi.mocked(write).mockImplementation(async (path) => {
+			if (path.endsWith('.gitkeep')) {
+				throw new FsError('permission_denied', path);
+			}
+			return 'created';
+		});
+		const ctx = create_mock_deploy_task_context({ dry: false });
+
+		await expect(deploy_task.run(ctx)).rejects.toThrow(TaskError);
+
+		expect(spawn).not.toHaveBeenCalledWith('git', ['add', '--', '.gitkeep'], expect.anything());
+		expect(git_push_to_create).not.toHaveBeenCalled();
+		expect(ctx.log.error).toHaveBeenCalled();
 	});
 });

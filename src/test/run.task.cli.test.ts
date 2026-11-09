@@ -10,7 +10,7 @@ import { create_mock_fs_paths } from './fs_mocks.ts';
 vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
 	resolve_gro_module_path: vi.fn(() => '/loader.js'),
-	spawn_with_loader: vi.fn(async () => ({ ok: true, code: 0, signal: null }))
+	spawn_with_loader: vi.fn(async () => ({ kind: 'exited', code: 0 }))
 }));
 
 const original_argv = process.argv;
@@ -28,7 +28,7 @@ const run_cli = async (argv: Array<string>): Promise<Array<string>> => {
 	process.argv = ['node', 'gro', ...argv];
 	await invoke_cli(create_mock_fs_paths(), to_task_args(), await create_mock_config());
 	expect(vi.mocked(spawn_with_loader)).toHaveBeenCalledTimes(1);
-	const [loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
+	const [, loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
 	expect(loader_path).toBe('/loader.js');
 	expect(path).toBe(SCRIPT);
 	return script_argv;
@@ -78,7 +78,7 @@ describe('gro run script args', () => {
 				graph: create_mock_module_graph()
 			}
 		);
-		expect(vi.mocked(spawn_with_loader).mock.calls[0]![2]).toEqual([
+		expect(vi.mocked(spawn_with_loader).mock.calls[0]![3]).toEqual([
 			'a',
 			'--port',
 			'3000',
@@ -89,12 +89,7 @@ describe('gro run script args', () => {
 
 describe('gro run failure', () => {
 	test("a script's exit code is the failure's `exit_code`, which the CLI exits with", async () => {
-		vi.mocked(spawn_with_loader).mockResolvedValueOnce({
-			ok: false,
-			kind: 'exited',
-			code: 3,
-			child: null as any
-		});
+		vi.mocked(spawn_with_loader).mockResolvedValueOnce({ kind: 'exited', code: 3 });
 		process.argv = ['node', 'gro', 'run', SCRIPT];
 		let error;
 		try {

@@ -138,14 +138,14 @@ export const task: Task<Args> = {
 			install_args.push('--force');
 		}
 		install_args.push(...to_forwarded_argv(config.pm_cli));
-		await install_with_cache_healing_or_throw(config.pm_cli, { install_args, log });
+		await install_with_cache_healing_or_throw(spawn, config.pm_cli, { install_args, log });
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// If we deleted the lockfile or node modules, `npm install` again
 		// to fix a recurring npm bug getting the lockfile to its final state.
 		if (!dry && (delete_node_modules || delete_lockfile)) {
 			log.info(`installing again to fix npm lockfile bugs`);
-			await install_with_cache_healing_or_throw(config.pm_cli, { log });
+			await install_with_cache_healing_or_throw(spawn, config.pm_cli, { log });
 		}
 
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.

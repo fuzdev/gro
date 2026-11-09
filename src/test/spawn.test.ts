@@ -427,7 +427,8 @@ describe('narrow', () => {
 			{ pass_env: 'all' },
 			{ pass_env: ['HOME'], env: { X: '1' } },
 			{ pass_env: ['GIT_*'] },
-			{ pass_env: ['HOME', 'A*'] }
+			{ pass_env: ['HOME', 'A*'] },
+			{ pass_env: 'all', omit_env: ['A'] }
 		];
 		for (const narrowed of [once, twice]) {
 			for (const options of refused) {
@@ -437,6 +438,8 @@ describe('narrow', () => {
 		}
 		// a lone `*` is malformed anywhere, before any grant is checked
 		assert_throws_type(() => twice.program('a', { pass_env: ['*'] }));
+		// `omit_env` without `'all'` is malformed anywhere too
+		assert_throws_type(() => twice.program('a', { omit_env: ['A'] }));
 		// the root keeps all three, and a narrowed root keeps named `pass_env`
 		assert.ok(spawn.program('a', { env: { X: '1' }, pass_env: 'all' }));
 		assert.ok(spawn.program('a', { pass_env: ['GIT_*'] }));
@@ -748,6 +751,71 @@ describe('the child environment', () => {
 		assert.strictEqual(vars.get('FORCE_COLOR'), '3');
 	});
 
+	test("`omit_env` leaves exact names out of `pass_env: 'all'`, the rest forwarded", async () => {
+		const vars = await read_env(
+			env_program(spawn, { pass_env: 'all', omit_env: ['GRO_SPAWN_TEST_SECRET', 'NOT_SET'] })
+		);
+		assert.isFalse(vars.has('GRO_SPAWN_TEST_SECRET'));
+		assert.strictEqual(vars.get('GRO_SPAWN_TEST_GIT_A'), '1');
+	});
+
+	test('`omit_env` is case-sensitive', async () => {
+		const vars = await read_env(
+			env_program(spawn, { pass_env: 'all', omit_env: ['gro_spawn_test_secret'] })
+		);
+		assert.isTrue(vars.has('GRO_SPAWN_TEST_SECRET'));
+	});
+
+	test('`omit_env` changes only what is forwarded, so `env` still sets a name', async () => {
+		const vars = await read_env(
+			env_program(spawn, {
+				pass_env: 'all',
+				omit_env: ['GRO_SPAWN_TEST_SECRET'],
+				env: { GRO_SPAWN_TEST_SECRET: 'explicit' }
+			})
+		);
+		assert.strictEqual(vars.get('GRO_SPAWN_TEST_SECRET'), 'explicit');
+	});
+
+	test('`omit_env` is read once, its elements too, and a later change to it does nothing', async () => {
+		let reads = 0;
+		let element_reads = 0;
+		const omit_env: Array<string> = [];
+		Object.defineProperty(omit_env, '0', {
+			get() {
+				element_reads++;
+				return element_reads === 1 ? 'GRO_SPAWN_TEST_SECRET' : 'GRO_SPAWN_TEST_GIT_A';
+			},
+			enumerable: true
+		});
+		omit_env.length = 1;
+		const options: any = {
+			pass_env: 'all',
+			get omit_env() {
+				reads++;
+				return omit_env;
+			}
+		};
+		const vars = await read_env(env_program(spawn, options));
+		assert.strictEqual(reads, 1);
+		assert.strictEqual(element_reads, 1);
+		assert.isFalse(vars.has('GRO_SPAWN_TEST_SECRET'));
+		assert.isTrue(vars.has('GRO_SPAWN_TEST_GIT_A'));
+	});
+
+	test('`omit_env` names survive a host variable named after a prototype member', async () => {
+		process.env.__proto__x = 'kept';
+		try {
+			const vars = await read_env(
+				env_program(spawn, { pass_env: 'all', omit_env: ['__proto__', 'constructor'] })
+			);
+			assert.isTrue(vars.has('__proto__x'));
+			assert.isTrue(vars.has('GRO_SPAWN_TEST_SECRET'));
+		} finally {
+			delete process.env.__proto__x;
+		}
+	});
+
 	test('`pass_env` adds names and `PREFIX_*` globs', async () => {
 		const vars = await read_env(
 			env_program(spawn, { pass_env: ['GRO_SPAWN_TEST_SECRET', 'GRO_SPAWN_TEST_GIT_*', 'NOT_SET'] })
@@ -860,6 +928,17 @@ describe('the child environment', () => {
 		}
 		assert.isFalse((await read_env(root_program)).has('GRO_SPAWN_TEST_SECRET'));
 
+		polluted.omit_env = ['GRO_SPAWN_TEST_SECRET'];
+		let omit_program: SpawnProgram;
+		try {
+			// no own `pass_env`, so a polluted `omit_env` alone would be a `TypeError`
+			env_program(spawn, {});
+			omit_program = env_program(spawn, { pass_env: 'all' });
+		} finally {
+			delete polluted.omit_env;
+		}
+		assert.isTrue((await read_env(omit_program)).has('GRO_SPAWN_TEST_SECRET'));
+
 		polluted.env = { X: '1' };
 		try {
 			assert.ok(spawn.narrow(['env']).program('env', {}));
@@ -919,6 +998,18 @@ describe('the child environment', () => {
 			{ pass_env: [''] },
 			{ pass_env: ['*'] },
 			{ pass_env: ['A*B'] },
+			{ omit_env: ['A'] },
+			{ omit_env: [] },
+			{ pass_env: ['HOME'], omit_env: ['A'] },
+			{ pass_env: 'all', omit_env: 'A' },
+			{ pass_env: 'all', omit_env: { 0: 'A', length: 1 } },
+			{ pass_env: 'all', omit_env: [1] },
+			{ pass_env: 'all', omit_env: [''] },
+			{ pass_env: 'all', omit_env: ['A=B'] },
+			{ pass_env: 'all', omit_env: ['A*'] },
+			{ pass_env: 'all', omit_env: ['*'] },
+			{ pass_env: 'all', omit_env: ['A\0B'] },
+			{ pass_env: 'all', omit_env: ['A\ud800B'] },
 			{ env: 1 },
 			{ env: [] },
 			{ env: { 'A=B': 'x' } },
@@ -1049,7 +1140,12 @@ describe('handles', () => {
 					...a: Array<unknown>
 				) => unknown;
 				// the args that pass every check of the method body, so only the receiver can throw
-				const argses: Array<Array<unknown>> = [[['ok']], [[]], ['ok']];
+				const argses: Array<Array<unknown>> = [
+					[['ok']],
+					[[]],
+					['ok'],
+					['ok', { pass_env: 'all', omit_env: ['A'] }]
+				];
 				for (const fake of fake_receivers()) {
 					for (const args of argses) {
 						const label = `${kind} ${key} ${JSON.stringify(args)}`;

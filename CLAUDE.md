@@ -147,7 +147,7 @@ and error handling; `plugin.ts` implements them. Builtin plugins:
   specifier rewrites in the emitted `.d.ts`/`.svelte`
   ([docs](src/docs/gro_plugin_sveltekit_library.md))
 - `gro_plugin_deno_server` - a Deno server beside the Vite dev server,
-  unbundled
+  unbundled, its `deno` pinned once at setup and run through `spawn_restartable`
 
 ### Configuration
 
@@ -418,7 +418,8 @@ Key utilities:
   `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
   handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
   plugin modules, the rendered `$app/env/*` shims) import `fs`;
-  Gro's library and task code uses no `node:fs` but the Node-only machinery
+  Gro's library and task code uses no `node:child_process` but `spawn.ts`, and
+  no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;
   `src/test/host_module_declarations.test.ts`
   fails if a host module's emitted declarations name a type outside the ES libs
@@ -428,6 +429,7 @@ Key utilities:
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run`, and a
   caller's name goes after `--end-of-options`, while `git_pull` refuses one beginning with `-`
+- Long-lived children: `spawn_restartable.ts`, restarts over one `SpawnProgram`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
 - Build tools: `build_cache.ts`, `build_cache_dependencies.ts`

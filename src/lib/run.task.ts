@@ -1,5 +1,4 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
-import { spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
 import { constants } from 'node:os';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
@@ -9,6 +8,9 @@ import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
 import { TaskError, type Task } from './task.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { spawn, type SpawnResult } from './spawn.ts';
+import { is_spawn_error } from './spawn_error.ts';
+import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 
 /**
  * Runs a TypeScript file with Gro's loader, forwarding all args to the script.
@@ -59,16 +61,24 @@ export const task: Task<Args> = {
 
 		const loader_path = resolve_gro_module_path('loader.js');
 
-		const spawned = await spawn_with_loader(loader_path, path, full_argv);
-		if (!spawned.ok) {
+		let spawned: SpawnResult;
+		try {
+			// the script is the user's, so it gets the whole environment
+			const node = spawn.program('node', { pass_env: 'all' });
+			spawned = await spawn_with_loader(node, loader_path, path, full_argv);
+		} catch (error) {
+			if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });
+			throw error;
+		}
+		if (!spawn_result_is_ok(spawned)) {
 			// the CLI exits with the script's own code, like `node`,
 			// or for a signal `128` plus its number, like a shell (`143` for `SIGTERM`)
-			throw new TaskError(`\`gro run ${path}\` failed: ${spawn_result_to_message(spawned)}`, {
+			throw new TaskError(`\`gro run ${path}\` failed: ${to_spawn_result_message(spawned)}`, {
 				exit_code:
 					spawned.kind === 'exited'
 						? spawned.code
 						: spawned.kind === 'signaled'
-							? 128 + constants.signals[spawned.signal]
+							? 128 + constants.signals[spawned.signal as keyof typeof constants.signals]
 							: undefined
 			});
 		}

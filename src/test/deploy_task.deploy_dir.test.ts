@@ -22,11 +22,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 // the task's `open_path` spied, to see when the deploy dir is opened for emptying

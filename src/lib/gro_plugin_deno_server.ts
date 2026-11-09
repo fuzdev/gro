@@ -6,8 +6,11 @@
  * @module
  */
 
-import { type RestartableProcess, spawn_restartable_process } from '@fuzdev/fuz_util/process.ts';
 import type { Plugin } from './plugin.ts';
+import { spawn } from './spawn.ts';
+import { is_spawn_error } from './spawn_error.ts';
+import { spawn_restartable, type SpawnRestartable } from './spawn_restartable.ts';
+import { TaskError } from './task.ts';
 
 export interface GroPluginDenoServerOptions {
 	/**
@@ -55,13 +58,31 @@ export interface GroPluginDenoServerOptions {
 	env_file?: string | null;
 
 	/**
-	 * Additional environment variables to pass to the child process.
-	 * Always merged with the parent process.env (for PATH, HOME, etc.).
+	 * Additional environment variables to pass to the child process, over the host's whole
+	 * environment, which a server with `--allow-env` reads from a set Gro can't know.
 	 * PORT, HOST, and NODE_ENV are set automatically from the plugin options.
+	 * An undefined value unsets the name, so the child doesn't get the host's value of it,
+	 * except `NODE_V8_COVERAGE`, which Node copies into every child.
 	 * @default {}
 	 */
-	env?: Record<string, string>;
+	env?: Record<string, string | undefined>;
 }
+
+/**
+ * Splits env values into the ones to set and the names to unset, `undefined` meaning unset as
+ * it did when spread over the host's environment, but for what Node copies in itself.
+ */
+const to_program_env = (
+	env: Record<string, string | undefined>
+): { env: Record<string, string>; omit_env: Array<string> } => {
+	const defined: Record<string, string> = {};
+	const omit_env: Array<string> = [];
+	for (const [name, value] of Object.entries(env)) {
+		if (value === undefined) omit_env.push(name);
+		else defined[name] = value;
+	}
+	return { env: defined, omit_env };
+};
 
 /**
  * Creates a Gro plugin that runs a Deno server during development.
@@ -81,7 +102,7 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 		env: extra_env = {}
 	} = options;
 
-	let server_process: RestartableProcess | undefined;
+	let server_process: SpawnRestartable | undefined;
 
 	return {
 		name: 'gro_plugin_deno_server',
@@ -104,25 +125,28 @@ export const gro_plugin_deno_server = (options: GroPluginDenoServerOptions = {})
 
 			args.push(entry);
 
-			// Extend process.env rather than replacing it (need PATH, HOME, etc.)
-			server_process = spawn_restartable_process('deno', args, {
-				env: {
-					...process.env,
-					PORT: String(port),
-					HOST: host,
-					NODE_ENV: 'development',
-					...extra_env
-				}
-			});
-
-			// Wait for spawn to complete
-			await server_process.spawned;
+			// pinned here, so every start of the server runs this `deno` with this environment
+			try {
+				const deno = spawn.program('deno', {
+					pass_env: 'all',
+					...to_program_env({
+						PORT: String(port),
+						HOST: host,
+						NODE_ENV: 'development',
+						...extra_env
+					})
+				});
+				server_process = await spawn_restartable(deno, args);
+			} catch (error) {
+				if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });
+				throw error;
+			}
 			log.info('[gro_plugin_deno_server] deno server started');
 		},
 		teardown: async ({ log }) => {
 			if (server_process) {
 				log.info('[gro_plugin_deno_server] stopping Deno server');
-				await server_process.kill();
+				await server_process.stop();
 				server_process = undefined;
 			}
 		}

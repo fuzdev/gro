@@ -1,5 +1,4 @@
-import { attach_process_error_handler } from '@fuzdev/fuz_util/process.ts';
-import { configure_print_colors } from '@fuzdev/fuz_util/print.ts';
+import { configure_print_colors, print_error } from '@fuzdev/fuz_util/print.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 
@@ -42,11 +41,15 @@ const to_exit_code = (err: unknown): number => {
 		: 1;
 };
 
-// handle uncaught errors
-attach_process_error_handler({
-	to_error_label: (err) => (is_task_error(err) ? 'TaskError' : null),
-	map_error_text: (err) => (is_silent_error(err) ? '' : null),
-	handle_error: (err) => process.exit(to_exit_code(err))
+// handle uncaught errors, the spawn module's exit hook ending any child still running
+process.on('uncaughtException', (err, origin) => {
+	if (is_task_error(err)) {
+		// a known failure, so its message with no stack
+		new Logger('TaskError').error(st('red', err.message));
+	} else if (!is_silent_error(err)) {
+		new Logger(origin).error(print_error(err));
+	}
+	process.exit(to_exit_code(err));
 });
 
 if (!process.env.NO_COLOR) {

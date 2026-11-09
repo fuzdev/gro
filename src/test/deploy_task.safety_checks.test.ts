@@ -22,11 +22,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task safety checks', () => {
@@ -44,7 +39,7 @@ describe('deploy_task safety checks', () => {
 	describe('deploy dir validation', () => {
 		const assert_refused_before_git = async (deploy_dir: string): Promise<void> => {
 			const git = git_ops;
-			const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn, git_command_out: spawn_out } = git_ops;
 			const { remove } = await get_mock_project();
 
 			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true });
@@ -94,7 +89,7 @@ describe('deploy_task safety checks', () => {
 			args: Partial<Args> = {}
 		): Promise<void> => {
 			const git = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { remove, mkdir } = await get_mock_project();
 
 			const ctx = create_mock_deploy_task_context({ deploy_dir, dry: true, ...args });
@@ -126,7 +121,7 @@ describe('deploy_task safety checks', () => {
 			tag: string | null = 'true\n',
 			git_dir: (cwd: string | undefined) => string | null = (cwd) => cwd + '/.git\n'
 		): Promise<void> => {
-			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command_out: spawn_out } = git_ops;
 			vi.mocked(spawn_out).mockImplementation(async (_command, args = [], options) => {
 				// no cwd is the project, spawn's default
 				const cwd = options?.cwd === undefined ? process.cwd() : String(options.cwd);
@@ -213,7 +208,7 @@ describe('deploy_task safety checks', () => {
 
 					test('refuses a deploy dir that is a file, before any git call', async () => {
 						const { stat } = await get_mock_project();
-						const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+						const { git_command_out: spawn_out } = git_ops;
 						vi.mocked(stat).mockResolvedValue(to_mock_file_info());
 						await assert_refused('.gro/deploy', 'it is not a directory');
 						expect(spawn_out).not.toHaveBeenCalled();
@@ -228,7 +223,7 @@ describe('deploy_task safety checks', () => {
 		}
 
 		test('a missing deploy dir is never checked with git', async () => {
-			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command_out: spawn_out } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockImplementation(async (path) => path !== '.gro/deploy');
 
@@ -243,7 +238,7 @@ describe('deploy_task safety checks', () => {
 
 		test("a tagged clone with the project's origin is accepted and synced", async () => {
 			const { git_pull } = git_ops;
-			const { spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command_out: spawn_out } = git_ops;
 
 			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
 

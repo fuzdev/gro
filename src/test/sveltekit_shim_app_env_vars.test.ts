@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
 import { resolve_env_vars } from '#lib/env.ts';
@@ -12,11 +12,12 @@ import { LOADER_SOURCE_PATH, TEST_TIMEOUT_MD } from './test_helpers.ts';
 const FIXTURE_DIR = resolve('src/test/fixtures/sveltekit_app_env_project');
 const CIRCULAR_FIXTURE_DIR = resolve('src/test/fixtures/sveltekit_app_env_circular_project');
 
-const spawn_fixture = (dir: string, env?: Record<string, string>) =>
-	spawn('node', spawn_with_loader_args(LOADER_SOURCE_PATH, resolve(dir, 'main.ts'), []), {
-		cwd: dir,
-		env: { ...process.env, ...env }
-	});
+const spawn_fixture = async (dir: string, env?: Record<string, string>) =>
+	spawnSync(
+		process.execPath,
+		spawn_with_loader_args(LOADER_SOURCE_PATH, resolve(dir, 'main.ts'), []),
+		{ cwd: dir, env: { ...process.env, ...env }, stdio: 'inherit' }
+	);
 
 describe('resolve_env_vars', () => {
 	const variables: EnvVarDeclarations = {
@@ -146,7 +147,7 @@ describe('sveltekit shim app env', () => {
 				SOME_PUBLIC_VAR: 'public_value',
 				SOME_PRIVATE_VAR: 'secret_value'
 			});
-			expect(result.ok).toBe(true);
+			expect(result.status).toBe(0);
 		},
 		TEST_TIMEOUT_MD
 	);
@@ -156,7 +157,7 @@ describe('sveltekit shim app env', () => {
 		'fails loudly when the env declarations import the module they declare',
 		async () => {
 			const result = await spawn_fixture(CIRCULAR_FIXTURE_DIR, { SOME_PUBLIC_VAR: 'x' });
-			expect(result.ok).toBe(false);
+			expect(result.status).not.toBe(0);
 		},
 		TEST_TIMEOUT_MD
 	);

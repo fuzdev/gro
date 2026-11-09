@@ -191,7 +191,7 @@ export const task: Task<Args> = {
 
 			// Update package-lock.json to reflect the new version.
 			if (install) {
-				await install_with_cache_healing_or_throw(config.pm_cli, {
+				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 					log,
 					context: 'after version bump'
 				});

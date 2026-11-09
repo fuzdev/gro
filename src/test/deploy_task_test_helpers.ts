@@ -1,10 +1,11 @@
 import { expect, vi } from 'vitest';
 import { resolve } from 'node:path';
-import type { SpawnResult } from '@fuzdev/fuz_util/process.ts';
 
 import type { TaskContext } from '#lib/task.ts';
 import type { Args } from '#lib/deploy.task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
+
+import type { SpawnResult } from '#lib/spawn.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_project, to_mock_file_info, to_mock_listing } from './fs_mocks.ts';
@@ -70,16 +71,8 @@ export const setup_successful_git_mocks = async () => {
 		git_current_branch_name,
 		git_delete_local_branch,
 		git_push_to_create,
-		git_current_branch_first_commit_hash,
-		git_command,
-		git_command_out
+		git_current_branch_first_commit_hash
 	} = git_ops;
-
-	// the commands with no operation of their own land on the fuz_util `spawn` and `spawn_out`
-	// mocks, which `mock_spawn_results` scripts and the suites assert on, `touch` beside them
-	const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-	git_command.mockImplementation(spawn as never);
-	git_command_out.mockImplementation(spawn_out as never);
 
 	vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
 	vi.mocked(git_check_setting_pull_rebase).mockResolvedValue(true);
@@ -163,7 +156,7 @@ export const is_clone_call = (command: string, args: ReadonlyArray<string> = [])
 export const get_clone_calls = async (): Promise<
 	Array<{ args: ReadonlyArray<string>; order: number }>
 > => {
-	const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+	const { git_command: spawn } = git_ops;
 	return spawn.mock.calls.flatMap(([command, args], i) =>
 		is_clone_call(command, args) ? [{ args: args!, order: spawn.mock.invocationCallOrder[i]! }] : []
 	);
@@ -172,11 +165,10 @@ export const get_clone_calls = async (): Promise<
 /**
  * A spawn result for a command that exited with `code`.
  */
-export const to_spawn_result = (code = 0): SpawnResult =>
-	({ kind: 'exited', ok: code === 0, code }) as SpawnResult;
+export const to_spawn_result = (code = 0): SpawnResult => ({ kind: 'exited', code });
 
 /**
- * Mocks `spawn` and `spawn_out` for a successful deploy, with `fail` returning a failed result
+ * Mocks the git commands with no operation of their own for a successful deploy, with `fail` returning a failed result
  * for the commands it matches; `git diff --cached --quiet` exits 1, so the build has changes to commit,
  * and `git ls-files` prints `ignored_paths` NUL-separated, the files the deploy clone ignores.
  * An existing deploy dir is a clone Gro made: `git rev-parse --show-toplevel` prints the cwd
@@ -187,13 +179,13 @@ export const mock_spawn_results = async (
 	fail?: (command: string, args: ReadonlyArray<string>) => boolean,
 	ignored_paths: ReadonlyArray<string> = []
 ) => {
-	const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
-	vi.mocked(spawn).mockImplementation(async (command, args = []) => {
+	const { git_command: spawn, git_command_out: spawn_out } = git_ops;
+	spawn.mockImplementation(async (command, args = []) => {
 		if (fail?.(command, args)) return to_spawn_result(1);
 		if (command === 'git' && args[0] === 'diff') return to_spawn_result(1);
 		return to_spawn_result(0);
 	});
-	vi.mocked(spawn_out).mockImplementation(async (command, args = [], options) => {
+	spawn_out.mockImplementation(async (command, args = [], options) => {
 		if (fail?.(command, args))
 			return { result: to_spawn_result(1), stdout: '', stderr: 'fatal: boom\n' };
 		const stdout =

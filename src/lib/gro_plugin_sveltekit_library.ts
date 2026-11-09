@@ -1,5 +1,3 @@
-import { print_spawn_result, spawn, spawn_result_to_message } from '@fuzdev/fuz_util/process.ts';
-
 import type { Plugin } from './plugin.ts';
 import { TaskError } from './task.ts';
 import { package_json_load } from './package_json.ts';
@@ -9,8 +7,9 @@ import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
-// TODO drop the alias once this plugin's other calls leave fuz_util's `spawn`
-import { spawn as host_spawn } from './spawn.ts';
+import { spawn, type SpawnProgram, type SpawnProgramOptions } from './spawn.ts';
+import { is_spawn_error } from './spawn_error.ts';
+import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -25,6 +24,34 @@ export interface GroPluginSveltekitLibraryOptions {
 	svelte_package_cli?: string;
 }
 
+/**
+ * A program to run, or why it can't be found.
+ */
+type FoundProgram = { ok: true; program: SpawnProgram } | { ok: false; message: string };
+
+const find_program = (name: string, options?: SpawnProgramOptions): FoundProgram => {
+	try {
+		return { ok: true, program: spawn.program(name, options) };
+	} catch (error) {
+		if (is_spawn_error(error)) return { ok: false, message: error.message };
+		throw error;
+	}
+};
+
+/**
+ * Makes `bin_path` executable, returning what went wrong, or `null` when nothing did.
+ */
+const chmod_bin = async (chmod: FoundProgram, bin_path: string): Promise<string | null> => {
+	if (!chmod.ok) return chmod.message;
+	try {
+		const result = await chmod.program.run(['+x', bin_path]);
+		return spawn_result_is_ok(result) ? null : to_spawn_result_message(result);
+	} catch (error) {
+		if (is_spawn_error(error)) return error.message;
+		throw error;
+	}
+};
+
 export const gro_plugin_sveltekit_library = ({
 	svelte_package_options,
 	svelte_package_cli = SVELTE_PACKAGE_CLI
@@ -36,7 +63,7 @@ export const gro_plugin_sveltekit_library = ({
 		setup: async ({ dev, log, config }) => {
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
-				await run_svelte_package(fs_paths, host_spawn, {
+				await run_svelte_package(fs_paths, spawn, {
 					package_json,
 					svelte_package_options,
 					svelte_package_cli,
@@ -60,19 +87,21 @@ export const gro_plugin_sveltekit_library = ({
 			// link the CLI binaries if they exist
 			if (package_json.bin) {
 				const timing_to_link = timings.start(`${config.pm_cli} link`);
+				// the base environment is enough for `chmod`
+				const chmod = find_program('chmod');
 				await Promise.all(
 					Object.values(package_json.bin).map(async (bin_path) => {
-						const chmod_result = await spawn('chmod', ['+x', bin_path]);
-						if (!chmod_result.ok)
-							log.error(
-								`chmod on bin path ${bin_path} failed: ${spawn_result_to_message(chmod_result)}`
-							);
+						const message = await chmod_bin(chmod, bin_path);
+						if (message !== null) log.error(`chmod on bin path ${bin_path} failed: ${message}`);
 					})
 				);
 				log.info(`linking`);
-				const link_result = await spawn(config.pm_cli, ['link', '-f']); // TODO don't use `-f` unless necessary or at all?
-				if (!link_result.ok) {
-					throw new TaskError(`Failed to link. ${print_spawn_result(link_result)}`);
+				// a package manager runs the project's scripts, whose environment Gro can't know
+				const pm = find_program(config.pm_cli, { pass_env: 'all' });
+				if (!pm.ok) throw new TaskError(`Failed to link. ${pm.message}`);
+				const link_result = await spawn_cli(pm.program, ['link', '-f']); // TODO don't use `-f` unless necessary or at all?
+				if (!spawn_result_is_ok(link_result)) {
+					throw new TaskError(`Failed to link. ${to_spawn_result_message(link_result)}`);
 				}
 				timing_to_link();
 			}

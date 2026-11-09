@@ -28,7 +28,8 @@ Maybe let you map the array of each method batch. (is that possible with those?)
 Gro's builtin plugins:
 
 - [`@fuzdev/gro/gro_plugin_deno_server.ts`](../lib/gro_plugin_deno_server.ts) - runs a Deno server
-  beside the Vite dev server, unbundled
+  beside the Vite dev server, unbundled, its `deno` pinned at setup with the host's whole environment
+  plus the plugin's explicit values
 - [`@fuzdev/gro/gro_plugin_sveltekit_library.ts`](../lib/gro_plugin_sveltekit_library.ts) -
   see [the docs](./gro_plugin_sveltekit_library.md)
 - [`@fuzdev/gro/gro_plugin_sveltekit_app.ts`](../lib/gro_plugin_sveltekit_app.ts) -

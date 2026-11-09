@@ -19,11 +19,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task integration scenarios', () => {
@@ -48,7 +43,7 @@ describe('deploy_task integration scenarios', () => {
 				git_delete_local_branch,
 				git_push_to_create
 			} = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			// No remote branch exists (first deploy)
@@ -72,7 +67,7 @@ describe('deploy_task integration scenarios', () => {
 				expect.anything()
 			);
 			expect(spawn).toHaveBeenCalledWith('git', ['rm', '-rf', '.'], expect.anything());
-			expect(spawn).toHaveBeenCalledWith('touch', ['.gitkeep'], expect.anything());
+			expect((await get_mock_project()).write).toHaveBeenCalledWith('.gro/deploy/.gitkeep', '');
 			expect(spawn).toHaveBeenCalledWith('git', ['add', '--', '.gitkeep'], expect.anything());
 			expect(spawn).toHaveBeenCalledWith('git', ['commit', '-m', 'init'], expect.anything());
 
@@ -105,7 +100,7 @@ describe('deploy_task integration scenarios', () => {
 
 		test('first deployment with custom branches', async () => {
 			const { git_checkout, git_remote_branch_exists, git_push_to_create } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
@@ -140,7 +135,7 @@ describe('deploy_task integration scenarios', () => {
 	describe('subsequent deployments (remote branch exists)', () => {
 		test('complete subsequent deployment flow with existing deploy dir', async () => {
 			const { git_checkout, git_pull, git_current_branch_name } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists, remove } = await get_mock_project();
 
 			// Remote branch exists, deploy dir exists with correct branch
@@ -185,7 +180,7 @@ describe('deploy_task integration scenarios', () => {
 
 		test('subsequent deployment with reset flag', async () => {
 			const { git_pull } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -217,7 +212,7 @@ describe('deploy_task integration scenarios', () => {
 
 		test('subsequent deployment with reset and no-pull flags', async () => {
 			const { git_pull } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -266,7 +261,7 @@ describe('deploy_task integration scenarios', () => {
 
 	describe('deployment with no-build flag', () => {
 		test('deploys using existing build output', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -314,7 +309,7 @@ describe('deploy_task integration scenarios', () => {
 	describe('dry deployment scenarios', () => {
 		test('dry deployment performs all prep but skips push', async () => {
 			const { git_checkout } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists, copy } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -350,7 +345,7 @@ describe('deploy_task integration scenarios', () => {
 
 		test('dry deployment with all custom options', async () => {
 			const { git_checkout } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -396,7 +391,7 @@ describe('deploy_task integration scenarios', () => {
 				git_remote_branch_exists,
 				git_push_to_create
 			} = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { remove, copy, exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
@@ -446,7 +441,7 @@ describe('deploy_task integration scenarios', () => {
 
 		test('all operations happen in expected order for existing deployment', async () => {
 			const { git_checkout, git_pull, git_current_branch_name } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { remove, copy, exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);

@@ -37,6 +37,7 @@
  * the names `pass_env` lists, then the values `env` gives, all fixed when the handle is made,
  * never per call. `pass_env: 'all'` is the hatch that hands over the host's whole environment,
  * as strong as `-A`, so use it only where a person chose it, and review it as such.
+ * `omit_env` beside it leaves out exact names, case-sensitive and never a glob.
  *
  * `start` is a long-lived `SpawnChild`, `timeout_ms` and `signal` end a call's child
  * (`SIGTERM`, then `SIGKILL` after a grace period), and a call ended that way resolves to a
@@ -192,6 +193,9 @@ const check_handle_key = (key: symbol): void => {
 // names a narrowed root allows, null-prototype so no name resolves through `Object.prototype`
 type Allowed = Readonly<Record<string, true | undefined>>;
 
+// the names `omit_env` leaves out, null-prototype for the same reason
+type OmittedNames = Readonly<Record<string, true | undefined>>;
+
 /**
  * How a program's environment is built, fixed when its handle is made.
  */
@@ -202,6 +206,13 @@ export interface SpawnProgramOptions {
 	 * A narrowed root takes names only.
 	 */
 	pass_env?: ReadonlyArray<string> | 'all';
+	/**
+	 * Host variables `pass_env: 'all'` leaves out, each an exact, case-sensitive name, never a glob.
+	 * Given with any other `pass_env` it's a `TypeError`.
+	 * Only what's forwarded changes, so `env` can still set one of these names, and Node still
+	 * adds what it copies itself, like `NODE_V8_COVERAGE`.
+	 */
+	omit_env?: ReadonlyArray<string>;
 	/**
 	 * Explicit values, the last word over the base set and `pass_env`.
 	 * Given only when the handle is made: a call can't change a program's environment.
@@ -700,6 +711,29 @@ const read_pass_env = (raw: unknown): ReadonlyArray<string> | 'all' => {
 	return patterns;
 };
 
+/**
+ * Reads an `omit_env` option once, element by element, into a frozen null-prototype set of names.
+ * @returns the names, or `null` when the option wasn't given
+ */
+const read_omit_env = (
+	raw: unknown,
+	pass_env: ReadonlyArray<string> | 'all'
+): OmittedNames | null => {
+	if (raw === undefined) return null;
+	if (pass_env !== 'all') throw new TypeError("`omit_env` is only valid with `pass_env: 'all'`");
+	if (!isArray(raw)) throw new TypeError('`omit_env` is an array of names');
+	const names = create_record<Record<string, true>>({});
+	const length = raw.length;
+	for (let i = 0; i < length; i++) {
+		const name = check_env_name(raw[i], 'an `omit_env` entry');
+		if (name.includes('*')) {
+			throw new TypeError(`an \`omit_env\` entry is an exact name, not a glob: ${name}`);
+		}
+		names[name] = true;
+	}
+	return freeze(names);
+};
+
 const copy_host_var = (env: Record<string, string>, name: string): void => {
 	if (hasOwn(host_env, name)) {
 		const value = host_env[name];
@@ -717,9 +751,12 @@ const copy_base_env = (env: Record<string, string>): void => {
 	copy_host_var(env, 'FORCE_COLOR');
 };
 
-const copy_all_env = (env: Record<string, string>): void => {
+const copy_all_env = (env: Record<string, string>, omitted: OmittedNames | null): void => {
 	const names = keys(host_env);
-	for (let i = 0; i < names.length; i++) copy_host_var(env, names[i]!);
+	for (let i = 0; i < names.length; i++) {
+		const name = names[i]!;
+		if (omitted === null || omitted[name] !== true) copy_host_var(env, name);
+	}
 };
 
 const copy_pass_env = (env: Record<string, string>, patterns: ReadonlyArray<string>): void => {
@@ -764,6 +801,7 @@ const read_env_values = (raw: unknown): Record<string, string> | null => {
  */
 interface ProgramOptions {
 	readonly pass_env: ReadonlyArray<string> | 'all';
+	readonly omitted: OmittedNames | null;
 	readonly values: Record<string, string> | null;
 }
 
@@ -778,8 +816,9 @@ const read_program_options = (options: SpawnProgramOptions | undefined): Program
 		throw new TypeError('spawn program options are an object');
 	}
 	const pass_env = read_pass_env(read_own(options, 'pass_env'));
+	const omitted = read_omit_env(read_own(options, 'omit_env'), pass_env);
 	const values = read_env_values(read_own(options, 'env'));
-	return create_record({ pass_env, values });
+	return create_record({ pass_env, omitted, values });
 };
 
 /**
@@ -822,10 +861,10 @@ const check_narrowed_options = (
 /**
  * Builds a program's environment once, at creation, from its options read earlier.
  */
-const to_program_env = ({ pass_env, values }: ProgramOptions): Record<string, string> => {
+const to_program_env = ({ pass_env, omitted, values }: ProgramOptions): Record<string, string> => {
 	const env = create_record<Record<string, string>>({});
 	if (pass_env === 'all') {
-		copy_all_env(env);
+		copy_all_env(env, omitted);
 	} else {
 		copy_base_env(env);
 		copy_pass_env(env, pass_env);

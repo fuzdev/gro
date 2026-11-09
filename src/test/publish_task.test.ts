@@ -98,7 +98,7 @@ describe('publish_task version bump', () => {
 		const invoke_task = vi.mocked(ctx.invoke_task);
 
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
-		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![1], {
+		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![2], {
 			log: ctx.log,
 			context: 'after version bump'
 		});

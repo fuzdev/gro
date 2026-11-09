@@ -20,11 +20,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task target branch sync (remote exists)', () => {
@@ -46,7 +41,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 	describe('deploy dir exists with correct branch', () => {
 		test('resets and pulls when deploy dir has correct branch', async () => {
 			const { git_current_branch_name, git_pull } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true); // deploy dir exists
@@ -89,7 +84,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 		test('reset happens before pull', async () => {
 			const { git_pull } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -271,7 +266,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 	describe('reset flag handling', () => {
 		test('resets to first commit when reset=true', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);
@@ -308,7 +303,7 @@ describe('deploy_task target branch sync (remote exists)', () => {
 
 		test('reset happens after sync', async () => {
 			const { git_pull } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(exists).mockResolvedValue(true);

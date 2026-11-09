@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
+import { spawn } from '#lib/spawn.ts';
 import { run_task, type RunTaskOptions } from '#lib/run_task.ts';
 import { SilentError, TaskError, type Task, type TaskContext } from '#lib/task.ts';
 import { task as run_task_task } from '#lib/run.task.ts';
@@ -18,6 +19,8 @@ import {
 } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
+const node = spawn.program('node', { pass_env: 'all' });
+
 test(
 	'run_task passes args and returns output',
 	async () => {
@@ -29,9 +32,9 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
 
-		expect(result.ok).toBe(true);
+		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
 	TEST_TIMEOUT_MD
 );
@@ -47,9 +50,9 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
 
-		expect(result.ok).toBe(true);
+		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
 	TEST_TIMEOUT_MD
 );
@@ -65,9 +68,9 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
 
-		expect(result.ok).toBe(true);
+		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
 	TEST_TIMEOUT_MD
 );

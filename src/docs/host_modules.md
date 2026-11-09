@@ -182,6 +182,10 @@ const result = await check.closed;
   The set is fixed when the handle is made.
 - `pass_env: 'all'` is the hatch, as strong as `-A`: the child gets the host's whole environment
   and no base pinning (`LC_ALL` included), for forwarding tasks where a person made that choice.
+- `omit_env` beside `pass_env: 'all'` leaves out host variables, like the pruning ones an install drops.
+  Each entry is an exact, case-sensitive name, never a glob (a `*` is a `TypeError`),
+  and giving it with any other `pass_env` is a `TypeError`.
+  It changes only what's forwarded, so `env` can still set one of those names.
 - `spawn.narrow(names)` is a root limited to `names`, spelled as they'll be requested,
   and it only shrinks: narrowing to a name its parent doesn't allow is `not_granted`.
   A name outside the set is `not_granted` from `program` and `find` alike.
@@ -199,6 +203,11 @@ since its signing, credential helpers, and hooks are the user's setup and not a 
 as strong as `-A` and to be reviewed as such.
 A read of the local repo captures with `out`, and anything that may prompt uses `run`,
 since a child with no inherited stdio has no terminal for ssh, a credential helper, or a pinentry.
+
+`spawn_restartable` (`@fuzdev/gro/spawn_restartable.ts`) is library code over a `SpawnProgram` too:
+it starts a program and restarts it on request, every restart reusing the same handle,
+so the pin and environment fixed at `program()` carry across restarts.
+`gro_plugin_deno_server` uses it, pinning `deno` once at setup.
 
 The module's TSDoc has each op's contract.
 
@@ -250,13 +259,14 @@ The module's TSDoc has each op's contract.
   so an `FsPaths` reaches the filesystem beyond the `Fs` it's built from until that read is an op on the root,
   beside `open_dir`, reached through the `Fs` passed in.
 - Gro's library and task code otherwise reaches the filesystem only through the fs host module,
-  so it can run unchanged where the module is a builtin.
+  and starts programs only through the spawn host module, so it can run unchanged where the modules are builtins.
   The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
   (`svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
   the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
+  `spawn.ts` is the one module on `node:child_process`.
 
 ## Hardening
 
@@ -295,7 +305,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   `process.env` is read through own properties only, so a polluted or inherited name is no variable.
 - Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
   Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
-- Every array argument (`args`, `narrow`'s names, `pass_env`) is read by index with its length read once.
+- Every array argument (`args`, `narrow`'s names, `pass_env`, `omit_env`) is read by index with its length read once.
 
 ### The Node implementation's own measures
 

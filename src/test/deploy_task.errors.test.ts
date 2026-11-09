@@ -22,11 +22,6 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
-
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
 describe('deploy_task error handling', () => {
@@ -117,7 +112,7 @@ describe('deploy_task error handling', () => {
 
 		test('a failed clone or remote step fails the deploy at that step', async () => {
 			const { git_remote_branch_exists } = git_ops;
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 
 			vi.mocked(git_remote_branch_exists).mockResolvedValue(false); // trigger new branch path
@@ -182,7 +177,7 @@ describe('deploy_task error handling', () => {
 
 		test('a failed reset to the first commit fails the deploy without pushing', async () => {
 			const { exists } = await get_mock_project();
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 
 			vi.mocked(exists).mockResolvedValue(true);
 			await mock_spawn_results(
@@ -358,7 +353,7 @@ describe('deploy_task error handling', () => {
 		});
 
 		test('does not make git changes when build fails', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 

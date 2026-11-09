@@ -12,17 +12,13 @@ import {
 	mock_spawn_results,
 	to_spawn_result
 } from './deploy_task_test_helpers.ts';
+import { git_ops } from './git_mocks.ts';
 import { get_mock_project } from './fs_mocks.ts';
 
 // Mock dependencies
 vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
-
-vi.mock('@fuzdev/fuz_util/process.js', () => ({
-	spawn: vi.fn(),
-	spawn_out: vi.fn()
-}));
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
@@ -40,7 +36,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('git add', () => {
 		test('adds all files with force flag', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -54,7 +50,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('uses custom deploy_dir for git add', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -71,7 +67,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('git add happens after file copying', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { copy, exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -92,7 +88,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('git commit', () => {
 		test('commits with deployment message', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -106,7 +102,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('uses custom deploy_dir for git commit', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -123,7 +119,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('git commit happens after git add', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -148,7 +144,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('git push', () => {
 		test('pushes with force flag to target branch', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -166,7 +162,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('uses custom origin and target branch', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -189,7 +185,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('uses custom deploy_dir for git push', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -206,7 +202,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('git push happens after git commit', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -229,7 +225,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('force pushes to allow non-fastforward updates', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -295,7 +291,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('a failed git commit fails the deploy without pushing', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'commit');
 			expect(error.message).toContain('`git commit` failed');
 			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'push')).toBe(false);
@@ -308,7 +304,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('a git diff that errors fails the deploy without committing', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 			await mock_spawn_results();
@@ -324,7 +320,7 @@ describe('deploy_task commit and push', () => {
 		});
 
 		test('a failed git ls-files fails the deploy without committing', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const error = await run_failing((cmd, args) => cmd === 'git' && args[0] === 'ls-files');
 			expect(error.message).toContain('`git ls-files --others --ignored` failed');
 			expect(spawn.mock.calls.some((call) => call[1]?.[0] === 'commit')).toBe(false);
@@ -342,7 +338,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('ignored files', () => {
 		test('lists what the add skipped after the add, from the deploy dir', async () => {
-			const { spawn, spawn_out } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn, git_command_out: spawn_out } = git_ops;
 			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
@@ -390,7 +386,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('nothing to commit', () => {
 		test('an identical redeploy skips the commit, pushes, and succeeds', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 			// `git diff --cached --quiet` exits 0: nothing staged
@@ -419,7 +415,7 @@ describe('deploy_task commit and push', () => {
 
 	describe('operation order', () => {
 		test('all operations happen in correct sequence', async () => {
-			const { spawn } = vi.mocked(await import('@fuzdev/fuz_util/process.ts'));
+			const { git_command: spawn } = git_ops;
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 

@@ -1,4 +1,3 @@
-import { spawn } from '@fuzdev/fuz_util/process.ts';
 import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
@@ -27,8 +26,8 @@ import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.t
 import { fs, type FsDir } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
 import { spawn_result_is_ok } from './cli.ts';
-// TODO drop the alias once `touch` leaves fuz_util's `spawn`
-import { spawn as host_spawn, type SpawnCallOptions, type SpawnProgram } from './spawn.ts';
+import { spawn, type SpawnCallOptions, type SpawnProgram } from './spawn.ts';
+import { is_fs_error } from './fs_error.ts';
 import {
 	is_protected_dir,
 	PROTECTED_DIRS_TEXT,
@@ -140,7 +139,7 @@ export const task: Task<Args> = {
 
 		const fs_paths = create_fs_paths(fs);
 		// a named unconfined phase, `-A`-equivalent: it signs and pushes with the user's git setup
-		const git = to_git_program(host_spawn, { pass_env: 'all' });
+		const git = to_git_program(spawn, { pass_env: 'all' });
 
 		// Checks
 		// the deploy dir is removed, emptied, and run git in below, so before anything else,
@@ -306,9 +305,14 @@ export const task: Task<Args> = {
 			await git_init(['checkout', '--orphan', target]);
 			// TODO there's definitely a better way to do this
 			await git_init(['rm', '-rf', '.']);
-			// TODO write the file through `fs`, leaving this module's last fuz_util `spawn`
-			const touched = await spawn('touch', [INITIAL_FILE_PATH], { cwd: resolved_deploy_dir });
-			if (!touched.ok) throw to_init_error(`touch ${INITIAL_FILE_PATH}`);
+			try {
+				const initial = await open_deploy_dir(fs_paths, resolved_deploy_dir);
+				await initial.dir.write(join(initial.path, INITIAL_FILE_PATH), '');
+			} catch (error) {
+				if (!is_fs_error(error)) throw error;
+				log.error(error.message);
+				throw to_init_error(`writing ${INITIAL_FILE_PATH}`);
+			}
 			await git_init(['add', '--', INITIAL_FILE_PATH]);
 			await git_init(['commit', '-m', 'init']);
 			// a dry deploy pushes nothing; a real one creates the remote branch here, with upstream tracking
