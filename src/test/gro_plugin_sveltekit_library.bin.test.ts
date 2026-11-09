@@ -31,6 +31,26 @@ describe('gro_plugin_sveltekit_library adapt', () => {
 		]);
 	});
 
+	test('chmods every bin of a package with several', async () => {
+		const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
+		package_json_load.mockResolvedValueOnce({
+			name: 'a',
+			version: '0',
+			bin: { a: 'dist/a.js', b: 'dist/b.js' }
+		});
+		const mock = await get_mock_spawn();
+		await gro_plugin_sveltekit_library().adapt!(await to_ctx());
+		expect(mock.calls.map((c) => c.args[1])).toEqual(['dist/a.js', 'dist/b.js']);
+	});
+
+	test('spawns nothing for a package with no bin', async () => {
+		const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
+		package_json_load.mockResolvedValueOnce({ name: 'a', version: '0' });
+		const mock = await get_mock_spawn();
+		await gro_plugin_sveltekit_library().adapt!(await to_ctx());
+		expect(mock.calls).toEqual([]);
+	});
+
 	test('a failed chmod is logged, not thrown', async () => {
 		const mock = await get_mock_spawn();
 		mock.result = { kind: 'exited', code: 1 };
