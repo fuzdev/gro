@@ -1,10 +1,10 @@
 import { relative, resolve } from 'node:path';
+import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { IgnoreStack } from '@fuzdev/tsv';
 
 import { paths } from './paths.ts';
-import type { ModuleGraph } from './module_graph.ts';
 import { normalize_gen_config, validate_gen_module, type GenInputs } from './gen.ts';
 import { load_module } from './modules.ts';
 
@@ -17,19 +17,21 @@ import { load_module } from './modules.ts';
  * so an edit to `inputs` applies on restart.
  * @param gen_file_id - the genfile that may rerun
  * @param changed_file_id - the file that changed
- * @param graph - the module graph, for the genfile's imports
- * @param log - logs a genfile that fails to import
+ * @param dependents - the modules that import the changed file, directly or transitively,
+ * from one `ModuleGraph.dependents` query shared by the genfiles a change checks
+ * @param log - logs a genfile that fails to import or has invalid `inputs`
+ * @param reported_invalid_inputs - the genfiles whose invalid `inputs` were already logged,
+ * so each is reported once, as its `inputs` are read once
+ * @mutates reported_invalid_inputs - adds a genfile on logging its invalid `inputs`
  */
 export const should_trigger_gen = async (
 	gen_file_id: PathId,
 	changed_file_id: PathId,
-	graph: ModuleGraph,
-	log: Logger
+	dependents: ReadonlySet<PathId>,
+	log: Logger,
+	reported_invalid_inputs: Set<PathId>
 ): Promise<boolean> => {
-	if (gen_file_id === changed_file_id) return true;
-
-	const dependents = await graph.dependents(changed_file_id, (id) => id === gen_file_id);
-	if (dependents.has(gen_file_id)) return true;
+	if (gen_file_id === changed_file_id || dependents.has(gen_file_id)) return true;
 
 	const result = await load_module(gen_file_id, validate_gen_module);
 	if (!result.ok) {
@@ -39,7 +41,17 @@ export const should_trigger_gen = async (
 		return false;
 	}
 
-	const { inputs } = normalize_gen_config(result.mod.gen);
+	let inputs: GenInputs | undefined;
+	try {
+		({ inputs } = normalize_gen_config(result.mod.gen, gen_file_id));
+	} catch (error) {
+		// logged rather than thrown, as one bad genfile shouldn't end the dev server
+		if (!reported_invalid_inputs.has(gen_file_id)) {
+			reported_invalid_inputs.add(gen_file_id);
+			log.error(to_error_message(error));
+		}
+		return false;
+	}
 	return !!inputs && gen_inputs_match(inputs, changed_file_id);
 };
 

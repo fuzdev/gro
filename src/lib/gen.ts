@@ -5,8 +5,9 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { styleText as st } from 'node:util';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
+import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 
-import { print_path, to_root_path, to_search_filters_relative } from './paths.ts';
+import { paths, print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
@@ -59,7 +60,8 @@ export type GenInputs =
 			 * Gitignore-syntax patterns anchored at the project root, like a root `.gitignore`,
 			 * so `*.json` matches at any depth, `/package.json` only at the root,
 			 * and `!` excludes a file an earlier pattern matched.
-			 * They match only files inside the root.
+			 * They match only files inside the root,
+			 * so one starting `./` or `../` or holding the root's absolute path is refused.
 			 */
 			patterns?: Array<string>;
 	  };
@@ -512,5 +514,67 @@ export const validate_gen_module = (mod: Record<string, any>): mod is GenfileMod
 	return false;
 };
 
-export const normalize_gen_config = (gen: Gen): GenConfig =>
-	typeof gen === 'function' ? { generate: gen } : gen;
+/**
+ * Normalizes a genfile's `gen` export to a `GenConfig`, validating its `inputs`.
+ * @param gen - the genfile's `gen` export
+ * @param id - the genfile, named in the error
+ * @param root - the project root that `inputs` patterns anchor at
+ * @throws `TaskError` - for `inputs` that can never match as written, saying what to write instead
+ */
+export const normalize_gen_config = (
+	gen: Gen,
+	id: PathId,
+	root: PathId = paths.root
+): GenConfig => {
+	if (typeof gen === 'function') return { generate: gen };
+	const problem = to_gen_inputs_problem(gen.inputs, root);
+	if (problem !== null) {
+		throw new TaskError(`Genfile ${print_path(id)} has invalid \`inputs\`: ${problem}`);
+	}
+	return gen;
+};
+
+const is_string_array = (value: unknown): value is Array<string> =>
+	Array.isArray(value) && value.every((v) => typeof v === 'string');
+
+// `inputs` come from a genfile's export at runtime, so the types don't guarantee them
+const to_gen_inputs_problem = (inputs: unknown, root: PathId): string | null => {
+	if (inputs === undefined || inputs === 'all') return null;
+	if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs)) {
+		return "expected `'all'` or an object with `files` and `patterns`";
+	}
+	const { files, patterns } = inputs as { files?: unknown; patterns?: unknown };
+	if (files !== undefined && !is_string_array(files)) return '`files` must be an array of strings';
+	if (patterns === undefined) return null;
+	if (!is_string_array(patterns)) return '`patterns` must be an array of strings';
+	for (const pattern of patterns) {
+		const problem = to_gen_pattern_problem(pattern, root);
+		if (problem !== null) return problem;
+	}
+	return null;
+};
+
+// a leading `/` is gitignore's root anchor, so only a path through the root itself is absolute
+const to_gen_pattern_problem = (pattern: string, root: PathId): string | null => {
+	const negation = pattern.startsWith('!') ? '!' : '';
+	const path = pattern.slice(negation.length);
+	const root_prefix = ensure_end(root, '/');
+	const replacement = path.startsWith('./')
+		? '/' + path.slice(2)
+		: root_prefix !== '/' && path.startsWith(root_prefix)
+			? '/' + path.slice(root_prefix.length)
+			: null;
+	if (replacement !== null) {
+		return (
+			`pattern \`${pattern}\` can never match, as patterns are relative to the project root` +
+			` like a root \`.gitignore\`, so write \`${negation}${replacement}\``
+		);
+	}
+	if (path.startsWith('../')) {
+		return (
+			`pattern \`${pattern}\` can never match, as patterns match only files inside the project` +
+			' root, so name a file outside it in `files`'
+		);
+	}
+	return null;
+};

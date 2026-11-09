@@ -1,5 +1,6 @@
 // on `node:fs`: finds the Gro install that the CLI spawns `node` with, bootstrapping only Node
 import { realpathSync, existsSync } from 'node:fs';
+import { constants } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,6 +70,13 @@ export const resolve_gro_module_path = (path = ''): string => {
 	const file_path = fileURLToPath(import.meta.url);
 	return join(file_path, '..', path);
 };
+
+/**
+ * The exit code for a child killed by `signal`, `128` plus its number, like a shell.
+ * @param signal - a signal name from a `SpawnResult`, like `SIGTERM`
+ */
+export const to_signal_exit_code = (signal: string): number =>
+	128 + constants.signals[signal as keyof typeof constants.signals];
 
 /**
  * Runs a file using the Gro loader.

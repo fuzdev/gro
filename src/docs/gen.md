@@ -282,8 +282,10 @@ export const gen: GenConfig = {
 `src/data/` everything under that directory,
 and `!` excludes a file an earlier pattern matched
 (as in git, not one under a directory an earlier pattern matched).
-Patterns take no `./` prefix.
 They match only files inside the project root; `files` can name any path.
+A pattern starting `./` or `../` or holding the root's absolute path can never match,
+so `gro gen` fails and `gro dev` logs an error naming the gen file,
+as they do for `files` or `patterns` that aren't arrays of strings.
 `inputs: 'all'` reruns the gen file on every change `gro dev` sees.
 
 `gro dev` sees changes only under `watch.dir` in the [config](config.md) (default `src/`),

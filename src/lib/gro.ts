@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 
-import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
+import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
 import { process } from './process.ts';
 import { spawn } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
@@ -35,7 +35,14 @@ try {
 		process.env.get('NODE_ENV')
 	);
 	if (spawned.kind !== 'exited' || spawned.code !== 0) {
-		process.set_exit_code(spawned.kind === 'exited' ? spawned.code : 1);
+		// a signal exits like a shell, `128` plus its number
+		process.set_exit_code(
+			spawned.kind === 'exited'
+				? spawned.code
+				: spawned.kind === 'signaled'
+					? to_signal_exit_code(spawned.signal)
+					: 1
+		);
 	}
 } catch (error) {
 	if (!is_spawn_error(error)) throw error;

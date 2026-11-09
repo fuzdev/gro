@@ -30,7 +30,7 @@ export type Args = s.Infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {
-	summary: 'run `gro gen`, update `package.json`, and optionally install packages to sync up',
+	summary: 'optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`',
 	Args,
 	run: async ({ args, invoke_task, config, log }): Promise<void> => {
 		const { sveltekit, package_json, gen, install } = args;

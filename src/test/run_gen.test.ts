@@ -54,6 +54,23 @@ test('a genfile returning content that is not a string fails, naming it and what
 	assert.include(failure!.reason, 'Error generating');
 });
 
+test('a genfile with invalid inputs fails, naming it, and runs nothing', async () => {
+	let generated = false;
+	const results = await run({
+		generate: () => {
+			generated = true;
+			return 'content';
+		},
+		inputs: { patterns: ['./src/*.json'] }
+	});
+	const [failure] = results.failures;
+	assert.ok(failure);
+	assert.strictEqual(failure.id, origin_id);
+	assert.include(failure.error.message, 'src/foo.gen.ts');
+	assert.include(failure.error.message, 'write `/src/*.json`');
+	assert.ok(!generated);
+});
+
 test('a genfile whose output fails to format fails, so none of its outputs are written', async () => {
 	const results = await run(
 		() => [

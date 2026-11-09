@@ -37,7 +37,18 @@ export const run_gen = async (
 			const { id } = module_meta;
 			const timing_for_module = timings.start(id);
 
-			const gen_config = normalize_gen_config(module_meta.mod.gen);
+			let gen_config;
+			try {
+				gen_config = normalize_gen_config(module_meta.mod.gen, id);
+			} catch (error) {
+				return {
+					ok: false,
+					id,
+					error,
+					reason: st('red', `Error generating ${print_path(id)}`),
+					elapsed: timing_for_module()
+				};
+			}
 			const gen_ctx = create_gen_context({ config, log, timings, invoke_task }, id);
 			let raw_gen_result: RawGenResult;
 			try {

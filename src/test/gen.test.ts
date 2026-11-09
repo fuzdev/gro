@@ -1,10 +1,18 @@
-import { test, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-import { to_gen_result, find_genfiles, is_gen_path, validate_gen_module } from '#lib/gen.ts';
+import {
+	to_gen_result,
+	find_genfiles,
+	is_gen_path,
+	normalize_gen_config,
+	validate_gen_module,
+	type GenInputs
+} from '#lib/gen.ts';
 import { paths } from '#lib/paths.ts';
+import { is_task_error } from '#lib/task.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
@@ -426,4 +434,86 @@ test('find_genfiles in a project under a `.gen.` directory finds only genfiles',
 	} finally {
 		rmSync(tmp, { recursive: true, force: true });
 	}
+});
+
+describe('normalize_gen_config inputs', () => {
+	const ROOT = '/project/';
+	const ID = '/project/src/a.gen.ts';
+	const generate = () => 'content';
+	const normalize = (inputs: unknown) =>
+		normalize_gen_config({ generate, inputs: inputs as GenInputs }, ID, ROOT);
+	const expect_refused = (inputs: unknown, ...expected: Array<string>) => {
+		let error: unknown;
+		try {
+			normalize(inputs);
+		} catch (e) {
+			error = e;
+		}
+		expect(is_task_error(error)).toBe(true);
+		const { message } = error as Error;
+		expect(message).toContain('a.gen.ts');
+		for (const text of expected) expect(message).toContain(text);
+	};
+
+	test('a function genfile has no inputs to validate', () => {
+		expect(normalize_gen_config(generate, ID, ROOT)).toEqual({ generate });
+	});
+
+	test('accepts each valid form, keeping a leading `/` as the root anchor', () => {
+		for (const inputs of [
+			undefined,
+			'all',
+			{},
+			{ files: ['./src/a.json', '../sibling.json', '/project/b.json'] },
+			{ patterns: ['*.json', '/package.json', '!/src/skip.json', 'src/data/', '/elsewhere/x'] }
+		]) {
+			expect(normalize(inputs).inputs).toBe(inputs);
+		}
+	});
+
+	test('refuses inputs of the wrong shape', () => {
+		for (const inputs of ['src/*.json', ['*.json'], null, 1]) {
+			expect_refused(inputs, "expected `'all'`");
+		}
+	});
+
+	test('refuses `files` and `patterns` that are not arrays of strings', () => {
+		expect_refused({ files: 'a.json' }, '`files` must be an array of strings');
+		expect_refused({ files: [1] }, '`files` must be an array of strings');
+		expect_refused({ patterns: '*.json' }, '`patterns` must be an array of strings');
+		expect_refused({ patterns: [null] }, '`patterns` must be an array of strings');
+	});
+
+	test('refuses a `./` pattern, saying what to write', () => {
+		expect_refused({ patterns: ['./src/*.json'] }, '`./src/*.json`', 'write `/src/*.json`');
+		// anchored, as `*.json` alone would match at any depth
+		expect_refused({ patterns: ['./*.json'] }, 'write `/*.json`');
+		expect_refused({ patterns: ['!./src/a.json'] }, 'write `!/src/a.json`');
+	});
+
+	test('refuses a `../` pattern, pointing to `files`', () => {
+		expect_refused({ patterns: ['../sibling/*.json'] }, 'in `files`');
+		expect_refused({ patterns: ['!../sibling/a.json'] }, 'in `files`');
+	});
+
+	test('refuses a pattern holding the absolute root, saying what to write', () => {
+		expect_refused({ patterns: ['/project/src/*.json'] }, 'write `/src/*.json`');
+	});
+
+	test('a root without a trailing slash matches only paths inside it', () => {
+		const refused = () =>
+			normalize_gen_config(
+				{ generate, inputs: { patterns: ['/project/src/*.json'] } },
+				ID,
+				'/project'
+			);
+		expect(refused).toThrow('write `/src/*.json`');
+		const inputs = { patterns: ['/projectile/x'] };
+		expect(normalize_gen_config({ generate, inputs }, ID, '/project').inputs).toBe(inputs);
+	});
+
+	test('a project at `/` keeps every leading `/` as the anchor', () => {
+		const inputs = { patterns: ['/src/*.json'] };
+		expect(normalize_gen_config({ generate, inputs }, '/src/a.gen.ts', '/').inputs).toBe(inputs);
+	});
 });

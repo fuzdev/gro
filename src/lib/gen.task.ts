@@ -4,7 +4,7 @@ import { plural } from '@fuzdev/fuz_util/string.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { TaskError, type Task } from './task.ts';
+import { is_task_error, TaskError, type Task } from './task.ts';
 import { run_gen } from './run_gen.ts';
 import { RawInputPath, to_input_paths } from './input_path.ts';
 import { format_file } from './format_file.ts';
@@ -145,7 +145,13 @@ export const task: Task<Args> = {
 
 		if (fail_count) {
 			for (const result of gen_results.failures) {
-				log.error(result.reason, '\n', print_error(result.error));
+				log.error(
+					result.reason,
+					'\n',
+					is_task_error(result.error)
+						? st('yellow', result.error.message)
+						: print_error(result.error)
+				);
 			}
 			throw new TaskError(`Failed to generate ${fail_count} file${plural(fail_count)}.`);
 		}
@@ -196,7 +202,12 @@ const collect_output_lines = (
 				status: { symbol: '🞩', color: 'red', text: 'error' },
 				elapsed: print_ms(result.elapsed),
 				source: print_path(result.id),
-				target: st('red', result.error.stack || result.error.message || 'error'),
+				target: st(
+					'red',
+					(is_task_error(result.error) ? null : result.error.stack) ||
+						result.error.message ||
+						'error'
+				),
 				is_error: true
 			});
 		}

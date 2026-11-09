@@ -20,7 +20,7 @@ What is a `Task`? See [`task.md`](./task.md).
 - [reinstall](../lib/reinstall.task.ts) - refreshes package-lock.json with the latest and cleanest deps
 - [release](../lib/release.task.ts) - publish and deploy
 - [run](../lib/run.task.ts) - execute a file with the loader, like `node` but works for TypeScript
-- [sync](../lib/sync.task.ts) - run `gro gen`, update `package.json`, and optionally install packages to sync up
+- [sync](../lib/sync.task.ts) - optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`
 - [test](../lib/test.task.ts) - run tests with vitest
 - [typecheck](../lib/typecheck.task.ts) - run svelte-check or tsc on the project without emitting any files
 - [upgrade](../lib/upgrade.task.ts) - upgrade deps

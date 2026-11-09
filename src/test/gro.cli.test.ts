@@ -1,8 +1,8 @@
 import { describe, test, expect, onTestFinished } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { paths } from '#lib/paths.ts';
 
@@ -43,5 +43,19 @@ describe('the gro entry with no usable node', () => {
 		expect(status).toBe(1);
 		expect(stderr).toContain('not_found');
 		expect(stderr).not.toMatch(/^\s+at /m);
+	});
+});
+
+describe('the gro entry with a child killed by a signal', () => {
+	test('exits `128` plus the signal number, like a shell', () => {
+		const dir = create_dir();
+		mkdirSync(join(dir, 'node_modules/.bin'), { recursive: true });
+		mkdirSync(join(dir, 'local_gro'));
+		writeFileSync(join(dir, 'package.json'), '{"type": "module"}\n');
+		writeFileSync(join(dir, 'local_gro/gro'), '');
+		writeFileSync(join(dir, 'local_gro/loader.js'), '');
+		writeFileSync(join(dir, 'local_gro/invoke.js'), "process.kill(process.pid, 'SIGTERM');\n");
+		symlinkSync(join(dir, 'local_gro/gro'), join(dir, 'node_modules/.bin/gro'));
+		expect(run_gro(dirname(process.execPath), dir).status).toBe(143);
 	});
 });

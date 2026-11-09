@@ -3,11 +3,10 @@ import { join } from 'node:path';
 
 import { gen_inputs_match, should_trigger_gen } from '#lib/gen_helpers.ts';
 import type { GenInputs } from '#lib/gen.ts';
-import type { ModuleGraph } from '#lib/module_graph.ts';
 import { paths } from '#lib/paths.ts';
 import * as modules from '#lib/modules.ts';
 
-import { create_mock_logger, create_mock_module_graph } from './test_helpers.ts';
+import { create_mock_logger } from './test_helpers.ts';
 
 vi.mock('#lib/modules.ts', async () => {
 	const actual = await vi.importActual('#lib/modules.ts');
@@ -23,10 +22,7 @@ const TEST_HELPER_FILE = join(paths.root, 'src/helper.ts');
 const TEST_JSON_FILE = join(paths.root, 'src/data.json');
 const TEST_OTHER_FILE = join(paths.root, 'src/other.ts');
 
-// the graph's `dependents`, reset per test to return an empty set
-const dependents = vi.fn<ModuleGraph['dependents']>();
-
-const create_graph = (): ModuleGraph => ({ ...create_mock_module_graph(), dependents });
+const NO_DEPENDENTS: ReadonlySet<string> = new Set();
 
 const mock_inputs = (inputs: GenInputs | undefined): void => {
 	vi.mocked(modules.load_module).mockResolvedValue({
@@ -38,7 +34,6 @@ const mock_inputs = (inputs: GenInputs | undefined): void => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	dependents.mockResolvedValue(new Set());
 });
 
 describe('should_trigger_gen', () => {
@@ -46,41 +41,47 @@ describe('should_trigger_gen', () => {
 		const result = await should_trigger_gen(
 			TEST_GEN_FILE,
 			TEST_GEN_FILE,
-			create_graph(),
-			create_mock_logger()
+			NO_DEPENDENTS,
+			create_mock_logger(),
+			new Set()
 		);
 		expect(result).toBe(true);
-		expect(dependents).not.toHaveBeenCalled();
 		expect(modules.load_module).not.toHaveBeenCalled();
 	});
 
 	test('triggers on a change to an import without importing the genfile', async () => {
-		dependents.mockResolvedValue(new Set([TEST_GEN_FILE]));
 		const result = await should_trigger_gen(
 			TEST_GEN_FILE,
 			TEST_HELPER_FILE,
-			create_graph(),
-			create_mock_logger()
+			new Set([TEST_GEN_FILE]),
+			create_mock_logger(),
+			new Set()
 		);
 		expect(result).toBe(true);
 		expect(modules.load_module).not.toHaveBeenCalled();
 	});
 
-	test("asks the graph for the changed file's dependents filtered to the genfile", async () => {
+	test("doesn't trigger on another genfile being a dependent", async () => {
 		mock_inputs(undefined);
-		await should_trigger_gen(TEST_GEN_FILE, TEST_HELPER_FILE, create_graph(), create_mock_logger());
-		expect(dependents).toHaveBeenCalledWith(TEST_HELPER_FILE, expect.any(Function));
-		const filter = dependents.mock.calls[0]![1]!;
-		expect(filter(TEST_GEN_FILE)).toBe(true);
-		expect(filter(TEST_OTHER_FILE)).toBe(false);
+		const result = await should_trigger_gen(
+			TEST_GEN_FILE,
+			TEST_HELPER_FILE,
+			new Set([join(paths.root, 'src/another.gen.ts')]),
+			create_mock_logger(),
+			new Set()
+		);
+		expect(result).toBe(false);
 	});
 
 	test('triggers when the changed file matches the inputs', async () => {
 		mock_inputs({ patterns: ['*.json'] });
-		const graph = create_graph();
 		const log = create_mock_logger();
-		expect(await should_trigger_gen(TEST_GEN_FILE, TEST_JSON_FILE, graph, log)).toBe(true);
-		expect(await should_trigger_gen(TEST_GEN_FILE, TEST_OTHER_FILE, graph, log)).toBe(false);
+		expect(
+			await should_trigger_gen(TEST_GEN_FILE, TEST_JSON_FILE, NO_DEPENDENTS, log, new Set())
+		).toBe(true);
+		expect(
+			await should_trigger_gen(TEST_GEN_FILE, TEST_OTHER_FILE, NO_DEPENDENTS, log, new Set())
+		).toBe(false);
 		expect(modules.load_module).toHaveBeenCalledWith(TEST_GEN_FILE, expect.any(Function));
 	});
 
@@ -89,8 +90,9 @@ describe('should_trigger_gen', () => {
 		const result = await should_trigger_gen(
 			TEST_GEN_FILE,
 			TEST_OTHER_FILE,
-			create_graph(),
-			create_mock_logger()
+			NO_DEPENDENTS,
+			create_mock_logger(),
+			new Set()
 		);
 		expect(result).toBe(true);
 	});
@@ -100,8 +102,9 @@ describe('should_trigger_gen', () => {
 		const result = await should_trigger_gen(
 			TEST_GEN_FILE,
 			TEST_OTHER_FILE,
-			create_graph(),
-			create_mock_logger()
+			NO_DEPENDENTS,
+			create_mock_logger(),
+			new Set()
 		);
 		expect(result).toBe(false);
 	});
@@ -115,8 +118,9 @@ describe('should_trigger_gen', () => {
 		const result = await should_trigger_gen(
 			TEST_GEN_FILE,
 			TEST_OTHER_FILE,
-			create_graph(),
-			create_mock_logger()
+			NO_DEPENDENTS,
+			create_mock_logger(),
+			new Set()
 		);
 		expect(result).toBe(false);
 	});
@@ -129,9 +133,47 @@ describe('should_trigger_gen', () => {
 			error: new Error('Module not found')
 		});
 		const log = create_mock_logger();
-		const result = await should_trigger_gen(TEST_GEN_FILE, TEST_OTHER_FILE, create_graph(), log);
+		const result = await should_trigger_gen(
+			TEST_GEN_FILE,
+			TEST_OTHER_FILE,
+			NO_DEPENDENTS,
+			log,
+			new Set()
+		);
 		expect(result).toBe(false);
 		expect(log.error).toHaveBeenCalledWith(`Failed to import ${TEST_GEN_FILE}:`, expect.any(Error));
+	});
+
+	test('logs invalid inputs naming the genfile and does not trigger, without throwing', async () => {
+		mock_inputs({ patterns: 'src/*.json' as unknown as Array<string> });
+		const log = create_mock_logger();
+		const reported = new Set<string>();
+		const result = await should_trigger_gen(
+			TEST_GEN_FILE,
+			TEST_OTHER_FILE,
+			NO_DEPENDENTS,
+			log,
+			reported
+		);
+		expect(result).toBe(false);
+		const [message] = vi.mocked(log.error).mock.calls[0]!;
+		expect(message).toContain('example.gen.ts');
+		expect(message).toContain('`patterns` must be an array of strings');
+		expect(reported).toEqual(new Set([TEST_GEN_FILE]));
+	});
+
+	test('logs nothing for invalid inputs already reported, and still does not trigger', async () => {
+		mock_inputs({ patterns: './src/*.json' as unknown as Array<string> });
+		const log = create_mock_logger();
+		const result = await should_trigger_gen(
+			TEST_GEN_FILE,
+			TEST_OTHER_FILE,
+			NO_DEPENDENTS,
+			log,
+			new Set([TEST_GEN_FILE])
+		);
+		expect(result).toBe(false);
+		expect(log.error).not.toHaveBeenCalled();
 	});
 
 	test('does not trigger or log for a failed validation', async () => {
@@ -143,7 +185,13 @@ describe('should_trigger_gen', () => {
 			validation: 'validate_gen_module'
 		});
 		const log = create_mock_logger();
-		const result = await should_trigger_gen(TEST_GEN_FILE, TEST_OTHER_FILE, create_graph(), log);
+		const result = await should_trigger_gen(
+			TEST_GEN_FILE,
+			TEST_OTHER_FILE,
+			NO_DEPENDENTS,
+			log,
+			new Set()
+		);
 		expect(result).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();
 	});

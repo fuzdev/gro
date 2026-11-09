@@ -41,7 +41,7 @@ import { log_builtin_tasks, log_error_reasons, log_tasks } from './task_logging.
 import type { GroConfig } from './gro_config.ts';
 import { create_node_module_graph } from './module_graph_node.ts';
 import type { ModuleGraph } from './module_graph.ts';
-import { task_registry_find } from './task_registry.ts';
+import { task_registry_find, type TaskRegistryEntry } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
@@ -397,7 +397,14 @@ const list_tasks = async (
 		log_error_reasons(log, reasons);
 		throw new SilentError();
 	}
-	const entries = await task_registry_find(fs_paths, dir_id, config.search_filters);
+	let entries: Array<TaskRegistryEntry>;
+	try {
+		entries = await task_registry_find(fs_paths, dir_id, config.search_filters);
+	} catch (error) {
+		if (!is_fs_error(error)) throw error;
+		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${error.message}`]);
+		throw new SilentError();
+	}
 	const modules: Array<TaskModuleMeta> = [];
 	const reasons: Array<string> = [];
 	for (const { id, name } of entries) {

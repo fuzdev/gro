@@ -281,6 +281,24 @@ describe('invoke_cli', () => {
 		);
 	});
 
+	// root reads through the mode, so nothing fails
+	test.skipIf(process.getuid?.() === 0)(
+		'`gro task <dir>` with an unreadable subdirectory reports it, with no stack',
+		async () => {
+			write_tasks(['src/lib/greet.task.ts']);
+			const locked = join(dir, 'src/locked');
+			mkdirSync(locked);
+			chmodSync(locked, 0o000);
+			try {
+				await assert_silent(cli(to_task_args('task', join(dir, 'src')), config));
+				assert.match(error_text(), /^Can't read `.*src`: permission_denied/);
+				assert.strictEqual(vi.mocked(log_tasks).mock.calls.length, 0);
+			} finally {
+				chmodSync(locked, 0o700);
+			}
+		}
+	);
+
 	test('`gro task` with no path lists `src/`', async () => {
 		await cli(to_task_args('task'), { ...config, search_filters: [() => false] });
 		const calls = vi.mocked(log_tasks).mock.calls;

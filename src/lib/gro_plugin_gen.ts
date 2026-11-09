@@ -9,18 +9,17 @@ import { find_genfiles, is_gen_path } from './gen.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
-import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
-import { spawn, type SpawnResult } from './spawn.ts';
-import { TaskError } from './task.ts';
+import { find_cli, spawn_cli } from './cli.ts';
+import { spawn } from './spawn.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
 /**
- * @returns how `gro gen` ended, or `null` if no `gro` was found
+ * Spawns `gro gen` for `files`, a new process so an edited genfile isn't read from the module cache.
  */
-const gen = async (files: Array<string> = []): Promise<SpawnResult | null> => {
+const spawn_gen = async (files: Array<string>): Promise<void> => {
 	const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
-	return gro ? spawn_cli(gro, ['gen', ...files]) : null;
+	if (gro) await spawn_cli(gro, ['gen', ...files]);
 };
 
 /**
@@ -42,13 +41,14 @@ export const gro_plugin_gen = ({
 	flush_debounce_delay = FLUSH_DEBOUNCE_DELAY
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
+	const reported_invalid_inputs: Set<string> = new Set();
 	const fs_paths = create_fs_paths(fs);
 
 	let cleanup_watch: (() => Promise<void>) | undefined;
 
 	return {
 		name: 'gro_plugin_gen',
-		setup: async ({ watch, dev, log, config, graph }) => {
+		setup: async ({ watch, dev, log, config, graph, invoke_task }) => {
 			// For production builds, we assume `gen` is already fresh,
 			// which should be checked by CI via `gro check` which calls `gro gen --check`.
 			if (!dev) return;
@@ -62,11 +62,7 @@ export const gro_plugin_gen = ({
 				const found = await find_genfiles(fs_paths, [paths.source], [paths.source], config);
 				if (found.ok && found.value.resolved_input_files.length > 0) {
 					// with no watch nothing runs gen again, so a failure fails the task
-					const result = await gen();
-					if (!result) throw new TaskError('`gro gen` could not run: `gro` was not found');
-					if (!spawn_result_is_ok(result)) {
-						throw new TaskError(`\`gro gen\` failed: ${to_spawn_result_message(result)}`);
-					}
+					await invoke_task('gen');
 				}
 				return;
 			}
@@ -79,15 +75,13 @@ export const gro_plugin_gen = ({
 			const flush_gen_queue = throttle(
 				async () => {
 					const files = Array.from(queued_files);
-					log.info(
-						files.length === 0
-							? '[gen] generating all files'
-							: `[gen] generating ${files.length} file${files.length === 1 ? '' : 's'}`
-					);
+					// a deletion can empty the queue, and `gro gen` with no files would run every genfile
+					if (files.length === 0) return;
+					log.info(`[gen] generating ${files.length} file${files.length === 1 ? '' : 's'}`);
 					queued_files.clear();
 					// a file queued while this runs opens the throttle's next window, which takes it
 					try {
-						await gen(files);
+						await spawn_gen(files);
 					} catch (error) {
 						// nothing awaits the flush, and a dev server shouldn't die to a broken `.bin/gro`
 						log.error('[gen] failed to run gen', error);
@@ -104,8 +98,18 @@ export const gro_plugin_gen = ({
 						try {
 							// queue each gen file that changed, imports the changed file, or declares it an input
 							const gen_file_ids = await graph.modules(is_gen_path);
+							if (gen_file_ids.length === 0) break;
+							const dependents = await graph.dependents(change.id, is_gen_path);
 							for (const gen_file_id of gen_file_ids) {
-								if (await should_trigger_gen(gen_file_id, change.id, graph, log)) {
+								if (
+									await should_trigger_gen(
+										gen_file_id,
+										change.id,
+										dependents,
+										log,
+										reported_invalid_inputs
+									)
+								) {
 									queue_gen(gen_file_id);
 								}
 							}
@@ -118,7 +122,8 @@ export const gro_plugin_gen = ({
 						break;
 					}
 					case 'delete': {
-						// I think for the gen plugin this is best as a no-op? avoids broken attempts
+						// a deleted genfile can't run, and with nothing queued this is a no-op
+						queued_files.delete(change.id);
 						break;
 					}
 					default:

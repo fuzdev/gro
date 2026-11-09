@@ -1,10 +1,9 @@
 import { args_serialize } from '@fuzdev/fuz_util/args.ts';
-import { constants } from 'node:os';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
+import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
 import { process } from './process.ts';
 import { TaskError, type Task } from './task.ts';
 import { fs } from './fs.ts';
@@ -85,7 +84,7 @@ export const task: Task<Args> = {
 					spawned.kind === 'exited'
 						? spawned.code
 						: spawned.kind === 'signaled'
-							? 128 + constants.signals[spawned.signal as keyof typeof constants.signals]
+							? to_signal_exit_code(spawned.signal)
 							: undefined
 			});
 		}

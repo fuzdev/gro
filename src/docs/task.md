@@ -423,6 +423,7 @@ A failed task is reported once, where it fails:
 so an invoking task reports only that it failed.
 The CLI exits with `1`, or with the `exit_code` of a `TaskError` thrown by the task it invoked,
 an integer 1–255, like `throw new TaskError('failed', {exit_code: 3})`.
+A task killed by a signal exits with `128` plus the signal's number, like a shell.
 
 A reader of stdout or stderr that leaves doesn't change that: Gro ignores the broken pipe and the run
 finishes with its own exit code, so `gro foo | head` exits `0` only when `foo` passed,

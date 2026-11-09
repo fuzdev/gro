@@ -61,7 +61,7 @@ export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> =
 	reinstall: 'refreshes package-lock.json with the latest and cleanest deps',
 	release: 'publish and deploy',
 	run: 'execute a file with the loader, like `node` but works for TypeScript',
-	sync: 'run `gro gen`, update `package.json`, and optionally install packages to sync up',
+	sync: 'optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`',
 	test: 'run tests with vitest',
 	typecheck: 'run svelte-check or tsc on the project without emitting any files',
 	upgrade: 'upgrade deps'
