@@ -106,7 +106,7 @@ It isn't a Deno replacement for everyone.
 Code that needs Node keeps running on Node,
 and the Node tools the stack still uses run as subprocesses until each is replaced.
 It isn't only a JS sandbox either, since V8 runs WASM and the same grants confine
-any language compiled to it (see [polyglot sandboxing](#what-the-design-opens-up)).
+any language compiled to it (see [polyglot confinement](#what-the-design-opens-up)).
 
 ## Secure by default
 
@@ -363,7 +363,7 @@ so each piece can be rewritten on its own as measurements justify it.
   FFI (calling a native library from JS) is planned as a grant, denied by default,
   with the library loaded in its own confined process, out of reach of the runtime's memory and grants.
   Its calls cross a process boundary, so chatty native work belongs in WASM
-  ([polyglot sandboxing](#what-the-design-opens-up)) or an embedder's host module.
+  ([polyglot confinement](#what-the-design-opens-up)) or an embedder's host module.
   In-process loading isn't currently planned, and feedback on it is welcome in
   [discussions](https://github.com/fuzdev/gro/discussions):
   if a measured need brings it (chatty calls, callbacks into JS, a library tied to its process),

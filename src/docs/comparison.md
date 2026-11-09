@@ -5,7 +5,7 @@
 > with the measured startup and size
 
 > **status**: Gro's cells tell built from designed.
-> The incumbents' cells describe Node 24, Deno 2, and Bun 1 as of October 2026,
+> The incumbents' cells describe Node 24, Deno 2, and Bun 1 as of November 2026,
 > checked against their documentation and probed on the versions the [bench](#measured) ran.
 > Corrections are welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 

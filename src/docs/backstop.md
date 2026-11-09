@@ -143,6 +143,8 @@ Designed: a heap cap, a wall clock, and output caps per run kind, the child limi
   The confined process is the one that compiles, so either no run reads an entry written by a run holding less than it does,
   or a writer outside the box compiles from source itself. Undecided, and the cache isn't built until it is.
 - **Children that need `/proc`**, and whether the nested layer costs anything measurable.
+- **Browser tests.** Chromium's sandboxes need a setuid helper or a user namespace, neither of which works inside the box,
+  so how a browser-driven test runs under a task (a named grant that spawns it outside the box, or an unconfined phase) is open.
 - **Hard links** in the read-deny overlay: refusing a confined read of any file with more than one link closes the gap
   but breaks pnpm's hard-linked `node_modules`; matching a read's inode against the denied files is the alternative. Undecided.
 - **Platforms:** all of this is Linux's. macOS and Windows get their own designs, never a translation of these rules.
