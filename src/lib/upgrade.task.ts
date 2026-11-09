@@ -144,6 +144,7 @@ export const task: Task<Args> = {
 		install_args.push(...to_forwarded_argv(config.pm_cli, to_raw_rest_args(process.args)));
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 			install_args,
+			heal_cache: !dry,
 			log,
 			stderr: process.stderr
 		});

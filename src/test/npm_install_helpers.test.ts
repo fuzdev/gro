@@ -114,6 +114,16 @@ describe('install_with_cache_healing', () => {
 		expect(calls[2]!.args).toEqual(['install']);
 	});
 
+	test('with `heal_cache: false` returns an ETARGET failure without cleaning the cache', async () => {
+		const { run, calls } = make_run([{ ok: false, stderr: 'npm error code ETARGET' }]);
+		const result = await install_with_cache_healing(make_spawn(), 'npm', {
+			run,
+			heal_cache: false
+		});
+		expect(result.ok).toBe(false);
+		expect(calls).toEqual([{ command: 'npm', args: ['install'] }]);
+	});
+
 	test('returns the retry failure when the heal does not fix it', async () => {
 		const { run, calls } = make_run([
 			{ ok: false, stderr: 'ETARGET' },

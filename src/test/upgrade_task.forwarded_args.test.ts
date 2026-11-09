@@ -47,6 +47,19 @@ describe('upgrade task forwarded args', () => {
 		expect(options?.install_args).toEqual(['b@latest', '--force', ...forwarded]);
 	});
 
+	test('a dry run passes `--dry-run` and never heals the cache, and a real one may', async () => {
+		for (const dry of [true, false]) {
+			vi.mocked(install_with_cache_healing_or_throw).mockClear();
+			set_mock_process_args(['upgrade']);
+			const parsed = args_parse({ 'no-pull': true, pull: false, dry }, Args);
+			expect(parsed.ok).toBe(true);
+			await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
+			const [, , options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
+			expect(options?.heal_cache).toBe(!dry);
+			expect(options?.install_args?.includes('--dry-run')).toBe(dry);
+		}
+	});
+
 	test('`gro sync` re-invokes the local Gro with the whole environment', async () => {
 		set_mock_process_args(['upgrade']);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);

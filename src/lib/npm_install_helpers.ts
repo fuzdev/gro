@@ -144,6 +144,11 @@ export interface InstallCacheHealingBaseOptions {
 	 * reused on the post-cache-clean retry.
 	 */
 	install_args?: ReadonlyArray<string>;
+	/**
+	 * Whether an ETARGET-class failure may clean npm's cache and retry. Defaults to `true`.
+	 * A dry run passes `false`, since the clean acts on the machine whatever the install does.
+	 */
+	heal_cache?: boolean;
 }
 
 /**
@@ -153,8 +158,8 @@ export interface InstallCacheHealingBaseOptions {
  * 1. First attempt: `${pm_cli} install [...install_args]`.
  * 2. On an npm ETARGET-class failure (stale cache): `npm cache clean --force`
  *    then retry the same install once.
- * 3. On any other failure — or any failure under a non-npm `pm_cli` — return
- *    immediately without healing.
+ * 3. On any other failure — or any failure under a non-npm `pm_cli`, or with
+ *    `heal_cache: false` — return immediately without healing.
  *
  * **Why ETARGET happens:** right after a dependency is published and the
  * registry has propagated, npm's local cache may still hold stale
@@ -180,7 +185,7 @@ export const install_with_cache_healing = async (
 	pm_cli: string,
 	options: InstallCacheHealingOptions
 ): Promise<NpmCommandResult> => {
-	const { cwd, log, install_args = [] } = options;
+	const { cwd, log, install_args = [], heal_cache = true } = options;
 	const run = options.run ?? create_npm_command_runner(options.stderr);
 	let program: SpawnProgram;
 	try {
@@ -197,7 +202,7 @@ export const install_with_cache_healing = async (
 
 	// Heal only npm's ETARGET-class failures; any other failure (or non-npm pm)
 	// is surfaced as-is, since the cache-clean heal below is npm-specific.
-	if (pm_cli !== 'npm' || !is_etarget_error(first.detail, first.stderr)) {
+	if (!heal_cache || pm_cli !== 'npm' || !is_etarget_error(first.detail, first.stderr)) {
 		return first;
 	}
 
