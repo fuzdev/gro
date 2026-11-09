@@ -82,6 +82,9 @@ if (status.kind === 'exited' && status.code === 0) console.log(status.stdout);
 await git.run(['fetch'], {cwd: repo_dir}); // `repo_dir` an fs handle, stdio inherited
 const commit = await git.out(['commit', '-m', message], {stdin: 'inherit'}); // captured, and may prompt
 const blob = await git.out_bytes(['cat-file', 'blob', hash]); // `blob.stdout` a `Uint8Array`
+const batch = await git.out_bytes(['cat-file', '--batch'], {
+	stdin: new TextEncoder().encode(oids.join('\n') + '\n') // sent while the output is read
+});
 
 const dev = await spawn.program('node_modules/.bin/vite').start(['dev']); // stdio inherited, a live child
 await dev.closed; // or `dev.kill()`, or `await using` to stop it when the scope ends
@@ -134,6 +137,11 @@ const result = await check.closed;
 - `stdin`, on `out` and `out_bytes`, is `'ignore'` by default, `/dev/null`, or `'inherit'`,
   which shares the host's stdin and keeps the child in the terminal's session, by the grouping rule below,
   so a command that may prompt (ssh, a credential helper, a pinentry through `git commit`) can capture too.
+  A `Uint8Array` is sent to the child through a pipe that then closes, at once for empty data.
+  It's bytes only, since a string would collide with the mode names, so text goes through a `TextEncoder`.
+  It's copied when the option is read, and written while the output is read, so input and output past a pipe's buffer can't deadlock.
+  A child that exits or closes its stdin before reading it all ends the write without an error, and the result stands.
+  The cap, `timeout_ms`, and `signal` end the call mid-write as they do any other.
 - A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
   A program that can't start throws `SpawnError` of kind `launch_failed`.
   A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
@@ -463,6 +471,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Each option's value is read once and checked, before the name resolves, then only the checked copy is used.
   Only own properties count as options, so a polluted `Object.prototype.pass_env` sets nothing on a plain `{}`.
 - Every array argument (`args`, `narrow`'s names, `pass_env`, `omit_env`) is read by index with its length read once.
+- `stdin` data is copied when the option is read, a plain `Uint8Array` only the call holds, so no later write to the caller's array reaches the child.
 - `out_bytes`'s `stdout` and `stderr` are plain `Uint8Array`s of their own, copied out of the chunks into memory of their exact length,
   so no `Buffer` or view of memory Node reuses reaches a caller, and they reach it inside a null-prototype record.
 
@@ -579,6 +588,11 @@ It documents each gap rather than weakening the API to match, and is a review si
   `Promise`, `Uint8Array`, `TextDecoder`, `Error`, `EventEmitter.prototype.on`, or the stream classes after the module loads runs inside its ops,
   and a patched `on` or stream method holds the raw `ChildProcess` or stream.
 - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
+- Piped `stdin` data reaches the child on a socket, as Node's stdio pipes are socketpairs,
+  so a child reopening it by path, like `cat /dev/stdin`, fails with `ENXIO`, where a native builtin using a real pipe wouldn't.
+- A polluted `Object.prototype.encoding`, `highWaterMark`, `objectMode`, or `signal` makes Node's spawn throw after the fork, wrapping the child's streams,
+  so the call rejects `launch_failed` with the child untracked and running,
+  and with `stdin` data a child reading its stdin never gets EOF and keeps the host alive.
 - Grouping needs Node's `detached`, a `setsid`, so a group-leading child has no controlling terminal:
   a program prompting on `/dev/tty` under `out` or `out_bytes` without `stdin: 'inherit'` can't, and fails rather than prompting.
 - A child with an inherited stream isn't grouped, so a stop or a kill reaches it by pid alone and what it started survives.
@@ -677,6 +691,9 @@ What the runtime's builtin must do that the Node implementation can't:
 - Capture `out` and `out_bytes` in the op, enforcing `max_bytes` and reporting `truncated` there,
   decoding only for `out`, whole, so a multi-byte character split across reads stays one character.
   Return `out_bytes`'s streams as owned buffers, never a view of memory the runtime reuses.
+- Write `stdin` data in the same op, interleaved with the capture so neither pipe can block the other,
+  from a buffer copied before the op starts, with `EPIPE` ending the write rather than failing the call
+  and no `SIGPIPE` reaching the runtime.
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.

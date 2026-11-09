@@ -73,6 +73,12 @@
  *   the symlink leads to.
  * - No policy check, argv limit, or kernel confinement applies to the children: a running
  *   program reaches whatever its user can.
+ * - Piped `stdin` data reaches the child on a socket, as Node's stdio pipes are socketpairs,
+ *   so a child reopening it by path, like `cat /dev/stdin`, fails with `ENXIO`.
+ * - A polluted `Object.prototype.encoding`, `highWaterMark`, `objectMode`, or `signal` makes
+ *   Node's spawn throw after the fork, so the call rejects `launch_failed` with the child untracked
+ *   and running, and with `stdin` data a child reading its stdin never gets EOF and keeps the host
+ *   alive.
  * - Grouping is Node's `detached`, which is `setsid`: a child with no inherited stdio has no
  *   controlling terminal, so a program prompting on `/dev/tty` under `out` or `out_bytes` without
  *   `stdin: 'inherit'` can't.
@@ -294,8 +300,16 @@ export interface SpawnOutOptions extends SpawnCallOptions {
 	 * as for any child with an inherited stream, so a command that may prompt (ssh, a credential
 	 * helper, a pinentry) still reaches `/dev/tty`. Such a child is stopped and capped by pid
 	 * alone, so a process it started outlives the call.
+	 *
+	 * A `Uint8Array` is the data sent to the child's stdin through a pipe, which then closes,
+	 * empty data closing it at once. It's copied when the option is read, so changing the array
+	 * afterward changes nothing sent, and written while the output is read, so a child can fill
+	 * either pipe. Text goes through a `TextEncoder`, as a string here would collide with the mode
+	 * names. The child leads its own process group, as for `'ignore'`. A child that exits or
+	 * closes its stdin before reading it all ends the write, which is no error, and the result
+	 * stands, so a call's result never says whether the data was read.
 	 */
-	stdin?: 'inherit' | 'ignore';
+	stdin?: 'inherit' | 'ignore' | Uint8Array;
 }
 
 /**
@@ -363,13 +377,13 @@ export interface SpawnProgram {
 	run(args: ReadonlyArray<string>, options?: SpawnCallOptions): Promise<SpawnResult>;
 	/**
 	 * Runs the program, capturing stdout and stderr as UTF-8 text, with stdin from `/dev/null`
-	 * unless `stdin` says `'inherit'`. Output past `max_bytes` (64 MiB by default) on either stream
-	 * kills the child with `SIGKILL`, whose result is `truncated`, a multi-byte character cut at
-	 * the end becoming `U+FFFD`. A child leading its own process group is killed as the group,
-	 * and one with stdin inherited by pid alone.
+	 * unless `stdin` gives data to send or says `'inherit'`. Output past `max_bytes` (64 MiB by
+	 * default) on either stream kills the child with `SIGKILL`, whose result is `truncated`, a
+	 * multi-byte character cut at the end becoming `U+FFFD`. A child leading its own process group
+	 * is killed as the group, and one with stdin inherited by pid alone.
 	 * After it exits, a background process still holding a pipe gets a bounded wait, then
 	 * the group, if there is one, is killed and reading stops, the result `truncated` because
-	 * output may be missing.
+	 * output may be missing. A stop, the cap, and the child's exit end a `stdin` write in progress.
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
@@ -378,8 +392,8 @@ export interface SpawnProgram {
 	 */
 	out(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutput>;
 	/**
-	 * Captures as `out` does, with the same options, keeping stdout and stderr as bytes,
-	 * for output that isn't text, like a git blob.
+	 * Captures as `out` does, with the same options, `stdin` data included, keeping stdout and
+	 * stderr as bytes, for output that isn't text, like a git blob.
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
@@ -1742,7 +1756,7 @@ const add_chunk = (capture: Capture, chunk: Uint8Array, max_bytes: number): bool
  */
 const read_out_options = (
 	options: SpawnOutOptions | undefined
-): CallOptions & { max_bytes: number; stdin: 'inherit' | 'ignore' } => {
+): CallOptions & { max_bytes: number; stdin: 'inherit' | 'ignore' | Uint8Array } => {
 	const raw = check_call_options(options);
 	return create_record({
 		...read_call_options(raw),
@@ -1759,12 +1773,12 @@ const read_max_bytes = (raw: unknown): number => {
 	return raw;
 };
 
-const read_out_stdin = (raw: unknown): 'inherit' | 'ignore' => {
+const read_out_stdin = (raw: unknown): 'inherit' | 'ignore' | Uint8Array => {
 	if (raw === undefined) return 'ignore';
-	if (raw !== 'inherit' && raw !== 'ignore') {
-		throw new TypeError("`stdin` is 'inherit' or 'ignore'");
-	}
-	return raw;
+	if (raw === 'inherit' || raw === 'ignore') return raw;
+	// a copy, as Node holds what it can't write yet and a caller may reuse the buffer
+	if (isUint8Array(raw)) return new Uint8ArrayClass(raw);
+	throw new TypeError("`stdin` is 'inherit', 'ignore', or a `Uint8Array`");
 };
 
 /**
@@ -1887,8 +1901,12 @@ class NodeSpawnProgram implements SpawnProgram {
 		const pin = this.#pin;
 		const argv = to_argv(args);
 		const call = read_out_options(options);
-		const { max_bytes } = call;
-		const stdio: Array<SpawnStdio> = [call.stdin, 'pipe', 'pipe'];
+		const { max_bytes, stdin: stdin_option } = call;
+		const stdio: Array<SpawnStdio> = [
+			typeof stdin_option === 'string' ? stdin_option : 'pipe',
+			'pipe',
+			'pipe'
+		];
 		const watch = launch_watched(
 			this.name,
 			this.#argv0,
@@ -1918,6 +1936,9 @@ class NodeSpawnProgram implements SpawnProgram {
 		child.stdout?.on('data', collect(stdout));
 		child.stderr?.on('data', collect(stderr));
 		await watch.started;
+		// not awaited: libuv writes as the pipe drains, while the listeners above read the output,
+		// and the stream's error listener takes the EPIPE of a child that stopped reading
+		if (typeof stdin_option !== 'string') child.stdin!.end(stdin_option);
 		const result = await watch.closed;
 		if (failure !== null) throw failure.error;
 		return freeze(

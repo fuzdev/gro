@@ -264,6 +264,26 @@ describe('hardening', () => {
 	});
 });
 
+describe('`stdin` data', () => {
+	test('a launch failure with no streams to write rejects with `launch_failed`', async () => {
+		// as `EMFILE` and `ENFILE` leave a child, with no pid and no streams
+		const failed: any = Object.assign(new FakeChild(), {
+			pid: undefined,
+			stdout: null,
+			stderr: null
+		});
+		child = failed;
+		const call = sh.out_bytes([], { stdin: new Uint8Array([97]) });
+		child.emit('error', new Error('spawn EMFILE'));
+		try {
+			await call;
+			assert.fail('expected launch_failed');
+		} catch (error) {
+			assert.strictEqual((error as { kind?: unknown }).kind, 'launch_failed', String(error));
+		}
+	});
+});
+
 describe('allocation failure', () => {
 	const to_error = (call: Promise<unknown>): Promise<unknown> =>
 		call.then(
