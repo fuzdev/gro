@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 
 import { spawn_restartable } from '#lib/spawn_restartable.ts';
-import type { SpawnChild, SpawnResult } from '#lib/spawn.ts';
+import type { SpawnChild, SpawnResult, SpawnStartOptions, SpawnStdio } from '#lib/spawn.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
 
 import { create_mock_child, create_mock_spawn, type MockSpawn } from './spawn_mocks.ts';
@@ -43,6 +43,53 @@ describe('spawn_restartable', () => {
 		expect(restartable.child).toBe(mock.children[0]);
 		expect(mock.calls).toHaveLength(1);
 		expect(mock.calls[0]).toMatchObject({ method: 'start', args: ['run', 'server.ts'] });
+	});
+
+	test("a restart ignores changes to the caller's args and options after creation", async () => {
+		const mock = create_spawn();
+		const controller = new AbortController();
+		const args = ['run'];
+		const stdio: [SpawnStdio, SpawnStdio, SpawnStdio] = ['pipe', 'pipe', 'pipe'];
+		const options: SpawnStartOptions = { stdio, timeout_ms: 100, signal: controller.signal };
+		const restartable = await spawn_restartable(mock.program('deno'), args, options);
+
+		args.push('--extra');
+		stdio[0] = 'ignore';
+		options.timeout_ms = 1;
+		options.signal = new AbortController().signal;
+		await restartable.restart();
+
+		expect(mock.calls[1]!.args).toEqual(['run']);
+		expect(mock.calls[1]!.options).toEqual({
+			stdio: ['pipe', 'pipe', 'pipe'],
+			timeout_ms: 100,
+			signal: controller.signal
+		});
+		// the same signal, so an abort still reaches every child
+		expect((mock.calls[1]!.options as SpawnStartOptions).signal).toBe(controller.signal);
+	});
+
+	test('every start gets the same frozen args and options', async () => {
+		const mock = create_spawn();
+		const restartable = await spawn_restartable(mock.program('deno'), ['run'], {
+			stdio: ['pipe', 'pipe', 'pipe']
+		});
+		await restartable.restart();
+		for (const call of mock.calls) {
+			const options = call.options as SpawnStartOptions;
+			expect(Object.isFrozen(call.args)).toBe(true);
+			expect(Object.isFrozen(options)).toBe(true);
+			expect(Object.isFrozen(options.stdio)).toBe(true);
+		}
+		expect(mock.calls[1]!.args).toBe(mock.calls[0]!.args);
+		expect(mock.calls[1]!.options).toBe(mock.calls[0]!.options);
+	});
+
+	test('a bad stdio tuple reaches `start` as it was given, for it to refuse', async () => {
+		const mock = create_spawn();
+		const stdio = ['pipe', 'pipe', 'pipe', 'pipe'] as unknown as SpawnStartOptions['stdio'];
+		await spawn_restartable(mock.program('deno'), [], { stdio });
+		expect((mock.calls[0]!.options as SpawnStartOptions).stdio).toEqual(stdio);
 	});
 
 	test('restart stops the running child and starts the same program with the same args', async () => {
