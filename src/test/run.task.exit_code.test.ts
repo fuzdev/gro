@@ -34,7 +34,7 @@ const run_cli = async (
 	await writeFile(join(dir, file), contents);
 	const result = spawnSync(
 		process.execPath,
-		spawn_with_loader_args(LOADER_SOURCE_PATH, INVOKE_SOURCE_PATH, argv),
+		spawn_with_loader_args(LOADER_SOURCE_PATH, INVOKE_SOURCE_PATH, argv, undefined),
 		{ cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } }
 	);
 	return { status: result.status, output: result.stdout + result.stderr };

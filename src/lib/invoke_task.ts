@@ -63,6 +63,12 @@ export interface InvokeTaskOptions {
 	 */
 	fs_paths: FsPaths;
 	/**
+	 * The CLI args from the first `--` on, from `to_raw_rest_args`, passed to nested tasks.
+	 * The `gro` sections in them forward args to Gro tasks; a task forwarding to an outside
+	 * tool reads that tool's section from `process.args` itself.
+	 */
+	raw_rest_args: ReadonlyArray<string>;
+	/**
 	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
 	 * A nested task gets its invoking task's even when invoked with its own `config`,
@@ -101,10 +107,18 @@ export const invoke_task = async (
 	args: Args | undefined,
 	options: InvokeTaskOptions
 ): Promise<void> => {
-	const { config, fs_paths, graph: initial_graph, timings: initial_timings, parent_log } = options;
+	const {
+		config,
+		fs_paths,
+		raw_rest_args,
+		graph: initial_graph,
+		timings: initial_timings,
+		parent_log
+	} = options;
+	const root = fs_paths.project.path;
 	// Create child logger if parent exists, otherwise root logger,
 	// labeled by the name the task is displayed by when it's a normalized path
-	const log_label = is_task_path(task_name) ? to_task_path(task_name) : task_name || 'gro';
+	const log_label = is_task_path(task_name) ? to_task_path(task_name, root) : task_name || 'gro';
 	const log = parent_log ? parent_log.child(log_label) : new Logger(log_label);
 	log.info('invoking', st('cyan', log_label));
 
@@ -122,7 +136,7 @@ export const invoke_task = async (
 
 	let forwarded: Args;
 	try {
-		forwarded = to_forwarded_args(to_task_command(task.name));
+		forwarded = to_forwarded_args(to_task_command(task.name), raw_rest_args, root);
 	} catch (error) {
 		if (!is_task_error(error)) throw error;
 		log_error_reasons(log, [error.message]);
@@ -152,6 +166,7 @@ export const invoke_task = async (
 			invoke_task,
 			config,
 			fs_paths,
+			raw_rest_args,
 			graph,
 			log,
 			timings
@@ -301,11 +316,13 @@ const to_no_builtin_reasons = async (
  * @param fs_paths - opens the paths the args name, passed to the task it invokes
  * @param task_args - the parsed CLI args
  * @param config - the Gro configuration
+ * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
  */
 export const invoke_cli = async (
 	fs_paths: FsPaths,
 	task_args: CliTaskArgs,
-	config: GroConfig
+	config: GroConfig,
+	raw_rest_args: ReadonlyArray<string>
 ): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
 
@@ -322,7 +339,7 @@ export const invoke_cli = async (
 
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) {
-			await invoke_task(task_path, args, { config, fs_paths });
+			await invoke_task(task_path, args, { config, fs_paths, raw_rest_args });
 			return;
 		}
 		await list_tasks(fs_paths, task_path, config, new Logger('gro task'));
@@ -331,7 +348,7 @@ export const invoke_cli = async (
 
 	if (is_task_path_input(task_name) && !is_removed_builtin_prefix(task_name)) {
 		const log = new Logger('gro');
-		log_error_reasons(log, [to_task_path_without_verb_message(task_name)]);
+		log_error_reasons(log, [to_task_path_without_verb_message(task_name, fs_paths.project.path)]);
 		throw new SilentError();
 	}
 
@@ -339,6 +356,7 @@ export const invoke_cli = async (
 	await invoke_task(task_name, args, {
 		config,
 		fs_paths,
+		raw_rest_args,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});
 };
@@ -373,7 +391,7 @@ const list_tasks = async (
 		if (is_builtin_task_name(dir)) {
 			reasons.push(`\`${dir}\` is a builtin: run it with \`gro ${dir}\`.`);
 		} else {
-			const hint = to_task_path_hint(dir);
+			const hint = to_task_path_hint(dir, fs_paths.project.path);
 			if (hint !== null) reasons.push(hint);
 		}
 		log_error_reasons(log, reasons);
@@ -391,7 +409,7 @@ const list_tasks = async (
 	if (modules.length || !reasons.length) log_tasks(log, modules, print_path(dir_id));
 	// a directory with no tasks beside a task file of its name, like `update/` and `update.task.ts`
 	if (!modules.length && !reasons.length && dir !== null) {
-		const task_file = find_task_file_for_input(dir);
+		const task_file = find_task_file_for_input(dir, fs_paths.project.path);
 		if (task_file !== null) log.info(to_run_task_file_hint(task_file));
 	}
 	if (reasons.length) {

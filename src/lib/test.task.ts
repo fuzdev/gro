@@ -1,13 +1,14 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_argv, to_implicit_forwarded_argv } from './args.ts';
+import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { paths } from './paths.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
+import { process } from './process.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { TaskError, type Task } from './task.ts';
 
@@ -61,8 +62,8 @@ export const task: Task<Args> = {
 		}
 		// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth
 		vitest_args.push(
-			...to_implicit_forwarded_argv(TEST_TASK_NAME, VITEST_CLI),
-			...to_forwarded_argv(VITEST_CLI)
+			...to_implicit_forwarded_argv(TEST_TASK_NAME, process.args, process.cwd(), VITEST_CLI),
+			...to_forwarded_argv(VITEST_CLI, to_raw_rest_args(process.args))
 		);
 
 		const result = await spawn_cli(vitest, vitest_args);

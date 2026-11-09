@@ -5,6 +5,11 @@ import { SpawnError } from '#lib/spawn_error.ts';
 import { is_task_error } from '#lib/task.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
+import { set_mock_process_args } from './process_mocks.ts';
+
+vi.mock('#lib/process.ts', async () =>
+	(await import('./process_mocks.ts')).create_mock_process_module()
+);
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -17,17 +22,15 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 	}))
 }));
 
-const original_argv = process.argv;
-
 afterEach(async () => {
-	process.argv = original_argv;
+	set_mock_process_args([]);
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
 });
 
 // the vitest args after the ones the test task always passes
 const run_test = async (cli: Array<string>): Promise<Array<string>> => {
-	process.argv = ['node', 'gro', ...cli];
+	set_mock_process_args([...cli]);
 	await task.run(create_mock_task_context({ _: ['.test.'], dir: 'src', fail_without_tests: true }));
 	const { calls } = await get_mock_spawn();
 	expect(calls).toHaveLength(1);
@@ -42,7 +45,7 @@ describe('test task with a missing or broken vitest', () => {
 
 	test('a missing vitest says so', async () => {
 		(await get_mock_spawn()).available = () => false;
-		process.argv = ['node', 'gro', 'test'];
+		set_mock_process_args(['test']);
 		await expect(task.run(create_mock_task_context(CTX_ARGS))).rejects.toThrow(
 			'vitest is a dependency but not installed; run `npm i`?'
 		);
@@ -51,7 +54,7 @@ describe('test task with a missing or broken vitest', () => {
 	test("a vitest that can't run is a `TaskError`", async () => {
 		const spawn_error = new SpawnError('not_executable', 'vitest', 'not_executable: the message');
 		(await get_mock_spawn()).find_error = () => spawn_error;
-		process.argv = ['node', 'gro', 'test'];
+		set_mock_process_args(['test']);
 		await expect(task.run(create_mock_task_context(CTX_ARGS))).rejects.toSatisfy(
 			(error) => is_task_error(error) && error.message === spawn_error.message
 		);

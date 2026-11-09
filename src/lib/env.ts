@@ -20,7 +20,7 @@ import type { FsPaths } from './fs_paths.ts';
  */
 export const load_env = async (
 	fs_paths: FsPaths,
-	{ dev, env_dir, env_files = to_default_env_files(dev), ambient_env = process.env }: LoadEnvOptions
+	{ dev, env_dir, env_files = to_default_env_files(dev), ambient_env }: LoadEnvOptions
 ): Promise<Record<string, string>> => {
 	const env: Record<string, string> = {};
 	const loaded_files = await Promise.all(
@@ -48,20 +48,22 @@ export const to_default_env_files = (dev: boolean): Array<string> => {
 };
 
 /**
- * Loads a single env value without merging it into `process.env`.
- * Searches `process.env`, then each of `paths` that exists, by default only the project's `.env` -
+ * Loads a single env value without merging it into the ambient env.
+ * Searches `ambient_env`, then each of `paths` that exists, by default only the project's `.env` -
  * never a parent directory's, so one directory's `.env` isn't a secret channel to every repo under it.
  * Empty strings are semantically the same as `undefined` for more ergonomic fallbacks.
  * @param fs_paths - reads the env files, a relative path resolved against its project
+ * @param ambient_env - a plain record a root builds, needing only `key`
  * @param paths - absolute, or relative to the project
  * @throws `FsError` - when reading one of `paths` fails other than by its absence
  */
 export const load_from_env = async (
 	fs_paths: FsPaths,
+	ambient_env: Readonly<Record<string, string | undefined>>,
 	key: string,
 	paths = ['.env']
 ): Promise<string | undefined> => {
-	let v = process.env[key];
+	let v = ambient_env[key];
 	if (v) return v;
 	for (const path of paths) {
 		const env = await load(fs_paths, path);

@@ -1,4 +1,4 @@
-import { describe, test, expect, assert, afterEach } from 'vitest';
+import { describe, test, expect, assert, afterEach, vi } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -158,7 +158,7 @@ describe('install_with_cache_healing', () => {
 
 	test('a program that cannot be found is a failed result, never healed', async () => {
 		const spawn = create_mock_spawn(); // `npm` isn't available
-		const result = await install_with_cache_healing(spawn, 'npm');
+		const result = await install_with_cache_healing(spawn, 'npm', { run: vi.fn() });
 		assert(!result.ok);
 		expect(result.detail).toContain('not_found');
 		expect(spawn.calls).toEqual([]);

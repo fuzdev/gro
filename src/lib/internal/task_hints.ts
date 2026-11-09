@@ -45,12 +45,12 @@ export const to_removed_builtin_prefix_message = (input: string): string => {
  * hinting the `gro task` form that runs or lists it.
  * A path without a task suffix gets `to_task_path_hint`, which says what's there.
  * @param input - a task input for which `is_task_path_input` is true
- * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @param root - the project root a relative `input` is relative to
  * @param listable - whether the hint may name listing a directory, `false` for a forwarded section
  */
 export const to_task_path_without_verb_message = (
 	input: string,
-	root: string = process.cwd(),
+	root: string,
 	listable = true
 ): string => {
 	if (is_task_path(input)) {
@@ -75,13 +75,10 @@ const to_task_file_candidates = (input: string): Array<string> =>
  * for `src/x/update`, preferring `.ts`.
  * Only error messages and hints call it, so its synchronous stats never slow a run.
  * @param input - a task input for which `is_task_path` is false
- * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @param root - the project root a relative `input` is relative to
  * @returns the task file's path as `input` names it, or `null`
  */
-export const find_task_file_for_input = (
-	input: string,
-	root: string = process.cwd()
-): string | null => {
+export const find_task_file_for_input = (input: string, root: string): string | null => {
 	if (input.endsWith('/')) return null;
 	for (const candidate of to_task_file_candidates(input)) {
 		if (stat_sync_or_null(resolve(root, candidate))?.isFile()) return candidate;
@@ -101,17 +98,13 @@ export const to_run_task_file_hint = (path: string): string =>
  * and the directory, which it lists, or that nothing is at any of them.
  * Only error messages call it, so its synchronous stats never slow a run.
  * @param input - a task input for which `is_task_path` is false
- * @param root - the project root a relative `input` is relative to, defaults to the cwd
+ * @param root - the project root a relative `input` is relative to
  * @param listable - whether to name listing a directory, `false` for a forwarded section,
  *   which can only run a task
  * @returns the hint, or `null` when `input` names something else,
  *   like a file without a task suffix, or a directory when not `listable`
  */
-export const to_task_path_hint = (
-	input: string,
-	root: string = process.cwd(),
-	listable = true
-): string | null => {
+export const to_task_path_hint = (input: string, root: string, listable = true): string | null => {
 	const hints: Array<string> = [];
 	const task_file = find_task_file_for_input(input, root);
 	if (task_file !== null) hints.push(to_run_task_file_hint(task_file));

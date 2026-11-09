@@ -79,22 +79,28 @@ export const resolve_gro_module_path = (path = ''): string => {
  * @param node - the `node` program, whose environment the root decides
  * @param loader_path - path to loader
  * @param invoke_path - path to file to spawn with `node`
+ * @param argv - the args after `invoke_path`
+ * @param node_env - the host's `NODE_ENV`, read by the root
  * @see https://nodejs.org/api/packages.html#conditional-exports
  */
 export const spawn_with_loader = (
 	node: SpawnProgram,
 	loader_path: string,
 	invoke_path: string,
-	argv: Array<string>
-): Promise<SpawnResult> => node.run(spawn_with_loader_args(loader_path, invoke_path, argv));
+	argv: ReadonlyArray<string>,
+	node_env: string | undefined
+): Promise<SpawnResult> =>
+	node.run(spawn_with_loader_args(loader_path, invoke_path, argv, node_env));
 
 /**
  * The Node args that run `invoke_path` with Gro's loader registered.
+ * @param node_env - the host's `NODE_ENV`, read by the root
  */
 export const spawn_with_loader_args = (
 	loader_path: string,
 	invoke_path: string,
-	argv: Array<string>
+	argv: ReadonlyArray<string>,
+	node_env: string | undefined
 ): Array<string> => {
 	const args = [
 		'--import',
@@ -107,7 +113,7 @@ export const spawn_with_loader_args = (
 		'--experimental-import-meta-resolve' // for `import.meta.resolve`
 	];
 	// In almost all cases we want the exports condition to be `"development"`. Needed for `esm-env`.
-	if (process.env.NODE_ENV !== 'production') {
+	if (node_env !== 'production') {
 		args.push('-C', 'development'); // same as `--conditions`
 	}
 	args.push(invoke_path, ...argv);

@@ -15,7 +15,7 @@ const CIRCULAR_FIXTURE_DIR = resolve('src/test/fixtures/sveltekit_app_env_circul
 const spawn_fixture = async (dir: string, env?: Record<string, string>) =>
 	spawnSync(
 		process.execPath,
-		spawn_with_loader_args(LOADER_SOURCE_PATH, resolve(dir, 'main.ts'), []),
+		spawn_with_loader_args(LOADER_SOURCE_PATH, resolve(dir, 'main.ts'), [], undefined),
 		{ cwd: dir, env: { ...process.env, ...env }, stdio: 'inherit' }
 	);
 
@@ -70,7 +70,8 @@ const FS_PATHS_MODULE_SPECIFIER = 'file:///gro/fs_paths.ts';
 const specifiers = {
 	env_module_specifier: ENV_MODULE_SPECIFIER,
 	fs_module_specifier: FS_MODULE_SPECIFIER,
-	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER
+	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER,
+	process_module_specifier: 'file:///gro/process.ts'
 };
 
 describe('render_sveltekit_shim_app_env_vars', () => {
@@ -92,7 +93,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 			dev: true
 		});
 		expect(source).toContain('export const A = __gro_env.A;');
-		expect(source).toContain('__gro_load_env(__gro_create_fs_paths(__gro_fs), {"dev":true})');
+		expect(source).toContain('...{"dev":true},\n\t\tambient_env: __gro_process.env.get_all()');
 		expect(source).not.toContain('export const B');
 	});
 
@@ -105,7 +106,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 			env_dir: '/project'
 		});
 		expect(source).toContain(
-			'__gro_load_env(__gro_create_fs_paths(__gro_fs), {"dev":false,"env_dir":"/project"})'
+			'...{"dev":false,"env_dir":"/project"},\n\t\tambient_env: __gro_process.env.get_all()'
 		);
 		expect(source).toContain(`} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`);
 	});

@@ -13,7 +13,7 @@ export { create_mock_logger, create_mock_config } from './test_helpers.ts';
  */
 export const MOCK_BUILD_CACHE_DEPENDENCIES: BuildCacheDependencies = {
 	gro_version: '1.0.0',
-	node_version: 'v24.0.0',
+	runtime_version: 'node/v24.0.0',
 	package_lock_hash: 'lock123'
 };
 

@@ -51,7 +51,7 @@ describe('invoke_task finish', () => {
 			`export const task = {run: ({invoke_task}) => invoke_task(${JSON.stringify(inner)})};\n`
 		);
 
-		await invoke_task(outer, {}, { config, fs_paths, parent_log: create_log() });
+		await invoke_task(outer, {}, { config, fs_paths, raw_rest_args: [], parent_log: create_log() });
 
 		const totals = lines.filter((line) => line.includes('🕒'));
 		assert.strictEqual(totals.length, 1, lines.join('\n'));
@@ -72,7 +72,11 @@ describe('invoke_task finish', () => {
 
 		let error;
 		try {
-			await invoke_task(failing, {}, { config, fs_paths, parent_log: create_log() });
+			await invoke_task(
+				failing,
+				{},
+				{ config, fs_paths, raw_rest_args: [], parent_log: create_log() }
+			);
 		} catch (e) {
 			error = e;
 		}

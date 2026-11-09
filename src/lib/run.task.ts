@@ -5,6 +5,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
+import { process } from './process.ts';
 import { TaskError, type Task } from './task.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -65,7 +66,13 @@ export const task: Task<Args> = {
 		try {
 			// the script is the user's, so it gets the whole environment
 			const node = spawn.program('node', { pass_env: 'all' });
-			spawned = await spawn_with_loader(node, loader_path, path, full_argv);
+			spawned = await spawn_with_loader(
+				node,
+				loader_path,
+				path,
+				full_argv,
+				process.env.get('NODE_ENV')
+			);
 		} catch (error) {
 			if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });
 			throw error;

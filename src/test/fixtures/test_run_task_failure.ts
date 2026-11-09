@@ -38,6 +38,7 @@ async function runTest() {
 			invoke_task: async () => {},
 			config,
 			fs_paths,
+			raw_rest_args: [],
 			graph,
 			log,
 			timings: new Timings()

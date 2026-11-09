@@ -17,6 +17,7 @@ import { FsError, is_fs_error, type FsErrorKind } from '../fs_error.ts';
 import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
 import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
 import { to_checked_cwd } from './cwd.ts';
+import { process } from '../process.ts';
 
 // TODO: the realpath and readlink this boundary reads from `node:fs` become an op on the `Fs`
 // passed in, a root op beside `open_dir`, reached through it and never imported, so building
@@ -97,7 +98,7 @@ const to_utf8_path = (path: string, bytes: Uint8Array, what = 'resolves to a pat
 };
 
 // read once, when the module loads; an unset, empty, or relative `HOME` protects nothing
-const HOME = process.env.HOME;
+const HOME = process.env.get('HOME');
 
 // the process's working directory, the project Gro runs in, protected whatever project
 // an `FsPaths` is over, read once when the module loads, as `fs.project` is

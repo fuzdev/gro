@@ -3,6 +3,11 @@ import { describe, test, expect, vi, afterEach } from 'vitest';
 import { task } from '#lib/typecheck.task.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
+import { set_mock_process_args } from './process_mocks.ts';
+
+vi.mock('#lib/process.ts', async () =>
+	(await import('./process_mocks.ts')).create_mock_process_module()
+);
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -11,10 +16,8 @@ vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	sveltekit_sync_if_available: vi.fn(async () => undefined)
 }));
 
-const original_argv = process.argv;
-
 afterEach(async () => {
-	process.argv = original_argv;
+	set_mock_process_args([]);
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
 });
@@ -33,7 +36,7 @@ const find_only = async (found: string): Promise<void> => {
 
 const run_tsc = async (forwarded: Array<string>): Promise<Array<string>> => {
 	await find_only('tsc');
-	process.argv = ['node', 'gro', 'typecheck', '--', 'tsc', ...forwarded];
+	set_mock_process_args(['typecheck', '--', 'tsc', ...forwarded]);
 	await task.run(create_mock_task_context(ARGS));
 	const { calls } = await get_mock_spawn();
 	expect(calls).toHaveLength(1);
@@ -46,7 +49,7 @@ describe('typecheck task forwarded args', () => {
 	test('svelte-check gets the text verbatim', async () => {
 		await find_only('svelte-check');
 		const forwarded = ['--threshold', 'error', '--tsconfig', './x.json', '--no-cache', '--x='];
-		process.argv = ['node', 'gro', 'typecheck', '--', 'svelte-check', ...forwarded];
+		set_mock_process_args(['typecheck', '--', 'svelte-check', ...forwarded]);
 		await task.run(create_mock_task_context(ARGS));
 		const { calls } = await get_mock_spawn();
 		expect(calls[0]!.method).toBe('start');

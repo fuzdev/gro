@@ -24,8 +24,6 @@ import {
 describe('to_forwarded_args_by_command', () => {
 	test('parses only gro sections, keyed by the task', () => {
 		const raw_rest_args = to_raw_rest_args([
-			'gro',
-			'taskname',
 			'a',
 			'--d',
 			'--',
@@ -65,12 +63,12 @@ describe('to_forwarded_args_by_command', () => {
 			'--c',
 			'5'
 		]);
-		expect(to_forwarded_args_by_command(raw_rest_args)).toEqual({
+		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({
 			'gro a': { a: true },
 			'gro b': { '2': 't2a', t: true, t2: 't2b', t222: 2 },
 			'gro d': { b: 'a', c: 5 }
 		});
-		expect(to_forwarded_args('gro b', raw_rest_args)).toEqual({
+		expect(to_forwarded_args('gro b', raw_rest_args, process.cwd())).toEqual({
 			'2': 't2a',
 			t: true,
 			t2: 't2b',
@@ -79,34 +77,36 @@ describe('to_forwarded_args_by_command', () => {
 	});
 
 	test('skips sections without a command and tool sections', () => {
-		const raw_rest_args = to_raw_rest_args('gro test -- --flag -- eslint --fix'.split(' '));
-		expect(to_forwarded_args_by_command(raw_rest_args)).toEqual({});
+		const raw_rest_args = to_raw_rest_args('test -- --flag -- eslint --fix'.split(' '));
+		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({});
 	});
 
 	test('throws when gro without taskname', () => {
-		const raw_rest_args = to_raw_rest_args('gro test -- gro'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(
+		const raw_rest_args = to_raw_rest_args('test -- gro'.split(' '));
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
 			'Malformed args following a `--`. Expected gro taskname'
 		);
 	});
 
 	test('keys `gro task` by the normalized path after it', () => {
 		const raw_rest_args = to_raw_rest_args(
-			'gro check -- gro task ./src/lib/a.task.ts --b -- gro task src/c.task.ts --d'.split(' ')
+			'check -- gro task ./src/lib/a.task.ts --b -- gro task src/c.task.ts --d'.split(' ')
 		);
-		expect(to_forwarded_args_by_command(raw_rest_args)).toEqual({
+		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({
 			'gro task src/lib/a.task.ts': { b: true },
 			'gro task src/c.task.ts': { d: true }
 		});
-		const absolute = to_raw_rest_args(['gro', 'check', '--', 'gro', 'task', resolve('x.task.ts')]);
-		expect(Object.keys(to_forwarded_args_by_command(absolute))).toEqual(['gro task x.task.ts']);
+		const absolute = to_raw_rest_args(['check', '--', 'gro', 'task', resolve('x.task.ts')]);
+		expect(Object.keys(to_forwarded_args_by_command(absolute, process.cwd()))).toEqual([
+			'gro task x.task.ts'
+		]);
 	});
 
 	test('throws when `gro task` has no path', () => {
-		const raw_rest_args = to_raw_rest_args('gro check -- gro task --b'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(
+		const raw_rest_args = to_raw_rest_args('check -- gro task --b'.split(' '));
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
 			'Malformed args following a `--`. Expected a path after `gro task`'
 		);
 	});
@@ -127,36 +127,36 @@ describe('to_forwarded_args_by_command', () => {
 				'`src/lib/check` is a path, not a builtin name. Run the task file with `gro task src/lib/check.task.ts`.'
 			]
 		] as const) {
-			const raw_rest_args = to_raw_rest_args(['gro', 'check', '--', 'gro', input, '--a']);
-			expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
-			expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(message);
+			const raw_rest_args = to_raw_rest_args(['check', '--', 'gro', input, '--a']);
+			expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
+			expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(message);
 		}
-		expect(to_task_path_without_verb_message('src/lib')).toContain(
+		expect(to_task_path_without_verb_message('src/lib', process.cwd())).toContain(
 			"List the directory's tasks with `gro task src/lib`."
 		);
 	});
 
 	test('the removed `gro/` prefix throws the CLI hint', () => {
-		const raw_rest_args = to_raw_rest_args('gro check -- gro gro/test --a'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(
+		const raw_rest_args = to_raw_rest_args('check -- gro gro/test --a'.split(' '));
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
 			to_removed_builtin_prefix_message('gro/test')
 		);
 		expect(to_removed_builtin_prefix_message('gro/test')).toContain('use `test`');
 	});
 
 	test('a forwarded flag replacing the positional args is a usage error', () => {
-		const raw_rest_args = to_raw_rest_args('gro check -- gro test --no-_'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(TaskError);
+		const raw_rest_args = to_raw_rest_args('check -- gro test --no-_'.split(' '));
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
 		// a tool's section is never parsed
 		expect(
-			to_forwarded_argv('vitest', to_raw_rest_args('gro test -- vitest --no-_'.split(' ')))
+			to_forwarded_argv('vitest', to_raw_rest_args('test -- vitest --no-_'.split(' ')))
 		).toEqual(['--no-_']);
 	});
 
 	test('throws when gro with only flags', () => {
-		const raw_rest_args = to_raw_rest_args('gro test -- gro --flag'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args)).toThrow(
+		const raw_rest_args = to_raw_rest_args('test -- gro --flag'.split(' '));
+		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
 			'Malformed args following a `--`. Expected gro taskname'
 		);
 	});
@@ -164,7 +164,7 @@ describe('to_forwarded_args_by_command', () => {
 
 describe('to_forwarded_argv', () => {
 	const forward = (...section: Array<string>): Array<string> =>
-		to_forwarded_argv('tool', to_raw_rest_args(['node', 'gro', 'x', '--', 'tool', ...section]));
+		to_forwarded_argv('tool', to_raw_rest_args(['x', '--', 'tool', ...section]));
 
 	test('passes the text verbatim, unlike a parse and serialize', () => {
 		const cases: Array<Array<string>> = [
@@ -184,23 +184,21 @@ describe('to_forwarded_argv', () => {
 	});
 
 	test('returns an empty array without a section for the command', () => {
-		expect(to_forwarded_argv('tool', to_raw_rest_args(['node', 'gro', 'x']))).toEqual([]);
+		expect(to_forwarded_argv('tool', to_raw_rest_args(['x']))).toEqual([]);
 		expect(forward()).toEqual([]);
-		expect(to_forwarded_argv('tsc', to_raw_rest_args('gro x -- eslint --fix'.split(' ')))).toEqual(
-			[]
-		);
+		expect(to_forwarded_argv('tsc', to_raw_rest_args('x -- eslint --fix'.split(' ')))).toEqual([]);
 	});
 
 	test('reads the section of its command among several, the last when repeated', () => {
 		const raw_rest_args = to_raw_rest_args(
-			'gro x -- --implicit -- eslint --fix -- gro test --a -- tsc -b -- eslint --cache'.split(' ')
+			'x -- --implicit -- eslint --fix -- gro test --a -- tsc -b -- eslint --cache'.split(' ')
 		);
 		expect(to_forwarded_argv('eslint', raw_rest_args)).toEqual(['--cache']);
 		expect(to_forwarded_argv('tsc', raw_rest_args)).toEqual(['-b']);
 	});
 
 	test('a command named only as a later arg is no section', () => {
-		const raw_rest_args = to_raw_rest_args('gro x -- --tool eslint --fix'.split(' '));
+		const raw_rest_args = to_raw_rest_args('x -- --tool eslint --fix'.split(' '));
 		expect(to_forwarded_argv('eslint', raw_rest_args)).toEqual([]);
 	});
 });
@@ -272,7 +270,7 @@ describe('has_forwarded_flag', () => {
 
 describe('to_implicit_forwarded_argv', () => {
 	const implicit = (cli: string, task_name = 'test', command?: string): Array<string> =>
-		to_implicit_forwarded_argv(task_name, command, ['node', 'gro', ...cli.split(' ')]);
+		to_implicit_forwarded_argv(task_name, cli.split(' '), process.cwd(), command);
 
 	test('the first section verbatim for the task the CLI invoked', () => {
 		expect(implicit('test -- --watch --coverage')).toEqual(['--watch', '--coverage']);
@@ -313,7 +311,7 @@ describe('to_implicit_forwarded_argv', () => {
 
 describe('to_task_args', () => {
 	test('basic task with flags', () => {
-		const result = to_task_args(['node', 'gro', 'test', '--watch']);
+		const result = to_task_args(['test', '--watch']);
 		expect(result).toEqual({
 			task_name: 'test',
 			task_path: null,
@@ -322,7 +320,7 @@ describe('to_task_args', () => {
 	});
 
 	test('task with positionals', () => {
-		const result = to_task_args(['node', 'gro', 'test', 'foo.ts', 'bar.ts']);
+		const result = to_task_args(['test', 'foo.ts', 'bar.ts']);
 		expect(result).toEqual({
 			task_name: 'test',
 			task_path: null,
@@ -331,7 +329,7 @@ describe('to_task_args', () => {
 	});
 
 	test('stops parsing at --', () => {
-		const result = to_task_args(['node', 'gro', 'test', '--watch', '--', 'vitest', '--coverage']);
+		const result = to_task_args(['test', '--watch', '--', 'vitest', '--coverage']);
 		expect(result).toEqual({
 			task_name: 'test',
 			task_path: null,
@@ -340,7 +338,7 @@ describe('to_task_args', () => {
 	});
 
 	test('no task name', () => {
-		const result = to_task_args(['node', 'gro', '--help']);
+		const result = to_task_args(['--help']);
 		expect(result).toEqual({
 			task_name: '',
 			task_path: null,
@@ -349,7 +347,7 @@ describe('to_task_args', () => {
 	});
 
 	test('empty _ array removed to enable schema defaults', () => {
-		const result = to_task_args(['node', 'gro', 'test']);
+		const result = to_task_args(['test']);
 		expect(result).toEqual({
 			task_name: 'test',
 			task_path: null,
@@ -359,7 +357,7 @@ describe('to_task_args', () => {
 	});
 
 	test('task name from positionals', () => {
-		const result = to_task_args(['node', 'gro', 'build']);
+		const result = to_task_args(['build']);
 		expect(result).toEqual({
 			task_name: 'build',
 			task_path: null,
@@ -368,7 +366,7 @@ describe('to_task_args', () => {
 	});
 
 	test('mixed flags and positionals', () => {
-		const result = to_task_args(['node', 'gro', 'test', 'foo.ts', 'bar.ts', '--watch']);
+		const result = to_task_args(['test', 'foo.ts', 'bar.ts', '--watch']);
 		expect(result).toEqual({
 			task_name: 'test',
 			task_path: null,
@@ -377,7 +375,7 @@ describe('to_task_args', () => {
 	});
 
 	test('`gro task` consumes the path after it', () => {
-		const result = to_task_args(['node', 'gro', 'task', 'src/lib/a.task.ts', 'b', '--c']);
+		const result = to_task_args(['task', 'src/lib/a.task.ts', 'b', '--c']);
 		expect(result).toEqual({
 			task_name: 'task',
 			task_path: 'src/lib/a.task.ts',
@@ -386,10 +384,10 @@ describe('to_task_args', () => {
 	});
 
 	test('`gro task` with no path', () => {
-		const result = to_task_args(['node', 'gro', 'task', '--help']);
+		const result = to_task_args(['task', '--help']);
 		expect(result).toEqual({ task_name: 'task', task_path: null, args: { help: true } });
 		expect(result.args._).toBeUndefined();
-		expect(to_task_args(['node', 'gro', 'task', '--', 'x'])).toEqual({
+		expect(to_task_args(['task', '--', 'x'])).toEqual({
 			task_name: 'task',
 			task_path: null,
 			args: {}
@@ -412,7 +410,7 @@ describe('to_task_args', () => {
 			[['--out=a.task.ts', 'src/b.task.ts'], '`gro task src/b.task.ts --out=a.task.ts`'],
 			[['--a', 'x.task.ts', '--', 'gro', 'test'], '`gro task x.task.ts --a -- gro test`']
 		] as const) {
-			const run = () => to_task_args(['node', 'gro', 'task', ...argv]);
+			const run = () => to_task_args(['task', ...argv]);
 			expect(run).toThrow(TaskError);
 			expect(run).toThrow(
 				'`gro task` takes no flags before the path, so flags for the task go after it: ' + form
@@ -421,7 +419,7 @@ describe('to_task_args', () => {
 	});
 
 	test('`gro task <path>` takes flags after the path', () => {
-		expect(to_task_args(['node', 'gro', 'task', 'src/x.task.ts', '--c', '--help'])).toEqual({
+		expect(to_task_args(['task', 'src/x.task.ts', '--c', '--help'])).toEqual({
 			task_name: 'task',
 			task_path: 'src/x.task.ts',
 			args: { c: true, help: true }
@@ -429,14 +427,14 @@ describe('to_task_args', () => {
 	});
 
 	test('`task` after a builtin name is a positional, not the verb', () => {
-		const result = to_task_args(['node', 'gro', 'test', 'task']);
+		const result = to_task_args(['test', 'task']);
 		expect(result).toEqual({ task_name: 'test', task_path: null, args: { _: ['task'] } });
 	});
 
 	test('a flag replacing the positional args is a usage error', () => {
 		for (const argv of [['run', '--no-_'], ['run', '--_', 'x.ts'], ['-_']]) {
-			expect(() => to_task_args(['node', 'gro', ...argv])).toThrow(TaskError);
-			expect(() => to_task_args(['node', 'gro', ...argv])).toThrow(
+			expect(() => to_task_args([...argv])).toThrow(TaskError);
+			expect(() => to_task_args([...argv])).toThrow(
 				"`_` holds the positional args and can't be set by a flag like `--_` or `--no-_`"
 			);
 		}
@@ -446,8 +444,6 @@ describe('to_task_args', () => {
 describe('to_task_args for `gro run`', () => {
 	test("everything after the path is the script's, verbatim", () => {
 		const result = to_task_args([
-			'node',
-			'gro',
 			'run',
 			'x.ts',
 			'--help',
@@ -463,18 +459,16 @@ describe('to_task_args for `gro run`', () => {
 			task_path: null,
 			args: { _: ['x.ts', '--help', '--port', '0123', '--no-cache', '--', '--x=', '--_'] }
 		});
-		expect(to_raw_rest_args(['node', 'gro', 'run', 'x.ts', '--', 'gro', 'test', '--a'])).toEqual(
-			[]
-		);
+		expect(to_raw_rest_args(['run', 'x.ts', '--', 'gro', 'test', '--a'])).toEqual([]);
 	});
 
 	test('only `--help` goes before the path', () => {
-		expect(to_task_args(['node', 'gro', 'run', '--help'])).toEqual({
+		expect(to_task_args(['run', '--help'])).toEqual({
 			task_name: 'run',
 			task_path: null,
 			args: { help: true }
 		});
-		expect(to_task_args(['node', 'gro', 'run', '--help', 'x.ts', '--b'])).toEqual({
+		expect(to_task_args(['run', '--help', 'x.ts', '--b'])).toEqual({
 			task_name: 'run',
 			task_path: null,
 			args: { _: ['x.ts', '--b'], help: true }
@@ -493,24 +487,24 @@ describe('to_task_args for `gro run`', () => {
 			[['--max', '3', 'script'], '<path> --max 3 script'],
 			[['--out=dist/x.js', 'script.ts'], 'script.ts --out=dist/x.js']
 		] as const) {
-			expect(() => to_task_args(['node', 'gro', 'run', ...argv])).toThrow(TaskError);
-			expect(() => to_task_args(['node', 'gro', 'run', ...argv])).toThrow(
+			expect(() => to_task_args(['run', ...argv])).toThrow(TaskError);
+			expect(() => to_task_args(['run', ...argv])).toThrow(
 				`flags for the script go after it: \`gro run ${form}\``
 			);
 		}
 	});
 
 	test('a `--` before any path ends the CLI args as for other tasks', () => {
-		expect(to_task_args(['node', 'gro', 'run', '--', 'x.ts'])).toEqual({
+		expect(to_task_args(['run', '--', 'x.ts'])).toEqual({
 			task_name: 'run',
 			task_path: null,
 			args: {}
 		});
-		expect(to_raw_rest_args(['node', 'gro', 'run', '--', 'x.ts'])).toEqual(['--', 'x.ts']);
+		expect(to_raw_rest_args(['run', '--', 'x.ts'])).toEqual(['--', 'x.ts']);
 	});
 
 	test('`run` not as the first arg is a positional', () => {
-		expect(to_task_args(['node', 'gro', 'test', 'run', 'x.ts', '--a'])).toEqual({
+		expect(to_task_args(['test', 'run', 'x.ts', '--a'])).toEqual({
 			task_name: 'test',
 			task_path: null,
 			args: { _: ['run', 'x.ts'], a: true }
@@ -520,41 +514,41 @@ describe('to_task_args for `gro run`', () => {
 
 describe('to_raw_rest_args', () => {
 	test('with --', () => {
-		const result = to_raw_rest_args(['node', 'gro', 'test', '--', 'foo']);
+		const result = to_raw_rest_args(['test', '--', 'foo']);
 		expect(result).toEqual(['--', 'foo']);
 	});
 
 	test('without --', () => {
-		const result = to_raw_rest_args(['node', 'gro', 'test']);
+		const result = to_raw_rest_args(['test']);
 		expect(result).toEqual([]);
 	});
 
 	test('multiple --', () => {
-		const result = to_raw_rest_args(['node', 'gro', 'test', '--', 'foo', '--', 'bar']);
+		const result = to_raw_rest_args(['test', '--', 'foo', '--', 'bar']);
 		expect(result).toEqual(['--', 'foo', '--', 'bar']);
 	});
 
 	test('only --', () => {
-		const result = to_raw_rest_args(['node', 'gro', 'test', '--']);
+		const result = to_raw_rest_args(['test', '--']);
 		expect(result).toEqual(['--']);
 	});
 
 	test('args before -- ignored', () => {
-		const result = to_raw_rest_args(['node', 'gro', 'test', '--watch', '--', '--coverage']);
+		const result = to_raw_rest_args(['test', '--watch', '--', '--coverage']);
 		expect(result).toEqual(['--', '--coverage']);
 	});
 });
 
 describe('to_forwarded_args', () => {
 	test('returns args for a gro task command', () => {
-		const raw_rest_args = to_raw_rest_args('gro check -- gro test --fix'.split(' '));
-		expect(to_forwarded_args('gro test', raw_rest_args)).toEqual({ fix: true });
+		const raw_rest_args = to_raw_rest_args('check -- gro test --fix'.split(' '));
+		expect(to_forwarded_args('gro test', raw_rest_args, process.cwd())).toEqual({ fix: true });
 	});
 
 	test('returns empty object for a tool or absent command', () => {
-		const raw_rest_args = to_raw_rest_args('gro check -- eslint --fix'.split(' '));
-		expect(to_forwarded_args('eslint', raw_rest_args)).toEqual({});
-		expect(to_forwarded_args('gro lint', raw_rest_args)).toEqual({});
+		const raw_rest_args = to_raw_rest_args('check -- eslint --fix'.split(' '));
+		expect(to_forwarded_args('eslint', raw_rest_args, process.cwd())).toEqual({});
+		expect(to_forwarded_args('gro lint', raw_rest_args, process.cwd())).toEqual({});
 	});
 });
 
@@ -567,9 +561,9 @@ describe('merge_forwarded_args', () => {
 
 	test('a forwarded flag wins a no-x pair against a later direct alias', () => {
 		// `gro x --color -C -- gro x --color`
-		const argv = 'gro x --color -C -- gro x --color'.split(' ');
-		const { args } = to_task_args(['node', ...argv]);
-		const forwarded = to_forwarded_args('gro x', to_raw_rest_args(['node', ...argv]));
+		const argv = 'x --color -C -- gro x --color'.split(' ');
+		const { args } = to_task_args(argv);
+		const forwarded = to_forwarded_args('gro x', to_raw_rest_args(argv), process.cwd());
 		const merged = merge_forwarded_args(args, forwarded);
 		expect(Object.keys(merged)).toEqual(['C', 'color']);
 		const parsed = args_parse(merged, ColorArgs);
@@ -663,5 +657,38 @@ describe('integration: round-trip parsing', () => {
 		// When passed as array to argv_parse (simulating proper shell quoting), it works
 		const reparsed = argv_parse(serialized);
 		expect(reparsed.message).toBe('hello world');
+	});
+});
+
+describe('the CLI args have no leading entries', () => {
+	test('the first arg is the task, so nothing before it is skipped', () => {
+		expect(to_task_args(['test'])).toEqual({ task_name: 'test', task_path: null, args: {} });
+		expect(to_task_args([])).toEqual({ task_name: '', task_path: null, args: {} });
+		expect(to_task_args(['test', '--a', 'b'])).toEqual({
+			task_name: 'test',
+			task_path: null,
+			args: { a: 'b' }
+		});
+	});
+
+	test('`--` as the first arg leaves no task and forwards everything after it', () => {
+		expect(to_task_args(['--', 'x'])).toEqual({ task_name: '', task_path: null, args: {} });
+		expect(to_raw_rest_args(['--', 'x'])).toEqual(['--', 'x']);
+		expect(to_raw_rest_args(['--'])).toEqual(['--']);
+		expect(to_raw_rest_args([])).toEqual([]);
+	});
+
+	test('an empty string stays a positional and an empty string can be forwarded', () => {
+		expect(to_task_args(['test', '']).args).toEqual({ _: [''] });
+		expect(to_raw_rest_args(['test', '--', 'tool', ''])).toEqual(['--', 'tool', '']);
+		expect(to_forwarded_argv('tool', ['--', 'tool', '', '--', 'other'])).toEqual(['']);
+	});
+
+	test('`run` and `task` are verbs only as the first arg, so a later one is a positional', () => {
+		expect(to_task_args(['test', 'run', 'x.ts']).task_name).toBe('test');
+		expect(to_raw_rest_args(['test', 'run', 'x.ts', '--', 'a'])).toEqual(['--', 'a']);
+		expect(to_raw_rest_args(['run', 'x.ts', '--', 'a'])).toEqual([]);
+		// a flag before the path still refuses, at the same position
+		expect(() => to_task_args(['task', '--a', 'x.task.ts'])).toThrow('no flags before the path');
 	});
 });

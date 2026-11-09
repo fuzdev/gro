@@ -27,40 +27,46 @@ afterEach(async () => {
 describe('load_from_env', () => {
 	test("reads the project's `.env`", async () => {
 		await temp.write('.env', `${KEY}=local`);
-		assert.strictEqual(await load_from_env(fs_paths, KEY), 'local');
+		assert.strictEqual(await load_from_env(fs_paths, process.env, KEY), 'local');
 	});
 
 	test('never reads a parent directory `.env` by default', async () => {
 		await temp.write('.env', `${KEY}=parent`);
 		await temp.mkdir('child');
 		const child_paths = create_fs_paths({ ...fs, project: temp.dir('child') });
-		assert.strictEqual(await load_from_env(child_paths, KEY), undefined);
+		assert.strictEqual(await load_from_env(child_paths, process.env, KEY), undefined);
 	});
 
 	test('process.env wins over the files', async () => {
 		await temp.write('.env', `${KEY}=local`);
 		process.env[KEY] = 'ambient';
-		assert.strictEqual(await load_from_env(fs_paths, KEY, [join(temp.path, '.env')]), 'ambient');
+		assert.strictEqual(
+			await load_from_env(fs_paths, process.env, KEY, [join(temp.path, '.env')]),
+			'ambient'
+		);
 	});
 
 	test('reads explicit paths in order, skipping a missing one', async () => {
 		await temp.write('a.env', `${KEY}=`);
 		await temp.write('b.env', `${KEY}=b`);
 		const paths = ['a.env', 'missing.env', 'b.env'].map((p) => join(temp.path, p));
-		assert.strictEqual(await load_from_env(fs_paths, KEY, paths), 'b');
+		assert.strictEqual(await load_from_env(fs_paths, process.env, KEY, paths), 'b');
 	});
 
 	test('follows a symlinked env file', async () => {
 		await temp.mkdir('elsewhere');
 		await temp.write('elsewhere/real.env', `${KEY}=linked`);
 		symlinkSync(join(temp.path, 'elsewhere/real.env'), join(temp.path, 'link.env'));
-		assert.strictEqual(await load_from_env(fs_paths, KEY, [join(temp.path, 'link.env')]), 'linked');
+		assert.strictEqual(
+			await load_from_env(fs_paths, process.env, KEY, [join(temp.path, 'link.env')]),
+			'linked'
+		);
 	});
 
 	test('an env file that can not be read throws', async () => {
 		await temp.mkdir('dir.env');
 		try {
-			await load_from_env(fs_paths, KEY, [join(temp.path, 'dir.env')]);
+			await load_from_env(fs_paths, process.env, KEY, [join(temp.path, 'dir.env')]);
 			assert.fail('expected a throw');
 		} catch (error) {
 			assert.ok(is_fs_error(error, 'is_a_directory'), String(error));

@@ -2,6 +2,7 @@ import { describe, test, assert, vi, beforeEach } from 'vitest';
 
 import { task as publish_task, type Args } from '#lib/publish.task.ts';
 import { TaskError, type TaskContext } from '#lib/task.ts';
+import { process as process_host } from '#lib/process.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
@@ -100,6 +101,7 @@ describe('publish_task version bump', () => {
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
 		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![2], {
 			log: ctx.log,
+			stderr: process_host.stderr,
 			context: 'after version bump'
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);

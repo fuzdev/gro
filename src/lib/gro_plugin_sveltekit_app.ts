@@ -1,4 +1,5 @@
-import { to_forwarded_argv } from './args.ts';
+import { to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { process } from './process.ts';
 import {
 	find_cli,
 	spawn_cli,
@@ -34,7 +35,10 @@ export const gro_plugin_sveltekit_app = ({
 			if (dev) {
 				// `vite dev` in development mode
 				if (watch) {
-					const serialized_args = ['dev', ...to_forwarded_argv(vite_cli)];
+					const serialized_args = [
+						'dev',
+						...to_forwarded_argv(vite_cli, to_raw_rest_args(process.args))
+					];
 					sveltekit_process = await spawn_cli_process(found_vite_cli, serialized_args, log);
 				} else {
 					log.debug(
@@ -44,7 +48,10 @@ export const gro_plugin_sveltekit_app = ({
 				}
 			} else {
 				// `vite build` in production mode
-				const serialized_args = ['build', ...to_forwarded_argv(vite_cli)];
+				const serialized_args = [
+					'build',
+					...to_forwarded_argv(vite_cli, to_raw_rest_args(process.args))
+				];
 				const result = await spawn_cli(found_vite_cli, serialized_args, log);
 				if (!spawn_result_is_ok(result)) {
 					throw new TaskError(`${vite_cli} build failed: ${to_spawn_result_message(result)}`);

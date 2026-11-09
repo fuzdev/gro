@@ -144,9 +144,9 @@ export const is_task_path_input = (input: string): boolean =>
  * the form tasks are displayed, keyed, and forwarded args by.
  * A relative `path` is relative to `root`, with or without a leading `./`.
  * @param path - a relative or absolute task path
- * @param root - the project root, defaults to the cwd
+ * @param root - the project root
  */
-export const to_task_path = (path: string, root: string = process.cwd()): string =>
+export const to_task_path = (path: string, root: string): string =>
 	relative(root, resolve(root, path));
 
 /**

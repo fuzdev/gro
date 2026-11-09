@@ -424,6 +424,12 @@ so an invoking task reports only that it failed.
 The CLI exits with `1`, or with the `exit_code` of a `TaskError` thrown by the task it invoked,
 an integer 1–255, like `throw new TaskError('failed', {exit_code: 3})`.
 
+A reader of stdout or stderr that leaves doesn't change that: Gro ignores the broken pipe and the run
+finishes with its own exit code, so `gro foo | head` exits `0` only when `foo` passed,
+and `gro dev | head` keeps running until signalled.
+An uncaught error waits a few seconds at most for its output to be accepted before exiting,
+though after a child that inherits stdio, a write past the pipe's buffer can still block on the reader.
+
 To test a caught error, use `is_task_error` and `is_silent_error` from `@fuzdev/gro/task.ts`
 rather than `instanceof`: they match subclasses and errors from other copies of Gro,
 like a project's own install beside a global one.

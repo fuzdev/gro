@@ -19,15 +19,12 @@ export type RawInputPath = Flavored<s.Infer<typeof RawInputPath>, 'RawInputPath'
  * A raw input path can be to a file or directory in the following forms:
  *
  * - an absolute path, preserved
- * - an explicit relative path, e.g. `./src/foo`, resolved to `root_path` which defaults to the cwd
+ * - an explicit relative path, e.g. `./src/foo`, resolved to `root_path`
  * - an implicit relative path, e.g. `src/foo`, preserved
  *
  * Thus, input paths are either absolute or implicitly relative.
  */
-export const to_input_path = (
-	raw_input_path: RawInputPath,
-	root_path = process.cwd()
-): InputPath => {
+export const to_input_path = (raw_input_path: RawInputPath, root_path: string): InputPath => {
 	if (raw_input_path[0] === '.') {
 		return resolve(root_path, raw_input_path);
 	}
@@ -36,7 +33,7 @@ export const to_input_path = (
 
 export const to_input_paths = (
 	raw_input_paths: Array<RawInputPath>,
-	root_path?: string
+	root_path: string
 ): Array<InputPath> => raw_input_paths.map((p) => to_input_path(p, root_path));
 
 export interface PossiblePath {

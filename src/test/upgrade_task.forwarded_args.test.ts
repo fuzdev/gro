@@ -5,6 +5,11 @@ import { Args, task } from '#lib/upgrade.task.ts';
 import { install_with_cache_healing_or_throw } from '#lib/npm_install_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_task_context } from './test_helpers.ts';
+import { set_mock_process_args } from './process_mocks.ts';
+
+vi.mock('#lib/process.ts', async () =>
+	(await import('./process_mocks.ts')).create_mock_process_module()
+);
 
 vi.mock('#lib/npm_install_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/npm_install_helpers.ts')>()),
@@ -22,10 +27,8 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 	}))
 }));
 
-const original_argv = process.argv;
-
 afterEach(async () => {
-	process.argv = original_argv;
+	set_mock_process_args([]);
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
 });
@@ -33,7 +36,7 @@ afterEach(async () => {
 describe('upgrade task forwarded args', () => {
 	test('the package manager gets the text verbatim after the install args', async () => {
 		const forwarded = ['--no-audit', '--fetch-retries', '01', '--x='];
-		process.argv = ['node', 'gro', 'upgrade', '--', 'npm', ...forwarded];
+		set_mock_process_args(['upgrade', '--', 'npm', ...forwarded]);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
@@ -44,7 +47,7 @@ describe('upgrade task forwarded args', () => {
 	});
 
 	test('`gro sync` re-invokes the local Gro with the whole environment', async () => {
-		process.argv = ['node', 'gro', 'upgrade'];
+		set_mock_process_args(['upgrade']);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));

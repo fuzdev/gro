@@ -301,11 +301,16 @@ The module's TSDoc has each op's contract.
   Every library module that reaches the filesystem takes an `FsPaths` or a narrow handle as a parameter,
   and only roots import `fs` and build one: the builtin tasks, the CLI's entry (`invoke.ts`),
   genfiles, the default config, and the plugin modules like `gro_plugin_sveltekit_library`.
+  The process host module follows the same rule: those roots and the CLI's bootstrap (`gro.ts`)
+  import `process`, and library code takes what it needs as parameters, a plain record, a `cwd`
+  string, or the CLI args.
+  The one exception is `internal/fs_boundary.ts`, which imports `process` to read `HOME` once, when it loads,
+  for its protected-directory set, so `create_fs_paths` needs no parameter for a value no root chooses.
   The CLI's entry passes its own to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
-  importing `fs` and `create_fs_paths` to read the `.env` files when they run,
-  so a module importing `$app/env/*` shows that read in its import graph,
+  importing `fs` and `create_fs_paths` to read the `.env` files and `process` for the ambient env
+  when they run, so a module importing `$app/env/*` shows those reads in its import graph,
   while the loader that renders them never loads the host module on its hooks thread.
   Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
   A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
@@ -327,6 +332,13 @@ The module's TSDoc has each op's contract.
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
   `spawn.ts` is the one module on `node:child_process`.
+  Gro's code reads the process through its host module, except what stays on the global,
+  Node-only like the fs machinery above: `process.on`, `once`, and `kill`, which the module doesn't have,
+  so `invoke.ts`'s handlers and `spawn.ts` use them directly, and `spawn.ts`'s live read of the
+  environment for a child; the module implementations (`process.ts`, `internal/cwd.ts`);
+  and what runs in the loader's hooks or restores a tool's write, `svelte_config.ts`
+  (`NODE_ENV`, `MODE`, and the cwd) and `sveltekit_shim_app_env_vars.ts` (the cwd).
+  The runtime's builtin has no global, so these move when Gro runs on `fgro`.
 
 - Advisory grants, designed and not built, will count a `node:*` import on the Node Gro as the host module it corresponds to,
   and report one with no entry here as ambient:
@@ -451,6 +463,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   so a narrowed handle bounds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
   so importing the module throws when the working directory has been removed.
+- `process.on`, `once`, and `kill` have no equivalent in the process host module,
+  so the CLI's uncaught-error and output-error handlers and the spawn module stay on the `process` global.
 
 ### spawn
 
@@ -544,6 +558,8 @@ What the runtime's builtin must do that the Node implementation can't:
   `get_all` holding only the granted names that are set.
 - Refuse a name holding a NUL byte, a `=`, or a lone surrogate before it reaches the OS.
 - Make the environment fixed at startup, with no way for a run to change it.
+- Own the read of `HOME` behind the protected directories of [Gro's guards](#gros-guards-on-its-own-destructive-paths),
+  so `create_fs_paths` grants no environment read to whatever imports it.
 - Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
 - Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
   ignoring `SIGPIPE`.

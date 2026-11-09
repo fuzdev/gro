@@ -302,7 +302,7 @@ describe('args', () => {
 	test('are the arguments under the loader, as `gro run` starts the script', () => {
 		const script = write_fixture(ARGS_FIXTURE);
 		const { status, stdout, stderr } = run_node(
-			spawn_with_loader_args(LOADER_SOURCE_PATH, script, ['--help', 'a', '--', 'b']),
+			spawn_with_loader_args(LOADER_SOURCE_PATH, script, ['--help', 'a', '--', 'b'], undefined),
 			{ env: { PATH: '/usr/bin:/bin' } }
 		);
 		assert.strictEqual(status, 0, stderr);
@@ -317,14 +317,12 @@ describe('args', () => {
 			 export const task = {summary: 'x', run: () => { console.log('ARGS' + JSON.stringify(p.args)); }};`
 		);
 		const { status, stdout, stderr } = run_node(
-			spawn_with_loader_args(LOADER_SOURCE_PATH, join(paths.lib, 'invoke.ts'), [
-				'task',
-				'args.task.ts',
-				'--flag',
-				'v',
-				'--',
-				'other'
-			]),
+			spawn_with_loader_args(
+				LOADER_SOURCE_PATH,
+				join(paths.lib, 'invoke.ts'),
+				['task', 'args.task.ts', '--flag', 'v', '--', 'other'],
+				undefined
+			),
 			{ env: { PATH: '/usr/bin:/bin' } }
 		);
 		assert.strictEqual(status, 0, stderr);

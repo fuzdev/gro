@@ -32,7 +32,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, [], undefined);
 
 		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
@@ -50,7 +50,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, [], undefined);
 
 		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
@@ -68,7 +68,7 @@ test(
 		// eslint-disable-next-line no-console
 		console.log('Test script exists:', existsSync(testScript));
 
-		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, testScript, [], undefined);
 
 		expect(result).toEqual({ kind: 'exited', code: 0 });
 	},
@@ -79,6 +79,7 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	invoke_task: vi.fn(),
 	config: await create_mock_config(),
 	fs_paths: create_mock_fs_paths(),
+	raw_rest_args: [],
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()
@@ -201,6 +202,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 			invoke_task,
 			config,
 			fs_paths,
+			raw_rest_args: ['--', 'x'],
 			graph,
 			log: create_mock_logger(),
 			timings: create_mock_timings()
@@ -210,9 +212,11 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 	const ctx = result.output as TaskContext;
 	assert.strictEqual(ctx.graph, graph);
 	assert.ok(!('fs_paths' in ctx));
+	assert.ok(!('raw_rest_args' in ctx));
 	expect(invoke_task).toHaveBeenNthCalledWith(1, 'other', undefined, {
 		config,
 		fs_paths,
+		raw_rest_args: ['--', 'x'],
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
@@ -220,6 +224,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 	expect(invoke_task).toHaveBeenNthCalledWith(2, 'other', undefined, {
 		config: other_config,
 		fs_paths,
+		raw_rest_args: ['--', 'x'],
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()

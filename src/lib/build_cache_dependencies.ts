@@ -20,9 +20,9 @@ export interface BuildCacheDependencies {
 	 */
 	gro_version: string;
 	/**
-	 * `process.version` of the running Node.
+	 * The running runtime's name and version, like `process.runtime_version`.
 	 */
-	node_version: string;
+	runtime_version: string;
 	/**
 	 * BLAKE3 hash of `node_modules/.package-lock.json`, which npm rewrites when it changes
 	 * what's installed. `null` when the file is missing, as with other package managers,
@@ -37,14 +37,16 @@ export interface BuildCacheDependencies {
  * Reads the build inputs outside git that the build cache key folds in.
  *
  * @param fs_paths - opens the project's `node_modules/`
+ * @param runtime_version - the running runtime's name and version, like `process.runtime_version`
  */
 export const load_build_cache_dependencies = async (
-	fs_paths: FsPaths
+	fs_paths: FsPaths,
+	runtime_version: string
 ): Promise<BuildCacheDependencies> => {
 	const package_lock_hash = await hash_npm_hidden_lockfile(fs_paths);
 	return {
 		gro_version: package_json_load_for_gro().version ?? '',
-		node_version: process.version,
+		runtime_version,
 		package_lock_hash
 	};
 };

@@ -14,7 +14,7 @@ const log = new Logger();
 
 const fs_paths = create_fs_paths(fs);
 
-const token = await load_from_env(fs_paths, 'SECRET_GITHUB_API_TOKEN');
+const token = await load_from_env(fs_paths, process.env, 'SECRET_GITHUB_API_TOKEN');
 if (!token) {
 	log.warn('the env var SECRET_GITHUB_API_TOKEN was not found, so API calls with be unauthorized');
 }

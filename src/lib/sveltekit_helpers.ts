@@ -3,7 +3,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 
-import { has_forwarded_flag, to_forwarded_argv } from './args.ts';
+import { has_forwarded_flag } from './args.ts';
 import {
 	find_cli,
 	find_local_cli,
@@ -244,6 +244,10 @@ export interface RunSveltePackageOptions {
 	 * The `svelte-package` CLI's name, found only in the project's `node_modules/.bin`.
 	 */
 	svelte_package_cli: string;
+	/**
+	 * The verbatim args forwarded to the CLI, from `to_forwarded_argv`.
+	 */
+	forwarded_argv: Array<string>;
 	log: Logger;
 	/**
 	 * The package manager named in the install hint when the CLI isn't found.
@@ -266,6 +270,7 @@ export const run_svelte_package = async (
 		package_json,
 		svelte_package_options,
 		svelte_package_cli: cli,
+		forwarded_argv,
 		log,
 		pm_cli
 	}: RunSveltePackageOptions
@@ -283,7 +288,6 @@ export const run_svelte_package = async (
 			`Failed to find SvelteKit packaging CLI \`${cli}\`, do you need to run \`${pm_cli} install\`?`
 		);
 	}
-	const forwarded_argv = to_forwarded_argv(cli);
 	const serialized_args = [
 		...serialize_svelte_package_options(svelte_package_options, forwarded_argv),
 		...forwarded_argv

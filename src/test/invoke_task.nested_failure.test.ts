@@ -60,6 +60,7 @@ const invoke_outer = async (outer: string): Promise<unknown> => {
 			{
 				config: create_empty_gro_config(),
 				fs_paths: await create_project_fs_paths(dir),
+				raw_rest_args: [],
 				graph: create_mock_module_graph(),
 				// the tasks' loggers are its children, logging at `info` despite Vitest's default `off`
 				parent_log: new Logger('test', {

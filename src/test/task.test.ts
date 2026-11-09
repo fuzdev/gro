@@ -49,8 +49,8 @@ describe('task', () => {
 		expect(to_task_path('/p/src/lib/a.task.ts', '/p/')).toBe('src/lib/a.task.ts');
 		expect(to_task_path('a.task.ts', '/p')).toBe('a.task.ts');
 		expect(to_task_path('/q/a.task.ts', '/p')).toBe('../q/a.task.ts');
-		expect(to_task_path('src/lib/a.task.ts')).toBe('src/lib/a.task.ts');
-		expect(to_task_path(resolve('src/lib/a.task.ts'))).toBe('src/lib/a.task.ts');
+		expect(to_task_path('src/lib/a.task.ts', process.cwd())).toBe('src/lib/a.task.ts');
+		expect(to_task_path(resolve('src/lib/a.task.ts'), process.cwd())).toBe('src/lib/a.task.ts');
 	});
 
 	test('to_task_command', () => {

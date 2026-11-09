@@ -100,6 +100,10 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
 	 * How the rendered module imports Gro's `fs_paths` module, a file URL.
 	 */
 	fs_paths_module_specifier: string;
+	/**
+	 * How the rendered module imports Gro's process host module, a file URL.
+	 */
+	process_module_specifier: string;
 }
 
 /**
@@ -108,8 +112,9 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
  * so unlike SvelteKit's build, static vars aren't inlined - the module reads them
  * from the env files and ambient env, importing the declarations module and Gro's `env` module.
  * The rendered module is the composition root of that read: it imports the fs host module
- * and builds the `FsPaths` the env files are read through, so `$app/env/*` shows its fs reach
- * in its imports, while the shim's rendering, in the loader's hooks, never loads the host module.
+ * and builds the `FsPaths` the env files are read through, and it imports the process host module
+ * for the ambient env, so `$app/env/*` shows its fs and env reach in its imports,
+ * while the shim's rendering, in the loader's hooks, never loads a host module.
  */
 export const render_sveltekit_shim_app_env_vars = ({
 	visibility,
@@ -117,6 +122,7 @@ export const render_sveltekit_shim_app_env_vars = ({
 	env_module_specifier,
 	fs_module_specifier,
 	fs_paths_module_specifier,
+	process_module_specifier,
 	dev,
 	env_dir
 }: RenderSveltekitShimAppEnvVarsOptions): string => {
@@ -138,11 +144,15 @@ import {
 } from ${JSON.stringify(env_module_specifier)};
 import {fs as __gro_fs} from ${JSON.stringify(fs_module_specifier)};
 import {create_fs_paths as __gro_create_fs_paths} from ${JSON.stringify(fs_paths_module_specifier)};
+import {process as __gro_process} from ${JSON.stringify(process_module_specifier)};
 
 const __gro_env = __gro_resolve_env_vars(
 	__gro_variables,
 	${JSON.stringify(visibility)},
-	await __gro_load_env(__gro_create_fs_paths(__gro_fs), ${load_env_options})
+	await __gro_load_env(__gro_create_fs_paths(__gro_fs), {
+		...${load_env_options},
+		ambient_env: __gro_process.env.get_all()
+	})
 );
 
 ${names.map((name) => `export const ${name} = __gro_env.${name};`).join('\n')}

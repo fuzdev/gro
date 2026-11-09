@@ -10,6 +10,7 @@ import { is_spawn_error } from './spawn_error.ts';
 import type { FsReadDir } from './fs.ts';
 import { package_json_load } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
+import type { ProcessOutput } from './process.ts';
 
 /**
  * Env vars that tell npm to skip devDependencies. We strip these from the
@@ -86,41 +87,56 @@ export type NpmCommandRunner = (
 /**
  * Default runner: streams the subprocess live while capturing stderr so an
  * ETARGET-class failure can be detected. `stdin`/`stdout` inherit (live npm
- * output); `stderr` is teed to `process.stderr` and accumulated.
+ * output); `stderr` is teed to `tee_stderr`, each write awaited, and accumulated.
  */
-const run_npm_command: NpmCommandRunner = async (program, args, options) => {
-	let child;
-	try {
-		child = await program.start(args, { ...options, stdio: ['inherit', 'inherit', 'pipe'] });
-	} catch (error) {
-		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
-		throw error;
-	}
-	const decoder = new TextDecoder();
-	let stderr = '';
-	for await (const chunk of child.stderr!) {
-		stderr += decoder.decode(chunk, { stream: true });
-		process.stderr.write(chunk);
-	}
-	stderr += decoder.decode();
-	const result = await child.closed;
-	return {
-		ok: spawn_result_is_ok(result),
-		stderr,
-		detail: to_spawn_result_message(result)
+const create_npm_command_runner =
+	(tee_stderr: ProcessOutput): NpmCommandRunner =>
+	async (program, args, options) => {
+		let child;
+		try {
+			child = await program.start(args, { ...options, stdio: ['inherit', 'inherit', 'pipe'] });
+		} catch (error) {
+			if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
+			throw error;
+		}
+		const decoder = new TextDecoder();
+		let stderr = '';
+		for await (const chunk of child.stderr!) {
+			stderr += decoder.decode(chunk, { stream: true });
+			await tee_stderr.write(chunk);
+		}
+		stderr += decoder.decode();
+		const result = await child.closed;
+		return {
+			ok: spawn_result_is_ok(result),
+			stderr,
+			detail: to_spawn_result_message(result)
+		};
 	};
-};
 
 /**
- * Options for `install_with_cache_healing`.
+ * Options for `install_with_cache_healing`,
+ * with `stderr` for the default runner to tee to, or an injected `run` instead.
  */
-export interface InstallCacheHealingOptions {
+export type InstallCacheHealingOptions = InstallCacheHealingBaseOptions &
+	(
+		| {
+				/** where the default runner tees the install's stderr, `process.stderr` at a root */
+				stderr: ProcessOutput;
+				run?: undefined;
+		  }
+		| {
+				stderr?: undefined;
+				/** a command runner injected for tests, instead of the live-teeing default */
+				run: NpmCommandRunner;
+		  }
+	);
+
+export interface InstallCacheHealingBaseOptions {
 	/** working directory for the install; defaults to the project root */
 	cwd?: FsReadDir;
 	/** logger for cache-heal progress */
 	log?: Logger;
-	/** injectable command runner for tests; defaults to a live-teeing spawn */
-	run?: NpmCommandRunner;
 	/**
 	 * Extra args appended after `install`, e.g. package specs and flags for
 	 * `gro upgrade` (`['foo@latest', '--force']`) or a single dep for
@@ -156,15 +172,16 @@ export interface InstallCacheHealingOptions {
  *
  * @param spawn - a root, which resolves `pm_cli` on `PATH` and takes the install's environment
  * @param pm_cli - the npm-compatible CLI to run (e.g. `config.pm_cli`)
- * @param options - cwd, logger, extra install args, and an injectable runner
+ * @param options - cwd, stderr, logger, extra install args, and an injectable runner
  * @returns the result of the (possibly retried) install
  */
 export const install_with_cache_healing = async (
 	spawn: Spawn,
 	pm_cli: string,
-	options: InstallCacheHealingOptions = {}
+	options: InstallCacheHealingOptions
 ): Promise<NpmCommandResult> => {
-	const { cwd, log, run = run_npm_command, install_args = [] } = options;
+	const { cwd, log, install_args = [] } = options;
+	const run = options.run ?? create_npm_command_runner(options.stderr);
 	let program: SpawnProgram;
 	try {
 		program = spawn.program(pm_cli, to_install_program_options());
@@ -333,7 +350,7 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
 export const install_with_cache_healing_or_throw = async (
 	spawn: Spawn,
 	pm_cli: string,
-	options: InstallOrThrowOptions = {}
+	options: InstallOrThrowOptions
 ): Promise<void> => {
 	const { gro_dir } = options;
 	const fs_paths = options.throw_if_gro_packages_changed ? options.fs_paths : null;

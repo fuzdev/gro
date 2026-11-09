@@ -2,7 +2,8 @@ import { basename, dirname, resolve } from 'node:path';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_argv } from './args.ts';
+import { to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { process } from './process.ts';
 import { find_cli, spawn_cli } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
@@ -137,15 +138,22 @@ export const task: Task<Args> = {
 		if (force) {
 			install_args.push('--force');
 		}
-		install_args.push(...to_forwarded_argv(config.pm_cli));
-		await install_with_cache_healing_or_throw(spawn, config.pm_cli, { install_args, log });
+		install_args.push(...to_forwarded_argv(config.pm_cli, to_raw_rest_args(process.args)));
+		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+			install_args,
+			log,
+			stderr: process.stderr
+		});
 
 		// TODO @many this relies on npm behavior that changed in v11
 		// If we deleted the lockfile or node modules, `npm install` again
 		// to fix a recurring npm bug getting the lockfile to its final state.
 		if (!dry && (delete_node_modules || delete_lockfile)) {
 			log.info(`installing again to fix npm lockfile bugs`);
-			await install_with_cache_healing_or_throw(spawn, config.pm_cli, { log });
+			await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+				log,
+				stderr: process.stderr
+			});
 		}
 
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.

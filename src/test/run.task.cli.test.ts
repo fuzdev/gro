@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, afterEach, assert } from 'vitest';
 
 import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
-import { to_task_args } from '#lib/args.ts';
+import { to_raw_rest_args, to_task_args } from '#lib/args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { SilentError, TaskError } from '#lib/task.ts';
 import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';
@@ -13,10 +13,7 @@ vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	spawn_with_loader: vi.fn(async () => ({ kind: 'exited', code: 0 }))
 }));
 
-const original_argv = process.argv;
-
 afterEach(() => {
-	process.argv = original_argv;
 	vi.clearAllMocks();
 });
 
@@ -25,13 +22,17 @@ const SCRIPT = 'package.json';
 
 // the script args `gro run` spawns for the CLI args after `gro`
 const run_cli = async (argv: Array<string>): Promise<Array<string>> => {
-	process.argv = ['node', 'gro', ...argv];
-	await invoke_cli(create_mock_fs_paths(), to_task_args(), await create_mock_config());
+	await invoke_cli(
+		create_mock_fs_paths(),
+		to_task_args(argv),
+		await create_mock_config(),
+		to_raw_rest_args(argv)
+	);
 	expect(vi.mocked(spawn_with_loader)).toHaveBeenCalledTimes(1);
 	const [, loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
 	expect(loader_path).toBe('/loader.js');
 	expect(path).toBe(SCRIPT);
-	return script_argv;
+	return [...script_argv];
 };
 
 describe('gro run script args', () => {
@@ -68,13 +69,13 @@ describe('gro run script args', () => {
 	});
 
 	test('`invoke_task` serializes named args after the positionals', async () => {
-		process.argv = ['node', 'gro', 'x'];
 		await invoke_task(
 			'run',
 			{ _: [SCRIPT, 'a'], port: 3000, watch: true },
 			{
 				config: await create_mock_config(),
 				fs_paths: create_mock_fs_paths(),
+				raw_rest_args: [],
 				graph: create_mock_module_graph()
 			}
 		);
@@ -90,10 +91,15 @@ describe('gro run script args', () => {
 describe('gro run failure', () => {
 	test("a script's exit code is the failure's `exit_code`, which the CLI exits with", async () => {
 		vi.mocked(spawn_with_loader).mockResolvedValueOnce({ kind: 'exited', code: 3 });
-		process.argv = ['node', 'gro', 'run', SCRIPT];
+		const argv = ['run', SCRIPT];
 		let error;
 		try {
-			await invoke_cli(create_mock_fs_paths(), to_task_args(), await create_mock_config());
+			await invoke_cli(
+				create_mock_fs_paths(),
+				to_task_args(argv),
+				await create_mock_config(),
+				to_raw_rest_args(argv)
+			);
 		} catch (e) {
 			error = e;
 		}

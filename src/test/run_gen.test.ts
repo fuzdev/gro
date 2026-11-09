@@ -20,7 +20,7 @@ test(
 		const test_script = resolve('src/test/fixtures/test_run_gen.ts');
 
 		const node = spawn.program('node', { pass_env: 'all' });
-		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, test_script, []);
+		const result = await spawn_with_loader(node, LOADER_SOURCE_PATH, test_script, [], undefined);
 
 		// The spawn_with_loader function handles output automatically
 		expect(result).toEqual({ kind: 'exited', code: 0 });

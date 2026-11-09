@@ -1,7 +1,8 @@
 import type { Plugin } from './plugin.ts';
 import { TaskError } from './task.ts';
 import { package_json_load } from './package_json.ts';
-import { to_forwarded_argv, to_forwarded_flag_value } from './args.ts';
+import { to_forwarded_argv, to_forwarded_flag_value, to_raw_rest_args } from './args.ts';
+import { process } from './process.ts';
 import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
@@ -63,10 +64,15 @@ export const gro_plugin_sveltekit_library = ({
 		setup: async ({ dev, log, config }) => {
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
+				const forwarded_argv = to_forwarded_argv(
+					svelte_package_cli,
+					to_raw_rest_args(process.args)
+				);
 				await run_svelte_package(fs_paths, spawn, {
 					package_json,
 					svelte_package_options,
 					svelte_package_cli,
+					forwarded_argv,
 					log,
 					pm_cli: config.pm_cli
 				});
@@ -75,7 +81,7 @@ export const gro_plugin_sveltekit_library = ({
 				// `dist` resolves for external consumers without `allowImportingTsExtensions`.
 				// a forwarded `-- svelte-package --output x` wins, like it does for `svelte-package`
 				const output_dir =
-					to_forwarded_flag_value(to_forwarded_argv(svelte_package_cli), 'output', 'o') ??
+					to_forwarded_flag_value(forwarded_argv, 'output', 'o') ??
 					svelte_package_options?.output ??
 					svelte_package_options?.o ??
 					SVELTEKIT_DIST_DIRNAME;

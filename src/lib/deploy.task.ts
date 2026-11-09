@@ -34,6 +34,7 @@ import {
 	to_protected_dirs
 } from './internal/fs_boundary.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
+import { process } from './process.ts';
 
 // docs at ../docs/deploy.md
 

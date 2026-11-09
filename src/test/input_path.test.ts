@@ -27,18 +27,18 @@ const create_stat_fs_paths = (info: FileInfo | null = null): MockFsPaths => {
 };
 
 test('to_input_path', () => {
-	expect(to_input_path(resolve('foo.ts'))).toBe(resolve('foo.ts'));
-	expect(to_input_path('./foo.ts')).toBe(resolve('foo.ts'));
-	expect(to_input_path('foo.ts')).toBe('foo.ts');
-	expect(to_input_path('gro/foo')).toBe('gro/foo'); // no special prefix
+	expect(to_input_path(resolve('foo.ts'), process.cwd())).toBe(resolve('foo.ts'));
+	expect(to_input_path('./foo.ts', process.cwd())).toBe(resolve('foo.ts'));
+	expect(to_input_path('foo.ts', process.cwd())).toBe('foo.ts');
+	expect(to_input_path('gro/foo', process.cwd())).toBe('gro/foo'); // no special prefix
 	// trailing slashes are preserved:
-	expect(to_input_path(resolve('foo/bar/'))).toBe(resolve('foo/bar/'));
-	expect(to_input_path('./foo/bar/')).toBe(resolve('foo/bar/'));
-	expect(to_input_path('foo/bar/')).toBe('foo/bar/');
+	expect(to_input_path(resolve('foo/bar/'), process.cwd())).toBe(resolve('foo/bar/'));
+	expect(to_input_path('./foo/bar/', process.cwd())).toBe(resolve('foo/bar/'));
+	expect(to_input_path('foo/bar/', process.cwd())).toBe('foo/bar/');
 });
 
 test('to_input_paths', () => {
-	expect(to_input_paths([resolve('foo/bar.ts'), './baz', 'foo'])).toEqual([
+	expect(to_input_paths([resolve('foo/bar.ts'), './baz', 'foo'], process.cwd())).toEqual([
 		resolve('foo/bar.ts'),
 		resolve('baz'),
 		'foo'

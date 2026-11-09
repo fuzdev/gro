@@ -146,7 +146,7 @@ describe('compute_build_cache_key', () => {
 		const log = create_mock_logger();
 		const no_lockfile = {
 			gro_version: '9.9.9',
-			node_version: 'v1.2.3',
+			runtime_version: 'node/v1.2.3',
 			package_lock_hash: null
 		};
 

@@ -58,7 +58,7 @@ const resolve = async (task_name: string, root: string = dir) =>
 
 // invokes the CLI with a real `FsPaths` whose project is the cwd when called, as the CLI's is
 const cli = async (task_args: CliTaskArgs, cli_config: GroConfig): Promise<void> =>
-	invoke_cli(await create_project_fs_paths(process.cwd()), task_args, cli_config);
+	invoke_cli(await create_project_fs_paths(process.cwd()), task_args, cli_config, []);
 
 const error_text = (): string =>
 	vi
@@ -422,8 +422,8 @@ describe('invoke_cli', () => {
 		assert.ok(!(await resolve('task', paths.root)).ok);
 		write_tasks(['src/lib/a.task.ts']);
 		await in_dir(dir, async () => {
-			await cli(parse_cli_task_args(['node', 'gro', 'task']), config);
-			await cli(parse_cli_task_args(['node', 'gro', 'task', 'src/lib/a.task.ts', '--x']), config);
+			await cli(parse_cli_task_args(['task']), config);
+			await cli(parse_cli_task_args(['task', 'src/lib/a.task.ts', '--x']), config);
 		});
 		const listed = vi.mocked(log_tasks).mock.calls;
 		assert.strictEqual(listed.length, 1);

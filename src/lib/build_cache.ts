@@ -23,7 +23,7 @@ import type { SpawnProgram } from './spawn.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
-export const BUILD_CACHE_VERSION = '3';
+export const BUILD_CACHE_VERSION = '4';
 
 /**
  * The build cache metadata's path, relative to the project.
@@ -103,7 +103,9 @@ export const BuildCacheMetadata = s.object({
 		description: "hash of user's custom build_cache_config from gro.config.ts."
 	}),
 	gro_version: meta(s.string, { description: 'version of the Gro that ran the build' }),
-	node_version: meta(s.string, { description: 'process.version of the Node that ran the build' }),
+	runtime_version: meta(s.string, {
+		description: 'name and version of the runtime that ran the build, `process.runtime_version`'
+	}),
 	package_lock_hash: meta(s.nullable(s.string), {
 		description: 'BLAKE3 hash of node_modules/.package-lock.json, null when missing'
 	}),
@@ -149,7 +151,7 @@ export const compute_build_cache_key = async (
 		// already computed during config normalization
 		build_cache_config_hash: config.build_cache_config_hash,
 		gro_version: deps.gro_version,
-		node_version: deps.node_version,
+		runtime_version: deps.runtime_version,
 		package_lock_hash: deps.package_lock_hash
 	};
 };
@@ -312,8 +314,8 @@ export const is_build_cache_valid = async (
 		return false;
 	}
 
-	if (metadata.node_version !== current.node_version) {
-		log.debug('Build cache invalid: Node version changed');
+	if (metadata.runtime_version !== current.runtime_version) {
+		log.debug('Build cache invalid: runtime version changed');
 		return false;
 	}
 

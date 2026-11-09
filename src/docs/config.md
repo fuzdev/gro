@@ -252,7 +252,7 @@ It's a name found on `PATH` or a project-relative path, and an absolute path is 
 The `build_cache_config` option defines custom build inputs
 that invalidate the [build cache](build.md#build-caching) when they change.
 Gro's build cache uses the git commit hash to detect when committed code or configs change,
-plus the Gro and Node versions and npm's record of the installed packages
+plus the Gro and runtime versions and npm's record of the installed packages
 (see [cache key](build.md#cache-key)),
 and only works with a clean workspace (see [dirty workspace behavior](build.md#dirty-workspace-behavior)).
 Use `build_cache_config` when your build also depends on external
@@ -353,7 +353,7 @@ During the build:
 2. Loads previous build's cache metadata from `.gro/build.json` (missing/corrupt = rebuild)
 3. Compares current git commit against cached commit (different = rebuild)
 4. Compares current config hash against cached config hash (different = rebuild)
-5. Compares the Gro version, Node version, and installed-packages hash (different = rebuild)
+5. Compares the Gro version, runtime version, and installed-packages hash (different = rebuild)
 6. If cache key matches, validates output files haven't been modified
 7. If all checks pass, uses the cached build
 

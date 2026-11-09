@@ -23,10 +23,9 @@ export interface LoadEnvOptions {
 	 */
 	env_files?: Array<string>;
 	/**
-	 * The env merged in last.
-	 * @default `process.env`
+	 * The env merged in last, a plain record a root builds, like `process.env.get_all()`.
 	 */
-	ambient_env?: Record<string, string | undefined>;
+	ambient_env: Readonly<Record<string, string | undefined>>;
 }
 
 /**

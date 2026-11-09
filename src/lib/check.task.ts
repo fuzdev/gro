@@ -8,6 +8,7 @@ import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import { spawn } from './spawn.ts';
+import { process } from './process.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -115,7 +116,7 @@ export const task: Task<Args> = {
 		}
 
 		// Disallow TODO*.md files in the project root on CI.
-		if (process.env.CI === 'true') {
+		if (process.env.get('CI') === 'true') {
 			const todo_files: Array<string> = [];
 			for await (const { name } of fs_paths.project.list()) {
 				if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);

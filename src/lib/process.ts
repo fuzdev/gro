@@ -366,7 +366,8 @@ class NodeProcessOutput implements ProcessOutput {
 				// listener only for this one, as Node's `Console` does, so another writer's still throws
 				if (stream.listenerCount('error') === 0) stream.once('error', ignore_error);
 				if (is_reader_gone(error)) {
-					resolve(false);
+					// on a later turn, so a write loop past a gone reader can't starve signal handling
+					setImmediate(resolve, false);
 				} else {
 					reject(
 						new ProcessError('io_error', target, `io_error: ${target}: ${error.message}`, {

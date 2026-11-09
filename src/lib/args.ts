@@ -8,7 +8,7 @@ import {
 } from './internal/task_hints.ts';
 
 /**
- * The task the CLI names and its args, parsed from `process.argv`.
+ * The task the CLI names and its args, parsed from the CLI args.
  */
 export interface CliTaskArgs {
 	/**
@@ -41,15 +41,15 @@ const RUN_FLAGS: ReadonlySet<string> = new Set(['help']);
 const HELP_FLAG_MATCHER = /^--(no-)?help(=|$)/;
 
 /**
- * The index in `argv` of the path of `gro <command> [flags] <path>`,
+ * The index in `cli_args` of the path of `gro <command> [flags] <path>`,
  * the first arg after `command` that doesn't start with `-`, before any `--`,
  * or `-1` when there's none.
  * Only `command` as the first arg counts, the documented form.
  */
-const to_path_index = (argv: Array<string>, command: string): number => {
-	if (argv[2] !== command) return -1;
-	for (let i = 3; i < argv.length; i++) {
-		const arg = argv[i]!;
+const to_path_index = (cli_args: ReadonlyArray<string>, command: string): number => {
+	if (cli_args[0] !== command) return -1;
+	for (let i = 1; i < cli_args.length; i++) {
+		const arg = cli_args[i]!;
 		if (arg === '--') return -1;
 		if (!arg.startsWith('-')) return i;
 	}
@@ -57,11 +57,12 @@ const to_path_index = (argv: Array<string>, command: string): number => {
 };
 
 /**
- * The index in `argv` of the script path of `gro run [gro flags] <path> ...rest`,
+ * The index in `cli_args` of the script path of `gro run [gro flags] <path> ...rest`,
  * so a flag before the path never takes a value,
- * or `-1` when `argv` doesn't run a script.
+ * or `-1` when `cli_args` doesn't run a script.
  */
-const to_run_path_index = (argv: Array<string>): number => to_path_index(argv, RUN_TASK_NAME);
+const to_run_path_index = (cli_args: ReadonlyArray<string>): number =>
+	to_path_index(cli_args, RUN_TASK_NAME);
 
 /**
  * Refuses a flag before the path of `gro task [flags] <path>`,
@@ -69,27 +70,27 @@ const to_run_path_index = (argv: Array<string>): number => to_path_index(argv, R
  * `gro task` with no path takes `--help`, which the listing ignores.
  * @throws TaskError naming the form with the flags after the path
  */
-const assert_no_task_flags_before_path = (argv: Array<string>): void => {
-	if (argv[2] !== TASK_VERB) return;
-	const path_index = to_path_index(argv, TASK_VERB);
-	const forwarded_index = argv.indexOf('--');
-	const flags = argv.slice(
-		3,
-		path_index !== -1 ? path_index : forwarded_index === -1 ? argv.length : forwarded_index
+const assert_no_task_flags_before_path = (cli_args: ReadonlyArray<string>): void => {
+	if (cli_args[0] !== TASK_VERB) return;
+	const path_index = to_path_index(cli_args, TASK_VERB);
+	const forwarded_index = cli_args.indexOf('--');
+	const flags = cli_args.slice(
+		1,
+		path_index !== -1 ? path_index : forwarded_index === -1 ? cli_args.length : forwarded_index
 	);
 	if (!flags.length) return;
 	if (path_index === -1 && flags.every((flag) => HELP_FLAG_MATCHER.test(flag))) return;
 	// the refusal reads the first arg not starting with `-` as the path, which may be a flag's value,
 	// as in `--max 3 x.task.ts`, so the hint takes the first task path instead,
 	// and repeats every other arg before any `--` after it, in order
-	const args = argv.slice(3, forwarded_index === -1 ? argv.length : forwarded_index);
+	const args = cli_args.slice(1, forwarded_index === -1 ? cli_args.length : forwarded_index);
 	// a flag's own `=` value, like `--out=a.task.ts`, is never the path;
 	// with no task path, the refusal's path is the hint's when only help flags,
 	// which take no value, come before it, as in `gro task --help src/lib`
 	const task_path_index = args.findIndex((arg) => !arg.startsWith('-') && is_task_path(arg));
 	const hint_path_index =
 		task_path_index === -1 && path_index !== -1 && flags.every((f) => HELP_FLAG_MATCHER.test(f))
-			? path_index - 3
+			? path_index - 1
 			: task_path_index;
 	throw new TaskError(
 		`\`gro ${TASK_VERB}\` takes no flags before the path, so flags for the task go after it: ` +
@@ -98,7 +99,7 @@ const assert_no_task_flags_before_path = (argv: Array<string>): void => {
 				args,
 				hint_path_index,
 				true,
-				forwarded_index === -1 ? [] : argv.slice(forwarded_index)
+				forwarded_index === -1 ? [] : cli_args.slice(forwarded_index)
 			)
 	);
 };
@@ -136,8 +137,7 @@ const to_path_first_hint = (
 	].join(' ')}\``;
 
 /**
- * Parses the task and its `args` from `process.argv`,
- * ignoring anything after any `--`.
+ * Parses the task and its `args` from the CLI args, ignoring anything after any `--`.
  * `gro task <path>` consumes one more positional, the path, and refuses a flag before it.
  * `gro run [--help] <path> ...rest` refuses any other flag before the path
  * and appends the path and `rest` verbatim to the positionals,
@@ -145,14 +145,19 @@ const to_path_first_hint = (
  * @throws TaskError when a flag replaces the positional args, like `--_` or `--no-_`,
  *   `gro run` has a flag other than `--help` before its path,
  *   or `gro task` has a flag before its path or one other than `--help` with none
+ * @param cli_args - the args after the CLI's own path, the task name first, as in `process.args`
  */
-export const to_task_args = (argv = process.argv): CliTaskArgs => {
-	assert_no_task_flags_before_path(argv);
-	const run_path_index = to_run_path_index(argv);
-	const forwarded_index = argv.indexOf('--');
+export const to_task_args = (cli_args: ReadonlyArray<string>): CliTaskArgs => {
+	assert_no_task_flags_before_path(cli_args);
+	const run_path_index = to_run_path_index(cli_args);
+	const forwarded_index = cli_args.indexOf('--');
 	const end =
-		run_path_index !== -1 ? run_path_index : forwarded_index === -1 ? argv.length : forwarded_index;
-	const raw_argv = argv.slice(2, end);
+		run_path_index !== -1
+			? run_path_index
+			: forwarded_index === -1
+				? cli_args.length
+				: forwarded_index;
+	const raw_argv = cli_args.slice(0, end);
 	const args = argv_parse(raw_argv);
 	const positionals = to_positionals(args, raw_argv);
 	const task_name = to_optional_string(positionals.shift()) ?? '';
@@ -163,7 +168,7 @@ export const to_task_args = (argv = process.argv): CliTaskArgs => {
 			// which may be a flag's value, as in `--max 3 x.ts`,
 			// so the hint takes the first arg naming a JS or TS module instead, `<path>` with none,
 			// and repeats every other arg after `run`, the script's included, in order
-			const run_args = argv.slice(3);
+			const run_args = cli_args.slice(1);
 			throw new TaskError(
 				`\`gro ${RUN_TASK_NAME}\` takes no flags before the path, so flags for the script go after it: ` +
 					to_path_first_hint(
@@ -174,7 +179,7 @@ export const to_task_args = (argv = process.argv): CliTaskArgs => {
 					)
 			);
 		}
-		positionals.push(...argv.slice(run_path_index));
+		positionals.push(...cli_args.slice(run_path_index));
 	}
 	if (!positionals.length) delete (args as Args)._; // enable schema defaults
 	return { task_name, task_path, args };
@@ -200,19 +205,19 @@ const to_positionals = (args: Args, argv: Array<string>): Array<Positional> => {
 /**
  * Gets the array of raw string args starting with the first `--`, if any.
  * `gro run <path> ...rest` has none, as everything after the path is the script's.
- * @param argv - the process's args, defaults to `process.argv`
+ * @param cli_args - the args after the CLI's own path, as in `process.args`
  */
-export const to_raw_rest_args = (argv = process.argv): Array<string> => {
-	if (to_run_path_index(argv) !== -1) return [];
-	const forwarded_index = argv.indexOf('--');
-	return forwarded_index === -1 ? [] : argv.slice(forwarded_index);
+export const to_raw_rest_args = (cli_args: ReadonlyArray<string>): Array<string> => {
+	if (to_run_path_index(cli_args) !== -1) return [];
+	const forwarded_index = cli_args.indexOf('--');
+	return forwarded_index === -1 ? [] : cli_args.slice(forwarded_index);
 };
 
 /**
  * Splits `raw_rest_args` into its sections, each the verbatim args after a `--`
  * up to the next, skipping empty sections.
  */
-const to_forwarded_sections = (raw_rest_args: Array<string>): Array<Array<string>> => {
+const to_forwarded_sections = (raw_rest_args: ReadonlyArray<string>): Array<Array<string>> => {
 	const sections: Array<Array<string>> = [];
 	let section: Array<string> | undefined;
 	for (const arg of raw_rest_args) {
@@ -240,12 +245,12 @@ const GRO_COMMAND = 'gro';
  * Gro tasks get parsed args with `to_forwarded_args` instead.
  * A literal `--` can't be forwarded, as it separates the sections.
  * @param command - the tool's CLI name, the section's first arg
- * @param raw_rest_args - the CLI args from the first `--` on, defaults to those of `process.argv`
+ * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
  * @returns the args after `command`, empty when no section names it
  */
 export const to_forwarded_argv = (
 	command: string,
-	raw_rest_args = to_raw_rest_args()
+	raw_rest_args: ReadonlyArray<string>
 ): Array<string> =>
 	to_forwarded_sections(raw_rest_args)
 		.findLast((section) => section[0] === command)
@@ -258,23 +263,25 @@ export const to_forwarded_argv = (
  * A first section starting with `gro` (a Gro task's) or with `command` (an explicit section,
  * read by `to_forwarded_argv`) is none.
  * @param task_name - the asking task's name, a builtin name or a normalized task path
+ * @param cli_args - the args after the CLI's own path, as in `process.args`
+ * @param root - the project root a task path in `cli_args` is relative to
  * @param command - the tool's CLI name, whose explicit section isn't implicit
- * @param argv - the CLI args, defaults to `process.argv`
  * @returns the first section's args, empty when absent or not for `task_name`
  */
 export const to_implicit_forwarded_argv = (
 	task_name: string,
-	command?: string,
-	argv = process.argv
+	cli_args: ReadonlyArray<string>,
+	root: string,
+	command?: string
 ): Array<string> => {
-	const raw_rest_args = to_raw_rest_args(argv);
+	const raw_rest_args = to_raw_rest_args(cli_args);
 	if (!raw_rest_args.length) return [];
-	const cli = to_task_args(argv);
+	const cli = to_task_args(cli_args);
 	const cli_task_name =
 		cli.task_name === TASK_VERB
 			? cli.task_path === null
 				? null
-				: to_task_path(cli.task_path)
+				: to_task_path(cli.task_path, root)
 			: cli.task_name;
 	if (cli_task_name !== task_name) return [];
 	// only the section right after the first `--`, empty when another `--` follows at once
@@ -347,11 +354,15 @@ export const to_forwarded_flag_value = (
  * like `gro test` given `gro check -- gro test --coverage`, or `{}` when none are.
  * Outside tools get verbatim args with `to_forwarded_argv` instead.
  * @param command - `gro` and the task name, from `to_task_command`
- * @param raw_rest_args - the CLI args from the first `--` on, defaults to those of `process.argv`
+ * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
+ * @param root - the project root a section's task path is relative to
  * @throws TaskError when a `gro` section is malformed, see `to_forwarded_args_by_command`
  */
-export const to_forwarded_args = (command: string, raw_rest_args?: Array<string>): Args =>
-	to_forwarded_args_by_command(raw_rest_args)[command] ?? {};
+export const to_forwarded_args = (
+	command: string,
+	raw_rest_args: ReadonlyArray<string>,
+	root: string
+): Args => to_forwarded_args_by_command(raw_rest_args, root)[command] ?? {};
 
 /**
  * Merges `forwarded` args over `args`, moving each forwarded key after every key of `args`.
@@ -378,14 +389,16 @@ export const merge_forwarded_args = (args: Args | undefined, forwarded: Args): A
  * and `-- gro task src/lib/x.task.ts --a` is keyed by `gro task` and the normalized path.
  * Other sections are left verbatim for outside tools, see `to_forwarded_argv`.
  * When a task has several sections, the last one wins.
- * @param raw_rest_args - the CLI args from the first `--` on, defaults to those of `process.argv`
+ * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
+ * @param root - the project root a section's task path is relative to
  * @returns the forwarded args of each Gro task command
  * @throws TaskError when a `gro` section names no task, a `gro task` section no path,
  *   a section names a path without `gro task` or a task with the removed `gro/` prefix,
  *   or a flag replaces a section's positional args
  */
 export const to_forwarded_args_by_command = (
-	raw_rest_args = to_raw_rest_args()
+	raw_rest_args: ReadonlyArray<string>,
+	root: string
 ): Record<string, Args | undefined> => {
 	const forwarded_args_by_command: Record<string, Args> = {};
 	for (const argv of to_forwarded_sections(raw_rest_args)) {
@@ -406,12 +419,12 @@ export const to_forwarded_args_by_command = (
 					`Malformed args following a \`--\`. Expected a path after \`gro task\`: \`${argv.join(' ')}\``
 				);
 			}
-			command += ' ' + to_task_path(task_path);
+			command += ' ' + to_task_path(task_path, root);
 		} else if (is_removed_builtin_prefix(task_name)) {
 			throw new TaskError(to_removed_builtin_prefix_message(task_name));
 		} else if (is_task_path_input(task_name)) {
 			// a forwarded section can run a task but not list one
-			throw new TaskError(to_task_path_without_verb_message(task_name, undefined, false));
+			throw new TaskError(to_task_path_without_verb_message(task_name, root, false));
 		}
 		if (!positionals.length) delete (args as Args)._;
 		forwarded_args_by_command[command] = args;

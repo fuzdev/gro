@@ -55,7 +55,7 @@ The cache key has these components:
 - **`build_cache_config` hash** - optional, for tracking external inputs like environment variables
   or feature flags (see [cache configuration](#cache-configuration))
 - **Gro version** - from the running Gro's `package.json`
-- **Node version** - `process.version`
+- **runtime version** - the running runtime's name and version, `process.runtime_version`
 - **installed packages** - a hash of `node_modules/.package-lock.json`,
   the hidden lockfile npm rewrites when it changes what's installed
 
@@ -234,7 +234,7 @@ See [`build.task.ts`](../lib/build.task.ts) for integration with the build pipel
 > implementation details for advanced debugging
 
 The build cache ([`src/lib/build_cache.ts`](../lib/build_cache.ts)) validates builds are current
-by tracking git commits, optional user config, the Gro and Node versions, and the installed packages.
+by tracking git commits, optional user config, the Gro and runtime versions, and the installed packages.
 
 ### how caching works
 
@@ -293,11 +293,11 @@ The `.gro/build.json` file stores:
 
 ```json
 {
-	"version": "2", // schema version
+	"version": "4", // schema version
 	"git_commit": "abc123...", // commit at build time
 	"build_cache_config_hash": "...", // BLAKE3 of user config
 	"gro_version": "...", // version of the Gro that ran the build
-	"node_version": "v24.0.0", // process.version
+	"runtime_version": "node/v24.0.0", // process.runtime_version
 	"package_lock_hash": "...", // BLAKE3 of node_modules/.package-lock.json, null when missing
 	"timestamp": "ISO-8601", // build completion time
 	"outputs": [
@@ -327,10 +327,10 @@ The `.gro/build.json` file stores:
 The cache validates builds through several checks:
 
 1. load `.gro/build.json` - missing/corrupt = rebuild
-2. check version = "2" - mismatch = rebuild
+2. check version = "4" - mismatch = rebuild
 3. compare git commit - different = rebuild
 4. compare config hash - different = rebuild
-5. compare Gro version, Node version, and installed-packages hash - different = rebuild
+5. compare Gro version, runtime version, and installed-packages hash - different = rebuild
 6. verify files exist - missing = rebuild
 7. check file sizes - mismatch = rebuild (fast path optimization)
 8. hash files in parallel - mismatch = rebuild

@@ -35,12 +35,12 @@ export type RunTaskResult =
 /**
  * What `run_task` builds the task's context from:
  * `config`, `graph`, `log`, and `timings` become its fields of the same name,
- * and `fs_paths` passes to the tasks it invokes, never onto its context.
+ * and `fs_paths` and `raw_rest_args` pass to the tasks it invokes, never onto its context.
  */
 export interface RunTaskOptions {
 	/**
 	 * The `invoke_task` the task's own `invoke_task` calls,
-	 * passing it this task's `config`, `fs_paths`, `graph`, `timings`, and `log`.
+	 * passing it this task's `config`, `fs_paths`, `raw_rest_args`, `graph`, `timings`, and `log`.
 	 */
 	invoke_task: typeof base_invoke_task;
 	config: GroConfig;
@@ -48,6 +48,10 @@ export interface RunTaskOptions {
 	 * The invoking root's boundary, passed to the tasks this task invokes.
 	 */
 	fs_paths: FsPaths;
+	/**
+	 * The CLI args from the first `--` on, passed to the tasks this task invokes.
+	 */
+	raw_rest_args: ReadonlyArray<string>;
 	graph: ModuleGraph;
 	log: Logger;
 	timings: Timings;
@@ -67,7 +71,7 @@ export const run_task = async (
 	unparsed_args: Args,
 	options: RunTaskOptions
 ): Promise<RunTaskResult> => {
-	const { invoke_task, config, fs_paths, graph, log, timings } = options;
+	const { invoke_task, config, fs_paths, raw_rest_args, graph, log, timings } = options;
 	const { task } = task_meta.mod;
 
 	if (unparsed_args.help) {
@@ -111,6 +115,7 @@ export const run_task = async (
 				invoke_task(invoked_task_name, invoked_args, {
 					config: invoked_options?.config ?? config,
 					fs_paths,
+					raw_rest_args,
 					graph,
 					timings,
 					parent_log: log

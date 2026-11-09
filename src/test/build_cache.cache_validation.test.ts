@@ -1,6 +1,10 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import { is_build_cache_valid } from '#lib/build_cache.ts';
+import {
+	BUILD_CACHE_VERSION,
+	is_build_cache_valid,
+	load_build_cache_metadata
+} from '#lib/build_cache.ts';
 import type { BuildCacheDependencies } from '#lib/build_cache_dependencies.ts';
 
 import {
@@ -158,7 +162,11 @@ describe('is_build_cache_valid', () => {
 
 	test.each([
 		['gro_version', { gro_version: '2.0.0' }, 'Build cache invalid: Gro version changed'],
-		['node_version', { node_version: 'v99.0.0' }, 'Build cache invalid: Node version changed'],
+		[
+			'runtime_version',
+			{ runtime_version: 'node/v99.0.0' },
+			'Build cache invalid: runtime version changed'
+		],
 		[
 			'package_lock_hash',
 			{ package_lock_hash: 'other_lock' },
@@ -213,5 +221,34 @@ describe('is_build_cache_valid', () => {
 		});
 
 		expect(result).toBe(true);
+	});
+});
+
+describe('load_build_cache_metadata across the runtime_version rekey', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	// the file an older Gro wrote: `node_version` where `runtime_version` is now
+	const to_old_metadata = (version: string) => {
+		const { runtime_version: _, ...rest } = create_mock_build_cache_metadata();
+		return JSON.stringify({ ...rest, version, node_version: 'v24.0.0' });
+	};
+
+	test.each([
+		['an older version', '3'],
+		['the current version', BUILD_CACHE_VERSION]
+	])('a file from an older Gro at %s is a miss, deleted, never a crash', async (_name, version) => {
+		vi.mocked(fs_paths.project.read_text_if_exists).mockResolvedValue(to_old_metadata(version));
+		vi.mocked(fs_paths.project.remove).mockResolvedValue(undefined);
+		expect(await load_build_cache_metadata(fs_paths)).toBeNull();
+		expect(fs_paths.project.remove).toHaveBeenCalledTimes(1);
+	});
+
+	test('a file with `runtime_version` loads', async () => {
+		const metadata = create_mock_build_cache_metadata();
+		vi.mocked(fs_paths.project.read_text_if_exists).mockResolvedValue(JSON.stringify(metadata));
+		expect(await load_build_cache_metadata(fs_paths)).toEqual(metadata);
+		expect(fs_paths.project.remove).not.toHaveBeenCalled();
 	});
 });

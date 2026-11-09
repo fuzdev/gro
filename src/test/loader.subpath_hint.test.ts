@@ -39,7 +39,7 @@ console.log(JSON.stringify(messages));
 			);
 			const { status, stdout } = spawnSync(
 				process.execPath,
-				spawn_with_loader_args(LOADER_SOURCE_PATH, join(dir, 'main.ts'), []),
+				spawn_with_loader_args(LOADER_SOURCE_PATH, join(dir, 'main.ts'), [], undefined),
 				{ cwd: dir, encoding: 'utf8' }
 			);
 			expect(status).toBe(0);

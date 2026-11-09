@@ -6,12 +6,9 @@ import { LIB_PATH, SVELTE_PACKAGE_DEP_NAME, SVELTEKIT_DEP_NAME } from '#lib/cons
 import { create_mock_fs_dir, create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 import { create_mock_spawn } from './spawn_mocks.ts';
 
-const original_argv = process.argv;
-
 const spawn = create_mock_spawn();
 
 afterEach(() => {
-	process.argv = original_argv;
 	spawn.reset();
 });
 
@@ -32,11 +29,11 @@ const run = async (
 	options: SveltePackageOptions,
 	forwarded: Array<string>
 ): Promise<Array<string>> => {
-	process.argv = ['node', 'gro', 'build', '--', 'svelte-package', ...forwarded];
 	await run_svelte_package(to_fs_paths(), spawn, {
 		package_json: PACKAGE_JSON,
 		svelte_package_options: options,
 		svelte_package_cli: 'svelte-package',
+		forwarded_argv: forwarded,
 		log: new Logger('test'),
 		pm_cli: 'npm'
 	});
@@ -93,11 +90,12 @@ describe('run_svelte_package forwarded args', () => {
 describe('run_svelte_package failure', () => {
 	test('a failed `svelte-package` throws', async () => {
 		spawn.result = { kind: 'exited', code: 1 };
-		process.argv = ['node', 'gro', 'build'];
+
 		await expect(
 			run_svelte_package(to_fs_paths(), spawn, {
 				package_json: PACKAGE_JSON,
 				svelte_package_cli: 'svelte-package',
+				forwarded_argv: [],
 				log: new Logger('test'),
 				pm_cli: 'npm'
 			})
@@ -106,11 +104,12 @@ describe('run_svelte_package failure', () => {
 
 	test('a CLI only on `PATH` is not found, since it must be local', async () => {
 		spawn.available = (name) => name === 'svelte-package';
-		process.argv = ['node', 'gro', 'build'];
+
 		await expect(
 			run_svelte_package(to_fs_paths(), spawn, {
 				package_json: PACKAGE_JSON,
 				svelte_package_cli: 'svelte-package',
+				forwarded_argv: [],
 				log: new Logger('test'),
 				pm_cli: 'npm'
 			})

@@ -47,7 +47,9 @@ errors and exit codes. Where it lives:
 - Args forwarding - `to_forwarded_argv` (verbatim, never parsed and
   reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
   own) in `args.ts`; CLI-forwarded args override args passed to
-  `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`)
+  `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
+  take the CLI args after the CLI's own path (`process.args`), and a root or
+  `invoke_task`'s `raw_rest_args` option passes them
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
@@ -417,7 +419,9 @@ Key utilities:
   `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
   `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
   handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
-  plugin modules, the rendered `$app/env/*` shims) import `fs`;
+  plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import `process.ts`,
+  the process host module, library code taking a `cwd` string, a plain record, or the CLI args,
+  but for `internal/fs_boundary.ts`, which reads `HOME` once at load for its protected directories;
   Gro's library and task code uses no `node:child_process` but `spawn.ts`, and
   no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;

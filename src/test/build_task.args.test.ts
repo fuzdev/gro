@@ -11,7 +11,7 @@ import { GIT_LOCAL_PASS_ENV } from '#lib/git.ts';
 vi.mock('#lib/build_cache_dependencies.ts', () => ({
 	load_build_cache_dependencies: vi.fn(async () => ({
 		gro_version: '1.0.0',
-		node_version: 'v24.0.0',
+		runtime_version: 'node/v24.0.0',
 		package_lock_hash: 'lock123'
 	}))
 }));
