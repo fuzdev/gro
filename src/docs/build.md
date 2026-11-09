@@ -131,8 +131,8 @@ so builds always reflect your working directory.
 
 ### post-build verification
 
-After plugins finish building, Gro verifies the workspace didn't change during the build.
-If tracked files were modified or untracked files were created, the build fails:
+After plugins finish building, Gro verifies that a build that started with a clean workspace
+left it clean. If tracked files were modified or untracked files were created, the build fails:
 
 ```
 Error: Build process modified tracked files or created untracked files.
@@ -145,7 +145,11 @@ This usually indicates a plugin or build step is incorrectly modifying source fi
 ```
 
 This ensures build reproducibility and prevents plugins from corrupting source code.
-`gro build --allow_dirty` skips the check.
+`gro build --allow_dirty` turns the failure off, and the build's cache isn't saved.
+
+A build that starts with uncommitted changes isn't verified,
+because someone is likely still editing. `gro publish` and `gro deploy` start from a clean
+workspace by default, so a build step that changes source files is caught before anything ships.
 
 ### CI/CD integration
 

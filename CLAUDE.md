@@ -194,8 +194,8 @@ files' summaries. Docs per task: [dev](src/docs/dev.md),
 `build_cache_dependencies.ts`, stored in `.gro/build.json`.
 
 `gro build` with a dirty workspace skips the cache and deletes outputs first;
-`--force_build` ignores the cache; after building, it fails if the build
-changed tracked files (`--allow_dirty` skips that check).
+`--force_build` ignores the cache; a build that started clean fails if it left
+the workspace dirty (with `--allow_dirty` it passes, uncached).
 
 ## Architecture patterns and design
 

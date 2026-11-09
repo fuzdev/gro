@@ -285,37 +285,40 @@ describe('build_task workspace state', () => {
 			await expect(build_task.run(ctx)).resolves.toBeUndefined();
 		});
 
-		test('succeeds when dirty workspace stays dirty with same status', async () => {
+		test('a dirty start skips the check, even when the status changes', async () => {
 			const { git_check_clean_workspace } = git_ops;
 			const { list } = await get_mock_project();
 
-			// Workspace stays dirty with same status throughout
-			const dirty_status = 'Modified files:\n  src/foo.ts';
-			vi.mocked(git_check_clean_workspace).mockResolvedValue(dirty_status);
-			vi.mocked(list).mockImplementation(() => to_mock_listing([]));
-
-			const ctx = create_mock_build_task_context();
-
-			// Should complete successfully (dirty is expected, just can't change)
-			await expect(build_task.run(ctx)).resolves.toBeUndefined();
-		});
-
-		test('throws TaskError when dirty workspace gets different dirty status during build', async () => {
-			const { git_check_clean_workspace } = git_ops;
-			const { list } = await get_mock_project();
-
-			// Workspace starts with one dirty status, changes to different dirty status
 			let call_count = 0;
 			vi.mocked(git_check_clean_workspace).mockImplementation(async () => {
 				call_count++;
-				return call_count === 1 ? ' M src/foo.ts\0' : ' M src/foo.ts\0?? src/bar.ts\0'; // Added file!
+				return call_count === 1 ? 'git has unstaged changes' : 'git has untracked files';
 			});
 			vi.mocked(list).mockImplementation(() => to_mock_listing([]));
 
 			const ctx = create_mock_build_task_context();
 
-			// Should throw - workspace status changed
-			await expect(build_task.run(ctx)).rejects.toThrow(/Build process modified tracked files/);
+			await expect(build_task.run(ctx)).resolves.toBeUndefined();
+			expect(git_check_clean_workspace).toHaveBeenCalledTimes(1);
+		});
+
+		test('--allow_dirty passes a clean start that changed, without caching it', async () => {
+			const { git_check_clean_workspace } = git_ops;
+			const { is_build_cache_valid, save_build_cache_metadata } = vi.mocked(
+				await import('#lib/build_cache.ts')
+			);
+
+			let call_count = 0;
+			vi.mocked(git_check_clean_workspace).mockImplementation(async () => {
+				call_count++;
+				return call_count === 1 ? null : 'git has unstaged changes';
+			});
+			vi.mocked(is_build_cache_valid).mockResolvedValue(false);
+
+			const ctx = create_mock_build_task_context({ allow_dirty: true });
+
+			await expect(build_task.run(ctx)).resolves.toBeUndefined();
+			expect(save_build_cache_metadata).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -139,24 +139,25 @@ export const task: Task<Args> = {
 		await plugins.adapt();
 		await plugins.teardown();
 
-		// Verify workspace didn't become dirty during build
-		if (!allow_dirty) {
-			const final_workspace_status = await git_check_clean_workspace(git);
-			if (final_workspace_status !== workspace_status) {
-				// Workspace state changed during build - this indicates a problem
-				throw new TaskError(
-					'Build process modified tracked files or created untracked files.\n\n' +
-						'Git status after build:\n' +
-						final_workspace_status +
-						'\n\n' +
-						'Builds should only write to output directories (build/, dist/, etc.).\n' +
-						'This usually indicates a plugin or build step is incorrectly modifying source files.'
-				);
-			}
-		}
-
-		// Save build cache metadata after successful build (only if workspace is clean)
+		// Only a build that started clean can be verified or cached. A dirty start has someone
+		// mid-edit, and publish and deploy start clean, so a misbehaving build is caught there.
 		if (!workspace_dirty) {
+			const final_workspace_status = await git_check_clean_workspace(git);
+			if (final_workspace_status) {
+				if (!allow_dirty) {
+					throw new TaskError(
+						'Build process modified tracked files or created untracked files.\n\n' +
+							'Git status after build:\n' +
+							final_workspace_status +
+							'\n\n' +
+							'Builds should only write to output directories (build/, dist/, etc.).\n' +
+							'This usually indicates a plugin or build step is incorrectly modifying source files.'
+					);
+				}
+				log.warn(st('yellow', 'workspace changed during build'), '- cache not saved');
+				return;
+			}
+
 			// Race condition protection: verify git commit didn't change during build
 			const current_commit = await git_current_commit_hash(git);
 
