@@ -161,11 +161,11 @@ export const task: Task<Args> = {
 			);
 		}
 
-		// Bump the version so the package.json is updated before building:
-		// TODO problem here is build may fail and put us in a bad state,
-		// but I don't see how we could do this to robustly
-		// have the new version in the build without building twice -
-		// maybe the code should catch the error and revert the version and delete the tag?
+		const undo_command = 'git reset --hard HEAD~1';
+		let release_committed = false;
+
+		// Bump and commit before building, so the build sees a clean workspace
+		// and the tag `changeset publish` puts on `HEAD` names the source that was built.
 		if (dry) {
 			log.info('dry run, skipping changeset version');
 		} else {
@@ -227,13 +227,36 @@ export const task: Task<Args> = {
 					// Doesn't build if the version didn't change and publishing isn't optional.
 					throw new TaskError(`\`${changeset_cli} version\` failed: are there any changes?`);
 				}
+			} else {
+				if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
+					await git.run(['add', '--', changelog]);
+				}
+				const commit_result = await git.run(['commit', '-a', '-m', `publish v${version}`]);
+				if (!spawn_result_is_ok(commit_result)) {
+					throw new TaskError(
+						`the release commit failed, and v${version} is not published - resolve the failure` +
+							' and publish again, after undoing the version bump with `git reset --hard`'
+					);
+				}
+				release_committed = true;
 			}
 		}
 
 		// Build after the version is bumped so the new version is in the build as needed.
-		// Skip sync and install because we already handled both above.
+		// Skip sync and install because we already handled both above,
+		// and gen unless dry, because its output has to be in the release commit.
 		if (build) {
-			await invoke_task('build', { sync: false, install: false, force_build });
+			try {
+				await invoke_task('build', { sync: false, install: false, gen: dry, force_build });
+			} catch (error) {
+				if (release_committed) {
+					log.error(
+						`the build failed, and v${version} is not published - its release commit is local` +
+							` only, undo it with \`${undo_command}\` and publish again`
+					);
+				}
+				throw error;
+			}
 		}
 
 		// Return early if there are no changes and publishing is optional, but after building,
@@ -248,26 +271,16 @@ export const task: Task<Args> = {
 			return;
 		}
 
+		const push_command = `git push --follow-tags ${origin} ${branch}`;
 		const changeset_publish_result = await spawn_cli(found_changeset_cli, ['publish'], log);
 		if (!spawn_result_is_ok(changeset_publish_result)) {
 			throw new TaskError(
-				`\`${
-					changeset_cli
-				} publish\` failed - continue manually or try again after running \`git reset --hard\``
+				`\`${changeset_cli} publish\` failed - the release commit is local only,` +
+					` continue with \`${changeset_cli} publish && ${push_command}\`` +
+					` or undo it with \`${undo_command}\``
 			);
 		}
 
-		if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
-			await git.run(['add', '--', changelog]);
-		}
-		const push_command = `git push --follow-tags ${origin} ${branch}`;
-		const commit_result = await git.run(['commit', '-a', '-m', `publish v${version}`]);
-		if (!spawn_result_is_ok(commit_result)) {
-			throw new TaskError(
-				`the release commit failed, but v${version} is already published to the registry -` +
-					` resolve the failure, commit, then push with \`${push_command}\``
-			);
-		}
 		// `branch` is checked out above, so this pushes the release commit
 		const push_result = await git.run([
 			'push',

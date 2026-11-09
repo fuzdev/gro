@@ -113,8 +113,8 @@ You'll get a warning if the token is unavailable, but for light usage you won't 
 
 ## `gro publish`
 
-The publish task bumps the version, builds the project, publishes to npm,
-commits the changes, and then pushes the commit and tag.
+The publish task bumps the version, commits the release, builds the project,
+publishes to npm, which tags the release commit, and then pushes the commit and tag.
 
 Ensure `"dist"` is in the `"files"` property of `package.json`:
 
@@ -134,11 +134,17 @@ gro publish -- svelte-package --types # forward options
 
 See [the SvelteKit packaging docs](https://svelte.dev/docs/kit/packaging) for more.
 
-If `changeset publish` fails during `gro publish`,
-the task exits without committing or pushing,
-leaving the version bump uncommitted in the working tree.
-A common failure is not being logged into npm. (see the instructions above)
-If the builds are correct but `changeset publish` failed,
-you can continue manually with `changeset publish`,
-then commit and run `git push --follow-tags`,
-or undo the bump with `git reset --hard`.
+Nothing reaches npm until the release is committed and built,
+so what a failure leaves behind depends on the step that failed:
+
+- Before the commit, the version bump is uncommitted in the working tree.
+  Undo it with `git reset --hard`.
+- At the build, the release commit is local only.
+  Undo it with `git reset --hard HEAD~1`, which restores the changesets.
+- At `changeset publish`, the release commit is local only and untagged.
+  A common failure is not being logged into npm. (see the instructions above)
+  Continue with `changeset publish && git push --follow-tags`,
+  or undo it with `git reset --hard HEAD~1`.
+  Rerunning `changeset publish` is safe, a version already on npm only gets its tag.
+- At the push, the version is on npm and the commit and tag are local only.
+  Resolve the failure and run `git push --follow-tags`.

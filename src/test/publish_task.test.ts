@@ -191,7 +191,7 @@ describe('publish_task version bump', () => {
 
 		assert.deepEqual(
 			vi.mocked(ctx.invoke_task).mock.calls.find(([name]) => name === 'build'),
-			['build', { sync: false, install: false, force_build: true }]
+			['build', { sync: false, install: false, gen: false, force_build: true }]
 		);
 	});
 
@@ -211,8 +211,101 @@ describe('publish_task version bump', () => {
 
 		assert(error instanceof TaskError, 'expected a failed commit to throw a TaskError');
 		assert.include(error.message, 'the release commit failed');
-		assert.include(error.message, `v${VERSION_AFTER} is already published to the registry`);
+		assert.include(error.message, `v${VERSION_AFTER} is not published`);
 		assert.ok(!spawn.mock.calls.some(([, args]) => args?.[0] === 'push'), 'expected no push');
+		assert.ok(
+			!(await get_mock_spawn()).calls.some(
+				({ name, args }) => name === 'changeset' && args[0] === 'publish'
+			),
+			'expected no publish'
+		);
+	});
+
+	const to_steps = (calls: ReadonlyArray<{ name: string; args: ReadonlyArray<string> }>) =>
+		calls.map(({ name, args }) => `${name} ${args[0]}`);
+
+	test('commits the release before building, and tags and pushes after', async () => {
+		const mock_spawn = await get_mock_spawn();
+		const ctx = create_mock_publish_task_context({ build: true, 'no-build': false });
+		let steps_before_build: Array<string> = [];
+		vi.mocked(ctx.invoke_task).mockImplementation(async (name) => {
+			if (name === 'build') steps_before_build = to_steps(mock_spawn.calls);
+		});
+
+		await publish_task.run(ctx);
+
+		assert.deepEqual(
+			to_steps(mock_spawn.calls).filter((step) =>
+				['changeset version', 'git commit', 'changeset publish', 'git push'].includes(step)
+			),
+			['changeset version', 'git commit', 'changeset publish', 'git push']
+		);
+		assert.include(steps_before_build, 'git commit');
+		assert.notInclude(steps_before_build, 'changeset publish');
+	});
+
+	test('a failed build publishes nothing and says how to undo the release commit', async () => {
+		const mock_spawn = await get_mock_spawn();
+		const ctx = create_mock_publish_task_context({ build: true, 'no-build': false });
+		const build_error = new TaskError('build failed');
+		vi.mocked(ctx.invoke_task).mockImplementation(async (name) => {
+			if (name === 'build') throw build_error;
+		});
+		const log_error = vi.spyOn(ctx.log, 'error');
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert.strictEqual(error, build_error);
+		assert.include(String(log_error.mock.calls[0]![0]), '`git reset --hard HEAD~1`');
+		assert.notInclude(to_steps(mock_spawn.calls), 'changeset publish');
+	});
+
+	test('a failed `changeset publish` keeps the commit local and names both ways out', async () => {
+		const mock_spawn = await get_mock_spawn();
+		mock_spawn.result = ({ name, args }) => ({
+			kind: 'exited',
+			code: name === 'changeset' && args[0] === 'publish' ? 1 : 0
+		});
+		const ctx = create_mock_publish_task_context();
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert(error instanceof TaskError, 'expected a failed publish to throw a TaskError');
+		assert.include(error.message, '`changeset publish && git push --follow-tags origin main`');
+		assert.include(error.message, '`git reset --hard HEAD~1`');
+		assert.include(to_steps(mock_spawn.calls), 'git commit');
+		assert.notInclude(to_steps(mock_spawn.calls), 'git push');
+	});
+
+	test('--optional with no version change makes no release commit', async () => {
+		const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
+		package_json_load.mockReset();
+		package_json_load.mockResolvedValue(to_package_json(VERSION_BEFORE));
+		const mock_spawn = await get_mock_spawn();
+
+		await publish_task.run(create_mock_publish_task_context({ optional: true }));
+
+		assert.notInclude(to_steps(mock_spawn.calls), 'git commit');
+		assert.notInclude(to_steps(mock_spawn.calls), 'changeset publish');
+	});
+
+	test('--dry makes no release commit', async () => {
+		const mock_spawn = await get_mock_spawn();
+
+		await publish_task.run(create_mock_publish_task_context({ dry: true }));
+
+		assert.notInclude(to_steps(mock_spawn.calls), 'git commit');
+		assert.notInclude(to_steps(mock_spawn.calls), 'changeset publish');
 	});
 
 	test('a failed `changeset version` is a TaskError, before anything is committed', async () => {
