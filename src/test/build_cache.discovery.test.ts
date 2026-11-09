@@ -5,7 +5,6 @@ import { is_fs_error } from '#lib/fs_error.ts';
 
 import { create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 
-// Mock the fs host module
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));

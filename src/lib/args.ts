@@ -30,11 +30,6 @@ export interface CliTaskArgs {
 export const RUN_TASK_NAME = 'run';
 
 /**
- * The flags `gro run` takes before the script path, Gro's own; any other is refused.
- */
-const RUN_FLAGS: ReadonlySet<string> = new Set(['help']);
-
-/**
  * Matches the help flag, the one flag `gro run` takes before its path
  * and `gro task` takes with no path.
  */
@@ -163,7 +158,7 @@ export const to_task_args = (cli_args: ReadonlyArray<string>): CliTaskArgs => {
 	const task_name = to_optional_string(positionals.shift()) ?? '';
 	const task_path = task_name === TASK_VERB ? to_optional_string(positionals.shift()) : null;
 	if (run_path_index !== -1) {
-		if (Object.keys(args).some((key) => key !== '_' && !RUN_FLAGS.has(key))) {
+		if (Object.keys(args).some((key) => key !== '_' && key !== 'help')) {
 			// the refusal reads the first arg not starting with `-` as the path,
 			// which may be a flag's value, as in `--max 3 x.ts`,
 			// so the hint takes the first arg naming a JS or TS module instead, `<path>` with none,

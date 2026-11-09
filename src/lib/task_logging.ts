@@ -29,14 +29,7 @@ export const log_tasks = (log: Logger, modules: Array<TaskModuleMeta>, dir_label
 	const logged: Array<string> = [
 		`\n\n${modules.length} task${plural(modules.length)} in ${dir_label}:\n`
 	];
-	const longest_task_name = to_max_length(modules, (m) => m.name);
-	for (const meta of modules) {
-		logged.push(
-			'\n' + st('cyan', meta.name.padEnd(longest_task_name)),
-			'  ',
-			meta.mod.task.summary ?? ''
-		);
-	}
+	logged.push(...to_task_rows(modules.map((m) => [m.name, m.mod.task.summary ?? ''])));
 	logged.push(
 		`\n\n${st('gray', 'Run a task:')} gro task [path]`,
 		`\n${st('gray', 'View help:')}  gro task [path] --help`
@@ -45,22 +38,27 @@ export const log_tasks = (log: Logger, modules: Array<TaskModuleMeta>, dir_label
 };
 
 /**
+ * Renders task rows as alternating log segments, names padded to the longest.
+ * @param rows - each task's name and summary
+ * @returns the segments to join into the listing
+ */
+const to_task_rows = (rows: Array<[string, string]>): Array<string> => {
+	const longest_task_name = to_max_length(rows, ([name]) => name);
+	return rows.flatMap(([name, summary]) => [
+		'\n' + st('cyan', name.padEnd(longest_task_name)),
+		'  ',
+		summary
+	]);
+};
+
+/**
  * Logs Gro's builtin tasks with their summaries and the CLI's usage,
  * from the generated summaries, so it imports no task module.
  */
 export const log_builtin_tasks = (log: Logger): void => {
-	const names = Object.keys(GRO_BUILTIN_TASK_SUMMARIES) as Array<
-		keyof typeof GRO_BUILTIN_TASK_SUMMARIES
-	>;
-	const logged: Array<string> = [`\n\n${names.length} builtin tasks:\n`];
-	const longest_task_name = to_max_length(names, (n) => n);
-	for (const name of names) {
-		logged.push(
-			'\n' + st('cyan', name.padEnd(longest_task_name)),
-			'  ',
-			GRO_BUILTIN_TASK_SUMMARIES[name]
-		);
-	}
+	const rows = Object.entries(GRO_BUILTIN_TASK_SUMMARIES);
+	const logged: Array<string> = [`\n\n${rows.length} builtin tasks:\n`];
+	logged.push(...to_task_rows(rows));
 	logged.push(
 		`\n\n${st('gray', 'Run a builtin:')}        gro [name]`,
 		`\n${st('gray', 'View its help:')}        gro [name] --help`,

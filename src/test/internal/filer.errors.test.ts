@@ -11,17 +11,9 @@ import { Filer, filter_dependents } from '#lib/internal/filer.ts';
 import type { Disknode } from '#lib/internal/disknode.ts';
 
 import { create_mock_logger } from '../test_helpers.ts';
+import { create_test_disknode } from './filer_test_helpers.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
-
-const create_test_disknode = (id: string, contents: string | null = null): Disknode => ({
-	id,
-	contents,
-	external: false,
-	content_hash: null,
-	dependents: new Map(),
-	dependencies: new Map()
-});
 
 // Initialization error tests
 test('error in watch_dir.init() is handled', async () => {

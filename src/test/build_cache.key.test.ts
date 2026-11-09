@@ -10,10 +10,6 @@ import {
 } from './build_cache_test_helpers.ts';
 import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-vi.mock('#lib/spawn.ts', async () =>
-	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
-);
-
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));

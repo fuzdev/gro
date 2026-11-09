@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { create_deferred } from '@fuzdev/fuz_util/async.ts';
 
 import { task as build_task } from '#lib/build.task.ts';
 import { fs } from '#lib/fs.ts';
@@ -83,35 +84,24 @@ describe('build_task optimization', () => {
 
 		const ctx = create_mock_build_task_context();
 
-		// Track when git functions are called
-		const call_timestamps: Array<{ fn: string; time: number }> = [];
+		// each waits for the other, so calling them one after the other hangs in either order
+		const clean_called = create_deferred<void>();
+		const commit_called = create_deferred<void>();
 		vi.mocked(git_check_clean_workspace).mockImplementation(async () => {
-			call_timestamps.push({ fn: 'git_check_clean_workspace', time: Date.now() });
-			await new Promise((resolve) => setTimeout(resolve, 5)); // Small delay
+			clean_called.resolve();
+			await commit_called.promise;
 			return null;
 		});
 		vi.mocked(git_current_commit_hash).mockImplementation(async () => {
-			call_timestamps.push({ fn: 'git_current_commit_hash', time: Date.now() });
-			await new Promise((resolve) => setTimeout(resolve, 5)); // Small delay
+			commit_called.resolve();
+			await clean_called.promise;
 			return 'abc123';
 		});
 
 		await build_task.run(ctx);
 
-		// Both git functions should be called
-		expect(call_timestamps).toContainEqual(
-			expect.objectContaining({ fn: 'git_check_clean_workspace' })
-		);
-		expect(call_timestamps).toContainEqual(
-			expect.objectContaining({ fn: 'git_current_commit_hash' })
-		);
-
-		// The initial calls should happen concurrently (within a few ms of each other)
-		const first_calls = call_timestamps.slice(0, 2);
-		if (first_calls.length === 2) {
-			const time_diff = Math.abs(first_calls[0]!.time - first_calls[1]!.time);
-			expect(time_diff).toBeLessThan(10); // Called within 10ms = effectively concurrent
-		}
+		expect(git_check_clean_workspace).toHaveBeenCalled();
+		expect(git_current_commit_hash).toHaveBeenCalled();
 	});
 
 	test('passes pre-computed values to avoid re-reading git', async () => {

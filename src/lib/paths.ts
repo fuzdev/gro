@@ -43,11 +43,10 @@ export const is_gro_id = (id: PathId): boolean =>
 	id.startsWith(gro_paths.root) || gro_paths.root === ensure_end(id, '/');
 
 // '/home/me/app/src/foo/bar/baz.ts' → 'src/foo/bar/baz.ts'
-export const to_root_path = (id: PathId, p = infer_paths(id)): string =>
-	relative(p.root, id) || './';
+export const to_root_path = (id: PathId): string => relative(infer_paths(id).root, id) || './';
 
-export const print_path = (path: string, p = infer_paths(path)): string => {
-	const root_path = to_root_path(path, p);
+export const print_path = (path: string): string => {
+	const root_path = to_root_path(path);
 	return st('gray', root_path[0] === '.' ? root_path : './' + root_path);
 };
 

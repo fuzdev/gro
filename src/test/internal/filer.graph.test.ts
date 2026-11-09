@@ -6,18 +6,10 @@ import { tmpdir } from 'node:os';
 
 import type { WatchNodeFs, WatcherChange } from '#lib/internal/watch_dir.ts';
 import { Filer, filter_dependents } from '#lib/internal/filer.ts';
-import type { Disknode } from '#lib/internal/disknode.ts';
+
+import { create_test_disknode } from './filer_test_helpers.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
-
-const create_test_disknode = (id: string, contents: string | null = null): Disknode => ({
-	id,
-	contents,
-	external: false,
-	content_hash: null,
-	dependents: new Map(),
-	dependencies: new Map()
-});
 
 // filter_dependents tests
 test('filter_dependents finds direct dependents', () => {
