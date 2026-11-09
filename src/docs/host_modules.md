@@ -566,6 +566,8 @@ What the runtime's builtin must do that the Node implementation can't:
   so a patched `String.prototype.endsWith` can't pass a glob through.
 - Read stdin without passing a bare chunk through promise resolution.
 - Expand a `pass_env` glob against the host's environment natively, so script code never enumerates the variables' names.
+- Check each `pass_env` name against that program's spawn grant, narrowed or not.
+  Reading a variable and forwarding it are separate grants, so a credential can reach one child without the script reading it.
 
 ### process
 
