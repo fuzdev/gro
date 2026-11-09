@@ -4,18 +4,16 @@ import { task as build_task } from '#lib/build.task.ts';
 import { fs } from '#lib/fs.ts';
 
 import { create_mock_build_task_context, create_mock_plugins } from './build_task_test_helpers.ts';
-import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_test_helpers.ts';
+import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_dependencies_mocks.ts';
 import { get_mock_project, to_mock_listing } from './fs_mocks.ts';
 import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('#lib/build_cache_dependencies.ts', () => ({
-	load_build_cache_dependencies: vi.fn(async () => ({
-		gro_version: '1.0.0',
-		runtime_version: 'node/v24.0.0',
-		package_lock_hash: 'lock123'
-	}))
-}));
+vi.mock('#lib/build_cache_dependencies.ts', async () =>
+	(
+		await import('./build_cache_dependencies_mocks.ts')
+	).create_mock_build_cache_dependencies_module()
+);
 
 vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()

@@ -89,7 +89,7 @@ export const run_task = async (
 					.map(format_issue)
 					.join('\n')}`
 			);
-			return { ok: false, reason: st('red', error.message), error };
+			return { ok: false, reason: error.message, error };
 		}
 		args = parsed.value;
 	}
@@ -124,17 +124,14 @@ export const run_task = async (
 	} catch (error) {
 		return {
 			ok: false,
-			reason: st(
-				'red',
-				is_task_error(error)
-					? error.message
-					: is_silent_error(error) // already reported, like a failed nested `invoke_task`
-						? `Task ${st('cyan', task_meta.name)} failed.`
-						: `Unexpected error running task ${st(
-								'cyan',
-								task_meta.name
-							)}. If this is unexpected try running \`${config.pm_cli} install\` and \`gro clean\`.`
-			),
+			reason: is_task_error(error)
+				? error.message
+				: is_silent_error(error) // already reported, like a failed nested `invoke_task`
+					? `Task ${st('cyan', task_meta.name)} failed.`
+					: `Unexpected error running task ${st(
+							'cyan',
+							task_meta.name
+						)}. If this is unexpected try running \`${config.pm_cli} install\` and \`gro clean\`.`,
 			error
 		};
 	}

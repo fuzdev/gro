@@ -10,9 +10,9 @@ import type { BuildCacheDependencies } from '#lib/build_cache_dependencies.ts';
 import {
 	create_mock_logger,
 	create_mock_config,
-	create_mock_build_cache_metadata,
-	MOCK_BUILD_CACHE_DEPENDENCIES
+	create_mock_build_cache_metadata
 } from './build_cache_test_helpers.ts';
+import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_dependencies_mocks.ts';
 import { create_mock_project_fs_paths } from './fs_mocks.ts';
 import { create_mock_git_program, git_ops } from './git_mocks.ts';
 

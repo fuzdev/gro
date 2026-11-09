@@ -98,8 +98,7 @@ host_process.on('uncaughtException', (err, origin) => {
 });
 
 if (!process.env.get('NO_COLOR')) {
-	const { styleText } = await import('node:util');
-	configure_print_colors(styleText);
+	configure_print_colors(st);
 }
 
 // the CLI's composition root, where the fs and spawn host modules enter

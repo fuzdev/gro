@@ -2,7 +2,6 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { join, basename, dirname, isAbsolute } from 'node:path';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
-import { styleText as st } from 'node:util';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { ensure_end } from '@fuzdev/fuz_util/string.ts';
@@ -432,8 +431,9 @@ export const find_genfiles = async (
 			type: 'unmapped_input_paths',
 			unmapped_input_paths,
 			resolved_input_paths,
-			reasons: unmapped_input_paths.map((input_path) =>
-				st('red', `Input path ${print_path(input_path)} cannot be mapped to a file or directory.`)
+			reasons: unmapped_input_paths.map(
+				(input_path) =>
+					`Input path ${print_path(input_path)} cannot be mapped to a file or directory.`
 			)
 		};
 	}
@@ -458,8 +458,8 @@ export const find_genfiles = async (
 			input_directories_with_no_files,
 			resolved_input_files,
 			resolved_input_paths,
-			reasons: input_directories_with_no_files.map((input_path) =>
-				st('red', `Input directory contains no matching files: ${print_path(input_path)}`)
+			reasons: input_directories_with_no_files.map(
+				(input_path) => `Input directory contains no matching files: ${print_path(input_path)}`
 			)
 		};
 	}

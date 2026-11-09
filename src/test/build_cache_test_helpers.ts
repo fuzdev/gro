@@ -3,19 +3,10 @@ import {
 	type BuildCacheMetadata,
 	type BuildOutputEntry
 } from '#lib/build_cache.ts';
-import type { BuildCacheDependencies } from '#lib/build_cache_dependencies.ts';
+
+import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_dependencies_mocks.ts';
 
 export { create_mock_logger, create_mock_config } from './test_helpers.ts';
-
-/**
- * The dependency key components that test files mocking `build_cache_dependencies.ts` return.
- * Keep in sync with the literal in each `vi.mock` factory, which can't reference imports.
- */
-export const MOCK_BUILD_CACHE_DEPENDENCIES: BuildCacheDependencies = {
-	gro_version: '1.0.0',
-	runtime_version: 'node/v24.0.0',
-	package_lock_hash: 'lock123'
-};
 
 /**
  * Creates mock build cache metadata for testing.

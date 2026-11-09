@@ -7,13 +7,11 @@ import { create_mock_build_task_context, create_mock_plugins } from './build_tas
 import { git_ops } from './git_mocks.ts';
 
 // Mock dependencies
-vi.mock('#lib/build_cache_dependencies.ts', () => ({
-	load_build_cache_dependencies: vi.fn(async () => ({
-		gro_version: '1.0.0',
-		runtime_version: 'node/v24.0.0',
-		package_lock_hash: 'lock123'
-	}))
-}));
+vi.mock('#lib/build_cache_dependencies.ts', async () =>
+	(
+		await import('./build_cache_dependencies_mocks.ts')
+	).create_mock_build_cache_dependencies_module()
+);
 
 vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
