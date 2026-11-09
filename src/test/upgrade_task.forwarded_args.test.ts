@@ -1,7 +1,8 @@
-import { describe, test, expect, vi, afterEach } from 'vitest';
+import { describe, test, expect, assert, vi, afterEach } from 'vitest';
 import { args_parse } from '@fuzdev/fuz_util/args.ts';
 
 import { Args, task } from '#lib/upgrade.task.ts';
+import { TaskError } from '#lib/task.ts';
 import { install_with_cache_healing_or_throw } from '#lib/npm_install_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_task_context } from './test_helpers.ts';
@@ -55,5 +56,31 @@ describe('upgrade task forwarded args', () => {
 		expect(calls.map((c) => [c.method, c.name, c.args, c.program_options])).toEqual([
 			['run', 'node_modules/.bin/gro', ['sync'], { pass_env: 'all' }]
 		]);
+	});
+
+	test('a failed `gro sync` is a TaskError', async () => {
+		set_mock_process_args(['upgrade']);
+		const mock = await get_mock_spawn();
+		mock.result = { kind: 'exited', code: 3 };
+		const parsed = args_parse({ 'no-pull': true, pull: false }, Args);
+		expect(parsed.ok).toBe(true);
+		let error: unknown;
+		try {
+			await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
+		} catch (e) {
+			error = e;
+		}
+		assert.instanceOf(error, TaskError);
+		assert.include(error.message, '`gro sync` failed: code 3');
+	});
+
+	test('--dry runs the package manager with --dry-run, and neither pulls nor syncs', async () => {
+		set_mock_process_args(['upgrade']);
+		const parsed = args_parse({ dry: true }, Args);
+		expect(parsed.ok).toBe(true);
+		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
+		const [, , options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
+		expect(options?.install_args).toEqual(['b@latest', '--dry-run']);
+		expect((await get_mock_spawn()).calls).toEqual([]);
 	});
 });

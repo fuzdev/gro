@@ -9,14 +9,18 @@ import { find_genfiles, is_gen_path } from './gen.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
-import { find_cli, spawn_cli } from './cli.ts';
-import { spawn } from './spawn.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
+import { spawn, type SpawnResult } from './spawn.ts';
+import { TaskError } from './task.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
-const gen = async (files: Array<string> = []): Promise<void> => {
+/**
+ * @returns how `gro gen` ended, or `null` if no `gro` was found
+ */
+const gen = async (files: Array<string> = []): Promise<SpawnResult | null> => {
 	const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
-	if (gro) await spawn_cli(gro, ['gen', ...files]);
+	return gro ? spawn_cli(gro, ['gen', ...files]) : null;
 };
 
 /**
@@ -57,7 +61,12 @@ export const gro_plugin_gen = ({
 				// so we run a full `gen` here even if it's usually wasteful.
 				const found = await find_genfiles(fs_paths, [paths.source], [paths.source], config);
 				if (found.ok && found.value.resolved_input_files.length > 0) {
-					await gen();
+					// with no watch nothing runs gen again, so a failure fails the task
+					const result = await gen();
+					if (!result) throw new TaskError('`gro gen` could not run: `gro` was not found');
+					if (!spawn_result_is_ok(result)) {
+						throw new TaskError(`\`gro gen\` failed: ${to_spawn_result_message(result)}`);
+					}
 				}
 				return;
 			}

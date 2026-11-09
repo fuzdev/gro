@@ -99,7 +99,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 				return branch === 'deploy'; // target branch exists
 			});
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 
@@ -113,7 +113,7 @@ describe('deploy_task target branch creation (remote does not exist)', () => {
 			// Mock target branch doesn't exist locally
 			vi.mocked(git_local_branch_exists).mockResolvedValue(false);
 
-			const ctx = create_mock_deploy_task_context({ dry: true });
+			const ctx = create_mock_deploy_task_context({ dry: false });
 
 			await deploy_task.run(ctx);
 

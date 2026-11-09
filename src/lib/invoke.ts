@@ -28,7 +28,8 @@ to the task's `run` function.
  * The code the CLI exits with for an uncaught error:
  * a `TaskError`'s `exit_code`, like `gro run`'s script's own, when it's an integer 1–255
  * (a process exit code is a byte, so `256` would exit `0`)
- * and it failed the task the CLI invoked (the `cause` of `invoke_task`'s `SilentError`),
+ * and it's the uncaught error itself, as when thrown from `gro.config.ts` before any task runs,
+ * or failed the task the CLI invoked (the `cause` of `invoke_task`'s `SilentError`),
  * and `1` otherwise, including for a nested task's failure.
  */
 const to_exit_code = (err: unknown): number => {
@@ -90,7 +91,8 @@ host_process.on('uncaughtException', (err, origin) => {
 		// a known failure, so its message with no stack
 		new Logger('TaskError').error(st('red', err.message));
 	} else if (!is_silent_error(err)) {
-		new Logger(origin).error(print_error(err));
+		// `print_error` reads properties, so a thrown `undefined` or `null` would throw here
+		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error(err));
 	}
 	void flush_output().finally(() => process.exit(to_exit_code(err)));
 });

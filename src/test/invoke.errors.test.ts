@@ -95,6 +95,32 @@ const run_task_with_gone_reader = async (
 	return Number((await readFile(join(dir, 'status'), 'utf8')).trim());
 };
 
+describe('a thrown non-error reaching the uncaught handler', () => {
+	for (const value of ['undefined', 'null']) {
+		test(
+			`\`throw ${value}\` exits 1`,
+			async () => {
+				const dir = await create_project('gro_invoke_nullish_');
+				await writeFile(
+					join(dir, 't.task.ts'),
+					`export const task = {run: async () => {
+						setTimeout(() => {throw ${value};}, 0);
+						await new Promise(() => {});
+					}};\n`
+				);
+				const result = spawnSync(process.execPath, invoke_args(['task', 't.task.ts']), {
+					cwd: dir,
+					encoding: 'utf8',
+					env: cli_env()
+				});
+				assert.equal(result.status, 1, result.stderr + result.stdout);
+				assert.include(result.stderr + result.stdout, `Unknown error: ${value}`);
+			},
+			TEST_TIMEOUT_MD
+		);
+	}
+});
+
 const BROKEN_STREAMS = [
 	['stdout', '2>/dev/null'],
 	['stderr', '2>&1 >/dev/null']

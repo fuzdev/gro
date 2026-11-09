@@ -11,7 +11,7 @@ import {
 	git_push_to_create,
 	to_git_program
 } from './git.ts';
-import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { process } from './process.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
@@ -31,7 +31,7 @@ import { spawn, type SpawnProgram } from './spawn.ts';
 /** @nodocs */
 export const Args = s.object({
 	/**
-	 * The optional rest args get joined with a space to form the `message`.
+	 * The optional `message`, a single rest arg, so a message with spaces is quoted.
 	 */
 	_: s.with_default_fn(
 		s.pipe(
@@ -72,8 +72,7 @@ export type Args = s.Infer<typeof Args>;
  * This API is designed for convenient manual usage, not clarity or normality.
  *
  * Usage:
- * - gro changeset some commit message
- * - gro changeset some commit message --minor
+ * - gro changeset "some commit message"
  * - gro changeset "some commit message" --minor
  *
  * @nodocs
@@ -114,6 +113,14 @@ export const task: Task<Args> = {
 			);
 		}
 
+		const run_changeset_cli = async (cli_args: Array<string>): Promise<void> => {
+			const result = await spawn_cli(found_changeset_cli, cli_args, log);
+			if (!spawn_result_is_ok(result)) {
+				const command = [changeset_cli, ...cli_args].join(' ');
+				throw new TaskError(`\`${command}\` failed: ${to_spawn_result_message(result)}`);
+			}
+		};
+
 		const fs_paths = create_fs_paths(fs);
 
 		const package_json = await package_json_load(fs_paths);
@@ -131,7 +138,7 @@ export const task: Task<Args> = {
 		const inited = await config_file.dir.exists(config_file.path);
 
 		if (!inited) {
-			await spawn_cli(found_changeset_cli, ['init'], log);
+			await run_changeset_cli(['init']);
 
 			const access =
 				access_arg ??
@@ -139,16 +146,14 @@ export const task: Task<Args> = {
 
 			const access_color = access === CHANGESET_RESTRICTED_ACCESS ? 'blue' : 'red';
 			log.info('initing changeset with ' + st(access_color, access) + ' access');
-			if (access !== CHANGESET_RESTRICTED_ACCESS) {
-				await update_changeset_config(fs_paths, path, (config) => {
-					const updated = { ...config };
-					updated.access = access;
-					updated.changelog = changelog;
-					return updated;
-				});
-			}
+			await update_changeset_config(fs_paths, path, (config) => {
+				const updated = { ...config };
+				updated.access = access;
+				updated.changelog = changelog;
+				return updated;
+			});
 
-			await git.run(['add', '--', dir]);
+			await git_add_or_throw(git, dir);
 
 			if (dep) {
 				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
@@ -174,9 +179,12 @@ export const task: Task<Args> = {
 				message,
 				bump
 			);
-			await spawn_cli(found_changeset_cli, ['add', '--empty'], log);
+			await run_changeset_cli(['add', '--empty']);
 			await changeset_adder();
-			if (!(await git_check_fully_staged_workspace(git))) {
+			const not_fully_staged = await git_check_fully_staged_workspace(git);
+			if (not_fully_staged) {
+				log.info(`the changeset is staged, skipping the commit and push: ${not_fully_staged}`);
+			} else {
 				const commit_result = await git.run(['commit', '-m', message]);
 				if (!spawn_result_is_ok(commit_result)) {
 					throw new TaskError('`git commit` failed, so nothing was pushed');
@@ -184,9 +192,16 @@ export const task: Task<Args> = {
 				await git_push_to_create(git, origin);
 			}
 		} else {
-			await spawn_cli(found_changeset_cli, [], log);
-			await git.run(['add', '--', dir]);
+			await run_changeset_cli([]);
+			await git_add_or_throw(git, dir);
 		}
+	}
+};
+
+const git_add_or_throw = async (git: SpawnProgram, path: string): Promise<void> => {
+	const result = await git.run(['add', '--', path]);
+	if (!spawn_result_is_ok(result)) {
+		throw new TaskError(`\`git add -- ${path}\` failed: ${to_spawn_result_message(result)}`);
 	}
 };
 
@@ -218,7 +233,7 @@ const create_changeset_adder = async (
 		const path = join(dir, filename);
 		const contents = create_new_changeset(repo_name, message, bump);
 		await changesets.dir.write(join(changesets.path, filename), contents);
-		await git.run(['add', '--', path]);
+		await git_add_or_throw(git, path);
 	};
 };
 

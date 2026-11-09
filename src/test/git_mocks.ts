@@ -143,7 +143,7 @@ export const answer_git_call = async (
 			await ops.git_checkout(...to_call_args(rest[0], opts));
 			return to_output();
 		case 'push':
-			if (args.includes('--end-of-options') && args[1] !== '-f') {
+			if (args.includes('--end-of-options') && args[1] !== '-f' && args[1] !== '--follow-tags') {
 				await ops.git_push_to_create(...to_call_args(rest[0], rest[1], opts));
 				return to_output();
 			}

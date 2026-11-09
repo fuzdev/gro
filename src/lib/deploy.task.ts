@@ -285,8 +285,9 @@ export const task: Task<Args> = {
 				await recreated.dir.mkdir(recreated.path, { recursive: true });
 			}
 
-			// Delete the target branch locally in the cwd if it exists
-			if (await git_local_branch_exists(git, target)) {
+			// Delete the target branch locally in the cwd if it exists,
+			// which a dry deploy leaves alone, as everything below happens in the deploy clone
+			if (!dry && (await git_local_branch_exists(git, target))) {
 				await git_delete_local_branch(git, target);
 			}
 
@@ -340,8 +341,14 @@ export const task: Task<Args> = {
 		} catch (error) {
 			log.error(
 				st('red', 'build failed'),
-				'but',
-				st('green', 'no changes were made to git'),
+				// the only push before the build creates a remote target branch that didn't exist
+				...(remote_target_exists || dry
+					? ['but', st('green', 'nothing was pushed')]
+					: [
+							'and',
+							st('yellow', `the new remote branch '${target}' has only its init commit`),
+							'- nothing was deployed'
+						]),
 				// a `SilentError` means the build's failure is already reported above
 				...(is_silent_error(error) ? [] : [print_error(error)])
 			);

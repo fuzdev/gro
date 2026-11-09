@@ -53,7 +53,16 @@ export const task: Task<Args> = {
 
 		const publish = (await has_sveltekit_library(fs_paths, package_json)).ok;
 		if (publish) {
-			await invoke_task('publish', { optional: true, dry, check, build, pull, sync, install });
+			await invoke_task('publish', {
+				optional: true,
+				dry,
+				check,
+				build,
+				pull,
+				sync,
+				install,
+				force_build
+			});
 		}
 		if (has_sveltekit_app(package_json).ok) {
 			await invoke_task('deploy', {

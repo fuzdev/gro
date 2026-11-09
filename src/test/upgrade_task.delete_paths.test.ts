@@ -93,9 +93,15 @@ const assert_refused = async (args: Partial<Args>): Promise<void> => {
 
 describe('gro upgrade deleting paths', () => {
 	test('deletes node_modules and the lockfile in the project', async () => {
-		await run({ delete_node_modules: true, delete_lockfile: true });
+		await run({ delete_node_modules: true, delete_lockfile: true, dry: false });
 		assert.ok(!existsSync(join(project, 'node_modules')));
 		assert.ok(!existsSync(join(project, 'package-lock.json')));
+	});
+
+	test('--dry deletes neither', async () => {
+		await run({ delete_node_modules: true, delete_lockfile: true, dry: true });
+		assert.ok(existsSync(join(project, 'node_modules/x')));
+		assert.ok(existsSync(join(project, 'package-lock.json')));
 	});
 
 	test('refuses paths outside the project, relative or absolute', async () => {
@@ -127,7 +133,7 @@ describe('gro upgrade deleting paths', () => {
 	test('a symlinked node_modules is removed itself, its target kept', async () => {
 		rmSync(join(project, 'node_modules'), { recursive: true });
 		symlinkSync(join(outside, 'node_modules'), join(project, 'node_modules'));
-		await run({ delete_node_modules: true });
+		await run({ delete_node_modules: true, dry: false });
 		assert.throws(() => lstatSync(join(project, 'node_modules')));
 		assert.ok(existsSync(join(outside, 'node_modules')));
 	});

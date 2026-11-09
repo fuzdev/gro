@@ -4,7 +4,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_argv, to_raw_rest_args } from './args.ts';
 import { process } from './process.ts';
-import { find_cli, spawn_cli } from './cli.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
 import { GitOrigin, git_pull, to_git_program } from './git.ts';
@@ -93,21 +93,24 @@ export const task: Task<Args> = {
 		const fs_paths = create_fs_paths(fs);
 
 		// TODO maybe a different task that pulls and does other things, like `gro ready`
-		if (pull) {
+		if (pull && !dry) {
 			// reaches the remote and the user's credential helpers, so the whole environment
 			await git_pull(to_git_program(spawn, { pass_env: 'all' }), origin);
 		}
 
 		if (delete_node_modules) {
-			log.info(`deleting node_modules at `, node_modules_path);
+			log.info(
+				dry ? 'dry run, keeping node_modules at' : 'deleting node_modules at',
+				node_modules_path
+			);
 			const entry = await to_project_entry(fs_paths, node_modules_path, '--node_modules_path');
-			await fs_paths.project.remove(entry, { recursive: true, missing_ok: true });
+			if (!dry) await fs_paths.project.remove(entry, { recursive: true, missing_ok: true });
 		}
 
 		if (delete_lockfile) {
-			log.info(`deleting lockfile at`, lockfile_path);
+			log.info(dry ? 'dry run, keeping lockfile at' : 'deleting lockfile at', lockfile_path);
 			const entry = await to_project_entry(fs_paths, lockfile_path, '--lockfile_path');
-			await fs_paths.project.remove(entry, { missing_ok: true });
+			if (!dry) await fs_paths.project.remove(entry, { missing_ok: true });
 		}
 
 		const package_json = await package_json_load(fs_paths);
@@ -156,9 +159,18 @@ export const task: Task<Args> = {
 			});
 		}
 
+		if (dry) return;
+
 		// Sync in a new process to pick up any changes after installing, avoiding some errors.
 		const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
-		if (gro) await spawn_cli(gro, ['sync']); // don't install because we do above
+		if (gro) {
+			const sync_result = await spawn_cli(gro, ['sync']); // don't install because we do above
+			if (!spawn_result_is_ok(sync_result)) {
+				throw new TaskError(
+					`the upgrade is installed, but \`gro sync\` failed: ${to_spawn_result_message(sync_result)}`
+				);
+			}
+		}
 	}
 };
 

@@ -44,6 +44,7 @@ const create_mock_publish_task_context = (args: Partial<Args> = {}): TaskContext
 			preserve_changelog: true,
 			optional: false,
 			dry: false,
+			force_build: false,
 			check: false,
 			'no-check': true,
 			build: false,
@@ -150,8 +151,48 @@ describe('publish_task version bump', () => {
 		assert(error instanceof TaskError, 'expected a rejected push to throw a TaskError');
 		assert.include(error.message, `tag v${VERSION_AFTER} are local only`);
 		assert.include(error.message, 'already published to the registry');
-		assert.include(error.message, '`git push --follow-tags`');
-		assert.deepEqual(spawn.mock.calls.at(-1)!.slice(0, 2), ['git', ['push', '--follow-tags']]);
+		assert.include(error.message, '`git push --follow-tags origin main`');
+		assert.deepEqual(spawn.mock.calls.at(-1)!.slice(0, 2), [
+			'git',
+			['push', '--follow-tags', '--end-of-options', 'origin', 'main']
+		]);
+	});
+
+	test('the release push and its recovery message honor --origin and --branch', async () => {
+		const spawn = git_ops.git_command;
+		spawn.mockImplementation(async (_command, args) =>
+			args?.[0] === 'push' ? { kind: 'exited', code: 1 } : { kind: 'exited', code: 0 }
+		);
+		const ctx = create_mock_publish_task_context({ origin: 'upstream', branch: 'release' });
+
+		let error;
+		try {
+			await publish_task.run(ctx);
+		} catch (e) {
+			error = e;
+		}
+
+		assert(error instanceof TaskError, 'expected a rejected push to throw a TaskError');
+		assert.include(error.message, '`git push --follow-tags upstream release`');
+		assert.deepEqual(spawn.mock.calls.at(-1)!.slice(0, 2), [
+			'git',
+			['push', '--follow-tags', '--end-of-options', 'upstream', 'release']
+		]);
+	});
+
+	test('forwards force_build to the build', async () => {
+		const ctx = create_mock_publish_task_context({
+			build: true,
+			'no-build': false,
+			force_build: true
+		});
+
+		await publish_task.run(ctx);
+
+		assert.deepEqual(
+			vi.mocked(ctx.invoke_task).mock.calls.find(([name]) => name === 'build'),
+			['build', { sync: false, install: false, force_build: true }]
+		);
 	});
 
 	test('fails loud when the release commit fails, without pushing', async () => {
@@ -193,5 +234,36 @@ describe('publish_task version bump', () => {
 			!calls.some(({ name, args }) => name === 'git' && args[0] === 'commit'),
 			'expected no commit'
 		);
+	});
+
+	const to_dry_error = async (package_json: object): Promise<unknown> => {
+		const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
+		package_json_load.mockReset();
+		package_json_load.mockResolvedValue(package_json as never);
+		try {
+			await publish_task.run(create_mock_publish_task_context({ dry: true }));
+		} catch (e) {
+			return e;
+		}
+		return undefined;
+	};
+
+	test('--dry refuses a package with no parseable repository url', async () => {
+		const error = await to_dry_error({ name: 'a', version: '1.0.0' });
+		assert(error instanceof TaskError, 'expected a TaskError');
+		assert.include(error.message, 'must contain a repo url');
+	});
+
+	test('--dry refuses a package with no version', async () => {
+		const error = await to_dry_error({
+			name: 'a',
+			repository: 'https://github.com/fuzdev/test_pkg'
+		});
+		assert(error instanceof TaskError, 'expected a TaskError');
+		assert.include(error.message, 'Failed to find package.json version');
+	});
+
+	test('--dry passes a package a real publish would accept', async () => {
+		assert.strictEqual(await to_dry_error(to_package_json(VERSION_BEFORE)), undefined);
 	});
 });

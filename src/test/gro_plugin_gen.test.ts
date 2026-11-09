@@ -6,11 +6,17 @@ import type { FileChange, ModuleGraph } from '#lib/module_graph.ts';
 import type { PluginContext } from '#lib/plugin.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
 import { is_task_error } from '#lib/task.ts';
+import { find_genfiles } from '#lib/gen.ts';
 
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_logger } from './test_helpers.ts';
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
+
+vi.mock('#lib/gen.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/gen.ts')>()),
+	find_genfiles: vi.fn()
+}));
 
 afterEach(async () => {
 	(await get_mock_spawn()).reset();
@@ -117,4 +123,65 @@ test('a gen run that throws logs the error, and the queue keeps working', async 
 	await vi.waitFor(() => assert.equal(mock.calls.length, 1));
 	assert.deepEqual(mock.calls[0]!.args, ['gen', GENFILE]);
 	assert.equal(vi.mocked(log.error).mock.calls.length, 1);
+});
+
+test('a gen run that exits non-zero with watch logs nothing fatal and the queue keeps working', async () => {
+	const mock = await get_mock_spawn();
+	mock.result = { kind: 'exited', code: 1 };
+	const { graph, change } = create_graph(Error('unused'));
+	await setup(graph, { flush_debounce_delay: 0 });
+	await change(GENFILE);
+	await vi.waitFor(() => assert.equal(mock.calls.length, 1));
+	await change(GENFILE);
+	await vi.waitFor(() => assert.equal(mock.calls.length, 2));
+});
+
+const setup_no_watch = async (genfiles: Array<string> = [GENFILE]): Promise<unknown> => {
+	vi.mocked(find_genfiles).mockResolvedValue({
+		ok: true,
+		value: { resolved_input_files: genfiles }
+	} as never);
+	const { graph } = create_graph(Error('unused'));
+	onTestFinished(() => graph.close());
+	try {
+		await gro_plugin_gen().setup!({
+			dev: true,
+			watch: false,
+			log: create_mock_logger(),
+			config: {},
+			graph
+		} as unknown as PluginContext);
+	} catch (error) {
+		return error;
+	}
+	return undefined;
+};
+
+test('with no watch, a passing gen resolves', async () => {
+	const mock = await get_mock_spawn();
+	assert.equal(await setup_no_watch(), undefined);
+	assert.deepEqual(
+		mock.calls.map((c) => c.args),
+		[['gen']]
+	);
+});
+
+test('with no watch and no genfiles, gen does not run', async () => {
+	const mock = await get_mock_spawn();
+	assert.equal(await setup_no_watch([]), undefined);
+	assert.equal(mock.calls.length, 0);
+});
+
+test('with no watch, a failing gen is a TaskError', async () => {
+	(await get_mock_spawn()).result = { kind: 'exited', code: 1 };
+	const error = await setup_no_watch();
+	assert.ok(is_task_error(error));
+	assert.include(error.message, '`gro gen` failed: code 1');
+});
+
+test('with no watch, genfiles with no `gro` to run them is a TaskError', async () => {
+	(await get_mock_spawn()).available = () => false;
+	const error = await setup_no_watch();
+	assert.ok(is_task_error(error));
+	assert.include(error.message, '`gro` was not found');
 });

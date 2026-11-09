@@ -1,12 +1,13 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import type { Task } from './task.ts';
+import { TaskError, type Task } from './task.ts';
 import { clean_fs } from './clean_fs.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { GitOrigin, to_git_program } from './git.ts';
 import { spawn } from './spawn.ts';
+import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -53,12 +54,17 @@ export const task: Task<Args> = {
 		// lop off stale git branches
 		if (git) {
 			// queries the remote, so it may prompt, and credential helpers are the user's
-			await to_git_program(spawn, { pass_env: 'all' }).run([
+			const result = await to_git_program(spawn, { pass_env: 'all' }).run([
 				'remote',
 				'prune',
 				'--end-of-options',
 				git_origin
 			]);
+			if (!spawn_result_is_ok(result)) {
+				throw new TaskError(
+					`\`git remote prune ${git_origin}\` failed: ${to_spawn_result_message(result)}`
+				);
+			}
 		}
 	}
 };

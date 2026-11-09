@@ -171,11 +171,30 @@ describe('deploy_task build integration', () => {
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow();
 
-			// Should log that no git changes were made
 			expect(ctx.log.error).toHaveBeenCalledWith(
 				expect.stringContaining('build failed'),
-				expect.anything(),
-				expect.stringContaining('no changes were made to git'),
+				'but',
+				expect.stringContaining('nothing was pushed'),
+				expect.anything()
+			);
+		});
+
+		test('says the new remote branch was created when the build fails after creating it', async () => {
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockResolvedValue(true);
+			vi.mocked(git_ops.git_remote_branch_exists).mockResolvedValue(false);
+
+			const ctx = create_mock_deploy_task_context({ build: true, dry: false });
+			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed'));
+
+			await expect(deploy_task.run(ctx)).rejects.toThrow();
+
+			expect(git_ops.git_push_to_create).toHaveBeenCalled();
+			expect(ctx.log.error).toHaveBeenCalledWith(
+				expect.stringContaining('build failed'),
+				'and',
+				expect.stringContaining("the new remote branch 'deploy' has only its init commit"),
+				'- nothing was deployed',
 				expect.anything()
 			);
 		});

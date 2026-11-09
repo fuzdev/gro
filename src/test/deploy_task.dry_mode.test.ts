@@ -143,7 +143,7 @@ describe('deploy_task dry mode', () => {
 			expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('dry deploy failed'));
 		});
 
-		test('still shows no git changes message on build failure', async () => {
+		test('says nothing was pushed on build failure', async () => {
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);
 
@@ -156,13 +156,45 @@ describe('deploy_task dry mode', () => {
 
 			await expect(deploy_task.run(ctx)).rejects.toThrow();
 
-			// Should still mention no git changes
 			expect(ctx.log.error).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.anything(),
-				expect.stringContaining('no changes were made to git'),
+				expect.stringContaining('nothing was pushed'),
 				expect.anything()
 			);
+		});
+
+		test('says nothing was pushed when the remote target branch is missing', async () => {
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockResolvedValue(true);
+			vi.mocked(git_ops.git_remote_branch_exists).mockResolvedValue(false);
+
+			const ctx = create_mock_deploy_task_context({ dry: true, build: true });
+			ctx.invoke_task = vi.fn().mockRejectedValue(new Error('Build failed'));
+
+			await expect(deploy_task.run(ctx)).rejects.toThrow();
+
+			expect(ctx.log.error).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				expect.stringContaining('nothing was pushed'),
+				expect.anything()
+			);
+		});
+	});
+
+	describe('dry mode with a new remote target branch', () => {
+		test('keeps the local target branch', async () => {
+			const { git_delete_local_branch, git_local_branch_exists, git_remote_branch_exists } =
+				git_ops;
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockResolvedValue(true);
+			vi.mocked(git_remote_branch_exists).mockResolvedValue(false);
+			vi.mocked(git_local_branch_exists).mockResolvedValue(true);
+
+			await deploy_task.run(create_mock_deploy_task_context({ dry: true }));
+
+			expect(git_delete_local_branch).not.toHaveBeenCalledWith('deploy');
 		});
 	});
 

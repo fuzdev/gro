@@ -63,6 +63,10 @@ export const Args = s.object({
 		meta(s.boolean, { description: 'opt out of installing packages before publishing' }),
 		false
 	),
+	force_build: s.with_default(
+		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
+		false
+	),
 	changeset_cli: s.with_default(
 		meta(s.string, { description: 'the changeset CLI to use' }),
 		CHANGESET_CLI
@@ -86,6 +90,7 @@ export const task: Task<Args> = {
 			pull,
 			sync,
 			install,
+			force_build,
 			optional,
 			changeset_cli
 		} = args;
@@ -143,6 +148,19 @@ export const task: Task<Args> = {
 		let version!: string;
 		let optional_and_version_unchanged = false;
 
+		// before the `dry` branch, so a dry run refuses what a real publish would
+		if (typeof package_json.version !== 'string') {
+			throw new TaskError('Failed to find package.json version');
+		}
+		const parsed_repo_url = package_json_parse_repo_url(package_json);
+		if (!parsed_repo_url) {
+			throw new TaskError(
+				'package.json `repository` must contain a repo url (and GitHub only for now, sorry),' +
+					' like `git+https://github.com/fuzdev/gro.git` or `https://github.com/fuzdev/gro`' +
+					' or an object with the `url` key'
+			);
+		}
+
 		// Bump the version so the package.json is updated before building:
 		// TODO problem here is build may fail and put us in a bad state,
 		// but I don't see how we could do this to robustly
@@ -151,18 +169,6 @@ export const task: Task<Args> = {
 		if (dry) {
 			log.info('dry run, skipping changeset version');
 		} else {
-			if (typeof package_json.version !== 'string') {
-				throw new TaskError('Failed to find package.json version');
-			}
-			const parsed_repo_url = package_json_parse_repo_url(package_json);
-			if (!parsed_repo_url) {
-				throw new TaskError(
-					'package.json `repository` must contain a repo url (and GitHub only for now, sorry),' +
-						' like `git+https://github.com/fuzdev/gro.git` or `https://github.com/fuzdev/gro`' +
-						' or an object with the `url` key'
-				);
-			}
-
 			// This is the first line that alters the repo.
 
 			const changeset_version_result = await spawn_cli(found_changeset_cli, ['version'], log);
@@ -227,7 +233,7 @@ export const task: Task<Args> = {
 		// Build after the version is bumped so the new version is in the build as needed.
 		// Skip sync and install because we already handled both above.
 		if (build) {
-			await invoke_task('build', { sync: false, install: false });
+			await invoke_task('build', { sync: false, install: false, force_build });
 		}
 
 		// Return early if there are no changes and publishing is optional, but after building,
@@ -254,19 +260,27 @@ export const task: Task<Args> = {
 		if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
 			await git.run(['add', '--', changelog]);
 		}
+		const push_command = `git push --follow-tags ${origin} ${branch}`;
 		const commit_result = await git.run(['commit', '-a', '-m', `publish v${version}`]);
 		if (!spawn_result_is_ok(commit_result)) {
 			throw new TaskError(
 				`the release commit failed, but v${version} is already published to the registry -` +
-					` resolve the failure, commit, then push with \`git push --follow-tags\``
+					` resolve the failure, commit, then push with \`${push_command}\``
 			);
 		}
-		const push_result = await git.run(['push', '--follow-tags']);
+		// `branch` is checked out above, so this pushes the release commit
+		const push_result = await git.run([
+			'push',
+			'--follow-tags',
+			'--end-of-options',
+			origin,
+			branch
+		]);
 		if (!spawn_result_is_ok(push_result)) {
 			throw new TaskError(
-				`\`git push --follow-tags\` failed: the release commit and tag v${version} are local only,` +
+				`\`${push_command}\` failed: the release commit and tag v${version} are local only,` +
 					` but v${version} is already published to the registry - resolve the failure,` +
-					' then push manually with `git push --follow-tags`'
+					` then push manually with \`${push_command}\``
 			);
 		}
 

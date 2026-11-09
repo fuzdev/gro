@@ -86,8 +86,9 @@ const git_out = async (
 };
 
 /**
- * Returns the current git branch name.
- * @throws Error - if the underlying git command fails
+ * Returns the current git branch name, or the literal string `HEAD` on a detached `HEAD`
+ * or an unborn branch, which callers comparing it to a branch name read as not that branch.
+ * @throws Error - if `git` prints no name, as outside a repo, or was stopped or truncated
  */
 export const git_current_branch_name = async (
 	git: SpawnProgram,
