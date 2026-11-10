@@ -45,7 +45,9 @@
 //!   budgets, which `cargo xtask build --verify` also checks.
 //! - `eval`: `fgro eval --driver -` against `deno run` with the flags,
 //!   pinned environment, and stdin wrapper zap's eval passed Deno before
-//!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`), each with zap's own
+//!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`, and
+//!   `DENO_CONDITIONS=gro`, so Deno resolves `@fuzdev/zap` to its TypeScript
+//!   source as `fgro` does), each with zap's own
 //!   driver read from a sibling zap checkout (the suite holds no zap code),
 //!   on a committed fixture project over zap's recipes (gated) and on a
 //!   sibling `fuz_forge` checkout's config in place (reported only); beside

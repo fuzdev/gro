@@ -33,7 +33,6 @@ export const ID = {
 	fail2ban_jail: 'fail2ban-jail',
 	fail2ban_service: 'service-fail2ban',
 	verify_firewall: 'verify-post-firewall',
-	deno: 'deno-install',
 	migrate_tool: 'build-migrate-tool',
 	backup_script: 'backup-script',
 	backup_cron: 'backup-cron',

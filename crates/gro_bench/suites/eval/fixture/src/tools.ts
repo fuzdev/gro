@@ -1,18 +1,15 @@
 /**
- * Phase 7: the operators' tools: Deno for the maintenance scripts, the
- * migration tool built from a pinned release, the nightly backup, and log
- * rotation.
+ * Phase 7: the operators' tools: the migration tool built from a pinned
+ * release, the nightly backup, and log rotation.
  *
  * @module
  */
 
 import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
-import { deno_install } from '@fuzdev/zap/recipe_deno.ts';
 
 import { BACKUPS_DIR, DATABASE_NAME, DEPLOY_USER, TOOLS_DIR, UPLOADS_DIR } from './host.ts';
 import { ID } from './ids.ts';
 
-const DENO_VERSION = '2.8.3';
 const MIGRATE_VERSION = '0.14.2';
 /** The release archive's BLAKE3, pinned with its version. */
 const MIGRATE_BLAKE3 = 'a3f1c2e4b5d6978810213243546576879a0b1c2d3e4f5061728394a5b6c7d8e9';
@@ -43,13 +40,6 @@ const LOGROTATE = `${BACKUPS_DIR}/*.log {
 `;
 
 export const declare_tools = (zap: ZapBuilder): void => {
-	zap.script({
-		id: ID.deno,
-		name: `Deno ${DENO_VERSION} for the maintenance scripts`,
-		...deno_install({ version: DENO_VERSION, bin_path: `${TOOLS_DIR}/bin`, privileged: true }),
-		depends_on: ['package-curl', 'package-unzip']
-	});
-
 	zap.build({
 		id: ID.migrate_tool,
 		name: `The migration tool ${MIGRATE_VERSION}`,
@@ -119,6 +109,6 @@ export const declare_tools = (zap: ZapBuilder): void => {
 			},
 			{ id: 'report', run: `${TOOLS_DIR}/bin/deno run --allow-read ${TOOLS_DIR}/report.ts` }
 		],
-		depends_on: [ID.database, ID.migrate_tool, ID.deno]
+		depends_on: [ID.database, ID.migrate_tool]
 	});
 };

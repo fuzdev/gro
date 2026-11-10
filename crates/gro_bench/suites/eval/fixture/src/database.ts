@@ -7,7 +7,7 @@
 
 import type { ZapBuilder } from '@fuzdev/zap/zap.ts';
 import { postgres_apt_repo } from '@fuzdev/zap/recipe_debian_postgres.ts';
-import { fuz_app_bootstrap_token } from '@fuzdev/zap/recipe_bootstrap.ts';
+import { fuz_app_bootstrap_token } from '@fuzdev/zap/recipe_fuz_app_bootstrap.ts';
 
 import { CONFIG_DIR, DATABASE_NAME, DEPLOY_USER } from './host.ts';
 import { ID } from './ids.ts';

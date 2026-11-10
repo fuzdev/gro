@@ -7,7 +7,7 @@
  */
 
 import type { TemplateContent } from '@fuzdev/zap/schema.ts';
-import { fuz_app_env_base, fuz_app_trusted_proxies } from '@fuzdev/zap/recipe_env.ts';
+import { fuz_app_env_base, fuz_app_trusted_proxies } from '@fuzdev/zap/recipe_fuz_app_env.ts';
 
 import { CONFIG_DIR, DATABASE_NAME, DEPLOY_USER, PORT, UPLOADS_DIR, WORKER_PORT } from './host.ts';
 

@@ -29,11 +29,12 @@ import { ACME_WEBROOT, CURRENT_LINK, PORT, WORKER_PORT } from './host.ts';
 import { ID } from './ids.ts';
 
 /**
- * The site's CSP: the locked-down baseline, plus the WebSocket and the media
- * host, named by the template's `{{domain}}`, since a template takes no
- * reference.
+ * The site's CSP: the recipe's baseline with `'wasm-unsafe-eval'`, plus the
+ * WebSocket and the media host, named by the template's `{{domain}}`, since a
+ * template takes no reference.
  */
 const CSP = spa_csp({
+	wasm_unsafe_eval: true,
 	websocket: 'wss://{{domain}}',
 	img_src_extra: ['https://media.{{domain}}']
 });
@@ -61,6 +62,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 	const domain = zap.env('DEPLOY_DOMAIN');
 	const email = zap.env('CERTBOT_EMAIL');
 	const mirror = zap.env('MIRROR_DOMAIN');
+	const expected_addresses = [zap.env('DEPLOY_HOST')];
 
 	zap.directory({
 		id: 'acme-webroot',
@@ -73,7 +75,12 @@ export const declare_web = (zap: ZapBuilder): void => {
 	zap.script({
 		id: ID.certbot_issue,
 		name: 'Issue the certificate (standalone, first time only)',
-		...debian_certbot_standalone_issue({ domain, extra_domains: [mirror], email }),
+		...debian_certbot_standalone_issue({
+			domain,
+			extra_domains: [mirror],
+			email,
+			expected_addresses
+		}),
 		depends_on: ['package-nginx', 'package-certbot']
 	});
 	const reload_hook = debian_certbot_reload_nginx_hook();
@@ -90,6 +97,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 			domain,
 			extra_domains: [mirror],
 			email,
+			expected_addresses,
 			webroot: ACME_WEBROOT,
 			deploy_hook: reload_hook
 		}),
@@ -100,7 +108,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 		id: ID.nginx_ssl_params,
 		name: 'TLS parameters',
 		path: SSL_PARAMS_PATH,
-		content: { type: 'inline', content: ssl_params() },
+		content: { type: 'inline', content: ssl_params({ session_cache_zone: 'fuz_app_SSL' }) },
 		mode: '644',
 		triggers: [ID.nginx_service],
 		validate: NGINX_VALIDATE,
@@ -126,6 +134,7 @@ export const declare_web = (zap: ZapBuilder): void => {
 			root: `${CURRENT_LINK}/build`,
 			csp: CSP,
 			ssl: 'certbot',
+			hsts: { include_subdomains: true },
 			client_max_body_size: '2m',
 			api_burst: 40,
 			extra_locations: EXTRA_LOCATIONS,
