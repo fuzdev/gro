@@ -1,5 +1,16 @@
 # @fuzdev/gro
 
+## 0.234.0
+
+### Minor Changes
+
+- feat: add the `watch` host module, `watch.dir` over an fs handle, in `@fuzdev/gro/watch.ts` ([0ef2484](https://github.com/fuzdev/gro/commit/0ef2484))
+
+### Patch Changes
+
+- fix: declaration maps resolve to the shipped source, so go-to-definition lands in `src/lib` ([d6db0c6](https://github.com/fuzdev/gro/commit/d6db0c6))
+- deps: peer '@fuzdev/fuz_schema' `^0.5.7`, whose named schema types (`ObjectSchema`, `StringSchema`, …) this package's declarations print when built against it ([94cfc10](https://github.com/fuzdev/gro/commit/94cfc10))
+
 ## 0.233.0
 
 ### Minor Changes
