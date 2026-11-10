@@ -45,15 +45,21 @@
 //!   budgets, which `cargo xtask build --verify` also checks.
 //! - `eval`: `fgro eval --driver -` against `deno run` with the flags,
 //!   pinned environment, and stdin wrapper zap's eval passed Deno before
-//!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`, and
-//!   `DENO_CONDITIONS=gro`, so Deno resolves `@fuzdev/zap` to its TypeScript
-//!   source as `fgro` does), each with zap's own
+//!   moving to `fgro` (plus `DENO_NO_UPDATE_CHECK`), each with zap's own
 //!   driver read from a sibling zap checkout (the suite holds no zap code),
 //!   on a committed fixture project over zap's recipes (gated) and on a
 //!   sibling `fuz_forge` checkout's config in place (reported only); beside
 //!   them, reported only, `deno info`, the graph pass zap runs before each
-//!   eval. Warm rows only, as zap runs Deno with its cache warm. In a phases
-//!   run, `prepass` plus `confine` approximate the box's own cost.
+//!   eval. Each runtime resolves `@fuzdev/zap` as a consumer that installs
+//!   it does: `fgro` takes its `gro` export condition, the TypeScript source,
+//!   and Deno its `default`, the built `dist/`. The fixture links the zap
+//!   checkout, so its `dist/` must be built from its source, and nothing
+//!   checks that. A stale `dist/` missing a module fails the correctness run
+//!   and one that evaluates differently fails `parity`, but one that
+//!   evaluates the same moves the Deno rows without a note, since a
+//!   checkout's recorded state is git's, which ignores `dist/`. Warm rows
+//!   only, as zap runs Deno with its cache warm. In a phases run, `prepass`
+//!   plus `confine` approximate the box's own cost.
 //! - `prices`: the priced build as `fgro` with every default on and as one
 //!   variant per default turned off, on the eval fixture and a config that
 //!   declares nothing (`tiny/`), with zap's driver and equal values
