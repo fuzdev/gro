@@ -148,8 +148,10 @@ and error handling; `plugin.ts` implements them. Builtin plugins:
 - `gro_plugin_sveltekit_library` - `svelte-package`, then `.ts`→`.js`
   specifier rewrites in the emitted `.js`/`.d.ts`/`.svelte`
   ([docs](src/docs/gro_plugin_sveltekit_library.md))
-- `gro_plugin_deno_server` - a Deno server beside the Vite dev server,
-  unbundled, its `deno` pinned once at setup and run through `spawn_restartable`
+- `gro_plugin_server` - a server entry beside the Vite dev server, run with
+  Gro's loader and restarted through `spawn_restartable` when the entry or its
+  imports change in the module graph (`internal/server_restarts.ts`)
+  ([docs](src/docs/gro_plugin_server.md))
 
 ### Configuration
 
@@ -404,7 +406,7 @@ Core systems (src/lib/):
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
 - Plugins: `plugin.ts`, `gro_plugin_*.ts` (gen, sveltekit_app,
-  sveltekit_library, deno_server)
+  sveltekit_library, server)
 - Config: `gro_config.ts`, `gro.config.default.ts`
 - Loader: `loader.ts`, `register.ts`
 

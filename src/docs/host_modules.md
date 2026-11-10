@@ -109,7 +109,7 @@ const result = await check.closed;
   Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
   can't shadow `spawn.program('git')`. Gro's own tasks find a project's tools, like `vite` and `eslint`,
   with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name,
-  while `git`, `deno`, `node`, and the package manager go straight to `spawn`.
+  while `git`, `node`, and the package manager go straight to `spawn`.
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
@@ -251,7 +251,7 @@ A caller that needs a prompting command's output passes `stdin: 'inherit'` to `o
 it starts a program and restarts it on request, every restart reusing the same handle,
 with `args` and `options` copied when it's created,
 so the pin and environment fixed at `program()` carry across restarts.
-`gro_plugin_deno_server` uses it, pinning `deno` once at setup.
+`gro_plugin_server` uses it, pinning `node` once at setup.
 
 The module's TSDoc has each op's contract.
 

@@ -25,7 +25,10 @@ export const load_env = async (
 	const env: Record<string, string> = {};
 	const loaded_files = await Promise.all(
 		env_files.map((path) =>
-			load(fs_paths, env_dir === undefined || isAbsolute(path) ? path : join(env_dir, path))
+			load_env_file(
+				fs_paths,
+				env_dir === undefined || isAbsolute(path) ? path : join(env_dir, path)
+			)
 		)
 	);
 	for (const loaded of loaded_files) {
@@ -66,20 +69,27 @@ export const load_from_env = async (
 	let v = ambient_env[key];
 	if (v) return v;
 	for (const path of paths) {
-		const env = await load(fs_paths, path);
+		const env = await load_env_file(fs_paths, path);
 		v = env?.[key];
 		if (v) return v;
 	}
 	return undefined;
 };
 
-const load = async (
+/**
+ * Loads one env file's vars, parsed as dotenv, without merging them into anything.
+ * @param fs_paths - reads the file, a relative `path` resolved against its project
+ * @param path - absolute, or relative to the project
+ * @returns the file's vars, or `null` when the file doesn't exist
+ * @throws `FsError` - when reading the file fails other than by its absence
+ */
+export const load_env_file = async (
 	fs_paths: FsPaths,
 	path: string
-): Promise<Record<string, string> | undefined> => {
+): Promise<Record<string, string> | null> => {
 	const opened = await fs_paths.open_path(path);
 	const loaded = await opened.dir.read_text_if_exists(opened.path);
-	return loaded === null ? undefined : dotenv.parse(loaded);
+	return loaded === null ? null : dotenv.parse(loaded);
 };
 
 type EnvVarSchema = NonNullable<EnvVarConfig<any>['schema']>;

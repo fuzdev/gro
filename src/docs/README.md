@@ -8,6 +8,7 @@
 - [deploy](deploy.md)
 - [dev](dev.md)
 - [gen](gen.md)
+- [gro_plugin_server](gro_plugin_server.md)
 - [gro_plugin_sveltekit_app](gro_plugin_sveltekit_app.md)
 - [gro_plugin_sveltekit_library](gro_plugin_sveltekit_library.md)
 - [plugin](plugin.md)
