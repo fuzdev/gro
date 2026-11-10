@@ -5,16 +5,20 @@
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 use std::path::PathBuf;
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
-use std::process::{Command, Stdio};
+use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::process::Stdio;
 
 use serde_json::json;
 
+#[cfg(target_os = "linux")]
+use crate::command;
 use crate::eval;
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
 use crate::support::KillOnDrop;
 use crate::support::Scratch;
 #[cfg(all(feature = "snapshot", target_os = "linux"))]
-use crate::{command, fixtures, long_timeout, wrapped_command};
+use crate::{fixtures, long_timeout, wrapped_command};
 
 /// Waits for the driver's `ready` on `child`'s stderr, failing the test
 /// when it doesn't come by the deadline.
@@ -45,8 +49,8 @@ fn a_full_stdout_fails_the_envelope_write_exiting_1() {
         .write(true)
         .open("/dev/full")
         .unwrap();
-    let mut command = crate::command("eval", &["missing.js"], &[]);
-    command.stdin(std::process::Stdio::null()).stdout(full);
+    let mut command = command("eval", &["missing.js"], &[]);
+    command.stdin(Stdio::null()).stdout(full);
     let output = command.output().unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert_eq!(output.status.code(), Some(1), "{stderr}");
