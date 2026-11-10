@@ -376,7 +376,7 @@ where the host modules and grants land with their first consumer.
 - [ ] on the Node Gro, a lint generated from the authority table,
       refusing free authority globals in code meant for the runtime, a portability check
 - [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
-      `deno task` becoming gro tasks
+      `deno task` becoming npm scripts or gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module)
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
