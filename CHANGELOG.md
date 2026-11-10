@@ -1,5 +1,34 @@
 # @fuzdev/gro
 
+## 0.232.0
+
+### Minor Changes
+
+- fix: a `#!` script spawned through a symlink runs at the path it was found at, so its `$0` is the name it was called through ([ded0d0f](https://github.com/fuzdev/gro/commit/ded0d0f))
+  
+  A script that dispatches on `$0`, like Debian's `psql` and `pg_isready` (links to the `pg_wrapper`
+  Perl script), failed or exited 0 with no output, as it saw the pinned real path. A native binary
+  still runs at its pinned real path with the granted name as `argv[0]`.
+  
+  **breaking** a script is pinned by identity, its device and inode: at each launch its found path
+  must still lead to the same file, or the call throws `SpawnError` of kind `launch_failed` where it
+  used to run the file at the pinned path. That refuses a link retargeted or removed and a file
+  renamed over the script, linked or not, while the same file reached by a new real path still runs.
+  A script behind a `node_modules/.bin` link sees the `.bin` path as `$0` (a Node script's
+  `process.argv[1]`), as from a shell.
+- fix: `gro check` skips its test step in a project that doesn't declare Vitest ([dde6f5f](https://github.com/fuzdev/gro/commit/dde6f5f))
+  
+  **breaking** only a `dependencies` or `devDependencies` entry for Vitest counts now, so `gro test` in
+  a project only peered on Vitest throws where it used to run, and its message is now
+  `no test runner found, add vitest to devDependencies`. `package_json_has_dependency` loses its
+  `include_peer` param and never counts peer deps. `gro test` reads `package.json` without the schema,
+  so one the schema refuses no longer fails it.
+  
+  `gro check` with no Vitest declared, no `-- gro test` section, and no nonempty `-- vitest` one
+  skips the test step with a log line, or fails naming the test files `gro test` would run when
+  there are any, so a repo that loses the dependency can't pass without its tests. `gro test` and
+  `gro check` with Vitest declared but not installed still fail with the install hint.
+
 ## 0.231.0
 
 ### Minor Changes
