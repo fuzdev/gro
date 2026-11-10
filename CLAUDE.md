@@ -433,6 +433,7 @@ Key utilities:
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
   `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
+- Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal})` an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run` (or `out` with
   `stdin: 'inherit'` when its output is needed), a caller's

@@ -1,10 +1,9 @@
 # host modules
 
-> the imports that reach the OS, `fs`, `spawn`, `process`, and `net` so far: how to import them, hand them down,
+> the imports that reach the OS, `fs`, `spawn`, `process`, `net`, and `watch`: how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs`, `spawn`, `process`, and `net` exist as the Node implementation in Gro's npm package;
-> watch is designed, not built.
+> **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
 > On `fgro` the host modules will be builtins resolved ahead of package lookup
 > ([authority](authority.md#imports-or-globals) has the design).
 
@@ -368,6 +367,55 @@ There's no bare `fetch` export, so a module using the network shows `net` in its
 
 The module's TSDoc has each op's contract.
 
+## watch
+
+```ts
+import {fs} from '@fuzdev/gro/fs.ts';
+import {watch} from '@fuzdev/gro/watch.ts';
+
+const crates = fs.project.dir('crates').readonly(); // watching needs only a read-only handle
+await using watcher = await watch.dir(crates, {recursive: true}); // resolves once it's watching
+
+for await (const event of watcher) {
+	if (event.kind === 'rescan' || (event.kind !== 'delete' && event.path.endsWith('.rs'))) {
+		await rebuild(); // events queue meanwhile, and debouncing is the caller's
+	}
+}
+```
+
+- `watch.dir(dir, options?)` watches the directory an fs handle is on and resolves once the watch is in place.
+  Nothing already there is reported, so a caller that needs the starting state reads it through the handle.
+  It rejects with the `FsError` listing the directory would throw (`not_found`, `not_a_directory`, `permission_denied`, `outside_root`, `io_error`),
+  and with one when the directory is removed or replaced before the watch is in place.
+- The handle is the grant. A read-only handle is enough, and nothing outside it is watched or reported:
+  a narrowed `dir.dir('sub')` sees nothing of its siblings.
+- An event's `path` is relative to the handle and `/`-separated, so it goes straight back to the handle's ops.
+  `recursive` watches the directories beneath, and without it a subdirectory shows only as its own `add` and `delete`.
+- Events are `{kind: 'add' | 'update' | 'delete', path, is_directory}` and `{kind: 'rescan', path}`.
+  `update` is a non-directory's contents or metadata changing; a directory's changes show as its entries' events.
+  `rescan` says changes beneath `path` may have been missed, `''` for everything, so its state is to be read again.
+- A symlink is an entry like a file, `is_directory: false`, never followed, as [`fs_search`](#fs) treats one.
+  What it points at isn't watched, so a change there reports nothing, and replacing the link reports the link.
+- Events are hints to act on, not a log to replay, on the rules the native watch, inotify per directory, can keep:
+  - a rename is a `delete` and an `add`, unpaired, and a file replaced by a rename over it, an atomic save, may be an `update` or a `delete` then an `add`;
+  - one directory's events arrive in the order they happened, and across directories there's no order;
+  - a directory created or moved in is an `add`, then an `add` for each entry found once its own watch is in place,
+    so an entry created and removed before then is never seen, and one created as the watch lands may be reported twice;
+  - a directory removed or moved out is a `delete`, and its entries may or may not have their own.
+- The watcher is an async iterable, read once, a second iteration a `TypeError`.
+  Events not yet read buffer up to `max_pending`, 4096 by default. Past it they're dropped for one `rescan` of `''`,
+  as a kernel's queue overflows, and later events are dropped until that `rescan` is read, since reading the tree then sees them.
+  A directory that can't be watched, like one this user can't read or one past the system's watch limit, is a `rescan`,
+  of the nearest directory the failure names and of `''` when it names none, and changes beneath it may go unreported for the rest of the watch.
+- A watcher ends on `close()`, `await using`, leaving its `for await`, or `signal` aborting, which drop the events not yet read.
+  A `signal` that aborts before `watch.dir` resolves rejects the call with its reason.
+  When the watched directory is removed, moved, or replaced by another directory or a symlink,
+  the iteration delivers what was queued and then throws `FsError` `not_found`.
+  An open watcher keeps the process alive, as a listening server does, and once it has ended nothing of it does.
+- Errors are `FsError` from `@fuzdev/gro/fs_error.ts`, so watch has no error module of its own.
+
+The module's TSDoc has the contract.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -515,6 +563,15 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Every send names its `redirect` and dispatcher, and the request's own fields a polluted key would replace,
   since undici's init dictionary reads a key the init doesn't own through `Object.prototype`, even for a null-prototype init.
   It's no defense against pollution generally, as the [gaps](#net-1) say.
+
+### watch's invariants
+
+- Watchers come only from `watch.dir`, through a module-private key, and hold their state in private fields,
+  so a method called on any other object throws `TypeError`.
+- `watch`, watchers, their iterators, and their prototypes are frozen, and the prototypes are null-prototype.
+- Events and iterator results are frozen null-prototype records, so a polluted `Object.prototype.then` isn't consulted on the way to the reader.
+- The handle is read once, for its `path`, and its directory listed through the handle before anything watches it.
+- Options are read once, by own property.
 
 ### The Node implementation's own measures
 
@@ -666,6 +723,26 @@ It documents each gap rather than weakening the API to match, and is a review si
   That is part of this module being advisory, as any holder of a handle can already call the global `fetch` or `node:net`, and no list of polluted keys could be complete.
   Every send names `redirect` and the dispatcher, so an ordinary option or a `Request` can't reroute or follow.
 
+### watch
+
+- The handle is read for its `path`, as spawn reads a `cwd` handle, so a forged handle is any object with an absolute `path` whose `list` resolves.
+- The watch is bound to the directory's path, as an fs handle is, so a moved watched directory ends the watch as a removed one does.
+- Chokidar checks an entry with `lstat` and then watches and reads it by path, so a directory swapped for a symlink in between is watched through the link.
+  The watcher checks each path before chokidar descends into it and before reporting it: the root still the directory the watch started on (by device and inode),
+  and each directory on the way still a directory, not a symlink.
+  That's a check then a use, as fs's walk is, so a swap between the two escapes,
+  and chokidar can be left watching the directory a swapped-in link points at, never beneath it,
+  and the directories beneath one renamed away for the link, their events dropped.
+- The root is told apart by device and inode, which a filesystem can reuse: on ext4 a watched directory removed and another made at once at its path usually gets its inode,
+  and the watch then goes on in the new one, the directory the handle's path names, before the watch is in place or after.
+- An entry replaced at once by one of another type can go unreported, with no `rescan`:
+  a file replaced by a directory reports nothing, not even the directory's entries later, and a directory replaced by a symlink is an `update` of the link.
+- Names are decoded as UTF-8 by Node, so a name that isn't UTF-8 may go unreported, or arrive with `U+FFFD` in place of its bytes,
+  naming no entry the handle reaches, and listing its directory through the handle fails with `io_error`.
+- Node exposes no kernel overflow, so a `rescan` comes only from `max_pending` and a directory that couldn't be watched, never from events the kernel dropped.
+  A directory that can't be read when the watch starts stays unwatched after it's readable.
+- Any module can import `node:fs` and watch any path, so a handle bounds only the code that uses it.
+
 ## Native requirements
 
 What the runtime's builtin must do that the Node implementation can't:
@@ -748,3 +825,13 @@ What the runtime's builtin must do that the Node implementation can't:
 - Apply the Fetch forbidden-header list, so `Host` and SNI can't be steered.
 - Ignore ambient `HTTP(S)_PROXY`.
 - Show a wildcard host grant like `*.github.com` as the blanket class, since a multi-tenant domain makes it one.
+
+### watch
+
+- Watch the directory the handle holds by descriptor, opening each subdirectory beneath its parent's descriptor
+  (`O_DIRECTORY | O_NOFOLLOW`) and adding its watch through that descriptor, never a path (`IN_DONT_FOLLOW`, `IN_ONLYDIR`),
+  and name each event by the watch it came from, so a symlink swapped in is never watched through and nothing is resolved after the scan.
+- Keep watching a watched directory that's moved, as the handle keeps it, and end on its removal (`IN_DELETE_SELF`).
+- Report `IN_Q_OVERFLOW` as a `rescan` of `''`, and a subdirectory whose watch can't be added as a `rescan` of it.
+- Scan a new subdirectory once its watch is added, reporting an `add` for each entry found, so a directory filled before its watch lands still reports its entries.
+- Read names as bytes, a name that isn't UTF-8 a `rescan` of its directory rather than a lossy path.

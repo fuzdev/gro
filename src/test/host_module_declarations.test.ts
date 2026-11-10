@@ -13,7 +13,7 @@ declarations (`transpileDeclaration`, so also checking they need no inference), 
 them against TypeScript's ES and DOM libs with no `@types` loaded, and fails on:
 
 - any import, re-export, `import()` type, or type reference directive, except a type-only
-  named import of another host module, so `spawn.ts` can name the fs handle its `cwd` takes
+  named import of another host module, so `spawn.ts` and `watch.ts` can name the fs handle they take
 - `declare global`, which could reshape a lib type
 - a type reference, heritage clause, `typeof` query, or `export default`/`export =` of a
   name whose symbol has a declaration outside the module and the ES libs, unless it's a
@@ -25,7 +25,8 @@ because it isn't on the list.
 
 */
 
-// each host module with its error module, apart from it so matching an error grants nothing
+// each host module with its error module, apart from it so matching an error grants nothing;
+// `watch.ts` throws `FsError`, so it has none of its own
 const HOST_MODULES = [
 	'fs.ts',
 	'fs_error.ts',
@@ -34,7 +35,8 @@ const HOST_MODULES = [
 	'process.ts',
 	'process_error.ts',
 	'net.ts',
-	'net_error.ts'
+	'net_error.ts',
+	'watch.ts'
 ];
 
 /**
