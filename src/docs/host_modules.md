@@ -113,17 +113,33 @@ const result = await check.closed;
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
-- The pin is the executable's real path. A later `PATH` change or swapped symlink changes nothing.
-  The real path is what runs. A bare name is its own `argv[0]`,
+- The pin is the executable's real path. A later `PATH` change changes nothing.
+  A native binary runs at the real path, so a swapped symlink changes nothing either. A bare name is its own `argv[0]`,
   since a multicall binary like `~/.cargo/bin/cargo -> rustup` picks its behavior from `argv[0]`,
   and a name containing `/` passes its lexical project-absolute path,
   so a tool finding itself through `argv[0]`, like a virtualenv's `python`, still does under another `cwd`.
-  `name` and `path` are for display; the pin itself is private.
+- A `#!` script runs at the path it was found at, the `PATH` entry's or the lexical project-absolute one, symlinks included.
+  The kernel hands the interpreter the path it exec'd as `$0`, dropping `argv[0]`,
+  so a script sees the name it was called through, as it would from a shell.
+  Debian's `psql`, a link to the `pg_wrapper` script that dispatches on `$0`, runs as `psql`,
+  and a `node_modules/.bin` link to a Node script sees the `.bin` path as `process.argv[1]`.
+  A script is pinned by identity, the device and inode of the descriptor its first bytes were read from.
+  Each launch stats the found path again just before the exec, and one that leads to another file,
+  a link retargeted or a file renamed over the pin, throws `launch_failed`, as does one that no longer resolves.
+  The same file reached by a new real path, a directory above it moved and linked back, still runs,
+  and a script rewritten in place, or deleted and recreated on a reused inode, still matches.
+  The interpreter opens `$0` by path after the exec, so a link retargeted before it does runs what it then leads to,
+  and in that window whoever can write a directory on the found path can redirect a held handle,
+  where a native binary is reached only through its pin's own path. A native binary runs at its pin, unchecked.
+  `name` and `path` are for display; the pin itself is private, and `path` is the real path for a script too.
 - A file is pinned only when its first bytes are a format the kernel runs, else it's `not_executable`,
   an empty file included, since on Linux `execvp` hands any other file the kernel won't run to `/bin/sh`.
   `#!` is accepted everywhere, the ELF magic everywhere but macOS,
   and on macOS the Mach-O magics, 32-bit and 64-bit in either byte order and fat binaries.
   A file with execute permission this user can't read passes, as it can't be inspected.
+  Its format can't be told without reading it, so it's taken as native and runs at its pin:
+  a native binary runs, and an unreadable script fails at each call when its interpreter can't open it,
+  a result from the interpreter, not a `SpawnError`.
   `binfmt_misc` formats are refused along with the rest.
 - `program.run(args, options?)` runs with stdio inherited.
   `program.out(args, options?)` captures stdout and stderr as UTF-8 text,
@@ -143,7 +159,7 @@ const result = await check.closed;
   A child that exits or closes its stdin before reading it all ends the write without an error, and the result stands.
   The cap, `timeout_ms`, and `signal` end the call mid-write as they do any other.
 - A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
-  A program that can't start throws `SpawnError` of kind `launch_failed`.
+  A program that can't start throws `SpawnError` of kind `launch_failed`, as does a script whose found path now leads to another file.
   A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
   matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
@@ -454,7 +470,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 ### spawn's invariants
 
 - Handles come only from `spawn` and other handles, through a module-private key,
-  and hold their pin, `argv[0]`, and environment in private fields,
+  and hold their pin, the path they run at, `argv[0]`, and environment in private fields,
   so a method called on any other object throws `TypeError` and changing `path` changes nothing that runs.
 - Handles, their prototypes, `spawn`, results, and `SpawnError` with its prototype are frozen.
 - A result is a null-prototype record, so a polluted `Object.prototype.then` isn't consulted when it's awaited.
@@ -566,8 +582,9 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 ### spawn
 
-- The pin is a path, resolved and then exec'd by path when called,
+- A native binary's pin is a path, resolved and then exec'd by path when called,
   so a file replaced at the pinned path in between runs instead.
+  A script's is its identity, so a replacement is refused, but a script rewritten in place keeps its inode and runs as rewritten.
 - A forged `cwd` handle is any object with a checked absolute `path`, so a child can start in a directory it was never given.
   Only the shape is checked.
 - A real `cwd` handle follows its path too. Where `fs` refuses a directory that was replaced
@@ -579,8 +596,6 @@ It documents each gap rather than weakening the API to match, and is a review si
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
   or a `#!` line naming no interpreter, still reaches the Linux `/bin/sh` fallback of the `execvp` Node starts children with, and a Java class file passes on macOS, sharing the fat binary's magic.
-- A shebang script's `$0` is the pinned path, not the name it was granted,
-  so a shell script dispatching on the symlink it was called through can't.
 - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`, since Node passes an empty signal name for one.
 - Intrinsics stay pollutable. The module copies at load the Node functions it calls,
   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,
@@ -670,7 +685,9 @@ What the runtime's builtin must do that the Node implementation can't:
 
 - Start a child from one op taking a program resource, argv, and a cwd resource,
   so a call names nothing a path could swap: the pinned program runs by descriptor where the kernel allows it,
-  the cwd by its directory handle. A shebang script runs by path, since `/proc/self/fd` can't reach one.
+  the cwd by its directory handle. A shebang script runs by the path it was found at, since `/proc/self/fd` can't reach one
+  and its `$0` is that path, checked against its pin by identity just before the exec.
+  The interpreter opens it by path after the exec, so the window between that check and the interpreter's open stays open natively too.
 - Clear the environment in the op (`env_clear`) and set only what the handle holds,
   with no way for a call to add to it.
 - Inherit only fds 0, 1, and 2 into the child, and confine it with the run's kernel rules:

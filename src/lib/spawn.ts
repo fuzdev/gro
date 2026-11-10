@@ -9,10 +9,24 @@
  * can't shadow `git`. A name containing `/` resolves against the
  * project root instead, and one that's absolute or climbs above the project through `..`
  * is `not_granted`, a check of the name as written, since a symlink beneath the project can
- * lead anywhere. Each program runs at its pinned real path. A bare name is its own `argv[0]`,
+ * lead anywhere. A native binary runs at its pinned real path. A bare name is its own `argv[0]`,
  * because a multicall binary (`~/.cargo/bin/cargo -> rustup`) dispatches on it, and a name
  * containing `/` passes its lexical project-absolute path, so a tool that finds itself through
- * `argv[0]` (a virtualenv's `python`) still does under another `cwd`.
+ * `argv[0]` (a virtualenv's `python`) still does under another `cwd`. A `#!` script runs at the
+ * path it was found at, the `PATH` entry's or the lexical project-absolute one, symlinks
+ * included, since the kernel hands its interpreter that path as `$0` in place of `argv[0]`,
+ * and a script that dispatches on the name it was called through (Debian's `psql`, a link to
+ * `pg_wrapper`) needs it. A script is pinned by identity, the device and inode of the descriptor
+ * its first bytes were read from, and each launch stats the found path again and refuses it,
+ * `launch_failed`, when it leads to another file: a link retargeted, or a file renamed over the
+ * pin. The same file reached by a new real path, a directory above it moved and linked back,
+ * still runs, and a script rewritten in place, or deleted and recreated on a reused inode, still
+ * matches. The check comes before the exec, and the interpreter opens `$0` by path after it, so
+ * a link retargeted before the interpreter opens the script runs what it then leads to. In that window, whoever can write
+ * a directory on the found path can redirect a held handle, where a native binary is reached
+ * only through its pin's own path. A native binary runs at its pin, unchecked.
+ * A file this user can't read can't be told apart, so it's taken as native: an unreadable script
+ * pins, and fails at each call when its interpreter can't open it.
  *
  * A call is argv only, never a shell string, its name and arguments checked strings.
  * A file is pinned only when its first bytes are `#!` or the native binary magic of the
@@ -23,8 +37,9 @@
  * as what `cmd.exe` would interpret. A non-zero exit is a result;
  * `SpawnError` (`spawn_error.ts`) means a program couldn't be found or started, a call whose
  * `signal` had already aborted included, which starts nothing. Handles come only from
- * this module, hold their pin, `argv[0]`, and environment in private fields, and are frozen
- * with their prototypes, so a method called on any other object throws `TypeError`.
+ * this module, hold their pin, the path they run at, `argv[0]`, and environment in private
+ * fields, and are frozen with their prototypes, so a method called on any other object throws
+ * `TypeError`.
  * `spawn.narrow(names)` keeps only named programs, and narrowing can only shrink.
  * A narrowed root refuses `env`, which turns a named program into arbitrary execution
  * (`LD_PRELOAD`), and `pass_env: 'all'` and `pass_env` globs, so a holder of a narrowed root
@@ -63,8 +78,10 @@
  * This is the Node implementation, which runs on the Node Gro. Its gaps against
  * the runtime's builtin, which it documents rather than the API weakening to match:
  *
- * - The pin is a path, resolved then exec'd later by path: a file replaced at that path
- *   in between runs in place of what was pinned. The runtime's builtin execs a descriptor.
+ * - A native binary's pin is a path, resolved then exec'd later by path: a file replaced at
+ *   that path in between runs in place of what was pinned. The runtime's builtin execs a
+ *   descriptor. A script is checked by identity, which a file rewritten in place keeps, so it
+ *   runs as rewritten.
  * - `cwd` is read as a path from anything shaped like a handle, its `path` a checked string,
  *   so a forged handle object names any directory. The runtime's builtin takes the handle's
  *   descriptor, which only a real handle has.
@@ -110,8 +127,6 @@
  * - The refusal of files with no `#!` reads only the first bytes, so a file with a native magic
  *   the kernel won't load, or a `#!` line naming no interpreter, still reaches Linux's
  *   `/bin/sh` fallback, and a Java class file passes on macOS, sharing the fat binary's magic.
- * - A shebang script's `$0` is the pinned path, not the name it was granted, so a shell script
- *   that dispatches on the symlink it was called through can't.
  * - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`,
  *   since Node passes an empty signal name for one.
  * - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
@@ -140,7 +155,15 @@ const { addAbortListener } = node_events as unknown as {
 	addAbortListener: (signal: AbortSignal, listener: () => void) => Disposable;
 };
 const { isUint8Array } = node_util.types;
-const { accessSync, closeSync, constants: fs_constants, openSync, readSync, statSync } = node_fs;
+const {
+	accessSync,
+	closeSync,
+	constants: fs_constants,
+	fstatSync,
+	openSync,
+	readSync,
+	statSync
+} = node_fs;
 const { O_NONBLOCK, O_RDONLY, X_OK } = fs_constants;
 const realpath_sync_native = node_fs.realpathSync.native;
 const { delimiter, isAbsolute } = node_path;
@@ -360,10 +383,12 @@ export interface SpawnProgram {
 	/**
 	 * The name the program was granted. A bare name is also its `argv[0]`,
 	 * and a name containing `/` passes its project-absolute path instead.
+	 * A `#!` script's interpreter gets the path the script was found at as `$0` in its place.
 	 */
 	readonly name: string;
 	/**
-	 * The pinned executable's real path, for display.
+	 * The pinned executable's real path, for display. A native binary runs at it, and a `#!`
+	 * script runs at the path it was found at, which must still lead to the same file.
 	 */
 	readonly path: string;
 	/**
@@ -372,7 +397,8 @@ export interface SpawnProgram {
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
-	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted or a script
+	 * whose found path now leads to another file
 	 */
 	run(args: ReadonlyArray<string>, options?: SpawnCallOptions): Promise<SpawnResult>;
 	/**
@@ -387,7 +413,8 @@ export interface SpawnProgram {
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
-	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted or a script
+	 * whose found path now leads to another file
 	 * @throws `RangeError` - when memory for a stream can't be allocated, the child killed first
 	 */
 	out(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutput>;
@@ -397,7 +424,8 @@ export interface SpawnProgram {
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
-	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted or a script
+	 * whose found path now leads to another file
 	 * @throws `RangeError` - when memory for a stream can't be allocated, the child killed first
 	 */
 	out_bytes(args: ReadonlyArray<string>, options?: SpawnOutOptions): Promise<SpawnOutputBytes>;
@@ -407,7 +435,8 @@ export interface SpawnProgram {
 	 * @param args - the arguments after `argv[0]`
 	 * @throws `TypeError` - for an argument that isn't a well-formed string without NUL,
 	 * or a malformed option
-	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted
+	 * @throws `SpawnError` - `launch_failed`, also for a `signal` already aborted or a script
+	 * whose found path now leads to another file
 	 */
 	start(args: ReadonlyArray<string>, options?: SpawnStartOptions): Promise<SpawnChild>;
 }
@@ -577,34 +606,50 @@ const is_mach_o_magic = (magic: number): boolean =>
 	magic === 0xcffaedfe ||
 	magic === 0xcafebabe;
 
+const is_shebang = (bytes: Uint8Array): boolean => bytes[0] === 0x23 && bytes[1] === 0x21;
+
 /**
  * Whether a file's first bytes are `#!` or the platform's native binary magic, the formats
  * the kernel runs without `execvp` falling back to `/bin/sh`.
  */
 const is_runnable_magic = (bytes: Uint8Array, platform: string): boolean => {
-	if (bytes[0] === 0x23 && bytes[1] === 0x21) return true;
+	if (is_shebang(bytes)) return true;
 	const magic = ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0;
 	return platform === 'darwin' ? is_mach_o_magic(magic) : magic === ELF_MAGIC;
 };
 
 /**
+ * A file's identity, its device and inode, which a rename over its path changes
+ * and a link to it from another path shares.
+ */
+interface FileIdentity {
+	readonly dev: bigint;
+	readonly ino: bigint;
+}
+
+/**
  * Refuses a pinned file that would reach `execvp`'s `/bin/sh` fallback.
- * One this user can't read passes, since it can't be inspected. Non-blocking,
- * so a file swapped for a FIFO since its stat can't hang the open.
+ * One this user can't read passes as native, since it can't be inspected, and no interpreter
+ * could read it as a script. Non-blocking, so a file swapped for a FIFO since its stat can't
+ * hang the open.
+ * @returns the identity of the file whose bytes were read, for a `#!` script, else `null`
  * @throws `SpawnError` - `not_executable`
  */
-const check_runnable_format = (name: string, path: string): void => {
+const check_runnable_format = (name: string, path: string): FileIdentity | null => {
 	let fd: number;
 	try {
 		fd = openSync(path, O_RDONLY | O_NONBLOCK);
 	} catch (error) {
-		if ((error as { code?: unknown }).code === 'EACCES') return;
+		if ((error as { code?: unknown }).code === 'EACCES') return null;
 		throw to_uninspectable_error(name, path, error);
 	}
 	// zeroed, so a file shorter than the magic can't match it
 	const bytes = new Uint8ArrayClass(MAGIC_LENGTH);
+	let identity: FileIdentity;
 	try {
 		readSync(fd, bytes, 0, MAGIC_LENGTH, 0);
+		const { dev, ino } = fstatSync(fd, { bigint: true });
+		identity = freeze(create_record<FileIdentity>({ dev, ino }));
 	} catch (error) {
 		throw to_uninspectable_error(name, path, error);
 	} finally {
@@ -617,6 +662,7 @@ const check_runnable_format = (name: string, path: string): void => {
 			`not_executable: ${name} at ${path} starts with neither #! nor a native binary's magic`
 		);
 	}
+	return is_shebang(bytes) ? identity : null;
 };
 
 const to_uninspectable_error = (name: string, path: string, error: unknown): SpawnError =>
@@ -628,13 +674,38 @@ const to_uninspectable_error = (name: string, path: string, error: unknown): Spa
 const real_path_decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /**
- * The real path to pin for `path`, a found executable.
+ * The real path of `path`, symlinks followed.
+ * @throws `TypeError` - for a real path that isn't UTF-8, rather than naming a different file
+ * @throws `Error` - with Node's `code`, for a path that doesn't resolve
+ */
+const to_real_path = (path: string): string =>
+	real_path_decoder.decode(realpath_sync_native(path, { encoding: 'buffer' }));
+
+/**
+ * What a name resolved to: the real path pinned, the path the program runs at, and the
+ * `argv[0]` to pass. A native binary runs at its pin. A `#!` script runs at the path it was
+ * found at, symlinks included, since the kernel hands the interpreter the path it was exec'd
+ * by as `$0`, and a script that dispatches on the name it was called through needs that one.
+ */
+interface ResolvedProgram {
+	readonly pin: string;
+	readonly run_path: string;
+	readonly argv0: string;
+	/**
+	 * A script's identity, which its found path must still lead to at each launch,
+	 * or `null` for a native binary, which runs at its pin.
+	 */
+	readonly script: FileIdentity | null;
+}
+
+/**
+ * Pins `path`, a found executable, at its real path.
  * @throws `SpawnError` - `not_executable`
  */
-const to_pin = (name: string, path: string): string => {
-	let real: string;
+const to_resolved = (name: string, path: string, argv0: string): ResolvedProgram => {
+	let pin: string;
 	try {
-		real = real_path_decoder.decode(realpath_sync_native(path, { encoding: 'buffer' }));
+		pin = to_real_path(path);
 	} catch (error) {
 		throw new SpawnError(
 			'not_executable',
@@ -643,9 +714,51 @@ const to_pin = (name: string, path: string): string => {
 			{ cause: error }
 		);
 	}
-	if (is_refused_extension(real)) throw to_refused_extension_error(name, real);
-	check_runnable_format(name, real);
-	return real;
+	if (is_refused_extension(pin)) throw to_refused_extension_error(name, pin);
+	const script = check_runnable_format(name, pin);
+	return freeze(
+		create_record<ResolvedProgram>({ pin, run_path: script === null ? pin : path, argv0, script })
+	);
+};
+
+/**
+ * Refuses a script whose found path no longer leads to the file pinned, a symlink retargeted
+ * or a file renamed over the pin since the handle was made, compared by device and inode.
+ * The same file reached by another real path, a directory above it moved and linked back,
+ * still runs. It runs just before the exec, while the interpreter opens the path after it.
+ * @throws `SpawnError` - `launch_failed`
+ */
+const check_run_path = (
+	name: string,
+	run_path: string,
+	pin: string,
+	script: FileIdentity
+): void => {
+	let info;
+	try {
+		info = statSync(run_path, { bigint: true });
+	} catch (error) {
+		throw new SpawnError(
+			'launch_failed',
+			name,
+			`launch_failed: ${name} at ${run_path} no longer resolves, pinned to ${pin}`,
+			{ cause: error }
+		);
+	}
+	if (info.dev !== script.dev || info.ino !== script.ino) {
+		let leads_to: string;
+		try {
+			leads_to = ` ${to_real_path(run_path)},`;
+		} catch {
+			// gone or renamed again since the stat, so the message names no path
+			leads_to = ' another file,';
+		}
+		throw new SpawnError(
+			'launch_failed',
+			name,
+			`launch_failed: ${name} at ${run_path} now leads to${leads_to} not the file pinned at ${pin}`
+		);
+	}
 };
 
 const to_refused_extension_error = (name: string, path: string): SpawnError =>
@@ -719,14 +832,6 @@ const to_project_path = (name: string): string => {
 };
 
 /**
- * What a name resolved to: the real path to run and the `argv[0]` to pass.
- */
-interface ResolvedProgram {
-	readonly pin: string;
-	readonly argv0: string;
-}
-
-/**
  * Resolves a program name to what to run, or `null` for `not_found`.
  * @throws `SpawnError` - `not_granted`, `not_executable`
  */
@@ -737,7 +842,7 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 	if (is_refused_extension(name)) throw to_refused_extension_error(name, name);
 	if (!name.includes('/')) {
 		const found = walk_path(name);
-		return found === null ? null : { pin: to_pin(name, found), argv0: name };
+		return found === null ? null : to_resolved(name, found, name);
 	}
 	const path = to_project_path(name);
 	// a trailing `/` or `/.` passes through its last component, which only a directory can be
@@ -747,7 +852,7 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 	if (probed === 'not_executable') {
 		throw new SpawnError('not_executable', name, `not_executable: ${path} isn't executable`);
 	}
-	return { pin: to_pin(name, path), argv0: path };
+	return to_resolved(name, path, path);
 };
 
 const check_env_name = (value: unknown, what: string): string => {
@@ -981,9 +1086,9 @@ const to_argv = (args: ReadonlyArray<string>): Array<string> => {
 	return argv;
 };
 
-const to_launch_error = (name: string, pin: string, error: unknown): SpawnError => {
+const to_launch_error = (name: string, path: string, error: unknown): SpawnError => {
 	const detail = error instanceof Error ? error.message : String(error);
-	return new SpawnError('launch_failed', name, `launch_failed: ${name} (${pin}): ${detail}`, {
+	return new SpawnError('launch_failed', name, `launch_failed: ${name} (${path}): ${detail}`, {
 		cause: error
 	});
 };
@@ -996,17 +1101,18 @@ const to_launch_error = (name: string, pin: string, error: unknown): SpawnError 
  */
 const launch = (
 	name: string,
-	argv0: string,
-	pin: string,
+	program: ResolvedProgram,
 	env: Record<string, string>,
 	argv: Array<string>,
 	cwd: string,
 	stdio: SpawnOptions['stdio'],
 	group: boolean
 ): ChildProcess => {
+	const { pin, run_path, argv0, script } = program;
+	if (script !== null) check_run_path(name, run_path, pin, script);
 	try {
 		return node_spawn(
-			pin,
+			run_path,
 			argv,
 			create_record<SpawnOptions>({
 				argv0,
@@ -1018,7 +1124,7 @@ const launch = (
 			})
 		);
 	} catch (error) {
-		throw to_launch_error(name, pin, error);
+		throw to_launch_error(name, run_path, error);
 	}
 };
 
@@ -1808,14 +1914,14 @@ const check_stdio = (raw: unknown): SpawnStdio => {
  */
 const launch_watched = (
 	name: string,
-	argv0: string,
-	pin: string,
+	program: ResolvedProgram,
 	env: Record<string, string>,
 	argv: Array<string>,
 	call: CallOptions,
 	stdio: SpawnOptions['stdio'],
 	group: boolean
 ): ChildWatch => {
+	const { pin } = program;
 	check_not_aborted(name, pin, call.signal);
 	// listens before launch, so a forged signal that throws here leaves no child nobody holds
 	let watch: ChildWatch | null = null;
@@ -1827,7 +1933,7 @@ const launch_watched = (
 				});
 	let child: ChildProcess;
 	try {
-		child = launch(name, argv0, pin, env, argv, call.cwd, stdio, group);
+		child = launch(name, program, env, argv, call.cwd, stdio, group);
 	} catch (error) {
 		dispose_abort_listener(abort_listener);
 		throw error;
@@ -1845,33 +1951,21 @@ const launch_watched = (
 class NodeSpawnProgram implements SpawnProgram {
 	readonly name: string;
 	readonly path: string;
-	readonly #pin: string;
-	readonly #argv0: string;
+	readonly #program: ResolvedProgram;
 	readonly #env: Record<string, string>;
 
-	constructor(key: symbol, name: string, pin: string, argv0: string, env: Record<string, string>) {
+	constructor(key: symbol, name: string, program: ResolvedProgram, env: Record<string, string>) {
 		check_handle_key(key);
 		this.name = name;
-		this.path = pin;
-		this.#pin = pin;
-		this.#argv0 = argv0;
+		this.path = program.pin;
+		this.#program = program;
 		this.#env = env;
 	}
 
 	async run(args: ReadonlyArray<string>, options?: SpawnCallOptions): Promise<SpawnResult> {
-		const pin = this.#pin;
 		const argv = to_argv(args);
 		const call = read_call_options(check_call_options(options));
-		const watch = launch_watched(
-			this.name,
-			this.#argv0,
-			pin,
-			this.#env,
-			argv,
-			call,
-			'inherit',
-			false
-		);
+		const watch = launch_watched(this.name, this.#program, this.#env, argv, call, 'inherit', false);
 		await watch.started;
 		return watch.closed;
 	}
@@ -1898,7 +1992,6 @@ class NodeSpawnProgram implements SpawnProgram {
 			readonly truncated: boolean;
 		}
 	> {
-		const pin = this.#pin;
 		const argv = to_argv(args);
 		const call = read_out_options(options);
 		const { max_bytes, stdin: stdin_option } = call;
@@ -1909,8 +2002,7 @@ class NodeSpawnProgram implements SpawnProgram {
 		];
 		const watch = launch_watched(
 			this.name,
-			this.#argv0,
-			pin,
+			this.#program,
 			this.#env,
 			argv,
 			call,
@@ -1952,15 +2044,13 @@ class NodeSpawnProgram implements SpawnProgram {
 	}
 
 	async start(args: ReadonlyArray<string>, options?: SpawnStartOptions): Promise<SpawnChild> {
-		const pin = this.#pin;
 		const argv = to_argv(args);
 		const raw = check_call_options(options);
 		const call = read_call_options(raw);
 		const stdio = read_stdio(read_own(raw, 'stdio'));
 		const watch = launch_watched(
 			this.name,
-			this.#argv0,
-			pin,
+			this.#program,
 			this.#env,
 			argv,
 			call,
@@ -1993,9 +2083,7 @@ const to_program = (
 	check_narrowed_options(allowed, name, options);
 	const resolved = resolve_program(allowed, name);
 	if (resolved === null) return null;
-	return freeze(
-		new NodeSpawnProgram(HANDLE_KEY, name, resolved.pin, resolved.argv0, to_program_env(options))
-	);
+	return freeze(new NodeSpawnProgram(HANDLE_KEY, name, resolved, to_program_env(options)));
 };
 
 class NodeSpawn implements Spawn {

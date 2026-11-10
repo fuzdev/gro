@@ -5,10 +5,12 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
 import { spawn, type Spawn, type SpawnProgram } from '#lib/spawn.ts';
@@ -144,7 +146,55 @@ describe('resolution', () => {
 		assert_spawn_error(() => spawn.program('clean_name'), 'not_executable');
 	});
 
-	test('the realpath is pinned, surviving a later change to PATH and the symlink', async () => {
+	test('a native binary runs at its real path, surviving a later change to PATH and the symlink', async () => {
+		const real_true = realpathSync('/usr/bin/true');
+		symlinkSync(real_true, join(bin, 'tool'));
+		process.env.PATH = bin;
+		const tool = spawn.program('tool');
+		assert.strictEqual(tool.path, real_true);
+		rmSync(join(bin, 'tool'));
+		symlinkSync(realpathSync('/usr/bin/false'), join(bin, 'tool'));
+		process.env.PATH = '';
+		const output = await tool.out([]);
+		assert.deepEqual(
+			{ ...output },
+			{ kind: 'exited', code: 0, stdout: '', stderr: '', truncated: false }
+		);
+	});
+
+	test('a script runs at the path it was found at, so it sees that path as `$0`', async () => {
+		write_script(join(sandbox.root, 'multi'), 'printf %s "$0"');
+		symlinkSync(join(sandbox.root, 'multi'), join(bin, 'alias'));
+		process.env.PATH = bin;
+		const program = spawn.program('alias');
+		assert.strictEqual(program.path, join(sandbox.root, 'multi'));
+		process.env.PATH = '';
+		assert.strictEqual((await program.out([])).stdout, join(bin, 'alias'));
+	});
+
+	test('a script that dispatches on its link name works through the link', async () => {
+		write_script(
+			join(sandbox.root, 'wrapper'),
+			'case "${0##*/}" in hello) echo "hello $1";; *) echo "called directly" >&2; exit 1;; esac'
+		);
+		symlinkSync(join(sandbox.root, 'wrapper'), join(bin, 'hello'));
+		process.env.PATH = bin;
+		const output = await spawn.program('hello').out(['world']);
+		assert.deepEqual(
+			{ ...output },
+			{ kind: 'exited', code: 0, stdout: 'hello world\n', stderr: '', truncated: false }
+		);
+	});
+
+	test('a script found at its real path sees that path as `$0`', async () => {
+		write_script(join(bin, 'plain_script'), 'printf %s "$0"');
+		process.env.PATH = bin;
+		const program = spawn.program('plain_script');
+		assert.strictEqual(program.path, join(bin, 'plain_script'));
+		assert.strictEqual((await program.out([])).stdout, join(bin, 'plain_script'));
+	});
+
+	test('a script whose link now leads elsewhere is refused at each launch until it leads back', async () => {
 		write_script(join(bin, 'real_a'), 'echo a');
 		write_script(join(bin, 'real_b'), 'echo b');
 		symlinkSync(join(bin, 'real_a'), join(bin, 'tool'));
@@ -154,10 +204,102 @@ describe('resolution', () => {
 		rmSync(join(bin, 'tool'));
 		symlinkSync(join(bin, 'real_b'), join(bin, 'tool'));
 		process.env.PATH = '';
-		const output = await tool.out([]);
-		assert.strictEqual(output.kind, 'exited');
-		assert.strictEqual(output.stdout, 'a\n');
+		for (const call of [() => tool.out([]), () => tool.run([]), () => tool.start([])]) {
+			const error = await call().then(
+				() => assert.fail('expected a refusal'),
+				(error: unknown) => error
+			);
+			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
+			assert.include(
+				error.message,
+				`${join(bin, 'tool')} now leads to ${join(bin, 'real_b')}, not the file pinned at ${join(bin, 'real_a')}`
+			);
+		}
+		rmSync(join(bin, 'tool'));
+		const missing = await tool.out([]).then(
+			() => assert.fail('expected a refusal'),
+			(error: unknown) => error
+		);
+		assert.ok(is_spawn_error(missing, 'launch_failed'), String(missing));
+		assert.include(missing.message, `${join(bin, 'tool')} no longer resolves`);
+		symlinkSync(join(bin, 'real_a'), join(bin, 'tool'));
+		assert.strictEqual((await tool.out([])).stdout, 'a\n');
 	});
+
+	test('a script with a file renamed over its pin is refused, found through a link or not', async () => {
+		write_script(join(sandbox.root, 'real'), 'echo a');
+		write_script(join(bin, 'plain'), 'echo a');
+		symlinkSync(join(sandbox.root, 'real'), join(bin, 'linked'));
+		process.env.PATH = bin;
+		const linked = spawn.program('linked');
+		const plain = spawn.program('plain');
+		write_script(join(sandbox.root, 'replacement'), 'echo b');
+		renameSync(join(sandbox.root, 'replacement'), join(sandbox.root, 'real'));
+		write_script(join(bin, 'replacement'), 'echo b');
+		renameSync(join(bin, 'replacement'), join(bin, 'plain'));
+		for (const program of [linked, plain]) {
+			const error = await program.out([]).then(
+				() => assert.fail('expected a refusal'),
+				(error: unknown) => error
+			);
+			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
+			assert.include(error.message, 'not the file pinned at');
+		}
+	});
+
+	test('a script reached by a new real path, a directory above it moved and linked back, still runs', async () => {
+		mkdirSync(join(sandbox.root, 'pkg'));
+		write_script(join(sandbox.root, 'pkg', 'real'), 'echo a');
+		symlinkSync(join(sandbox.root, 'pkg', 'real'), join(bin, 'tool'));
+		process.env.PATH = bin;
+		const tool = spawn.program('tool');
+		renameSync(join(sandbox.root, 'pkg'), join(sandbox.root, 'pkg_moved'));
+		symlinkSync(join(sandbox.root, 'pkg_moved'), join(sandbox.root, 'pkg'));
+		assert.strictEqual((await tool.out([])).stdout, 'a\n');
+	});
+
+	// fresh tmpfs mounts number their files from the same inode, so only the device tells them apart
+	const can_mount_tmpfs =
+		process.platform === 'linux' &&
+		spawnSync('unshare', ['-rm', 'mount', '-t', 'tmpfs', 'none', '/tmp'], { stdio: 'ignore' })
+			.status === 0;
+
+	test.skipIf(!can_mount_tmpfs)(
+		'a script whose link now leads to a file on another device with the same inode is refused',
+		() => {
+			mkdirSync(join(sandbox.root, 'a'));
+			mkdirSync(join(sandbox.root, 'b'));
+			const module_url = new URL('../lib/spawn.ts', import.meta.url).href;
+			const probe = `
+				const { symlinkSync, rmSync, statSync } = await import('node:fs');
+				const [a, b, link] = process.argv.slice(1);
+				if (statSync(a).ino !== statSync(b).ino) throw new Error('no inode collision');
+				const { spawn } = await import(${JSON.stringify(module_url)});
+				symlinkSync(a, link);
+				process.env.PATH = link.slice(0, link.lastIndexOf('/'));
+				const tool = spawn.program('tool');
+				rmSync(link);
+				symlinkSync(b, link);
+				await tool.out([]).then(
+					(output) => console.log('ran', output.stdout.trim()),
+					(error) => console.log(error.kind)
+				);
+			`;
+			const a = join(sandbox.root, 'a');
+			const b = join(sandbox.root, 'b');
+			const script = `mount -t tmpfs none "$1" && mount -t tmpfs none "$2" &&
+				printf '#!/bin/sh\\necho a\\n' > "$1/s" && printf '#!/bin/sh\\necho b\\n' > "$2/s" &&
+				chmod 755 "$1/s" "$2/s" &&
+				exec "$3" --input-type=module -e "$4" "$1/s" "$2/s" "$5"`;
+			const result = spawnSync(
+				'unshare',
+				['-rm', 'sh', '-c', script, 'sh', a, b, process.execPath, probe, join(bin, 'tool')],
+				{ encoding: 'utf8' }
+			);
+			assert.strictEqual(result.stderr, '');
+			assert.strictEqual(result.stdout, 'launch_failed\n');
+		}
+	);
 
 	test('a name with / resolves against the project root', () => {
 		const tsc = spawn.find('node_modules/.bin/tsc');
@@ -251,6 +393,15 @@ describe('names containing /', () => {
 		assert.strictEqual(elsewhere.stdout, join(abs, 'granted_sh'));
 	});
 
+	test('a script through a link sees the lexical project-absolute path as `$0`', async () => {
+		write_script(join(abs, 'target'), 'printf %s "$0"');
+		symlinkSync('target', join(abs, 'link'));
+		const program = spawn.program(`./${dir}/skipped/../link`);
+		assert.strictEqual(program.path, join(abs, 'target'));
+		const output = await program.out([], { cwd: sandbox.dir });
+		assert.strictEqual(output.stdout, join(abs, 'link'));
+	});
+
 	test('a file reached with a trailing `/` or `/.` never pins', () => {
 		write_script(join(abs, 'ok'), 'exit 0');
 		assert.ok(spawn.find(`${dir}/ok`));
@@ -320,6 +471,41 @@ describe('file formats at the pin', () => {
 		assert.ok(spawn.program('script'));
 		assert.strictEqual(spawn.program('real_elf').path, realpathSync(process.execPath));
 	});
+
+	// root reads any file, so it never sees an unreadable one
+	const is_root = process.getuid?.() === 0;
+
+	test.skipIf(is_root)('an unreadable native binary pins and runs at its real path', async () => {
+		writeFileSync(join(sandbox.root, 'true_copy'), readFileSync(realpathSync('/usr/bin/true')));
+		chmodSync(join(sandbox.root, 'true_copy'), 0o111);
+		symlinkSync(join(sandbox.root, 'true_copy'), join(bin, 'tool'));
+		process.env.PATH = bin;
+		const tool = spawn.find('tool');
+		assert.ok(tool);
+		assert.strictEqual(tool.path, join(sandbox.root, 'true_copy'));
+		rmSync(join(bin, 'tool'));
+		symlinkSync(realpathSync('/usr/bin/false'), join(bin, 'tool'));
+		const output = await tool.out([]);
+		assert.deepEqual(
+			{ ...output },
+			{ kind: 'exited', code: 0, stdout: '', stderr: '', truncated: false }
+		);
+	});
+
+	test.skipIf(is_root)(
+		'an unreadable script pins and fails when its interpreter cannot open it',
+		async () => {
+			write_script(join(bin, 'secret'), 'echo ran', 0o111);
+			process.env.PATH = bin;
+			const program = spawn.find('secret');
+			assert.ok(program);
+			const output = await program.out([]);
+			assert.strictEqual(output.kind, 'exited');
+			assert.notStrictEqual(output.kind === 'exited' ? output.code : 0, 0);
+			assert.strictEqual(output.stdout, '');
+			assert.include(output.stderr, 'Permission denied');
+		}
+	);
 
 	// the module reads the platform when it loads, so a fresh copy loads under a stubbed one
 	const load_spawn_on = async (platform: NodeJS.Platform): Promise<Spawn> => {
