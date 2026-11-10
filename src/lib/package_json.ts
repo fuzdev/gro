@@ -324,18 +324,12 @@ const parse_or_throw_formatted_error = <T extends s.AnySchema>(
 };
 
 /**
- * @param include_peer - whether a `peerDependencies` entry counts. Pass `false` when
- * detecting what a project *is*, since a peer dep declares what it works alongside -
- * a plugin package peered on `@sveltejs/kit` isn't itself a SvelteKit app.
+ * Whether `dep_name` is a direct dependency, in `dependencies` or `devDependencies`.
+ * A `peerDependencies` entry doesn't count, since a peer dep declares what a package
+ * works alongside - a plugin package peered on `@sveltejs/kit` isn't itself a SvelteKit app.
  */
-export const package_json_has_dependency = (
-	dep_name: string,
-	package_json: PackageJson,
-	include_peer = true
-): boolean =>
-	!!package_json.devDependencies?.[dep_name] ||
-	!!package_json.dependencies?.[dep_name] ||
-	(include_peer && !!package_json.peerDependencies?.[dep_name]);
+export const package_json_has_dependency = (dep_name: string, package_json: PackageJson): boolean =>
+	!!package_json.devDependencies?.[dep_name] || !!package_json.dependencies?.[dep_name];
 
 export interface PackageJsonDep {
 	name: string;

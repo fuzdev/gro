@@ -1,14 +1,23 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
+import { plural } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
 
-import { TaskError, type Task } from './task.ts';
+import { TaskError, to_task_command, type Task } from './task.ts';
+import { to_forwarded_args_by_command, to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { VITEST_CLI } from './constants.ts';
+import { is_fs_error } from './fs_error.ts';
 import { package_json_sync } from './package_json.ts';
 import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
+import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import { spawn } from './spawn.ts';
 import { process } from './process.ts';
+import { paths, to_root_path } from './paths.ts';
+import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
+import type { FsSearchResult } from './fs_search.ts';
+
+const TEST_FILES_PRINTED_MAX = 5;
 
 /** @nodocs */
 export const Args = s.object({
@@ -88,7 +97,14 @@ export const task: Task<Args> = {
 		}
 
 		if (test) {
-			await invoke_task('test');
+			// forwarded args for the tests ask for them, so the test task decides
+			if (has_forwarded_test_args(fs_paths) || (await project_has_vitest(fs_paths, log))) {
+				await invoke_task('test');
+			} else {
+				const test_files = await find_test_files_or_throw(fs_paths);
+				if (test_files.length > 0) throw new TaskError(to_undeclared_vitest_message(test_files));
+				log.info('vitest is not declared and no test files were found; skipping tests');
+			}
 		}
 
 		if (gen) {
@@ -149,4 +165,40 @@ export const task: Task<Args> = {
 			}
 		}
 	}
+};
+
+// a `-- gro test` section, which can name another `dir`, or args forwarded to vitest
+const has_forwarded_test_args = (fs_paths: FsPaths): boolean => {
+	const raw_rest_args = to_raw_rest_args(process.args);
+	return (
+		Object.hasOwn(
+			to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
+			to_task_command('test')
+		) || to_forwarded_argv(VITEST_CLI, raw_rest_args).length > 0
+	);
+};
+
+const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSearchResult>> => {
+	try {
+		return await find_test_files(fs_paths, paths.source);
+	} catch (error) {
+		if (!is_fs_error(error)) throw error;
+		throw new TaskError(
+			`failed to search ${to_root_path(paths.source)} for test files, as vitest isn't declared: ` +
+				error.message,
+			{ cause: error }
+		);
+	}
+};
+
+const to_undeclared_vitest_message = (test_files: Array<FsSearchResult>): string => {
+	const count = test_files.length;
+	const printed = test_files.slice(0, TEST_FILES_PRINTED_MAX).map((f) => to_root_path(f.id));
+	const unprinted = count - printed.length;
+	return (
+		`found ${count} test file${plural(count)} but vitest isn't declared in package.json: ` +
+		printed.join(', ') +
+		(unprinted > 0 ? ` and ${unprinted} more` : '') +
+		' - add vitest to devDependencies, remove the test files, or pass --no-test'
+	);
 };

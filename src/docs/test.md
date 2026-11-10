@@ -55,3 +55,23 @@ test('the thing', async () => {
 ```
 
 See [the Vitest docs](https://vitest.dev/) for more.
+
+## When Vitest isn't declared
+
+Gro detects Vitest from the project's `dependencies` and `devDependencies`.
+A `peerDependencies` entry doesn't count, as a package peered on Vitest is built to work with one,
+the same rule as Gro's SvelteKit detection.
+
+`gro test` fails when Vitest isn't declared, and when it's declared but not installed.
+
+`gro check` runs its test step only when Vitest is declared or args are forwarded to the tests,
+a `-- gro test` section or a nonempty `-- vitest` one.
+Without either, the step is skipped with a log line, unless the project has test files,
+and then `gro check` fails naming them, so a repo that loses its Vitest dependency can't pass without its tests.
+A test file is one `gro test` would run with its defaults and Vitest's:
+under `src/`, a file name matching Vitest's default `include`, a path below `src/` containing Gro's `.test.` pattern,
+and no `node_modules` or `.git` directory on the way, even in a `build/` or `.`-prefixed directory.
+Symlinks are followed as Vitest follows them, out of the project too, and a dangling one is skipped.
+A search that fails, like a directory that can't be read or a symlink that loops on itself, fails `gro check`.
+A custom Vitest config that narrows what runs can make `gro check` report files `gro test` wouldn't run;
+`gro check --no-test` skips the step without looking.

@@ -36,7 +36,7 @@ import type { Spawn, SpawnProgram } from './spawn.ts';
 export const has_sveltekit_app = (
 	package_json: PackageJson
 ): Result<object, { message: string }> => {
-	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json, false)) {
+	if (!package_json_has_dependency(SVELTEKIT_DEP_NAME, package_json)) {
 		return { ok: false, message: `no dependency found in package.json for ${SVELTEKIT_DEP_NAME}` };
 	}
 	return { ok: true };
@@ -72,7 +72,7 @@ export const has_sveltekit_library = async (
 
 	// checked before the lib directory because it's the cheaper of the two and it's what
 	// distinguishes a library from an app; peer deps don't count, as in `has_sveltekit_app`
-	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json, false)) {
+	if (!package_json_has_dependency(SVELTE_PACKAGE_DEP_NAME, package_json)) {
 		return {
 			ok: false,
 			message: `no dependency found in package.json for ${SVELTE_PACKAGE_DEP_NAME}`

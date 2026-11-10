@@ -458,11 +458,7 @@ describe('package_json_has_dependency', () => {
 		expect(package_json_has_dependency('missing', package_json)).toBe(false);
 	});
 
-	// Peer deps count by default because most callers ask "is this available at runtime",
-	// but detection asks "is this what the project is", and a peer answers neither.
-	test('counts peer deps only when `include_peer`', () => {
-		expect(package_json_has_dependency('peer_dep', package_json)).toBe(true);
-		expect(package_json_has_dependency('peer_dep', package_json, false)).toBe(false);
-		expect(package_json_has_dependency('dev_dep', package_json, false)).toBe(true);
+	test('does not count peer deps', () => {
+		expect(package_json_has_dependency('peer_dep', package_json)).toBe(false);
 	});
 });

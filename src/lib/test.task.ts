@@ -4,13 +4,13 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
-import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { paths } from './paths.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { process } from './process.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { TaskError, type Task } from './task.ts';
+import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
 
 const TEST_TASK_NAME = 'test';
 
@@ -18,7 +18,7 @@ const TEST_TASK_NAME = 'test';
 export const Args = s.object({
 	_: s.with_default_fn(
 		meta(s.array(s.string), { description: 'file patterns to filter tests' }),
-		() => ['.test.']
+		() => [TEST_FILE_PATTERN]
 	),
 	dir: s.with_default(meta(s.string, { description: 'working directory for tests' }), paths.source),
 	fail_without_tests: s.with_default(
@@ -37,12 +37,11 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run tests with vitest',
 	Args,
-	run: async ({ args }): Promise<void> => {
+	run: async ({ args, log }): Promise<void> => {
 		const { _: patterns, dir, fail_without_tests, t } = args;
 
-		const package_json = await package_json_load(create_fs_paths(fs));
-		if (!package_json_has_dependency(VITEST_CLI, package_json)) {
-			throw new TaskError('no test runner found, install vitest');
+		if (!(await project_has_vitest(create_fs_paths(fs), log))) {
+			throw new TaskError('no test runner found, add vitest to devDependencies');
 		}
 
 		const vitest = find_cli(spawn, VITEST_CLI, { pass_env: 'all' });
