@@ -25,13 +25,15 @@
  * `remove` and `rename` refuse the handle's own directory with `io_error`.
  * Symlink targets, real paths, and listed names are read as bytes, and one that isn't UTF-8 fails
  * with `io_error`, since no string names what the kernel would reach.
+ * A symlink's target is data: `symlink` stores any target verbatim and `read_link` returns it,
+ * and following a link is what's confined, by whichever handle reaches it.
  *
  * Errors are typed: each op throws an `FsError` (`fs_error.ts`) whose `kind` names the
  * failure, and `is_fs_error` recognizes one from any copy of Gro. Each op's one expected failure
  * returns a value instead of throwing: `stat` returns `null` on `not_found`,
  * `exists` returns `false`, `read_if_exists` and `read_text_if_exists` return `null`,
  * `remove({missing_ok})` and `mkdir({exists_ok})` return normally,
- * and `write({create_new})` returns `'exists'`. Every other kind still throws,
+ * and `write({create_new})` and `symlink` return `'exists'`. Every other kind still throws,
  * so a permission or I/O error is never mistaken for a missing file.
  *
  * This is the Node implementation, which runs on the Node Gro. Its gaps against
@@ -39,8 +41,9 @@
  *
  * - Confinement is a check, then an open: the path is walked beneath the handle's
  *   directory one component at a time, reading each symlink, then the op runs on the
- *   path the walk found. A symlink swapped in between escapes, since Node has no
- *   `openat2`. The twin is a review signal, not a boundary.
+ *   path the walk found, `read_link`, `set_times`, `set_mode`, and `symlink` included.
+ *   A symlink swapped in between escapes, since Node has no `openat2`.
+ *   The twin is a review signal, not a boundary.
  * - A handle is bound to its directory's path, not its inode: a handle whose directory
  *   is moved or replaced follows the path, refused only when the path's real location
  *   changed (`outside_root`) or is gone (`not_found`). The runtime's handle holds a
@@ -74,19 +77,24 @@ import { to_checked_cwd } from './internal/cwd.ts';
 // copied at load rather than imported by name, since a named import of a builtin is a live
 // binding that `syncBuiltinESMExports` rebinds to whatever a caller assigned to the export
 const {
+	chmod,
 	copyFile,
 	cp,
 	lstat,
+	lutimes,
 	mkdir,
 	mkdtemp,
 	opendir,
 	readFile,
+	readlink,
 	realpath,
 	rename,
 	rm,
 	rmdir,
 	stat,
+	symlink,
 	unlink,
+	utimes,
 	writeFile
 } = node_fs_promises;
 const { lstatSync, readFileSync, readlinkSync, statSync } = node_fs;
@@ -136,6 +144,25 @@ export interface FsStatOptions {
 	 * Whether a final symlink is followed to its target. Defaults to `true`.
 	 */
 	follow?: boolean;
+}
+
+/**
+ * The times `set_times` gives an entry, in milliseconds since the epoch, as `FileInfo.mtime_ms`.
+ * Each is a finite number from `0` to `8.64e15`, the range of a `Date`, else a `TypeError`,
+ * and the filesystem may clamp a time beyond its own range.
+ * An integer from today's epochs survives a round trip through `stat` exactly;
+ * Node takes seconds as a double, so near 1970 and centuries ahead `stat` can show
+ * a nanosecond's difference.
+ */
+export interface FsTimes {
+	/**
+	 * The last modification time.
+	 */
+	mtime_ms: number;
+	/**
+	 * The last access time. Defaults to `mtime_ms`.
+	 */
+	atime_ms?: number;
 }
 
 export interface FsWriteOptions {
@@ -222,6 +249,13 @@ export interface FsReadDir {
 	 * @param path - defaults to the handle's own directory
 	 */
 	list(path?: string): AsyncIterable<DirEntry>;
+	/**
+	 * Reads a symlink's target as stored, never following the link,
+	 * so the target may be absolute or lead outside the handle: reading it reaches nothing.
+	 * A target that isn't UTF-8 fails with `io_error`, since no string spells it.
+	 * @throws `FsError` - `not_found`; `io_error` when the entry isn't a symlink
+	 */
+	read_link(path: string): Promise<string>;
 	stat_sync(path: string, options?: FsStatOptions): FileInfo | null;
 	exists_sync(path: string): boolean;
 	read_text_sync(path: string): string;
@@ -271,6 +305,39 @@ export interface FsDir extends FsReadDir {
 	 * Copies a file, replacing what's at `to`, or with `recursive` a directory tree.
 	 */
 	copy(from: string, to: string, options?: FsCopyOptions): Promise<void>;
+	/**
+	 * Sets an entry's modification and access times, `atime_ms` defaulting to `mtime_ms`.
+	 * A final symlink is followed, its target confined as any path is,
+	 * unless `follow` is `false`, which sets the link's own times.
+	 * The runtime's run box, as designed, refuses `follow: false` with `permission_denied`,
+	 * since no form of it can be bounded there.
+	 * The current time is the caller's `Date.now()`.
+	 * @throws `TypeError` - for a time that isn't a finite number from `0` to `8.64e15`
+	 * @throws `FsError` - `not_found`, `not_a_directory`, `permission_denied`, `outside_root`
+	 */
+	set_times(path: string, times: FsTimes, options?: FsStatOptions): Promise<void>;
+	/**
+	 * Sets an entry's permission bits, like `0o755`, following a final symlink,
+	 * whose target is confined as any path is (Linux has no mode of its own for a link).
+	 * The mode is absolute, never symbolic, and holds no setuid, setgid, or sticky bit.
+	 * @throws `TypeError` - for a mode that isn't an integer from `0` to `0o777`
+	 * @throws `FsError` - `not_found`, `not_a_directory`, `permission_denied`, `outside_root`
+	 */
+	set_mode(path: string, mode: number): Promise<void>;
+	/**
+	 * Creates a symlink at `path` pointing at `target`, path first like every handle op.
+	 * The target is data, stored verbatim and never resolved, so it may be relative,
+	 * absolute, or dangling: following a link is what's confined, by every handle that reaches it.
+	 * The final component of `path` is never followed, and its parent is confined.
+	 * @returns `'created'`, or `'exists'` when any entry was already at `path`, a dangling
+	 * symlink included, which is left untouched
+	 * @throws `TypeError` - for a `path` ending in `/`, `/.`, or `/..`, which names a directory,
+	 * unless it resolves to the handle's own directory (`''`, `'.'`, `'d/..'`), an existing entry
+	 * and so `'exists'`; or a `target` that is empty, holds a NUL byte, or isn't well-formed Unicode
+	 * @throws `FsError` - `not_found` for a missing parent, `not_a_directory`, `permission_denied`,
+	 * `outside_root`
+	 */
+	symlink(path: string, target: string): Promise<'created' | 'exists'>;
 }
 
 /**
@@ -403,6 +470,50 @@ const assert_path_string = (path: string): void => {
 	if (typeof path !== 'string') throw new TypeError('fs paths are strings');
 	if (path.includes('\0')) throw new TypeError('fs paths hold no NUL byte');
 	if (!path.isWellFormed()) throw new TypeError('fs paths are well-formed Unicode');
+};
+
+// the latest time a `Date` holds, in milliseconds since the epoch
+const MAX_TIME_MS = 8.64e15;
+
+/**
+ * Checks a time for `set_times`, a finite number from `0` to `MAX_TIME_MS`. Node reads a
+ * negative time as now, so none reaches it.
+ */
+const to_time_ms = (value: unknown, name: string): number => {
+	if (typeof value !== 'number' || !(value >= 0 && value <= MAX_TIME_MS)) {
+		throw new TypeError(`fs times are finite numbers of ms from 0 to ${MAX_TIME_MS}: ${name}`);
+	}
+	return value;
+};
+
+/**
+ * Milliseconds as the seconds Node's `utimes` takes, which libuv splits into a timespec by
+ * truncating, so `1234568 / 1000`, a double just under `1234.568`, would land a nanosecond
+ * short. Half a nanosecond more rounds to the nearest one the double carries, which keeps
+ * an integer exact through `stat` at today's epochs, not everywhere.
+ */
+const to_unix_seconds = (ms: number): number => (ms + 5e-7) / 1000;
+
+/**
+ * Checks a permission mode for `set_mode`, an integer from `0` to `0o777`,
+ * so no setuid, setgid, or sticky bit, and no string Node would parse as octal.
+ */
+const to_permission_mode = (mode: unknown): number => {
+	if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
+		throw new TypeError('fs modes are integers from 0 to 0o777');
+	}
+	return mode;
+};
+
+/**
+ * Checks a symlink's target, stored verbatim: a non-empty string without a NUL byte
+ * or a lone surrogate, which would encode as U+FFFD and store a different target than it spells.
+ */
+const assert_link_target = (target: string): void => {
+	if (typeof target !== 'string') throw new TypeError('fs symlink targets are strings');
+	if (target === '') throw new TypeError('fs symlink targets are not empty');
+	if (target.includes('\0')) throw new TypeError('fs symlink targets hold no NUL byte');
+	if (!target.isWellFormed()) throw new TypeError('fs symlink targets are well-formed Unicode');
 };
 
 /**
@@ -915,6 +1026,19 @@ class NodeFsReadDir implements FsReadDir {
 		}
 	}
 
+	async read_link(path: string): Promise<string> {
+		const lexical = to_lexical_path(this.#root, path);
+		try {
+			// the final link is read, not followed; with a trailing `/` the kernel follows it,
+			// so the walk does, and what it reaches is a directory, no symlink to read
+			const target = await confine(this.#root, path, lexical, lexical.dir, true);
+			const bytes = await readlink(to_op_path(target, lexical), { encoding: 'buffer' });
+			return decode_name(bytes, lexical.path, 'is a symlink to');
+		} catch (error) {
+			throw to_fs_error(error, lexical.path);
+		}
+	}
+
 	stat_sync(path: string, options?: FsStatOptions): FileInfo | null {
 		return stat_sync_beneath(this.#root, path, options);
 	}
@@ -1077,6 +1201,53 @@ class NodeFsDir extends NodeFsReadDir implements FsDir {
 		} catch (error) {
 			throw await to_two_path_error(error, source, from_lexical, to_lexical);
 		}
+	}
+
+	async set_times(path: string, times: FsTimes, options?: FsStatOptions): Promise<void> {
+		const lexical = to_lexical_path(this.#root, path);
+		// each read once, so a getter can't answer the check and the op differently
+		const mtime_ms = to_time_ms(times.mtime_ms, 'mtime_ms');
+		const atime = times.atime_ms;
+		const atime_ms = atime === undefined ? mtime_ms : to_time_ms(atime, 'atime_ms');
+		// a trailing `/` follows a final symlink, as in the kernel
+		const follow = (options?.follow ?? true) || lexical.dir;
+		try {
+			const target = to_op_path(await confine(this.#root, path, lexical, follow, true), lexical);
+			await (follow ? utimes : lutimes)(
+				target,
+				to_unix_seconds(atime_ms),
+				to_unix_seconds(mtime_ms)
+			);
+		} catch (error) {
+			throw to_fs_error(error, lexical.path);
+		}
+	}
+
+	async set_mode(path: string, mode: number): Promise<void> {
+		const lexical = to_lexical_path(this.#root, path);
+		const checked_mode = to_permission_mode(mode);
+		try {
+			const target = await confine(this.#root, path, lexical, true, true);
+			await chmod(to_op_path(target, lexical), checked_mode);
+		} catch (error) {
+			throw to_fs_error(error, lexical.path);
+		}
+	}
+
+	async symlink(path: string, target: string): Promise<'created' | 'exists'> {
+		const lexical = to_lexical_path(this.#root, path);
+		assert_link_target(target);
+		// the kernel reads a trailing `/` as a directory to follow, never a name to create
+		if (lexical.dir) throw new TypeError(`fs.symlink takes a path with no trailing \`/\`: ${path}`);
+		try {
+			// the parent is confined and the final component never followed, so whatever is
+			// there, a dangling link included, makes the kernel's `EEXIST`, the only check
+			await symlink(target, await confine(this.#root, path, lexical, false));
+		} catch (error) {
+			if (code_of(error) === 'EEXIST') return 'exists';
+			throw to_fs_error(error, lexical.path);
+		}
+		return 'created';
 	}
 }
 

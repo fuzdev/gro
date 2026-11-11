@@ -57,10 +57,30 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - Each op's one expected failure returns a value instead of throwing:
   `stat` returns `null`, `exists` returns `false`, `read_if_exists` and `read_text_if_exists`
   return `null`, `remove({missing_ok})` and `mkdir({exists_ok})` return,
-  and `write({create_new: true})` returns `'exists'`.
+  and `write({create_new: true})` and `symlink` return `'exists'`.
   Any other failure still throws, so a permission error is never read as a missing file,
   and a path through a file (`f.txt/x`) is `not_a_directory`, not missing, sync and async alike.
 - `stat_sync`, `exists_sync`, and `read_text_sync` are the sync ops, for hot build paths.
+- A symlink's target is data, and following it is what's confined.
+  `dir.symlink(path, target)` stores any target verbatim, relative, absolute, or dangling, never resolving it,
+  and `dir.read_link(path)` returns one as stored, never following the link, so reading it reaches nothing.
+  A handle follows a link, its own or anyone's, only when the target is relative and stays beneath it.
+  `symlink` takes the path first, like every handle op, and returns `'created'`,
+  or `'exists'` for any entry already at the path, a dangling link included, left untouched.
+  The kernel's `EEXIST` decides, so of two racing calls one creates and the other gets `'exists'`.
+  A path ending in `/`, `/.`, or `/..` and a target that's empty, holds a NUL byte, or isn't well-formed Unicode are a `TypeError`,
+  but a path that resolves to the handle's own directory (`''`, `'.'`, `'d/..'`) is an existing entry, so `'exists'`.
+  `read_link` of an entry that isn't a link is `io_error`, as is a target that isn't UTF-8.
+- `dir.set_times(path, {mtime_ms, atime_ms?}, {follow?})` sets the times in milliseconds, as `stat`'s `mtime_ms`,
+  `atime_ms` defaulting to `mtime_ms`, and "now" is the caller's `Date.now()`.
+  A time is a finite number from `0` to `8.64e15`, else a `TypeError`, and the filesystem may clamp a time beyond its own range.
+  An integer from today's epochs survives a round trip through `stat` exactly,
+  while near 1970 and centuries ahead `stat` can show a nanosecond's difference ([below](#the-node-implementations-gaps)).
+  It follows a final symlink, confined, unless `follow` is `false`, which sets the link's own times,
+  an op the run box refuses ([native requirements](#native-requirements)).
+- `dir.set_mode(path, mode)` sets the permission bits, an integer from `0` to `0o777`, else a `TypeError`:
+  absolute, never symbolic or a string, and never a setuid, setgid, or sticky bit.
+  It follows a final symlink, confined, since Linux has no mode for a link.
 
 The module's TSDoc has each op's contract.
 
@@ -514,6 +534,11 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - An absolute symlink is `outside_root`, and so is a relative one that climbs above the handle,
   even when it would land back inside. A component a path passes through must be a directory.
 - `fs.temp_dir` takes only a string prefix, so no `toString` of the caller's names the directory.
+- `set_mode` refuses a mode outside `0..0o777`, so it sets no setuid, setgid, or sticky bit.
+- `set_times` reads each time once and refuses anything but a finite number from `0` to `8.64e15`,
+  so no value becomes "now" or "unchanged" on the way to the kernel.
+- `symlink` checks its target as a path is checked, a non-empty string without a NUL byte or a lone surrogate,
+  and never resolves it, so creating a link reaches nothing beyond its parent directory.
 
 ### spawn's invariants
 
@@ -620,6 +645,11 @@ It documents each gap rather than weakening the API to match, and is a review si
 - Confinement is a check, then an open: a path is walked beneath the handle's directory,
   reading each symlink, then the op runs. A symlink swapped in between escapes, since Node has no `openat2`.
   Recursive `copy` and `remove` hand the whole tree to Node, which walks it by path.
+  `read_link`, `set_times`, `set_mode`, and `symlink` run by path too, so a swap retimes, rechmods,
+  reads, or links through what the swapped-in link leads to.
+- `set_times` hands Node seconds as a double, so a time is stored to the nanosecond the nearest double carries,
+  which keeps an integer millisecond exact at today's epochs, not everywhere: near 1970 and centuries ahead
+  `stat` can show a nanosecond's difference.
 - A handle is bound to its directory's path, not its inode.
   When the directory is moved or replaced, the handle follows the path,
   refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
@@ -754,6 +784,22 @@ What the runtime's builtin must do that the Node implementation can't:
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
 - Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`.
+- Read a link with `readlinkat` on the parent's descriptor, the parent opened beneath the handle.
+- Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data.
+  Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
+  out of a granted hierarchy for the confined process and its children;
+  a link a later unconfined tool follows is the time-shifted case [backstop](backstop.md#the-box-for-runs-and-children) accepts for writes.
+- Set times and mode, following a final symlink, on a descriptor opened beneath the handle,
+  `utimensat(fd, NULL, …)` and `fchmod(fd)`.
+  Landlock gates neither at any ABI, so in the run box they're allowed in these descriptor forms only,
+  seccomp pinning `utimensat`'s path to `NULL`, and bounded by what the process can open:
+  code that escapes V8 can retime and rechmod any file it can open, every read root included, not only the write roots.
+  Bounding them to the write roots would take a broker outside the box.
+- Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it.
+  A link's own times take `utimensat` on a name with `AT_SYMLINK_NOFOLLOW`, which the kernel refuses with a `NULL` path,
+  and seccomp can't read the name, so nothing pins that form to the handle: allowed, it would retime any file the user owns.
+- Expect `set_mode` to fail with `permission_denied` on a file whose mode denies its owner an open, like `0000`,
+  which the descriptor form can't reach, where the Node implementation's path `chmod` restores it.
 - Return owned buffers from `read`, never a view of memory the runtime reuses.
 - Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the always-on read-deny overlay, since they're regular files, not magic links.
 - Refuse a read that reaches a denied file through another name (a hard link), by the rule [backstop](backstop.md#open) settles on.

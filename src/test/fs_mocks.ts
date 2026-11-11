@@ -24,6 +24,7 @@ const OPS = [
 	'read_if_exists',
 	'read_text_if_exists',
 	'list',
+	'read_link',
 	'stat_sync',
 	'exists_sync',
 	'read_text_sync',
@@ -31,7 +32,10 @@ const OPS = [
 	'mkdir',
 	'remove',
 	'rename',
-	'copy'
+	'copy',
+	'set_times',
+	'set_mode',
+	'symlink'
 ] as const;
 
 /**

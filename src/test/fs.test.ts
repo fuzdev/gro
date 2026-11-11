@@ -371,7 +371,17 @@ describe('narrowing', () => {
 		const read_only = dir.readonly();
 		const sub = read_only.dir('sub');
 		for (const handle of [read_only, sub]) {
-			for (const name of ['write', 'mkdir', 'remove', 'rename', 'copy', 'readonly']) {
+			for (const name of [
+				'write',
+				'mkdir',
+				'remove',
+				'rename',
+				'copy',
+				'set_times',
+				'set_mode',
+				'symlink',
+				'readonly'
+			]) {
 				assert.ok(!(name in handle), `read-only handle has \`${name}\``);
 			}
 		}
@@ -507,7 +517,18 @@ describe('narrowing', () => {
 				}
 			}
 		}
-		for (const key of ['readonly', 'write', 'remove', 'list', 'exists', Symbol.asyncDispose]) {
+		for (const key of [
+			'readonly',
+			'write',
+			'remove',
+			'list',
+			'exists',
+			'read_link',
+			'set_times',
+			'set_mode',
+			'symlink',
+			Symbol.asyncDispose
+		]) {
 			assert.ok(seen.has(key), `enumerated ${String(key)}`);
 		}
 	});
@@ -531,6 +552,10 @@ describe('path arguments', () => {
 			() => dir.write('x\0', 'x', { create_new: true }),
 			() => dir.remove('x\0'),
 			() => dir.rename('a', 'b\0'),
+			() => dir.read_link('l\0'),
+			() => dir.set_times('a\0', { mtime_ms: 0 }),
+			() => dir.set_mode('a\0', 0o644),
+			() => dir.symlink('l\0', 'x'),
 			() => fs.open_dir(sandbox.root + '/\0'),
 			() => fs.open_dir('relative\0'),
 			() => fs.temp_dir('x\0')
@@ -555,6 +580,10 @@ describe('path arguments', () => {
 			() => dir.stat('a/\uDC00'),
 			() => dir.write('\uD800', 'x'),
 			() => dir.remove('\uD800'),
+			() => dir.read_link('\uD800'),
+			() => dir.set_times('\uD800', { mtime_ms: 0 }),
+			() => dir.set_mode('\uD800', 0o644),
+			() => dir.symlink('\uD800', 'x'),
 			() => fs.open_dir(sandbox.root + '/\uD800'),
 			() => fs.temp_dir('\uD800')
 		];
