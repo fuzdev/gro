@@ -44,7 +44,8 @@ doesn't parse is rewritten by pattern instead, with a warning.
 In development (`gro dev`), does nothing — `svelte-package` is a build-time tool.
 
 During `adapt`, if `package.json` has a `bin` field,
-the plugin makes the binaries executable, so a CLI linked once with `npm link`
+the plugin makes the binaries executable, adding the execute bits through the fs host module's
+`set_mode` with no `chmod` spawned, so a CLI linked once with `npm link`
 keeps running after each build. Building never links, so it writes nothing outside the project.
 
 ## configuration

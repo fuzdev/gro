@@ -6,10 +6,9 @@ import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpe
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
 import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
+import { is_fs_error } from './fs_error.ts';
+import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 import { spawn } from './spawn.ts';
-import { is_spawn_error } from './spawn_error.ts';
-import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -25,15 +24,19 @@ export interface GroPluginSveltekitLibraryOptions {
 }
 
 /**
- * Makes `bin_path` executable, returning what went wrong, or `null` when nothing did.
+ * Makes `bin_path` executable for everyone, its mode's other bits kept,
+ * returning what went wrong, or `null` when nothing did.
  */
-const chmod_bin = async (bin_path: string): Promise<string | null> => {
+const chmod_bin = async (fs_paths: FsPaths, bin_path: string): Promise<string | null> => {
 	try {
-		// the base environment is enough for `chmod`
-		const result = await spawn.program('chmod').run(['+x', bin_path]);
-		return spawn_result_is_ok(result) ? null : to_spawn_result_message(result);
+		const { dir, path } = await fs_paths.open_path(bin_path);
+		const info = await dir.stat(path);
+		if (info === null) return `not_found: nothing is at ${bin_path}`;
+		// `set_mode` takes only the permission bits, which is all a bin has
+		await dir.set_mode(path, (info.mode | 0o111) & 0o777);
+		return null;
 	} catch (error) {
-		if (is_spawn_error(error)) return error.message;
+		if (is_fs_error(error)) return error.message;
 		throw error;
 	}
 };
@@ -79,7 +82,7 @@ export const gro_plugin_sveltekit_library = ({
 			if (package_json.bin) {
 				await Promise.all(
 					Object.values(package_json.bin).map(async (bin_path) => {
-						const message = await chmod_bin(bin_path);
+						const message = await chmod_bin(fs_paths, bin_path);
 						if (message !== null) log.error(`chmod on bin path ${bin_path} failed: ${message}`);
 					})
 				);
