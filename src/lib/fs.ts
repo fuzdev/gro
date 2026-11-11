@@ -171,7 +171,8 @@ export interface FsWriteOptions {
 	 */
 	create_new?: boolean;
 	/**
-	 * The permission bits of a newly created file, before the umask.
+	 * The permission bits of a newly created file, before the umask, masked to `0o777`,
+	 * so no setuid, setgid, or sticky bit. An integer from `0` to `0o7777`, else a `TypeError`.
 	 */
 	mode?: number;
 }
@@ -503,6 +504,18 @@ const to_permission_mode = (mode: unknown): number => {
 		throw new TypeError('fs modes are integers from 0 to 0o777');
 	}
 	return mode;
+};
+
+/**
+ * Checks `write`'s mode, an integer from `0` to `0o7777`, and masks it to `0o777`,
+ * as the runtime's builtin does, so no write creates a setuid, setgid, or sticky file
+ * and no string reaches Node, which would parse it as octal.
+ */
+const to_write_mode = (mode: unknown): number => {
+	if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o7777) {
+		throw new TypeError('fs write modes are integers from 0 to 0o7777');
+	}
+	return mode & 0o777;
 };
 
 /**
@@ -1113,11 +1126,13 @@ class NodeFsDir extends NodeFsReadDir implements FsDir {
 	): Promise<'created' | 'exists' | void> {
 		const create_new = options?.create_new ?? false;
 		const lexical = to_lexical_path(this.#root, path);
+		const requested_mode = options?.mode;
+		const mode = requested_mode === undefined ? undefined : to_write_mode(requested_mode);
 		try {
 			const target = await confine(this.#root, path, lexical, true);
 			await writeFile(to_op_path(target, lexical), data, {
 				flag: create_new ? 'wx' : 'w',
-				mode: options?.mode
+				mode
 			});
 		} catch (error) {
 			if (create_new && code_of(error) === 'EEXIST') return 'exists';

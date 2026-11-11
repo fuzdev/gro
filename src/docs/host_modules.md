@@ -81,6 +81,7 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - `dir.set_mode(path, mode)` sets the permission bits, an integer from `0` to `0o777`, else a `TypeError`:
   absolute, never symbolic or a string, and never a setuid, setgid, or sticky bit.
   It follows a final symlink, confined, since Linux has no mode for a link.
+  `write`'s `mode` takes the same bits, an integer from `0` to `0o7777` masked to `0o777`, before the umask applies.
 
 The module's TSDoc has each op's contract.
 
@@ -534,7 +535,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - An absolute symlink is `outside_root`, and so is a relative one that climbs above the handle,
   even when it would land back inside. A component a path passes through must be a directory.
 - `fs.temp_dir` takes only a string prefix, so no `toString` of the caller's names the directory.
-- `set_mode` refuses a mode outside `0..0o777`, so it sets no setuid, setgid, or sticky bit.
+- `set_mode` refuses a mode outside `0..0o777`, and `write` masks its `mode` to `0o777`,
+  so no op sets a setuid, setgid, or sticky bit.
 - `set_times` reads each time once and refuses anything but a finite number from `0` to `8.64e15`,
   so no value becomes "now" or "unchanged" on the way to the kernel.
 - `symlink` checks its target as a path is checked, a non-empty string without a NUL byte or a lone surrogate,
@@ -783,7 +785,8 @@ What the runtime's builtin must do that the Node implementation can't:
   never a check followed by an open.
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
 - Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
-- Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`.
+- Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
+  refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does.
 - Read a link with `readlinkat` on the parent's descriptor, the parent opened beneath the handle.
 - Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data.
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one

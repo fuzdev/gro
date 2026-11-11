@@ -119,6 +119,29 @@ describe('read and write', () => {
 		assert.strictEqual((await dir.stat('a.txt'))!.mode, 0o600);
 	});
 
+	test('write masks the mode to `0o777`, so it sets no sticky, setuid, or setgid bit', async () => {
+		for (const mode of [0o1700, 0o7700, 0o4700]) {
+			const name = `m${mode.toString(8)}.txt`;
+			await dir.write(name, 'x', { mode });
+			assert.strictEqual((await dir.stat(name))!.mode, 0o700, name);
+		}
+		// the largest mode accepted, its permission bits left to the umask
+		await dir.write('max.txt', 'x', { mode: 0o7777 });
+		assert.strictEqual((await dir.stat('max.txt'))!.mode & 0o7000, 0);
+	});
+
+	test('a write mode that is not an integer from 0 to 0o7777 is a `TypeError`, writing nothing', async () => {
+		for (const mode of ['755', 1.5, -1, 0o10000, NaN, null]) {
+			try {
+				await dir.write('a.txt', 'x', { mode: mode as any });
+				assert.fail(`expected a TypeError for ${String(mode)}`);
+			} catch (error) {
+				assert.instanceOf(error, TypeError, String(mode));
+			}
+		}
+		assert.deepEqual(readdirSync(sandbox.root), []);
+	});
+
 	test('the `_if_exists` reads return `null` for a missing file', async () => {
 		await dir.write('a.txt', 'a');
 		assert.strictEqual(await dir.read_text_if_exists('a.txt'), 'a');
