@@ -150,9 +150,8 @@ export interface FsStatOptions {
  * The times `set_times` gives an entry, in milliseconds since the epoch, as `FileInfo.mtime_ms`.
  * Each is a finite number from `0` to `8.64e15`, the range of a `Date`, else a `TypeError`,
  * and the filesystem may clamp a time beyond its own range.
- * An integer from today's epochs survives a round trip through `stat` exactly;
- * Node takes seconds as a double, so near 1970 and centuries ahead `stat` can show
- * a nanosecond's difference.
+ * On the Node implementation, which passes seconds as a double, `stat` can show an integer
+ * a fraction of a microsecond off.
  */
 export interface FsTimes {
 	/**
@@ -490,8 +489,8 @@ const to_time_ms = (value: unknown, name: string): number => {
 /**
  * Milliseconds as the seconds Node's `utimes` takes, which libuv splits into a timespec by
  * truncating, so `1234568 / 1000`, a double just under `1234.568`, would land a nanosecond
- * short. Half a nanosecond more rounds to the nearest one the double carries, which keeps
- * an integer exact through `stat` at today's epochs, not everywhere.
+ * short. Half a nanosecond more rounds to the nearest one the double carries; past that the
+ * double itself is the limit, under a microsecond.
  */
 const to_unix_seconds = (ms: number): number => (ms + 5e-7) / 1000;
 

@@ -74,8 +74,7 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - `dir.set_times(path, {mtime_ms, atime_ms?}, {follow?})` sets the times in milliseconds, as `stat`'s `mtime_ms`,
   `atime_ms` defaulting to `mtime_ms`, and "now" is the caller's `Date.now()`.
   A time is a finite number from `0` to `8.64e15`, else a `TypeError`, and the filesystem may clamp a time beyond its own range.
-  An integer from today's epochs survives a round trip through `stat` exactly,
-  while near 1970 and centuries ahead `stat` can show a nanosecond's difference ([below](#the-node-implementations-gaps)).
+  An integer can come back from `stat` a fraction of a microsecond off on the Node implementation ([below](#the-node-implementations-gaps)).
   It follows a final symlink, confined, unless `follow` is `false`, which sets the link's own times,
   an op the run box refuses ([native requirements](#native-requirements)).
 - `dir.set_mode(path, mode)` sets the permission bits, an integer from `0` to `0o777`, else a `TypeError`:
@@ -649,9 +648,9 @@ It documents each gap rather than weakening the API to match, and is a review si
   Recursive `copy` and `remove` hand the whole tree to Node, which walks it by path.
   `read_link`, `set_times`, `set_mode`, and `symlink` run by path too, so a swap retimes, rechmods,
   reads, or links through what the swapped-in link leads to.
-- `set_times` hands Node seconds as a double, so a time is stored to the nanosecond the nearest double carries,
-  which keeps an integer millisecond exact at today's epochs, not everywhere: near 1970 and centuries ahead
-  `stat` can show a nanosecond's difference.
+- `set_times` hands Node seconds as a double, so a time is stored within the double's precision,
+  under a microsecond through the filesystem's range, and `stat` can show an integer millisecond
+  a fraction of a microsecond off; the runtime's builtin stores it exactly.
 - A handle is bound to its directory's path, not its inode.
   When the directory is moved or replaced, the handle follows the path,
   refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
