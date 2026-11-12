@@ -348,7 +348,9 @@ describe('how a stopped git reads', () => {
 		const stderrs = [
 			'fatal: .git/index: index file smaller than expected\n',
 			"fatal: detected dubious ownership in repository at '/repo'\n",
-			'fatal: bad config line 1 in file .git/config\n'
+			'fatal: bad config line 1 in file .git/config\n',
+			// a broken submodule's gitfile, in the wording git 2.47 uses
+			'fatal: not a git repository: sub/../.git/modules/sub\n'
 		];
 		for (const stderr of stderrs) {
 			const { program } = create_recording_program(EXITED_OK, {

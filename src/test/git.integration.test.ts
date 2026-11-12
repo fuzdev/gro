@@ -269,7 +269,10 @@ describe('a repo git can not read', () => {
 	test('a broken submodule throws rather than reading as not a repo', async () => {
 		await run_ok(work, ['-c', 'protocol.file.allow=always', 'submodule', 'add', work.path, 'sub']);
 		await work.remove('.git/modules/sub', { recursive: true });
-		await assert_status_throws(git, 'not a git repository');
+		// the submodule's gitfile names a directory that's gone, so git fails on the repo it
+		// found, in wording that varies by version, never discovery's "or any of the parents"
+		assert.strictEqual((await work.read_text('sub/.git')).trim(), 'gitdir: ../.git/modules/sub');
+		await assert_status_throws(git, 'git status failed with code 128: fatal: ');
 	});
 
 	test('the library cache key is null over a corrupted index, not a thrown error', async () => {
