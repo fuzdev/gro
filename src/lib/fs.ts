@@ -102,6 +102,7 @@ const { lstatSync, readFileSync, readlinkSync, statSync } = node_fs;
 // libuv's `realpath`, a syscall per component, where `realpathSync` runs Node's JS walk
 const realpath_sync_native = node_fs.realpathSync.native;
 const { tmpdir } = node_os;
+const { versions } = globalThis.process;
 const { dirname, isAbsolute } = node_path;
 
 // TODO: `FsFile` and `dir.open(path)`, a file handle for byte-level reads and writes
@@ -151,8 +152,11 @@ export interface FsStatOptions {
  * The times `set_times` gives an entry, in milliseconds since the epoch, as `FileInfo.mtime_ms`.
  * Each is a finite number from `0` to `8.64e15`, the range of a `Date`, else a `TypeError`,
  * and the filesystem may clamp a time beyond its own range.
- * On the Node implementation, which passes seconds as a double, `stat` can show an integer
- * a fraction of a microsecond off.
+ * The Node implementation passes seconds as a double that libuv truncates, to a microsecond
+ * on libuv 1.51 (Node 24.14) and to a nanosecond on 1.52.1 (Node 26.13): on the microsecond step an integer is
+ * stored exactly through 2242, and on the nanosecond step within half the double's spacing
+ * (119ns from 2004 to 2038), so `stat` can show an integer one step of its own double off
+ * where that spacing is the coarser, as from 2038-01-19 to 2039-09-07.
  */
 export interface FsTimes {
 	/**
@@ -488,12 +492,32 @@ const to_time_ms = (value: unknown, name: string): number => {
 };
 
 /**
- * Milliseconds as the seconds Node's `utimes` takes, which libuv splits into a timespec by
- * truncating, so `1234568 / 1000`, a double just under `1234.568`, would land a nanosecond
- * short. Half a nanosecond more rounds to the nearest one the double carries; past that the
- * double itself is the limit, under a microsecond.
+ * Half the step the seconds Node's `utimes` takes are truncated to, in milliseconds.
+ * Node's libuv truncates to a microsecond on 1.51 and to a nanosecond on 1.52.1, and any
+ * libuv below 1.52 is taken as the microsecond step; Bun and Deno report a libuv version but
+ * set times without it, Bun to the nanosecond and Deno to the millisecond.
  */
-const to_unix_seconds = (ms: number): number => (ms + 5e-7) / 1000;
+const UTIMES_HALF_STEP_MS = ((): number => {
+	if (versions.bun !== undefined || versions.deno !== undefined) return 5e-7;
+	const [major = 0, minor = 0] = (versions.uv ?? '').split('.').map(Number);
+	return major === 1 && minor < 52 ? 5e-4 : 5e-7;
+})();
+
+/**
+ * Milliseconds as the seconds Node's `utimes` takes, aimed half a step past the time so the
+ * truncation lands on it: `1700000000123 / 1000`, a double 94ns short, would store
+ * `…122.999` where libuv truncates to microseconds. The whole seconds are split off first,
+ * so the sum rounds once, to the double nearest the aim.
+ */
+const to_unix_seconds = (ms: number): number => {
+	let seconds = Math.trunc(ms / 1000);
+	let rest_ms = ms - seconds * 1000;
+	if (rest_ms < 0) {
+		seconds -= 1;
+		rest_ms += 1000;
+	}
+	return seconds + (rest_ms + UTIMES_HALF_STEP_MS) / 1000;
+};
 
 /**
  * Checks a permission mode for `set_mode`, an integer from `0` to `0o777`,

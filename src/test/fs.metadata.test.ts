@@ -1,5 +1,13 @@
 import { describe, test, assert, beforeEach, afterEach } from 'vitest';
-import { lstatSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	statSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync
+} from 'node:fs';
 import { join } from 'node:path';
 
 import type { FsDir } from '#lib/fs.ts';
@@ -47,18 +55,78 @@ const link_out_of_root = (): void => {
 // every way a path reaches `outside/secret.txt` from the handle, each `outside_root`
 const PATHS_OUT = ['../outside/secret.txt', 'up/secret.txt', 'abs/secret.txt', 'out', 'abs_out'];
 
+// the step the platform's `utimes` truncates to, read from the platform: a microsecond
+// before libuv 1.52, a nanosecond since
+const to_utimes_step_ns = (path: string): bigint => {
+	const seconds = 1 + 2 ** -19; // 1.000001907… exactly
+	utimesSync(path, seconds, seconds);
+	return statSync(path, { bigint: true }).mtimeNs === 1_000_001_000n ? 1000n : 1n;
+};
+
+// half the spacing of the doubles near `ms / 1000`, the seconds `utimes` takes, rounded to a ns
+const to_half_spacing_ns = (ms: number): number =>
+	ms < 1000 ? 0 : Math.round((2 ** (Math.floor(Math.log2(ms / 1000)) - 52) * 1e9) / 2);
+
 describe('set_times', () => {
 	const T = 1_700_000_000_123;
+	// integer times outside the spans where the seconds double is coarser than the ms double, so
+	// `stat` shows each exactly on either step; on a microsecond step, `T` lands a microsecond
+	// short unless the seconds aim half a step past the time, and `6_000_000_000_105` unless the
+	// whole seconds are split off before the aim, and `5_163_330_732_736` a microsecond late if the
+	// aim overshoots half the step by as little as 50ns
+	const SAMPLES = [
+		0,
+		1,
+		999,
+		1234567,
+		1234568,
+		5705833,
+		8541462,
+		T,
+		1_794_414_326_818,
+		4_102_444_800_000,
+		5_163_330_732_736,
+		6_000_000_000_105
+	];
 
 	test('sets the modification and access times, integer ms exactly', async () => {
 		writeFileSync(join(sandbox.root, 'f.txt'), 'f');
-		const samples = [0, 1, 999, 1234567, 1234568, 5705833, 8541462, T, 1_794_414_326_818];
-		for (const ms of [...samples, 4_102_444_800_000]) {
+		for (const ms of SAMPLES) {
 			await dir.set_times('f.txt', { mtime_ms: ms, atime_ms: ms + 1 });
 			const s = statSync(join(sandbox.root, 'f.txt'));
-			assert.strictEqual(s.mtimeMs, ms);
-			assert.strictEqual(s.atimeMs, ms + 1);
-			assert.strictEqual((await dir.stat('f.txt'))!.mtime_ms, ms);
+			assert.strictEqual(s.mtimeMs, ms, `${ms}`);
+			assert.strictEqual(s.atimeMs, ms + 1, `${ms}`);
+			assert.strictEqual((await dir.stat('f.txt'))!.mtime_ms, ms, `${ms}`);
+		}
+	});
+
+	test('stores an integer ms exactly on a microsecond step, else within half the seconds double', async () => {
+		const path = join(sandbox.root, 'f.txt');
+		writeFileSync(path, 'f');
+		const step = to_utimes_step_ns(path);
+		for (const ms of SAMPLES) {
+			await dir.set_times('f.txt', { mtime_ms: ms });
+			const error = statSync(path, { bigint: true }).mtimeNs - BigInt(ms) * 1_000_000n;
+			const bound = step === 1000n ? 0 : to_half_spacing_ns(ms);
+			assert.ok(Math.abs(Number(error)) <= bound, `${ms}: ${error}ns, bound ${bound}ns`);
+		}
+	});
+
+	test('stores a fractional ms on the step nearest it, within half the seconds double', async () => {
+		const path = join(sandbox.root, 'f.txt');
+		writeFileSync(path, 'f');
+		const step = to_utimes_step_ns(path);
+		// each time is a whole ms and `n / 4096` of one, a double exactly at these magnitudes, so
+		// the error is measured against the time given, in 4096ths of a nanosecond
+		for (const ms of [1234568, 5705833, T, 1_794_414_326_818]) {
+			for (const n of [1, 3, 2048, 4095]) {
+				await dir.set_times('f.txt', { mtime_ms: ms + n / 4096 });
+				const target = (BigInt(ms) * 4096n + BigInt(n)) * 1_000_000n;
+				const stored = statSync(path, { bigint: true }).mtimeNs * 4096n;
+				const error = Number(stored - target) / 4096;
+				const bound = Number(step) / 2 + to_half_spacing_ns(ms);
+				assert.ok(Math.abs(error) <= bound, `${ms} + ${n}/4096: ${error}ns, bound ${bound}ns`);
+			}
 		}
 	});
 

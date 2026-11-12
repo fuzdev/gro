@@ -74,7 +74,7 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - `dir.set_times(path, {mtime_ms, atime_ms?}, {follow?})` sets the times in milliseconds, as `stat`'s `mtime_ms`,
   `atime_ms` defaulting to `mtime_ms`, and "now" is the caller's `Date.now()`.
   A time is a finite number from `0` to `8.64e15`, else a `TypeError`, and the filesystem may clamp a time beyond its own range.
-  An integer can come back from `stat` a fraction of a microsecond off on the Node implementation ([below](#the-node-implementations-gaps)).
+  On the Node implementation an integer can come back from `stat` a fraction of a microsecond off in some spans, and more past 2242 ([below](#the-node-implementations-gaps)).
   It follows a final symlink, confined, unless `follow` is `false`, which sets the link's own times,
   an op the run box refuses ([native requirements](#native-requirements)).
 - `dir.set_mode(path, mode)` sets the permission bits, an integer from `0` to `0o777`, else a `TypeError`:
@@ -671,9 +671,22 @@ It documents each gap rather than weakening the API to match, and is a review si
   Recursive `copy` and `remove` hand the whole tree to Node, which walks it by path.
   `read_link`, `set_times`, `set_mode`, and `symlink` run by path too, so a swap retimes, rechmods,
   reads, or links through what the swapped-in link leads to.
-- `set_times` hands Node seconds as a double, so a time is stored within the double's precision,
-  under a microsecond through the filesystem's range, and `stat` can show an integer millisecond
-  a fraction of a microsecond off; the runtime's builtin stores it exactly.
+- `set_times` hands Node seconds as a double, which libuv truncates to a step:
+  a microsecond on libuv 1.51 (Node 24.14), a nanosecond on 1.52.1 (Node 26.13),
+  and the implementation treats any libuv below 1.52 as the microsecond step.
+  The seconds aim half a step past the time, so the truncation lands on the step nearest it
+  wherever the double's spacing is finer than the step.
+  On the microsecond step an integer millisecond is stored exactly through 2242
+  (`2 ** 33` seconds), and any other time within a microsecond.
+  On the nanosecond step a time is stored within half the double's spacing, plus half a nanosecond:
+  exactly before 1970-04-08, within 119ns from 2004 to 2038, 238ns to 2106, and 477ns to 2242.
+  `stat` shows an integer millisecond exactly but where the seconds' double is coarser than the milliseconds',
+  from each power of two seconds to the next power of two milliseconds,
+  such as 2004-01-10 to 2004-11-03 and 2038-01-19 to 2039-09-07,
+  where about half come back one step of their own double off,
+  and from 1970-04-08 to 1972-02-16, where some come back a nanosecond or a few off.
+  Past 2242 the double itself is the limit on either step.
+  The runtime's builtin stores a time exactly.
 - A handle is bound to its directory's path, not its inode.
   When the directory is moved or replaced, the handle follows the path,
   refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
