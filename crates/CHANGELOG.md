@@ -2,7 +2,8 @@
 
 > `fgro`, gro's experimental JS runtime binary, has its own version line,
 > released from `fgro-v<version>` tags apart from the npm package's;
-> each section here becomes its GitHub Release's notes
+> each section here becomes its GitHub Release's notes,
+> and is written ahead of its tag, so the tags say what has shipped
 
 ## 0.1.0
 
