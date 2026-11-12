@@ -1,3 +1,4 @@
+import type { FsReadDir } from '#lib/fs.ts';
 import type {
 	Spawn,
 	SpawnCallOptions,
@@ -27,6 +28,10 @@ export interface MockSpawnCall {
  */
 export interface MockSpawn extends Spawn {
 	available: (name: string) => boolean;
+	/**
+	 * Which names resolve beneath a handle for `find_in` and `program_in`, by default none.
+	 */
+	available_in: (dir: FsReadDir, name: string) => boolean;
 	result: SpawnResult | ((call: MockSpawnCall) => SpawnResult | Promise<SpawnResult>);
 	/**
 	 * What `out` resolves to for a call, `null` for a program whose `out` throws,
@@ -54,6 +59,7 @@ export interface MockSpawn extends Spawn {
 	 */
 	create_child: ((call: MockSpawnCall) => SpawnChild) | null;
 	readonly finds: Array<string>;
+	readonly finds_in: Array<{ dir: FsReadDir; name: string }>;
 	readonly calls: Array<MockSpawnCall>;
 	/**
 	 * Restores the defaults and forgets every find and call.
@@ -66,6 +72,8 @@ const LOCAL_BIN = 'node_modules/.bin/';
 const OK_RESULT: SpawnResult = { kind: 'exited', code: 0 };
 
 const NO_ERROR = (): undefined => undefined;
+
+const NOT_AVAILABLE = (): boolean => false;
 
 /**
  * Creates a mock `SpawnChild`, closed with exit 0 and with no output unless overridden.
@@ -123,7 +131,8 @@ export const create_mock_stream = (): MockSpawnStream => {
 };
 
 /**
- * Creates a mock `Spawn`, whose `narrow` throws, and whose programs' `out` throws
+ * Creates a mock `Spawn`, whose `narrow` throws, whose `find_in` finds nothing until
+ * `available_in` says so, and whose programs' `out` throws
  * until `out_result` is set, so code reaching an op the test didn't expect fails loudly.
  */
 export const create_mock_spawn = (): MockSpawn => {
@@ -134,10 +143,11 @@ export const create_mock_spawn = (): MockSpawn => {
 	};
 	const create_program = (
 		name: string,
-		program_options: SpawnProgramOptions | undefined
+		program_options: SpawnProgramOptions | undefined,
+		path = '/mock/' + name
 	): SpawnProgram => ({
 		name,
-		path: '/mock/' + name,
+		path,
 		run: async (args, options) => {
 			const call: MockSpawnCall = { method: 'run', name, args, options, program_options };
 			return to_result(call, mock.run_error(call));
@@ -168,8 +178,21 @@ export const create_mock_spawn = (): MockSpawn => {
 		if (error !== undefined) throw error;
 		return mock.available(name) ? create_program(name, options) : null;
 	};
+	const find_in = (
+		dir: FsReadDir,
+		name: string,
+		options?: SpawnProgramOptions
+	): SpawnProgram | null => {
+		mock.finds_in.push({ dir, name });
+		const error = mock.find_error(name);
+		if (error !== undefined) throw error;
+		return mock.available_in(dir, name)
+			? create_program(name, options, `${dir.path}/${name}`)
+			: null;
+	};
 	const mock: MockSpawn = {
 		available: (name) => name.startsWith(LOCAL_BIN),
+		available_in: NOT_AVAILABLE,
 		result: OK_RESULT,
 		out_result: null,
 		out_bytes_result: null,
@@ -178,6 +201,7 @@ export const create_mock_spawn = (): MockSpawn => {
 		start_error: NO_ERROR,
 		create_child: null,
 		finds: [],
+		finds_in: [],
 		calls: [],
 		find,
 		program: (name, options) => {
@@ -185,11 +209,24 @@ export const create_mock_spawn = (): MockSpawn => {
 			if (!program) throw new SpawnError('not_found', name, `not_found: no program ${name}`);
 			return program;
 		},
+		find_in,
+		program_in: (dir, name, options) => {
+			const program = find_in(dir, name, options);
+			if (!program) {
+				throw new SpawnError(
+					'not_found',
+					name,
+					`not_found: no program ${name} beneath ${dir.path}`
+				);
+			}
+			return program;
+		},
 		narrow: () => {
 			throw Error('mock Spawn.narrow not set');
 		},
 		reset: () => {
 			mock.available = (name) => name.startsWith(LOCAL_BIN);
+			mock.available_in = NOT_AVAILABLE;
 			mock.result = OK_RESULT;
 			mock.out_result = null;
 			mock.out_bytes_result = null;
@@ -198,6 +235,7 @@ export const create_mock_spawn = (): MockSpawn => {
 			mock.start_error = NO_ERROR;
 			mock.create_child = null;
 			mock.finds.length = 0;
+			mock.finds_in.length = 0;
 			mock.calls.length = 0;
 		}
 	};

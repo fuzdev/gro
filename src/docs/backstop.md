@@ -86,7 +86,9 @@ and every child process inherits them. The rules:
   and each spawned tool's own cache directory, named one by one, never all of `~/.cache`, which holds other tools' executable caches),
   never the project root. So `.git`, `node_modules`, `package.json`, the policy file, and editor and agent configuration stay read-only to every child at the kernel,
   not only to the runtime's own ops; a tool whose cache defaults to a `node_modules` subdirectory (Vite's `.vite`) is pointed at its cache directory instead.
-- **Execute:** the pinned programs, their interpreters and libraries, and a native binary a tool runs from `node_modules` (esbuild's, under Vite).
+- **Execute:** the pinned programs, their interpreters and libraries, a native binary a tool runs from `node_modules` (esbuild's, under Vite),
+  and the exec roots a run declares for `spawn.program_in`, each a directory that may also be a write root,
+  since a run that builds a program and then runs it, or cargo running the build scripts it compiles into its target directory, needs both on one hierarchy.
 - **System files:** read rights on the libraries and `/etc` entries the pinned programs need (the resolver's and certificate files among them), and `/dev/null`;
   the exact set is per tool.
 - **Network:** TCP connect on the granted ports; bind only on a serve grant's declared port.
@@ -101,6 +103,7 @@ What this is designed to stop is the time-shifted write: a dependency's test run
 plants code where the user's own tools execute it later, `.git/config`'s `fsmonitor`, a hook, a shim in `node_modules/.bin`, an editor task.
 With the project root read-only to children, those paths are out of reach even for code that holds the invocation's whole grant set.
 What it leaves: a write into a declared write root that another tool then executes, which is why gen's write roots are declared, reviewed, and narrow.
+An exec root that is also a write root accepts the same case for the run's own programs, so each is declared and reviewed as narrowly.
 
 Two things stay coarse. A child under a net grant reaches any host on its ports,
 and name resolution for children has no good answer without a network namespace

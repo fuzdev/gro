@@ -47,6 +47,16 @@
  * time. To give a library a program with an environment, build the `SpawnProgram` at the
  * root and hand that down.
  *
+ * `spawn.program_in(dir, name)` resolves `name` beneath the directory of an fs handle instead,
+ * for a program a run builds outside the project, by the rules `dir` resolves any path with:
+ * an absolute name, a `..` above `dir`, an absolute symlink, or a relative one that climbs out
+ * is `not_granted`, and a relative symlink that stays inside is followed. The name is pinned as
+ * a name containing `/` is, its `argv[0]` and a script's `$0` the path it was found at, absolute.
+ * `dir` must be a handle this copy of `fs` made, checked through a registry that links no
+ * `fs` (`internal/fs_handles.ts`), so a forged object is a `TypeError`. A narrowed root refuses
+ * `program_in` and `find_in`, as a set of names can't grant a directory. To let a library run
+ * what it builds, bind the directory at the root: `(name) => spawn.program_in(cache, name)`.
+ *
  * A child's environment is cleared, the rules of the runtime's grant: `PATH`, `HOME`, `TMPDIR`,
  * and `TERM` when the host has them, `LC_ALL=C`, the host's own `NO_COLOR` and `FORCE_COLOR`, then
  * the names `pass_env` lists, then the values `env` gives, all fixed when the handle is made,
@@ -82,6 +92,8 @@
  *   that path in between runs in place of what was pinned. The runtime's builtin execs a
  *   descriptor. A script is checked by identity, which a file rewritten in place keeps, so it
  *   runs as rewritten.
+ * - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink
+ *   swapped in before the pin escapes the handle, as it would an fs op.
  * - `cwd` is read as a path from anything shaped like a handle, its `path` a checked string,
  *   so a forged handle object names any directory. The runtime's builtin takes the handle's
  *   descriptor, which only a real handle has.
@@ -144,7 +156,13 @@ import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 
 import type { FsReadDir } from './fs.ts';
+import { is_own_fs_error } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
+import {
+	to_fs_handle_resolve,
+	type FsHandleResolution,
+	type FsHandleResolve
+} from './internal/fs_handles.ts';
 import { SpawnError } from './spawn_error.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -382,7 +400,8 @@ export type SpawnOutputBytes = SpawnResult & {
 export interface SpawnProgram {
 	/**
 	 * The name the program was granted. A bare name is also its `argv[0]`,
-	 * and a name containing `/` passes its project-absolute path instead.
+	 * a name containing `/` passes its project-absolute path instead,
+	 * and a name from `program_in` the absolute path it was found at beneath its handle.
 	 * A `#!` script's interpreter gets the path the script was found at as `$0` in its place.
 	 */
 	readonly name: string;
@@ -525,6 +544,34 @@ export interface Spawn {
 	 * @throws `SpawnError` - `not_executable`, `not_granted`
 	 */
 	find(name: string, options?: SpawnProgramOptions): SpawnProgram | null;
+	/**
+	 * Resolves `name` beneath the directory of `dir`, an fs handle, and pins it for the handle's
+	 * life, for a program a run builds outside the project.
+	 * `name` resolves as `dir` resolves any path: an absolute name, a `..` above `dir`, an
+	 * absolute symlink, or a relative one that climbs out of `dir` is refused, and a relative
+	 * symlink that stays inside is followed. The pin, the script rules, and the environment are
+	 * `program`'s, and `argv[0]` is the path the program was found at, absolute.
+	 * Options are read and checked before the name resolves.
+	 * @param dir - an fs handle from this copy of Gro, read-only or not
+	 * @param name - a relative path beneath `dir`
+	 * @throws `TypeError` - for a `dir` that isn't such a handle, a name that isn't a non-empty,
+	 * well-formed string without NUL, or a malformed option
+	 * @throws `SpawnError` - `not_found`; `not_executable`, also when resolving the name fails
+	 * another way, like a directory on the way this user can't search, the `FsError` as `cause`;
+	 * `not_granted` for a name leading outside `dir`, the `FsError` as `cause`, and for any call
+	 * on a narrowed root, as a set of names can't grant a directory
+	 */
+	program_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram;
+	/**
+	 * Like `program_in`, returning `null` when nothing is found.
+	 * A permission error is never read as nothing found.
+	 * @param dir - an fs handle from this copy of Gro, read-only or not
+	 * @param name - a relative path beneath `dir`
+	 * @returns the handle, or `null` on `not_found`
+	 * @throws `TypeError` - as `program_in` does
+	 * @throws `SpawnError` - `not_executable`, `not_granted`
+	 */
+	find_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram | null;
 	/**
 	 * A root that resolves only `names`, each spelled as it will be requested.
 	 * It can only shrink: a name this root doesn't allow throws rather than widens.
@@ -853,6 +900,71 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 		throw new SpawnError('not_executable', name, `not_executable: ${path} isn't executable`);
 	}
 	return to_resolved(name, path, path);
+};
+
+/**
+ * What's at `path`, a path a handle's walk returned, as a program. Unlike `probe_executable`,
+ * only a missing entry is `missing`, so a permission error is never read as one.
+ * @throws `SpawnError` - `not_executable`, for a stat that fails another way
+ */
+const probe_executable_beneath = (name: string, path: string): Probe => {
+	let info;
+	try {
+		info = statSync(path);
+	} catch (error) {
+		const code = (error as { code?: unknown }).code;
+		if (code === 'ENOENT' || code === 'ENOTDIR') return 'missing';
+		throw to_uninspectable_error(name, path, error);
+	}
+	if (!info.isFile()) return 'missing';
+	try {
+		accessSync(path, X_OK);
+		return 'executable';
+	} catch {
+		return 'not_executable';
+	}
+};
+
+/**
+ * Resolves a name beneath an fs handle by the handle's own rules, or `null` for `not_found`.
+ * The handle's lexical refusals, an absolute name and a climb, come before any disk access.
+ * @throws `SpawnError` - `not_granted` for a name leading outside the handle, `not_executable`
+ */
+const resolve_program_in = (resolve: FsHandleResolve, name: string): ResolvedProgram | null => {
+	if (is_refused_extension(name)) throw to_refused_extension_error(name, name);
+	let resolution: FsHandleResolution;
+	try {
+		resolution = resolve(name);
+	} catch (error) {
+		if (!is_own_fs_error(error)) throw error;
+		switch (error.kind) {
+			case 'outside_root':
+				throw new SpawnError(
+					'not_granted',
+					name,
+					`not_granted: ${name} leads outside its directory handle (${error.message})`,
+					{ cause: error }
+				);
+			case 'not_found':
+			case 'not_a_directory':
+				return null;
+			default:
+				// a permission or I/O error is never read as missing
+				throw new SpawnError(
+					'not_executable',
+					name,
+					`not_executable: ${name} can't be resolved beneath its directory handle (${error.message})`,
+					{ cause: error }
+				);
+		}
+	}
+	const { found_path, op_path } = resolution;
+	const probed = probe_executable_beneath(name, op_path);
+	if (probed === 'missing') return null;
+	if (probed === 'not_executable') {
+		throw new SpawnError('not_executable', name, `not_executable: ${found_path} isn't executable`);
+	}
+	return to_resolved(name, found_path, found_path);
 };
 
 const check_env_name = (value: unknown, what: string): string => {
@@ -2086,6 +2198,31 @@ const to_program = (
 	return freeze(new NodeSpawnProgram(HANDLE_KEY, name, resolved, to_program_env(options)));
 };
 
+/**
+ * Makes the handle for `raw_name` beneath `dir`, the handle and options checked before the
+ * name resolves.
+ * @returns the handle, or `null` on `not_found`
+ */
+const to_program_in = (
+	allowed: Allowed | null,
+	resolve: FsHandleResolve,
+	raw_name: string,
+	raw_options: SpawnProgramOptions | undefined
+): SpawnProgram | null => {
+	const name = check_name(raw_name);
+	const options = read_program_options(raw_options);
+	if (allowed !== null) {
+		throw new SpawnError(
+			'not_granted',
+			name,
+			`not_granted: a narrowed spawn can't run ${name} beneath a directory: build the program at the root`
+		);
+	}
+	const resolved = resolve_program_in(resolve, name);
+	if (resolved === null) return null;
+	return freeze(new NodeSpawnProgram(HANDLE_KEY, name, resolved, to_program_env(options)));
+};
+
 class NodeSpawn implements Spawn {
 	readonly #allowed: Allowed | null;
 
@@ -2102,6 +2239,21 @@ class NodeSpawn implements Spawn {
 
 	find(name: string, options?: SpawnProgramOptions): SpawnProgram | null {
 		return to_program(this.#allowed, name, options);
+	}
+
+	program_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram {
+		const allowed = this.#allowed;
+		const resolve = to_fs_handle_resolve(dir);
+		const program = to_program_in(allowed, resolve, name, options);
+		if (program === null) {
+			throw new SpawnError('not_found', name, `not_found: no program ${name} beneath ${dir.path}`);
+		}
+		return program;
+	}
+
+	find_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram | null {
+		const allowed = this.#allowed;
+		return to_program_in(allowed, to_fs_handle_resolve(dir), name, options);
 	}
 
 	narrow(names: ReadonlyArray<string>): Spawn {

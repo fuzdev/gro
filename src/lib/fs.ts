@@ -73,6 +73,7 @@ import * as node_path from 'node:path';
 
 import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
+import { register_fs_handle, type FsHandleResolution } from './internal/fs_handles.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
 // binding that `syncBuiltinESMExports` rebinds to whatever a caller assigned to the export
@@ -941,6 +942,22 @@ const stat_sync_beneath = (root: Root, path: string, options?: FsStatOptions): F
 	throw new FsError(kind, lexical.path);
 };
 
+/**
+ * Resolves `path` beneath `root` as every op does, following a final symlink, for another host
+ * module holding the handle (`internal/fs_handles.ts`).
+ * @throws `TypeError` - for a path that isn't a well-formed string or holds a NUL byte
+ * @throws `FsError` - `outside_root`, or the kind the walk met, naming the requested path
+ */
+const resolve_beneath_sync = (root: Root, path: string): FsHandleResolution => {
+	const lexical = to_lexical_path(root, path);
+	try {
+		const target = confine_sync(root, path, lexical, true);
+		return Object.freeze({ found_path: lexical.path, op_path: to_op_path(target, lexical) });
+	} catch (error) {
+		throw to_fs_error(error, lexical.path);
+	}
+};
+
 // the key only this module holds, so a handle's `constructor` can't make another handle
 const HANDLE_KEY = Symbol('fs handle');
 
@@ -957,7 +974,10 @@ class NodeFsReadDir implements FsReadDir {
 	constructor(key: symbol, real_path: string) {
 		check_handle_key(key);
 		this.path = real_path;
-		this.#root = to_root(real_path);
+		const root = to_root(real_path);
+		this.#root = root;
+		// every handle class runs this constructor, so every handle is registered
+		register_fs_handle(this, (path) => resolve_beneath_sync(root, path));
 	}
 
 	dir(path: string): FsReadDir {

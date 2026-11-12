@@ -132,6 +132,19 @@ const result = await check.closed;
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
+- `spawn.program_in(dir, name, options?)` makes a handle for a program beneath an fs handle's directory,
+  for what a run builds outside the project, like a cargo binary under a cache directory.
+  `name` is relative and resolves as `dir` resolves any path, so an absolute name, a climb above `dir`,
+  an absolute symlink, or a relative one that climbs out is `not_granted`, the `FsError` (`outside_root`) as its `cause`,
+  while a relative link that stays inside, like a `.bin` link, is followed.
+  The absolute name and the climb are refused before anything on disk is read.
+  `spawn.find_in(dir, name, options?)` returns `null` where `program_in` throws `not_found`
+  (missing, a path through a file, a directory, a trailing `/`), and a failure to resolve the name another way,
+  like a directory on the way this user can't search, is `not_executable` with the `FsError` as `cause`, never a miss.
+  `dir` must be a handle from this copy of `fs`, read-only or not; a forged object or another copy's handle is a `TypeError`.
+  A narrowed root refuses both, `not_granted`, since a set of names can't grant a directory.
+  The pin, the script rules, and the environment are `program`'s, and `argv[0]`, and a script's `$0`, is the absolute path it was found at,
+  the handle's real path joined with the name, symlinks kept.
 - The pin is the executable's real path. A later `PATH` change changes nothing.
   A native binary runs at the real path, so a swapped symlink changes nothing either. A bare name is its own `argv[0]`,
   since a multicall binary like `~/.cargo/bin/cargo -> rustup` picks its behavior from `argv[0]`,
@@ -255,6 +268,9 @@ const result = await check.closed;
   and `'all'` or a set of globs would let the holder of a narrowed handle take the whole environment.
   Named `pass_env` stays, forwarding one host value at a time, so a narrowed caller names each variable.
   To give a library a program with an environment, build the `SpawnProgram` at the root and hand that down.
+- To let a library run what it builds, bind the directory at the root and hand down the factory,
+  `(name) => spawn.program_in(cache, name, {pass_env})`, so review sees which directory and which environment.
+  Holding spawn and a handle runs native programs beneath that handle; holding a handle alone runs nothing.
 
 Git is library code over such a handle, not a host module: `git.ts` takes the `git` program
 as its first argument and a `cwd` handle in its options, and the root decides its environment.
@@ -682,6 +698,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   and no kernel confinement like Landlock applies to a child,
   so a running program reaches whatever its user can.
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
+- `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
+  as for any fs op, and a native binary it pins runs by path, as above.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
   or a `#!` line naming no interpreter, still reaches the Linux `/bin/sh` fallback of the `execvp` Node starts children with, and a Java class file passes on macOS, sharing the fat binary's magic.
 - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`, since Node passes an empty signal name for one.
@@ -841,6 +859,11 @@ What the runtime's builtin must do that the Node implementation can't:
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
   so a patched `String.prototype.split` can't forge a segment.
+- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` on the handle's descriptor, launch a native binary with
+  `execveat(fd, "", …, AT_EMPTY_PATH)`, and a script by its found path, checked by identity as above.
+  Refuse a handle the runtime didn't make, a resource rather than a shape,
+  and check that the handle's directory is beneath an exec root the run declares before resolving, else `not_granted`.
+  An exec root may also be a write root, as a build's output directory is ([backstop](backstop.md#the-box-for-runs-and-children)).
 - Refuse `env`, `pass_env: 'all'`, and `pass_env` globs on a narrowed root natively,
   so a patched `String.prototype.endsWith` can't pass a glob through.
 - Read stdin without passing a bare chunk through promise resolution.
