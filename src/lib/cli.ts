@@ -54,8 +54,9 @@ export const find_local_cli = (
 
 /**
  * Finds the CLI `name`, first in the project's `node_modules/.bin` and then on `PATH`.
- * Only this lookup reads `node_modules/.bin`, so a dependency's `.bin/git`
- * can't shadow a bare `spawn.program('git')`.
+ * Only the first lookup reads a `node_modules/.bin`, as a name containing `/`: the `PATH` walk
+ * skips the `node_modules/.bin` entries `npm run` adds, so a dependency's `.bin/git` can't shadow
+ * a bare `spawn.program('git')`, and a tool installed only in an ancestor's `node_modules` isn't found.
  * @param spawn - resolves the program
  * @param name - the CLI's name
  * @param options - the program's environment, fixed when its handle is made

@@ -4,10 +4,12 @@
  * A `SpawnProgram` is the capability to run one executable, the shape a spawn grant takes on
  * the runtime. `spawn.program('git')` resolves the name once, synchronously, walking the
  * host's `PATH`: only absolute entries, the first regular executable. The real path is pinned
- * for the handle's life, so a later `PATH` change never changes which binary runs,
- * and neither `spawn.program` nor `spawn.find` looks in `node_modules/.bin`, so a dependency
- * can't shadow `git`. A name containing `/` resolves against the
- * project root instead, and one that's absolute or climbs above the project through `..`
+ * for the handle's life, so a later `PATH` change never changes which binary runs.
+ * The walk skips every entry spelled as a `node_modules/.bin` directory, which `npm run` and
+ * `deno task` put ahead of the rest, so a dependency's bin in one can't shadow `git`, and a
+ * project's tools are reached only by a name containing `/`.
+ * A name containing `/` resolves against the project root instead, and one that's absolute
+ * or climbs above the project through `..`
  * is `not_granted`, a check of the name as written, since a symlink beneath the project can
  * lead anywhere. A native binary runs at its pinned real path. A bare name is its own `argv[0]`,
  * because a multicall binary (`~/.cargo/bin/cargo -> rustup`) dispatches on it, and a name
@@ -529,7 +531,8 @@ export interface SpawnChild extends AsyncDisposable {
 export interface Spawn {
 	/**
 	 * Resolves `name` and pins it for the handle's life.
-	 * A bare name walks the host's `PATH`, a name containing `/` resolves against the project root.
+	 * A bare name walks the host's `PATH`, skipping its `node_modules/.bin` entries,
+	 * and a name containing `/` resolves against the project root.
 	 * Options are read and checked before the name resolves.
 	 * @throws `TypeError` - for a name that isn't a non-empty, well-formed string without NUL,
 	 * or a malformed option
@@ -816,8 +819,31 @@ const to_refused_extension_error = (name: string, path: string): SpawnError =>
 	);
 
 /**
+ * Whether a `PATH` entry is a `node_modules/.bin` directory, by its spelling: its last two
+ * segments are `node_modules` and `.bin` once empty and `.` segments are dropped and `..`
+ * resolves lexically. No symlink is resolved, so an entry linking to such a directory is walked.
+ */
+const is_package_bin_entry = (entry: string): boolean => {
+	const segments: Array<string> = [];
+	const parts = entry.split('/');
+	for (let i = 0; i < parts.length; i++) {
+		const segment = parts[i]!;
+		if (segment === '' || segment === '.') continue;
+		if (segment === '..') {
+			if (segments.length > 0) segments.length -= 1;
+		} else {
+			segments[segments.length] = segment;
+		}
+	}
+	const count = segments.length;
+	return count >= 2 && segments[count - 1] === '.bin' && segments[count - 2] === 'node_modules';
+};
+
+/**
  * Finds the first regular executable named `name` on the host's `PATH`, absolute entries only,
- * so an empty or relative entry can't reach the working directory.
+ * so an empty or relative entry can't reach the working directory, skipping every
+ * `node_modules/.bin` entry, which `npm run` and `deno task` put ahead of the rest, so a
+ * dependency's bin in one can't shadow a program.
  * @returns the entry's path, or `null` when no entry has one
  * @throws `SpawnError` - `not_executable`
  */
@@ -828,7 +854,7 @@ const walk_path = (name: string): string | null => {
 	let found_not_executable = false;
 	for (let i = 0; i < entries.length; i++) {
 		const entry = entries[i]!;
-		if (!isAbsolute(entry)) continue;
+		if (!isAbsolute(entry) || is_package_bin_entry(entry)) continue;
 		const candidate = entry.endsWith('/') ? entry + name : entry + '/' + name;
 		const probed = probe_executable(candidate);
 		if (probed === 'executable') return candidate;

@@ -124,11 +124,17 @@ const result = await check.closed;
   (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
   so on `fgro` a spawn grant is bounded by the kernel backstop around the child, and the policy diff shows it that way ([backstop](backstop.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
-  The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd.
-  Neither `program` nor `find` looks in `node_modules/.bin`, so a dependency's `.bin/git`
-  can't shadow `spawn.program('git')`. Gro's own tasks find a project's tools, like `vite` and `eslint`,
-  with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name,
-  while `git`, `node`, and the package manager go straight to `spawn`.
+  The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd,
+  and its `node_modules/.bin` entries stay, so a child's own lookup, like a `#!/usr/bin/env node` script's, still searches them.
+  The walk skips every `node_modules/.bin` entry, one whose last two segments are `node_modules` and `.bin`
+  once empty and `.` segments are dropped and `..` resolves lexically, with no symlink resolved,
+  so the entries `npm run` and `deno task` put ahead of the rest are never searched,
+  and a dependency's `.bin/git` in one can't shadow `spawn.program('git')`.
+  An entry reaching a `.bin` directory through a symlink, or a directory a tool fills with bins under another name, is walked.
+  A project's tools are reached only by a name containing `/`. Gro's own tasks find them, like `vite` and `eslint`,
+  with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name on `PATH`,
+  so a tool installed only in an ancestor's `node_modules`, as a workspace hoists one, isn't found;
+  `git`, `node`, and the package manager go straight to `spawn`.
 - A name containing `/` resolves against the project root. It's a lexical check:
   a name that's absolute or climbs above the project through `..` is `not_granted`,
   while a symlink beneath the project is pinned wherever it leads, as a `PATH` entry would be.
@@ -270,7 +276,8 @@ const result = await check.closed;
   To give a library a program with an environment, build the `SpawnProgram` at the root and hand that down.
 - To let a library run what it builds, bind the directory at the root and hand down the factory,
   `(name) => spawn.program_in(cache, name, {pass_env})`, so review sees which directory and which environment.
-  Holding spawn and a handle runs native programs beneath that handle; holding a handle alone runs nothing.
+  The factory is the root's authority over that directory, whatever a narrowed spawn handed beside it allows, so it's handed down as a `SpawnProgram` is.
+  Holding spawn and a handle runs any program beneath that handle; holding a handle alone runs nothing.
 
 Git is library code over such a handle, not a host module: `git.ts` takes the `git` program
 as its first argument and a `cwd` handle in its options, and the root decides its environment.
@@ -698,6 +705,9 @@ It documents each gap rather than weakening the API to match, and is a review si
   and no kernel confinement like Landlock applies to a child,
   so a running program reaches whatever its user can.
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
+- `program_in` tells a real handle by a registry in `internal/fs_handles.ts`, which the package doesn't export,
+  but code importing that file by its path can register any object with any resolver and run what it names.
+  The runtime's builtin takes the handle's descriptor.
 - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
   as for any fs op, and a native binary it pins runs by path, as above.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
@@ -855,7 +865,8 @@ What the runtime's builtin must do that the Node implementation can't:
   from a buffer copied before the op starts, with `EPIPE` ending the write rather than failing the call
   and no `SIGPIPE` reaching the runtime.
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
-- Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once.
+- Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once,
+  skipping `node_modules/.bin` entries by the rule above.
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
   so a patched `String.prototype.split` can't forge a segment.

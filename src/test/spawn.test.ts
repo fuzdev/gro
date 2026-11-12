@@ -367,6 +367,78 @@ describe('resolution', () => {
 	});
 });
 
+describe('the PATH walk skips node_modules/.bin', () => {
+	let package_bin: string;
+
+	beforeEach(() => {
+		package_bin = join(sandbox.root, 'node_modules/.bin');
+		mkdirSync(package_bin, { recursive: true });
+		write_script(join(package_bin, 'tool'), 'exit 9');
+		write_script(join(bin, 'tool'), 'exit 0');
+	});
+
+	test('a `node_modules/.bin` entry is skipped, so a later entry wins', () => {
+		process.env.PATH = [package_bin, bin].join(':');
+		assert.strictEqual(spawn.program('tool').path, join(bin, 'tool'));
+		assert.strictEqual(spawn.find('tool')!.path, join(bin, 'tool'));
+	});
+
+	test('every spelling of a `node_modules/.bin` entry is skipped', () => {
+		const root = sandbox.root;
+		mkdirSync(join(package_bin, 'sub'));
+		for (const entry of [
+			package_bin,
+			package_bin + '/',
+			package_bin + '//',
+			package_bin + '/.',
+			package_bin + '/./',
+			`${root}/node_modules/./.bin`,
+			`${root}//node_modules//.bin`,
+			`${root}/node_modules/.bin/sub/..`,
+			`${root}/x/../node_modules/.bin`
+		]) {
+			process.env.PATH = [entry, bin].join(':');
+			assert.strictEqual(spawn.program('tool').path, join(bin, 'tool'), entry);
+		}
+	});
+
+	test('a program only in a `node_modules/.bin` entry is not found, never `not_executable`', () => {
+		write_script(join(package_bin, 'only_bin'), 'exit 0');
+		write_script(join(package_bin, 'plain'), 'exit 0', 0o644);
+		process.env.PATH = [package_bin, bin].join(':');
+		assert.isNull(spawn.find('only_bin'));
+		assert_spawn_error(() => spawn.program('only_bin'), 'not_found');
+		assert.isNull(spawn.find('plain'));
+		// a name with / still reaches a project's tools
+		assert.ok(spawn.find('node_modules/.bin/tsc'));
+	});
+
+	test('a lookalike, a parent, a child, or a link to a `.bin` directory is walked', () => {
+		const root = sandbox.root;
+		const walked: Array<[string, string]> = [];
+		const add = (dir: string): void => {
+			mkdirSync(dir, { recursive: true });
+			write_script(join(dir, 'tool'), 'exit 0');
+			walked.push([dir, join(realpathSync(dir), 'tool')]);
+		};
+		add(join(root, '.bin'));
+		add(join(root, 'node_modules/x/.bin'));
+		add(join(root, 'node_modules/.bin/sub'));
+		add(join(root, 'not_node_modules/.bin'));
+		add(join(root, 'node_modules/.bin_'));
+		// exact case: a case-insensitive filesystem's other spelling is walked
+		add(join(root, 'Node_Modules/.BIN'));
+		write_script(join(root, 'node_modules/tool'), 'exit 0');
+		walked.push([`${package_bin}/..`, join(root, 'node_modules/tool')]);
+		symlinkSync(package_bin, join(root, 'linked_bin'));
+		walked.push([join(root, 'linked_bin'), join(package_bin, 'tool')]);
+		for (const [entry, expected] of walked) {
+			process.env.PATH = [entry, bin].join(':');
+			assert.strictEqual(spawn.program('tool').path, expected, entry);
+		}
+	});
+});
+
 describe('names containing /', () => {
 	let dir: string;
 	let abs: string;

@@ -3,9 +3,11 @@
  * object shaped like one without linking `fs.ts`.
  *
  * `fs.ts` registers each handle as it constructs it, with a resolver bound to that handle's own
- * directory. The registry grants nothing: a lookup takes a handle, and gives back only the
- * confinement that handle already has. Importing this module links no host module, as it
- * imports nothing, so `spawn.ts` checks a handle through it and still doesn't link `fs`.
+ * directory. A lookup grants nothing: it takes a handle, and gives back only the confinement
+ * that handle already has. Registering is `fs.ts`'s alone by convention: on Node, code that
+ * imports this file by its path can register any object, a gap the host module docs list.
+ * Importing this module links no host module, as it imports nothing, so `spawn.ts` checks a
+ * handle through it and still doesn't link `fs`.
  *
  * @module
  */

@@ -278,6 +278,10 @@ describe('the handle and the root', () => {
 			assert.throws(() => spawn.find_in(dir as FsReadDir, 'tool'), TypeError);
 			assert.throws(() => spawn.find_in(dir as FsReadDir, '/bin/sh'), TypeError);
 			assert.throws(() => spawn.find_in(dir as FsReadDir, 1 as any), TypeError);
+			// the handle's TypeError, not the name's
+			for (const method of ['program_in', 'find_in'] as const) {
+				assert.throws(() => spawn[method](dir as FsReadDir, 1 as any), /fs directory handle/);
+			}
 		}
 	});
 
@@ -291,8 +295,10 @@ describe('the handle and the root', () => {
 
 	test('a narrowed root refuses both methods, before any resolution, even for a name in its set', () => {
 		write_native(join(sandbox.root, 'tool'));
+		writeFileSync(join(sandbox.root, 'plain'), '#!/bin/sh\n');
+		// names whose resolution would fail another way, so a refusal after it shows
 		for (const narrowed of [spawn.narrow(['tool']), spawn.narrow(['sh']).narrow([])]) {
-			for (const name of ['tool', 'missing', '../x']) {
+			for (const name of ['tool', 'missing', '../x', 'plain', 'x.cmd']) {
 				assert_spawn_error(() => narrowed.program_in(sandbox.dir, name), 'not_granted');
 				assert_spawn_error(() => narrowed.find_in(sandbox.dir, name), 'not_granted');
 			}
