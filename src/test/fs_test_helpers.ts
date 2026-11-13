@@ -1,9 +1,9 @@
 import { assert } from 'vitest';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { fs, type FsDir } from '#lib/fs.ts';
+import { fs, type FsDir, type FsReadDir } from '#lib/fs.ts';
 import { is_fs_error, type FsError, type FsErrorKind } from '#lib/fs_error.ts';
 import { create_fs_paths, type FsPaths } from '#lib/fs_paths.ts';
 
@@ -35,6 +35,18 @@ export const create_fs_sandbox = async (): Promise<FsSandbox> => {
  */
 export const create_project_fs_paths = async (project_path: string): Promise<FsPaths> =>
 	create_fs_paths({ ...fs, project: await fs.open_dir(project_path) });
+
+/**
+ * A real handle on a directory beneath the sandbox's root, the directory then removed,
+ * so a child started in it fails to launch.
+ */
+export const create_removed_dir = (sandbox: FsSandbox): FsReadDir => {
+	const path = join(sandbox.root, 'removed');
+	mkdirSync(path);
+	const handle = sandbox.dir.dir('removed');
+	rmdirSync(path);
+	return handle;
+};
 
 export const remove_fs_sandbox = (sandbox: FsSandbox): void => {
 	rmSync(sandbox.base, { recursive: true, force: true });

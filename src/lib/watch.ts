@@ -48,8 +48,8 @@
  * per-directory native backend, symlinks never followed. Its gaps against the runtime's
  * builtin, which it documents rather than the API weakening to match:
  *
- * - The handle is read for its `path`, as spawn reads a `cwd` handle, and the watch is on that
- *   path, so a forged handle is any object with an absolute `path` whose `list` resolves.
+ * - The handle is read for its `path`, and the watch is on that path, so a forged handle is
+ *   any object with an absolute `path` whose `list` resolves.
  *   The runtime's builtin watches the directory the handle holds by descriptor.
  * - The watch is bound to the directory's path, not its inode, as an fs handle is, so a moved
  *   watched directory ends the watch as a removed one does, where the runtime's keeps

@@ -253,6 +253,7 @@ const result = await check.closed;
   and a name can't be empty, while an argument can (`git commit -m ''`).
   A lone surrogate would reach a child as U+FFFD, a different string than the caller wrote.
 - `cwd` is an fs handle, never a string, and defaults to the project root.
+  It must be a handle this copy of `fs` made, as `program_in`'s `dir` must, so a forged object or another copy's handle is a `TypeError`.
 - A child starts from a cleared environment, on the runtime's grant rules:
   `PATH`, `HOME`, `TMPDIR`, and `TERM` when the host has them, `LC_ALL=C`, and the host's own
   `NO_COLOR` and `FORCE_COLOR`, then the names `pass_env` lists, then the values `env` gives.
@@ -712,17 +713,15 @@ It documents each gap rather than weakening the API to match, and is a review si
 - A native binary's pin is a path, resolved and then exec'd by path when called,
   so a file replaced at the pinned path in between runs instead.
   A script's is its identity, so a replacement is refused, but a script rewritten in place keeps its inode and runs as rewritten.
-- A forged `cwd` handle is any object with a checked absolute `path`, so a child can start in a directory it was never given.
-  Only the shape is checked.
-- A real `cwd` handle follows its path too. Where `fs` refuses a directory that was replaced
+- A `cwd` handle follows its path, as an fs handle does. Where `fs` refuses a directory that was replaced
   (`open_dir(mv)`, then a rename and a symlink at `mv`, so `mv.exists('.')` is `outside_root`),
   a call with that `cwd` runs in what the symlink leads to.
 - No policy check limits which programs a handle reaches or what they do,
   and no kernel confinement like Landlock applies to a child,
   so a running program reaches whatever its user can.
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
-- `program_in` tells a real handle by a registry in `internal/fs_handles.ts`, which the package doesn't export,
-  but code importing that file by its path can register any object with any resolver and run what it names.
+- `program_in` and a call's `cwd` tell a real handle by a registry in `internal/fs_handles.ts`, which the package doesn't export,
+  but code importing that file by its path can register any object with any resolver, run what it names, and start a child in any directory.
   The runtime's builtin takes the handle's descriptor.
 - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
   as for any fs op, and a native binary it pins runs by path, as above.
@@ -800,7 +799,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 ### watch
 
-- The handle is read for its `path`, as spawn reads a `cwd` handle, so a forged handle is any object with an absolute `path` whose `list` resolves.
+- The handle is read for its `path`, so a forged handle is any object with an absolute `path` whose `list` resolves.
 - The watch is bound to the directory's path, as an fs handle is, so a moved watched directory ends the watch as a removed one does.
 - Chokidar checks an entry with `lstat` and then watches and reads it by path, so a directory swapped for a symlink in between is watched through the link.
   The watcher checks each path before chokidar descends into it and before reporting it: the root still the directory the watch started on (by device and inode),

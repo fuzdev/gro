@@ -4,7 +4,12 @@ import { join } from 'node:path';
 
 import { spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { is_spawn_error } from '#lib/spawn_error.ts';
-import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import {
+	create_fs_sandbox,
+	create_removed_dir,
+	remove_fs_sandbox,
+	type FsSandbox
+} from './fs_test_helpers.ts';
 
 // grace periods and child startups on a loaded machine, none of them a sleep the assertions rest on
 vi.setConfig({ testTimeout: 30_000 });
@@ -210,7 +215,7 @@ describe('`stdin` data', () => {
 		try {
 			await spawn
 				.program('cat')
-				.out([], { stdin: large_input(), cwd: { path: join(sandbox.base, 'gone') } as any });
+				.out([], { stdin: large_input(), cwd: create_removed_dir(sandbox) });
 			assert.fail('expected launch_failed');
 		} catch (error) {
 			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));

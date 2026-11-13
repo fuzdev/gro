@@ -1,6 +1,7 @@
 import { describe, test, assert, beforeEach, afterEach, vi } from 'vitest';
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -13,9 +14,15 @@ import {
 import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
+import { fs } from '#lib/fs.ts';
 import { spawn, type Spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { SpawnError, is_spawn_error, type SpawnErrorKind } from '#lib/spawn_error.ts';
-import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import {
+	create_fs_sandbox,
+	create_removed_dir,
+	remove_fs_sandbox,
+	type FsSandbox
+} from './fs_test_helpers.ts';
 import { assert_awaits_as_itself } from './test_helpers.ts';
 
 const SYSTEM_PATH = process.env.PATH;
@@ -926,11 +933,37 @@ describe('calls', () => {
 		}
 	});
 
-	test('a missing cwd is `launch_failed`', async () => {
+	test('a forged `cwd` is a TypeError, before anything starts', async () => {
+		process.env.PATH = bin;
+		const marker = join(sandbox.base, 'started');
+		write_script(join(bin, 'mark'), `: > '${marker}'`);
+		const programs = [spawn.program('mark'), spawn.program_in(await fs.open_dir(bin), 'mark')];
+		const forged: Array<any> = [
+			{ path: '/' },
+			{ path: sandbox.outside },
+			// a real handle's prototype and frozen, as another copy of Gro's handle would be
+			Object.freeze(Object.create(Object.getPrototypeOf(sandbox.dir), { path: { value: '/' } })),
+			Object.freeze({ ...sandbox.dir })
+		];
+		for (const program of programs) {
+			for (const cwd of forged) {
+				await assert_rejects(() => program.run([], { cwd }));
+				await assert_rejects(() => program.out([], { cwd }));
+				await assert_rejects(() => program.out_bytes([], { cwd }));
+				await assert_rejects(() => program.start([], { cwd }));
+			}
+		}
+		assert.isFalse(existsSync(marker));
+		// the same program runs with a real handle
+		await programs[0]!.run([], { cwd: sandbox.dir });
+		assert.isTrue(existsSync(marker));
+	});
+
+	test('a `cwd` whose directory was removed is `launch_failed`', async () => {
 		process.env.PATH = bin;
 		write_script(join(bin, 'ok'), 'exit 0');
 		const program = spawn.program('ok');
-		const gone = { path: join(sandbox.root, 'no_such_dir') } as any;
+		const gone = create_removed_dir(sandbox);
 		try {
 			await program.out([], { cwd: gone });
 			assert.fail('expected a launch failure');
@@ -943,11 +976,12 @@ describe('calls', () => {
 		process.env.PATH = bin;
 		write_script(join(bin, 'pwd_it'), 'pwd');
 		const program = spawn.program('pwd_it');
+		const outside = await fs.open_dir(sandbox.outside);
 		let reads = 0;
 		const options: any = {
 			get cwd() {
 				reads++;
-				return reads === 1 ? sandbox.dir : { path: sandbox.outside };
+				return reads === 1 ? sandbox.dir : outside;
 			}
 		};
 		const output = await program.out([], options);

@@ -11,7 +11,12 @@ import { join } from 'node:path';
 
 import { spawn, type SpawnOutOptions, type SpawnProgram } from '#lib/spawn.ts';
 import { is_spawn_error } from '#lib/spawn_error.ts';
-import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import {
+	create_fs_sandbox,
+	create_removed_dir,
+	remove_fs_sandbox,
+	type FsSandbox
+} from './fs_test_helpers.ts';
 
 // grace periods and child startups on a loaded machine, none of them a sleep the assertions rest on
 vi.setConfig({ testTimeout: 30_000 });
@@ -236,7 +241,7 @@ describe('byte capture', () => {
 
 	test('a program that can not start throws, and a pre-aborted signal starts nothing', async () => {
 		const ok = program_of('ok', 'exit 0');
-		const missing = { path: join(sandbox.root, 'no_such_dir') } as any;
+		const missing = create_removed_dir(sandbox);
 		for (const options of [{ cwd: missing }, { signal: AbortSignal.abort() }]) {
 			try {
 				await ok.out_bytes([], options);

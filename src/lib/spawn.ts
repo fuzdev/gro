@@ -55,9 +55,10 @@
  * is `not_granted`, and a relative symlink that stays inside is followed. The name is pinned as
  * a name containing `/` is, its `argv[0]` and a script's `$0` the path it was found at, absolute.
  * `dir` must be a handle this copy of `fs` made, checked through a registry that links no
- * `fs` (`internal/fs_handles.ts`), so a forged object is a `TypeError`. A narrowed root refuses
- * `program_in` and `find_in`, as a set of names can't grant a directory. To let a library run
- * what it builds, bind the directory at the root: `(name) => spawn.program_in(cache, name)`.
+ * `fs` (`internal/fs_handles.ts`), so a forged object is a `TypeError`, and a call's `cwd` is
+ * checked the same way. A narrowed root refuses `program_in` and `find_in`, as a set of names
+ * can't grant a directory. To let a library run what it builds, bind the directory at the
+ * root: `(name) => spawn.program_in(cache, name)`.
  *
  * A child's environment is cleared, the rules of the runtime's grant: `PATH`, `HOME`, `TMPDIR`,
  * and `TERM` when the host has them, `LC_ALL=C`, the host's own `NO_COLOR` and `FORCE_COLOR`, then
@@ -96,12 +97,9 @@
  *   runs as rewritten.
  * - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink
  *   swapped in before the pin escapes the handle, as it would an fs op.
- * - `cwd` is read as a path from anything shaped like a handle, its `path` a checked string,
- *   so a forged handle object names any directory. The runtime's builtin takes the handle's
- *   descriptor, which only a real handle has.
- * - A real `cwd` handle follows its path too: where `fs` refuses a directory that was replaced
- *   (`outside_root`, renamed away and a symlink left at the path), a call runs in what
- *   the symlink leads to.
+ * - A `cwd` handle follows its path, as an fs handle does: where `fs` refuses a directory that
+ *   was replaced (`outside_root`, renamed away and a symlink left at the path), a call runs in
+ *   what the symlink leads to.
  * - No policy check, argv limit, or kernel confinement applies to the children: a running
  *   program reaches whatever its user can.
  * - Piped `stdin` data reaches the child on a socket, as Node's stdio pipes are socketpairs,
@@ -295,6 +293,7 @@ export interface SpawnProgramOptions {
 export interface SpawnCallOptions {
 	/**
 	 * The working directory, a handle rather than a path. Defaults to the project root.
+	 * A handle this copy of `fs` made, else a `TypeError`.
 	 */
 	cwd?: FsReadDir;
 	/**
@@ -1202,16 +1201,14 @@ const check_call_options = (
 
 /**
  * Reads a `cwd` option's handle, once, for its path.
- * A forged object with a string `path` passes, the documented gap.
+ * @throws `TypeError` - for anything but a handle this copy of `fs` made, checked through the
+ * registry as `program_in` checks its `dir`
  */
 const read_cwd = (raw: unknown): string => {
 	if (raw === undefined) return PROJECT_ROOT;
-	if (typeof raw !== 'object' || raw === null) {
-		throw new TypeError('`cwd` is an `fs` directory handle');
-	}
-	const path = check_nonempty_text((raw as { path?: unknown }).path, 'a `cwd` handle path');
-	if (!isAbsolute(path)) throw new TypeError(`a \`cwd\` handle path is absolute: ${path}`);
-	return path;
+	to_fs_handle_resolve(raw);
+	// a registered handle is frozen, its `path` its own absolute real path
+	return (raw as FsReadDir).path;
 };
 
 const to_argv = (args: ReadonlyArray<string>): Array<string> => {
