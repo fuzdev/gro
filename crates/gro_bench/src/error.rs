@@ -166,6 +166,18 @@ pub enum BenchError {
         path: PathBuf,
         reason: String,
     },
+    /// A workload's project directory's files don't hash to the suite's pin
+    /// of them.
+    #[error(
+        "the workload `{workload}`'s project {} hashes to {found}, but the suite pins {pinned}: a change to its files bumps the suite's `version` and re-pins the project's `blake3`",
+        path.display()
+    )]
+    ProjectFilesUnpinned {
+        workload: String,
+        path: PathBuf,
+        pinned: String,
+        found: String,
+    },
     /// A row's untimed correctness run failed: it exited unsuccessfully, or
     /// its stdout isn't what its runtime's `stdout` says, saying why.
     #[error("`{command}` failed its correctness run: {reason}")]
@@ -272,6 +284,7 @@ impl BenchError {
             | Self::ProjectLinkMissing { .. }
             | Self::ProjectLinkUnversioned { .. }
             | Self::ProjectEntry { .. }
+            | Self::ProjectFilesUnpinned { .. }
             | Self::CheckFailed { .. }
             | Self::ParityMismatch { .. }
             | Self::Counters(_)

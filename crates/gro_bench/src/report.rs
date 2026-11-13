@@ -26,9 +26,12 @@
 //! rise and a 2% drop are flagged alike.
 //!
 //! Above the rows, a note marks a compared record that ran another config of
-//! the suite, ran on another machine, or read another state of a checkout
-//! outside the suite's own (`checkouts`, naming each): a script read from a
-//! sibling checkout can move a row with the config unchanged.
+//! the suite, ran on another machine, read other files of a workload project
+//! (`projects`, naming each), or read another state of a checkout outside the
+//! suite's own (`checkouts`, naming each): a script read from a sibling
+//! checkout can move a row with the config unchanged. A project's files are
+//! pinned in the config, so a project note comes with the config note,
+//! naming what in the config moved.
 //!
 //! A line it can't read (not JSON, a version newer than this harness, a shape
 //! that doesn't parse) is named and skipped, never fatal; a line of an older
@@ -125,7 +128,7 @@ pub fn report(text: &str) -> String {
 }
 
 /// One line as a record, or why it can't be read.
-fn read_line(line: &str) -> Result<RunRecord, String> {
+pub(crate) fn read_line(line: &str) -> Result<RunRecord, String> {
     let value: serde_json::Value =
         serde_json::from_str(line).map_err(|error| format!("not JSON ({error})"))?;
     let version = value
@@ -175,6 +178,16 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: Mode, records:
                 out,
                 "  (the {label} record ran another config of the suite, so its rows may differ)"
             );
+        }
+        if let Some(other) = other {
+            let moved = moved_projects(other, latest);
+            if !moved.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "  (the {label} record read other files of the project {}, so its rows may differ)",
+                    moved.join(", ")
+                );
+            }
         }
         if let Some(other) = other {
             let moved = moved_checkouts(other, latest);
@@ -235,6 +248,20 @@ fn write_series(out: &mut String, name: &str, version: u32, mode: Mode, records:
     if latest.rows.iter().any(|row| row.peak_rss_kib.is_some()) {
         write_memory(out, latest, previous, width);
     }
+}
+
+/// The workload projects both records pinned whose pins differ between
+/// `other` and `latest`, each named by its directory as the suite writes it,
+/// backticked. A project only one of them read implies another config,
+/// which its own note covers, and a record from before projects were
+/// recorded has none.
+fn moved_projects(other: &RunRecord, latest: &RunRecord) -> Vec<String> {
+    latest
+        .projects
+        .iter()
+        .filter(|(dir, pin)| other.projects.get(*dir).is_some_and(|other| other != *pin))
+        .map(|(dir, _)| format!("`{dir}`"))
+        .collect()
 }
 
 /// The checkouts both records read whose state differs between `other` and
@@ -630,6 +657,47 @@ mod tests {
             with(&[(zap, state("a", None)), (forge, state("b", None))]),
         ]));
         assert!(!none.contains("another state"), "{none}");
+    }
+
+    #[test]
+    fn a_moved_project_is_noted_by_its_directory() {
+        let with = |config: &str, projects: &[(&str, &str)]| {
+            let mut record = record("a", MachineQuiet::Unchecked, 10_000_000, None);
+            record.config_hash = config.to_owned();
+            record.projects = projects
+                .iter()
+                .map(|(dir, pin)| ((*dir).to_owned(), (*pin).to_owned()))
+                .collect();
+            record
+        };
+        let lines =
+            |records: &[RunRecord]| records.iter().map(RunRecord::to_line).collect::<String>();
+        // the same files: no note
+        let same = report(&lines(&[
+            with("c", &[("fixture", "1"), ("tiny", "2")]),
+            with("c", &[("fixture", "1"), ("tiny", "2")]),
+        ]));
+        assert!(!same.contains("other files"), "{same}");
+        // the fixture's files moved, and with them the config
+        let moved = report(&lines(&[
+            with("c", &[("fixture", "1"), ("tiny", "2")]),
+            with("d", &[("fixture", "3"), ("tiny", "2"), ("new", "4")]),
+        ]));
+        assert!(
+            moved.contains(
+                "(the previous record read other files of the project `fixture`, so its rows may differ)"
+            ),
+            "{moved}"
+        );
+        assert!(moved.contains("another config"), "{moved}");
+        assert!(
+            !moved.contains("`tiny`") && !moved.contains("`new`"),
+            "{moved}"
+        );
+        // a record from before projects were recorded
+        let none = report(&lines(&[with("b", &[]), with("d", &[("fixture", "3")])]));
+        assert!(!none.contains("other files"), "{none}");
+        assert!(none.contains("another config"), "{none}");
     }
 
     #[test]

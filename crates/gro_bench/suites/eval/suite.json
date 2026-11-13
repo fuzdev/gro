@@ -46,6 +46,7 @@
 			"warmup": 10,
 			"project": {
 				"dir": "fixture",
+				"blake3": "f858ae9f7aa7cfc05a2cb3c3641d91859d14db6a79c99929fea6c5ff2810e199",
 				"stub_packages": 230,
 				"links": {"@fuzdev/zap": "../../../../../zap"}
 			}

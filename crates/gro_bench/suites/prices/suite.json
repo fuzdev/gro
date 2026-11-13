@@ -1,6 +1,6 @@
 {
 	"name": "prices",
-	"version": 1,
+	"version": 2,
 	"samples": 40,
 	"runtimes": [
 		{
@@ -332,7 +332,8 @@
 			"script": "tiny/zap.ts",
 			"warmup": 4,
 			"project": {
-				"dir": "tiny"
+				"dir": "tiny",
+				"blake3": "39c2a89c7cfef6f8b25d0416a5978df4e0845fad9f8ece3d4af18283085a0c4d"
 			}
 		},
 		{
@@ -341,6 +342,7 @@
 			"warmup": 4,
 			"project": {
 				"dir": "../eval/fixture",
+				"blake3": "f858ae9f7aa7cfc05a2cb3c3641d91859d14db6a79c99929fea6c5ff2810e199",
 				"stub_packages": 230,
 				"links": {
 					"@fuzdev/zap": "../../../../../zap"

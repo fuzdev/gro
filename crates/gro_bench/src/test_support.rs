@@ -62,6 +62,7 @@ pub fn run_record(rows: Vec<RowRecord>) -> RunRecord {
         },
         machine_quiet: MachineQuiet::Unchecked,
         collections: BTreeMap::new(),
+        projects: BTreeMap::new(),
         runtimes: Vec::new(),
         artifacts: BTreeMap::new(),
         checkouts: BTreeMap::new(),

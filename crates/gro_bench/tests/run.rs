@@ -10,6 +10,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
 use gro_bench::error::BenchError;
+use gro_bench::project::project_blake3;
 use gro_bench::record::{GitState, Machine, MachineQuiet, Mode, RunRecord};
 use gro_bench::run::{Measure, RunContext, run};
 use gro_bench::suite::{
@@ -510,8 +511,10 @@ fn a_project_workload_runs_from_a_fresh_copy() {
     let sha = git(&dir.join("checkout"), &["rev-parse", "HEAD"]);
     let mut suite = suite(vec![sh(Vec::new())], &["p/main.sh"], 2);
     suite.workloads[0].name = "proj".to_owned();
+    let pin = project_blake3("proj", &dir.join("p")).unwrap();
     suite.workloads[0].project = Some(Project {
         dir: PathBuf::from("p"),
+        blake3: pin.clone(),
         stub_packages: 2,
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
         generate: BTreeMap::new(),
@@ -519,6 +522,10 @@ fn a_project_workload_runs_from_a_fresh_copy() {
     let context = context(&dir);
     let record = run(&suite, &dir, context.clone()).unwrap();
     let copied = dir.join("work/projects/proj/main.sh").is_file();
+    // a file of the project changed, with the pin kept, is refused before anything runs
+    fs::write(dir.join("p/lib/x.sh"), "true\n").unwrap();
+    let unpinned = run(&suite, &dir, context.clone()).unwrap_err();
+    fs::write(dir.join("p/lib/x.sh"), "").unwrap();
     // a link outside any git checkout is refused, since nothing names its code
     fs::create_dir_all(dir.join("plain")).unwrap();
     fs::write(dir.join("plain/marker"), "").unwrap();
@@ -532,6 +539,24 @@ fn a_project_workload_runs_from_a_fresh_copy() {
     assert!(copied);
     assert_eq!(record.rows.len(), 1);
     assert_eq!(record.artifacts.keys().collect::<Vec<_>>(), ["p/main.sh"]);
+    // the project's files, by its directory as the suite writes it
+    assert_eq!(
+        record.projects,
+        BTreeMap::from([("p".to_owned(), pin.clone())])
+    );
+    match &unpinned {
+        BenchError::ProjectFilesUnpinned {
+            workload,
+            pinned,
+            found,
+            ..
+        } => {
+            assert_eq!((workload.as_str(), pinned), ("proj", &pin));
+            assert_ne!(found, &pin);
+        }
+        other => panic!("expected ProjectFilesUnpinned, got {other:?}"),
+    }
+    assert!(unpinned.is_input_error());
     // the link's checkout, by its path as the suite writes it
     let state = &record.checkouts["checkout"];
     assert_eq!(
@@ -571,6 +596,7 @@ fn a_linked_checkout_changing_mid_run_discards_it() {
     suite.workloads[0].name = "proj".to_owned();
     suite.workloads[0].project = Some(Project {
         dir: PathBuf::from("p"),
+        blake3: project_blake3("proj", &dir.join("p")).unwrap(),
         stub_packages: 0,
         links: BTreeMap::from([("linked".to_owned(), PathBuf::from("checkout"))]),
         generate: BTreeMap::new(),

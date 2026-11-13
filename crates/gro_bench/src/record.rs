@@ -4,8 +4,8 @@
 //! version, the gro checkout's commit, the config hash, the runtimes' versions,
 //! binary hashes, and sizes, the hashes of the scripts and files the suite
 //! names, the state of the other checkouts the workloads read, the machine, the
-//! corpora collections' pins, and every row's samples beside their
-//! statistics. Raw samples stay in the line, so later comparisons can
+//! corpora collections' pins, the workload projects' pins, and every row's
+//! samples beside their statistics. Raw samples stay in the line, so later comparisons can
 //! recompute from them.
 //!
 //! A run measures in one [`Mode`]: wall time alone, wall time with fgro's
@@ -21,9 +21,9 @@
 //! added each row's `peak_rss_kib` and `kernel_instructions`, the run's
 //! `rss_floor_kib`, and `snapshot_bytes`; 8 replaced `corpora`, the tree id of
 //! the corpora's whole `collections/`, with `collections`, each read
-//! collection's own tree id. A line of an older version still reads as this
-//! shape, as a wall run, with the fields it lacks empty (an older line's
-//! `corpora` is ignored).
+//! collection's own tree id; 9 added `projects`. A line of an older version
+//! still reads as this shape, as a wall run, with the fields it lacks empty
+//! (an older line's `corpora` is ignored).
 //!
 //! A row's peak memory is each process's `ru_maxrss` as its reaping returns
 //! it (`wait4`), which counts from the memory the process ran in before it
@@ -48,7 +48,7 @@ use crate::stats::Stats;
 /// The line shape's version, bumped on any change to it, additive ones
 /// included, so a harness older than a line skips it rather than read it
 /// without the fields it doesn't know.
-pub const RECORD_VERSION: u32 = 8;
+pub const RECORD_VERSION: u32 = 9;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,6 +79,13 @@ pub struct RunRecord {
     /// version 8, and left out of the line when empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub collections: BTreeMap<String, String>,
+    /// The pin of each workload project's files, by the project's directory
+    /// as the suite writes it ([`Suite::project_pins`](crate::suite::Suite::project_pins)),
+    /// each checked against the copy the run made: which files of the gro
+    /// checkout the project's workloads read, beside the entry `artifacts`
+    /// names. Absent before version 9, and left out of the line when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, String>,
     /// The runtimes, in suite order.
     pub runtimes: Vec<RuntimeInfo>,
     /// The blake3 hash of every workload script, file argument, and runtime
@@ -423,6 +430,7 @@ mod tests {
                 "fuz_util".to_owned(),
                 "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_owned(),
             )]),
+            projects: BTreeMap::from([("fixture".to_owned(), "45".repeat(32))]),
             runtimes: vec![
                 RuntimeInfo {
                     name: "node".to_owned(),
@@ -548,7 +556,7 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                8,
+                9,
                 vec![
                     "artifacts",
                     "checkouts",
@@ -560,6 +568,7 @@ mod tests {
                     "machine_quiet",
                     "mode",
                     "noise",
+                    "projects",
                     "record_version",
                     "rows",
                     "rss_floor_kib",
@@ -641,6 +650,24 @@ mod tests {
         record.collections.clear();
         let line = record.to_line();
         assert!(!line.contains("collections"), "{line}");
+        assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
+    }
+
+    /// A line from before version 9 reads with no `projects`, and a record
+    /// without projects leaves the key out.
+    #[test]
+    fn a_line_without_projects_reads_with_none() {
+        let mut value: serde_json::Value = serde_json::from_str(&record().to_line()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("record_version".to_owned(), 8.into());
+        object.remove("projects");
+        let parsed: RunRecord = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.record_version, 8);
+        assert!(parsed.projects.is_empty());
+        let mut record = record();
+        record.projects.clear();
+        let line = record.to_line();
+        assert!(!line.contains("projects"), "{line}");
         assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
     }
 

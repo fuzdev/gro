@@ -416,6 +416,9 @@ Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
   durations from a `phases` build; `--samples N` overrides the count
 - a suite's `budgets` cap `fgro`'s executable and snapshot sizes; a run over
   one fails before sampling (exit `2`)
+- a workload project's `blake3` pins its committed files, and a run refuses
+  files that hash otherwise; a change to them bumps the suite's `version` and
+  re-pins, which a `gro_bench` test holds against `history.jsonl`
 - `cargo xtask bench report` - each row's latest record against the previous
   and the last attested one
 - Record a suite on a quiet machine, after `cargo xtask build --release` (so

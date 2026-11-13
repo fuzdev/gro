@@ -12,7 +12,9 @@
 //!
 //! Only regular files and directories are copied: a symlink or other special
 //! file in the committed directory, or a `node_modules` at its root, which the
-//! run generates, is refused.
+//! run generates, is refused. The suite pins the copied files by their hash
+//! ([`project_blake3`]), and a copy that hashes otherwise fails the run, so
+//! the suite's config hash names the files its workloads read.
 //!
 //! A project can also name files to generate into the copy ([`Generate`]), such
 //! as a [`write_data_module`] too large to commit.
@@ -108,8 +110,10 @@ pub(crate) fn is_stub_name(name: &str, count: u32) -> bool {
 /// Fails with [`BenchError::ProjectLinkMissing`] when a link's checkout
 /// doesn't exist or isn't a directory (checked before anything is written),
 /// [`BenchError::ProjectEntry`] when the committed directory holds something
-/// the copy doesn't support, [`BenchError::SuiteFileMissing`] when the
-/// directory itself is missing, and otherwise when a read or write fails.
+/// the copy doesn't support, [`BenchError::ProjectFilesUnpinned`] when the
+/// copied files don't hash to the project's `blake3` ([`project_blake3`]),
+/// [`BenchError::SuiteFileMissing`] when the directory itself is missing,
+/// and otherwise when a read or write fails.
 pub fn materialize_project(
     workload: &str,
     project: &Project,
@@ -162,6 +166,16 @@ pub fn materialize_project(
     remove_existing(&root)?;
     fs::create_dir_all(&root).map_err(write_error(&root))?;
     let mut files = copy_tree(workload, &source, &root)?;
+    // the copy, before anything is generated into it, holds exactly the files copied
+    let found = project_blake3(workload, &root)?;
+    if found != project.blake3 {
+        return Err(BenchError::ProjectFilesUnpinned {
+            workload: workload.to_owned(),
+            path: source,
+            pinned: project.blake3.clone(),
+            found,
+        });
+    }
     for (path, generate) in &project.generate {
         let to = root.join(path);
         if fs::symlink_metadata(&to).is_ok() {
@@ -213,16 +227,86 @@ pub fn materialize_project(
     })
 }
 
+/// The blake3 hash of the project directory `dir`'s files.
+///
+/// It hashes each regular file under `dir`, in the byte order of its path
+/// relative to `dir`, as that path's length and bytes, then its contents'
+/// length and bytes, each length as eight little-endian bytes. It refuses
+/// what a copy refuses ([`materialize_project`]), so a directory that hashes
+/// can be copied, and a fresh copy hashes the same. Directories add nothing
+/// of their own, so an empty one doesn't move it.
+///
+/// # Errors
+///
+/// Fails with [`BenchError::ProjectEntry`] (naming `workload`) on a symlink,
+/// another special file, or a `node_modules` at the root, and otherwise when
+/// a read fails.
+pub fn project_blake3(workload: &str, dir: &Path) -> Result<String, BenchError> {
+    let mut files = Vec::new();
+    walk_tree(
+        workload,
+        dir,
+        |_| Ok(()),
+        |relative| {
+            files.push(relative.to_owned());
+            Ok(())
+        },
+    )?;
+    // an `OsStr` orders by its bytes
+    files.sort_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    let mut hasher = blake3::Hasher::new();
+    for relative in files {
+        let path = dir.join(&relative);
+        let contents = fs::read(&path).map_err(|source| BenchError::Read { path, source })?;
+        let name = relative.as_os_str().as_encoded_bytes();
+        for part in [name, &contents] {
+            hasher.update(&(part.len() as u64).to_le_bytes());
+            hasher.update(part);
+        }
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 /// Copies the regular files and directories under `source` into `dest`,
 /// returning the files written, and refuses anything else, and a
 /// `node_modules` at the root.
 fn copy_tree(workload: &str, source: &Path, dest: &Path) -> Result<Vec<PathBuf>, BenchError> {
+    let mut files = Vec::new();
+    walk_tree(
+        workload,
+        source,
+        |relative| {
+            let to = dest.join(relative);
+            fs::create_dir(&to).map_err(|source| BenchError::Write { path: to, source })
+        },
+        |relative| {
+            let (from, to) = (source.join(relative), dest.join(relative));
+            fs::copy(&from, &to).map_err(|source| BenchError::Write {
+                path: to.clone(),
+                source,
+            })?;
+            files.push(to);
+            Ok(())
+        },
+    )?;
+    Ok(files)
+}
+
+/// Walks the regular files and directories under `source`, each directory
+/// before what it holds, siblings in name order, calling `on_dir` or
+/// `on_file` with each one's path relative to `source`, and refuses anything
+/// else, and a `node_modules` at the root.
+fn walk_tree(
+    workload: &str,
+    source: &Path,
+    mut on_dir: impl FnMut(&Path) -> Result<(), BenchError>,
+    mut on_file: impl FnMut(&Path) -> Result<(), BenchError>,
+) -> Result<(), BenchError> {
     let refused = |path: &Path, reason: &str| BenchError::ProjectEntry {
         workload: workload.to_owned(),
         path: path.to_owned(),
         reason: reason.to_owned(),
     };
-    let mut files = Vec::new();
     let mut pending = vec![PathBuf::new()];
     while let Some(relative) = pending.pop() {
         let dir = source.join(&relative);
@@ -238,7 +322,6 @@ fn copy_tree(workload: &str, source: &Path, dest: &Path) -> Result<Vec<PathBuf>,
         for entry in entries {
             let relative = relative.join(entry.file_name());
             let from = source.join(&relative);
-            let to = dest.join(&relative);
             if relative == Path::new("node_modules") {
                 return Err(refused(
                     &from,
@@ -250,17 +333,10 @@ fn copy_tree(workload: &str, source: &Path, dest: &Path) -> Result<Vec<PathBuf>,
                 source: error,
             })?;
             if kind.is_dir() {
-                fs::create_dir(&to).map_err(|source| BenchError::Write {
-                    path: to.clone(),
-                    source,
-                })?;
+                on_dir(&relative)?;
                 pending.push(relative);
             } else if kind.is_file() {
-                fs::copy(&from, &to).map_err(|source| BenchError::Write {
-                    path: to.clone(),
-                    source,
-                })?;
-                files.push(to);
+                on_file(&relative)?;
             } else {
                 return Err(refused(
                     &from,
@@ -269,7 +345,7 @@ fn copy_tree(workload: &str, source: &Path, dest: &Path) -> Result<Vec<PathBuf>,
             }
         }
     }
-    Ok(files)
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -308,6 +384,7 @@ mod tests {
         let checkout = base.join("checkout").canonicalize().unwrap();
         let mut project = Project {
             dir: PathBuf::from("p"),
+            blake3: project_blake3("w", &suite_dir.join("p")).unwrap(),
             stub_packages: 3,
             links: BTreeMap::from([("@s/linked".to_owned(), PathBuf::from("../checkout"))]),
             generate: BTreeMap::from([(
@@ -328,9 +405,14 @@ mod tests {
         // a committed file at a generated path is refused
         fs::create_dir_all(suite_dir.join("p/gen")).unwrap();
         fs::write(suite_dir.join("p/gen/data.js"), "").unwrap();
+        let pin = std::mem::replace(
+            &mut project.blake3,
+            project_blake3("w", &suite_dir.join("p")).unwrap(),
+        );
         let collides =
             materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
         fs::remove_dir_all(suite_dir.join("p/gen")).unwrap();
+        project.blake3 = pin;
         project.generate.clear();
 
         project.links = BTreeMap::from([("x".to_owned(), PathBuf::from("../nope"))]);
@@ -395,6 +477,64 @@ mod tests {
         assert!(
             matches!(installed, Err(BenchError::ProjectEntry { .. })),
             "{installed:?}"
+        );
+    }
+
+    #[test]
+    fn the_project_hash_names_each_file_by_path_and_contents() {
+        let base =
+            std::env::temp_dir().join(format!("gro_bench_project_hash_{}", std::process::id()));
+        let write = |dir: &str, files: &[(&str, &str)]| {
+            let root = base.join(dir);
+            for (path, contents) in files {
+                let path = root.join(path);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, contents).unwrap();
+            }
+            project_blake3("w", &root).unwrap()
+        };
+        let files = [("a.ts", "x"), ("src/b.ts", "y"), ("src/c/d.ts", "")];
+        let hash = write("a", &files);
+        // written in another order, the same
+        let reversed: Vec<_> = files.iter().rev().copied().collect();
+        assert_eq!(write("b", &reversed), hash);
+        // an empty directory adds nothing
+        fs::create_dir_all(base.join("b/empty")).unwrap();
+        assert_eq!(project_blake3("w", &base.join("b")).unwrap(), hash);
+        // contents, a name (the order kept), a file more, a file less, and where a path ends and
+        // its contents begin
+        let moved = [
+            write("c", &[("a.ts", "z"), ("src/b.ts", "y"), ("src/c/d.ts", "")]),
+            write(
+                "d",
+                &[("a.ts", "x"), ("src/b2.ts", "y"), ("src/c/d.ts", "")],
+            ),
+            write(
+                "e",
+                &[
+                    ("a.ts", "x"),
+                    ("src/b.ts", "y"),
+                    ("src/c/d.ts", ""),
+                    ("f", ""),
+                ],
+            ),
+            write("f", &[("a.ts", "x"), ("src/b.ts", "y")]),
+            write("g", &[("a.t", "sx"), ("src/b.ts", "y"), ("src/c/d.ts", "")]),
+        ];
+        // a symlink is refused, as a copy refuses it
+        #[cfg(unix)]
+        let linked = {
+            std::os::unix::fs::symlink("a.ts", base.join("a/l.ts")).unwrap();
+            project_blake3("w", &base.join("a"))
+        };
+        fs::remove_dir_all(&base).unwrap();
+        for (index, other) in moved.iter().enumerate() {
+            assert_ne!(other, &hash, "{index}");
+        }
+        #[cfg(unix)]
+        assert!(
+            matches!(linked, Err(BenchError::ProjectEntry { .. })),
+            "{linked:?}"
         );
     }
 

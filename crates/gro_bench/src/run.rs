@@ -7,7 +7,8 @@
 //!    runtime's executable, refusing a script (a file starting with `#!`),
 //!    writes a fresh copy of each collection a workload names, with the
 //!    workload's script at its root ([`collection`](crate::collection)), and
-//!    of each project ([`project`](crate::project)), and hashes the artifacts
+//!    of each project ([`project`](crate::project)), refusing one whose files
+//!    don't hash to the suite's pin of them, and hashes the artifacts
 //!    (every executable, script, file argument, stdin file, and file of a
 //!    copy) with blake3, and reads the git state of each checkout outside the
 //!    suite's own that a workload reads: each project link's target, which
@@ -223,6 +224,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         collections: corpora
             .map(|corpora| corpora.collections)
             .unwrap_or_default(),
+        projects: suite.project_pins(),
         runtimes,
         artifacts: artifact_hashes,
         checkouts: checkouts

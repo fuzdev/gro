@@ -25,7 +25,7 @@
 			"name": "data_module",
 			"script": "data/entry.js",
 			"warmup": 1,
-			"project": {"dir": "data", "generate": {"data.js": {"data_module": {"bytes": 16000000}}}}
+			"project": {"dir": "data", "blake3": "fce25a19f7df439d75c619ee687de21e813ddcd17c0eea2ba62ee4fe6650aa98", "generate": {"data.js": {"data_module": {"bytes": 16000000}}}}
 		}
 	]
 }

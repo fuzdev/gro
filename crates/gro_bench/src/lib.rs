@@ -7,8 +7,9 @@
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
 //! - [`collection`]: a fresh copy of one corpora collection at its pinned
 //!   tree, for workloads that run inside the collection's own root
-//! - [`project`]: a fresh copy of a committed project with a generated
-//!   `node_modules`, for workloads that run inside a project
+//! - [`project`]: a fresh copy of a committed project, pinned by its files'
+//!   hash, with a generated `node_modules`, for workloads that run inside a
+//!   project
 //! - [`counters`]: counter mode, each sample under `perf stat`
 //! - [`phases`]: phases mode, each sample's phase timings from a phases
 //!   build of fgro

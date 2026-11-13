@@ -48,8 +48,9 @@
 //! directory.
 //!
 //! A workload can instead name a `project`, a committed directory holding its
-//! script: the run writes a fresh copy of it, with a generated
-//! `node_modules` of stub packages and links to sibling checkouts
+//! script and pinned by the hash of its files: the run writes a fresh copy
+//! of it, refused when it hashes otherwise, with a generated `node_modules`
+//! of stub packages and links to sibling checkouts
 //! ([`project`](crate::project)), and runs the script from the copy.
 //!
 //! A runtime can read a file on stdin (`stdin`, opened fresh for each
@@ -84,8 +85,8 @@ use crate::error::BenchError;
 pub struct Suite {
     /// The suite's name, recorded with its version.
     pub name: String,
-    /// Bumped whenever the workload set changes, since a score compares only
-    /// within one version.
+    /// Bumped whenever the workload set or a project's files change, since a
+    /// score compares only within one version.
     pub version: u32,
     /// The timed samples per row (and for the noise row's copy), each a
     /// fresh process. Even, so the schedule's round pairs balance a linear
@@ -343,6 +344,13 @@ pub struct Project {
     /// The committed directory, relative to the suite file's directory,
     /// holding the project's own files and no `node_modules`.
     pub dir: PathBuf,
+    /// The pin of the directory's files, their
+    /// [`project_blake3`](crate::project::project_blake3): the run refuses a
+    /// copy that hashes otherwise, so the config hash covers the files the
+    /// workload reads. A change to them bumps the suite's `version`, which a
+    /// test holds against the history: no record of the suite's current
+    /// version may name other files.
+    pub blake3: String,
     /// How many stub packages the copy's `node_modules` holds: directories
     /// each holding only a `package.json` with a name, `"type": "module"`,
     /// and `"exports"`, so a runtime that walks `node_modules` has the
@@ -477,10 +485,29 @@ impl Suite {
         Ok(())
     }
 
+    /// Each project's pin by its directory as the suite writes it, which
+    /// the run's record carries: one entry for workloads sharing a
+    /// directory, whose pins validation holds equal.
+    pub fn project_pins(&self) -> BTreeMap<String, String> {
+        self.workloads
+            .iter()
+            .filter_map(|workload| workload.project.as_ref())
+            .map(|project| {
+                (
+                    project.dir.to_string_lossy().into_owned(),
+                    project.blake3.clone(),
+                )
+            })
+            .collect()
+    }
+
     /// Checks each workload's `project`: no `collection` beside it, a name
     /// that's one plain path segment (it names the copy), a script inside
-    /// its directory by plain segments, and links naming packages.
+    /// its directory by plain segments, links naming packages, and a pin
+    /// that's a blake3 hash in lowercase hex, the same for every workload
+    /// sharing the directory.
     fn validate_projects(&self) -> Result<(), BenchError> {
+        let mut pins: BTreeMap<&Path, &str> = BTreeMap::new();
         for workload in &self.workloads {
             let Some(project) = &workload.project else {
                 continue;
@@ -508,6 +535,27 @@ impl Suite {
                 return invalid(format!(
                     "has the script `{}`, which isn't a file inside its project `{}`",
                     workload.script.display(),
+                    project.dir.display()
+                ));
+            }
+            let is_hex = project.blake3.len() == 64
+                && project
+                    .blake3
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+            if !is_hex {
+                return invalid(format!(
+                    "pins its project by `{}`, which isn't a blake3 hash in lowercase hex",
+                    project.blake3
+                ));
+            }
+            if *pins
+                .entry(project.dir.as_path())
+                .or_insert(project.blake3.as_str())
+                != project.blake3
+            {
+                return invalid(format!(
+                    "pins its project `{}` otherwise than another workload does",
                     project.dir.display()
                 ));
             }
@@ -1106,9 +1154,16 @@ mod tests {
         ));
     }
 
+    /// A pin in the shape a project's `blake3` takes, for suites whose
+    /// directories aren't hashed.
+    const PIN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     #[test]
     fn a_project_holds_its_script_and_names_its_links() {
+        // every project here pins its files by `PIN`
         let suite = |workload: &str| {
+            let workload =
+                workload.replace(r#""dir": "#, &format!(r#""blake3": "{PIN}", "dir": "#));
             format!(
                 r#"{{"name": "s", "version": 1, "samples": 2,
                     "runtimes": [{{"name": "r", "program": "r"}}],
@@ -1164,6 +1219,203 @@ mod tests {
                 matches!(parse(&suite(workload)), Err(BenchError::SuiteInvalid(ref message)) if message.contains(says)),
                 "{workload}: {:?}",
                 parse(&suite(workload))
+            );
+        }
+    }
+
+    #[test]
+    fn a_project_pins_its_files_once() {
+        let suite = |pins: [&str; 2], dirs: [&str; 2]| {
+            parse(&format!(
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [{{"name": "r", "program": "r"}}],
+                    "workloads": [
+                        {{"name": "w", "script": "{}/w.js", "project": {{"dir": "{}", "blake3": "{}"}}}},
+                        {{"name": "v", "script": "{}/v.js", "project": {{"dir": "{}", "blake3": "{}"}}}}
+                    ]}}"#,
+                dirs[0], dirs[0], pins[0], dirs[1], dirs[1], pins[1]
+            ))
+        };
+        let other = PIN.replace('0', "f");
+        let parsed = suite([PIN, PIN], ["p", "p"]).unwrap();
+        assert_eq!(
+            parsed.project_pins(),
+            BTreeMap::from([("p".to_owned(), PIN.to_owned())])
+        );
+        let parsed = suite([PIN, &other], ["p", "q"]).unwrap();
+        assert_eq!(parsed.project_pins().len(), 2);
+        // two pins of one directory
+        assert!(matches!(
+            suite([PIN, &other], ["p", "p"]),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("otherwise than another workload")
+        ));
+        // not a blake3 hash in lowercase hex
+        for bad in [
+            &PIN[1..],
+            &PIN.to_uppercase(),
+            &format!("{PIN}0"),
+            &PIN.replace('a', "g"),
+            "",
+        ] {
+            assert!(
+                matches!(
+                    suite([bad, bad], ["p", "p"]),
+                    Err(BenchError::SuiteInvalid(ref message)) if message.contains("lowercase hex")
+                ),
+                "{bad}"
+            );
+        }
+        // the pin is part of the config
+        assert_ne!(
+            suite([PIN, PIN], ["p", "p"]).unwrap().config_hash(),
+            suite([&other, &other], ["p", "p"]).unwrap().config_hash()
+        );
+        // and required
+        assert!(matches!(
+            parse(
+                r#"{"name": "s", "version": 1, "samples": 2, "runtimes": [{"name": "r", "program": "r"}],
+                    "workloads": [{"name": "w", "script": "p/w.js", "project": {"dir": "p"}}]}"#
+            ),
+            Err(BenchError::SuiteParse { .. })
+        ));
+    }
+
+    /// Each committed suite, by its directory, from `suites/*/suite.json`.
+    fn committed_suites() -> Vec<(String, PathBuf, Suite)> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites");
+        let mut suites: Vec<(String, PathBuf, Suite)> = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|dir| dir.join("suite.json").is_file())
+            .map(|dir| {
+                let suite = Suite::load(&dir.join("suite.json")).unwrap();
+                let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+                (name, dir, suite)
+            })
+            .collect();
+        suites.sort_by(|a, b| a.0.cmp(&b.0));
+        suites
+    }
+
+    /// Each project of each committed suite whose files don't hash to its
+    /// pin, saying what to do.
+    fn unpinned_projects(suites: &[(String, PathBuf, Suite)]) -> Vec<String> {
+        let mut problems = Vec::new();
+        for (name, dir, suite) in suites {
+            for workload in &suite.workloads {
+                let Some(project) = &workload.project else {
+                    continue;
+                };
+                let found = crate::project::project_blake3(&workload.name, &dir.join(&project.dir))
+                    .unwrap();
+                if found != project.blake3 {
+                    problems.push(format!(
+                        "the suite `{name}` (v{}) pins its project `{}` by {}, but its files hash to {found}: a change to them bumps the suite's `version` and re-pins the project's `blake3`",
+                        suite.version,
+                        project.dir.display(),
+                        project.blake3
+                    ));
+                }
+            }
+        }
+        problems
+    }
+
+    /// Each record in `history` of a suite's current version that names
+    /// other project files than the suite pins: those files changed with the
+    /// version kept, so records of one version measured different
+    /// workloads. A record from before projects were recorded names none,
+    /// and isn't checked.
+    fn records_of_other_files(suites: &[(String, PathBuf, Suite)], history: &str) -> Vec<String> {
+        let mut problems = Vec::new();
+        for (index, line) in history.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let record = crate::report::read_line(line).unwrap();
+            if record.projects.is_empty() {
+                continue;
+            }
+            for (_, _, suite) in suites {
+                if record.suite.name == suite.name
+                    && record.suite.version == suite.version
+                    && record.projects != suite.project_pins()
+                {
+                    problems.push(format!(
+                        "the history's line {} is a record of the suite `{}` v{} that read the project files {:?}, but the suite now pins {:?}: they changed with the version kept, so bump the suite's `version`",
+                        index + 1,
+                        suite.name,
+                        suite.version,
+                        record.projects,
+                        suite.project_pins()
+                    ));
+                }
+            }
+        }
+        problems
+    }
+
+    /// The guard on the committed suites: each project's files hash to the
+    /// pin, and no record of a suite's current version read other files, so
+    /// a change to a project's files moves its suite's `version`.
+    #[test]
+    fn the_committed_projects_are_pinned_within_their_version() {
+        let suites = committed_suites();
+        assert!(
+            suites
+                .iter()
+                .any(|(_, _, suite)| !suite.project_pins().is_empty())
+        );
+        let unpinned = unpinned_projects(&suites);
+        assert!(unpinned.is_empty(), "{}", unpinned.join("\n"));
+        let history =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("history.jsonl"))
+                .unwrap();
+        let moved = records_of_other_files(&suites, &history);
+        assert!(moved.is_empty(), "{}", moved.join("\n"));
+    }
+
+    #[test]
+    fn a_record_of_the_version_with_other_files_fails_the_guard() {
+        let suite = parse(&format!(
+            r#"{{"name": "s", "version": 2, "samples": 2, "runtimes": [{{"name": "r", "program": "r"}}],
+                "workloads": [{{"name": "w", "script": "p/w.js", "project": {{"dir": "p", "blake3": "{PIN}"}}}}]}}"#
+        ))
+        .unwrap();
+        let suites = [("s".to_owned(), PathBuf::new(), suite)];
+        let line = |version: u32, pins: &[(&str, &str)]| {
+            let mut record = crate::test_support::run_record(vec![crate::test_support::row(
+                "r",
+                "w",
+                crate::test_support::metric(vec![1, 2]),
+            )]);
+            record.suite = crate::record::SuiteId {
+                name: "s".to_owned(),
+                version,
+            };
+            record.projects = pins
+                .iter()
+                .map(|(dir, pin)| ((*dir).to_owned(), (*pin).to_owned()))
+                .collect();
+            record.to_line()
+        };
+        let other = PIN.replace('0', "f");
+        // the pinned files, an older version's other files, and a record naming none
+        let fine = [
+            line(2, &[("p", PIN)]),
+            line(1, &[("p", &other)]),
+            line(2, &[]),
+        ]
+        .concat();
+        assert!(records_of_other_files(&suites, &fine).is_empty());
+        // the files changed under version 2, or another project was read
+        for pins in [&[("p", other.as_str())][..], &[("p", PIN), ("q", PIN)][..]] {
+            let moved = records_of_other_files(&suites, &[fine.clone(), line(2, pins)].concat());
+            assert_eq!(moved.len(), 1, "{moved:?}");
+            assert!(
+                moved[0].starts_with("the history's line 4 is a record of the suite `s` v2"),
+                "{}",
+                moved[0]
             );
         }
     }
@@ -1237,13 +1489,12 @@ mod tests {
     #[test]
     fn budgets_prices_and_generated_files_name_what_they_may() {
         let runtime = r#"{"name": "r", "program": "r"}"#;
-        let workload =
-            r#"{"name": "w", "script": "p/w.js", "project": {"dir": "p", "generate": GEN}}"#;
+        let workload = r#"{"name": "w", "script": "p/w.js", "project": {"dir": "p", "blake3": "PIN", "generate": GEN}}"#;
         let suite = |extra: &str, generate: &str| {
             parse(&format!(
                 r#"{{"name": "s", "version": 1, "samples": 2, "runtimes": [{runtime}],
                     "workloads": [{}]{extra}}}"#,
-                workload.replace("GEN", generate)
+                workload.replace("GEN", generate).replace("PIN", PIN)
             ))
         };
         let ok = r#"{"gen/d.js": {"data_module": {"bytes": 1000}}}"#;
