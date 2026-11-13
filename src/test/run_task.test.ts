@@ -1,6 +1,7 @@
 import { test, expect, assert, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
+import { styleText } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
@@ -8,6 +9,10 @@ import { spawn } from '#lib/spawn.ts';
 import { run_task, type RunTaskOptions } from '#lib/run_task.ts';
 import { SilentError, TaskError, type Task, type TaskContext } from '#lib/task.ts';
 import { task as run_task_task } from '#lib/run.task.ts';
+import { FsError } from '#lib/fs_error.ts';
+import { NetError } from '#lib/net_error.ts';
+import { ProcessError } from '#lib/process_error.ts';
+import { SpawnError } from '#lib/spawn_error.ts';
 
 import {
 	TEST_TIMEOUT_MD,
@@ -174,6 +179,57 @@ test('run_task reports a `TaskError` subclass by its message, not as an unexpect
 	assert(!result.ok);
 	assert.include(result.reason, 'known failure');
 	assert.notInclude(result.reason, 'Unexpected error');
+});
+
+test('run_task reports a host module error as the task failing, without the reinstall hint', async () => {
+	for (const error of [
+		new FsError('not_found', '/p/missing.txt'),
+		new SpawnError('not_found', 'missing_program'),
+		new NetError('not_granted', 'example.com:443'),
+		new ProcessError('not_granted', 'SECRET')
+	]) {
+		const result = await run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: {
+					task: {
+						run: () => {
+							throw error;
+						}
+					}
+				}
+			},
+			{},
+			await create_mock_run_task_options()
+		);
+		assert(!result.ok);
+		assert.strictEqual(result.error, error);
+		assert.strictEqual(result.reason, `Task ${styleText('cyan', 'greet')} failed.`, error.name);
+	}
+});
+
+test('run_task reports any other error as unexpected, with the reinstall hint', async () => {
+	const error = new Error('broken');
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: {
+				task: {
+					run: () => {
+						throw error;
+					}
+				}
+			}
+		},
+		{},
+		await create_mock_run_task_options()
+	);
+	assert(!result.ok);
+	assert.strictEqual(result.error, error);
+	assert.include(result.reason, 'Unexpected error running task');
+	assert.include(result.reason, 'install` and `gro clean`');
 });
 
 test('run_task passes the graph to the task, and it and `fs_paths` to the tasks it invokes', async () => {

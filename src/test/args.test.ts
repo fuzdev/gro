@@ -101,6 +101,11 @@ describe('to_forwarded_args_by_command', () => {
 		expect(Object.keys(to_forwarded_args_by_command(absolute, process.cwd()))).toEqual([
 			'gro task x.task.ts'
 		]);
+		// a path shaped like a builtin name keys `gro task`, never the builtin's args
+		const bare = to_raw_rest_args('check -- gro task test --a'.split(' '));
+		expect(to_forwarded_args_by_command(bare, process.cwd())).toEqual({
+			'gro task test': { a: true }
+		});
 	});
 
 	test('throws when `gro task` has no path', () => {

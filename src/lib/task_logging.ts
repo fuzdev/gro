@@ -29,7 +29,7 @@ export const log_tasks = (log: Logger, modules: Array<TaskModuleMeta>, dir_label
 	const logged: Array<string> = [
 		`\n\n${modules.length} task${plural(modules.length)} in ${dir_label}:\n`
 	];
-	logged.push(...to_task_rows(modules.map((m) => [m.name, m.mod.task.summary ?? ''])));
+	logged.push(...to_task_row_segments(modules.map((m) => [m.name, m.mod.task.summary ?? ''])));
 	logged.push(
 		`\n\n${st('gray', 'Run a task:')} gro task [path]`,
 		`\n${st('gray', 'View help:')}  gro task [path] --help`
@@ -42,7 +42,7 @@ export const log_tasks = (log: Logger, modules: Array<TaskModuleMeta>, dir_label
  * @param rows - each task's name and summary
  * @returns the segments to join into the listing
  */
-const to_task_rows = (rows: Array<[string, string]>): Array<string> => {
+const to_task_row_segments = (rows: Array<[string, string]>): Array<string> => {
 	const longest_task_name = to_max_length(rows, ([name]) => name);
 	return rows.flatMap(([name, summary]) => [
 		'\n' + st('cyan', name.padEnd(longest_task_name)),
@@ -58,7 +58,7 @@ const to_task_rows = (rows: Array<[string, string]>): Array<string> => {
 export const log_builtin_tasks = (log: Logger): void => {
 	const rows = Object.entries(GRO_BUILTIN_TASK_SUMMARIES);
 	const logged: Array<string> = [`\n\n${rows.length} builtin tasks:\n`];
-	logged.push(...to_task_rows(rows));
+	logged.push(...to_task_row_segments(rows));
 	logged.push(
 		`\n\n${st('gray', 'Run a builtin:')}        gro [name]`,
 		`\n${st('gray', 'View its help:')}        gro [name] --help`,
@@ -101,7 +101,7 @@ export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 	if (task.Args) {
 		const properties = to_arg_properties(task.Args, meta, log);
 		// TODO hacky padding for some quick and dirty tables
-		const longest_task_name = Math.max(
+		const longest_arg_name = Math.max(
 			ARGS_PROPERTY_NAME.length,
 			to_max_length(properties, (p) => p.name)
 		);
@@ -110,7 +110,7 @@ export const log_task_help = (log: Logger, meta: TaskModuleMeta): void => {
 		for (const property of properties) {
 			const name = property.name === '_' ? ARGS_PROPERTY_NAME : property.name;
 			logged.push(
-				`\n${st('green', name.padEnd(longest_task_name))} `,
+				`\n${st('green', name.padEnd(longest_arg_name))} `,
 				st('gray', property.schema.type.padEnd(longest_type)) + ' ',
 				print_value(property.schema.default).padEnd(longest_default) + ' ',
 				property.schema.description || '(no description available)'
@@ -184,5 +184,5 @@ const to_field_default = (field: SchemaField): unknown => {
 	}
 };
 
-const to_max_length = <T>(items: Array<T>, toString: (item: T) => string) =>
-	items.reduce((max, m) => Math.max(toString(m).length, max), 0);
+const to_max_length = <T>(items: Array<T>, to_text: (item: T) => string): number =>
+	items.reduce((max, item) => Math.max(to_text(item).length, max), 0);

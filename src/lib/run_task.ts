@@ -17,6 +17,10 @@ import {
 	type TaskModuleMeta
 } from './task.ts';
 import { log_task_help } from './task_logging.ts';
+import { is_fs_error } from './fs_error.ts';
+import { is_net_error } from './net_error.ts';
+import { is_process_error } from './process_error.ts';
+import { is_spawn_error } from './spawn_error.ts';
 
 /**
  * A task's run: its return value as `output`, or why it failed, with the error.
@@ -126,7 +130,9 @@ export const run_task = async (
 			ok: false,
 			reason: is_task_error(error)
 				? error.message
-				: is_silent_error(error) // already reported, like a failed nested `invoke_task`
+				: // already reported, like a failed nested `invoke_task`,
+					// or a host module's, the task's own failure like a missing file, its stack logged
+					is_silent_error(error) || is_host_module_error(error)
 					? `Task ${st('cyan', task_meta.name)} failed.`
 					: `Unexpected error running task ${st(
 							'cyan',
@@ -137,3 +143,7 @@ export const run_task = async (
 	}
 	return { ok: true, output };
 };
+
+// an error from a host module, from any copy of Gro, which a broken install doesn't explain
+const is_host_module_error = (error: unknown): boolean =>
+	is_fs_error(error) || is_spawn_error(error) || is_net_error(error) || is_process_error(error);
