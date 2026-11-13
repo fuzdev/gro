@@ -26,6 +26,8 @@ const FILES: Array<[name: string, contents: string | Uint8Array]> = [
 	['lone_surrogate.txt', new Uint8Array([0x61, 0xed, 0xa0, 0x80, 0x62])],
 	['bom.txt', '\ufeffbom'],
 	['crlf.txt', 'a\r\nb\r\n\r\n'],
+	['lone_cr.txt', 'a\rb\r'],
+	['nul.txt', 'a\0b\x01c'],
 	['empty.txt', ''],
 	['large.txt', 'x'.repeat(1 << 20) + '${`\\'],
 	['style.css', '.a::before { content: "${b}" } /* ` */\n'],

@@ -466,19 +466,24 @@ test('a project reached through a symlink judges a path from the link and a real
 	}
 });
 
-test('a directory whose name only starts with `node_modules` holds no package', async () => {
+test('a directory whose name only contains `node_modules` holds no package', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_node_modules_x_'));
 	try {
 		await mkdir(join(dir, 'src'));
-		await mkdir(join(dir, 'node_modules_x'));
-		await writeFile(join(dir, 'node_modules_x/y.js'), "import './z.js';\n");
+		const ids = ['node_modules_x/y.js', 'x_node_modules/y.js'];
+		for (const id of ids) {
+			await mkdir(dirname(join(dir, id)), { recursive: true });
+			await writeFile(join(dir, id), "import './z.js';\n");
+		}
 		const importer_path = join(dir, 'src/a.ts');
-		await writeFile(importer_path, "import '../node_modules_x/y.js';\n");
+		await writeFile(importer_path, ids.map((id) => `import '../${id}';\n`).join(''));
 		const filer = await init_filer_with_importer(join(dir, 'src'), importer_path);
 
-		const y = filer.get_by_id(join(dir, 'node_modules_x/y.js'));
-		assert.ok(y?.contents, 'read');
-		assert.ok(y.dependencies.has(join(dir, 'node_modules_x/z.js')));
+		for (const id of ids) {
+			const node = filer.get_by_id(join(dir, id));
+			assert.ok(node?.contents, `${id} is read`);
+			assert.ok(node.dependencies.has(join(dir, dirname(id), 'z.js')), `${id} is parsed`);
+		}
 
 		await filer.close();
 	} finally {

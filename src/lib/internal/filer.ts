@@ -54,7 +54,7 @@ export class Filer {
 	#closed = false;
 
 	#change_queue: Array<WatcherChange> = [];
-	// the external nodes never read, reached only by bare specifiers so far
+	// the external nodes never read, reached only as a package's file so far
 	#unread: Set<PathId> = new Set();
 	#processing_promise: Promise<void> | null = null;
 
@@ -86,7 +86,7 @@ export class Filer {
 	get_or_create = (id: PathId, read = true): Disknode => {
 		const existing = this.get_by_id(id);
 		if (existing) {
-			// a file first reached by a bare specifier is read once something imports it by path
+			// a file first reached by a bare specifier is read once a path or `#` import asks for the read
 			if (read && this.#unread.delete(id)) this.#queue_external_add(id);
 			return existing;
 		}

@@ -234,13 +234,13 @@ with none), not fatal; a file that doesn't parse warns with its location and
 keeps the edges it last parsed with; the Filer stats before reading, so a
 directory or special file (a FIFO) is a contentless node, and the graph forwards
 a change whose read finds no file as one `delete` (`#remove` notifies only a
-node that had contents). A package's file is never read, so its imports aren't edges: one a bare specifier
-reaches, even when linked, and one whose path from the watched directory passes
-through a `node_modules` directory, both from the directory as named and from its
-real path. Its importer's edge is kept, and a
-package's file is a contentless node, like one a `#` mapping such as `"#dep":
-"dep"` resolves to, while any other file a path or `#` subpath import reaches is
-read.
+node that had contents). A package's file is a contentless node, never read, so
+its imports aren't edges, while its importer's edge is kept. That's a file a bare
+specifier reaches, even when linked, and one whose path from the watched
+directory passes through a `node_modules` directory, judged both from the
+directory as named and from its real path, like one a `#` mapping such as
+`"#dep": "dep"` resolves to. Any other file a path or `#` subpath import
+reaches is read.
 
 Timings - performance tracking API.
 `const timing = timings.start('name'); await work(); timing();` logs duration.
