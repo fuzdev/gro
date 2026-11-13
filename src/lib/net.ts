@@ -54,6 +54,7 @@
 
 import * as node_buffer from 'node:buffer';
 
+import { create_record } from './internal/records.ts';
 import { NetError } from './net_error.ts';
 
 const {
@@ -66,7 +67,7 @@ const { Buffer: NodeBuffer } = node_buffer;
 const { clone: response_clone } = Response.prototype;
 const { versions } = globalThis.process;
 const { isArray } = Array;
-const { assign, create, defineProperty, freeze, hasOwn, setPrototypeOf } = Object;
+const { defineProperty, freeze, hasOwn, setPrototypeOf } = Object;
 
 // the key only this module holds, so a handle's `constructor` can't make another handle
 const HANDLE_KEY = Symbol('net handle');
@@ -74,9 +75,6 @@ const HANDLE_KEY = Symbol('net handle');
 const check_handle_key = (key: symbol): void => {
 	if (key !== HANDLE_KEY) throw new TypeError('net handles come from `net`, not a constructor');
 };
-
-// a null-prototype record, so no name resolves through `Object.prototype`
-const create_record = <T extends object>(fields: T): T => assign(create(null) as T, fields);
 
 /**
  * Hostnames allowing any port, and `hostname:port` entries allowing one.

@@ -53,6 +53,7 @@ import * as node_util from 'node:util';
 import * as node_worker_threads from 'node:worker_threads';
 
 import { to_checked_cwd } from './internal/cwd.ts';
+import { create_record } from './internal/records.ts';
 import { ProcessError } from './process_error.ts';
 
 // the global, under another name since this module's export shadows it
@@ -63,7 +64,7 @@ const { isUint8Array } = node_util.types;
 const { isMainThread } = node_worker_threads;
 const { isArray } = Array;
 const { isInteger } = Number;
-const { assign, create, freeze, keys, setPrototypeOf } = Object;
+const { freeze, keys, setPrototypeOf } = Object;
 const Uint8ArrayClass = Uint8Array;
 const set_immediate = setImmediate;
 
@@ -75,9 +76,6 @@ const check_handle_key = (key: symbol): void => {
 		throw new TypeError('process handles come from `process`, not a constructor');
 	}
 };
-
-// a null-prototype record, so no name resolves through `Object.prototype`
-const create_record = <T extends object>(fields: T): T => assign(create(null) as T, fields);
 
 type Allowed = Readonly<Record<string, true | undefined>>;
 

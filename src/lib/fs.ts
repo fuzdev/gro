@@ -75,6 +75,7 @@ import * as node_path from 'node:path';
 import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
 import { register_fs_handle, type FsHandleResolution } from './internal/fs_handles.ts';
+import { create_record } from './internal/records.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
 // binding that `syncBuiltinESMExports` rebinds to whatever a caller assigned to the export
@@ -1377,45 +1378,44 @@ for (const handle_class of [NodeFsReadDir, NodeFsDir, NodeFsTempDir]) {
 	Object.freeze(handle_class);
 }
 
-// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
-const create_frozen_record = <T extends object>(fields: T): T =>
-	Object.freeze(Object.assign(Object.create(null) as T, fields));
-
 const create_read_dir = (real_path: string): FsReadDir =>
 	Object.freeze(new NodeFsReadDir(HANDLE_KEY, real_path));
 
 const create_dir = (real_path: string): FsDir =>
 	Object.freeze(new NodeFsDir(HANDLE_KEY, real_path));
 
+// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
 /**
  * The fs host module's root handle. Import it where authority enters
  * (a task, a script, an entry module) and hand narrower handles down.
  */
-export const fs: Fs = create_frozen_record<Fs>({
-	project: create_dir(to_checked_cwd()),
-	open_dir: async (path: string): Promise<FsDir> => {
-		assert_path_string(path);
-		if (!isAbsolute(path)) throw new TypeError(`fs.open_dir takes an absolute path: ${path}`);
-		try {
-			const real_path = await realpath_text(path);
-			if (!(await stat(real_path)).isDirectory()) throw new FsError('not_a_directory', path);
-			return create_dir(real_path);
-		} catch (error) {
-			throw to_fs_error(error, path);
+export const fs: Fs = Object.freeze(
+	create_record<Fs>({
+		project: create_dir(to_checked_cwd()),
+		open_dir: async (path: string): Promise<FsDir> => {
+			assert_path_string(path);
+			if (!isAbsolute(path)) throw new TypeError(`fs.open_dir takes an absolute path: ${path}`);
+			try {
+				const real_path = await realpath_text(path);
+				if (!(await stat(real_path)).isDirectory()) throw new FsError('not_a_directory', path);
+				return create_dir(real_path);
+			} catch (error) {
+				throw to_fs_error(error, path);
+			}
+		},
+		temp_dir: async (prefix = 'gro-'): Promise<FsDir & AsyncDisposable> => {
+			// a string, so no `includes` or `toString` of the caller's runs between the checks and the name
+			if (typeof prefix !== 'string') throw new TypeError('fs.temp_dir takes a string prefix');
+			assert_path_string(prefix);
+			if (prefix.includes('/')) throw new TypeError(`fs.temp_dir takes a name prefix: ${prefix}`);
+			// concatenated, not joined, so a prefix of `..` names `..XXXXXX`, never the parent
+			const template = tmpdir() + '/' + prefix;
+			try {
+				const real_path = await realpath_text(await mkdtemp(template));
+				return Object.freeze(new NodeFsTempDir(HANDLE_KEY, real_path));
+			} catch (error) {
+				throw to_fs_error(error, template);
+			}
 		}
-	},
-	temp_dir: async (prefix = 'gro-'): Promise<FsDir & AsyncDisposable> => {
-		// a string, so no `includes` or `toString` of the caller's runs between the checks and the name
-		if (typeof prefix !== 'string') throw new TypeError('fs.temp_dir takes a string prefix');
-		assert_path_string(prefix);
-		if (prefix.includes('/')) throw new TypeError(`fs.temp_dir takes a name prefix: ${prefix}`);
-		// concatenated, not joined, so a prefix of `..` names `..XXXXXX`, never the parent
-		const template = tmpdir() + '/' + prefix;
-		try {
-			const real_path = await realpath_text(await mkdtemp(template));
-			return Object.freeze(new NodeFsTempDir(HANDLE_KEY, real_path));
-		} catch (error) {
-			throw to_fs_error(error, template);
-		}
-	}
-});
+	})
+);

@@ -167,6 +167,7 @@ import {
 	type FsHandleResolution,
 	type FsHandleResolve
 } from './internal/fs_handles.ts';
+import { create_record } from './internal/records.ts';
 import { SpawnError } from './spawn_error.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -191,7 +192,7 @@ const realpath_sync_native = node_fs.realpathSync.native;
 const { delimiter, isAbsolute } = node_path;
 const { isArray } = Array;
 const { isSafeInteger } = Number;
-const { assign, create, freeze, keys, hasOwn, setPrototypeOf } = Object;
+const { freeze, keys, hasOwn, setPrototypeOf } = Object;
 const host_env = process.env;
 const { pid: host_pid, platform: host_platform } = process;
 const process_on = process.on.bind(process);
@@ -612,9 +613,6 @@ const check_name = (name: unknown): string => check_nonempty_text(name, 'a spawn
  * Windows strips from a filename.
  */
 const is_refused_extension = (path: string): boolean => /\.(?:bat|cmd)[. ]*$/i.test(path);
-
-// a null-prototype record, so no name resolves through `Object.prototype`
-const create_record = <T extends object>(fields: T): T => assign(create(null) as T, fields);
 
 /**
  * An option's value, read as an own property so a polluted `Object.prototype` can't set one.

@@ -17,6 +17,7 @@ import { FsError, is_fs_error, type FsErrorKind } from '../fs_error.ts';
 import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
 import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
 import { to_checked_cwd } from './cwd.ts';
+import { create_record } from './records.ts';
 import { process } from '../process.ts';
 
 // TODO: the realpath and readlink this boundary reads from `node:fs` become an op on the `Fs`
@@ -160,9 +161,6 @@ const strip_trailing_slashes = (path: string): string => path.replace(/(.)\/+$/,
 
 // null-prototype, as the fs handles are, so awaiting one adopts no polluted `Object.prototype.then`,
 // which an opened path would hand its handle
-const create_record = <T extends object>(fields: T): T =>
-	Object.assign(Object.create(null) as T, fields);
-
 const to_opened_path = (dir: FsDir, path: string): FsOpenedPath =>
 	create_record<FsOpenedPath>({ dir, path });
 

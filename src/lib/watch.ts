@@ -88,6 +88,7 @@ import type { FSWatcher } from 'chokidar';
 
 import type { FsReadDir } from './fs.ts';
 import { FsError } from './fs_error.ts';
+import { create_record } from './internal/records.ts';
 
 // a listener that `stopImmediatePropagation` can't reach, which a plain `addEventListener` isn't
 const { addAbortListener } = node_events as unknown as {
@@ -96,7 +97,7 @@ const { addAbortListener } = node_events as unknown as {
 const { lstatSync } = node_fs;
 const { AbortSignal: AbortSignalClass } = globalThis;
 const { isSafeInteger } = Number;
-const { assign, create, freeze, hasOwn, setPrototypeOf } = Object;
+const { freeze, hasOwn, setPrototypeOf } = Object;
 
 /**
  * A change to an entry beneath a watched directory.
@@ -189,9 +190,6 @@ const check_watcher_key = (key: symbol): void => {
 };
 
 const DEFAULT_MAX_PENDING = 4096;
-
-// a null-prototype record, so no name resolves through `Object.prototype`
-const create_record = <T extends object>(fields: T): T => assign(create(null) as T, fields);
 
 const to_change = (kind: WatchChange['kind'], path: string, is_directory: boolean): WatchChange =>
 	freeze(create_record<WatchChange>({ kind, path, is_directory }));
