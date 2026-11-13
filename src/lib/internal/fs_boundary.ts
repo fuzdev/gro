@@ -158,10 +158,13 @@ const to_refusal_subject = (path: string, target: string): string =>
 
 const strip_trailing_slashes = (path: string): string => path.replace(/(.)\/+$/, '$1');
 
-// null-prototype, so awaiting one adopts no polluted `Object.prototype.then`, which it would hand
-// the handle
+// null-prototype, as the fs handles are, so awaiting one adopts no polluted `Object.prototype.then`,
+// which an opened path would hand its handle
+const create_record = <T extends object>(fields: T): T =>
+	Object.assign(Object.create(null) as T, fields);
+
 const to_opened_path = (dir: FsDir, path: string): FsOpenedPath =>
-	Object.assign(Object.create(null) as FsOpenedPath, { dir, path });
+	create_record<FsOpenedPath>({ dir, path });
 
 /**
  * Builds the boundary's ops over `fs`, each path resolved to absolute by `to_absolute`,
@@ -282,9 +285,8 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		await parent.dir.remove(path.endsWith('/') ? entry + '/' : entry, options);
 	};
 
-	// null-prototype, as the fs handles are, so awaiting it adopts no polluted `then`
 	return Object.freeze(
-		Object.assign(Object.create(null) as FsPaths, {
+		create_record<FsPaths>({
 			project,
 			open_path,
 			open_dir_path,
