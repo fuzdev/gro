@@ -61,6 +61,8 @@ will fail at link time, and in the project's check, until the diff is accepted,
 the same shape as a lockfile change.
 Inference proposes and the loader enforces: every edge, literal or computed, is checked against the importer's accepted grants when it links,
 so the policy holds even where a static walk can't see an `import()` whose specifier is computed.
+In `fgro run` today the link-time check has one gap in who it takes the importer to be,
+an `import()` inside code compiled from a string by an indirect `eval` or `new Function` ([run](run.md#what-loads)).
 A run outside any project, or one that needs a grant just once, takes it by flag instead,
 in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
 and `-A` is the same flag at its widest.

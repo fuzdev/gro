@@ -380,7 +380,8 @@ Its type is `Process`'s for the members it carries, checked by a test against th
 
 `fgro run` grants `process` to the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused it,
-naming the package, and `fgro eval` grants it to no module ([eval](eval.md)).
+naming the package, and `fgro eval` grants it to no module ([eval](eval.md));
+an `import()` in code compiled from a string is the exception for now ([run](run.md#what-loads)).
 Its namespace has a `default` export of `undefined`, where Node's module has none.
 
 ## net

@@ -61,13 +61,17 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
 - Refused with the reason are a file imported with a `type` import attribute
-  (JSON modules among them; an attribute under any other key is ignored)
+  (JSON modules among them, until they land; an attribute under any other key is ignored for now, though the language requires its refusal)
   and a static import of a builtin module with any attribute,
-  any other extension (`.cjs`, `.json`, `.wasm`), `.cts`, `.tsx`, declaration files, Svelte modules,
+  any other extension (`.cjs`, which is CommonJS; `.json` and `.wasm`, not yet: JSON modules and WASM's ES module integration come later), `.cts`, `.tsx`, declaration files, Svelte modules,
   `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
   The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:
   none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
   A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
+- An `import()` inside code compiled from a string by an indirect `eval` or `new Function`
+  is attributed to the module that first compiled that exact string, which may not be the caller
+  (a direct `eval` keeps its caller),
+  so such an `import()` doesn't yet separate a package's reach from the project's.
 
 ## The global scope
 

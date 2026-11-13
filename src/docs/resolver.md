@@ -66,7 +66,8 @@ That scheme is refused like every other but `file:`, so only the table's specifi
 Whether an importer may import one is the loader's, checked when the graph links,
 for a static import and `import()` alike:
 the run must hold the module's grant, when it needs one, and only the project's own modules are granted one,
-so a module of an installed or linked package is refused, the message naming the grant and the package.
+so a module of an installed or linked package is refused, the message naming the grant and the package
+(but see [run](run.md#what-loads) for an `import()` in code compiled from a string).
 `fgro run` grants `process`, and `fgro eval` grants nothing ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 A static import of one with any import attribute (`with {type: 'json'}`, `with {x: 'y'}`) is refused before its grant is checked,
@@ -135,7 +136,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
   so a `node_modules` planted above a project never resolves.
   Any other `package.json` ends the walk, named or not,
   so an uninstalled project fails instead of resolving a parent directory's packages.
-  npm and yarn workspaces, whose packages install at the workspace's root, aren't supported.
+  npm and yarn workspaces, whose packages install at the workspace's root, aren't supported yet.
   Node searches every ancestor's `node_modules`.
 - **A file with no project root gets no bare imports except a self-reference,**
   which resolves through its own package's `"exports"` and stays inside its package's directory
@@ -174,7 +175,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
 - **A `.ts` file is always an ES module,** where Node reads `"type"` and the code and may run it as CommonJS;
   `.cts` is refused.
 - **A scoped name with an empty, `.`, or `..` segment is refused,** where Node accepts it.
-- **No other condition matches:** not `node`, `require`, `browser`, or `svelte`.
+- **No other condition matches:** not `node` or `require` (Node's), nor `browser` or `svelte`; the set grows only by a decision.
 - **A pattern's match can't hide a `..` behind a tab or a line break** (`.\t.`), which URL parsing drops,
   where Node substitutes it unchecked and loads what it names outside the package.
 - **A pattern's match can't make an empty segment the target doesn't have:**

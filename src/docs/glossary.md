@@ -54,7 +54,8 @@ The box for runs and their children is designed ([backstop](backstop.md#the-box-
 A [host module](#host-modules) the runtime implements itself, named by a bare specifier in the binary's builtin table,
 like `@fuzdev/gro/process.ts`, the one on `fgro` so far.
 It resolves ahead of package lookup to its `builtin:` URL, which imports nothing when written as is,
-and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links.
+and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links;
+`fgro eval` imports none.
 Not a builtin task, which Gro's CLI runs by name.
 [resolver](resolver.md#builtin-modules) has the rules.
 
@@ -142,6 +143,7 @@ Each is a visible edge in the import graph, so a run's host modules are [inferre
 Computing a run's grants from its import graph, before any code runs.
 Every way to reach authority is an import, so the walk proposes the whole set,
 and the loader enforces it at every link, so an `import()` the walk couldn't see (a computed specifier) is still checked against its importer's grants.
+One case isn't attributed to its caller in `fgro run` today, an `import()` inside code compiled from a string by an indirect `eval` or `new Function` ([run](run.md#what-loads)).
 Inference proposes; the loader enforces.
 What a grant reaches past the defaults, like named hosts or a read root outside the project, is [declared](#declared).
 A global would defeat it, since any expression can name one, which is why Gro has no [authority globals](#authority-globals).

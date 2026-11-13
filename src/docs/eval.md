@@ -165,7 +165,7 @@ Inert: `WeakRef` holds its target, so `deref()` always returns it;
    fails the eval with no value (`late_rejection`).
 7. With a driver that exports `after_drain`, it's called, and a throw is a `late_rejection` too.
 
-Every `import()` in the run is refused before anything is resolved, whatever it names,
+For now, every `import()` in the run is refused before anything is resolved, whatever it names (the loader can't tell a literal specifier from a computed one),
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
 caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md),
 and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
@@ -446,7 +446,7 @@ The path is joined by `/`, with `%`, `?`, and `#` percent-encoded,
 and a module's query and fragment join its id as its URL has them (`project:src/a.js?x#y`),
 so an import with a query or fragment is a module of its own, as it is to V8.
 The package's name and version are only in `origin`.
-Eval grants no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin.
+Eval grants no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin; an eval that links one names it by those, under a new `graph_version`.
 Absolute paths are only in `local`.
 Every array is sorted, so the dump is a function of what was read, not of the order the run reached it in.
 
