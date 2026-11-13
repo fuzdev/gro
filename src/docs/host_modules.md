@@ -502,12 +502,16 @@ The module's TSDoc has the contract.
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
-  the task or entry module where authority enters,
-  so the policy diff points at a few files a person can review.
+  the task or entry module where authority enters.
+  Inference is designed to propose a grant for every entry whose graph links the importing module,
+  whether or not that entry calls the code that uses it,
+  so importing at the roots keeps each entry's grants to what it wires, and review reads a few files.
 - Library code takes capabilities as parameters, through small dependency interfaces,
   the way a function takes its dependencies.
   Tests then pass real handles on a temp directory or plain-object mocks, with no module mocking,
   and a library given fs needs no policy entry of its own, since handing is delegation, not a new grant.
+  It also stays runtime-neutral: a library that imports a host module runs only where that specifier resolves,
+  and one that takes a `fetch` or a handle's interface as a parameter runs wherever its caller can supply one.
 - Name a handle's type with `import type`, never `import {type FsDir}`.
   Under `verbatimModuleSyntax` the second form keeps the import,
   so the host module still links and the library looks like it reaches fs.

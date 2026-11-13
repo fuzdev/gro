@@ -118,7 +118,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   for the whole invocation and every child, so an op-check bug, an engine escape, or a spawned tool still lands in a box;
   children get the project read-only and only the declared write roots writable ([backstop](backstop.md)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
-  (scoped checks inside a grant fail at the call, reported so a `try/catch` can't hide them),
+  (scoped checks inside a grant fail at the call, designed to be reported so a `try/catch` can't hide them),
   and the fix is a diff and a fixed command, never a question mid-run.
 - **The bound against a hostile dependency** is the invocation's whole grant set and the kernel box, not the realm:
   one realm shares its prototypes, so attribution catches overreach and the box bounds the deliberate
@@ -193,7 +193,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
   [typescript](typescript.md) has the rules, the refused list, and the file types.
-- **No ambient authority** (the link-time check built, the grant flags designed). The grant set is a constructor argument of the runtime,
+- **No ambient authority** (the link-time check built, the grant flags and the seal designed). The grant set is a constructor argument of the runtime,
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
   so an ungranted module fails at link time, not at the first call.

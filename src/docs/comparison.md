@@ -75,14 +75,15 @@ Most of Gro's permission model follows from the first of these:
 - **Who holds a grant.** A Gro grant belongs to the module graph that imports the host module,
   and a dependency's reach is attributed to the import chain that brought it in,
   so the diff names the package whose import newly reaches the network, or any other authority.
-  A capability handed down by reference stays attributed to the module that imported it;
+  A capability handed down by reference stays attributed to the project or package whose module imported it;
   handing never widens, and what a root hands to a library shows in the root's code, not the diff.
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
   with a `NotCapable` error the code can catch, so a denial can go unreported (it's still denied).
-  Gro denies before the code runs: an ungranted host module doesn't link,
+  Gro denies before the code runs: an ungranted host module doesn't link
+  (a computed `import()` of one is refused at the call, which code can catch),
   and there's no global `fetch` to reach around it.
   What's left for the call is the scoped check inside a grant
-  (a path outside the root, a host not accepted), and the host reports those too.
+  (a path outside the root, a host not accepted), and the host is designed to report those too.
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task,
   loads a named permission set from `deno.json` (`-P`, since 2.5), or takes `-A`.

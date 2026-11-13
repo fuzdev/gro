@@ -9,7 +9,9 @@
 ## access manifest
 
 The record of what a run actually used (files read, processes spawned, env read, hosts reached),
-taken by the host as each call happens and attributed to the module that made the call.
+taken by the host as each call happens.
+A host op isn't told which module called it, and finding out takes a stack walk per call,
+so how finely a use is attributed (the entry, a package, or a module) is open.
 It's evidence of [use](#reach-need-and-use), and it enforces nothing.
 
 ## admission
@@ -63,7 +65,7 @@ Not a builtin task, which Gro's CLI runs by name.
 
 The module where capabilities enter a program and get handed down,
 like a task file, an entry module, or a server's main.
-It's where host modules are best imported, so the policy diff points at a few files.
+It's where host modules are best imported, since inference proposes a grant for every entry whose graph links the importing module ([host modules](host_modules.md#where-to-import-them)).
 
 ## confined
 
@@ -121,7 +123,7 @@ Handles are [narrowed](#narrowing) and passed down like any other argument.
 ## handing
 
 Passing a [handle](#handle) to other code.
-Handing never widens what the policy sees, since a handed capability stays attributed to the module that imported it.
+Handing never widens what the policy sees, since a handed capability stays attributed to the origin, the project or a package, whose module imported it.
 A grant limits what code can obtain, never what it's given.
 
 ## hermetic
@@ -228,8 +230,9 @@ Three views of what code can do, each answered in a different place:
 - **use** is what a run actually did, recorded dynamically in the [access manifest](#access-manifest),
   which is evidence, not enforcement
 
-Importing host modules deep in library code makes reach fine-grained.
-Passing them as parameters keeps reach at the roots and puts the detail in need and use.
+Reach is per [origin](#origin) and entry, never per module:
+importing a host module deep in library code proposes its grant for every entry that links the module,
+while passing handles as parameters keeps each entry's reach to what its composition root wires and puts the detail in need and use.
 
 ## realm
 

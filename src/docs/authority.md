@@ -19,7 +19,9 @@ These terms carry this doc, and the [glossary](glossary.md) defines them and the
   Gro has none, since a global reaches every module in the graph:
   each is an import instead, if Gro implements it (the network is the `net` import),
   and every other web global is pure
-- a **grant** is one accepted reach, like a host module, named hosts, or a read root
+- a **grant** is one accepted reach, like a host module, named hosts, or a read root,
+  accepted for an entry and held by an [origin](glossary.md#origin), the project or one package,
+  so any module of that origin may import what it's granted, and nothing is scoped per module
 - the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
   hermetic (replayable), confined (bounded), or unconfined
@@ -206,7 +208,7 @@ Authority could reach code two ways, and Gro has only the first. The table is wh
 | existing packages  | the ones written to take it                              | the ones that call the global today               |
 | in the code        | passed down the call graph                               | reachable from anywhere                           |
 
-With no authority global, every reach is an import edge, so inference proposes the whole grant set,
+With no authority global, every reach starts at an import edge, so inference proposes the whole grant set,
 the loader enforces it at every link, and the policy diff attributes every newly imported authority to a package.
 Both columns describe code that doesn't patch shared prototypes;
 against a dependency that does, the [threat model](#threat-model) says where the bound is.
@@ -218,7 +220,7 @@ There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` 
 The net grant is inferred from the graph like a filesystem one, and the hosts it reaches are declared.
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
 and the scoped checks inside a grant (a path outside a root, a host not accepted) are the host's, at the call,
-reported so a `try/catch` can't hide them.
+and designed to be reported so a `try/catch` can't hide them (today a caught one is silent).
 
 Where the import happens matters: at the [composition root](glossary.md#composition-root),
 the task or entry module where authority enters, with library code taking capabilities as parameters
@@ -231,6 +233,11 @@ A single-file script is its own root and imports directly.
 The cost is that the policy sees [reach](glossary.md#reach-need-and-use) only at the roots.
 What a library needs shows in its parameter types, what it used shows in the [access manifest](glossary.md#access-manifest),
 and what the root hands to whom is in the root's code, not the policy file.
+Nothing mechanical checks that hand, so a root passing a whole handle where a narrowed one would do raises no diff.
+What it buys is a bound per callee rather than per origin, like one subdirectory or one of the accepted hosts,
+and it binds only code whose origin isn't granted the host module itself:
+a dependency holds what it's handed, while a project module can import whatever the project is granted,
+so for first-party code a narrowed handle is a convention review reads, not a limit.
 A grant limits what code can obtain, never what it's given,
 so even enforced per package it bounds the importer, not the code the importer hands to.
 
@@ -252,6 +259,10 @@ Security is the north star, and it isn't finished.
 The design doesn't have every answer, and these are the ones it knows it's missing
 (the kernel layer's own are in [backstop](backstop.md#open)):
 
+- **Holding a package to its own scope.** A scoped grant accepted for one package (its hosts, its roots)
+  bounds that package only if its import yields a handle bound to that scope,
+  an instance of the host module per origin, where one shared instance would hold the run's union.
+  That instance is the design's direction and isn't built; how a host call is attributed more finely than its entry is open with it.
 - **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
   normal case, and a signed acceptance that needs a person's presence is designed, built only if
   the measured widening rate makes its friction worth it.
