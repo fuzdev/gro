@@ -1384,12 +1384,12 @@ const create_read_dir = (real_path: string): FsReadDir =>
 const create_dir = (real_path: string): FsDir =>
 	Object.freeze(new NodeFsDir(HANDLE_KEY, real_path));
 
-// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
 /**
  * The fs host module's root handle. Import it where authority enters
  * (a task, a script, an entry module) and hand narrower handles down.
  */
 export const fs: Fs = Object.freeze(
+	// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
 	create_record<Fs>({
 		project: create_dir(to_checked_cwd()),
 		open_dir: async (path: string): Promise<FsDir> => {
