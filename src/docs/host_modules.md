@@ -550,6 +550,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - A handle's state lives in private fields, and every op reads it from there,
   so an op called on a borrowed receiver, any object but a handle, throws `TypeError`.
 - Handles, their prototypes, `fs`, and `FsError` with its prototype are frozen.
+  Handles, `fs`, an `FsPaths`, and the opened paths it returns are null-prototype,
+  so none of them is thenable, even with a polluted `Object.prototype.then`.
 - `remove` and `rename` refuse the handle's own directory.
 - A path's `..` segments resolve lexically, before any symlink, and never climb above the handle.
   A path is a string without a NUL byte or a lone surrogate, which would encode as U+FFFD
@@ -570,7 +572,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   and hold their pin, the path they run at, `argv[0]`, and environment in private fields,
   so a method called on any other object throws `TypeError` and changing `path` changes nothing that runs.
 - Handles, their prototypes, `spawn`, results, and `SpawnError` with its prototype are frozen.
-- A result is a null-prototype record, so a polluted `Object.prototype.then` isn't consulted when it's awaited.
+- Handles, `spawn`, and a `spawn_restartable` are null-prototype, and a result is a null-prototype record,
+  so a polluted `Object.prototype.then` isn't consulted when one is awaited.
 - A `SpawnChild`, its stdin, its output iterables, and their iterators are frozen,
   and hold their stream and child in private fields, so a reader can't reach the stream underneath.
   Their prototypes are frozen and null-prototype, so none of them is thenable, even with a polluted `Object.prototype.then`.

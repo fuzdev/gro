@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { vi } from 'vitest';
+import { assert, vi } from 'vitest';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
@@ -122,3 +122,25 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	timings: create_mock_timings(),
 	invoke_task: vi.fn()
 });
+
+/**
+ * Asserts that `value`, returned from an async function while `Object.prototype.then` is
+ * polluted, resolves to itself, the polluted `then` never called.
+ */
+export const assert_awaits_as_itself = async (value: object): Promise<void> => {
+	let calls = 0;
+	(Object.prototype as any).then = function (resolve: (value: string) => void) {
+		calls++;
+		resolve('forged');
+	};
+	let returned: Promise<unknown>;
+	try {
+		// the return resolves the promise, which reads `then` synchronously, so nothing awaits
+		// while it's polluted
+		returned = (async () => value)();
+	} finally {
+		delete (Object.prototype as any).then;
+	}
+	assert.strictEqual(await returned, value);
+	assert.strictEqual(calls, 0);
+};

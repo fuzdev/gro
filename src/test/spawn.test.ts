@@ -16,6 +16,7 @@ import { join, relative } from 'node:path';
 import { spawn, type Spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { SpawnError, is_spawn_error, type SpawnErrorKind } from '#lib/spawn_error.ts';
 import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import { assert_awaits_as_itself } from './test_helpers.ts';
 
 const SYSTEM_PATH = process.env.PATH;
 
@@ -1317,6 +1318,13 @@ describe('handles', () => {
 			Object.create = original_create;
 		}
 		assert.strictEqual(program.name, 'ok');
+	});
+
+	test('the root and handles await as themselves, even with a polluted `then`', async () => {
+		process.env.PATH = bin;
+		write_script(join(bin, 'ok'), 'exit 0');
+		const handles = [spawn, spawn.narrow(['ok']), spawn.program('ok'), spawn.find('ok')!];
+		for (const handle of handles) await assert_awaits_as_itself(handle);
 	});
 
 	test('the root, handles, results, and their prototypes are frozen', async () => {

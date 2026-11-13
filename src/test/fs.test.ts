@@ -21,6 +21,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
+import { assert_awaits_as_itself } from './test_helpers.ts';
 
 let sandbox: FsSandbox;
 let dir: FsDir;
@@ -453,7 +454,7 @@ describe('narrowing', () => {
 		for (const handle of [dir, read_only, dir.readonly().dir('.')]) {
 			const proto = Object.getPrototypeOf(handle);
 			assert.ok(Object.isFrozen(handle));
-			for (let p = proto; p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+			for (let p = proto; p !== null; p = Object.getPrototypeOf(p)) {
 				assert.ok(Object.isFrozen(p));
 				assert.ok(Object.isFrozen(p.constructor));
 			}
@@ -495,7 +496,7 @@ describe('narrowing', () => {
 		for (const [kind, handle] of Object.entries(handles)) {
 			for (
 				let proto = Object.getPrototypeOf(handle);
-				proto !== Object.prototype;
+				proto !== null;
 				proto = Object.getPrototypeOf(proto)
 			) {
 				const keys = [...Object.getOwnPropertyNames(proto), ...Object.getOwnPropertySymbols(proto)];
@@ -563,6 +564,18 @@ describe('narrowing', () => {
 		assert.throws(() => {
 			Reflect.construct((temp as any).constructor, [sandbox.outside]);
 		}, TypeError);
+	});
+
+	test('a handle awaits as itself, even with a polluted `Object.prototype.then`', async () => {
+		mkdirSync(join(sandbox.root, 'sub'));
+		await using temp = await fs.temp_dir('gro-fs-then-');
+		for (const handle of [fs.project, dir, dir.readonly(), dir.dir('sub'), temp]) {
+			await assert_awaits_as_itself(handle);
+		}
+	});
+
+	test('`fs` awaits as itself, even with a polluted `Object.prototype.then`', async () => {
+		await assert_awaits_as_itself(fs);
 	});
 });
 

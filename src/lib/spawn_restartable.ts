@@ -67,7 +67,7 @@ const copy_start_options = (options: SpawnStartOptions): SpawnStartOptions => {
  * @param args - the arguments after `argv[0]`, copied now
  * @param options - the options of every `start`, `stdio` included, stdio inherited by default,
  *   copied now, with `signal` kept so an abort still stops a child
- * @returns the restartable child
+ * @returns the restartable child, frozen and null-prototype
  * @throws `SpawnError` - `launch_failed`, as `SpawnProgram.start` does
  */
 export const spawn_restartable = async (
@@ -124,7 +124,8 @@ export const spawn_restartable = async (
 
 	const stop = (): Promise<void> => enqueue('stop', do_stop);
 
-	return {
+	// frozen and null-prototype, as spawn's handles are, so awaiting it adopts no polluted `then`
+	const restartable: SpawnRestartable = {
 		restart,
 		stop,
 		get active() {
@@ -137,4 +138,6 @@ export const spawn_restartable = async (
 			return closed;
 		}
 	};
+	Object.setPrototypeOf(restartable, null);
+	return Object.freeze(restartable);
 };

@@ -1,10 +1,11 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, assert, expect } from 'vitest';
 
 import { spawn_restartable } from '#lib/spawn_restartable.ts';
 import type { SpawnChild, SpawnResult, SpawnStartOptions, SpawnStdio } from '#lib/spawn.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
 
 import { create_mock_child, create_mock_spawn, type MockSpawn } from './spawn_mocks.ts';
+import { assert_awaits_as_itself } from './test_helpers.ts';
 
 /**
  * A mock spawn whose children record their disposal, `closed` resolving once disposed.
@@ -115,6 +116,12 @@ describe('spawn_restartable', () => {
 		expect(restarts[0]).toBe(restarts[1]);
 		expect(mock.calls).toHaveLength(2);
 		expect(mock.disposed).toEqual([0]);
+	});
+
+	test('awaits as itself, even with a polluted `Object.prototype.then`', async () => {
+		const restartable = await spawn_restartable(create_spawn().program('deno'));
+		assert.ok(Object.isFrozen(restartable));
+		await assert_awaits_as_itself(restartable);
 	});
 
 	test('stop disposes the child and waits for it, then is inactive', async () => {

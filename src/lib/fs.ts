@@ -9,6 +9,7 @@
  * and `fs.temp_dir` makes a fresh one that removes itself on `await using`.
  * Only `fs` and other handles make handles, and handles and their prototypes are frozen,
  * so a handle's `constructor` makes nothing and no holder can patch another's ops.
+ * They and `fs` are null-prototype, so awaiting one adopts no polluted `Object.prototype.then`.
  * Each op reads its handle's state from private fields, never `path`, so an op called
  * on any other object throws `TypeError`.
  *
@@ -1367,11 +1368,18 @@ class NodeFsTempDir extends NodeFsDir implements AsyncDisposable {
 	}
 }
 
-// frozen, so one holder of a handle can't patch the ops another holder calls
+// null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value,
+// the subclasses through this base, and frozen, so one holder of a handle can't patch the ops
+// another holder calls
+Object.setPrototypeOf(NodeFsReadDir.prototype, null);
 for (const handle_class of [NodeFsReadDir, NodeFsDir, NodeFsTempDir]) {
 	Object.freeze(handle_class.prototype);
 	Object.freeze(handle_class);
 }
+
+// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
+const create_frozen_record = <T extends object>(fields: T): T =>
+	Object.freeze(Object.assign(Object.create(null) as T, fields));
 
 const create_read_dir = (real_path: string): FsReadDir =>
 	Object.freeze(new NodeFsReadDir(HANDLE_KEY, real_path));
@@ -1383,7 +1391,7 @@ const create_dir = (real_path: string): FsDir =>
  * The fs host module's root handle. Import it where authority enters
  * (a task, a script, an entry module) and hand narrower handles down.
  */
-export const fs: Fs = Object.freeze({
+export const fs: Fs = create_frozen_record<Fs>({
 	project: create_dir(to_checked_cwd()),
 	open_dir: async (path: string): Promise<FsDir> => {
 		assert_path_string(path);

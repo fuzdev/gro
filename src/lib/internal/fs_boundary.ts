@@ -12,7 +12,7 @@
 import { readlink, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
-import type { Fs, FsCopyOptions, FsRemoveOptions } from '../fs.ts';
+import type { Fs, FsCopyOptions, FsDir, FsRemoveOptions } from '../fs.ts';
 import { FsError, is_fs_error, type FsErrorKind } from '../fs_error.ts';
 import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
 import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
@@ -158,6 +158,11 @@ const to_refusal_subject = (path: string, target: string): string =>
 
 const strip_trailing_slashes = (path: string): string => path.replace(/(.)\/+$/, '$1');
 
+// null-prototype, so awaiting one adopts no polluted `Object.prototype.then`, which it would hand
+// the handle
+const to_opened_path = (dir: FsDir, path: string): FsOpenedPath =>
+	Object.assign(Object.create(null) as FsOpenedPath, { dir, path });
+
 /**
  * Builds the boundary's ops over `fs`, each path resolved to absolute by `to_absolute`,
  * lexically, before any symlink is followed. `FsPaths` documents each op.
@@ -180,14 +185,14 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		const real = await to_real_path(to_absolute(path));
 		const relative = to_project_relative(real);
 		if (relative !== null) {
-			return { dir: project, path: relative && relative + suffix };
+			return to_opened_path(project, relative && relative + suffix);
 		}
-		if (real === '/') return { dir: await fs.open_dir('/'), path: '' };
+		if (real === '/') return to_opened_path(await fs.open_dir('/'), '');
 		let dir_path = dirname(real);
 		for (;;) {
 			const rest = real.slice(dir_path === '/' ? 1 : dir_path.length + 1);
 			try {
-				return { dir: await fs.open_dir(dir_path), path: rest + suffix };
+				return to_opened_path(await fs.open_dir(dir_path), rest + suffix);
 			} catch (error) {
 				if (!is_fs_error(error, 'not_found') || dir_path === '/') throw error;
 				dir_path = dirname(dir_path);
@@ -198,9 +203,9 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 	const open_dir_path = async (path: string): Promise<FsOpenedPath | null> => {
 		const real = await to_real_path(to_absolute(path));
 		const relative = to_project_relative(real);
-		if (relative !== null) return { dir: project, path: relative };
+		if (relative !== null) return to_opened_path(project, relative);
 		try {
-			return { dir: await fs.open_dir(real), path: '' };
+			return to_opened_path(await fs.open_dir(real), '');
 		} catch (error) {
 			if (is_fs_error(error, 'not_found')) return null;
 			throw error;
@@ -277,13 +282,16 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		await parent.dir.remove(path.endsWith('/') ? entry + '/' : entry, options);
 	};
 
-	return Object.freeze({
-		project,
-		open_path,
-		open_dir_path,
-		search_path,
-		copy_path,
-		empty_dir_path,
-		remove_path
-	});
+	// null-prototype, as the fs handles are, so awaiting it adopts no polluted `then`
+	return Object.freeze(
+		Object.assign(Object.create(null) as FsPaths, {
+			project,
+			open_path,
+			open_dir_path,
+			search_path,
+			copy_path,
+			empty_dir_path,
+			remove_path
+		})
+	);
 };

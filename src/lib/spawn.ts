@@ -41,7 +41,7 @@
  * `signal` had already aborted included, which starts nothing. Handles come only from
  * this module, hold their pin, the path they run at, `argv[0]`, and environment in private
  * fields, and are frozen with their prototypes, so a method called on any other object throws
- * `TypeError`.
+ * `TypeError`. They're null-prototype, so awaiting one adopts no polluted `Object.prototype.then`.
  * `spawn.narrow(names)` keeps only named programs, and narrowing can only shrink.
  * A narrowed root refuses `env`, which turns a named program into arbitrary execution
  * (`LD_PRELOAD`), and `pass_env: 'all'` and `pass_env` globs, so a holder of a narrowed root
@@ -2302,15 +2302,11 @@ class NodeSpawn implements Spawn {
 	}
 }
 
-// frozen, so one holder of a handle can't patch the ops another holder calls
-for (const handle_class of [NodeSpawn, NodeSpawnProgram]) {
-	freeze(handle_class.prototype);
-	freeze(handle_class);
-}
-
-// the child and what it holds are also null-prototype, so a polluted `Object.prototype.then` can't
-// make `await child` adopt a forged value
+// frozen, so one holder of a handle can't patch the ops another holder calls, and null-prototype,
+// so a polluted `Object.prototype.then` can't make `await` adopt a forged value
 for (const handle_class of [
+	NodeSpawn,
+	NodeSpawnProgram,
 	NodeSpawnChild,
 	NodeSpawnStdin,
 	NodeSpawnOutput,

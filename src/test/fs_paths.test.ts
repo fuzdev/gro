@@ -12,6 +12,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
+import { assert_awaits_as_itself } from './test_helpers.ts';
 
 /*
 
@@ -38,6 +39,17 @@ describe('create_fs_paths', () => {
 	test("`project` is the root's project, and the result is frozen", () => {
 		assert.strictEqual(fs_paths.project, sandbox.dir);
 		assert.ok(Object.isFrozen(fs_paths));
+	});
+
+	test('it and its opened paths await as themselves, even with a polluted `then`', async () => {
+		await assert_awaits_as_itself(fs_paths);
+		mkdirSync(join(sandbox.outside, 'd'));
+		for (const path of ['a.txt', '.', join(sandbox.outside, 'd/new.txt'), '/']) {
+			await assert_awaits_as_itself(await fs_paths.open_path(path));
+		}
+		for (const path of ['.', join(sandbox.outside, 'd')]) {
+			await assert_awaits_as_itself((await fs_paths.open_dir_path(path))!);
+		}
 	});
 
 	test('a relative path resolves against the project, not the cwd', async () => {
