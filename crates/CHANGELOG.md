@@ -21,6 +21,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   `fgro run` grants it to the project's own modules: a package's module is refused it when the graph links,
   and can't import the project's own modules by name to reach it through one,
   and `fgro eval` imports no builtin module.
+  The `.js` spelling `@fuzdev/gro/process.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts` and the rest),
+  are refused, as is a respelling of these or of `@fuzdev/gro/process.ts` (`@fuzdev/gro/f%73.ts`, `@fuzdev/gro/proces%73.ts`), never loaded from the npm package.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.
   TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.

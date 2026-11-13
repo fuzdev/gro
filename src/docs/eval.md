@@ -174,6 +174,7 @@ and the refusal names the real path, so evaluated code can tell whether a path e
 Eval imports no builtin module for now, a grant-free one included, so a host module's import, `@fuzdev/gro/process.ts` among them, is refused when the graph links,
 a `resolve` naming the grant it needs when it has one ([resolver](resolver.md#builtin-modules)),
 or, with an import attribute, a `link`.
+A specifier the builtin table reserves (`@fuzdev/gro/process.js`, a host module not built yet, a respelling of either or of a builtin module's) is a `resolve` before that, as in [run](run.md).
 
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 

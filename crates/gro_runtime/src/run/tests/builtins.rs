@@ -649,3 +649,200 @@ for (const reach of [hop, where]) {
     let url = url::Url::parse(BUILTINS[0].url).unwrap();
     assert!(!graph.records().contains_key(&url));
 }
+
+/// An installed `@fuzdev/gro` whose `"exports"` would serve every host
+/// module's specifier, as the npm package's do, its modules loading fine,
+/// and a package `dep` that imports them.
+const SHADOW: [(&str, &str); 5] = [
+    (
+        "node_modules/@fuzdev/gro/package.json",
+        r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./*.js": "./*.js", "./*.ts": "./*.js"}}"#,
+    ),
+    (
+        "node_modules/@fuzdev/gro/fs.js",
+        "export const fs = 'SHADOW';\n",
+    ),
+    (
+        "node_modules/@fuzdev/gro/process.js",
+        "export const process = 'SHADOW';\n",
+    ),
+    (
+        "node_modules/dep/package.json",
+        r#"{"name": "dep", "type": "module", "exports": {"./reach.js": "./reach.js", "./static.js": "./static.js"}}"#,
+    ),
+    (
+        "node_modules/dep/reach.js",
+        "export const load = (specifier) => import(specifier);\n\
+         export const where = (specifier) => import.meta.resolve(specifier);\n",
+    ),
+];
+
+/// A reserved specifier never reaches the installed package, from the
+/// project or a package, by `import()`, `import.meta.resolve`, or a static
+/// import, granted or not, each refusal naming what to import or that the
+/// module isn't on `fgro` yet.
+#[test]
+fn a_reserved_specifier_is_refused_ahead_of_the_package() {
+    let main = "import { load, where } from 'dep/reach.js';
+const cases = [
+\t['@fuzdev/gro/process.js', \"Fix: import '@fuzdev/gro/process.ts'\"],
+\t['@fuzdev/gro/fs.ts', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
+\t['@fuzdev/gro/fs.js', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
+];
+const reaches = [
+\t(specifier) => import(specifier),
+\t(specifier) => import.meta.resolve(specifier),
+\tload,
+\twhere,
+];
+for (const [specifier, words] of cases) {
+\tfor (const reach of reaches) {
+\t\ttry {
+\t\t\tawait reach(specifier);
+\t\t\tthrow new Error(`reached ${specifier}`);
+\t\t} catch (error) {
+\t\t\tif (!(error instanceof TypeError) || !error.message.includes(words)) throw error;
+\t\t}
+\t}
+}
+";
+    let mut files = SHADOW.to_vec();
+    files.push(("main.mjs", main));
+    for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
+        let options = RuntimeOptions {
+            authority,
+            ..RuntimeOptions::default()
+        };
+        let (result, graph) = run_files(&format!("reserved_{case}"), &files, options);
+        assert!(result.is_ok(), "{case}: {result:?}");
+        let reasons: Vec<_> = graph
+            .failures()
+            .iter()
+            .filter(|(site, _)| site.specifier == "@fuzdev/gro/fs.ts")
+            .flat_map(|(site, failures)| failures.iter().map(move |failure| (site, failure)))
+            .map(|(site, failure)| (site.reached, failure.reason.clone()))
+            .collect();
+        let reserved = FailureReason::Resolve(ResolveErrorKind::Reserved(
+            crate::resolver::Reserved::Unbuilt("@fuzdev/gro/fs"),
+        ));
+        assert_eq!(reasons.len(), 4, "{case}: {reasons:?}");
+        for (reached, reason) in reasons {
+            assert!(
+                matches!(
+                    reached,
+                    Reached::Import(Reach::Dynamic) | Reached::MetaResolve
+                ),
+                "{case}"
+            );
+            assert_eq!(reason, reserved, "{case}");
+        }
+    }
+    let mut files = SHADOW.to_vec();
+    files.push((
+        "node_modules/dep/static.js",
+        "import { process } from '@fuzdev/gro/process.js';\nexport default process;\n",
+    ));
+    files.push(("main.mjs", "import 'dep/static.js';\n"));
+    let (result, graph) = run_files("reserved_static", &files, RuntimeOptions::default());
+    let Err(RunError::Uncaught(report)) = result else {
+        panic!("{result:?}");
+    };
+    assert!(
+        report.contains(&format!(
+            "cannot resolve '@fuzdev/gro/process.js' from file://{}/node_modules/dep/static.js: \
+             it is the .js spelling of the builtin module '@fuzdev/gro/process.ts', reserved so \
+             it never resolves to a package. Fix: import '@fuzdev/gro/process.ts'",
+            graph.roots().project().dir.display()
+        )),
+        "{report}"
+    );
+}
+
+/// A respelled builtin or reserved specifier (percent-encoded, or with a
+/// query or fragment the package's `"exports"` pattern would cut) never
+/// reaches the installed package either, from the project or a package, by
+/// `import()`, `import.meta.resolve`, or a static import, while a neighbor
+/// that names another of the package's modules still loads from it.
+#[test]
+fn a_respelled_specifier_is_refused_ahead_of_the_package() {
+    let main = "import { load, where } from 'dep/reach.js';
+const respells = \"respells the builtin module '@fuzdev/gro/process.ts', reserved so no spelling \
+of it resolves to a package. Fix: import '@fuzdev/gro/process.ts'\";
+const fs = \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\";
+const cases = [
+\t['@fuzdev/gro/proces%73.ts', respells],
+\t['@fuzdev/gro/process.ts?x', respells],
+\t['@fuzdev/gro/process.js#.ts', \"Fix: import '@fuzdev/gro/process.ts'\"],
+\t['@fuzdev/gro/f%73.ts', fs],
+\t['@fuzdev/gro/fs.js?.ts', fs],
+];
+const reaches = [
+\t(specifier) => import(specifier),
+\t(specifier) => import.meta.resolve(specifier),
+\tload,
+\twhere,
+];
+for (const [specifier, words] of cases) {
+\tfor (const reach of reaches) {
+\t\ttry {
+\t\t\tawait reach(specifier);
+\t\t\tthrow new Error(`reached ${specifier}`);
+\t\t} catch (error) {
+\t\t\tif (!(error instanceof TypeError) || !error.message.includes(words)) throw error;
+\t\t}
+\t}
+}
+for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fuzdev/gro/fs_paths.ts')]) {
+\tif (neighbor.fs_paths !== 'PATHS') throw new Error('no neighbor');
+}
+";
+    let mut files = SHADOW.to_vec();
+    files.push((
+        "node_modules/@fuzdev/gro/fs_paths.js",
+        "export const fs_paths = 'PATHS';\n",
+    ));
+    files.push(("main.mjs", main));
+    for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
+        let options = RuntimeOptions {
+            authority,
+            ..RuntimeOptions::default()
+        };
+        let (result, _) = run_files(&format!("respelled_{case}"), &files, options);
+        assert!(result.is_ok(), "{case}: {result:?}");
+    }
+    for (case, importer, source) in [
+        (
+            "project",
+            "main.mjs",
+            "import { process } from '@fuzdev/gro/proces%73.ts';\nexport default process;\n",
+        ),
+        (
+            "package",
+            "node_modules/dep/static.js",
+            "import { process } from '@fuzdev/gro/proces%73.ts';\nexport default process;\n",
+        ),
+    ] {
+        let mut files = SHADOW.to_vec();
+        files.push((importer, source));
+        if importer != "main.mjs" {
+            files.push(("main.mjs", "import 'dep/static.js';\n"));
+        }
+        let options = RuntimeOptions {
+            authority: granted(),
+            ..RuntimeOptions::default()
+        };
+        let (result, graph) = run_files(&format!("respelled_static_{case}"), &files, options);
+        let Err(RunError::Uncaught(report)) = result else {
+            panic!("{case}: {result:?}");
+        };
+        assert!(
+            report.contains(&format!(
+                "cannot resolve '@fuzdev/gro/proces%73.ts' from file://{}/{importer}: it \
+                 respells the builtin module '@fuzdev/gro/process.ts', reserved so no spelling \
+                 of it resolves to a package. Fix: import '@fuzdev/gro/process.ts'",
+                graph.roots().project().dir.display()
+            )),
+            "{case}: {report}"
+        );
+    }
+}

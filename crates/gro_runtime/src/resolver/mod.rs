@@ -17,6 +17,8 @@
 //! A bare specifier the builtin table names ([`BUILTINS`]) resolves to that
 //! builtin ([`Resolved::Builtin`]) before any package lookup, reading
 //! nothing; whether its importer may import it is the loader's to decide.
+//! One the table reserves ([`find_reserved`]) is refused there, for every
+//! importer, reading nothing.
 //!
 //! Details the published doc leaves to the code:
 //!
@@ -72,7 +74,9 @@ mod tests;
 mod tree;
 mod walk;
 
-pub use builtin::{BUILTINS, Builtin, Capability, find_builtin};
+pub use builtin::{
+    BUILTINS, Builtin, Capability, Reserved, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
+};
 pub(crate) use builtin::{builtin_rows, builtin_url};
 pub use entry::{EntryBound, resolve_entry, resolve_entry_with_bound};
 pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault};
@@ -141,7 +145,8 @@ pub enum Resolved {
 /// both, and a package's module never reaches the project's root by one.
 /// The result names the root it is inside, which a caller admits for a
 /// package; nothing is admitted here. A bare specifier the builtin table
-/// names is that builtin, whoever imports it, and nothing is read.
+/// names is that builtin, whoever imports it, and one it reserves is
+/// refused, and nothing is read for either.
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
 /// importer's path, since it decides containment: a caller that recorded
@@ -208,6 +213,9 @@ pub(crate) fn resolve_from(
             // ahead of the package lookup, so no `package.json` is read
             if let Some(builtin) = find_builtin(specifier) {
                 return Ok(Resolved::Builtin(builtin));
+            }
+            if let Some(reserved) = find_reserved(specifier) {
+                return Err(error(ResolveErrorKind::Reserved(reserved)));
             }
             // only a bare specifier walks from the importer's path
             let importer_path = importer_path(importer).map_err(error)?;

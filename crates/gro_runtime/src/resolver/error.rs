@@ -5,6 +5,7 @@ use std::io;
 use std::path::PathBuf;
 
 use super::CONDITIONS;
+use super::builtin::Reserved;
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
 
@@ -34,6 +35,12 @@ pub enum ResolveErrorKind {
     UnsupportedScheme(String),
     /// A `#` package import.
     PackageImport,
+    /// A specifier the builtin table reserves without serving: the `.js`
+    /// spelling of a builtin module's, a host module's not built yet, or a
+    /// respelling of either or of a builtin module's. It's refused ahead of
+    /// any package lookup, so it never resolves to a package, gro's own Node
+    /// implementation included.
+    Reserved(Reserved),
     /// The empty string.
     Empty,
     /// A specifier, its resolved URL, or its importer that isn't a valid
@@ -381,6 +388,23 @@ impl fmt::Display for ResolveErrorKind {
             Self::PackageImport => f.write_str(
                 "it is a # package import; package.json \"imports\" are not supported yet. \
                  Fix: import the file by a relative path",
+            ),
+            Self::Reserved(Reserved::JsSpelling(builtin)) => write!(
+                f,
+                "it is the .js spelling of the builtin module '{}', reserved so it never \
+                 resolves to a package. Fix: import '{0}'",
+                builtin.specifier
+            ),
+            Self::Reserved(Reserved::Respelled(builtin)) => write!(
+                f,
+                "it respells the builtin module '{}', reserved so no spelling of it resolves to \
+                 a package. Fix: import '{0}'",
+                builtin.specifier
+            ),
+            Self::Reserved(Reserved::Unbuilt(stem)) => write!(
+                f,
+                "it names Gro's host module '{stem}.ts', which isn't on fgro yet, and a host \
+                 module's specifier never resolves to a package. Fix: run this under Node with gro"
             ),
             Self::Empty => f.write_str("the specifier is empty"),
             Self::InvalidUrl(fault) => write!(f, "not a valid file URL: {fault}"),

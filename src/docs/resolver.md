@@ -58,7 +58,13 @@ A bare specifier in the builtin table names a [builtin module](glossary.md#built
 today `@fuzdev/gro/process.ts` alone ([host modules](host_modules.md#process-on-fgro)).
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
-another spelling, like `@fuzdev/gro/process.js`, is a package specifier like any other.
+the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/process.js`), and the specifier of a host module not built on `fgro` yet
+(`@fuzdev/gro/fs.ts`, `spawn`, `net`, and `watch`, each with its `.js` spelling), are refused the same way, naming the one to import
+or that the module isn't on `fgro` yet, never looked up as a package, so none of them changes meaning when its builtin module lands.
+So is a respelling of any of these or of a builtin module's specifier, one whose subpath a package's `"exports"` would turn into the same path
+(percent-encoding as in `@fuzdev/gro/proces%73.ts`, a query or fragment as in `@fuzdev/gro/fs.js?.ts`, a tab or line break):
+the resolver reads its subpath as URL parsing and the path's decoding do, whatever patterns the installed package has.
+Any other spelling, like `@fuzdev/gro/process`, is a package specifier like any other.
 A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/process.ts`),
 with no file, root, or origin, and it imports nothing.
 That scheme is refused like every other but `file:`, so only the table's specifier reaches a builtin module.

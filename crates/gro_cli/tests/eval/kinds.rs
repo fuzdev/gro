@@ -321,3 +321,81 @@ fn a_package_importing_the_project_by_name_is_a_resolve() {
     let run = eval(&[&scratch.path("where.js")]);
     run.assert_value(&json!({"message": refusal.replace("pkg/hop.js", "pkg/where.js")}));
 }
+
+/// A specifier the builtin table reserves, or a respelling of one or of a
+/// builtin's, is a `resolve`, with the message `fgro run` gives, ahead of
+/// eval's refusal of every builtin module, and `import.meta.resolve` of one
+/// throws it. (Eval refuses every `import()` before it resolves.)
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_reserved_specifier_is_a_resolve() {
+    let scratch = Scratch::new(
+        "reserved",
+        &[
+            ("package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "js_spelling.js",
+                "import {process} from '@fuzdev/gro/process.js';\nexport default process;\n",
+            ),
+            (
+                "where.js",
+                "let message = null;\n\
+                 try { import.meta.resolve('@fuzdev/gro/fs.ts'); } catch (error) { message = error.message; }\n\
+                 export default {message};\n",
+            ),
+            (
+                "respelled.js",
+                "import {process} from '@fuzdev/gro/proces%73.ts';\nexport default process;\n",
+            ),
+            (
+                "where_respelled.js",
+                "let message = null;\n\
+                 try { import.meta.resolve('@fuzdev/gro/fs.js?.ts'); } catch (error) { message = error.message; }\n\
+                 export default {message};\n",
+            ),
+        ],
+    );
+    let root = scratch.0.display();
+    let run = eval(&[&scratch.path("js_spelling.js")]);
+    run.assert_failed("resolve", 1);
+    assert_eq!(
+        run.message(),
+        format!(
+            "cannot resolve '@fuzdev/gro/process.js' from file://{root}/js_spelling.js: it is the \
+             .js spelling of the builtin module '@fuzdev/gro/process.ts', reserved so it never \
+             resolves to a package. Fix: import '@fuzdev/gro/process.ts'"
+        )
+    );
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.js");
+    eval(&[&scratch.path("where.js")]).assert_value(&json!({
+        "message": format!(
+            "cannot resolve '@fuzdev/gro/fs.ts' from file://{root}/where.js: it names Gro's host \
+             module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a host module's specifier \
+             never resolves to a package. Fix: run this under Node with gro"
+        )
+    }));
+    let run = eval(&[&scratch.path("respelled.js")]);
+    run.assert_failed("resolve", 1);
+    assert_eq!(
+        run.message(),
+        format!(
+            "cannot resolve '@fuzdev/gro/proces%73.ts' from file://{root}/respelled.js: it \
+             respells the builtin module '@fuzdev/gro/process.ts', reserved so no spelling of it \
+             resolves to a package. Fix: import '@fuzdev/gro/process.ts'"
+        )
+    );
+    assert_eq!(
+        run.envelope["error"]["specifier"],
+        "@fuzdev/gro/proces%73.ts"
+    );
+    eval(&[&scratch.path("where_respelled.js")]).assert_value(&json!({
+        "message": format!(
+            "cannot resolve '@fuzdev/gro/fs.js?.ts' from file://{root}/where_respelled.js: it \
+             names Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a host \
+             module's specifier never resolves to a package. Fix: run this under Node with gro"
+        )
+    }));
+}

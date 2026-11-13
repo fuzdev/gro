@@ -5,7 +5,7 @@
 
 > **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the one built is `process`, carrying `process.args` alone, with `process` designed to split into a module per kind of authority ([on `fgro`](#process-on-fgro));
+> and the one built is `process`, carrying `process.args` alone (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package), with `process` designed to split into a module per kind of authority ([on `fgro`](#process-on-fgro));
 > everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
