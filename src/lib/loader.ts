@@ -212,8 +212,8 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		// raw text imports like `?raw`, `.css`, `.svg`
 		const filename = fileURLToPath(url); // without the `?raw` query
 		const raw_source = readFileSync(filename, 'utf8');
-		const source =
-			'export default `' + raw_source.replaceAll('\\', '\\\\').replaceAll('`', '\\`') + '`;';
+		// a string literal, so the text is data, its `${}` never run and its CRLFs kept
+		const source = 'export default ' + JSON.stringify(raw_source) + ';';
 		return { format: 'module', shortCircuit: true, source };
 	}
 
