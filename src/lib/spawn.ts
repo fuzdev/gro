@@ -2238,9 +2238,7 @@ class NodeSpawn implements Spawn {
 	}
 
 	program_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram {
-		const allowed = this.#allowed;
-		const resolve = to_fs_handle_resolve(dir);
-		const program = to_program_in(allowed, resolve, name, options);
+		const program = to_program_in(this.#allowed, to_fs_handle_resolve(dir), name, options);
 		if (program === null) {
 			throw new SpawnError('not_found', name, `not_found: no program ${name} beneath ${dir.path}`);
 		}
@@ -2248,8 +2246,7 @@ class NodeSpawn implements Spawn {
 	}
 
 	find_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram | null {
-		const allowed = this.#allowed;
-		return to_program_in(allowed, to_fs_handle_resolve(dir), name, options);
+		return to_program_in(this.#allowed, to_fs_handle_resolve(dir), name, options);
 	}
 
 	narrow(names: ReadonlyArray<string>): Spawn {
