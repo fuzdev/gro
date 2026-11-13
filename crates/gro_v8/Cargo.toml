@@ -7,8 +7,8 @@ repository.workspace = true
 publish.workspace = true
 description = "gro's V8 boundary: the V8 calls rusty_v8 exposes only as `unsafe`, behind a safe API"
 
-# no tests of its own: gro_runtime's tests test the reader, so V8 links into one
-# fewer test binary
+# no tests of its own: gro_runtime's tests test the allocator's record, so V8
+# links into one fewer test binary
 [lib]
 test = false
 

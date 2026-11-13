@@ -58,11 +58,11 @@ pub use self::envelope::{
 };
 use self::envelope::{MAX_TEXT_KEPT, access, cap_envelope};
 pub use self::failure::no_snapshot_error;
-use self::failure::{breach_error, stop_error, unread_error};
+use self::failure::{breach_error, heap_out_of_reach_error, stop_error, unread_error};
 pub use self::limits::{
     DEFAULT_THREAD_STACK, DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE, MEMORY_LIMIT,
 };
-use self::limits::{Stopped, format_size};
+use self::limits::{HeapReach, Stopped, format_size};
 pub use self::prepass::{Prepass, PrepassError, prepass};
 use self::run::evaluate;
 use crate::confine::{BoxRoots, Jit};
@@ -143,6 +143,13 @@ pub struct EvalOptions {
     pub backstop: Option<Arc<File>>,
     /// Whether the envelope carries the module graph ([`GraphField`]).
     pub graph: bool,
+    /// The process's data limit (`RLIMIT_DATA`'s soft value), in bytes, as
+    /// the caller left it before the run: [`MEMORY_LIMIT`] or a lower limit
+    /// that stood, `u64::MAX` for none. Read before the box, which refuses
+    /// the call. It decides whether a heap that stops growing reached its
+    /// cap or ran the process out of memory first, by whether it leaves the
+    /// heap room for its cap.
+    pub data_limit: u64,
 }
 
 /// Evaluates `prepass`, its process confined to its box ([`Prepass::confine`]),
@@ -179,8 +186,13 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
     let stopped = Stopped::default();
     if let Some(out) = &options.backstop
         && !prices::off(EvalDefault::HeapWatch)
-        && let Some(envelopes) = backstop_envelopes(&envelope)
-        && !limits::set_backstop(Arc::clone(out), envelopes, stopped.clone())
+        && let Some(envelopes) = backstop_envelopes(&envelope, options)
+        && !limits::set_backstop(
+            Arc::clone(out),
+            envelopes,
+            stopped.clone(),
+            HeapReach::of(options),
+        )
     {
         envelope.result = Err(EvalError::new(
             ErrorKind::Internal,
@@ -288,11 +300,14 @@ fn recording() -> Recording {
     }
 }
 
-/// The `heap` and `memory` envelopes the out-of-memory backstop chooses
-/// between for an eval whose envelope so far is `envelope`, each one line:
+/// The envelopes the out-of-memory backstop chooses between for an eval run
+/// as `options` say whose envelope so far is `envelope`, each one line:
 /// written without the run, they carry no `access`, and no graph, `null`
 /// when one was asked for.
-fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> {
+fn backstop_envelopes(
+    envelope: &Envelope,
+    options: &EvalOptions,
+) -> Option<limits::BackstopEnvelopes> {
     let prepared = |error: EvalError| {
         let backstop = Envelope {
             runtime: envelope.runtime.clone(),
@@ -315,6 +330,7 @@ fn backstop_envelopes(envelope: &Envelope) -> Option<limits::BackstopEnvelopes> 
                 format_size(HEAP_LIMIT as u64)
             ),
         ))?,
+        heap_out_of_reach: prepared(heap_out_of_reach_error(options, "so the process exited"))?,
         memory: prepared(EvalError::new(
             ErrorKind::Memory,
             format!(
@@ -340,6 +356,7 @@ fn options(entry: &Path, cwd: &Path) -> EvalOptions {
         timeout: DEFAULT_TIMEOUT,
         backstop: None,
         graph: false,
+        data_limit: u64::MAX,
     }
 }
 

@@ -7,85 +7,149 @@
 //! Its `v8` is the crate `deno_core` re-exports as `deno_core::v8`, so the
 //! types here are the ones the runtime holds.
 //!
-//! - [`HeapReader`] reads an isolate's heap use where V8 gives no isolate:
-//!   in a near-heap-limit callback.
+//! - [`record_array_buffers`] gives an isolate an `ArrayBuffer` allocator
+//!   that records whether its latest allocation failed
+//!   ([`ArrayBufferRecord`]), which a near-heap-limit callback reads to
+//!   tell an array buffer's failure from the heap's.
 
-use std::sync::{Arc, Weak};
+use std::alloc::{GlobalAlloc as _, Layout, System};
+use std::ffi::c_void;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// A reader of an isolate's heap use, for a near-heap-limit callback, which
-/// V8 calls with no isolate.
+/// Whether the latest allocation of an isolate's array-buffer allocator
+/// failed, shared with the allocator [`record_array_buffers`] installs.
 ///
-/// It keeps the isolate's raw pointer and a weak handle to a token the
-/// isolate holds in a slot. Slots are dropped as the isolate is disposed,
-/// before V8 frees it, so the reader reads only while the isolate lives,
-/// and reads nothing once it's gone. It's neither `Send` nor `Sync`, but a
-/// near-heap-limit callback holding it may run on a thread V8 allocates on
-/// in the background; the `// SAFETY:` comment in
-/// [`HeapReader::used_heap_size`] says why that read is sound.
-#[derive(Debug)]
-pub struct HeapReader {
-    isolate: v8::UnsafeRawIsolatePtr,
-    alive: Weak<IsolateAlive>,
+/// An array buffer's bytes (a typed array's, a `SharedArrayBuffer`'s) come
+/// from that allocator, outside the heap. When one can't be had, V8 collects
+/// all it can and calls the near-heap-limit callback, as it does for a heap
+/// at its cap, and only then tries the allocation once more, so the callback
+/// finds the failure recorded. An allocation that succeeds clears it, so a
+/// failure V8 got past (one a collection made room for) is never read as a
+/// later stop's. A resizable `ArrayBuffer`'s bytes and a `WebAssembly`
+/// memory's come from V8's page allocator instead, which records nothing.
+#[derive(Debug, Clone)]
+pub struct ArrayBufferRecord(Arc<AtomicBool>);
+
+impl ArrayBufferRecord {
+    /// Whether the allocator's latest allocation failed. Reads one atomic,
+    /// so it's safe in a near-heap-limit callback or an out-of-memory
+    /// handler, on any thread.
+    pub fn latest_failed(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
 }
 
-/// The token a [`HeapReader`]'s isolate holds in a slot, one per isolate,
-/// shared by its readers.
-#[derive(Debug)]
-struct IsolateAlive;
+/// `params` with an `ArrayBuffer` allocator that records whether its latest
+/// allocation failed, and the record it writes.
+///
+/// The allocator allocates as V8's default does on Linux: zeroed or not as
+/// V8 asks, from the C allocator (std's `System`: `calloc` and `malloc`, or
+/// `posix_memalign` for a length under the alignment), freed with `free`,
+/// with V8's default largest allocation. It replaces any allocator `params`
+/// held. The record is had only with the allocator
+/// installed, so it always speaks for the isolate built from `params`.
+#[expect(
+    unsafe_code,
+    reason = "rusty_v8 makes an allocator from Rust callbacks only by an `unsafe` call"
+)]
+pub fn record_array_buffers(params: v8::CreateParams) -> (v8::CreateParams, ArrayBufferRecord) {
+    let record = ArrayBufferRecord(Arc::new(AtomicBool::new(false)));
+    let handle = Arc::into_raw(Arc::clone(&record.0));
+    // SAFETY: `handle` is a strong count of an `Arc<AtomicBool>`, live until
+    // the allocator's `drop` (`drop_handle`) takes it back, which V8 calls
+    // once, from the allocator's destructor, after its last allocation or
+    // free; each callback in `RECORDING` reads `handle` as the `&AtomicBool`
+    // that `new_rust_allocator` requires of a handle of type `AtomicBool`.
+    // The handle is `Send + Sync`, as an allocator V8 may call on any thread
+    // needs
+    let allocator = unsafe { v8::new_rust_allocator(handle, &RECORDING) };
+    (params.array_buffer_allocator(allocator), record)
+}
 
-impl HeapReader {
-    /// A reader of `isolate`'s heap.
-    #[expect(
-        unsafe_code,
-        reason = "rusty_v8 gives an isolate's raw pointer only by an `unsafe` call"
-    )]
-    pub fn new(isolate: &mut v8::Isolate) -> Self {
-        let existing = isolate.get_slot::<Arc<IsolateAlive>>().map(Arc::downgrade);
-        let alive = existing.unwrap_or_else(|| {
-            let alive = Arc::new(IsolateAlive);
-            let weak = Arc::downgrade(&alive);
-            isolate.set_slot(alive);
-            weak
-        });
-        // SAFETY: the call copies the isolate's pointer, reading nothing
-        // through it; `used_heap_size` turns it back into an isolate only
-        // while `alive` says the isolate lives
-        let isolate = unsafe { isolate.as_raw_isolate_ptr() };
-        Self { isolate, alive }
-    }
+/// The recording allocator's callbacks.
+static RECORDING: v8::RustAllocatorVtable<AtomicBool> = v8::RustAllocatorVtable {
+    allocate,
+    allocate_uninitialized,
+    free,
+    drop: drop_handle,
+};
 
-    /// The bytes the heap's objects use, live or not yet collected, from
-    /// V8's heap statistics, or `None` once the isolate is gone. Allocates
-    /// nothing in Rust.
-    #[expect(
-        unsafe_code,
-        reason = "V8 gives a near-heap-limit callback no isolate, so the reader's raw pointer is \
-                  turned back into one"
-    )]
-    pub fn used_heap_size(&self) -> Option<usize> {
-        // the token lives in the isolate's slots, dropped before V8 frees
-        // the isolate; holding it here keeps nothing alive past that, since
-        // the slot's drop is what ends it. Its count is atomic: V8 can run a
-        // near-heap-limit callback on a thread allocating in the background
-        // (V8's `HeapAllocator::RetryCustomAllocateLight`, in
-        // `src/heap/heap-allocator.cc`, checks the heap's limit on the
-        // allocating thread), so the read can't be kept to the isolate's
-        let _alive = self.alive.upgrade()?;
-        // SAFETY: the isolate's memory is live for the whole read. The token
-        // was in its slot when upgraded, and rusty_v8's `OwnedIsolate::drop`
-        // drops the slots (`prepare_annex_for_dispose`) before it calls
-        // `Isolate::Dispose`; a read that began before that drop finishes
-        // before V8 frees anything, since `Isolate::Deinit` (V8's
-        // `src/execution/isolate.cc`) waits out every background task and
-        // compile job before it tears the heap down ("no more background
-        // threads left in this isolate"), and the isolate's own thread is
-        // the one running the drop. The call itself may run on any thread:
-        // V8's `Isolate::GetHeapStatistics` (`src/api/api.cc`) states the
-        // embedder may call it from any thread, and sets the thread's
-        // current isolate for the call. The handle made here only copies the
-        // pointer, forms no Rust reference to the isolate's memory, has no
-        // `Drop`, and is gone before this returns
-        let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(self.isolate) };
-        Some(isolate.get_heap_statistics().used_heap_size())
+/// The alignment the allocator gives: 16 bytes, `malloc`'s on the 64-bit
+/// targets gro builds for, and what V8's default allocator gives, since
+/// it calls `malloc`.
+const ALIGN: usize = 16;
+
+/// The layout of an array buffer of `len` bytes, or `None` when no
+/// allocation can be that large. An empty buffer takes one byte, so every
+/// layout has a size, which `System` requires; V8 asks for none (it leaves
+/// an empty buffer's bytes unallocated), and `free` maps the length the
+/// same way.
+fn layout(len: usize) -> Option<Layout> {
+    Layout::from_size_align(len.max(1), ALIGN).ok()
+}
+
+/// Allocates `len` zeroed bytes, recording whether that failed.
+#[expect(
+    unsafe_code,
+    reason = "an allocator callback rusty_v8 calls through its vtable, and `System`'s \
+              allocation, are `unsafe`"
+)]
+unsafe extern "C" fn allocate(record: &AtomicBool, len: usize) -> *mut c_void {
+    let data = layout(len).map_or_else(std::ptr::null_mut, |layout| {
+        // SAFETY: the layout has a nonzero size (`layout`)
+        unsafe { System.alloc_zeroed(layout) }
+    });
+    record.store(data.is_null(), Ordering::SeqCst);
+    data.cast()
+}
+
+/// Allocates `len` bytes, uninitialized, recording whether that failed.
+#[expect(
+    unsafe_code,
+    reason = "an allocator callback rusty_v8 calls through its vtable, and `System`'s \
+              allocation, are `unsafe`"
+)]
+unsafe extern "C" fn allocate_uninitialized(record: &AtomicBool, len: usize) -> *mut c_void {
+    let data = layout(len).map_or_else(std::ptr::null_mut, |layout| {
+        // SAFETY: the layout has a nonzero size (`layout`)
+        unsafe { System.alloc(layout) }
+    });
+    record.store(data.is_null(), Ordering::SeqCst);
+    data.cast()
+}
+
+/// Frees the `len` bytes at `data`, which [`allocate`] or
+/// [`allocate_uninitialized`] gave V8.
+#[expect(
+    unsafe_code,
+    reason = "an allocator callback rusty_v8 calls through its vtable, and `System`'s \
+              deallocation, are `unsafe`"
+)]
+unsafe extern "C" fn free(_record: &AtomicBool, data: *mut c_void, len: usize) {
+    if data.is_null() {
+        return;
     }
+    if let Some(layout) = layout(len) {
+        // SAFETY: V8 frees only what this allocator gave it, once, with the
+        // length it asked for (`ArrayBuffer::Allocator::Free`'s contract),
+        // so `data` came from `System` with this same layout: `layout` maps
+        // the length the allocation took it from the same way, and an
+        // allocation was made only when that layout existed
+        unsafe { System.dealloc(data.cast(), layout) };
+    }
+}
+
+/// Takes back the strong count [`record_array_buffers`] gave the allocator,
+/// as V8 destroys the allocator.
+#[expect(
+    unsafe_code,
+    reason = "an allocator callback rusty_v8 calls through its vtable, and taking back an \
+              `Arc`'s raw pointer, are `unsafe`"
+)]
+unsafe extern "C" fn drop_handle(handle: *const AtomicBool) {
+    // SAFETY: `handle` is the pointer `Arc::into_raw` gave in
+    // `record_array_buffers`, and V8 calls this once, from the allocator's
+    // destructor, after which no callback reads it
+    drop(unsafe { Arc::from_raw(handle) });
 }

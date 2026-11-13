@@ -13,7 +13,7 @@ use crate::loader::graph::Recording;
 use crate::phases::{self, Phase};
 use crate::report::uncaught;
 use crate::resolver::{self, DiskTree, ResolveError};
-use crate::runtime::{Mode, start_runtime};
+use crate::runtime::start_runtime;
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, Grants, RuntimeOptions};
 
@@ -158,8 +158,7 @@ fn run_loaded(
         .build()
         .map_err(StartError::EventLoop)?;
     tokio_runtime.block_on(async {
-        let mut runtime =
-            start_runtime(snapshot, console, loader, Mode::Run).map_err(StartError::Runtime)?;
+        let mut runtime = start_runtime(snapshot, console, loader).map_err(StartError::Runtime)?;
         let id = runtime
             .load_main_es_module(entry)
             .await

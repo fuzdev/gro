@@ -35,16 +35,24 @@ pub fn clear_env() -> std::io::Result<()> {
 /// `gro_sys::set_default_thread_stack`. Then caps the process's data segment,
 /// which counts those stacks, at `gro_runtime::eval::MEMORY_LIMIT`, soft and
 /// hard alike, or keeps the lower limit the parent set: `gro_sys::limit_data`.
-/// The box's seccomp filter then refuses `setrlimit` and `prlimit64`, so
-/// nothing the eval runs raises it.
+/// Returns the limit set, in bytes. The box's seccomp filter then refuses
+/// `setrlimit` and `prlimit64`, so nothing the eval runs raises it.
 #[cfg(target_os = "linux")]
-pub fn limit_memory() -> std::io::Result<()> {
+pub fn limit_memory() -> std::io::Result<u64> {
     gro_sys::set_default_thread_stack(gro_runtime::eval::DEFAULT_THREAD_STACK)?;
-    gro_sys::limit_data(gro_runtime::eval::MEMORY_LIMIT).map(drop)
+    gro_sys::limit_data(gro_runtime::eval::MEMORY_LIMIT)
+}
+
+/// The process's data limit as it stands, its soft value in bytes
+/// (`u64::MAX` for none), for a priced build that doesn't cap it:
+/// `gro_sys::data_limit`.
+#[cfg(target_os = "linux")]
+pub fn data_limit() -> std::io::Result<u64> {
+    gro_sys::data_limit().map(|(soft, _hard)| soft)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub use elsewhere::{clear_env, close_inherited, limit_memory};
+pub use elsewhere::{clear_env, close_inherited, data_limit, limit_memory};
 
 /// Each step elsewhere, a no-op with Linux's signature: there is no box to
 /// escape, and eval refuses before it would start.
@@ -64,8 +72,13 @@ mod elsewhere {
         Ok(())
     }
 
-    /// Caps nothing.
-    pub const fn limit_memory() -> std::io::Result<()> {
-        Ok(())
+    /// Caps nothing, and returns no limit.
+    pub const fn limit_memory() -> std::io::Result<u64> {
+        Ok(u64::MAX)
+    }
+
+    /// No limit.
+    pub const fn data_limit() -> std::io::Result<u64> {
+        Ok(u64::MAX)
     }
 }

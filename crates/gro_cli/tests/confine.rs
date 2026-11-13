@@ -766,6 +766,7 @@ mod confined {
             timeout: Duration::from_secs(30),
             backstop: None,
             graph: false,
+            data_limit: u64::MAX,
         };
         let sized = std::thread::Builder::new().stack_size(STACK_SIZE);
         let prepass = sized

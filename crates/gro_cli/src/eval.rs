@@ -16,7 +16,7 @@ use gro_runtime::phases::{self, Phase};
 use gro_runtime::prices::{self, EvalDefault};
 
 use crate::cli::{EvalInvocation, EvalValue};
-use crate::harden::{clear_env, close_inherited, limit_memory};
+use crate::harden::{clear_env, close_inherited, data_limit, limit_memory};
 use crate::print::{stderr_line, stdout_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::thread::{Joined, on_sized_thread};
@@ -103,7 +103,12 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
     let closed = unless_off(EvalDefault::CloseFds, close_inherited);
     phases::open();
     let cleared = unless_off(EvalDefault::ClearEnv, clear_env);
-    let limited = unless_off(EvalDefault::DataLimit, limit_memory);
+    // a priced build that doesn't cap the limit reads the one it has
+    let limited = if prices::off(EvalDefault::DataLimit) {
+        data_limit()
+    } else {
+        limit_memory()
+    };
     let mut options = EvalOptions {
         entry: module,
         cwd: PathBuf::new(),
@@ -122,6 +127,8 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
             .ok()
             .map(|fd| Arc::new(File::from(fd))),
         graph,
+        // a failure returns below, before the limit is read
+        data_limit: *limited.as_ref().unwrap_or(&u64::MAX),
     };
     // reported in the order the steps ran, the first failure alone
     for (result, step) in [
@@ -130,7 +137,7 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
             cleared,
             "failed to clear the environment the eval inherited",
         ),
-        (limited, "failed to cap the eval's memory"),
+        (limited.map(drop), "failed to cap the eval's memory"),
     ] {
         if let Err(error) = result {
             let error = EvalError::new(ErrorKind::Environment, format!("{step}: {error}"));

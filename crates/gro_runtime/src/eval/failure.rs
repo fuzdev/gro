@@ -6,7 +6,7 @@ use std::path::Path;
 use deno_core::error::{CoreError, CoreErrorKind, JsError};
 
 use super::dump::DumpError;
-use super::limits::{Stop, format_size};
+use super::limits::{Stop, format_size, heap_room};
 use super::{ErrorKind, EvalError, EvalOptions, HEAP_LIMIT, MEMORY_LIMIT};
 use crate::confine::Jit;
 use crate::loader::graph::{
@@ -74,6 +74,7 @@ pub(super) fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
                 format_size(MEMORY_LIMIT)
             ),
         ),
+        Stop::HeapOutOfReach => heap_out_of_reach_error(options, "and the run was stopped"),
         Stop::Timeout => {
             let mut error = EvalError::new(
                 ErrorKind::Timeout,
@@ -88,6 +89,27 @@ pub(super) fn stop_error(stop: Stop, options: &EvalOptions) -> EvalError {
             error
         }
     }
+}
+
+/// The `memory` error of a heap that stopped growing under a process limit
+/// with no room for its cap ([`Stop::HeapOutOfReach`]), naming the limit
+/// `options` carry, the room [`heap_room`] gives, and the cap, its message
+/// ending with `end`, how the run ended.
+pub(super) fn heap_out_of_reach_error(options: &EvalOptions, end: &str) -> EvalError {
+    let beside = match options.jit {
+        Jit::Off => "the engine",
+        Jit::On => "the engine and its JIT's code range",
+    };
+    EvalError::new(
+        ErrorKind::Memory,
+        format!(
+            "the eval's heap stopped growing under the process's data limit of {}, below the \
+             {} its cap of {} needs with {beside} beside it, {end}",
+            format_size(options.data_limit),
+            format_size(heap_room(options.jit)),
+            format_size(HEAP_LIMIT as u64)
+        ),
+    )
 }
 
 /// The error of a confined eval with no startup snapshot, an `internal`.
@@ -537,5 +559,30 @@ mod tests {
             error.message
         );
         assert_eq!(error.hint.as_deref(), Some(BREACH_HINT));
+    }
+
+    /// A heap stopped under a process limit with no room for its cap is
+    /// `memory`, its message naming the limit in force, the room the heap's
+    /// cap needs beside the engine (more with the JIT), and the cap.
+    #[test]
+    fn a_heap_out_of_reach_names_the_limit_and_the_room() {
+        let mut options = super::super::options(Path::new("/p/main.js"), Path::new("/p"));
+        options.data_limit = 700 << 20;
+        let error = stop_error(Stop::HeapOutOfReach, &options);
+        assert_eq!(error.kind, ErrorKind::Memory);
+        assert_eq!(
+            error.message,
+            "the eval's heap stopped growing under the process's data limit of 700 MiB, below \
+             the 800 MiB its cap of 512 MiB needs with the engine beside it, and the run was \
+             stopped"
+        );
+        options.jit = Jit::On;
+        options.data_limit = 1000 * 1000 * 1000;
+        assert_eq!(
+            heap_out_of_reach_error(&options, "so the process exited").message,
+            "the eval's heap stopped growing under the process's data limit of 1000000000 \
+             bytes, below the 1312 MiB its cap of 512 MiB needs with the engine and its JIT's \
+             code range beside it, so the process exited"
+        );
     }
 }

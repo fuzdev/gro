@@ -7,17 +7,18 @@ use std::task::Poll;
 
 use deno_core::error::{CoreError, JsError};
 use deno_core::{FastStaticString, JsRuntime, PollEventLoopOptions, ascii_str, v8};
+use gro_v8::ArrayBufferRecord;
 use url::Url;
 
 use super::failure::{Failed, Step};
-use super::limits::{self, Stop, Stopped, Watchdog};
+use super::limits::{self, HeapReach, Stopped, Watchdog};
 use super::{
     AFTER_DRAIN, DEFAULT_EXPORT, EvalOptions, MAX_ENVELOPE_SIZE, TIME_ZONE, UTC_EPOCH, serialize,
 };
 use crate::loader::Loader;
 use crate::prices::{self, EvalDefault};
 use crate::report::report_js;
-use crate::runtime::{Mode, start_runtime};
+use crate::runtime::start_eval_runtime;
 use crate::{ConsoleOptions, ConsoleRouting, phases};
 
 /// The console eval writes with: every level to stderr, uncolored.
@@ -51,23 +52,23 @@ pub(super) fn evaluate(
             Failed::new(Step::Start, format!("failed to start the runtime: {error}"))
         })?;
     tokio_runtime.block_on(async {
-        let mut runtime = start_runtime(options.snapshot, CONSOLE, loader, Mode::Eval)
+        let (mut runtime, array_buffers) = start_eval_runtime(options.snapshot, CONSOLE, loader)
             .map_err(|message| Failed::new(Step::Start, message))?;
-        let result = run_steps(&mut runtime, options, entry, driver_url, stopped).await;
-        // the near-heap-limit callback decides from the heap it reads; a
-        // `memory` stop is read again for one large object the raised cap
-        // let in after it
-        if stopped.get() == Some(Stop::Memory) {
-            let used = runtime.v8_isolate().get_heap_statistics().used_heap_size();
-            stopped.check_heap(used);
-        }
-        result
+        run_steps(
+            &mut runtime,
+            options,
+            entry,
+            driver_url,
+            stopped,
+            array_buffers,
+        )
+        .await
     })
 }
 
-/// Runs the eval's steps on `runtime`, from the heap's watch and the
-/// timeout's watchdog to the drain, returning the value as JSON text, or the
-/// step that failed.
+/// Runs the eval's steps on `runtime`, whose array buffers' allocator
+/// `array_buffers` records, from the heap's watch and the timeout's watchdog
+/// to the drain, returning the value as JSON text, or the step that failed.
 #[expect(
     clippy::future_not_send,
     reason = "a runtime stays on its thread, driven by a current-thread tokio runtime"
@@ -78,9 +79,15 @@ async fn run_steps(
     entry: &Url,
     driver_url: &Url,
     stopped: &Stopped,
+    array_buffers: ArrayBufferRecord,
 ) -> Result<String, Failed> {
     if !prices::off(EvalDefault::HeapWatch) {
-        limits::watch_heap(runtime, stopped.clone());
+        limits::watch_heap(
+            runtime,
+            stopped.clone(),
+            array_buffers,
+            HeapReach::of(options),
+        );
     }
     // stopped, and joined, when the eval returns
     let _watchdog = if prices::off(EvalDefault::Watchdog) {

@@ -3,7 +3,8 @@
 
 use std::rc::Rc;
 
-use deno_core::JsRuntime;
+use deno_core::{JsRuntime, v8};
+use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::loader::Loader;
@@ -26,18 +27,37 @@ pub enum Mode {
     Eval,
 }
 
-/// Starts a runtime over `loader` from `snapshot` when there is one, built
-/// as `mode` says, and runs the bootstrap's per-run steps with the console
-/// as `console` says, returning the report of what failed when either
-/// fails. Must run inside a tokio runtime, which `deno_core` drives its
-/// event loop with.
+/// Starts `fgro run`'s runtime over `loader` from `snapshot` when there is
+/// one, and runs the bootstrap's per-run steps with the console as
+/// `console` says, returning the report of what failed when either fails.
+/// Must run inside a tokio runtime, which `deno_core` drives its event loop
+/// with.
 pub fn start_runtime(
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
     loader: Rc<Loader>,
-    mode: Mode,
 ) -> Result<JsRuntime, String> {
-    let mut runtime = new_runtime(snapshot, loader, mode)?;
+    let runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
+    start(runtime, console, Mode::Run)
+}
+
+/// Starts eval's runtime as [`start_runtime`] starts `fgro run`'s, built as
+/// [`Mode::Eval`] says, its array buffers allocated by an allocator that
+/// records whether its latest allocation failed, returned with the
+/// runtime.
+pub fn start_eval_runtime(
+    snapshot: Option<StartupSnapshot>,
+    console: ConsoleOptions,
+    loader: Rc<Loader>,
+) -> Result<(JsRuntime, ArrayBufferRecord), String> {
+    let (create_params, record) = gro_v8::record_array_buffers(eval_create_params());
+    let runtime = new_runtime(snapshot, loader, Mode::Eval, Some(create_params))?;
+    Ok((start(runtime, console, Mode::Eval)?, record))
+}
+
+/// Runs the bootstrap's per-run steps on `runtime`, built as `mode` says,
+/// with the console as `console` says.
+fn start(mut runtime: JsRuntime, console: ConsoleOptions, mode: Mode) -> Result<JsRuntime, String> {
     phases::mark(Phase::Runtime);
     // before the bootstrap's start reads them
     let state = runtime.op_state();
@@ -55,24 +75,26 @@ pub fn start_runtime(
     Ok(runtime)
 }
 
-/// A runtime over `loader` from `snapshot` when there is one, built as
+/// The isolate's parameters for an eval: the heap capped at
+/// `eval::HEAP_LIMIT`, and `Atomics.wait` refused.
+fn eval_create_params() -> v8::CreateParams {
+    let params = v8::Isolate::create_params().allow_atomics_wait(false);
+    if prices::off(EvalDefault::HeapCap) {
+        params
+    } else {
+        params.heap_limits(0, eval::HEAP_LIMIT)
+    }
+}
+
+/// A runtime over `loader` from `snapshot` when there is one, its isolate
+/// built from `create_params` (V8's defaults with none), its extensions as
 /// `mode` says, before the bootstrap's per-run steps.
 fn new_runtime(
     snapshot: Option<StartupSnapshot>,
     loader: Rc<Loader>,
     mode: Mode,
+    create_params: Option<v8::CreateParams>,
 ) -> Result<JsRuntime, String> {
-    let create_params = match mode {
-        Mode::Run => None,
-        Mode::Eval if prices::off(EvalDefault::HeapCap) => {
-            Some(deno_core::v8::Isolate::create_params().allow_atomics_wait(false))
-        }
-        Mode::Eval => Some(
-            deno_core::v8::Isolate::create_params()
-                .heap_limits(0, eval::HEAP_LIMIT)
-                .allow_atomics_wait(false),
-        ),
-    };
     let mut runtime = JsRuntime::try_new(deno_core::RuntimeOptions {
         module_loader: Some(loader),
         // the same list the snapshot was made from, in the same order
@@ -130,7 +152,8 @@ mod tests {
                     .build()
                     .unwrap();
                 let _entered = tokio.enter();
-                let mut runtime = new_runtime(None, loader, mode).unwrap();
+                let create_params = (mode == Mode::Eval).then(eval_create_params);
+                let mut runtime = new_runtime(None, loader, mode, create_params).unwrap();
                 test(&mut runtime)
             })
             .unwrap()
@@ -212,7 +235,7 @@ for (const name of {}) {{
                     .execute_script("<test>", "JSON.stringify(globalThis.results)")
                     .unwrap();
                 deno_core::scope!(scope, runtime);
-                let json = deno_core::v8::Local::new(scope, value).to_rust_string_lossy(scope);
+                let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
                 serde_json::from_str(&json).unwrap()
             }
         };
@@ -253,7 +276,7 @@ JSON.stringify([
         let results = on_new_runtime("dom_exceptions", Mode::Run, move |runtime| {
             let value = runtime.execute_script("<test>", source).unwrap();
             deno_core::scope!(scope, runtime);
-            let json = deno_core::v8::Local::new(scope, value).to_rust_string_lossy(scope);
+            let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
             serde_json::from_str::<Vec<String>>(&json).unwrap()
         });
         assert_eq!(

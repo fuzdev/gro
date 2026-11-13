@@ -8,29 +8,35 @@
 //! first to stop the run is the one reported.
 //!
 //! - **The heap.** The isolate's heap is capped at [`HEAP_LIMIT`]. Near the
-//!   cap, V8 calls the callback [`watch_heap`] installs, which reads the
-//!   heap's use at that moment, records [`Stop::Heap`] when the heap is full
-//!   ([`HEAP_FULL`]), terminates execution, and raises the cap by
-//!   [`HEAP_HEADROOM`] once, the room for the run to unwind; a second call
-//!   raises nothing. A terminate reaches only JS V8 interrupts: one long
-//!   builtin (`new Array(5e7).fill({})`) runs on, and under the JIT, V8
-//!   doesn't act on a terminate the callback requests, so either reaches
-//!   the cap again with nothing left to give, and V8 calls the
-//!   out-of-memory handler: [`oom_backstop`] writes the envelope prepared
-//!   before the run ([`set_backstop`]) and exits the process with code 1.
+//!   cap, V8 calls the callback [`watch_heap`] installs, which records why
+//!   the heap can grow no more ([`exhaustion`]), terminates execution, and
+//!   raises the cap by [`HEAP_HEADROOM`] once, the room for the run to
+//!   unwind; a second call raises nothing. A terminate reaches only JS V8
+//!   interrupts: one long builtin (`new Array(5e7).fill({})`) runs on, and
+//!   under the JIT, V8 can run on past a terminate the callback requests, so
+//!   either reaches the cap again with nothing left to give, and V8 calls
+//!   the out-of-memory handler: [`oom_backstop`] writes the envelope
+//!   prepared before the run ([`set_backstop`]) and exits the process with
+//!   code 1.
 //! - **The process's memory.** `fgro eval` caps the process's data segment at
 //!   [`MEMORY_LIMIT`] before it starts a thread, which bounds what the heap's
 //!   cap doesn't: an array buffer's bytes, the copies a module's parse and the
 //!   envelope make, every thread's stack. Past it, an allocation fails: an
 //!   array buffer's makes V8 collect all it can and call the near-heap-limit
-//!   callback, which finds the heap well below its cap and records
-//!   [`Stop::Memory`], stopping the run the same way; V8's own, on the run's
-//!   thread, reaches the same out-of-memory handler, which writes a prepared
-//!   `memory` envelope instead when the heap isn't at fault (V8 didn't report
-//!   its heap out of memory, or the callback never found the heap full); V8's
-//!   on one of its own threads, which calls no isolate's handler, and a Rust
-//!   allocation, whose failure handler stable Rust can't set, abort the process
-//!   with no envelope.
+//!   callback, which finds the failure the isolate's allocator recorded
+//!   ([`ArrayBufferRecord`]) and records [`Stop::Memory`], stopping the run the
+//!   same way; the heap's own pages make V8 call the callback, or its
+//!   out-of-memory handler, as a heap at its cap does: under a caller's limit
+//!   that leaves the heap's cap out of reach ([`HeapReach`]) either reports
+//!   `memory`, naming the limit, and under one in reach the handler reports
+//!   `memory` when no callback ran before it ([`backstop_stop`]), while a
+//!   callback that finds nothing recorded reports `heap` ([`exhaustion`]
+//!   names those cases); V8's own allocations elsewhere, on the run's thread,
+//!   reach the same out-of-memory handler, which writes a prepared `memory`
+//!   envelope when V8 doesn't report its heap out of memory; V8's on one of
+//!   its own threads, which calls no isolate's handler, and a Rust
+//!   allocation, whose failure handler stable Rust can't set, abort the
+//!   process with no envelope.
 //! - **The timeout.** A [`Watchdog`] thread holds the isolate's thread-safe
 //!   handle and terminates execution at the deadline, recording
 //!   [`Stop::Timeout`], unless the eval ends first.
@@ -47,7 +53,10 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use deno_core::{JsRuntime, v8};
-use gro_v8::HeapReader;
+use gro_v8::ArrayBufferRecord;
+
+use super::EvalOptions;
+use crate::confine::Jit;
 
 /// The heap's cap, in bytes: 512 MiB.
 ///
@@ -69,6 +78,11 @@ use gro_v8::HeapReader;
 /// to 256 errors) and the specifiers the loader records, copied out of the
 /// heap, so a run that throws a long message, many times over, can take many
 /// times this cap, up to the process's, before it ends.
+///
+/// The cap bounds the heap's growth, not each allocation in it: V8 makes one
+/// large young object (a large array's elements, as large as V8 makes one)
+/// whatever the cap, so a heap holding one can pass the cap by its size
+/// without the run being stopped, and only [`MEMORY_LIMIT`] bounds it.
 pub const HEAP_LIMIT: usize = 512 << 20;
 
 /// The cap on the process's data segment, `RLIMIT_DATA`, in bytes: 2 GiB.
@@ -88,15 +102,17 @@ pub const HEAP_LIMIT: usize = 512 << 20;
 /// the code range) aborts the process before the out-of-memory handler is
 /// installed, with no envelope.
 ///
-/// Sized by measurement, not by guess: about twice the least cap at which
-/// the largest legal runs (a module at the source cap, a run stopped at the
-/// heap's cap, a value just under the envelope's cap, each jitless and with
-/// `--jit`, which takes the most) still give the same envelope they give
-/// uncapped, so a legal run never meets it. A run that does is one holding
-/// memory outside the heap no config needs, and fails as `memory`, or,
-/// where the failing allocation is one nothing reports, with no envelope; a
-/// caller that wants a lower bound sets a lower limit on the process, soft
-/// or hard, which stands.
+/// Sized by measurement, not by guess: well above the least cap at which the
+/// largest runs it was measured against (a module at the source cap, a run
+/// stopped at the heap's cap, a value just under the envelope's cap, each
+/// jitless and with `--jit`, which takes the most) still give the same
+/// envelope they give uncapped. It isn't out of a legal run's reach: a run
+/// that holds a large young object past the heap's cap ([`HEAP_LIMIT`]) beside
+/// a heap near it can come close to it, and this cap is what bounds that run.
+/// A run that meets it fails as `memory` or `heap`, by the allocation that
+/// fails and how V8 retries it, or, where that allocation is one nothing
+/// reports, with no envelope; a caller that wants a lower bound sets a
+/// lower limit on the process, soft or hard, which stands.
 pub const MEMORY_LIMIT: u64 = 2 << 30;
 
 /// The most stack a thread started without a size of its own gets, in bytes:
@@ -151,12 +167,15 @@ pub(super) enum Stop {
     Heap = 1,
     /// The timeout passed.
     Timeout = 2,
-    /// An allocation outside the heap failed, the process's memory taken:
-    /// V8 collects all it can before it gives up on one, and calls the
-    /// near-heap-limit callback as it does, which finds the heap well below
-    /// its cap ([`HEAP_FULL`]). Turned into [`Stop::Heap`] when the run's end
-    /// finds the heap full after all ([`Stopped::check_heap`]).
+    /// The process's memory ran out: an array buffer's allocation failed,
+    /// or, at the out-of-memory backstop, an allocation V8 reports outside
+    /// its heap, or the heap's own with no near-heap-limit callback before
+    /// it ([`backstop_stop`]).
     Memory = 3,
+    /// The heap stopped growing under a process limit that leaves its cap
+    /// out of reach ([`HeapReach::Unreachable`]): the process's memory ran
+    /// out, by that configuration, reported as `memory` with the limit named.
+    HeapOutOfReach = 4,
 }
 
 impl Stop {
@@ -166,6 +185,7 @@ impl Stop {
             1 => Some(Self::Heap),
             2 => Some(Self::Timeout),
             3 => Some(Self::Memory),
+            4 => Some(Self::HeapOutOfReach),
             _ => None,
         }
     }
@@ -173,8 +193,8 @@ impl Stop {
 
 /// Why the host stopped the run's JS, if it did: the first stop recorded,
 /// shared by the heap's callback, the watchdog's thread, the serializer's
-/// walk, and the out-of-memory backstop, which also reads whether the
-/// callback found the heap full at all, first or not.
+/// walk, and the out-of-memory backstop, which also reads what the
+/// near-heap-limit callback found, first or not.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Stopped(Arc<StopState>);
 
@@ -183,9 +203,9 @@ pub(super) struct Stopped(Arc<StopState>);
 struct StopState {
     /// The first stop recorded, as its byte, or [`Stopped::NONE`].
     first: AtomicU8,
-    /// Whether the near-heap-limit callback found the heap full, whatever
-    /// stopped the run first.
-    heap: AtomicBool,
+    /// The first [`exhaustion`] the near-heap-limit callback recorded, as its
+    /// byte, whatever stopped the run first, or [`Stopped::NONE`].
+    exhausted: AtomicU8,
 }
 
 impl Stopped {
@@ -194,10 +214,15 @@ impl Stopped {
 
     /// Records `stop`, unless a stop is recorded already.
     fn set(&self, stop: Stop) {
-        if stop == Stop::Heap {
-            self.0.heap.store(true, Ordering::SeqCst);
+        // the first stop stands, and the first exhaustion
+        if matches!(stop, Stop::Heap | Stop::Memory | Stop::HeapOutOfReach) {
+            let _ = self.0.exhausted.compare_exchange(
+                Self::NONE,
+                stop as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
         }
-        // the first stop stands
         let _ = self.0.first.compare_exchange(
             Self::NONE,
             stop as u8,
@@ -206,32 +231,10 @@ impl Stopped {
         );
     }
 
-    /// Turns a recorded [`Stop::Memory`] into [`Stop::Heap`] when the heap,
-    /// read once the run has stopped, uses `used_heap` bytes, as many as a
-    /// heap that reached its cap holds ([`heap_full`]): the near-heap-limit
-    /// callback ran for one large object the heap couldn't fit, before it
-    /// was made, which the raised cap then let in.
-    pub(super) fn check_heap(&self, used_heap: usize) {
-        if heap_full(used_heap)
-            && self
-                .0
-                .first
-                .compare_exchange(
-                    Stop::Memory as u8,
-                    Stop::Heap as u8,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                )
-                .is_ok()
-        {
-            self.0.heap.store(true, Ordering::SeqCst);
-        }
-    }
-
-    /// Whether the near-heap-limit callback found the heap full, first or
-    /// after another stop.
-    fn heap_neared(&self) -> bool {
-        self.0.heap.load(Ordering::SeqCst)
+    /// What the near-heap-limit callback first found stopped the heap, first
+    /// or after another stop, if it ran.
+    fn exhausted(&self) -> Option<Stop> {
+        Stop::from_u8(self.0.exhausted.load(Ordering::SeqCst))
     }
 
     /// The stop recorded, if any.
@@ -240,46 +243,108 @@ impl Stopped {
     }
 }
 
-/// Whether a heap using `used_heap` bytes is one that reached its cap: past
-/// [`HEAP_FULL`]. Read in the near-heap-limit callback, at the moment V8
-/// calls it: V8 calls it when the old generation passes the cap, after a
-/// full collection failed to bring it back, so the heap then holds near the
-/// cap in live objects; V8 also calls it after collecting all it can for an
-/// allocation outside the heap that failed, when the heap holds only what
-/// the run kept. Read after the run, the heap can be all but empty, the
-/// stopped run's objects freed, so the callback's reading decides, and the
-/// run's end only adds the one case the callback can't see
-/// ([`Stopped::check_heap`]).
-const fn heap_full(used_heap: usize) -> bool {
-    used_heap >= HEAP_FULL
+/// Whether the process's data limit leaves the heap room to reach its cap,
+/// decided once, before the run, from the limit and the JIT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum HeapReach {
+    /// The limit holds the heap at its cap, raised by [`HEAP_HEADROOM`], and
+    /// the engine's own memory beside it ([`ENGINE_MEMORY`], and with the
+    /// JIT [`JIT_MEMORY`]): a heap that stops growing stopped at its cap.
+    Reachable,
+    /// The limit is lower, so the process's memory runs out before the heap
+    /// reaches its cap: a heap that stops growing stopped there.
+    Unreachable,
 }
 
-/// The least a heap that reached its cap uses, in bytes: three quarters of
-/// the cap. Read in the callback, a heap grown to its cap a small object
-/// at a time (arrays, objects, maps, strings, closures, jitless or with
-/// `--jit`) holds nearly all of it, and one stopped in one builtin call
-/// more than all of it; a heap that failed an allocation outside it holds
-/// what the run kept, a few MiB for a config. The margin is room for a heap
-/// V8 lays out otherwise. A run that fails an allocation outside the heap
-/// while holding more than three quarters of the cap in it is reported as
-/// `heap`.
-const HEAP_FULL: usize = HEAP_LIMIT / 4 * 3;
+impl HeapReach {
+    /// The reach of the heap of an eval run as `options` say, by their
+    /// data limit and JIT.
+    pub(super) const fn of(options: &EvalOptions) -> Self {
+        if options.data_limit >= heap_room(options.jit) {
+            Self::Reachable
+        } else {
+            Self::Unreachable
+        }
+    }
+}
+
+/// The least data limit that holds the heap at its cap, in bytes: the cap
+/// and its headroom, and the engine's own memory beside them, with the JIT's
+/// with `--jit`. 800 MiB jitless, 1312 MiB with the JIT.
+pub(super) const fn heap_room(jit: Jit) -> u64 {
+    let room = HEAP_LIMIT as u64 + HEAP_HEADROOM as u64 + ENGINE_MEMORY;
+    match jit {
+        Jit::Off => room,
+        Jit::On => room + JIT_MEMORY,
+    }
+}
+
+/// The memory the engine takes beside the heap at its cap, jitless, in
+/// bytes: 256 MiB.
+///
+/// Measured as the process's peak data segment (`VmData`, what
+/// `RLIMIT_DATA` counts) under the default cap: a jitless start takes 68 MiB,
+/// heaps grown to the cap a small object or string at a time peak at 549 to
+/// 556 MiB, and one builtin call that fills past the cap
+/// (`new Array(5e7).fill({})`) at 739 MiB, 195 MiB past the cap and its
+/// headroom; rounded up, so a limit that admits the heap at its cap admits
+/// the largest of these too. A limit between what a run takes and this
+/// margin reports a heap at its cap as `memory`, by configuration, never by
+/// what the heap reads.
+const ENGINE_MEMORY: u64 = 256 << 20;
+
+/// The memory the JIT adds, in bytes: 512 MiB, the code range V8 reserves
+/// writable and the limit counts whole from the engine's start. Measured
+/// the same way: a start takes 580 MiB with `--jit` against 68 MiB
+/// jitless, and each heap fixture 512 to 530 MiB more than jitless, at
+/// most 1251 MiB, under [`heap_room`]'s 1312.
+const JIT_MEMORY: u64 = 512 << 20;
+
+// the cap `fgro eval` sets leaves the heap room to reach its own, with the JIT
+const _: () = assert!(MEMORY_LIMIT >= heap_room(Jit::On));
+
+/// What stopped a heap that can grow no more, as the near-heap-limit
+/// callback finds it, decided by what the run was configured with and one
+/// recorded fact, never by reading the heap, which V8's collections change
+/// under the read: [`Stop::Memory`] when the isolate's array-buffer
+/// allocator's latest allocation failed (`array_buffer_failed`), since V8
+/// calls the callback for that failure as for a heap at its cap;
+/// [`Stop::HeapOutOfReach`] when the process's limit leaves the heap's cap
+/// out of reach (`reach`); [`Stop::Heap`] otherwise.
+///
+/// So under a cap in reach, memory outside the heap that ran the process out
+/// reads as [`Stop::Heap`] whenever the allocation that fails is one that
+/// runs the callback with nothing recorded: the pages of a resizable
+/// `ArrayBuffer` or a `WebAssembly.Memory`, made or grown, which V8 commits
+/// outside that allocator and retries as it retries a heap allocation, and a
+/// heap page V8 retries the same way after memory outside the heap, array
+/// buffers made earlier included, took the rest of the limit, and one large
+/// young object larger than what the limit has left.
+const fn exhaustion(array_buffer_failed: bool, reach: HeapReach) -> Stop {
+    match (array_buffer_failed, reach) {
+        (true, _) => Stop::Memory,
+        (false, HeapReach::Reachable) => Stop::Heap,
+        (false, HeapReach::Unreachable) => Stop::HeapOutOfReach,
+    }
+}
 
 /// Installs the heap's near-limit callback and the out-of-memory backstop
-/// on `runtime`, whose heap was built capped at [`HEAP_LIMIT`].
-pub(super) fn watch_heap(runtime: &mut JsRuntime, stopped: Stopped) {
+/// on `runtime`, whose heap was built capped at [`HEAP_LIMIT`], its array
+/// buffers allocated by the allocator `array_buffers` records, under a
+/// process limit that leaves the heap's cap as `reach` says.
+pub(super) fn watch_heap(
+    runtime: &mut JsRuntime,
+    stopped: Stopped,
+    array_buffers: ArrayBufferRecord,
+    reach: HeapReach,
+) {
     let handle = runtime.v8_isolate().thread_safe_handle();
-    let heap = HeapReader::new(runtime.v8_isolate());
     let mut raised = false;
     runtime.add_near_heap_limit_callback(move |current, _initial| {
-        stopped.set(if heap.used_heap_size().is_some_and(heap_full) {
-            Stop::Heap
-        } else {
-            Stop::Memory
-        });
+        stopped.set(exhaustion(array_buffers.latest_failed(), reach));
         handle.terminate_execution();
         if raised {
-            // once only: under the JIT, V8 doesn't act on the terminate, and
+            // once only: under the JIT, V8 can run on past the terminate, and
             // raising again would let the heap grow without bound
             current
         } else {
@@ -297,18 +362,24 @@ struct Backstop {
     out: Arc<File>,
     /// The envelopes it chooses between.
     envelopes: BackstopEnvelopes,
-    /// The run's stops, which say whether the heap neared its cap.
+    /// The run's stops, which say what the near-heap-limit callback found.
     stopped: Stopped,
+    /// Whether the process's limit leaves the heap's cap in reach, for an
+    /// out-of-memory the callback didn't see.
+    reach: HeapReach,
 }
 
 /// The envelopes the out-of-memory backstop chooses between, each one line
 /// with its newline, prepared before the run.
 #[derive(Debug)]
 pub(super) struct BackstopEnvelopes {
-    /// Written when the heap is at fault: V8 reports its heap out of
-    /// memory, and the near-heap-limit callback found the heap full.
+    /// Written for [`Stop::Heap`] ([`backstop_stop`]).
     pub(super) heap: String,
-    /// Written otherwise: the process reached its [`MEMORY_LIMIT`].
+    /// Written for [`Stop::HeapOutOfReach`]: the heap stopped growing under
+    /// a process limit with no room for its cap.
+    pub(super) heap_out_of_reach: String,
+    /// Written otherwise: the process reached its [`MEMORY_LIMIT`], or a
+    /// lower one its caller set.
     pub(super) memory: String,
 }
 
@@ -326,40 +397,59 @@ static BACKSTOP_WRITTEN: AtomicBool = AtomicBool::new(false);
 /// `out`, a handle to the envelope's stream opened before the run, never
 /// `std::io::stdout()`'s lock, which another thread may hold when V8 runs
 /// out of memory, chosen by what V8 reports and by `stopped`, the run's
-/// stops. Returns false when the process set one already.
-pub(super) fn set_backstop(out: Arc<File>, envelopes: BackstopEnvelopes, stopped: Stopped) -> bool {
+/// stops, and `reach`, its heap's. Returns false when the process set one
+/// already.
+pub(super) fn set_backstop(
+    out: Arc<File>,
+    envelopes: BackstopEnvelopes,
+    stopped: Stopped,
+    reach: HeapReach,
+) -> bool {
     BACKSTOP
         .set(Backstop {
             out,
             envelopes,
             stopped,
+            reach,
         })
         .is_ok()
 }
 
-/// Whether the heap is at fault for an out-of-memory: V8 reports its heap
-/// out of memory (rather than an allocation outside it, a zone's or a
-/// mapping's), and the near-heap-limit callback found the heap full ([`HEAP_FULL`]).
-/// A heap that fails to grow below its cap, the process's memory taken,
-/// isn't, whether or not V8 called the callback first.
-const fn heap_at_fault(is_heap_oom: bool, heap_neared: bool) -> bool {
-    is_heap_oom && heap_neared
+/// What the out-of-memory backstop reports. An allocation V8 reports outside
+/// its heap (a zone's or a mapping's, `is_heap_oom` false) is
+/// [`Stop::Memory`]. The heap's own is what the near-heap-limit callback
+/// found when it ran (`exhausted`, [`exhaustion`]): a heap at its cap that
+/// one operation V8 can't stop took past it reaches the callback first. With
+/// no callback before it, the heap failed to commit a page, or V8 gave up on
+/// a size it can't hold, before it neared its cap, so memory outside the
+/// heap took the process's: [`Stop::Memory`],
+/// or [`Stop::HeapOutOfReach`] under a limit with no room for the heap's cap
+/// (`reach`).
+const fn backstop_stop(is_heap_oom: bool, exhausted: Option<Stop>, reach: HeapReach) -> Stop {
+    match (is_heap_oom, exhausted, reach) {
+        (true, Some(stop), _) => stop,
+        (true, None, HeapReach::Unreachable) => Stop::HeapOutOfReach,
+        (false, _, _) | (true, None, HeapReach::Reachable) => Stop::Memory,
+    }
 }
 
 /// V8's out-of-memory handler for an eval's isolate: writes the prepared
-/// `heap` envelope when the heap is at fault ([`heap_at_fault`]), else the
-/// `memory` one, once, when there are any, and exits the process with
-/// code 1 at once, running none of its teardown (`gro_sys::exit_now`). V8
-/// may call it on any thread, so it takes no lock, and it allocates
-/// nothing, since memory may be what ran out.
+/// envelope of the stop [`backstop_stop`] gives, once, when there are any,
+/// and exits the process with code 1 at once, running none of its teardown
+/// (`gro_sys::exit_now`). V8 may call it on any thread, so it takes no lock,
+/// and it allocates nothing, since memory may be what ran out.
 extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::OomDetails) {
     if !BACKSTOP_WRITTEN.swap(true, Ordering::SeqCst)
         && let Some(backstop) = BACKSTOP.get()
     {
-        let envelope = if heap_at_fault(details.is_heap_oom, backstop.stopped.heap_neared()) {
-            &backstop.envelopes.heap
-        } else {
-            &backstop.envelopes.memory
+        let envelope = match backstop_stop(
+            details.is_heap_oom,
+            backstop.stopped.exhausted(),
+            backstop.reach,
+        ) {
+            Stop::Heap => &backstop.envelopes.heap,
+            Stop::HeapOutOfReach => &backstop.envelopes.heap_out_of_reach,
+            Stop::Memory | Stop::Timeout => &backstop.envelopes.memory,
         };
         let mut out: &File = &backstop.out;
         // nothing is left to report a failed write to
@@ -436,6 +526,8 @@ pub(super) fn format_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -443,36 +535,97 @@ mod tests {
         let stopped = Stopped::default();
         let shared = stopped.clone();
         assert_eq!(shared.get(), None);
+        assert_eq!(shared.exhausted(), None);
         stopped.set(Stop::Timeout);
         stopped.set(Stop::Heap);
-        assert_eq!(shared.get(), Some(Stop::Timeout));
-        // the heap neared its cap, though the timeout stopped the run
-        assert!(shared.heap_neared());
-    }
-
-    #[test]
-    fn a_full_heap_read_at_the_end_turns_memory_into_heap() {
-        let stopped = Stopped::default();
         stopped.set(Stop::Memory);
-        stopped.check_heap(HEAP_FULL - 1);
-        assert_eq!(stopped.get(), Some(Stop::Memory));
-        assert!(!stopped.heap_neared());
-        stopped.check_heap(HEAP_FULL);
-        assert_eq!(stopped.get(), Some(Stop::Heap));
-        assert!(stopped.heap_neared());
-        // another stop stands
-        let timed_out = Stopped::default();
-        timed_out.set(Stop::Timeout);
-        timed_out.check_heap(HEAP_LIMIT);
-        assert_eq!(timed_out.get(), Some(Stop::Timeout));
+        stopped.set(Stop::HeapOutOfReach);
+        assert_eq!(shared.get(), Some(Stop::Timeout));
+        // the heap's callback ran, though the timeout stopped the run, and
+        // its first finding stands
+        assert_eq!(shared.exhausted(), Some(Stop::Heap));
+        let memory_first = Stopped::default();
+        memory_first.set(Stop::Memory);
+        memory_first.set(Stop::Heap);
+        assert_eq!(memory_first.get(), Some(Stop::Memory));
+        assert_eq!(memory_first.exhausted(), Some(Stop::Memory));
+        let out_of_reach_first = Stopped::default();
+        out_of_reach_first.set(Stop::HeapOutOfReach);
+        out_of_reach_first.set(Stop::Heap);
+        assert_eq!(out_of_reach_first.get(), Some(Stop::HeapOutOfReach));
+        assert_eq!(out_of_reach_first.exhausted(), Some(Stop::HeapOutOfReach));
     }
 
-    /// A reader reads its isolate's heap while the isolate lives, a second
-    /// reader of the same isolate sharing its token, and neither reads once
-    /// the runtime, and its isolate, is dropped. `gro_v8`'s own test, here
-    /// so V8 links into one fewer test binary.
+    /// A heap that stops growing is `heap` unless an array buffer's
+    /// allocation failed, or the process's limit leaves the heap's cap out of
+    /// reach, which is `memory` with the limit named. Nothing here reads the
+    /// heap: a heap stopped at its cap reads whatever V8's collections leave
+    /// it, all but empty at times, and the kind doesn't move with it.
     #[test]
-    fn a_reader_reads_while_its_isolate_lives_and_not_after() {
+    fn a_stopped_heap_is_heap_unless_memory_ran_out_first() {
+        assert_eq!(exhaustion(false, HeapReach::Reachable), Stop::Heap);
+        assert_eq!(exhaustion(true, HeapReach::Reachable), Stop::Memory);
+        assert_eq!(
+            exhaustion(false, HeapReach::Unreachable),
+            Stop::HeapOutOfReach
+        );
+        // the array buffer's failure is the fact, whatever the limit
+        assert_eq!(exhaustion(true, HeapReach::Unreachable), Stop::Memory);
+    }
+
+    /// The heap's cap is in reach under `fgro eval`'s own cap, jitless or
+    /// with the JIT, and out of it under a limit well below the cap and its
+    /// engine; a limit between the two rooms reaches jitless only. Each
+    /// limit sits well clear of the edge it's on the side of.
+    #[test]
+    fn the_heap_s_reach_comes_from_the_data_limit_and_the_jit() {
+        let reach = |data_limit: u64, jit: Jit| {
+            let mut options = super::super::options(Path::new("main.js"), Path::new("/"));
+            options.data_limit = data_limit;
+            options.jit = jit;
+            HeapReach::of(&options)
+        };
+        for jit in [Jit::Off, Jit::On] {
+            assert_eq!(reach(MEMORY_LIMIT, jit), HeapReach::Reachable);
+            assert_eq!(reach(u64::MAX, jit), HeapReach::Reachable);
+            assert_eq!(reach(256 << 20, jit), HeapReach::Unreachable);
+            assert_eq!(reach(HEAP_LIMIT as u64, jit), HeapReach::Unreachable);
+        }
+        assert_eq!(reach(1 << 30, Jit::Off), HeapReach::Reachable);
+        assert_eq!(reach(1 << 30, Jit::On), HeapReach::Unreachable);
+        assert_eq!(heap_room(Jit::Off), 800 << 20);
+        assert_eq!(heap_room(Jit::On), 1312 << 20);
+    }
+
+    /// The backstop writes `heap` only when V8 reports its heap out of
+    /// memory and the near-heap-limit callback found the heap at its cap
+    /// before it. A heap out of memory with no callback before it never
+    /// reached its cap: memory outside the heap (array buffers made earlier,
+    /// say) took the process's, so it's `memory`, with the limit named when
+    /// it leaves the heap's cap out of reach.
+    #[test]
+    fn the_backstop_blames_the_heap_only_for_a_heap_stopped_at_its_cap() {
+        use HeapReach::{Reachable, Unreachable};
+        let found = [Stop::Heap, Stop::Memory, Stop::HeapOutOfReach];
+        for reach in [Reachable, Unreachable] {
+            for stop in found {
+                assert_eq!(backstop_stop(true, Some(stop), reach), stop);
+            }
+            for exhausted in [None, Some(Stop::Heap), Some(Stop::HeapOutOfReach)] {
+                assert_eq!(backstop_stop(false, exhausted, reach), Stop::Memory);
+            }
+        }
+        assert_eq!(backstop_stop(true, None, Reachable), Stop::Memory);
+        assert_eq!(backstop_stop(true, None, Unreachable), Stop::HeapOutOfReach);
+    }
+
+    /// The allocator an eval's isolate is built with records a failed
+    /// allocation, one too large for any process (4 PiB, under V8's largest
+    /// array buffer, so V8 asks the allocator), and a success after it,
+    /// zeroed or not, clears the record. `gro_v8`'s own test, here so V8 links into one
+    /// fewer test binary.
+    #[test]
+    fn the_array_buffer_record_holds_the_latest_allocation_s_failure() {
         std::thread::Builder::new()
             .stack_size(crate::STACK_SIZE)
             .spawn(|| {
@@ -485,17 +638,41 @@ mod tests {
                     .enable_all()
                     .build()
                     .unwrap();
+                let (create_params, record) =
+                    gro_v8::record_array_buffers(v8::Isolate::create_params());
                 let mut runtime = {
                     let _entered = tokio.enter();
-                    JsRuntime::new(deno_core::RuntimeOptions::default())
+                    JsRuntime::new(deno_core::RuntimeOptions {
+                        create_params: Some(create_params),
+                        ..Default::default()
+                    })
                 };
-                let reader = HeapReader::new(runtime.v8_isolate());
-                let second = HeapReader::new(runtime.v8_isolate());
-                assert!(reader.used_heap_size().is_some_and(|used| used > 0));
-                assert_eq!(second.used_heap_size(), reader.used_heap_size());
+                let mut run = |source: &'static str| {
+                    runtime.execute_script("record", source).unwrap();
+                    record.latest_failed()
+                };
+                assert!(!run("new ArrayBuffer(8);"));
+                assert!(run(
+                    "try { new ArrayBuffer(2 ** 52); throw new Error('made'); } \
+                     catch (error) { if (!(error instanceof RangeError)) throw error; }"
+                ));
+                assert!(!run("new Uint8Array(1 << 20);"));
+                // an uninitialized allocation (a transfer's) clears it too
+                assert!(!run("const kept = new ArrayBuffer(8); \
+                     try { new ArrayBuffer(2 ** 52); } catch {} \
+                     kept.transfer(16);"));
+                // a free leaves it: the buffers a collection frees after a
+                // failure don't clear what the callback reads
+                assert!(run(
+                    "globalThis.dropped = Array.from({length: 64}, () => new ArrayBuffer(1 << 16)); \
+                     try { new ArrayBuffer(2 ** 52); } catch {} \
+                     globalThis.dropped = null;"
+                ));
+                runtime.v8_isolate().low_memory_notification();
+                assert!(record.latest_failed());
                 drop(runtime);
-                assert_eq!(reader.used_heap_size(), None);
-                assert_eq!(second.used_heap_size(), None);
+                // the allocator gone, the record still reads its last
+                assert!(record.latest_failed());
             })
             .unwrap()
             .join()

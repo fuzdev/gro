@@ -274,7 +274,8 @@ Crates:
   environment, `RLIMIT_DATA`, the default thread stack, `wait4`, process
   groups, `_exit`), each behind a safe API; Linux only
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
-  behind a safe API (`HeapReader`); `v8` is pinned to the exact version
+  behind a safe API (eval's recording `ArrayBuffer` allocator,
+  `record_array_buffers`); `v8` is pinned to the exact version
   `deno_core` re-exports, so a `deno_core` upgrade moves the pin with it
 - `gro_bench` - the measurement harness, independent of the runtime crates;
   its `lib.rs` lists its modules and suites

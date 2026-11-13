@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::support::Scratch;
-use crate::{eval, fixtures, long_timeout, memory_heavy_turn, parse, spawn, wrapped_command};
+use crate::{Eval, eval, fixtures, long_timeout, memory_heavy_turn, parse, spawn, wrapped_command};
 
 /// `size` bytes of a module whose first line is `first`, padded with a
 /// comment.
@@ -208,20 +208,20 @@ fn the_heap_cap_fails_the_eval_as_heap() {
     }
 }
 
-/// How many times the string fixture runs. Its heap, read once the run has
-/// stopped, reads all but empty in about a third of runs (jitless, a debug
-/// build), so a stop read there, not in the callback, fails one of eight
-/// runs about nineteen times in twenty.
+/// How many times the string fixture runs: its heap, read once the run has
+/// stopped, is at times all but empty, so a kind decided by a read of it
+/// would fail some of the runs.
 const HEAP_STRINGS_RUNS: usize = 8;
 
-/// A heap stop is `heap` by the heap the near-heap-limit callback reads,
-/// at the moment V8 calls it: short strings grown to the cap, jitless, leave
-/// a heap that, read once the run has stopped, is at times all but empty,
-/// so each of [`HEAP_STRINGS_RUNS`] runs must still fail as `heap`; and a
-/// map grown with the JIT runs short on one large table it grows into, the
-/// callback reading the heap before the table is made, which the run's end
-/// then reads in it. Either may end in the run's envelope or the
-/// out-of-memory backstop's, both `heap`.
+/// A heap stop is `heap` whatever the heap holds when it's stopped or after:
+/// the kind comes from whether an array buffer's allocation failed and
+/// whether the process's limit leaves the heap's cap in reach, never from a
+/// read of the heap, which V8's collections change. Short strings grown to
+/// the cap, jitless, leave a heap that is at times all but empty once the
+/// run has stopped, so each of [`HEAP_STRINGS_RUNS`] runs must fail as
+/// `heap`; a map grown with the JIT stops on one large table it grows into,
+/// and the map, the module's, is garbage once the run is stopped. Either may end in the run's
+/// envelope or the out-of-memory backstop's, both `heap`.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -263,13 +263,30 @@ const MEMORY_BACKSTOP: &str = "the eval ran out of memory outside the heap's cap
                                reached its memory cap of 2048 MiB, or a lower one its caller \
                                set, so it exited";
 
+/// The messages of a heap stopped under a caller's data limit with no room
+/// for its cap, by the run's envelope and the backstop's: 700 MiB and
+/// 256 MiB, jitless, under the 800 MiB the heap's cap needs.
+const OUT_OF_REACH_STOPPED: &str = "the eval's heap stopped growing under the process's data limit \
+                                    of 700 MiB, below the 800 MiB its cap of 512 MiB needs with \
+                                    the engine beside it, and the run was stopped";
+const OUT_OF_REACH_BACKSTOP: &str = "the eval's heap stopped growing under the process's data \
+                                     limit of 256 MiB, below the 800 MiB its cap of 512 MiB \
+                                     needs with the engine beside it, so the process exited";
+
 /// The process's memory cap, which `fgro eval` sets on itself: an
-/// `ArrayBuffer` its size can't be made, and the failed allocation, after
-/// which V8 runs the near-heap-limit callback as though the heap were full,
-/// stops the run as `memory`, not `heap`, jitless or with the JIT. A lower
-/// limit the caller set stands, and a heap that can't grow under it,
-/// far below its own cap, runs V8 out of memory: the out-of-memory backstop
-/// writes its prepared `memory` envelope, with no `access`, and exits 1.
+/// `ArrayBuffer` its size can't be made, and the failed allocation, which the
+/// isolate's allocator records before V8 runs the near-heap-limit callback
+/// as though the heap were full, stops the run as `memory`, not `heap`,
+/// jitless or with the JIT. Array buffers made first that hold most of the
+/// cap leave the heap's pages to fail long before the heap nears its own,
+/// with no callback, so jitless V8 runs out of memory and the out-of-memory
+/// backstop writes its prepared `memory` envelope. A lower limit the caller
+/// set stands, and one below what the heap's cap needs leaves the cap out of
+/// reach: a heap that can't grow under it is `memory`, its message naming the limit and the
+/// room the cap needs, whether the near-heap-limit callback stops the run
+/// (a limit above what the heap at its cap takes) or the heap's pages run V8 out of memory
+/// first, when the out-of-memory backstop writes its prepared envelope, with
+/// no `access`, and exits 1 (a limit well under the heap's cap).
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -286,16 +303,74 @@ fn the_memory_cap_fails_the_eval_as_memory() {
         assert_eq!(run.message(), MEMORY_STOPPED, "{args:?}");
         assert_eq!(run.envelope["access"], json!({"dynamic": []}), "{args:?}");
     }
-    // the caller's lower limit, set by util-linux's `prlimit` before it
-    // runs `fgro`: 256 MiB, under the heap's cap and above what the runtime
-    // takes to start
-    let limit = (256_u64 << 20).to_string();
-    let mut prlimit = Command::new("prlimit");
-    prlimit.arg(format!("--data={limit}:{limit}"));
-    let run = parse(spawn(wrapped_command(prlimit, &["heap_grow.js"]), None));
+    let run = eval(&["memory_then_heap.js"]);
     run.assert_failed("memory", 1);
     assert_eq!(run.message(), MEMORY_BACKSTOP);
     assert_eq!(run.envelope["access"], Value::Null);
+    // the caller's lower limits, set by util-linux's `prlimit` before it
+    // runs `fgro`: 700 MiB, above where the heap nears its cap jitless, and
+    // 256 MiB, under the heap's cap and above what the runtime takes to start
+    let run = eval_under_data_limit(700 << 20, &["heap_grow.js"]);
+    run.assert_failed("memory", 1);
+    assert_eq!(run.message(), OUT_OF_REACH_STOPPED);
+    assert_eq!(run.envelope["access"], json!({"dynamic": []}));
+    let run = eval_under_data_limit(256 << 20, &["heap_grow.js"]);
+    run.assert_failed("memory", 1);
+    assert_eq!(run.message(), OUT_OF_REACH_BACKSTOP);
+    assert_eq!(run.envelope["access"], Value::Null);
+}
+
+/// A caller's lower limit that still leaves the heap room for its cap, and
+/// the engine room beside it (`gro_runtime`'s 800 MiB jitless, 1312 MiB with
+/// the JIT), keeps a heap stopped at its cap `heap`: 1536 MiB, well above
+/// either, as under `fgro eval`'s own 2 GiB.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_lower_limit_with_room_for_the_heap_keeps_a_heap_stop_heap() {
+    let _turn = memory_heavy_turn();
+    let run = eval_under_data_limit(1536 << 20, &["heap_grow.js"]);
+    run.assert_failed("heap", 1);
+    assert_eq!(run.message(), HEAP_STOPPED);
+    let run = eval_under_data_limit(1536 << 20, &["heap_grow.js", "--jit"]);
+    run.assert_failed("heap", 1);
+    assert_eq!(run.message(), HEAP_BACKSTOP);
+}
+
+/// The least data limit with room for the heap's cap jitless, 800 MiB:
+/// `gro_runtime`'s room for the cap, its headroom, and the engine beside
+/// them, stated as a literal, which keeps V8 out of this binary.
+const HEAP_ROOM_JITLESS: u64 = 800 << 20;
+
+/// The room `gro_runtime` leaves beside the heap's cap still holds what the
+/// engine takes: under a data limit of exactly that room, jitless, a heap
+/// grown to its cap is `heap`. An engine that came to need more than the room
+/// before the heap nears its cap would fail one of the heap's pages first,
+/// with no stop, and the run would end as `memory`, failing this test
+/// (array buffers held before the heap grows show it, once they take more
+/// than the room's spare). With the JIT, a heap page that fails is retried
+/// through the near-heap-limit callback and reads as `heap` whatever took the
+/// memory, so no run with the JIT shows the room outgrown.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn the_room_beside_the_heap_s_cap_holds_the_engine() {
+    let _turn = memory_heavy_turn();
+    let run = eval_under_data_limit(HEAP_ROOM_JITLESS, &["heap_grow.js"]);
+    run.assert_failed("heap", 1);
+    assert_eq!(run.message(), HEAP_STOPPED);
+}
+
+/// An eval of `args` under a data limit (`RLIMIT_DATA`) of `bytes`, soft and
+/// hard, which util-linux's `prlimit` sets before it runs `fgro`.
+fn eval_under_data_limit(bytes: u64, args: &[&str]) -> Eval {
+    let mut prlimit = Command::new("prlimit");
+    prlimit.arg(format!("--data={bytes}:{bytes}"));
+    parse(spawn(wrapped_command(prlimit, args), None))
 }
 
 /// A caller's large stack limit doesn't size the engine's threads: glibc

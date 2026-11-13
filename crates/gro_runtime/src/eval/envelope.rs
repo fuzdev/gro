@@ -162,14 +162,18 @@ pub enum ErrorKind {
     /// After the value was serialized, the event loop's remaining work
     /// threw or rejected, or the driver's `after_drain` threw.
     LateRejection,
-    /// The heap reached its cap: the run was stopped, or, out of memory,
-    /// the process wrote a prepared envelope and exited.
+    /// The heap can grow no more under a data limit that leaves room for its
+    /// cap: the run was stopped, or, out of memory, the process wrote a
+    /// prepared envelope and exited.
     Heap,
     /// The process ran out of memory outside the heap's cap, at its cap on
     /// memory ([`MEMORY_LIMIT`](super::MEMORY_LIMIT)) or a lower one its
-    /// caller set: an allocation outside the heap failed and the run was
-    /// stopped, or, out of memory with the heap not at fault, the process
-    /// wrote a prepared envelope and exited.
+    /// caller set: an array buffer's allocation failed, or the heap stopped
+    /// growing under a limit with no room for its cap (the message names
+    /// both), and the run was stopped; or, out of memory with the heap not at
+    /// fault (V8 ran out outside its heap, or on the heap's pages before it
+    /// stopped the heap near its cap), the process wrote a prepared envelope
+    /// and exited.
     Memory,
     /// The run passed its timeout and was stopped.
     Timeout,

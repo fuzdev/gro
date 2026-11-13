@@ -44,12 +44,16 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
   UTC's aliases that display as UTC (`Etc/UTC`, `Universal`, `Zulu`, `UCT`) are accepted;
   those that display another name (`Etc/GMT`, `GMT0`, `Greenwich`, which dates name `Greenwich Mean Time`)
   are refused, and so is a zone ICU doesn't know.
-- **The heap is capped at 512 MiB**, a provisional cap until it's measured against real configs.
-  Near it, the run is stopped and fails as `heap`.
+- **The heap's growth is capped at 512 MiB**, a provisional cap until it's measured against real configs.
+  Near it, the run is stopped and fails as `heap`
+  (as `memory` under a caller's data limit too low for the cap, next).
   What a stop can't interrupt (one long builtin call, or allocation under the JIT)
   runs out of memory instead: V8 prints its last garbage collections to stderr,
   and the process writes a prepared `heap` envelope, whose `access` is `null`, and exits 1.
-  The cap counts V8's heap only.
+  The cap counts V8's heap only, and bounds its growth, not each allocation:
+  V8 makes one large young object (a large array's elements) whatever the cap,
+  so a heap holding one can pass the cap by its size without the run being stopped,
+  and only the process's cap, next, bounds it.
   The bytes behind array buffers and typed arrays fall under the process's cap, next;
   a module's source and the envelope fall under the byte caps below;
   and the host's copies of an uncaught error's report (up to 256 errors from causes and an `AggregateError`)
@@ -60,13 +64,14 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
   the heap's pages, every thread's stack, and with `--jit` the code range V8 reserves.
   V8's worker threads get an 8 MiB stack, or a smaller default that stands,
   so a large stack limit (`RLIMIT_STACK`) inherited from the caller doesn't spend the cap.
-  The cap is about twice what the largest legal runs take (a module at the source cap, a run stopped at the heap's cap, or a value just under the envelope's cap, each with `--jit`), so a config never meets it.
+  The cap sits well above what the largest runs it was measured against take (a module at the source cap, a run stopped at the heap's cap, or a value just under the envelope's cap, each with `--jit`),
+  but a legal run can still come close to it: one holding a large young object past the heap's cap beside a heap near it.
   A lower limit the caller set, soft or hard, stands.
   Past the cap, what happens depends on which allocation fails:
-  - an array buffer's: the run is stopped and fails as `memory`,
-    or as `heap` when the run holds more than three quarters of the heap's cap at that moment
-  - V8's own, on the run's thread: the process writes a prepared `memory` envelope, whose `access` is `null`, and exits 1,
-    or a prepared `heap` envelope when V8 reports its heap at fault and the heap is near its cap
+  - an array buffer's: the run is stopped and fails as `memory`, whatever the heap holds
+  - the heap's own pages: as a heap at its cap, the run is stopped, or the process writes a prepared envelope and exits 1,
+    with the kind the process's limit and the stop give (below)
+  - V8's own elsewhere, on the run's thread: the process writes a prepared `memory` envelope, whose `access` is `null`, and exits 1
   - V8's on one of its own threads (a garbage collection's or a compile's),
     or a Rust allocation (the serializer's output, an error's report):
     the process aborts with no envelope, a message on stderr, and a signal's exit
@@ -74,6 +79,23 @@ It runs only on Linux, with Landlock ABI 6 or later (Linux 6.12), from a build w
 
   A caller's limit too low for the engine to start (with `--jit`, one under the code range V8 reserves)
   aborts the process the same way, with no envelope.
+
+  When the heap can grow no more, the kind comes from the run's configuration and recorded facts,
+  never from how much the heap holds, which V8's collections change from one moment to the next.
+  It's `memory` when the allocator behind array buffers recorded that its latest allocation failed;
+  when the process's data limit, read before the box, leaves no room for the heap at its cap and the engine beside it
+  (800 MiB jitless, 1312 MiB with `--jit`, where the code range V8 reserves counts whole, measured with room to spare),
+  and then the message names the limit and that room;
+  and when V8 runs out of memory on the heap's pages without first stopping the heap as near its cap.
+  Otherwise it's `heap`.
+  The 2 GiB cap leaves that room, so under it a stop of the heap is `memory` only when memory outside the heap ran out,
+  and under a caller's lower limit with no room every stop of the heap is `memory`, even one that reached the heap's cap first.
+  Memory outside the heap of any kind can still be reported as `heap`
+  when the allocation that fails makes V8 stop the heap as though it were full with nothing recorded:
+  a resizable `ArrayBuffer` or a `WebAssembly.Memory`, made or grown, that can't get its pages, which V8 commits outside that allocator,
+  and a heap page V8 retries that way after memory outside the heap, array buffers made earlier included, took the rest of the limit,
+  and one large young object (above) larger than what the limit has left.
+  A heap page that fails with no such retry is `memory`.
   A caller treats a missing envelope as a failure.
 - **A module's source is capped at 16 MiB**, as [run](run.md)'s is:
   a larger module is refused as it's read, before any of it is parsed or stripped, and fails as `link`,
@@ -378,8 +400,8 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `export_missing` | the export to serialize is absent, or the driver has no `default` function (or an `after_drain` that isn't one)       |
 | `serialize`      | the value isn't data by the rules above, or the envelope holding it would pass 64 MiB                                  |
 | `late_rejection` | the drain threw or rejected, or `after_drain` threw                                                                     |
-| `heap`           | the heap reached its cap: the run was stopped, or the process ran out of memory                                       |
-| `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, or V8 ran out of memory with the heap not at fault |
+| `heap`           | the heap can grow no more under a data limit with room for its cap ([the engine](#the-engine)): the run was stopped, or the process ran out of memory |
+| `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, the heap stopped growing under a caller's data limit with no room for its cap (the message names both), the heap's pages ran out before V8 stopped it near its cap, or V8 ran out of memory outside its heap |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
 | `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
 | `internal`       | the host failed: a module replaced on disk between resolving and loading, a read failed, a symlink loop, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
