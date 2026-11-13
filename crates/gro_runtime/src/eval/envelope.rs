@@ -55,8 +55,9 @@ pub enum GraphField {
     /// module graph (the entry didn't resolve, the box didn't go up, or the
     /// process ran out of memory and wrote its prepared envelope), or the graph
     /// names a path no id can: one that isn't UTF-8, or a module URL with no
-    /// path ([`super::DumpError`]). A graph the host failed to record fails the
-    /// eval as `internal`, and is `null` too, as is one in an envelope that
+    /// path ([`super::DumpError`]). A graph the host failed to record, or one
+    /// with a builtin module in it, fails the eval as `internal`, and is
+    /// `null` too, as is one in an envelope that
     /// would pass [`MAX_ENVELOPE_SIZE`], which drops it.
     Unavailable,
     /// The graph, from the run as far as it got.

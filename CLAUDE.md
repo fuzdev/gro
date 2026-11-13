@@ -312,8 +312,9 @@ Invariants that live in the code:
   compile time, and a test pins the bootstrap's factories (`js/bootstrap.js`)
   to the table's specifiers; the resolver returns a table hit ahead of any
   package lookup; the loader checks it against the run's `Authority` at link
-  time, for a static import and `import()` alike (`loader/resolve.rs`), and a
-  package's module is granted none. A package's module can't reach a grant through the
+  time, for a static import and `import()` alike (`loader/resolve.rs`): with
+  none (eval's) nothing is imported, a grant-free row included, checked
+  before the grant, and a package's module is granted none. A package's module can't reach a grant through the
   project's: its bare import resolving into the project root is refused
   (`ResolveErrorKind::PackageImportsProject`). A static import of a builtin
   with import attributes is refused first, in the loader's

@@ -113,7 +113,7 @@ Authority enters by an import, so what a run can reach is a static fact,
 though which of its modules ends up holding a capability is not.
 There's no `process` global, no Node compat, and no remote import,
 and no runtime namespace: the core's own op table is removed from the global object at startup (built),
-and each host op checks its grant again (designed), so no leaked reference to the core reaches around the loader.
+and each host op checks its grant again as its first step (built, held by tests rather than the compiler), so no leaked reference to the core reaches around the loader.
 A WASM module can reach only what its instantiator hands it, and one imported as an ES module declares that statically.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
 These are the read and write roots, the net hosts, the deny overlays,

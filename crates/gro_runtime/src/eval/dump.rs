@@ -168,6 +168,10 @@ pub enum DumpError {
     /// eval as `internal`.
     #[error("the graph names {} as consulted with no read of it recorded", .0.display())]
     Unread(PathBuf),
+    /// A builtin module is recorded, which eval never imports: a host bug,
+    /// which fails the eval as `internal`.
+    #[error("the graph records the builtin module {0}, which eval never imports")]
+    Builtin(Url),
 }
 
 /// The dump of `graph`, whose entry is `entry` and whose process was
@@ -176,7 +180,8 @@ pub enum DumpError {
 /// # Errors
 ///
 /// Returns why the graph can't be dumped: a path that isn't UTF-8, a module
-/// URL with no path, or a consulted file the run didn't record reading.
+/// URL with no path, a consulted file the run didn't record reading, or a
+/// builtin module recorded.
 pub(super) fn dump_graph(
     graph: &Graph,
     entry: &Url,
@@ -254,6 +259,21 @@ impl Ids<'_> {
 
 /// Every module `graph` recorded, with its imports, in id order.
 fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, DumpError> {
+    // eval's loader imports no builtin, so it records none; checked before
+    // the edges are named, since the edge to one would fail first, as a URL
+    // with no path, the error-free `null`
+    // TODO: a graph version that links one names it by a `builtin:` id and a
+    // `builtin` origin, with no hash or format, its edges' `resolved` that id
+    let records = graph
+        .records()
+        .iter()
+        .map(|(url, record)| {
+            record
+                .module()
+                .map(|record| (url, record))
+                .ok_or_else(|| DumpError::Builtin(url.clone()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut imports: BTreeMap<&Url, Vec<DumpImport>> = BTreeMap::new();
     for (edge, resolved) in graph.edges() {
         imports.entry(&edge.importer).or_default().push(DumpImport {
@@ -265,12 +285,8 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
             },
         });
     }
-    let mut modules = Vec::with_capacity(graph.records().len());
-    for (url, record) in graph.records() {
-        // eval grants no builtin, so its loader records none
-        let Some(record) = record.module() else {
-            return Err(DumpError::NotAPath(url.clone()));
-        };
+    let mut modules = Vec::with_capacity(records.len());
+    for (url, record) in records {
         let mut imports = imports.remove(url).unwrap_or_default();
         imports.sort_by(|a, b| {
             (&a.specifier, a.reach, &a.resolved).cmp(&(&b.specifier, b.reach, &b.resolved))
@@ -707,6 +723,32 @@ mod tests {
         assert_eq!(
             dump_graph(&graph, &entry.url, &[]),
             Err(DumpError::Unread(PathBuf::from("/w/p/package.json")))
+        );
+    }
+
+    /// A builtin module recorded in the graph, which eval's loader never
+    /// records, has no dump: `graph_version` 1 has no shape for one. It's
+    /// recorded as a run's loader links one, with the edge to it, which
+    /// would otherwise fail first as a URL with no path.
+    #[test]
+    fn a_builtin_module_recorded_has_no_dump() {
+        let base = "/w";
+        let tree = tree(base);
+        let mut reads = Reads::default();
+        let (entry, roots, _) = resolver::resolve_entry_with_bound(
+            &RecordingTree::new(&tree, &mut reads),
+            Path::new("/w/p/src/main.ts"),
+            Path::new("/"),
+        )
+        .unwrap();
+        let mut graph = Graph::new(&entry, roots, Recording::Full).with_reads(reads);
+        let builtin = &resolver::BUILTINS[0];
+        let url = Url::parse(builtin.url).unwrap();
+        graph.admit_builtin(&url, builtin);
+        graph.link(&entry.url, builtin.specifier, Reach::Static, &url);
+        assert_eq!(
+            dump_graph(&graph, &entry.url, &[]),
+            Err(DumpError::Builtin(url))
         );
     }
 

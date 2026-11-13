@@ -58,7 +58,7 @@ pub use self::envelope::{
 };
 use self::envelope::{MAX_TEXT_KEPT, access, cap_envelope};
 pub use self::failure::no_snapshot_error;
-use self::failure::{breach_error, heap_out_of_reach_error, stop_error, unread_error};
+use self::failure::{breach_error, dumped, heap_out_of_reach_error, stop_error};
 pub use self::limits::{
     DEFAULT_THREAD_STACK, DEFAULT_TIMEOUT, HEAP_LIMIT, MAX_ENVELOPE_SIZE, MEMORY_LIMIT,
 };
@@ -223,24 +223,19 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
     // the runtime, and its share of the loader, is gone once the eval ends
     let graph = loader.take_graph();
     envelope.access = Some(access(&graph));
-    let mut unread = None;
-    if let Some(graph_box) = graph_box {
-        envelope.graph = match dump_graph(&graph, &entry.url, &graph_box) {
-            Ok(dump) => GraphField::Dumped(Box::new(dump)),
-            Err(DumpError::Unread(path)) => {
-                unread = Some(path);
-                GraphField::Unavailable
-            }
-            // a path no id can name: the documented `null`
-            Err(DumpError::NotUtf8(_) | DumpError::NotAPath(_)) => GraphField::Unavailable,
-        };
-    }
+    let host_bug = if let Some(graph_box) = graph_box {
+        let (graph, error) = dumped(dump_graph(&graph, &entry.url, &graph_box));
+        envelope.graph = graph;
+        error
+    } else {
+        None
+    };
     // a read refused outside the box fails the eval, whatever the run did
     // with the error, and then a graph the host failed to record; a stop
     // decides the kind otherwise, whatever the run reported after it
-    envelope.result = match (result, stopped.get(), breach, unread) {
+    envelope.result = match (result, stopped.get(), breach, host_bug) {
         (_, _, Some(path), _) => Err(breach_error(&path)),
-        (_, _, None, Some(path)) => Err(unread_error(&path)),
+        (_, _, None, Some(error)) => Err(error),
         (_, Some(stop), None, None) => Err(stop_error(stop, options)),
         (result, None, None, None) => {
             result.map_err(|failed| failed.into_error(&graph, options.jit))

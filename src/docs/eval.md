@@ -171,10 +171,9 @@ caught or not (the driver's are refused as imports from the driver, and not list
 and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
 and the refusal names the real path, so evaluated code can tell whether a path exists and where a link points.
 
-Eval grants nothing, so a host module's import, `@fuzdev/gro/process.ts` among them, is refused when the graph links,
-a `resolve` naming the grant it needs ([resolver](resolver.md#builtin-modules)),
+Eval imports no builtin module for now, a grant-free one included, so a host module's import, `@fuzdev/gro/process.ts` among them, is refused when the graph links,
+a `resolve` naming the grant it needs when it has one ([resolver](resolver.md#builtin-modules)),
 or, with an import attribute, a `link`.
-Eval imports no builtin module for now, and one that needs no grant is designed to be refused too.
 
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 
@@ -447,7 +446,7 @@ The path is joined by `/`, with `%`, `?`, and `#` percent-encoded,
 and a module's query and fragment join its id as its URL has them (`project:src/a.js?x#y`),
 so an import with a query or fragment is a module of its own, as it is to V8.
 The package's name and version are only in `origin`.
-Eval grants no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin; an eval that links one names it by those, under a new `graph_version`.
+Eval imports no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin; an eval that links one names it by those, under a new `graph_version`.
 Absolute paths are only in `local`.
 Every array is sorted, so the dump is a function of what was read, not of the order the run reached it in.
 
@@ -488,7 +487,7 @@ and the box's roots: a link added to `node_modules` that changes the closure can
 or when a path in it isn't UTF-8, which no id can name, or a module's URL names no file,
 or when the envelope would pass its cap, which drops it (and fails an `ok: true` one as `serialize`);
 those are the only cases, and under `ok: true` the value stands but there's no graph to cache it on.
-A graph the host failed to record (a `package.json` consulted with no read of it kept) fails the eval as `internal`.
+A graph the host failed to record (a `package.json` consulted with no read of it kept), or one with a builtin module in it, which eval never imports, fails the eval as `internal`.
 A failed run still dumps the graph as far as it got, for diagnosis, under `ok: false`:
 a module that resolved but never loaded has a `null` `blake3`,
 and the `package.json` files a failed resolution read aren't in `consulted` (the paths it went past are in `absent`).

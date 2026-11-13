@@ -5,27 +5,34 @@ use std::path::Path;
 
 use deno_core::error::{CoreError, CoreErrorKind, JsError};
 
-use super::dump::DumpError;
+use super::dump::{DumpError, GraphDump};
 use super::limits::{Stop, format_size, heap_room};
-use super::{ErrorKind, EvalError, EvalOptions, HEAP_LIMIT, MEMORY_LIMIT};
+use super::{ErrorKind, EvalError, EvalOptions, GraphField, HEAP_LIMIT, MEMORY_LIMIT};
 use crate::confine::Jit;
 use crate::loader::graph::{
     Failure, FailureReason, FailureSite, Graph, LoadFailure, Reach, Reached,
 };
 use crate::report::{report, report_js};
 
-/// The error of an eval whose graph names `path` as consulted with no read
-/// of it recorded, which only a bug in the host makes: the graph would name
-/// a file with no hash, so the eval fails rather than write one partial or
-/// none under a value.
-pub(super) fn unread_error(path: &Path) -> EvalError {
-    EvalError::new(
-        ErrorKind::Internal,
-        format!(
-            "{}, a bug in fgro, so no graph is written",
-            DumpError::Unread(path.to_owned())
+/// The graph field of an eval's dump, and the error that fails the eval
+/// when only a bug in the host could have made the dump's failure: a
+/// consulted file with no read of it recorded, whose graph would name a
+/// file with no hash, or a builtin module recorded, which eval never
+/// imports and `graph_version` 1 has no shape for. Either fails the eval
+/// rather than write a graph partial or none under a value. A path no id
+/// can name is the documented `null`, failing nothing.
+pub(super) fn dumped(dump: Result<GraphDump, DumpError>) -> (GraphField, Option<EvalError>) {
+    match dump {
+        Ok(dump) => (GraphField::Dumped(Box::new(dump)), None),
+        Err(error @ (DumpError::Unread(_) | DumpError::Builtin(_))) => (
+            GraphField::Unavailable,
+            Some(EvalError::new(
+                ErrorKind::Internal,
+                format!("{error}, a bug in fgro, so no graph is written"),
+            )),
         ),
-    )
+        Err(DumpError::NotUtf8(_) | DumpError::NotAPath(_)) => (GraphField::Unavailable, None),
+    }
 }
 
 /// The error of an eval whose loader was asked to read `path`, outside the
@@ -302,7 +309,7 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
         FailureReason::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
         FailureReason::Resolve(_)
         | FailureReason::DriverImport
-        // a builtin eval doesn't grant, which is every one that needs a grant
+        // a builtin eval doesn't import, which is every one
         | FailureReason::NotGranted { .. } => ErrorKind::Resolve,
         FailureReason::Load(
             LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
@@ -530,17 +537,38 @@ mod tests {
         );
     }
 
-    /// A graph with a consulted file the run didn't record reading is an
-    /// `internal` naming the path.
+    /// A graph with a consulted file the run didn't record reading, or with
+    /// a builtin module recorded, is an `internal` naming it, with no graph;
+    /// a path no id can name is a `null` graph failing nothing.
     #[test]
-    fn an_unread_consulted_file_is_internal() {
-        let error = unread_error(Path::new("/p/package.json"));
-        assert_eq!(error.kind, ErrorKind::Internal);
-        assert_eq!(
-            error.message,
-            "the graph names /p/package.json as consulted with no read of it recorded, a bug in \
-             fgro, so no graph is written"
-        );
+    fn a_host_bug_in_the_dump_is_internal() {
+        let cases = [
+            (
+                DumpError::Unread(PathBuf::from("/p/package.json")),
+                "the graph names /p/package.json as consulted with no read of it recorded, a bug \
+                 in fgro, so no graph is written",
+            ),
+            (
+                DumpError::Builtin(Url::parse("builtin:@fuzdev/gro/process.ts").unwrap()),
+                "the graph records the builtin module builtin:@fuzdev/gro/process.ts, which eval \
+                 never imports, a bug in fgro, so no graph is written",
+            ),
+        ];
+        for (dump_error, message) in cases {
+            let (graph, error) = dumped(Err(dump_error));
+            assert!(matches!(graph, GraphField::Unavailable));
+            let error = error.unwrap();
+            assert_eq!(error.kind, ErrorKind::Internal);
+            assert_eq!(error.message, message);
+        }
+        for dump_error in [
+            DumpError::NotUtf8(PathBuf::from("/p")),
+            DumpError::NotAPath(Url::parse("data:,x").unwrap()),
+        ] {
+            let (graph, error) = dumped(Err(dump_error));
+            assert!(matches!(graph, GraphField::Unavailable));
+            assert!(error.is_none());
+        }
     }
 
     /// A read outside the box names the path, says how the box is made, and

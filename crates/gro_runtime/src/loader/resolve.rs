@@ -67,7 +67,7 @@ pub(super) fn resolve_into(
 /// for an import, once its grant is checked against `authority` and the
 /// importer's origin, recorded with the edge to it; for
 /// `import.meta.resolve`, unchecked, since it imports nothing.
-fn resolve_builtin(
+pub(super) fn resolve_builtin(
     graph: &mut Graph,
     authority: Option<&Authority>,
     builtin: &'static Builtin,
@@ -107,19 +107,25 @@ fn resolve_builtin(
 }
 
 /// Whether an importer of `origin` may import `builtin` under `authority`,
-/// or why not.
+/// or why not. With no authority (eval's) nothing is imported, a grant-free
+/// builtin included, which is checked before the grant.
 fn check_grant(
     authority: Option<&Authority>,
     builtin: &Builtin,
     origin: &Origin,
 ) -> Result<(), String> {
+    let Some(authority) = authority else {
+        return Err(builtin.grant.map_or_else(
+            || "eval imports no builtin module".to_owned(),
+            |capability| {
+                format!("it needs the grant '{capability}', and eval imports no builtin module")
+            },
+        ));
+    };
     let Some(capability) = builtin.grant else {
         return Ok(());
     };
     let needs = format!("it needs the grant '{capability}'");
-    let Some(authority) = authority else {
-        return Err(format!("{needs}, and eval grants none"));
-    };
     match (authority, origin) {
         (Authority::Confined(_), Origin::Package { name, .. }) => Err(format!(
             "{needs}, which package '{name}' isn't granted: only the project's own modules are \

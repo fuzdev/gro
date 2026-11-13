@@ -75,7 +75,7 @@ it's refused naming the package and the module, by a static import, `import()`, 
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants `process`, and `fgro eval` grants nothing ([eval](eval.md)).
+`fgro run` grants `process`, and `fgro eval` imports no builtin module, a grant-free one included ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 A static import of one with any import attribute (`with {type: 'json'}`, `with {x: 'y'}`) is refused before its grant is checked,
 where a file's import is refused only a `type`; an `import()`'s attributes don't reach the loader, so they aren't refused yet.

@@ -190,9 +190,9 @@ pub enum FailureReason {
     /// The importer is not a URL this graph resolved: not a URL at all, or
     /// never resolved here.
     UnknownImporter,
-    /// A builtin whose grant the importer isn't granted: the run holds no
-    /// grants (eval's), or not this one, or the importer is a package's
-    /// module, which holds none.
+    /// A builtin the importer may not import: the run imports none (eval's,
+    /// a grant-free one included), or holds not its grant, or the importer
+    /// is a package's module, which holds none.
     NotGranted {
         /// The builtin.
         builtin: &'static Builtin,

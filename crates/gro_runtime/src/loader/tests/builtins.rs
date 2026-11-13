@@ -1,8 +1,9 @@
 //! A builtin through the loader: the grant check at link time, by the run's
 //! authority and the importer's origin, and what the graph records.
 
+use super::super::resolve::resolve_builtin;
 use super::*;
-use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
+use crate::resolver::{BUILTINS, Builtin, Origin, ResolveErrorKind};
 use crate::{Authority, Grants, ProcessGrant};
 
 const PROCESS: &str = "@fuzdev/gro/process.ts";
@@ -81,9 +82,15 @@ fn no_authority_grants_nothing() {
             MAIN,
             reached,
             &Origin::Project,
-            "and eval grants none",
+            "and eval imports no builtin module",
         );
-        assert_refused(&loader, BAR, reached, &bar_origin(), "and eval grants none");
+        assert_refused(
+            &loader,
+            BAR,
+            reached,
+            &bar_origin(),
+            "and eval imports no builtin module",
+        );
     }
     assert_no_builtin(&loader);
 }
@@ -184,4 +191,72 @@ fn the_builtin_url_is_refused_from_source() {
         BUILTINS[0].url,
         &FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme("builtin".to_owned())),
     );
+}
+
+/// A grant-free builtin of the test's own: the table has none yet, so the
+/// check is driven past the table's lookup, from the resolved builtin on.
+static GRANT_FREE: Builtin = Builtin {
+    specifier: "@fuzdev/gro/grant_free.ts",
+    url: "builtin:@fuzdev/gro/grant_free.ts",
+    grant: None,
+    exports: &[],
+};
+
+/// Links [`GRANT_FREE`] into `loader`'s graph, imported by `importer` as
+/// `reach`, under `loader`'s authority.
+fn link_grant_free(loader: &Loader, importer: &str, reach: Reach) -> Result<String, Refused> {
+    let importer = Url::parse(importer).unwrap();
+    resolve_builtin(
+        &mut loader.graph.borrow_mut(),
+        loader.authority.as_ref(),
+        &GRANT_FREE,
+        GRANT_FREE.specifier,
+        &importer,
+        Reached::Import(reach),
+    )
+    .map(|url| url.to_string())
+}
+
+/// With no authority, as eval's loader, a grant-free builtin is refused
+/// too, the eval checked before the grant, with a message that names no
+/// grant; a run's loader links it for the project and a package alike,
+/// whatever the run grants.
+#[test]
+fn eval_refuses_a_grant_free_builtin_and_a_run_links_it() {
+    let tree = tree();
+    let eval = loader(&tree, None);
+    for (importer, origin) in [(MAIN, Origin::Project), (BAR, bar_origin())] {
+        for reach in [Reach::Static, Reach::Dynamic] {
+            let Err(refused) = link_grant_free(&eval, importer, reach) else {
+                panic!("linked under eval");
+            };
+            assert_eq!(
+                refused.error.to_string(),
+                format!(
+                    "cannot import '{}' from {importer}: eval imports no builtin module",
+                    GRANT_FREE.specifier
+                )
+            );
+            assert_eq!(
+                *refused.reason,
+                FailureReason::NotGranted {
+                    builtin: &GRANT_FREE,
+                    origin: origin.clone(),
+                }
+            );
+        }
+    }
+    assert_no_builtin(&eval);
+    for authority in [Authority::default(), granted()] {
+        let loader = loader(&tree, Some(authority));
+        for importer in [MAIN, BAR] {
+            for reach in [Reach::Static, Reach::Dynamic] {
+                let url = link_grant_free(&loader, importer, reach)
+                    .unwrap_or_else(|refused| panic!("{}", refused.error));
+                assert_eq!(url, GRANT_FREE.url);
+            }
+        }
+        let url = Url::parse(GRANT_FREE.url).unwrap();
+        assert_eq!(graph(&loader).records()[&url], Record::Builtin(&GRANT_FREE));
+    }
 }

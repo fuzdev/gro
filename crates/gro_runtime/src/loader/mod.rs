@@ -29,8 +29,9 @@
 //! checked against the run's [`Authority`] at link time, for a static import
 //! and `import()` alike: one whose grant the importer isn't granted is
 //! refused ([`FailureReason::NotGranted`]), the message naming the grant. A
-//! loader made without an authority, as eval's is, grants nothing; a
-//! package's module is granted nothing whatever the authority. A granted
+//! loader made without an authority, as eval's is, imports no builtin, a
+//! grant-free one included, checked before the grant; a package's module is
+//! granted nothing whatever the authority. A granted
 //! import returns the builtin's `builtin:` URL, which `deno_core` serves as
 //! the builtin's synthetic module, never asking the loader to load it.
 //! `import.meta.resolve` returns that URL to any importer, granted or not:
@@ -111,7 +112,7 @@ pub struct Loader {
     /// The box of [`Rules::box_roots`], and the first read it refused.
     box_check: BoxCheck,
     /// The run's authority, which each builtin import is checked against;
-    /// unset, nothing is granted.
+    /// unset, no builtin is imported.
     authority: Option<Authority>,
 }
 
@@ -166,7 +167,7 @@ impl Refused {
 
 impl Loader {
     /// A loader for the graph of `entry`, already resolved with `roots`,
-    /// recording as `recording` says, granting nothing.
+    /// recording as `recording` says, importing no builtin.
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),

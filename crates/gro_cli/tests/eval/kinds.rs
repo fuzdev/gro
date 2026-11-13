@@ -21,7 +21,7 @@ fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
     );
 }
 
-/// Eval grants nothing, so a host module's import is refused at link
+/// Eval imports no builtin module, so a host module's import is refused at link
 /// time, naming the grant, as a `resolve`; with an import attribute it is
 /// refused first, as a `link`, as a file's attribute is.
 #[test]
@@ -37,7 +37,7 @@ fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes(
         run.message(),
         format!(
             "cannot import '@fuzdev/gro/process.ts' from {importer}: it needs the grant \
-             'process', and eval grants none"
+             'process', and eval imports no builtin module"
         )
     );
     assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.ts");
