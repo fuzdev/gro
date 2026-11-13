@@ -69,19 +69,19 @@ A declaration is a proposal until the [policy file](#policy-file) accepts it.
 
 ## determinism modes
 
-How a run sees the clock and randomness: `real` (the default for `run` and tasks), `deny` (every read throws; `gro eval`'s one mode, built),
+How a run sees the clock and randomness: `real` (the default for `run` and tasks), `deny` (every read throws; `fgro eval`'s one mode, built),
 and `fixed` and `seeded` (a fixed clock and a seeded generator, designed for hermetic runs that need a time or random values).
 [eval](eval.md#determinism) lists what `deny` refuses.
 
 ## driver
 
-A module a tool hands `gro eval` on stdin to drive the evaluated module, rather than reading an export:
+A module a tool hands `fgro eval` on stdin to drive the evaluated module, rather than reading an export:
 it evaluates first, is called with the module's namespace, and returns the value.
 It's import-free. [eval](eval.md#the-driver) has the contract.
 
 ## envelope
 
-The one JSON object `gro eval` writes, success or failure:
+The one JSON object `fgro eval` writes, success or failure:
 the value, or an error with its kind, which a caller branches on.
 [eval](eval.md#the-envelope) has its fields.
 
@@ -98,7 +98,7 @@ A grant is always of something specific, so even a wide one keeps a run [confine
 
 ## graph dump
 
-The module graph a `gro eval` run loaded, written into its [envelope](#envelope) with `--graph`:
+The module graph an `fgro eval` run loaded, written into its [envelope](#envelope) with `--graph`:
 each module and `package.json` it read, by an id relative to the [project root](#project-root) and the hash of the bytes read,
 and each path it went past finding nothing there, so a cache can tell when any changes.
 [eval](eval.md#the-graph) has its fields.
@@ -119,7 +119,7 @@ A grant limits what code can obtain, never what it's given.
 The strictest [run kind](#run-kinds), with no network, spawn, storage, or by-name channels,
 clock and randomness fixed or denied, and every read recorded,
 so the run replays exactly and its output can be cached.
-Designed; `gro eval` is the closest built thing to it, with the gaps [eval](eval.md#the-graph) lists
+Designed; `fgro eval` is the closest built thing to it, with the gaps [eval](eval.md#the-graph) lists
 (it records reads only with `--graph`, and its `import.meta.url` is the real path).
 
 ## host modules
@@ -147,7 +147,7 @@ It's why one [realm](#realm) isn't a boundary against a dependency built to stea
 ## jitless
 
 V8 running JS in its interpreter alone, with no JIT and no `WebAssembly`:
-`gro eval`'s default, and the box then refuses new executable mappings ([eval](eval.md#the-engine)).
+`fgro eval`'s default, and the box then refuses new executable mappings ([eval](eval.md#the-engine)).
 
 ## kernel backstop
 
@@ -155,7 +155,7 @@ On Linux, a coarsening of the grant set enforced as kernel rules (Landlock and s
 installed before V8 starts and inherited by every child process.
 It's coarser than the runtime's own checks (hierarchies and ports, not single files or hostnames),
 so it backs them up rather than replacing them.
-Built so far as `gro eval`'s [box](#box); [backstop](backstop.md) has the design for the rest.
+Built so far as `fgro eval`'s [box](#box); [backstop](backstop.md) has the design for the rest.
 
 ## link closure
 
@@ -163,7 +163,7 @@ The packages linked into a project's `node_modules` from outside it, found from 
 each `node_modules` entry (and `@scope` entry) whose real path is a package's directory outside the roots found so far
 (holding a `package.json` file of its own, holding no root, and held by no world-writable directory),
 then the same in each one's own `node_modules`, until nothing new is found.
-With the [project root](#project-root), it's what `gro eval`'s [box](#box) can read.
+With the [project root](#project-root), it's what `fgro eval`'s [box](#box) can read.
 
 ## narrowing
 
@@ -248,7 +248,7 @@ derived from its grants and recorded in the policy file.
 
 A suite of escape probes run under every grant set,
 the way the bench measures speed, to be passed by every milestone after `gro eval`.
-Designed; today's probes are `gro eval`'s acceptance tests.
+Designed; today's probes are `fgro eval`'s acceptance tests.
 
 ## self-reference
 

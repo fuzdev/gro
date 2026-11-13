@@ -43,7 +43,7 @@ its code reaches only what it imports or is handed,
 so what a run can reach is a static fact about its import graph, its [policy file](glossary.md#policy-file), and any flags the run is given,
 reviewed like a lockfile.
 Runs can be [hermetic](glossary.md#hermetic) too, with clock and randomness fixed or denied,
-so what a run depends on is known and it's designed to replay and cache (`gro eval` does today, with the gaps [eval](eval.md#the-graph) lists).
+so what a run depends on is known and it's designed to replay and cache (`fgro eval` does today, with the gaps [eval](eval.md#the-graph) lists).
 It's designed to make what your dependencies and your agents can reach visible, reviewable, and bounded.
 
 Its primary verb is `gro run <file>`,
@@ -83,7 +83,7 @@ It also couldn't be Deno with different defaults:
 the model the stack wants, authority by import with nothing ambient,
 is one Deno can't make its default without breaking its users
 ([compared to Deno](#compared-to-deno-node-and-bun)).
-The sandbox shipped first, as `gro eval`, long before Gro runs on itself.
+The sandbox shipped first, as `fgro eval`, long before Gro runs on itself.
 
 It isn't a Deno replacement for everyone.
 Code that needs Node keeps running on Node,
@@ -264,7 +264,7 @@ the difference is where authority enters, not yet how strongly it's contained.
   so an eval or other hermetic run replays exactly
   (for one that awaits reads, once the host orders async completions, an [open question](authority.md#open-questions)).
   Hermetic runs are designed to see the project at a fixed root, never this machine's absolute paths,
-  so their output is the same on every machine (`gro eval` doesn't yet: its `import.meta.url` is the real path).
+  so their output is the same on every machine (`fgro eval` doesn't yet: its `import.meta.url` is the real path).
 - **Memoized runs.** A hermetic run declares the inputs it may read,
   and its output is keyed by the runtime, its module graph, and the files it actually read,
   so rerunning one is a cache probe (Gro's `gen --check` becomes one).
@@ -343,7 +343,7 @@ where the host modules and grants land with their first consumer.
 - [x] origin containment in the resolver ([resolver](resolver.md#departures-from-node)),
       keeping every module inside its project's or package's root,
       and the loader reading only the file the resolver found
-- [x] `gro eval`, a confined, deterministic one-shot eval of a TS module to JSON
+- [x] `gro eval` (as `fgro eval` for now), a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       zap evaluates its config on it, replacing Deno for config eval in the Fuz stack
 - [ ] the first release, `fgro` 0.1.0 for Linux x86_64 as a GitHub Release asset
@@ -355,7 +355,7 @@ where the host modules and grants land with their first consumer.
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
       a transferred or revoked one is dead in its old holder),
-      grown from `gro eval`'s acceptance tests and passed by every milestone after,
+      grown from `fgro eval`'s acceptance tests and passed by every milestone after,
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`

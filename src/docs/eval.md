@@ -315,7 +315,10 @@ a key longer than 64 UTF-16 units, an identifier too, is cut to them and named b
 Eval writes one JSON object to stdout, on one line, once it has started.
 Console output goes to stderr, so the machine channel carries only the host's writes;
 that separation is the runtime's, not the kernel's (the box allows `write` on every open descriptor),
-so after an engine escape the envelope is as trustworthy as the engine, and a caller that caches on `graph` re-hashes the files it names.
+so after an engine escape the envelope is the attacker's, `graph` included.
+A cache over envelopes trusts the run that wrote each entry,
+and re-hashing the files `graph` names can't detect a forged value or a graph that leaves a module out.
+A cache still checks its inputs when it looks an entry up, to notice a changed file, which is staleness, not forgery.
 Stderr is text the evaluated code chose, escape sequences included, and a caller shows it as such.
 A usage error (a flag) prints to stderr with no envelope;
 a module refused at resolution, or one that isn't a project's own, exits 2 with a `resolve` envelope.

@@ -5,7 +5,7 @@
 > with the measured startup and size
 
 > **status**: Gro's cells tell built from designed.
-> The incumbents' cells describe Node 24, Deno 2, and Bun 1 as of November 2026,
+> The incumbents' cells describe Node 26, Deno 2, and Bun 1 as of November 2026,
 > checked against their documentation and probed on the versions the [bench](#measured) ran.
 > Corrections are welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -171,15 +171,14 @@ Node is the reference the others are measured against, and the host of the tools
 (Vite, vitest, eslint, svelte-check) until each is replaced.
 Its API hands every module ambient authority: `process`, `require`, and `node:fs`
 are reachable from anywhere, which is what makes a compat layer incompatible with Gro's model.
-Node's permission model (`--permission`, with `--allow-fs-read`, `--allow-fs-write`,
-`--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-wasi`, `--allow-inspector`)
-is opt-in and process-wide, and in Node 24 leaves the network out (Node 25 adds `--allow-net`, in active development),
-so a run under it still fetches anywhere.
+Node's permission model (`--permission`, with `--allow-fs-read`, `--allow-fs-write`, `--allow-fs-vfs`,
+`--allow-child-process`, `--allow-worker`, `--allow-addons`, `--allow-ffi`, `--allow-wasi`, `--allow-inspector`,
+`--allow-openssl-store`, and the experimental `--allow-net`) is opt-in and per process, a worker started with flags of its own aside,
+and `--allow-net` is all hosts or none, so a run that may fetch at all fetches anywhere.
 What Gro keeps from Node is the ESM half:
 mandatory extensions on relative imports, `exports` with conditions, `node_modules` as the package source,
 and type stripping of erasable syntax only (Node's rule since 22.18, so ES-module TypeScript written for Node's stripper runs on Gro's,
-with one exception Gro refuses and Node strips silently: an `as` whose removal regroups the expression,
-`a + b as number / c`, which Node's stripper reads as `a + b / c`).
+and, on Node 26, both refuse an `as` whose removal regroups the expression, `a + b as number / c`).
 What Gro drops is the legacy half: CommonJS, `main`, extensionless probing, and the format sniff.
 
 ## Compared to Bun
@@ -237,9 +236,9 @@ Gro's cells for a feature start with one of these words:
 |                                 | Node                                                       | Deno                           | Bun                   | Gro                                              |
 | ------------------------------- | ---------------------------------------------------------- | ------------------------------ | --------------------- | ------------------------------------------------ |
 | runs `.ts` with no build step   | yes, since 22.18                                           | yes                            | yes                   | built                                            |
-| transform                       | strip erasable syntax; the rest under `--experimental-transform-types` | full transpile       | full transpile        | built: strip erasable syntax only, by tsv        |
+| transform                       | strip erasable syntax only | full transpile       | full transpile        | built: strip erasable syntax only, by tsv        |
 | positions preserved, no source map | yes                                                     | no, source maps                | no, source maps       | built                                            |
-| refused syntax                  | `enum`, value namespaces, parameter properties, `import =`, `export =`, `<T>x`, without the flag; an assertion whose removal regroups the expression is stripped silently | none | none | built: the same, plus the regrouping assertion, each with a fix ([typescript](typescript.md)) |
+| refused syntax                  | `enum`, value namespaces, parameter properties, `import =`, `export =`, `<T>x`, and an assertion whose removal regroups the expression | none | none | built: the same, each with a fix ([typescript](typescript.md)) |
 | a `.ts` file's format           | `"type"` and syntax detection, so CommonJS too             | an ES module                   | sniffed               | built: always an ES module                       |
 | `.ts` inside `node_modules`     | refused                                                    | refused                        | yes                   | built: stripped like any other                   |
 | type checking                   | no                                                         | `deno check`, and on run with `--check` | `bun check` (a port of typescript-go, since 1.4.3), and on run with `--check` | no; `gro typecheck` runs tsc or svelte-check     |
@@ -252,21 +251,21 @@ Gro's cells for a feature start with one of these words:
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
 | opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch |
-| unit of a grant                 | the process                                        | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
+| unit of a grant                 | the process, or a worker given its own flags in `execArgv` | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
 | a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the import chain, for every grant                                              |
-| how a grant is declared         | flags                                              | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
+| how a grant is declared         | flags, or a `node.config.json` read under a flag | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |
-| network scoping                 | not covered in 24; `--allow-net` since 25          | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
+| network scoping                 | `--allow-net`, experimental, all hosts or none | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
 | child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux), the project read-only and the declared write roots writable                                       |
 | kernel backstop                 | none                                               | none                                                                | none    | built for `fgro eval`: Landlock and seccomp (Linux); designed for every run                 |
-| native code in-process          | N-API addons, `--allow-addons`                     | FFI under `--allow-ffi`, and N-API                                  | FFI (`bun:ffi`), and N-API | later: FFI as a grant in its own process; in-process loading not currently planned, open to feedback                                  |
+| native code in-process          | N-API addons under `--allow-addons`, and FFI (`node:ffi`, experimental) under `--allow-ffi` | FFI under `--allow-ffi`, and N-API                                  | FFI (`bun:ffi`), and N-API | later: FFI as a grant in its own process; in-process loading not currently planned, open to feedback                                  |
 | code fetched at run time        | no                                                 | yes, imports                                                        | no      | no                                                                                          |
-| determinism                     | no                                                 | `--seed` for randomness                                             | no      | built for `fgro eval`: clock and randomness denied; designed: hermetic runs fix or deny them |
-| authority recorded with the code | no                                                | a hand-written permission set in `deno.json` (`-P`, since 2.5), process-wide    | no | designed: the policy file beside the lockfile, inferred from the graph                 |
-| a record of what a run reached  | no                                                 | `DENO_AUDIT_PERMISSIONS`                                            | no      | designed: the access manifest                                                               |
+| determinism                     | V8's `--random-seed` fixes `Math.random`, not `crypto`; the clock has no flag | `--seed` for randomness                                             | no      | built for `fgro eval`: clock and randomness denied; designed: hermetic runs fix or deny them |
+| authority recorded with the code | a hand-written permission set in `node.config.json`, read only under a flag, process-wide | a hand-written permission set in `deno.json` (`-P`, since 2.5), process-wide    | no | designed: the policy file beside the lockfile, inferred from the graph                 |
+| a record of what a run reached  | `--permission-audit`, a diagnostics-channel event for each access the grants don't cover, nothing denied | `DENO_AUDIT_PERMISSIONS`                                            | no      | designed: the access manifest                                                               |
 | a sandboxed eval mode           | composed from flags (`--permission`, `--jitless`, `--disallow-code-generation-from-strings`, a heap limit) | composed from flags (`--v8-flags=--jitless`, a heap limit) | no      | built: `fgro eval`, its own process, JIT off by default, no code from strings, a heap cap, a memory cap, a timeout, clock and randomness denied, and a kernel box (Linux): read-only to its project, no exec, no network |
-| workers with fewer permissions  | no                                                 | yes, unstable                                                       | no      | later, if workers land: a worker starts with only what its spawner hands it                 |
+| workers with fewer permissions  | yes: a worker's own `--permission` flags in `execArgv`; under `--permission` that takes `--allow-worker`, which lets `execArgv` widen them too | yes, unstable                                                       | no      | later, if workers land: a worker starts with only what its spawner hands it                 |
 
 ### Web platform and Node compatibility
 
@@ -295,7 +294,7 @@ Gro's cells here name the Node Gro's command where the runtime has none yet.
 | formatter and linter   | none                              | `deno fmt`, `deno lint`       | none                  | `gro format` on tsv, `gro lint` on ESLint        |
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | designed; never read by `gro eval`               |
-| single-file executable | SEA, experimental                 | `deno compile`                | `bun build --compile` | no                                               |
+| single-file executable | `--build-sea`, experimental | `deno compile`                | `bun build --compile` | no                                               |
 | task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |
 

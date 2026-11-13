@@ -5,6 +5,8 @@
 > each section here becomes its GitHub Release's notes,
 > and is written ahead of its tag, so the tags say what has shipped
 
+0.1.0 isn't tagged yet.
+
 ## 0.1.0
 
 The first release of `fgro`, a Rust binary on V8 using Deno's web-standard libraries,

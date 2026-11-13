@@ -87,7 +87,7 @@ so an entry that stops being hermetic is a reviewed diff.
 | confined   | by grant          | real                 | by grant                      | no      |
 | unconfined | all (`-A`)        | real                 | all (`-A`)                    | no      |
 
-`gro eval` is hermetic (with the gaps [eval](eval.md#the-graph) lists), as Gro's gen files are designed to be.
+`fgro eval` is hermetic (with the gaps [eval](eval.md#the-graph) lists), as Gro's gen files are designed to be.
 A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 A net grant names hosts, or is a blanket grant.
@@ -177,7 +177,7 @@ A child process is where a box is weakest, since a program's arguments and its c
 so children get the project read-only and only the declared write roots writable, at the kernel
 ([backstop](backstop.md#the-box-for-runs-and-children) has the rules and what they close).
 Availability is outside the model: a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
-`gro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
+`fgro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
 The terminal is a channel: confined output can carry escape sequences, so the host is designed to escape a run's own console output
 (a child's inherited terminal stays unescaped, and today `fgro` escapes none, [run](run.md#usage)) and never to print a grant diff inside a run's output
 ([backstop](backstop.md#the-terminal)).
@@ -250,7 +250,7 @@ The design doesn't have every answer, and these are the ones it knows it's missi
 - **Keeping an agent out of the policy file.** Review, harness rules, and a push gate cover the
   normal case, and a signed acceptance that needs a person's presence is designed, built only if
   the measured widening rate makes its friction worth it.
-- **Replay needs deterministic scheduling.** `gro eval` only loads modules, which ESM orders,
+- **Replay needs deterministic scheduling.** `fgro eval` only loads modules, which ESM orders,
   but a hermetic run that awaits reads (a gen file, say) has them complete on the event loop in no fixed order,
   so it can resolve promises differently between runs.
   The host has to order completions for "replays exactly" to hold by construction,

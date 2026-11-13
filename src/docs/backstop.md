@@ -129,7 +129,9 @@ but output is the remainder, and the design treats it as such:
 
 `fgro eval` keeps its machine channel apart already: the envelope alone goes to stdout, as JSON, and console output to stderr.
 That separation is the runtime's, not the kernel's: seccomp allows `write` on every open descriptor,
-so after an engine escape the envelope is as trustworthy as the engine, and a caller that caches on it re-hashes what it reads.
+so after an engine escape the envelope is the attacker's, its graph included,
+and a cache over it trusts the run that wrote each entry, which no check of the files the graph names can replace
+([eval](eval.md#the-envelope)).
 
 ## Resource limits
 

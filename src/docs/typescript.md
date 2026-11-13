@@ -24,7 +24,7 @@ Syntax with runtime semantics is refused with its position and a fix:
 - `import =`, `import type x =`, `export import`, and `export =`
 - angle-bracket assertions (`<T>x`)
 - an unparenthesized `as` or `satisfies` whose removal would regroup the expression
-  (`a + b as T / c`, which Node's stripper silently reads as `a + b / c`)
+  (`a + b as T / c`, which Node 24's stripper silently reads as `a + b / c` and Node 26's refuses)
   or leave it invalid (`-x as T ** 2`)
 
 Some shapes tsc rejects but that carry a value (`declare x = 1`, `abstract x = 1`, `declare let a = 1`)

@@ -392,13 +392,17 @@ Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
   `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
   (or `suites/eval/suite.json`)
 
-**The perf rule.** A change to `gro_runtime` or `gro_cli` runs
+**The perf rule.** A change to anything the release `fgro` is built from
+(`gro_runtime`, `gro_cli`, `gro_sys`, `gro_v8`, `vendor/`, the root
+`Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `rust-toolchain.toml`) runs
 `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
-and the same for `crates/gro_bench/suites/eval/suite.json` before commit. It
-builds the release `fgro` at that revision in a clone outside the checkout,
-runs each `fgro` row beside the base copy interleaved, prints instruction,
-cycle, and wall medians against the base's, and records nothing. An
-instruction move past 2% needs a written reason in review.
+and the same for `crates/gro_bench/suites/eval/suite.json` before commit; a
+test-only or doc-only change is outside it. The A/B runs alone, with nothing
+else loading the machine. It builds the release `fgro` at that revision in a
+clone outside the checkout, runs each `fgro` row beside the base copy
+interleaved, prints instruction, cycle, and wall medians against the base's,
+and records nothing. An instruction move past 2% needs a written reason in
+review.
 
 ## Implementation reference
 
