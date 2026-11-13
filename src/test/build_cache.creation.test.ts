@@ -2,7 +2,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { BUILD_CACHE_VERSION, create_build_cache_metadata } from '#lib/build_cache.ts';
 
-import { create_mock_logger, create_mock_config } from './build_cache_test_helpers.ts';
+import { create_mock_logger, create_mock_config } from './test_helpers.ts';
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_dependencies_mocks.ts';
 import { create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 import { create_mock_git_program, git_ops } from './git_mocks.ts';

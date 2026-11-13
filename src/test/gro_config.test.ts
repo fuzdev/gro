@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
+import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
 import {
 	SEARCH_EXCLUDER_DEFAULT,
@@ -87,4 +88,31 @@ test('cook_gro_config defaults each `watch` field and resolves a relative `dir`'
 
 	const with_dir = await cook_gro_config({ watch: { dir: 'lib/' } });
 	expect(with_dir.watch).toEqual({ dir: resolve('lib'), filter: null });
+});
+
+test('cook_gro_config hashes `build_cache_config` as deterministic JSON and drops the raw value', async () => {
+	const expected = hash_blake3(json_stringify_deterministic({ a: '1', m: '2', z: '3' }));
+	for (const build_cache_config of [
+		{ z: '3', a: '1', m: '2' },
+		{ a: '1', m: '2', z: '3' }
+	]) {
+		const raw = { build_cache_config };
+		const cooked = await cook_gro_config(raw);
+		expect(cooked.build_cache_config_hash).toBe(expected);
+		expect('build_cache_config' in raw).toBe(false);
+	}
+});
+
+test('cook_gro_config hashes what a `build_cache_config` function resolves to', async () => {
+	const cooked = await cook_gro_config({
+		build_cache_config: async () => ({ feature_flag: true })
+	});
+	expect(cooked.build_cache_config_hash).toBe(
+		hash_blake3(json_stringify_deterministic({ feature_flag: true }))
+	);
+});
+
+test('cook_gro_config without `build_cache_config` has the empty hash', async () => {
+	const cooked = await cook_gro_config({});
+	expect(cooked.build_cache_config_hash).toBe(EMPTY_BUILD_CACHE_CONFIG_HASH);
 });

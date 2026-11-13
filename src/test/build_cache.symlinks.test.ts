@@ -16,11 +16,9 @@ import { join } from 'node:path';
 import * as build_cache from '#lib/build_cache.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 
-import {
-	create_mock_build_cache_metadata,
-	create_mock_logger
-} from './build_cache_test_helpers.ts';
+import { create_mock_build_cache_metadata } from './build_cache_test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
+import { create_mock_logger } from './test_helpers.ts';
 
 /*
 

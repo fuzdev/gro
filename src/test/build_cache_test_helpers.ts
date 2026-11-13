@@ -6,8 +6,6 @@ import {
 
 import { MOCK_BUILD_CACHE_DEPENDENCIES } from './build_cache_dependencies_mocks.ts';
 
-export { create_mock_logger, create_mock_config } from './test_helpers.ts';
-
 /**
  * Creates mock build cache metadata for testing.
  */

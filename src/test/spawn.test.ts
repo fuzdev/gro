@@ -23,7 +23,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
-import { assert_awaits_as_itself } from './test_helpers.ts';
+import { assert_awaits_as_itself, assert_rejects_type } from './test_helpers.ts';
 
 const SYSTEM_PATH = process.env.PATH;
 
@@ -54,16 +54,6 @@ const assert_spawn_error = (fn: () => unknown, kind: SpawnErrorKind): SpawnError
 		return error;
 	}
 	throw new Error(`expected a SpawnError of kind ${kind}`);
-};
-
-const assert_rejects = async (fn: () => Promise<unknown>): Promise<void> => {
-	try {
-		await fn();
-	} catch (error) {
-		assert.instanceOf(error, TypeError);
-		return;
-	}
-	assert.fail('expected a rejection');
 };
 
 const assert_throws_type = (fn: () => unknown): void => {
@@ -847,12 +837,12 @@ describe('calls', () => {
 		const program = spawn.program('ok');
 		const bad_args: Array<any> = ['a\0b', 'a\ud800b', 1, null, undefined];
 		for (const bad of bad_args) {
-			await assert_rejects(() => program.run([bad]));
-			await assert_rejects(() => program.out(['x', bad]));
+			await assert_rejects_type(() => program.run([bad]));
+			await assert_rejects_type(() => program.out(['x', bad]));
 		}
-		await assert_rejects(() => program.run('git' as any));
-		await assert_rejects(() => program.run([], [] as any));
-		await assert_rejects(() => program.out([], [] as any));
+		await assert_rejects_type(() => program.run('git' as any));
+		await assert_rejects_type(() => program.run([], [] as any));
+		await assert_rejects_type(() => program.out([], [] as any));
 	});
 
 	test('exec passes the granted name as argv0, not the real path', async () => {
@@ -915,7 +905,7 @@ describe('calls', () => {
 		write_script(join(bin, 'ok'), 'exit 0');
 		const program = spawn.program('ok');
 		for (const max_bytes of [-1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1, '1' as any, null as any]) {
-			await assert_rejects(() => program.out([], { max_bytes }));
+			await assert_rejects_type(() => program.out([], { max_bytes }));
 		}
 	});
 
@@ -928,8 +918,8 @@ describe('calls', () => {
 		assert.strictEqual(handled.stdout.trim(), sandbox.root);
 		const bad_cwds: Array<any> = ['/tmp', 1, null, { path: 1 }, { path: 'relative/dir' }];
 		for (const cwd of bad_cwds) {
-			await assert_rejects(() => program.run([], { cwd }));
-			await assert_rejects(() => program.out([], { cwd }));
+			await assert_rejects_type(() => program.run([], { cwd }));
+			await assert_rejects_type(() => program.out([], { cwd }));
 		}
 	});
 
@@ -947,10 +937,10 @@ describe('calls', () => {
 		];
 		for (const program of programs) {
 			for (const cwd of forged) {
-				await assert_rejects(() => program.run([], { cwd }));
-				await assert_rejects(() => program.out([], { cwd }));
-				await assert_rejects(() => program.out_bytes([], { cwd }));
-				await assert_rejects(() => program.start([], { cwd }));
+				await assert_rejects_type(() => program.run([], { cwd }));
+				await assert_rejects_type(() => program.out([], { cwd }));
+				await assert_rejects_type(() => program.out_bytes([], { cwd }));
+				await assert_rejects_type(() => program.start([], { cwd }));
 			}
 		}
 		assert.isFalse(existsSync(marker));

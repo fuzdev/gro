@@ -160,23 +160,26 @@ describe('find_test_files', () => {
 		);
 	});
 
-	test('a listing that fails throws rather than finding nothing', async () => {
-		write_files(sandbox.root, ['src/locked/a.test.ts']);
-		const locked = join(sandbox.root, 'src/locked');
-		chmodSync(locked, 0o000);
-		try {
-			const fs_paths = await create_project_fs_paths(sandbox.root);
-			let error: unknown = null;
+	test.skipIf(process.getuid?.() === 0)(
+		'a listing that fails throws rather than finding nothing',
+		async () => {
+			write_files(sandbox.root, ['src/locked/a.test.ts']);
+			const locked = join(sandbox.root, 'src/locked');
+			chmodSync(locked, 0o000);
 			try {
-				await find_test_files(fs_paths, join(sandbox.root, 'src/'));
-			} catch (e) {
-				error = e;
+				const fs_paths = await create_project_fs_paths(sandbox.root);
+				let error: unknown = null;
+				try {
+					await find_test_files(fs_paths, join(sandbox.root, 'src/'));
+				} catch (e) {
+					error = e;
+				}
+				assert.isNotNull(error);
+			} finally {
+				chmodSync(locked, 0o755);
 			}
-			assert.isNotNull(error);
-		} finally {
-			chmodSync(locked, 0o755);
 		}
-	});
+	);
 
 	test('follows a symlinked directory, out of the project too', async () => {
 		write_files(sandbox.base, ['outside/o.test.ts', 'outside/plain.spec.ts']);

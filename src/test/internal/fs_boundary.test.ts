@@ -287,18 +287,21 @@ describe('fs_open_path outside the project', () => {
 		assert.include(nested.message, 'ELOOP');
 	});
 
-	test('an unsearchable directory throws `permission_denied`', async () => {
-		mkdirSync(join(sandbox.root, 'locked'));
-		chmodSync(join(sandbox.root, 'locked'), 0o000);
-		try {
-			await assert_fs_error_rejects(
-				fs_open_path(join(sandbox.root, 'locked/a.txt')),
-				'permission_denied'
-			);
-		} finally {
-			chmodSync(join(sandbox.root, 'locked'), 0o755);
+	test.skipIf(process.getuid?.() === 0)(
+		'an unsearchable directory throws `permission_denied`',
+		async () => {
+			mkdirSync(join(sandbox.root, 'locked'));
+			chmodSync(join(sandbox.root, 'locked'), 0o000);
+			try {
+				await assert_fs_error_rejects(
+					fs_open_path(join(sandbox.root, 'locked/a.txt')),
+					'permission_denied'
+				);
+			} finally {
+				chmodSync(join(sandbox.root, 'locked'), 0o755);
+			}
 		}
-	});
+	);
 
 	test('an ancestor that is a file throws `not_a_directory`', async () => {
 		writeFileSync(join(sandbox.root, 'a.txt'), 'a');

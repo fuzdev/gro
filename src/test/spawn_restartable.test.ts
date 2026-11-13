@@ -39,7 +39,7 @@ const create_spawn = (): MockSpawn & { children: Array<SpawnChild>; disposed: Ar
 describe('spawn_restartable', () => {
 	test('resolves once the first child is running', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'), ['run', 'server.ts']);
+		const restartable = await spawn_restartable(mock.program('server'), ['run', 'server.ts']);
 		expect(restartable.active).toBe(true);
 		expect(restartable.child).toBe(mock.children[0]);
 		expect(mock.calls).toHaveLength(1);
@@ -52,7 +52,7 @@ describe('spawn_restartable', () => {
 		const args = ['run'];
 		const stdio: [SpawnStdio, SpawnStdio, SpawnStdio] = ['pipe', 'pipe', 'pipe'];
 		const options: SpawnStartOptions = { stdio, timeout_ms: 100, signal: controller.signal };
-		const restartable = await spawn_restartable(mock.program('deno'), args, options);
+		const restartable = await spawn_restartable(mock.program('server'), args, options);
 
 		args.push('--extra');
 		stdio[0] = 'ignore';
@@ -72,7 +72,7 @@ describe('spawn_restartable', () => {
 
 	test('every start gets the same frozen args and options', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'), ['run'], {
+		const restartable = await spawn_restartable(mock.program('server'), ['run'], {
 			stdio: ['pipe', 'pipe', 'pipe']
 		});
 		await restartable.restart();
@@ -89,28 +89,28 @@ describe('spawn_restartable', () => {
 	test('a bad stdio tuple reaches `start` as it was given, for it to refuse', async () => {
 		const mock = create_spawn();
 		const stdio = ['pipe', 'pipe', 'pipe', 'pipe'] as unknown as SpawnStartOptions['stdio'];
-		await spawn_restartable(mock.program('deno'), [], { stdio });
+		await spawn_restartable(mock.program('server'), [], { stdio });
 		expect((mock.calls[0]!.options as SpawnStartOptions).stdio).toEqual(stdio);
 	});
 
 	test('restart stops the running child and starts the same program with the same args', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'), ['run'], {
+		const restartable = await spawn_restartable(mock.program('server'), ['run'], {
 			stdio: 'ignore'
 		});
 		await restartable.restart();
 		expect(mock.disposed).toEqual([0]);
 		expect(mock.calls).toHaveLength(2);
-		expect(mock.calls[1]).toMatchObject({ name: 'deno', args: ['run'] });
+		expect(mock.calls[1]).toMatchObject({ name: 'server', args: ['run'] });
 		expect(mock.calls[1]!.options).toEqual({ stdio: 'ignore' });
 		// one `program` call, the handle kept, so a restart reuses the pin and its env
-		expect(mock.finds).toEqual(['deno']);
+		expect(mock.finds).toEqual(['server']);
 		expect(restartable.child).toBe(mock.children[1]);
 	});
 
 	test('concurrent restarts share one restart', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const restarts = [restartable.restart(), restartable.restart()];
 		await Promise.all(restarts);
 		expect(restarts[0]).toBe(restarts[1]);
@@ -119,14 +119,14 @@ describe('spawn_restartable', () => {
 	});
 
 	test('awaits as itself, even with a polluted `Object.prototype.then`', async () => {
-		const restartable = await spawn_restartable(create_spawn().program('deno'));
+		const restartable = await spawn_restartable(create_spawn().program('server'));
 		assert.ok(Object.isFrozen(restartable));
 		await assert_awaits_as_itself(restartable);
 	});
 
 	test('stop disposes the child and waits for it, then is inactive', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		await restartable.stop();
 		expect(mock.disposed).toEqual([0]);
 		expect(restartable.active).toBe(false);
@@ -136,7 +136,7 @@ describe('spawn_restartable', () => {
 
 	test('a loop reading `closed` and `active` does not restart a stopped child', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		let restarts = 0;
 		const loop = (async () => {
 			while (restartable.active) {
@@ -159,7 +159,7 @@ describe('spawn_restartable', () => {
 			['restart', 'stop', false]
 		] as const) {
 			const mock = create_spawn();
-			const restartable = await spawn_restartable(mock.program('deno'));
+			const restartable = await spawn_restartable(mock.program('server'));
 			const first_done = restartable[first]();
 			const second_done = restartable[second]();
 			expect(restartable.active).toBe(expected);
@@ -171,7 +171,7 @@ describe('spawn_restartable', () => {
 
 	test('stop during a restart stops the child that restart started', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const restarting = restartable.restart();
 		await restartable.stop();
 		await restarting;
@@ -181,7 +181,7 @@ describe('spawn_restartable', () => {
 
 	test('stop, restart, stop ends with no running child', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const stops = [restartable.stop()];
 		const restarting = restartable.restart();
 		stops.push(restartable.stop());
@@ -194,7 +194,7 @@ describe('spawn_restartable', () => {
 
 	test('restart, stop, restart ends with a running child', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const operations = [restartable.restart(), restartable.stop(), restartable.restart()];
 		await Promise.all(operations);
 		expect(mock.calls).toHaveLength(3);
@@ -205,7 +205,7 @@ describe('spawn_restartable', () => {
 
 	test('a stop settling leaves a restart queued behind it pending', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const first = restartable.stop();
 		const restarting = restartable.restart();
 		await first;
@@ -219,7 +219,7 @@ describe('spawn_restartable', () => {
 
 	test('calls of one kind share the last pending operation, repeated stops included', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		const first = restartable.stop();
 		expect(restartable.stop()).toBe(first);
 		const restarting = restartable.restart();
@@ -233,8 +233,8 @@ describe('spawn_restartable', () => {
 
 	test("after a failed restart, `closed` is the previous child's and `child` is null", async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
-		const error = new SpawnError('launch_failed', 'deno', 'launch_failed: deno');
+		const restartable = await spawn_restartable(mock.program('server'));
+		const error = new SpawnError('launch_failed', 'server', 'launch_failed: server');
 		mock.start_error = () => error;
 		await expect(restartable.restart()).rejects.toBe(error);
 		expect(restartable.child).toBeNull();
@@ -248,7 +248,7 @@ describe('spawn_restartable', () => {
 
 	test('a restart after stop starts a child again', async () => {
 		const mock = create_spawn();
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		await restartable.stop();
 		await restartable.restart();
 		expect(restartable.active).toBe(true);
@@ -257,12 +257,12 @@ describe('spawn_restartable', () => {
 
 	test('a failed start rejects, the first call and a restart alike', async () => {
 		const mock = create_spawn();
-		const error = new SpawnError('launch_failed', 'deno', 'launch_failed: deno');
+		const error = new SpawnError('launch_failed', 'server', 'launch_failed: server');
 		mock.start_error = () => error;
-		await expect(spawn_restartable(mock.program('deno'))).rejects.toBe(error);
+		await expect(spawn_restartable(mock.program('server'))).rejects.toBe(error);
 
 		mock.start_error = () => undefined;
-		const restartable = await spawn_restartable(mock.program('deno'));
+		const restartable = await spawn_restartable(mock.program('server'));
 		mock.start_error = () => error;
 		await expect(restartable.restart()).rejects.toBe(error);
 	});

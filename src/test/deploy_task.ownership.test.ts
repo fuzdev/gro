@@ -31,8 +31,12 @@ let sibling: string;
 let cwd: string;
 let deploy_task: (typeof import('#lib/deploy.task.ts'))['task'];
 
+// the fixture's repos are made without the host's git config
 const git = (dir: string, ...args: Array<string>): void => {
-	execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+	execFileSync('git', ['-C', dir, ...args], {
+		stdio: 'ignore',
+		env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+	});
 };
 
 beforeEach(async () => {

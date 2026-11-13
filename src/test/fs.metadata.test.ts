@@ -17,6 +17,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
+import { assert_rejects_type } from './test_helpers.ts';
 
 let sandbox: FsSandbox;
 let dir: FsDir;
@@ -31,16 +32,6 @@ beforeEach(async () => {
 afterEach(() => {
 	remove_fs_sandbox(sandbox);
 });
-
-const assert_type_error_rejects = async (fn: () => Promise<unknown>, label = ''): Promise<void> => {
-	try {
-		await fn();
-	} catch (error) {
-		assert.instanceOf(error, TypeError, label);
-		return;
-	}
-	assert.fail(`expected a TypeError ${label}`);
-};
 
 const mode_of = (path: string): number => statSync(path).mode & 0o7777;
 
@@ -217,17 +208,14 @@ describe('set_times', () => {
 		const bad = [-1, -0.5, NaN, Infinity, -Infinity, 8.64e15 + 1, 1e300, '1', 1n, null];
 		for (const value of bad) {
 			const label = String(value);
-			await assert_type_error_rejects(
-				() => dir.set_times('f.txt', { mtime_ms: value as any }),
-				label
-			);
-			await assert_type_error_rejects(
+			await assert_rejects_type(() => dir.set_times('f.txt', { mtime_ms: value as any }), label);
+			await assert_rejects_type(
 				() => dir.set_times('f.txt', { mtime_ms: T, atime_ms: value as any }),
 				label
 			);
 		}
 		for (const times of [null, undefined, 1, 'x', {}]) {
-			await assert_type_error_rejects(() => dir.set_times('f.txt', times as any), typeof times);
+			await assert_rejects_type(() => dir.set_times('f.txt', times as any), typeof times);
 		}
 		const s = statSync(join(sandbox.root, 'f.txt'));
 		assert.strictEqual(s.mtimeMs, T);
@@ -336,7 +324,7 @@ describe('set_mode', () => {
 			null
 		];
 		for (const mode of bad) {
-			await assert_type_error_rejects(() => dir.set_mode('f.txt', mode as any), String(mode));
+			await assert_rejects_type(() => dir.set_mode('f.txt', mode as any), String(mode));
 		}
 		assert.strictEqual(mode_of(join(sandbox.root, 'f.txt')), 0o640);
 	});
@@ -355,7 +343,7 @@ describe('the metadata ops on a borrowed receiver', () => {
 				{ path: sandbox.outside },
 				Object.assign(Object.create(proto), { path: sandbox.outside })
 			]) {
-				await assert_type_error_rejects(async () => proto[name].apply(fake, args), name);
+				await assert_rejects_type(async () => proto[name].apply(fake, args), name);
 			}
 		}
 		const after = statSync(secret);

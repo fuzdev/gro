@@ -1,3 +1,4 @@
+import type {} from 'vitest/config'; // types the `test` key below
 import { defineConfig } from 'vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
@@ -31,5 +32,7 @@ export default defineConfig({
 		vite_plugin_fuz_css(),
 		vite_plugin_pkg_json()
 	],
-	optimizeDeps: { exclude: ['@fuzdev/blake3-wasm'] }
+	optimizeDeps: { exclude: ['@fuzdev/blake3-wasm'] },
+	// the host's `FORCE_COLOR` would color the output the tests read
+	test: { env: { FORCE_COLOR: '0' } }
 });

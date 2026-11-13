@@ -144,3 +144,20 @@ export const assert_awaits_as_itself = async (value: object): Promise<void> => {
 	assert.strictEqual(await returned, value);
 	assert.strictEqual(calls, 0);
 };
+
+/**
+ * Asserts that `fn` throws or rejects with a `TypeError`.
+ * @param label - names the case in the failure message
+ */
+export const assert_rejects_type = async (
+	fn: () => Promise<unknown>,
+	label = ''
+): Promise<void> => {
+	try {
+		await fn();
+	} catch (error) {
+		assert.instanceOf(error, TypeError, label);
+		return;
+	}
+	assert.fail(`expected a TypeError ${label}`);
+};

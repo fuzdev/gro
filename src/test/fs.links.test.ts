@@ -17,6 +17,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
+import { assert_rejects_type } from './test_helpers.ts';
 
 let sandbox: FsSandbox;
 let dir: FsDir;
@@ -29,16 +30,6 @@ beforeEach(async () => {
 afterEach(() => {
 	remove_fs_sandbox(sandbox);
 });
-
-const assert_type_error_rejects = async (fn: () => Promise<unknown>, label = ''): Promise<void> => {
-	try {
-		await fn();
-	} catch (error) {
-		assert.instanceOf(error, TypeError, label);
-		return;
-	}
-	assert.fail(`expected a TypeError ${label}`);
-};
 
 // a directory link climbing out, an absolute one out, and a link in `outside` for them to reach
 const link_out_of_root = (): void => {
@@ -206,7 +197,7 @@ describe('symlink', () => {
 	test('a path naming a directory is a `TypeError`, creating nothing', async () => {
 		mkdirSync(join(sandbox.root, 'd'));
 		for (const path of ['l/', 'd/l/', 'l/.', 'd/l/..', 'd/']) {
-			await assert_type_error_rejects(() => dir.symlink(path, 'x'), path);
+			await assert_rejects_type(() => dir.symlink(path, 'x'), path);
 		}
 		assert.deepEqual(readdirSync(sandbox.root), ['d']);
 		assert.deepEqual(readdirSync(join(sandbox.root, 'd')), []);
@@ -223,7 +214,7 @@ describe('symlink', () => {
 			undefined,
 			{ toString: () => 'x' }
 		]) {
-			await assert_type_error_rejects(
+			await assert_rejects_type(
 				() => dir.symlink('l', target as any),
 				typeof target === 'string' ? JSON.stringify(target) : typeof target
 			);
@@ -245,7 +236,7 @@ describe('the link ops on a borrowed receiver', () => {
 				{ path: sandbox.outside },
 				Object.assign(Object.create(proto), { path: sandbox.outside })
 			]) {
-				await assert_type_error_rejects(async () => proto[name].apply(fake, args), name);
+				await assert_rejects_type(async () => proto[name].apply(fake, args), name);
 			}
 		}
 		assert.deepEqual(readdirSync(sandbox.outside).sort(), ['l', 'secret.txt']);

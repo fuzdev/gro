@@ -3,10 +3,8 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { load_build_cache_metadata, save_build_cache_metadata } from '#lib/build_cache.ts';
 import { GRO_DIR_MARKER_CONTENT, GRO_DIR_MARKER_FILENAME } from '#lib/internal/gro_dir.ts';
 
-import {
-	create_mock_logger,
-	create_mock_build_cache_metadata
-} from './build_cache_test_helpers.ts';
+import { create_mock_build_cache_metadata } from './build_cache_test_helpers.ts';
+import { create_mock_logger } from './test_helpers.ts';
 import { create_mock_project_fs_paths } from './fs_mocks.ts';
 
 const fs_paths = create_mock_project_fs_paths();

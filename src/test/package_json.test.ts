@@ -29,10 +29,10 @@ const repo_fs_paths = await create_project_fs_paths(process.cwd());
 
 test('package_json_load', async () => {
 	const package_json = await package_json_load(repo_fs_paths);
-	expect(package_json).toBeTruthy();
-	const parsed = s.parse_or_throw(PackageJson, package_json);
-	expect(parsed).toBeTruthy();
-	package_json_serialize(package_json);
+	assert.strictEqual(package_json.name, '@fuzdev/gro');
+	s.parse_or_throw(PackageJson, package_json);
+	// `gro sync` writes the repo's own file, so it round-trips
+	assert.strictEqual(package_json_serialize(package_json), readFileSync('package.json', 'utf8'));
 });
 
 test('package_json_load with cache', async () => {
@@ -195,7 +195,10 @@ test('PackageJson fails with bad data', () => {
 });
 
 test('package_json_serialize', () => {
-	package_json_serialize({ name: 'abc', version: '123' });
+	assert.strictEqual(
+		package_json_serialize({ name: 'abc', version: '123' }),
+		'{\n  "name": "abc",\n  "version": "123"\n}\n'
+	);
 });
 
 test('package_json_serialize fails with bad data', () => {
