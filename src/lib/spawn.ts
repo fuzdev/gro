@@ -618,15 +618,15 @@ type Probe = 'executable' | 'not_executable' | 'missing';
 
 /**
  * What's at `path` as a program: a regular file with execute permission, one without, or neither.
- * A failed stat or an unusable entry is `missing`, so a path entry this user can't read
- * doesn't stop a `PATH` walk, as `execvp` continues past one.
+ * Nothing there, a path through a file, or an entry that isn't a regular file is `missing`.
+ * @param on_stat_error - what a stat failing another way is: `'missing'`, or it throws
  */
-const probe_executable = (path: string): Probe => {
+const probe_executable = (path: string, on_stat_error: (error: unknown) => 'missing'): Probe => {
 	let info;
 	try {
 		info = statSync(path, { throwIfNoEntry: false });
-	} catch {
-		return 'missing';
+	} catch (error) {
+		return on_stat_error(error);
 	}
 	if (info === undefined || !info.isFile()) return 'missing';
 	try {
@@ -636,6 +636,10 @@ const probe_executable = (path: string): Probe => {
 		return 'not_executable';
 	}
 };
+
+// a stat this user can't make reads as missing, so a `PATH` entry it can't read doesn't stop
+// the walk, as `execvp` continues past one
+const read_as_missing = (): 'missing' => 'missing';
 
 const MAGIC_LENGTH = 4;
 
@@ -864,7 +868,7 @@ const walk_path = (name: string): string | null => {
 		const entry = entries[i]!;
 		if (!isAbsolute(entry) || is_package_bin_entry(entry)) continue;
 		const candidate = entry.endsWith('/') ? entry + name : entry + '/' + name;
-		const probed = probe_executable(candidate);
+		const probed = probe_executable(candidate, read_as_missing);
 		if (probed === 'executable') return candidate;
 		if (probed === 'not_executable') found_not_executable = true;
 	}
@@ -918,35 +922,12 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 	const path = to_project_path(name);
 	// a trailing `/` or `/.` passes through its last component, which only a directory can be
 	if (name.endsWith('/') || name.endsWith('/.')) return null;
-	const probed = probe_executable(path);
+	const probed = probe_executable(path, read_as_missing);
 	if (probed === 'missing') return null;
 	if (probed === 'not_executable') {
 		throw new SpawnError('not_executable', name, `not_executable: ${path} isn't executable`);
 	}
 	return to_resolved(name, path, path);
-};
-
-/**
- * What's at `path`, a path a handle's walk returned, as a program. Unlike `probe_executable`,
- * only a missing entry is `missing`, so a permission error is never read as one.
- * @throws `SpawnError` - `not_executable`, for a stat that fails another way
- */
-const probe_executable_beneath = (name: string, path: string): Probe => {
-	let info;
-	try {
-		info = statSync(path);
-	} catch (error) {
-		const code = (error as { code?: unknown }).code;
-		if (code === 'ENOENT' || code === 'ENOTDIR') return 'missing';
-		throw to_uninspectable_error(name, path, error);
-	}
-	if (!info.isFile()) return 'missing';
-	try {
-		accessSync(path, X_OK);
-		return 'executable';
-	} catch {
-		return 'not_executable';
-	}
 };
 
 /**
@@ -983,7 +964,11 @@ const resolve_program_in = (resolve: FsHandleResolve, name: string): ResolvedPro
 		}
 	}
 	const { found_path, op_path } = resolution;
-	const probed = probe_executable_beneath(name, op_path);
+	// a permission or I/O error is never read as missing; the walk has just looked up each
+	// component, so a stat meets one only when the path changed since or the filesystem failed
+	const probed = probe_executable(op_path, (error) => {
+		throw to_uninspectable_error(name, op_path, error);
+	});
 	if (probed === 'missing') return null;
 	if (probed === 'not_executable') {
 		throw new SpawnError('not_executable', name, `not_executable: ${found_path} isn't executable`);
