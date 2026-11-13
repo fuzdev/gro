@@ -53,6 +53,7 @@ import * as node_util from 'node:util';
 import * as node_worker_threads from 'node:worker_threads';
 
 import { to_checked_cwd } from './internal/cwd.ts';
+import { check_env_name } from './internal/env_name.ts';
 import { create_record, to_chunk_result } from './internal/records.ts';
 import { ProcessError } from './process_error.ts';
 
@@ -189,19 +190,6 @@ export interface Process {
 	 */
 	readonly runtime_version: string;
 }
-
-/**
- * A variable name: non-empty, well-formed, without NUL or `=`, none of which can name a variable.
- */
-const check_env_name = (value: unknown, what: string): string => {
-	if (typeof value !== 'string') throw new TypeError(`${what} must be a string`);
-	if (value.length === 0) throw new TypeError(`${what} is empty`);
-	if (value.includes('\0')) throw new TypeError(`${what} holds a NUL byte`);
-	if (!value.isWellFormed()) throw new TypeError(`${what} isn't well-formed Unicode`);
-	// no echo of the text, as what follows a `=` can be a value
-	if (value.includes('=')) throw new TypeError(`${what} holds a \`=\``);
-	return value;
-};
 
 /**
  * A narrowed set's name: exact, with no `*` a reader could take for a glob.

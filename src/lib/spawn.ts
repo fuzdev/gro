@@ -162,6 +162,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { FsReadDir } from './fs.ts';
 import { is_own_fs_error } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
+import { check_env_name } from './internal/env_name.ts';
 import {
 	to_fs_handle_resolve,
 	type FsHandleResolution,
@@ -974,13 +975,6 @@ const resolve_program_in = (resolve: FsHandleResolve, name: string): ResolvedPro
 		throw new SpawnError('not_executable', name, `not_executable: ${found_path} isn't executable`);
 	}
 	return to_resolved(name, found_path, found_path);
-};
-
-const check_env_name = (value: unknown, what: string): string => {
-	const name = check_nonempty_text(value, what);
-	// no echo of the text, as what follows a `=` can be a value
-	if (name.includes('=')) throw new TypeError(`${what} holds a \`=\``);
-	return name;
 };
 
 /**
