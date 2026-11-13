@@ -54,7 +54,7 @@
 
 import * as node_buffer from 'node:buffer';
 
-import { create_record } from './internal/records.ts';
+import { create_record, read_own } from './internal/records.ts';
 import { NetError } from './net_error.ts';
 
 const {
@@ -67,7 +67,7 @@ const { Buffer: NodeBuffer } = node_buffer;
 const { clone: response_clone } = Response.prototype;
 const { versions } = globalThis.process;
 const { isArray } = Array;
-const { defineProperty, freeze, hasOwn, setPrototypeOf } = Object;
+const { defineProperty, freeze, setPrototypeOf } = Object;
 
 // the key only this module holds, so a handle's `constructor` can't make another handle
 const HANDLE_KEY = Symbol('net handle');
@@ -400,10 +400,7 @@ class NodeNet implements Net {
 
 	narrow(options: NetNarrowOptions): Net {
 		const parent = this.#allowed;
-		const hosts: unknown =
-			options !== null && options !== undefined && hasOwn(options, 'hosts')
-				? options.hosts
-				: undefined;
+		const hosts = read_own(options, 'hosts');
 		if (!isArray(hosts)) throw new TypeError('net.narrow takes `{hosts: [...]}`');
 		const allowed = create_record<Record<string, true>>({});
 		const length = hosts.length;

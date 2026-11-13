@@ -167,7 +167,7 @@ import {
 	type FsHandleResolution,
 	type FsHandleResolve
 } from './internal/fs_handles.ts';
-import { create_record } from './internal/records.ts';
+import { create_record, read_own } from './internal/records.ts';
 import { SpawnError } from './spawn_error.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -613,14 +613,6 @@ const check_name = (name: unknown): string => check_nonempty_text(name, 'a spawn
  * Windows strips from a filename.
  */
 const is_refused_extension = (path: string): boolean => /\.(?:bat|cmd)[. ]*$/i.test(path);
-
-/**
- * An option's value, read as an own property so a polluted `Object.prototype` can't set one.
- */
-const read_own = (options: object | null | undefined, key: string): unknown =>
-	options !== null && options !== undefined && hasOwn(options, key)
-		? (options as Record<string, unknown>)[key]
-		: undefined;
 
 type Probe = 'executable' | 'not_executable' | 'missing';
 

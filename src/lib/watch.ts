@@ -88,7 +88,7 @@ import type { FSWatcher } from 'chokidar';
 
 import type { FsReadDir } from './fs.ts';
 import { FsError } from './fs_error.ts';
-import { create_record } from './internal/records.ts';
+import { create_record, read_own } from './internal/records.ts';
 
 // a listener that `stopImmediatePropagation` can't reach, which a plain `addEventListener` isn't
 const { addAbortListener } = node_events as unknown as {
@@ -97,7 +97,7 @@ const { addAbortListener } = node_events as unknown as {
 const { lstatSync } = node_fs;
 const { AbortSignal: AbortSignalClass } = globalThis;
 const { isSafeInteger } = Number;
-const { freeze, hasOwn, setPrototypeOf } = Object;
+const { freeze, setPrototypeOf } = Object;
 
 /**
  * A change to an entry beneath a watched directory.
@@ -231,11 +231,6 @@ const read_root_stats = (root: string): BigIntStats => {
 	if (!stats.isDirectory()) throw new FsError('not_a_directory', root);
 	return stats;
 };
-
-const read_own = (options: object | null | undefined, key: string): unknown =>
-	options !== null && options !== undefined && hasOwn(options, key)
-		? (options as Record<string, unknown>)[key]
-		: undefined;
 
 /**
  * Reads a handle once, for its path. A forged object with an absolute `path` passes,
