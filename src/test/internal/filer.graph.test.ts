@@ -1,6 +1,6 @@
 import { test, assert, vi } from 'vitest';
 import { paths } from '#lib/paths.ts';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -297,30 +297,267 @@ test('a package file reached by a bare specifier keeps its edge but is never rea
 	}
 });
 
+test('a package file in `node_modules` is never read, whether a subpath mapping or a path reaches it', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_node_modules_'));
+	try {
+		const src = join(dir, 'src');
+		const dep = join(dir, 'node_modules/dep');
+		await mkdir(src);
+		await mkdir(dep, { recursive: true });
+		await writeFile(
+			join(dir, 'package.json'),
+			JSON.stringify({ name: 'proj', type: 'module', imports: { '#dep': 'dep' } })
+		);
+		await writeFile(
+			join(dep, 'package.json'),
+			JSON.stringify({ name: 'dep', type: 'module', exports: './index.js' })
+		);
+		// an optional peer that isn't installed, which a read would fail to resolve
+		await writeFile(join(dep, 'index.js'), "import './other.js';\nimport 'missing_peer';\n");
+		await writeFile(join(dep, 'side.js'), "import 'missing_peer';\n");
+		await writeFile(join(dep, 'other.js'), 'export {};\n');
+		const importer_path = join(src, 'a.ts');
+		await writeFile(importer_path, "import '#dep';\nimport '../node_modules/dep/side.js';\n");
+
+		const log = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
+		const filer = new Filer({
+			watch_dir: (options) => ({
+				init: async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				},
+				close: async () => {}
+			}),
+			dir: src,
+			log: log as any
+		});
+		await filer.init();
+		await new Promise((r) => setTimeout(r, 20));
+
+		const real_dep = join(await realpath(dir), 'node_modules/dep');
+		for (const dep_path of [join(real_dep, 'index.js'), join(real_dep, 'side.js')]) {
+			const dep_node = filer.get_by_id(dep_path);
+			assert.ok(dep_node, `the edge to ${dep_path} is recorded`);
+			assert.ok(dep_node.dependents.has(importer_path));
+			assert.equal(dep_node.contents, null, `${dep_path} is never read`);
+			assert.equal(dep_node.dependencies.size, 0, `${dep_path} is never parsed`);
+		}
+		assert.equal(filer.get_by_id(join(real_dep, 'other.js')), undefined);
+		assert.deepEqual(log.error.mock.calls, []);
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * Inits a Filer on `dir` whose watcher adds only `importer_path`, and waits for its imports.
+ */
+const init_filer_with_importer = async (dir: string, importer_path: string): Promise<Filer> => {
+	const filer = new Filer({
+		watch_dir: (options) => ({
+			init: async () => {
+				options.on_change({ type: 'add', path: importer_path, is_directory: false });
+			},
+			close: async () => {}
+		}),
+		dir
+	});
+	await filer.init();
+	await new Promise((r) => setTimeout(r, 20));
+	return filer;
+};
+
+/**
+ * Writes a project at `proj` with `#lib/*` mapped to `./lib/*`, `#dep` to its own installed
+ * `dep`, and `#hoisted` to `hoisted`, which only a `node_modules` holding `proj` provides.
+ */
+const write_project_with_packages = async (proj: string): Promise<void> => {
+	await mkdir(join(proj, 'src'), { recursive: true });
+	await mkdir(join(proj, 'lib'));
+	await writeFile(
+		join(proj, 'package.json'),
+		JSON.stringify({
+			name: 'app',
+			type: 'module',
+			imports: { '#lib/*': './lib/*', '#dep': 'dep', '#hoisted': 'hoisted' }
+		})
+	);
+	await writeFile(join(proj, 'lib/c.ts'), "import './c_dep.ts';\n");
+	await writeFile(join(proj, 'lib/d.ts'), "import './d_dep.ts';\n");
+	for (const pkg of [join(proj, 'node_modules/dep'), join(proj, '../hoisted')]) {
+		await mkdir(pkg, { recursive: true });
+		await writeFile(
+			join(pkg, 'package.json'),
+			JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
+		);
+		await writeFile(join(pkg, 'index.js'), "import './other.js';\n");
+	}
+	await writeFile(
+		join(proj, 'src/a.ts'),
+		"import '../lib/c.ts';\nimport '#lib/d.ts';\nimport '#dep';\nimport '#hoisted';\n"
+	);
+};
+
+test('a project in a `node_modules` directory reads its own files, and judges packages below it', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_node_modules_root_'));
+	try {
+		const proj = join(dir, 'node_modules/app');
+		await write_project_with_packages(proj);
+		const filer = await init_filer_with_importer(join(proj, 'src'), join(proj, 'src/a.ts'));
+
+		const real = join(await realpath(dir), 'node_modules');
+		for (const [id, dep] of [
+			['app/lib/c.ts', 'app/lib/c_dep.ts'], // a path climbing out of the watched directory
+			['app/lib/d.ts', 'app/lib/d_dep.ts'], // a subpath import
+			// a package beside the project, which the path from the watched directory reaches
+			// without passing through a `node_modules`
+			['hoisted/index.js', 'hoisted/other.js']
+		] as const) {
+			const node = filer.get_by_id(join(real, id));
+			assert.ok(node?.contents, `${id} is read`);
+			assert.ok(node.dependencies.has(join(real, dep)), `${id} is parsed`);
+		}
+		const own_dep = filer.get_by_id(join(real, 'app/node_modules/dep/index.js'));
+		assert.ok(own_dep, "the edge to the project's own package is recorded");
+		assert.equal(own_dep.contents, null, "the project's own package is never read");
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a project reached through a symlink judges a path from the link and a real path from its target', async () => {
+	// a link to a project in a `node_modules`, and a project linked into one, as a workspace is
+	for (const [target, link] of [
+		['real/node_modules/app', 'link'],
+		['real/app', 'node_modules/app']
+	] as const) {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_symlinked_root_'));
+		try {
+			const proj = join(dir, target);
+			await write_project_with_packages(proj);
+			await mkdir(dirname(join(dir, link)), { recursive: true });
+			await symlink(proj, join(dir, link));
+			const linked = join(dir, link);
+			const filer = await init_filer_with_importer(join(linked, 'src'), join(linked, 'src/a.ts'));
+
+			// a path import keeps the link's path
+			const c = filer.get_by_id(join(linked, 'lib/c.ts'));
+			assert.ok(c?.contents, `a path import of a project file is read through ${link}`);
+			// a subpath import resolves to the real path
+			const real = join(await realpath(dir), target);
+			const d = filer.get_by_id(join(real, 'lib/d.ts'));
+			assert.ok(d?.contents, `a subpath import of a project file is read through ${link}`);
+			assert.ok(d.dependencies.has(join(real, 'lib/d_dep.ts')));
+			const own_dep = filer.get_by_id(join(real, 'node_modules/dep/index.js'));
+			assert.ok(own_dep, "the edge to the project's own package is recorded");
+			assert.equal(
+				own_dep.contents,
+				null,
+				`the project's own package is never read through ${link}`
+			);
+
+			await filer.close();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}
+});
+
+test('a directory whose name only starts with `node_modules` holds no package', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_node_modules_x_'));
+	try {
+		await mkdir(join(dir, 'src'));
+		await mkdir(join(dir, 'node_modules_x'));
+		await writeFile(join(dir, 'node_modules_x/y.js'), "import './z.js';\n");
+		const importer_path = join(dir, 'src/a.ts');
+		await writeFile(importer_path, "import '../node_modules_x/y.js';\n");
+		const filer = await init_filer_with_importer(join(dir, 'src'), importer_path);
+
+		const y = filer.get_by_id(join(dir, 'node_modules_x/y.js'));
+		assert.ok(y?.contents, 'read');
+		assert.ok(y.dependencies.has(join(dir, 'node_modules_x/z.js')));
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a `#lib/*` import of a project file outside the watched directory is read', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_subpath_lib_'));
+	try {
+		const routes = join(dir, 'src/routes');
+		const lib = join(dir, 'src/lib');
+		await mkdir(routes, { recursive: true });
+		await mkdir(lib);
+		await writeFile(
+			join(dir, 'package.json'),
+			JSON.stringify({ name: 'proj', type: 'module', imports: { '#lib/*': './src/lib/*' } })
+		);
+		await writeFile(join(lib, 'b.ts'), "import './c.ts';\n");
+		await writeFile(join(lib, 'c.ts'), 'export {};\n');
+		const importer_path = join(routes, 'a.ts');
+		await writeFile(importer_path, "import '#lib/b.ts';\n");
+		const filer = new Filer({
+			watch_dir: (options) => ({
+				init: async () => {
+					options.on_change({ type: 'add', path: importer_path, is_directory: false });
+				},
+				close: async () => {}
+			}),
+			dir: routes
+		});
+		await filer.init();
+		await new Promise((r) => setTimeout(r, 20));
+
+		const real_lib = join(await realpath(dir), 'src/lib');
+		const b = filer.get_by_id(join(real_lib, 'b.ts'));
+		assert.ok(b?.external);
+		assert.ok(b.contents, 'a subpath import of a project file is read');
+		assert.ok(b.dependencies.has(join(real_lib, 'c.ts')));
+
+		await filer.close();
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * Writes a project whose `pkg` is linked from `linked_pkg/`, so its file realpaths outside
+ * `node_modules`, where a path or `#p` import of it reads it and a bare `pkg` import doesn't.
+ */
+const write_linked_pkg_project = async (dir: string): Promise<void> => {
+	const linked = join(dir, 'linked_pkg');
+	await mkdir(join(dir, 'src'));
+	await mkdir(linked);
+	await mkdir(join(dir, 'node_modules'));
+	await symlink(linked, join(dir, 'node_modules/pkg'));
+	await writeFile(
+		join(dir, 'package.json'),
+		JSON.stringify({ name: 'proj', type: 'module', imports: { '#p': 'pkg' } })
+	);
+	await writeFile(
+		join(linked, 'package.json'),
+		JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
+	);
+	await writeFile(join(linked, 'index.js'), "import './other.js';\n");
+	await writeFile(join(linked, 'other.js'), 'export {};\n');
+};
+
 test('a file reached by both a bare specifier and a path or subpath import is read in either order', async () => {
 	for (const order of [
 		['pkg', '#p'],
 		['#p', 'pkg'],
-		['pkg', '../node_modules/pkg/index.js'],
-		['../node_modules/pkg/index.js', 'pkg']
+		['pkg', '../linked_pkg/index.js'],
+		['../linked_pkg/index.js', 'pkg']
 	]) {
 		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_read_order_'));
 		try {
-			const src = join(dir, 'src');
-			const pkg = join(dir, 'node_modules/pkg');
-			await mkdir(src);
-			await mkdir(pkg, { recursive: true });
-			await writeFile(
-				join(dir, 'package.json'),
-				JSON.stringify({ name: 'proj', type: 'module', imports: { '#p': 'pkg' } })
-			);
-			await writeFile(
-				join(pkg, 'package.json'),
-				JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
-			);
-			await writeFile(join(pkg, 'index.js'), "import './other.js';\n");
-			await writeFile(join(pkg, 'other.js'), 'export {};\n');
-			const importer_path = join(src, 'a.ts');
+			await write_linked_pkg_project(dir);
+			const importer_path = join(dir, 'src/a.ts');
 			await writeFile(importer_path, order.map((sp) => `import '${sp}';`).join('\n'));
 			const filer = new Filer({
 				watch_dir: (options) => ({
@@ -329,12 +566,12 @@ test('a file reached by both a bare specifier and a path or subpath import is re
 					},
 					close: async () => {}
 				}),
-				dir: src
+				dir: join(dir, 'src')
 			});
 			await filer.init();
 			await new Promise((r) => setTimeout(r, 20));
 
-			const real_pkg = join(await realpath(dir), 'node_modules/pkg');
+			const real_pkg = join(await realpath(dir), 'linked_pkg');
 			const pkg_node = filer.get_by_id(join(real_pkg, 'index.js'));
 			assert.ok(pkg_node?.contents, `read for ${order.join(' then ')}`);
 			assert.ok(pkg_node.dependencies.has(join(real_pkg, 'other.js')));
@@ -347,24 +584,11 @@ test('a file reached by both a bare specifier and a path or subpath import is re
 });
 
 test('an edit adding a path or subpath import of a file a bare import reached reads it', async () => {
-	for (const added of ['#p', '../node_modules/pkg/index.js']) {
+	for (const added of ['#p', '../linked_pkg/index.js']) {
 		const dir = await mkdtemp(join(tmpdir(), 'gro_filer_read_on_update_'));
 		try {
-			const src = join(dir, 'src');
-			const pkg = join(dir, 'node_modules/pkg');
-			await mkdir(src);
-			await mkdir(pkg, { recursive: true });
-			await writeFile(
-				join(dir, 'package.json'),
-				JSON.stringify({ name: 'proj', type: 'module', imports: { '#p': 'pkg' } })
-			);
-			await writeFile(
-				join(pkg, 'package.json'),
-				JSON.stringify({ name: 'pkg', type: 'module', exports: './index.js' })
-			);
-			await writeFile(join(pkg, 'index.js'), "import './other.js';\n");
-			await writeFile(join(pkg, 'other.js'), 'export {};\n');
-			const importer_path = join(src, 'a.ts');
+			await write_linked_pkg_project(dir);
+			const importer_path = join(dir, 'src/a.ts');
 			await writeFile(importer_path, "import 'pkg';\n");
 			let on_change: ((change: WatcherChange) => void) | undefined;
 			const filer = new Filer({
@@ -377,12 +601,12 @@ test('an edit adding a path or subpath import of a file a bare import reached re
 						close: async () => {}
 					};
 				},
-				dir: src
+				dir: join(dir, 'src')
 			});
 			await filer.init();
 			await new Promise((r) => setTimeout(r, 20));
 
-			const real_pkg = join(await realpath(dir), 'node_modules/pkg');
+			const real_pkg = join(await realpath(dir), 'linked_pkg');
 			assert.ok(!filer.get_by_id(join(real_pkg, 'index.js'))?.contents, 'unread at first');
 
 			await writeFile(importer_path, `import 'pkg';\nimport '${added}';\n`);

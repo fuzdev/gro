@@ -29,8 +29,11 @@ export interface NodeModuleGraphOptions {
 /**
  * Creates the Node `ModuleGraph`, which watches `watch.dir` with chokidar
  * and reads each module's imports, following them outside `watch.dir`,
- * except that a file reached by a bare specifier, like a package's even when linked,
- * is an edge to a file never read, so its imports aren't edges.
+ * except a package's file.
+ * A package's file is never read, so its imports aren't edges: one a bare specifier
+ * reaches, even when linked, and one whose path from the watched directory passes
+ * through a `node_modules` directory, both from the directory as named and from its
+ * real path.
  * Its implementation (with chokidar and the import parser) is imported on first use,
  * so a task that never queries the graph never loads them.
  *

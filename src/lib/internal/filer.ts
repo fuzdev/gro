@@ -1,5 +1,5 @@
-import { readFile, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import type { OmitStrict } from '@fuzdev/fuz_util/types.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
@@ -16,8 +16,13 @@ import {
 } from './watch_dir.ts';
 import { parse_imports } from './parse_imports.ts';
 import { is_path_specifier, to_specifier_path_id } from '../resolve_specifier.ts';
-import { SVELTEKIT_GLOBAL_SPECIFIER } from '../constants.ts';
+import { NODE_MODULES_DIRNAME, SVELTEKIT_GLOBAL_SPECIFIER } from '../constants.ts';
 import type { Disknode } from './disknode.ts';
+
+// whether the path from `dir` to `id` passes through a `node_modules` directory,
+// so a `node_modules` holding `dir` itself, or a sibling like `node_modules_x`, doesn't count
+const passes_node_modules = (dir: PathId, id: PathId): boolean =>
+	relative(dir, id).split('/').includes(NODE_MODULES_DIRNAME);
 
 export type OnFilerChange = (change: WatcherChange, disknode: Disknode) => void;
 
@@ -28,6 +33,8 @@ export interface FilerOptions extends OmitStrict<WatchDirOptions, 'on_change'> {
 
 export class Filer {
 	readonly root_dir: PathId;
+	// `root_dir`'s real path, set by `init`, which a resolved import's real path is judged from
+	#real_root_dir: PathId | undefined;
 
 	// TODO rename everything to `disknode`
 	readonly files: Map<PathId, Disknode> = new Map();
@@ -72,9 +79,9 @@ export class Filer {
 
 	/**
 	 * Gets the node for `id`, creating it if needed.
-	 * @param read - whether an external node is read and parsed, `false` for a file
-	 *   reached by a bare specifier, which stays a contentless node until a path or `#` import
-	 *   of the same file asks for it to be read
+	 * @param read - whether an external node is read and parsed, `false` for a package's file,
+	 *   which stays a contentless node until a path or `#` import of the same file asks for it
+	 *   to be read
 	 */
 	get_or_create = (id: PathId, read = true): Disknode => {
 		const existing = this.get_by_id(id);
@@ -150,6 +157,7 @@ export class Filer {
 	}
 
 	async #init(): Promise<void> {
+		this.#real_root_dir = await realpath(this.root_dir).catch(() => this.root_dir);
 		const watcher = this.#watch_dir({
 			dir: this.root_dir,
 			filter: this.#filter,
@@ -307,15 +315,18 @@ export class Filer {
 		for (const specifier of imported) {
 			if (SVELTEKIT_GLOBAL_SPECIFIER.test(specifier)) continue;
 			let path_id;
-			// a file reached by a bare specifier, a package's, is never read or parsed,
-			// since nothing reads a package's contents and its edge is all a dependent needs,
-			// even when it's linked from outside `node_modules`;
-			// a subpath import like `#lib/x.ts` names a project file, so it's read,
+			// a package's file is never read, so its imports aren't edges: one a bare specifier
+			// reaches, even when linked, and one whose path from the watched directory passes
+			// through a `node_modules` directory, both from the directory as named and from its
+			// real path; nothing reads a package's contents and its edge is all a dependent needs,
+			// so a `#` mapping such as `"#dep": "dep"` reaches a contentless node too,
+			// while a subpath import like `#lib/x.ts` names a project file, so it's read,
 			// and so is a file a path or subpath import also reaches, whichever came first
-			let read = true;
+			let read: boolean;
 			if (is_path_specifier(specifier)) {
 				// the exact named path, existing or not, so a file created later links to its importers
 				path_id = to_specifier_path_id(specifier, file.id);
+				read = !this.#is_package_path(path_id);
 			} else {
 				const file_url = pathToFileURL(file.id);
 				let resolved_url;
@@ -327,7 +338,7 @@ export class Filer {
 				}
 				if (!resolved_url.startsWith('file:')) continue; // skip node:, npm:, https:, jsr:, etc.
 				path_id = fileURLToPath(resolved_url);
-				read = specifier[0] === '#';
+				read = specifier[0] === '#' && !this.#is_package_path(path_id);
 			}
 			dependencies_removed.delete(path_id);
 			// an existing edge may now be a path or `#` import asking for the read
@@ -393,14 +404,11 @@ export class Filer {
 	}
 
 	async #add_listener(listener: OnFilerChange): Promise<void> {
-		this.#listeners.add(listener);
-
-		// ensure initialized
 		await this.init();
-		// a close in flight, which `init` waits for, clears the listeners
+		// added after `init` and synced in the same synchronous step, so what's processed before
+		// arrives once, as the sync's `add`, and later changes live; a node whose read is in flight
+		// arrives as a contentless `add`, then live as its read finishes
 		this.#listeners.add(listener);
-
-		// notify of existing files
 		this.#sync_listener_with_files(listener);
 	}
 
@@ -472,6 +480,15 @@ export class Filer {
 		// takes the change, as it rechecks the queue after its loop
 		void this.#process_queue();
 	};
+
+	// a path holding the watched directory, as a project in a `node_modules` does, still reads
+	// its own files, and a resolved import's real path is judged from the directory's real path
+	#is_package_path(id: PathId): boolean {
+		return (
+			passes_node_modules(this.root_dir, id) &&
+			passes_node_modules(this.#real_root_dir ?? this.root_dir, id)
+		);
+	}
 
 	#is_external(id: PathId): boolean {
 		const filter = this.#filter;

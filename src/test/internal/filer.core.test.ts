@@ -291,6 +291,59 @@ test('multiple listeners receive notifications independently', async () => {
 	cleanup2();
 });
 
+test('watch() delivers each existing file once, however it races init()', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_filer_watch_once_'));
+	onTestFinished(() => rm(dir, { recursive: true, force: true }));
+	await writeFile(join(dir, 'a.ts'), 'export const a = 1;\n');
+	await writeFile(join(dir, 'b.ts'), "import './a.ts';\n");
+	const expected = [join(dir, 'a.ts'), join(dir, 'b.ts')];
+
+	const listen = (filer: Filer): { seen: Array<string>; watching: Promise<() => void> } => {
+		const seen: Array<string> = [];
+		const watching = filer.watch((change) => seen.push(`${change.type} ${change.path}`));
+		return { seen, watching };
+	};
+	const assert_once = (seen: Array<string>, label: string): void => {
+		assert.deepEqual(
+			[...seen].sort(),
+			expected.map((p) => `add ${p}`),
+			label
+		);
+	};
+
+	// the first watch inits the filer
+	const first = new Filer({ dir });
+	const only = listen(first);
+	await only.watching;
+	assert_once(only.seen, 'first watch');
+	await first.close();
+
+	// two watches racing one init
+	const concurrent = new Filer({ dir });
+	const l1 = listen(concurrent);
+	const l2 = listen(concurrent);
+	await Promise.all([l1.watching, l2.watching]);
+	assert_once(l1.seen, 'first of two concurrent watches');
+	assert_once(l2.seen, 'second of two concurrent watches');
+	await concurrent.close();
+
+	// a watch during a running init
+	const during = new Filer({ dir });
+	const initing = during.init();
+	const late = listen(during);
+	await Promise.all([initing, late.watching]);
+	assert_once(late.seen, 'watch during init');
+	await during.close();
+
+	// a watch after init
+	const after = new Filer({ dir });
+	await after.init();
+	const settled = listen(after);
+	await settled.watching;
+	assert_once(settled.seen, 'watch after init');
+	await after.close();
+});
+
 test('watch() after init() reuses existing file state', async () => {
 	const mock_watch_dir = create_mock_watch_dir();
 	const filer = new Filer({ dir: paths.source, watch_dir: mock_watch_dir });

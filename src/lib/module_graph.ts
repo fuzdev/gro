@@ -15,7 +15,10 @@ export interface ModuleGraph {
 	/**
 	 * Gets every module that imports `id`, directly or transitively.
 	 * The filter narrows the results, not the traversal.
-	 * A file reached by a bare specifier is never read, so its imports aren't edges.
+	 * A package's file is never read, so its imports aren't edges: one a bare specifier
+	 * reaches, even when linked, and one whose path from the watched directory passes
+	 * through a `node_modules` directory, both from the directory as named and from its
+	 * real path.
 	 * @param id - the module whose dependents to find
 	 * @param filter - narrows the results
 	 * @returns the dependents, including of an imported path that doesn't exist yet; empty when nothing imports `id`
