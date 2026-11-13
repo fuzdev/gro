@@ -132,11 +132,13 @@ fn resolve_main(
     cwd: &Path,
     recording: Recording,
 ) -> Result<(Url, Rc<Loader>), RunError> {
-    // nothing to grant yet; destructured so a new field can't go unread
+    // nothing to grant yet, and no host module to read the arguments;
+    // destructured so a new field can't go unread
     let RuntimeOptions {
         grants: Grants {},
         snapshot: _,
         console: _,
+        args: _,
     } = options;
     let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
     let loader = Rc::new(Loader::new(&entry, roots, recording));

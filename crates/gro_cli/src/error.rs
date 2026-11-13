@@ -32,6 +32,15 @@ pub enum CliError {
     /// Neither `--version` nor a subcommand was given.
     #[error("a subcommand is required\nRun fgro --help for more information.")]
     NoCommand,
+    /// `run` with an option before the file that it doesn't take.
+    #[error(
+        "unknown option {0:?} before the file: the script's arguments go after it\n\
+         Run fgro run --help for more information."
+    )]
+    RunOption(String),
+    /// `run` without a file.
+    #[error("a file to run is required\nRun fgro run --help for more information.")]
+    RunNoFile,
     /// `eval --timeout 0`.
     #[error("--timeout takes a number of milliseconds of at least 1")]
     TimeoutZero,
@@ -87,6 +96,8 @@ impl CliError {
             | Self::Parse(_)
             | Self::VersionWithCommand
             | Self::NoCommand
+            | Self::RunOption(_)
+            | Self::RunNoFile
             | Self::TimeoutZero
             | Self::DriverWithExport
             | Self::DriverPath(_)

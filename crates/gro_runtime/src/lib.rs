@@ -108,6 +108,10 @@ pub struct RuntimeOptions {
     pub snapshot: Option<StartupSnapshot>,
     /// Where the console writes and whether it colors.
     pub console: ConsoleOptions,
+    /// The script's arguments, every one after the entry on the command
+    /// line, as written: data, not authority. Nothing in the runtime reads
+    /// them yet, so no script can.
+    pub args: Vec<String>,
 }
 
 /// The console's output: which stream each level writes to, and whether each

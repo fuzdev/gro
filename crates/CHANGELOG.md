@@ -15,7 +15,7 @@ It ships as a bare binary, `fgro-linux-x64-gnu`, with its startup snapshot embed
 beside a `SHA512SUMS` file, each with a provenance attestation.
 
 - `fgro run <file>` runs a JS or TypeScript module from disk.
-  It takes the entry file only, with no script arguments.
+  Every argument after the file is the script's, accepted as written, though nothing reads them yet.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.
   TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.

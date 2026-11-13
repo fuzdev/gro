@@ -11,8 +11,8 @@
 ## Usage
 
 ```bash
-fgro run <file>   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
-fgro --version    # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
+fgro run <file> [args...]   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
+fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
 
 `--version` prints one line, `fgro <version> (commit <sha>, V8 <version>, snapshot)`.
@@ -21,7 +21,11 @@ untracked files included and the bench's history file excepted;
 `cargo xtask build` embeds it, and a binary from a plain `cargo build` embeds none (`commit unknown`).
 The last part is `no snapshot` for a build without a startup snapshot.
 
-`run` takes only the entry file, so an extra argument is a usage error and there are no script arguments.
+`run` reads its own options up to the entry file, the first argument that is neither `help` nor starts with `-`,
+and every argument after the file is the script's, passed as written, `--` and `--help` included.
+Its only option is `--help` (or `help`, as for every command), and any other before the file is a usage error;
+a file whose name starts with `-` goes after `--`.
+The script's arguments are accepted but not yet readable: no host module on `fgro` reads them ([host modules](host_modules.md)).
 User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
@@ -127,7 +131,7 @@ Whether a stream is colored is decided once per process, in order:
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | the module ran to completion, or `--help` or `--version`                                                                                                               |
 | 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start |
-| 2    | a usage error (no arguments, an unknown subcommand or flag, an extra argument, a non-UTF-8 argument, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2    | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A panic exits 101 in a debug build; a release build aborts.

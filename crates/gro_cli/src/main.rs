@@ -1,8 +1,9 @@
 //! `fgro`: gro on its own JS runtime, the binary's name while it's developed
 //! beside the Node `gro`.
 //!
-//! - `fgro run <file>` runs an ES module (JS or TypeScript) from disk until
-//!   its event loop drains; the reference is `src/docs/run.md`
+//! - `fgro run <file> [<args...>]` runs an ES module (JS or TypeScript) from
+//!   disk until its event loop drains, every argument after the file the
+//!   script's (`cli::RunInvocation`); the reference is `src/docs/run.md`
 //! - `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]
 //!   [--graph]` evaluates a module to JSON data in a kernel box and prints
 //!   one envelope on stdout; the reference is `src/docs/eval.md`
@@ -95,13 +96,22 @@ fn main_code() -> u8 {
 /// or one [`cli::parse`] refuses.
 fn invocation() -> Result<Invocation, CliError> {
     prices::start()?;
-    let args = std::env::args_os()
-        .skip(1)
-        .map(OsString::into_string)
-        .collect::<Result<Vec<String>, OsString>>()
-        .map_err(CliError::NotUtf8)?;
+    let args = utf8_args(std::env::args_os().skip(1))?;
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     cli::parse(&args)
+}
+
+/// `args` as strings, every one checked, the script's after `run`'s file
+/// included.
+///
+/// # Errors
+///
+/// Returns [`CliError::NotUtf8`] naming the first that isn't UTF-8.
+fn utf8_args(args: impl IntoIterator<Item = OsString>) -> Result<Vec<String>, CliError> {
+    args.into_iter()
+        .map(OsString::into_string)
+        .collect::<Result<Vec<String>, OsString>>()
+        .map_err(CliError::NotUtf8)
 }
 
 /// Runs `task`, returning the exit code and printing a failure to stderr.
@@ -110,7 +120,7 @@ fn run(task: &Task) -> u8 {
         Task::Version => stdout_line(version::version_line()).map_err(CliError::Stdout),
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
-        Task::Run(file) => run::run_module(file),
+        Task::Run(invocation) => run::run_module(invocation),
     };
     result.map_or_else(|error| error.report(), |()| 0)
 }
@@ -168,7 +178,9 @@ mod tests {
         assert_eq!(code(&["--unknown"]), EXIT_USAGE);
         assert_eq!(code(&["positional"]), EXIT_USAGE);
         assert_eq!(code(&["run"]), EXIT_USAGE);
-        assert_eq!(code(&["run", "a.js", "b.js"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "--"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "--x", "a.js"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "-", "a.js"]), EXIT_USAGE);
         assert_eq!(code(&["--version", "run", "a.js"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot", "a", "b"]), EXIT_USAGE);
@@ -206,6 +218,22 @@ mod tests {
             )
         );
         assert_eq!(
+            message(&["run", "--allow-env=A", "a.js"]),
+            (
+                "unknown option \"--allow-env=A\" before the file: the script's arguments go \
+                 after it\nRun fgro run --help for more information."
+                    .to_owned(),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
+            message(&["run"]),
+            (
+                "a file to run is required\nRun fgro run --help for more information.".to_owned(),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
             message(&["--version", "run", "a.js"]),
             ("--version takes no subcommand".to_owned(), EXIT_USAGE)
         );
@@ -214,6 +242,36 @@ mod tests {
             (
                 "a subcommand is required\nRun fgro --help for more information.".to_owned(),
                 EXIT_USAGE
+            )
+        );
+    }
+
+    /// An argument that isn't UTF-8 is refused wherever it comes, a script's
+    /// after the file included, and the rest pass as they are.
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_argument_is_refused() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let args = |tail: &[&[u8]]| {
+            ["run", "a.js"]
+                .iter()
+                .map(OsString::from)
+                .chain(tail.iter().map(|arg| OsStr::from_bytes(arg).to_owned()))
+                .collect::<Vec<_>>()
+        };
+        for tail in [&[b"\xff".as_slice()][..], &[b"x", b"--", b"a\xffb"]] {
+            let error = utf8_args(args(tail)).expect_err("refused");
+            assert!(matches!(error, CliError::NotUtf8(_)), "{error}");
+            assert_eq!(error.exit_code(), EXIT_USAGE);
+        }
+        assert_eq!(
+            utf8_args(args(&[b"", b"--", "\u{e9}".as_bytes()])).ok(),
+            Some(
+                ["run", "a.js", "", "--", "\u{e9}"]
+                    .map(str::to_owned)
+                    .to_vec()
             )
         );
     }

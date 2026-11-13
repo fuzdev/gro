@@ -1663,26 +1663,59 @@ fn a_closed_stdout_fails_the_write_without_a_panic() {
     }
 }
 
+/// A usage error runs nothing: an option before an entry that exists is
+/// refused, not skipped.
 #[test]
 fn usage_errors_exit_2() {
-    for args in [&[][..], &["run"], &["--unknown"], &["run", "a.js", "b.js"]] {
-        assert_eq!(fgro(args).status.code(), Some(2), "{args:?}");
+    for args in [
+        &[][..],
+        &["run"],
+        &["run", "--"],
+        &["--unknown"],
+        &["run", "--x", "console.js"],
+    ] {
+        let output = fgro(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
     }
 }
 
+/// Every argument after the file is the script's, fgro's own spellings
+/// included, so the run is the file's whatever follows it.
+#[test]
+fn arguments_after_the_file_are_the_script_s() {
+    let alone = fgro(&["run", "console.js"]);
+    assert_eq!(alone.status.code(), Some(0));
+    for tail in [
+        &["--help"][..],
+        &["--", "--version", ""],
+        &["help", "-A", "--allow-env=A", "b.js"],
+    ] {
+        let output = fgro(&[&["run", "console.js"][..], tail].concat());
+        assert_eq!(output.status.code(), Some(0), "{tail:?}");
+        assert_eq!(output.stdout, alone.stdout, "{tail:?}");
+        assert_eq!(output.stderr, alone.stderr, "{tail:?}");
+    }
+}
+
+/// An argument that isn't UTF-8 is refused before anything runs, the file or
+/// one of the script's.
 #[cfg(unix)]
 #[test]
 fn non_utf8_argument_is_a_usage_error() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
-    let mut command = fgro_command(&["run"]);
-    command
-        .arg(OsStr::from_bytes(b"\xff.js"))
-        .current_dir(fixtures());
-    let output = spawn(command, b"");
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not valid UTF-8"));
+    for args in [&[&b"\xff.js"[..]][..], &[b"console.js", b"\xff"]] {
+        let mut command = fgro_command(&["run"]);
+        command
+            .args(args.iter().map(|arg| OsStr::from_bytes(arg)))
+            .current_dir(fixtures());
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("not valid UTF-8"));
+    }
 }
 
 /// Runs `console.js` on a pseudo-terminal through util-linux's `script`, with
