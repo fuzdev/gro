@@ -462,7 +462,7 @@ const open_deploy_dir = async (
 ): Promise<FsOpenedPath> => {
 	const opened = await fs_paths.open_path(resolved_deploy_dir);
 	const real = to_opened_real_path(opened);
-	if (is_protected_dir(real, await to_protected_dirs(fs_paths.project.path))) {
+	if (is_protected_dir(real, await to_protected_dirs(fs, fs_paths.project.path))) {
 		throw new TaskError(
 			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
 				` ${PROTECTED_DIRS_TEXT}`

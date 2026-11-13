@@ -6,7 +6,8 @@
  * cap-std and WASI preopens. The import is the capability, and handing a narrower
  * handle (`dir.dir('sub')`, `dir.readonly()`) down the call graph is how authority narrows.
  * `fs.project` is the project directory, `fs.open_dir` opens any other directory,
- * and `fs.temp_dir` makes a fresh one that removes itself on `await using`.
+ * `fs.real_path` resolves any absolute path's symlinks, and `fs.temp_dir` makes a fresh
+ * directory that removes itself on `await using`.
  * Only `fs` and other handles make handles, and handles and their prototypes are frozen,
  * so a handle's `constructor` makes nothing and no holder can patch another's ops.
  * They and `fs` are null-prototype, so awaiting one adopts no polluted `Object.prototype.then`.
@@ -55,7 +56,7 @@
  *   are copied at load, so `syncBuiltinESMExports` can't rebind them.
  * - A handle opened on `/proc` follows its magic links, which the kernel resolves
  *   without a path the walk can check.
- * - `fs.open_dir` takes any absolute path, checked against no grant.
+ * - `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant.
  * - Any module can import `node:fs`, so a narrowed handle bounds only code that
  *   uses the handles.
  * - `fs.project` is the working directory when this module loads, the same source
@@ -361,6 +362,16 @@ export interface Fs {
 	 * @throws `FsError` - `not_found`, `not_a_directory`
 	 */
 	open_dir(path: string): Promise<FsDir>;
+	/**
+	 * The real path of an absolute path, every symlink followed, with `open_dir`'s reach:
+	 * any absolute path, checked against no grant. Beneath a handle a real path is the
+	 * handle's `path` and the confined walk, so handles have no such op.
+	 * A real path that isn't UTF-8 fails with `io_error`, since no string spells it.
+	 * @throws `TypeError` - for a relative path, or one holding a NUL byte or a lone surrogate
+	 * @throws `FsError` - `not_found`, also for a dangling symlink; `not_a_directory` for a path
+	 * through a file; `permission_denied`; `io_error` for a symlink loop or any other failure
+	 */
+	real_path(path: string): Promise<string>;
 	/**
 	 * Creates a fresh directory under the OS temp directory,
 	 * removed with everything in it when disposed (`await using`).
@@ -1399,6 +1410,15 @@ export const fs: Fs = Object.freeze(
 				const real_path = await realpath_text(path);
 				if (!(await stat(real_path)).isDirectory()) throw new FsError('not_a_directory', path);
 				return create_dir(real_path);
+			} catch (error) {
+				throw to_fs_error(error, path);
+			}
+		},
+		real_path: async (path: string): Promise<string> => {
+			assert_path_string(path);
+			if (!isAbsolute(path)) throw new TypeError(`fs.real_path takes an absolute path: ${path}`);
+			try {
+				return await realpath_text(path);
 			} catch (error) {
 				throw to_fs_error(error, path);
 			}

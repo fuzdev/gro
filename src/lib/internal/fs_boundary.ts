@@ -2,46 +2,47 @@
  * The machinery of `FsPaths` (`fs_paths.ts`), Gro's boundary from paths that arrive
  * from outside to the fs host module's handles.
  *
- * The realpath resolution here reads symlinks through `node:fs` itself, the authority
- * the host module keeps out of a handle's reach, so it's internal: code gets the boundary
- * as an `FsPaths` built from the root `Fs`, never this resolution on its own.
+ * It resolves a path's symlinks through the `Fs` it's given, `fs.real_path` and a handle's
+ * `read_link`, so building an `FsPaths` grants nothing beyond what that `Fs` holds.
+ * It's internal: code gets the boundary as an `FsPaths` built from the root `Fs`.
  *
  * @module
  */
 
-import { readlink, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import type { Fs, FsCopyOptions, FsDir, FsRemoveOptions } from '../fs.ts';
-import { FsError, is_fs_error, type FsErrorKind } from '../fs_error.ts';
+import { FsError, is_fs_error } from '../fs_error.ts';
 import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
 import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
 import { to_checked_cwd } from './cwd.ts';
 import { create_record } from './records.ts';
 import { process } from '../process.ts';
 
-// TODO: the realpath and readlink this boundary reads from `node:fs` become an op on the `Fs`
-// passed in, a root op beside `open_dir`, reached through it and never imported, so building
-// an `FsPaths` grants nothing beyond what that `Fs` holds
-
 // the most symlinks one resolution follows, Linux's own limit
 const MAX_SYMLINKS = 40;
 
-const code_of = (error: unknown): unknown =>
-	typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+const to_loop_error = (path: string): FsError =>
+	new FsError('io_error', path, `io_error: ${path} reaches a symlink loop (ELOOP)`);
 
-const to_kind = (code: unknown): FsErrorKind =>
-	code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : 'io_error';
+// missing, or beneath a file, which the op on the resolved path reports
+const is_missing_error = (error: unknown): boolean =>
+	is_fs_error(error, 'not_found') || is_fs_error(error, 'not_a_directory');
 
-const to_loop_error = (path: string, cause?: unknown): FsError =>
-	new FsError('io_error', path, `io_error: ${path} reaches a symlink loop (ELOOP)`, { cause });
-
-const to_resolve_error = (error: unknown, path: string): FsError => {
-	const code = code_of(error);
-	if (code === 'ELOOP') return to_loop_error(path, error);
-	const kind = to_kind(code);
-	const detail = error instanceof Error ? error.message : String(error);
-	return new FsError(kind, path, `${kind}: ${path} (${detail})`, { cause: error });
+/**
+ * The target of the symlink `name` in the directory at the real path `parent`, read through a
+ * handle on `parent`, or `null` when there's none to follow: the entry or `parent` missing,
+ * or `parent` a file. `fs.real_path` just found the path missing, so an entry that's there
+ * is a dangling symlink, or one that replaced it since, which fails as `io_error`.
+ * @throws `FsError` - any other failure, like a target that isn't UTF-8
+ */
+const read_link_target = async (fs: Fs, parent: string, name: string): Promise<string | null> => {
+	try {
+		return await (await fs.open_dir(parent)).read_link(name);
+	} catch (error) {
+		if (is_missing_error(error)) return null;
+		throw error;
+	}
 };
 
 /**
@@ -49,53 +50,23 @@ const to_resolve_error = (error: unknown, path: string): FsError => {
  * a dangling one to its missing target. A missing part is appended to its nearest
  * existing ancestor's real path. A symlink's target is resolved against the link's
  * directory lexically, its `..` segments before any symlink in it is followed.
+ * @throws `TypeError` - for a path holding a NUL byte or a lone surrogate, as `fs.real_path` does
  */
-const to_real_path = async (path: string, links = { count: 0 }): Promise<string> => {
-	let real: Uint8Array | null = null;
+const to_real_path = async (fs: Fs, path: string, links = { count: 0 }): Promise<string> => {
 	try {
-		// as bytes, so a real path that isn't UTF-8 is refused rather than decoded lossily
-		real = await realpath(path, { encoding: 'buffer' });
+		return await fs.real_path(path);
 	} catch (error) {
-		const code = code_of(error);
-		if (code !== 'ENOENT' && code !== 'ENOTDIR') throw to_resolve_error(error, path);
+		if (!is_missing_error(error)) throw error;
 	}
-	if (real !== null) return to_utf8_path(path, real);
 	const parent = dirname(path);
 	if (parent === path) return path;
-	const candidate = join(await to_real_path(parent, links), basename(path));
-	// the parent is real, so the candidate is missing, or a symlink whose target is
-	let target_bytes: Uint8Array;
-	try {
-		target_bytes = await readlink(candidate, { encoding: 'buffer' });
-	} catch (error) {
-		// missing, not a symlink, or beneath a file, which the op on the result reports
-		const code = code_of(error);
-		if (code === 'ENOENT' || code === 'EINVAL' || code === 'ENOTDIR') return candidate;
-		throw to_resolve_error(error, candidate);
-	}
+	const parent_real = await to_real_path(fs, parent, links);
+	const name = basename(path);
+	// the parent is real, so the entry is missing, or a symlink whose target is
+	const target = await read_link_target(fs, parent_real, name);
+	if (target === null) return join(parent_real, name);
 	if (++links.count > MAX_SYMLINKS) throw to_loop_error(path);
-	return to_real_path(
-		resolve(
-			dirname(candidate),
-			to_utf8_path(candidate, target_bytes, 'is a symlink whose target is a path')
-		),
-		links
-	);
-};
-
-// fatal, so a target that isn't UTF-8 throws rather than decoding to U+FFFD, BOM kept
-const utf8_decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-
-/**
- * A symlink's target or a real path read as bytes, refused with `io_error` when it isn't
- * UTF-8, since decoded lossily it would name a different path than the kernel follows.
- */
-const to_utf8_path = (path: string, bytes: Uint8Array, what = 'resolves to a path'): string => {
-	try {
-		return utf8_decoder.decode(bytes);
-	} catch {
-		throw new FsError('io_error', path, `io_error: ${path} ${what} that isn't UTF-8`);
-	}
+	return to_real_path(fs, resolve(parent_real, target), links);
 };
 
 // read once, when the module loads; an unset, empty, or relative `HOME` protects nothing
@@ -110,10 +81,12 @@ const protected_dirs_cache: Map<string, Promise<Array<string>>> = new Map();
 /**
  * The directories no removal or emptying may touch, beside `/` and their ancestors:
  * the `FsPaths`' project, the process's working directory when the module loaded,
- * and `$HOME` as given and as its real path. Resolved once per project.
+ * and `$HOME` as given and as its real path. Resolved once per project,
+ * with the first `fs` given.
+ * @param fs - the fs root, which resolves `$HOME`'s real path
  * @param project_path - the project directory's absolute real path
  */
-export const to_protected_dirs = (project_path: string): Promise<Array<string>> => {
+export const to_protected_dirs = (fs: Fs, project_path: string): Promise<Array<string>> => {
 	let dirs = protected_dirs_cache.get(project_path);
 	if (dirs === undefined) {
 		dirs = (async () => {
@@ -121,7 +94,7 @@ export const to_protected_dirs = (project_path: string): Promise<Array<string>> 
 			if (HOME && isAbsolute(HOME)) {
 				const home = resolve(HOME);
 				found.push(home);
-				const home_real = await realpath(home).catch(() => null);
+				const home_real = await fs.real_path(home).catch(() => null);
 				if (home_real !== null && home_real !== home) found.push(home_real);
 			}
 			return found;
@@ -167,8 +140,8 @@ const to_opened_path = (dir: FsDir, path: string): FsOpenedPath =>
 /**
  * Builds the boundary's ops over `fs`, each path resolved to absolute by `to_absolute`,
  * lexically, before any symlink is followed. `FsPaths` documents each op.
- * @param fs - the fs root, whose `project` a path beneath the project is relative to
- * and whose `open_dir` opens every other directory
+ * @param fs - the fs root, whose `project` a path beneath the project is relative to,
+ * whose `open_dir` opens every other directory, and whose `real_path` resolves symlinks
  * @param to_absolute - resolves a path as given to an absolute, normalized one
  */
 export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string): FsPaths => {
@@ -183,7 +156,7 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 
 	const open_path = async (path: string): Promise<FsOpenedPath> => {
 		const suffix = path.endsWith('/') ? '/' : '';
-		const real = await to_real_path(to_absolute(path));
+		const real = await to_real_path(fs, to_absolute(path));
 		const relative = to_project_relative(real);
 		if (relative !== null) {
 			return to_opened_path(project, relative && relative + suffix);
@@ -202,7 +175,7 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 	};
 
 	const open_dir_path = async (path: string): Promise<FsOpenedPath | null> => {
-		const real = await to_real_path(to_absolute(path));
+		const real = await to_real_path(fs, to_absolute(path));
 		const relative = to_project_relative(real);
 		if (relative !== null) return to_opened_path(project, relative);
 		try {
@@ -224,8 +197,8 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 
 	const copy_path = async (from: string, to: string, options?: FsCopyOptions): Promise<void> => {
 		const [real_from, real_to] = await Promise.all([
-			to_real_path(to_absolute(from)),
-			to_real_path(to_absolute(to))
+			to_real_path(fs, to_absolute(from)),
+			to_real_path(fs, to_absolute(to))
 		]);
 		const from_relative = to_project_relative(real_from);
 		const to_relative = to_project_relative(real_to);
@@ -244,7 +217,7 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		const opened = await open_dir_path(path);
 		if (opened === null) return;
 		const target = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
-		if (is_protected_dir(target, await to_protected_dirs(project.path))) {
+		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
 			throw new FsError(
 				'io_error',
 				to_absolute(path),
@@ -273,7 +246,7 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		const parent = await open_path(dirname(resolved));
 		const entry = parent.path ? parent.path + '/' + name : name;
 		const target = join(parent.dir.path, entry);
-		if (is_protected_dir(target, await to_protected_dirs(project.path))) {
+		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
 			throw new FsError(
 				'io_error',
 				resolved,

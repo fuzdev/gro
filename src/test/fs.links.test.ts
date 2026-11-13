@@ -1,5 +1,6 @@
 import { describe, test, assert, beforeEach, afterEach } from 'vitest';
 import {
+	chmodSync,
 	lstatSync,
 	mkdirSync,
 	readdirSync,
@@ -10,7 +11,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
-import type { FsDir } from '#lib/fs.ts';
+import { fs, type FsDir } from '#lib/fs.ts';
 import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
@@ -105,6 +106,96 @@ describe('read_link', () => {
 		await assert_fs_error_rejects(dir.read_link('up/'), 'outside_root');
 		await assert_fs_error_rejects(dir.read_link('abs/'), 'outside_root');
 		await assert_fs_error_rejects(dir.read_link('in/'), 'io_error');
+	});
+});
+
+describe('fs.real_path', () => {
+	test('follows every symlink, absolute, relative, and out of any handle', async () => {
+		mkdirSync(join(sandbox.root, 'a'));
+		writeFileSync(join(sandbox.root, 'a/f.txt'), 'f');
+		symlinkSync(sandbox.outside, join(sandbox.root, 'abs'));
+		symlinkSync('../outside/secret.txt', join(sandbox.root, 'rel'));
+		symlinkSync('a', join(sandbox.root, 'to_a'));
+		symlinkSync(join(sandbox.root, 'to_a'), join(sandbox.outside, 'back'));
+		const cases: Array<[string, string]> = [
+			[sandbox.root, sandbox.root],
+			[join(sandbox.root, 'a/f.txt'), join(sandbox.root, 'a/f.txt')],
+			[join(sandbox.root, 'abs'), sandbox.outside],
+			[join(sandbox.root, 'abs/secret.txt'), join(sandbox.outside, 'secret.txt')],
+			[join(sandbox.root, 'rel'), join(sandbox.outside, 'secret.txt')],
+			[join(sandbox.outside, 'back/f.txt'), join(sandbox.root, 'a/f.txt')],
+			// `..` after a symlink is physical, as the kernel resolves it
+			[join(sandbox.root, 'abs') + '/../root/to_a', join(sandbox.root, 'a')],
+			[join(sandbox.root, 'a') + '/', join(sandbox.root, 'a')]
+		];
+		for (const [path, expected] of cases) {
+			assert.strictEqual(await fs.real_path(path), expected, path);
+		}
+	});
+
+	test('a missing path or a dangling symlink is `not_found`, naming the path asked for', async () => {
+		symlinkSync('missing', join(sandbox.root, 'dangling'));
+		for (const path of [join(sandbox.root, 'missing'), join(sandbox.root, 'dangling')]) {
+			const error = await assert_fs_error_rejects(fs.real_path(path), 'not_found');
+			assert.strictEqual(error.path, path);
+		}
+	});
+
+	test('a path through a file is `not_a_directory`, a symlink loop `io_error`', async () => {
+		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
+		symlinkSync('loop', join(sandbox.root, 'loop'));
+		await assert_fs_error_rejects(fs.real_path(join(sandbox.root, 'a.txt/')), 'not_a_directory');
+		await assert_fs_error_rejects(fs.real_path(join(sandbox.root, 'a.txt/b')), 'not_a_directory');
+		await assert_fs_error_rejects(fs.real_path(join(sandbox.root, 'loop')), 'io_error');
+	});
+
+	test('a real path that is not UTF-8 is `io_error`, never decoded lossily', async () => {
+		mkdirSync(Buffer.from(sandbox.root + '/\xfe', 'latin1'));
+		writeFileSync(join(sandbox.root, '\uFFFD'), 'replacement');
+		symlinkSync(Buffer.from([0xfe]), join(sandbox.root, 'link'));
+		const error = await assert_fs_error_rejects(
+			fs.real_path(join(sandbox.root, 'link')),
+			'io_error'
+		);
+		assert.strictEqual(error.path, join(sandbox.root, 'link'));
+	});
+
+	test.skipIf(process.getuid?.() === 0)(
+		'a path through an unsearchable directory is `permission_denied`',
+		async () => {
+			mkdirSync(join(sandbox.root, 'locked'));
+			writeFileSync(join(sandbox.root, 'locked/a.txt'), 'a');
+			chmodSync(join(sandbox.root, 'locked'), 0o000);
+			try {
+				await assert_fs_error_rejects(
+					fs.real_path(join(sandbox.root, 'locked/a.txt')),
+					'permission_denied'
+				);
+			} finally {
+				chmodSync(join(sandbox.root, 'locked'), 0o755);
+			}
+		}
+	);
+
+	test('a relative path or one that is no string is a `TypeError`, before anything is read', async () => {
+		for (const path of [
+			'',
+			'.',
+			'relative',
+			'a/../b',
+			1,
+			null,
+			undefined,
+			{ toString: () => '/' }
+		]) {
+			await assert_rejects_type(() => fs.real_path(path as any), String(path));
+		}
+	});
+
+	test('is an own frozen op of the root', () => {
+		assert.ok(Object.isFrozen(fs));
+		assert.ok(Object.hasOwn(fs, 'real_path'));
+		assert.isNull(Object.getPrototypeOf(fs));
 	});
 });
 

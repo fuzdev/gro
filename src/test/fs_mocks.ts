@@ -57,20 +57,26 @@ export const create_mock_fs_dir = (path: string): MockFsDir => {
  * The fs host module with `fs.project` a mock directory on the cwd,
  * for a test of a task, the composition root that imports it:
  * `vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module())`.
- * `open_dir` and `temp_dir` throw, so a path outside the project fails loudly.
+ * `open_dir` and `temp_dir` throw, so a path outside the project fails loudly, and `real_path`
+ * returns the path as given, so an `FsPaths` over the mock follows no symlink and reads nothing on disk.
  */
-export const create_mock_fs_module = async (): Promise<typeof import('#lib/fs.ts')> => ({
-	...(await vi.importActual<typeof import('#lib/fs.ts')>('#lib/fs.ts')),
-	fs: {
-		project: create_mock_fs_dir(process.cwd()) as unknown as FsDir,
-		open_dir: vi.fn(async (path: string) => {
-			throw Error(`the mock fs opens no directory outside the project: ${path}`);
-		}),
-		temp_dir: vi.fn(async () => {
-			throw Error('the mock fs makes no temp directory');
-		})
-	}
-});
+export const create_mock_fs_module = async (): Promise<typeof import('#lib/fs.ts')> => {
+	const actual = await vi.importActual<typeof import('#lib/fs.ts')>('#lib/fs.ts');
+	return {
+		...actual,
+		fs: {
+			project: create_mock_fs_dir(process.cwd()) as unknown as FsDir,
+			open_dir: vi.fn(async (path: string) => {
+				throw Error(`the mock fs opens no directory outside the project: ${path}`);
+			}),
+			// every path its own real path, so nothing on disk decides a mocked task's paths
+			real_path: vi.fn(async (path: string) => path),
+			temp_dir: vi.fn(async () => {
+				throw Error('the mock fs makes no temp directory');
+			})
+		}
+	};
+};
 
 /**
  * The mocked `fs.project`, in a test that mocks `#lib/fs.ts` with `create_mock_fs_module`.

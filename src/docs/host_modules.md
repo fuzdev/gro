@@ -24,6 +24,12 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - `fs.project` is the project directory, an `FsDir`.
   `fs.open_dir(absolute_path)` opens another,
   and `fs.temp_dir()` makes a fresh one removed on `await using`.
+- `fs.real_path(absolute_path)` returns a path's real path, every symlink followed wherever it leads.
+  It has `open_dir`'s reach, any absolute path, so it's on the root and not a handle:
+  beneath a handle a real path is the handle's `path` and the confined walk.
+  A missing path or a dangling symlink is `not_found`, a path through a file `not_a_directory`,
+  and a symlink loop `io_error`, as is a real path that isn't UTF-8.
+  A relative path is a `TypeError`, as for `open_dir`.
 - Paths beneath a handle are relative and `/`-separated, resolved as `openat2` with `RESOLVE_BENEATH` does.
   An absolute path or `..` above the handle fails with `outside_root`,
   and so does an absolute symlink, or a relative one whose target climbs above the handle,
@@ -513,10 +519,8 @@ The module's TSDoc has the contract.
   which a handle on the repo would refuse.
   Where a directory's files come from its own listing or search, Gro opens the directory once
   and reads and writes them beneath its handle.
-- The boundary's machinery (`internal/fs_boundary.ts`) reaches further than the parameters it's given,
-  until the op it needs exists: it reads real paths and symlinks from `node:fs` itself,
-  so an `FsPaths` reaches the filesystem beyond the `Fs` it's built from until that read is an op on the root,
-  beside `open_dir`, reached through the `Fs` passed in.
+- The boundary's machinery (`internal/fs_boundary.ts`) resolves symlinks through the `Fs` it's built from,
+  `fs.real_path` and a handle's `read_link`, so an `FsPaths` reaches nothing that `Fs` doesn't.
 - Gro's library and task code otherwise reaches the filesystem only through the fs host module,
   and starts programs only through the spawn host module, so it can run unchanged where the modules are builtins.
   The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
@@ -707,7 +711,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   and the module blocks only the forgeries named above.
 - A handle opened on `/proc` follows its magic links (`/proc/self/fd/1`, `/proc/self/root`),
   which the kernel resolves without a path the walk can check.
-- `fs.open_dir` takes any absolute path, checked against no grant.
+- `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant.
 - Any module can import `node:fs` and the `process` global stays,
   so a narrowed handle bounds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
@@ -839,6 +843,8 @@ What the runtime's builtin must do that the Node implementation can't:
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
   refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does.
 - Read a link with `readlinkat` on the parent's descriptor, the parent opened beneath the handle.
+- Check `open_dir`'s and `real_path`'s absolute paths against the run's grants.
+  Landlock doesn't gate resolving a path, which reads only metadata.
 - Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data.
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
   out of a granted hierarchy for the confined process and its children;

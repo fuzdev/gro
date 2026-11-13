@@ -594,6 +594,7 @@ describe('path arguments', () => {
 			() => dir.symlink('l\0', 'x'),
 			() => fs.open_dir(sandbox.root + '/\0'),
 			() => fs.open_dir('relative\0'),
+			() => fs.real_path(sandbox.root + '/\0'),
 			() => fs.temp_dir('x\0')
 		];
 		for (const op of ops) {
@@ -621,6 +622,7 @@ describe('path arguments', () => {
 			() => dir.set_mode('\uD800', 0o644),
 			() => dir.symlink('\uD800', 'x'),
 			() => fs.open_dir(sandbox.root + '/\uD800'),
+			() => fs.real_path(sandbox.root + '/\uD800'),
 			() => fs.temp_dir('\uD800')
 		];
 		for (const op of ops) {

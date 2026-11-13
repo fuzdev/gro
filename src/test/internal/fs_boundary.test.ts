@@ -20,6 +20,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from '../fs_test_helpers.ts';
+import { assert_rejects_type } from '../test_helpers.ts';
 
 /*
 
@@ -65,7 +66,7 @@ beforeEach(async () => {
 		search_path: fs_search_path
 	} = create_fs_paths(fs));
 	const { to_protected_dirs } = await import('#lib/internal/fs_boundary.ts');
-	fs_protected_dirs = () => to_protected_dirs(fs.project.path);
+	fs_protected_dirs = () => to_protected_dirs(fs, fs.project.path);
 	({ is_protected_dir } = await import('#lib/internal/fs_boundary.ts'));
 	assert.strictEqual(fs.project.path, project);
 });
@@ -151,6 +152,57 @@ const with_project_link = async (
 		rmSync(join(fs.project.path, link), { force: true });
 	}
 };
+
+describe('the resolution', () => {
+	test('reads through the `Fs` it is built from, never around it', async () => {
+		const { create_fs_paths } = await import('#lib/fs_paths.ts');
+		symlinkSync(join(sandbox.outside, 'missing'), join(sandbox.root, 'dangling'));
+		const resolved: Array<string> = [];
+		const opened: Array<string> = [];
+		const paths = create_fs_paths({
+			...fs,
+			real_path: async (path) => {
+				resolved.push(path);
+				return fs.real_path(path);
+			},
+			open_dir: async (path) => {
+				opened.push(path);
+				return fs.open_dir(path);
+			}
+		});
+		const result = await paths.open_path(join(sandbox.root, 'dangling/x.txt'));
+		assert.strictEqual(result.dir.path, sandbox.outside);
+		assert.strictEqual(result.path, 'missing/x.txt');
+		assert.include(resolved, join(sandbox.root, 'dangling/x.txt'));
+		// the dangling link read through a handle on its directory
+		assert.include(opened, sandbox.root);
+		const { FsError } = await import('#lib/fs_error.ts');
+		const refusing = create_fs_paths({
+			...fs,
+			real_path: async (path) => {
+				throw new FsError('permission_denied', path);
+			}
+		});
+		await assert_fs_error_rejects(
+			refusing.open_path(join(sandbox.root, 'x.txt')),
+			'permission_denied'
+		);
+	});
+
+	test('a path holding a NUL byte or a lone surrogate is a `TypeError`, as for any fs op', async () => {
+		writeFileSync(join(sandbox.root, '\uFFFD'), 'replacement');
+		for (const path of [
+			join(sandbox.root, 'a\0b'),
+			'a\0b',
+			join(sandbox.root, '\uD800'),
+			'missing/\uD800'
+		]) {
+			await assert_rejects_type(() => fs_open_path(path), JSON.stringify(path));
+			await assert_rejects_type(() => fs_open_dir_path(path), JSON.stringify(path));
+			await assert_rejects_type(() => fs_remove_path(path), JSON.stringify(path));
+		}
+	});
+});
 
 describe('fs_open_path beneath the project', () => {
 	test('a relative path is relative to the project', async () => {
@@ -285,6 +337,13 @@ describe('fs_open_path outside the project', () => {
 			'io_error'
 		);
 		assert.include(nested.message, 'ELOOP');
+		// a cycle the kernel never sees, since a target's `..` resolves lexically here
+		symlinkSync('missing/../lexical/x', join(sandbox.root, 'lexical'));
+		const lexical = await assert_fs_error_rejects(
+			fs_open_path(join(sandbox.root, 'lexical')),
+			'io_error'
+		);
+		assert.include(lexical.message, 'ELOOP');
 	});
 
 	test.skipIf(process.getuid?.() === 0)(
@@ -315,7 +374,8 @@ describe('fs_open_path outside the project', () => {
 describe('fs_open_path and symlink targets that are not UTF-8', () => {
 	test('a dangling symlink whose target is not UTF-8 is refused, never a lossy path', async () => {
 		symlinkSync(Buffer.from([0xff, ...Buffer.from('/planted.txt')]), join(sandbox.root, 'W'));
-		await assert_fs_error_rejects(fs_open_path(join(sandbox.root, 'W')), 'io_error');
+		const error = await assert_fs_error_rejects(fs_open_path(join(sandbox.root, 'W')), 'io_error');
+		assert.strictEqual(error.path, join(sandbox.root, 'W'));
 		await assert_fs_error_rejects(fs_remove_path(join(sandbox.root, 'W/x')), 'io_error');
 		assert.ok(lstatSync(join(sandbox.root, 'W')).isSymbolicLink());
 	});

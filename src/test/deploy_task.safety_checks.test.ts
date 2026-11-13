@@ -72,6 +72,10 @@ describe('deploy_task safety checks', () => {
 		});
 
 		test('refuses a symlink resolving to the project before any git call', async () => {
+			// the mock fs follows no symlink, so this test resolves with the real one
+			const { fs } = vi.mocked(await import('#lib/fs.ts'));
+			const actual = await vi.importActual<typeof import('#lib/fs.ts')>('#lib/fs.ts');
+			vi.mocked(fs.real_path).mockImplementation(actual.fs.real_path);
 			const dir = realpathSync(mkdtempSync(join(tmpdir(), 'gro-deploy-dir-')));
 			try {
 				symlinkSync(process.cwd(), join(dir, 'link'));
