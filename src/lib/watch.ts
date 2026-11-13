@@ -48,9 +48,9 @@
  * per-directory native backend, symlinks never followed. Its gaps against the runtime's
  * builtin, which it documents rather than the API weakening to match:
  *
- * - The handle is read for its `path`, and the watch is on that path, so a forged handle is
- *   any object with an absolute `path` whose `list` resolves.
- *   The runtime's builtin watches the directory the handle holds by descriptor.
+ * - A real handle is told by a registry in `internal/fs_handles.ts`, which the package doesn't
+ *   export, but code importing that file by its path can register any object, and the watch is on
+ *   that object's `path`. The runtime's builtin watches the directory the handle holds by descriptor.
  * - The watch is bound to the directory's path, not its inode, as an fs handle is, so a moved
  *   watched directory ends the watch as a removed one does, where the runtime's keeps
  *   watching the directory it opened.
@@ -88,6 +88,7 @@ import type { FSWatcher } from 'chokidar';
 
 import type { FsReadDir } from './fs.ts';
 import { FsError } from './fs_error.ts';
+import { to_fs_handle_resolve } from './internal/fs_handles.ts';
 import { create_record, read_own } from './internal/records.ts';
 
 // a listener that `stopImmediatePropagation` can't reach, which a plain `addEventListener` isn't
@@ -176,7 +177,8 @@ export interface Watch {
 	 * @throws `FsError` - `not_found`, `not_a_directory`, `permission_denied`, `outside_root`, or
 	 * `io_error`, as listing the handle's directory throws, and for a directory removed or replaced
 	 * before the watch is in place
-	 * @throws `TypeError` - for a handle without an absolute `path`, or an invalid option
+	 * @throws `TypeError` - for a `dir` that isn't a handle this copy of `fs` made, a forged
+	 * object or another copy's handle, or an invalid option
 	 * @throws the `signal`'s reason, when it aborts before the watch is in place
 	 */
 	dir(dir: FsReadDir, options?: WatchDirOptions): Promise<Watcher>;
@@ -233,23 +235,21 @@ const read_root_stats = (root: string): BigIntStats => {
 };
 
 /**
- * Reads a handle once, for its path. A forged object with an absolute `path` passes,
- * the documented gap.
+ * Reads a handle once, for its path.
+ * @throws `TypeError` - for anything but a handle this copy of `fs` made, checked through the
+ * registry as `spawn` checks a `cwd`
  */
 const read_dir_path = (dir: unknown): string => {
-	if (typeof dir !== 'object' || dir === null) {
-		throw new TypeError('`watch.dir` takes an `fs` directory handle');
+	try {
+		to_fs_handle_resolve(dir);
+	} catch (error) {
+		throw new TypeError(
+			"`watch.dir`'s `dir` must be an fs directory handle from this copy of Gro",
+			{ cause: error }
+		);
 	}
-	const path: unknown = (dir as { path?: unknown }).path;
-	if (
-		typeof path !== 'string' ||
-		!path.startsWith('/') ||
-		path.includes('\0') ||
-		!path.isWellFormed()
-	) {
-		throw new TypeError('a watched handle has an absolute `path`');
-	}
-	return path;
+	// a registered handle is frozen, its `path` its own absolute real path
+	return (dir as FsReadDir).path;
 };
 
 const read_options = (

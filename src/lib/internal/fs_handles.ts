@@ -6,8 +6,8 @@
  * directory. A lookup grants nothing: it takes a handle, and gives back only the confinement
  * that handle already has. Registering is `fs.ts`'s alone by convention: on Node, code that
  * imports this file by its path can register any object, a gap the host module docs list.
- * Importing this module links no host module, as it imports nothing, so `spawn.ts` checks a
- * handle through it and still doesn't link `fs`.
+ * Importing this module links no host module, as it imports nothing, so `spawn.ts` and
+ * `watch.ts` check a handle through it and still don't link `fs`.
  *
  * @module
  */

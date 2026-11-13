@@ -437,6 +437,7 @@ for await (const event of watcher) {
   and with one when the directory is removed or replaced before the watch is in place.
 - The handle is the grant. A read-only handle is enough, and nothing outside it is watched or reported:
   a narrowed `dir.dir('sub')` sees nothing of its siblings.
+  `dir` must be a handle this copy of `fs` made, as `spawn`'s `cwd` must, so a forged object or another copy's handle is a `TypeError`.
 - An event's `path` is relative to the handle and `/`-separated, so it goes straight back to the handle's ops.
   `recursive` watches the directories beneath, and without it a subdirectory shows only as its own `add` and `delete`.
 - Events are `{kind: 'add' | 'update' | 'delete', path, is_directory}` and `{kind: 'rescan', path}`.
@@ -627,7 +628,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   so a method called on any other object throws `TypeError`.
 - `watch`, watchers, their iterators, and their prototypes are frozen, and the prototypes are null-prototype.
 - Events and iterator results are frozen null-prototype records, so a polluted `Object.prototype.then` isn't consulted on the way to the reader.
-- The handle is read once, for its `path`, and its directory listed through the handle before anything watches it.
+- The handle is checked against the handles this copy of `fs` made, read once, for its `path`,
+  and its directory listed through the handle before anything watches it.
 - Options are read once, by own property.
 
 ### The Node implementation's own measures
@@ -804,7 +806,9 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 ### watch
 
-- The handle is read for its `path`, so a forged handle is any object with an absolute `path` whose `list` resolves.
+- `watch.dir` tells a real handle by the registry in `internal/fs_handles.ts`, as `spawn` does,
+  so code importing that file by its path can register any object and watch the path it names.
+  The runtime's builtin takes the handle's descriptor.
 - The watch is bound to the directory's path, as an fs handle is, so a moved watched directory ends the watch as a removed one does.
 - Chokidar checks an entry with `lstat` and then watches and reads it by path, so a directory swapped for a symlink in between is watched through the link.
   The watcher checks each path before chokidar descends into it and before reporting it: the root still the directory the watch started on (by device and inode),

@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { is_fs_error } from '#lib/fs_error.ts';
+import { register_fs_handle } from '#lib/internal/fs_handles.ts';
 import { paths } from '#lib/paths.ts';
 import { watch, type WatchEvent, type Watcher } from '#lib/watch.ts';
 
@@ -358,31 +359,52 @@ describe('the handle', () => {
 		}
 	});
 
-	test('a handle whose path is a symlink rejects with `outside_root`', async () => {
-		symlinkSync(sandbox.outside, join(sandbox.root, 'link'));
-		// forged, since a real handle's path has its symlinks resolved
-		const forged = { path: join(sandbox.root, 'link'), async *list() {} };
-		await assert_fs_error_rejects(watch.dir(forged as any), 'outside_root');
+	test('a handle whose directory was replaced by a symlink rejects with `outside_root`', async () => {
+		mkdirSync(join(sandbox.root, 'w'));
+		const handle = sandbox.dir.dir('w');
+		renameSync(join(sandbox.root, 'w'), join(sandbox.root, 'moved'));
+		symlinkSync(sandbox.outside, join(sandbox.root, 'w'));
+		await assert_fs_error_rejects(watch.dir(handle), 'outside_root');
 	});
 
-	test('anything without an absolute `path` is a `TypeError`', async () => {
-		for (const forged of [
+	test('a `dir` this copy of fs never made is a `TypeError` naming it, before anything is read', async () => {
+		let listed = false;
+		const list = async function* () {
+			listed = true;
+			yield* [];
+		};
+		const real = sandbox.dir;
+		const forged: Array<unknown> = [
 			null,
+			undefined,
 			'dir',
+			sandbox.root,
 			{},
 			{ path: 'relative' },
-			{ path: 1 },
-			// a listing that opens, so only the path refuses these
-			{ path: '/a\0b', async *list() {} },
-			{ path: '/\uD800', async *list() {} }
-		]) {
+			// shaped like a handle, its listing opening, so only the registry refuses these
+			{ path: sandbox.root, list },
+			{ path: '/', list },
+			// a real handle's prototype, as another copy of Gro's handle would have, and its own fields
+			Object.freeze(Object.create(Object.getPrototypeOf(real), { path: { value: sandbox.root } })),
+			Object.freeze({ ...real, list }),
+			watch
+		];
+		for (const [i, dir] of forged.entries()) {
 			let error: unknown;
 			try {
-				await watch.dir(forged as any);
+				await watch.dir(dir as any);
 			} catch (e) {
 				error = e;
 			}
-			assert.instanceOf(error, TypeError, JSON.stringify(forged));
+			assert.instanceOf(error, TypeError, `forged[${i}]`);
+			assert.match(error.message, /`watch\.dir`'s `dir`.*fs directory handle/);
+		}
+		assert.isFalse(listed);
+		// a real handle, read-only or not, still watches
+		mkdirSync(join(sandbox.root, 'sub'));
+		for (const dir of [real, real.readonly(), real.dir('sub').readonly()]) {
+			const watcher = await watch.dir(dir);
+			watchers.push(watcher);
 		}
 	});
 });
@@ -521,7 +543,8 @@ describe('ending', () => {
 			// enough to scan that the removal lands while chokidar is still scanning
 			for (let i = 0; i < 200; i++) mkdirSync(join(w, `d${i}`));
 			const real = sandbox.dir.dir(name);
-			// the handle's listing, which `watch.dir` reads first, then removes the directory
+			// the handle's listing, which `watch.dir` reads first, then removes the directory,
+			// registered as `fs.ts` registers a handle, so `watch.dir` takes it
 			const handle = {
 				path: real.path,
 				async *list(path: string) {
@@ -534,6 +557,7 @@ describe('ending', () => {
 					}
 				}
 			};
+			register_fs_handle(handle, () => assert.fail('unused'));
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const timeout = new Promise<'timeout'>((resolve) => {
 				timer = setTimeout(() => resolve('timeout'), EVENT_TIMEOUT_MS);
