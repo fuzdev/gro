@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::suite::Stdout;
 
 /// The value `stdout` holds by `check`: an envelope's `value`, which needs
-/// `"ok": true`, or the whole JSON value.
+/// `"ok": true`.
 ///
 /// # Errors
 ///
@@ -15,7 +15,6 @@ use crate::suite::Stdout;
 pub fn stdout_value(check: Stdout, stdout: &[u8]) -> Result<Value, String> {
     let parsed = parse_deep(stdout)?;
     match check {
-        Stdout::Json => Ok(parsed),
         Stdout::Envelope => {
             if parsed.get("ok") != Some(&Value::Bool(true)) {
                 let error = parsed.get("error").map_or_else(
@@ -24,10 +23,12 @@ pub fn stdout_value(check: Stdout, stdout: &[u8]) -> Result<Value, String> {
                 );
                 return Err(format!("its envelope isn't `\"ok\": true`: {error}"));
             }
-            parsed
-                .get("value")
-                .cloned()
-                .ok_or_else(|| "its envelope has no `value`".to_owned())
+            // moved out, not cloned: a clone recurses as deep as the value
+            let value = match parsed {
+                Value::Object(mut envelope) => envelope.remove("value"),
+                _ => None,
+            };
+            value.ok_or_else(|| "its envelope has no `value`".to_owned())
         }
     }
 }
@@ -202,10 +203,6 @@ mod tests {
             stdout_value(Stdout::Envelope, envelope),
             Ok(json!({"a": [1]}))
         );
-        assert_eq!(
-            stdout_value(Stdout::Json, envelope).unwrap()["ok"],
-            json!(true)
-        );
         let failed = br#"{"ok": false, "error": {"kind": "resolve"}}"#;
         assert!(
             stdout_value(Stdout::Envelope, failed)
@@ -213,8 +210,8 @@ mod tests {
                 .contains("\"kind\":\"resolve\"")
         );
         assert!(stdout_value(Stdout::Envelope, br#"{"ok": true}"#).is_err());
-        assert!(stdout_value(Stdout::Json, b"{} {}").is_err());
-        assert!(stdout_value(Stdout::Json, b"").is_err());
+        assert!(stdout_value(Stdout::Envelope, b"{} {}").is_err());
+        assert!(stdout_value(Stdout::Envelope, b"").is_err());
     }
 
     #[test]
@@ -231,11 +228,15 @@ mod tests {
         }
         assert_eq!(depth, 999, "the innermost array is empty");
         // brackets in strings aren't nesting
-        let text = format!(r#"["{}"]"#, "[{".repeat(5000));
-        assert!(stdout_value(Stdout::Json, text.as_bytes()).is_ok());
-        let error = stdout_value(Stdout::Json, nested(MAX_DEPTH + 1).as_bytes()).unwrap_err();
+        let envelope = |value: &str| format!(r#"{{"ok": true, "value": {value}}}"#);
+        let text = envelope(&format!(r#"["{}"]"#, "[{".repeat(5000)));
+        assert!(stdout_value(Stdout::Envelope, text.as_bytes()).is_ok());
+        // the envelope's own object is one level
+        let deepest = envelope(&nested(MAX_DEPTH - 1));
+        assert!(stdout_value(Stdout::Envelope, deepest.as_bytes()).is_ok());
+        let past = envelope(&nested(MAX_DEPTH));
+        let error = stdout_value(Stdout::Envelope, past.as_bytes()).unwrap_err();
         assert!(error.contains("nests 2049 deep"), "{error}");
-        assert!(stdout_value(Stdout::Json, nested(MAX_DEPTH).as_bytes()).is_ok());
     }
 
     #[test]

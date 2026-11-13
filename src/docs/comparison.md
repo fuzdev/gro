@@ -317,8 +317,9 @@ Node's column has its compile cache on in its warm rows and off in its cold one,
 | binary, MB                   | 107.3 | 55.3 | 150.3               | 96.1 |
 | binary, gzipped MB           | 51.8  | 20.6 | 49.6                | 42.0 |
 
-Confined eval has its own suite (`eval` v1, same day and machine): a zap config written for the bench, in a project with a couple hundred stub packages,
-takes 20.5 ms through `fgro eval` and 33.4 ms through `deno run` with the flags zap passed it before moving to `fgro`.
+Confined eval has its own suite, whose `eval` v1 (same day and machine) measured it beside Deno; later versions time `fgro` alone.
+There, a zap config written for the bench, in a project with a couple hundred stub packages,
+took 20.5 ms through `fgro eval` and 33.4 ms through `deno run` with the flags zap passed it before moving to `fgro`.
 
 Bun's startup is JavaScriptCore's; the V8 runtimes share an engine floor of a few milliseconds that only a custom V8 build or process reuse reaches.
 The numbers move with every milestone and are re-recorded with the suite's version named, never compared across versions.

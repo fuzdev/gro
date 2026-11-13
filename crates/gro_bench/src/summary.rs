@@ -266,7 +266,9 @@ fn write_noise(out: &mut String, record: &RunRecord) {
 /// `is_subject` picks (`fgro`'s), its median against its gate row's,
 /// same-session: warm rows gate against Node with its compile cache
 /// ([`GATE_WARM`]), cold rows against plain Node ([`GATE_COLD`]), with Deno
-/// beside ([`BESIDE`]). Empty when no row is gated.
+/// beside ([`BESIDE`]). Empty when no row is gated, as when the suite has no
+/// incumbent row to gate one against (a suite of `fgro` alone, judged by an
+/// A/B against its base instead).
 pub fn gate(suite: &Suite, record: &RunRecord, is_subject: impl Fn(&Runtime) -> bool) -> String {
     if let Some(gate) = &suite.gate {
         return suite_gate(suite, gate, record);
@@ -282,6 +284,9 @@ pub fn gate(suite: &Suite, record: &RunRecord, is_subject: impl Fn(&Runtime) -> 
             continue;
         };
         let gate = if workload.cold { GATE_COLD } else { GATE_WARM };
+        let Some(gate_ms) = median(gate, &workload.name) else {
+            continue;
+        };
         let ratio = |other: Option<f64>| {
             other.map_or_else(
                 || "-".to_owned(),
@@ -294,8 +299,8 @@ pub fn gate(suite: &Suite, record: &RunRecord, is_subject: impl Fn(&Runtime) -> 
             workload.name,
             subject,
             gate,
-            ms(median(gate, &workload.name)),
-            ratio(median(gate, &workload.name)),
+            ms(Some(gate_ms)),
+            ratio(Some(gate_ms)),
             ms(median(BESIDE, &workload.name)),
             ratio(median(BESIDE, &workload.name)),
         ));
@@ -529,6 +534,16 @@ mod tests {
         );
         // no row gated, no table
         assert_eq!(gate(&suite(""), &wall_record(), |_| false), "");
+        // no Node row to gate against, no table
+        let fgro_only = record(
+            wall_record()
+                .rows
+                .into_iter()
+                .filter(|row| row.runtime == "fgro")
+                .collect(),
+            Mode::Wall,
+        );
+        assert_eq!(gate(&suite(""), &fgro_only, fgro), "");
     }
 
     #[test]

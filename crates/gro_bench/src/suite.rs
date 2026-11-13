@@ -112,8 +112,9 @@ pub struct Suite {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parity: Vec<String>,
     /// The rows judged against an incumbent in the report. Without one, the
-    /// report gates each `fgro` row against Node; with one, only the rows it
-    /// names, and every other row is reported only.
+    /// report gates each `fgro` row against Node, where the suite has it;
+    /// with one, only the rows it names, and every other row is reported
+    /// only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<Gate>,
     /// Size limits, by runtime name, that fail a run crossing one before
@@ -194,8 +195,6 @@ pub enum Stdout {
     /// One `fgro eval` envelope with `ok: true`; its value is the envelope's
     /// `value`.
     Envelope,
-    /// One JSON value, which is its value.
-    Json,
 }
 
 /// A corpora checkout, a clone of `fuzdev/corpora`, and the collections of it
@@ -1102,7 +1101,7 @@ mod tests {
                 r#"{{"name": "s", "version": 1, "samples": 2,
                     "runtimes": [
                         {{"name": "fgro", "program": "f", "stdin": {{"file": "d.js"}}, "stdout": "envelope"}},
-                        {{"name": "deno", "program": "d", "stdout": "json"}},
+                        {{"name": "deno", "program": "d", "stdout": "envelope"}},
                         {{"name": "box", "program": "f"}}
                     ],
                     "workloads": [{{"name": "w", "script": "w.js"}}, {{"name": "v", "script": "v.js"}}]{extra}}}"#
@@ -1310,7 +1309,7 @@ mod tests {
                     .unwrap();
                 if found != project.blake3 {
                     problems.push(format!(
-                        "the suite `{name}` (v{}) pins its project `{}` by {}, but its files hash to {found}: a change to them bumps the suite's `version` and re-pins the project's `blake3`",
+                        "the suite `{name}` (v{}) pins its project `{}` by {}, but its files hash to {found}: a change to them bumps the suite's `version` and re-pins the project's `blake3`, or, if the change is a file git doesn't track, remove it",
                         suite.version,
                         project.dir.display(),
                         project.blake3
@@ -1332,7 +1331,8 @@ mod tests {
             if line.trim().is_empty() {
                 continue;
             }
-            let record = crate::report::read_line(line).unwrap();
+            let record = crate::report::read_line(line)
+                .unwrap_or_else(|error| panic!("the history's line {}: {error}", index + 1));
             if record.projects.is_empty() {
                 continue;
             }
@@ -1424,14 +1424,11 @@ mod tests {
     fn the_eval_suite_is_valid() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/eval");
         let suite = Suite::load(&dir.join("suite.json")).unwrap();
-        // warm rows only: zap's Deno keeps its cache warm in real use
-        assert!(suite.workloads.iter().all(|w| !w.cold));
-        let gate = suite.gate.as_ref().unwrap();
-        assert_eq!(
-            (gate.against.as_str(), &gate.runtimes[..]),
-            ("deno", &["fgro".to_owned()][..])
-        );
-        assert_eq!(suite.parity, ["fgro", "deno"]);
+        // `fgro` alone, with no incumbent: the perf rule's A/B against a base judges it
+        let runtimes: Vec<&str> = suite.runtimes.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(runtimes, ["fgro"]);
+        assert_eq!(suite.runtimes[0].stdout, Some(Stdout::Envelope));
+        assert!(suite.gate.is_none() && suite.parity.is_empty());
         let project = suite.workloads[0].project.as_ref().unwrap();
         // the fixture's files are committed, its node_modules generated
         assert!(dir.join(&suite.workloads[0].script).is_file());

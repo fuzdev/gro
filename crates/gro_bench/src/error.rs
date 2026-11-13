@@ -169,7 +169,7 @@ pub enum BenchError {
     /// A workload's project directory's files don't hash to the suite's pin
     /// of them.
     #[error(
-        "the workload `{workload}`'s project {} hashes to {found}, but the suite pins {pinned}: a change to its files bumps the suite's `version` and re-pins the project's `blake3`",
+        "the workload `{workload}`'s project {} hashes to {found}, but the suite pins {pinned}: a change to its files bumps the suite's `version` and re-pins the project's `blake3`, or, if the change is a file git doesn't track, remove it",
         path.display()
     )]
     ProjectFilesUnpinned {

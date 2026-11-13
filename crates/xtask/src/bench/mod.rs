@@ -13,7 +13,8 @@
 //! median against its gate row (warm rows against `node_compile_cache`, cold
 //! ones against `node`, `deno` beside), or, for a suite with its own `gate`,
 //! each of the gate's runtimes against its incumbent: a report that fails
-//! nothing. `--samples N` replaces the suite's sample count (even), which
+//! nothing, and a suite with no gate row for its `fgro` rows prints none.
+//! `--samples N` replaces the suite's sample count (even), which
 //! the record's config hash then carries. `--attest-quiet` records that the
 //! machine was quieted by hand.
 //!

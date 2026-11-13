@@ -394,26 +394,27 @@ fn printing(name: &str, stdout: &str, check: Stdout) -> Runtime {
 #[test]
 fn the_correctness_run_checks_stdout_and_parity() {
     let envelope = r#"{"ok": true, "value": {"a": [1, {"b": "c"}]}}"#;
-    let json = r#"{"a": [1, {"b": "c"}]}"#;
-    let other = r#"{"a": [1, {"b": "d"}]}"#;
+    // the same value, its envelope's keys in another order
+    let reordered = r#"{"value": {"a": [1, {"b": "c"}]}, "ok": true}"#;
+    let other = r#"{"ok": true, "value": {"a": [1, {"b": "d"}]}}"#;
     let run_with = |test: &str, runtimes: Vec<Runtime>, parity: &[&str]| {
         let dir = scratch(test, &[("w.sh", "")]);
         let mut suite = suite(runtimes, &["w.sh"], 2);
         suite.parity = parity.iter().map(|name| (*name).to_owned()).collect();
         run_in(&dir, &suite)
     };
-    // an envelope's value equal to another runtime's JSON
+    // an envelope's value equal to another runtime's
     let equal = vec![
         printing("fgro", envelope, Stdout::Envelope),
-        printing("deno", json, Stdout::Json),
+        printing("box", reordered, Stdout::Envelope),
     ];
-    assert!(run_with("parity_equal", equal, &["fgro", "deno"]).is_ok());
+    assert!(run_with("parity_equal", equal, &["fgro", "box"]).is_ok());
     // a value that differs, named where
     let differ = vec![
         printing("fgro", envelope, Stdout::Envelope),
-        printing("deno", other, Stdout::Json),
+        printing("box", other, Stdout::Envelope),
     ];
-    let error = run_with("parity_differs", differ.clone(), &["fgro", "deno"]).unwrap_err();
+    let error = run_with("parity_differs", differ.clone(), &["fgro", "box"]).unwrap_err();
     match &error {
         BenchError::ParityMismatch {
             workload,
@@ -423,7 +424,7 @@ fn the_correctness_run_checks_stdout_and_parity() {
         } => {
             assert_eq!(
                 (workload.as_str(), runtime.as_str(), against.as_str()),
-                ("w", "deno", "fgro")
+                ("w", "box", "fgro")
             );
             assert_eq!(
                 (
@@ -456,7 +457,7 @@ fn the_correctness_run_checks_stdout_and_parity() {
         matches!(error, BenchError::CheckFailed { ref reason, .. } if reason.contains("resolve")),
         "{error:?}"
     );
-    let not_json = printing("deno", "nope", Stdout::Json);
+    let not_json = printing("box", "nope", Stdout::Envelope);
     let error = run_with("not_json", vec![not_json], &[]).unwrap_err();
     assert!(
         matches!(error, BenchError::CheckFailed { ref reason, .. } if reason.contains("isn't one JSON value")),

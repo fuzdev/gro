@@ -1,6 +1,6 @@
 {
 	"name": "eval",
-	"version": 1,
+	"version": 2,
 	"samples": 200,
 	"runtimes": [
 		{
@@ -10,33 +10,6 @@
 			"env": {"TZ": "UTC"},
 			"stdin": {"file": "../../../../../zap/crates/zap_core/src/config/builder_fgro.js"},
 			"stdout": "envelope"
-		},
-		{
-			"name": "deno",
-			"program": "deno",
-			"args": [
-				"run",
-				"--no-config",
-				"--no-prompt",
-				"--no-remote",
-				"--cached-only",
-				"--node-modules-dir=manual",
-				"--no-lock",
-				"--allow-read",
-				"-"
-			],
-			"v8_args": ["eval", "console.log(Deno.version.v8)"],
-			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
-			"stdin": {"file": "../../../../../zap/crates/zap_core/src/config/builder.js"},
-			"stdout": "json"
-		},
-		{
-			"name": "deno_info",
-			"program": "deno",
-			"args": ["info", "--json", "--no-config", "--no-remote", "--node-modules-dir=manual", "--no-lock"],
-			"v8_args": ["eval", "console.log(Deno.version.v8)"],
-			"env": {"TZ": "UTC", "LC_ALL": "C", "NO_COLOR": "1", "DENO_NO_UPDATE_CHECK": "1"},
-			"stdout": "json"
 		}
 	],
 	"workloads": [
@@ -52,7 +25,5 @@
 			}
 		},
 		{"name": "forge2", "script": "../../../../../fuz_forge/zap.forge2.ts", "warmup": 10}
-	],
-	"parity": ["fgro", "deno"],
-	"gate": {"against": "deno", "runtimes": ["fgro"], "workloads": ["fixture"]}
+	]
 }
