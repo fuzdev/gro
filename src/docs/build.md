@@ -30,10 +30,10 @@ By default, `gro build` runs `gro sync` before building
 then `gro gen`:
 
 ```bash
-gro build               # runs sync + install + gen + build
-gro build --no-sync     # skip sync step
-gro build --no-install  # skip package install
-gro build --no-gen      # skip gen
+gro build                         # runs sync + install + gen + build
+gro build --no-sync --no-install  # skip sync and the install that implies it
+gro build --no-install            # skip package install
+gro build --no-gen                # skip gen
 ```
 
 Note: `--no-sync` is ignored if install runs (install requires sync to generate exports).
@@ -313,16 +313,14 @@ The `.gro/build.json` file stores:
 			"hash": "...", // BLAKE3 of file contents
 			"size": 1024, // file size in bytes
 			"mtime": 1729512000000, // modification time (ms since epoch)
-			"ctime": 1729512000000, // change/creation time (ms since epoch)
-			"mode": 33188 // Unix file permissions (0644)
+			"mode": 420 // permission bits without the file type, 0o644
 		},
 		{
 			"path": "dist/index.js",
 			"hash": "...",
 			"size": 2048,
 			"mtime": 1729512001000,
-			"ctime": 1729512001000,
-			"mode": 33188 // stored but not validated
+			"mode": 420 // stored but not validated
 		}
 	]
 }

@@ -269,7 +269,7 @@ In `gro dev`, a gen file reruns when it or any module it imports changes.
 `inputs` declares the other files it reads, as plain data:
 
 ```ts
-import type {GenConfig} from '@fuzdev/gro';
+import type {GenConfig} from '@fuzdev/gro/gen.ts';
 
 export const gen: GenConfig = {
 	generate: () => 'returns generated contents',

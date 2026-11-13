@@ -14,38 +14,16 @@ This module is intended to have minimal dependencies to avoid over-imports in th
 */
 
 /**
- * Resolves a path to an internal Gro file.
- * Prefers any local installation of Gro and falls back to the current CLI context.
+ * Resolves a path to an internal Gro file, preferring a local installation of Gro
+ * and falling back to the running CLI's. Used by the CLI, `gro run`, and the server plugin.
  *
- * Uses heuristics to find `path`, so may fail in some rare corner cases.
- * Currently looks for `gro.ts` as a sibling to the `path` arg for detection.
- * If this fails for your usecases, rename `gro.ts` or open an issue/PR!
+ * Paths resolve against the cwd, and the first case that applies wins:
  *
- * Used by the CLI and `gro run`.
- *
- * case 1:
- *
- * We're in a directory that has a local installation of Gro at `node_modules/.bin/gro`.
- * Use this local version instead of the global.
- *
- * case 2:
- *
- * We're running Gro inside the Gro repo itself.
- *
- * In this case, we use the build directory instead of dist.
- * There's a paradox here for using Gro inside itself -
- * ideally we use the dist directory because that's what's shipped,
- * but the build directory has all of the tests,
- * and loading two instances of its modules causes problems
- * like `instanceof` checks failing.
- * For now we'll just run from build and see if it causes any problems.
- * There's probably a better design in here somewhere.
- *
- * case 3:
- *
- * Fall back to invoking Gro from wherever the CLI is being executed.
- * When using the global CLI, this uses the global Gro installation.
- *
+ * 1. a local install at `node_modules/.bin/gro`, followed through its symlink,
+ *    so a project runs its own Gro rather than the global one
+ * 2. a `dist/gro.js` with `dist/` holding `path`, as in Gro's own repo once built,
+ *    so Gro runs its own build; an unbuilt repo falls through
+ * 3. the Gro of the running CLI, which for the global CLI is the global installation
  */
 export const resolve_gro_module_path = (path = ''): string => {
 	const gro_bin_path = resolve(NODE_MODULES_DIRNAME, '.bin/gro');
@@ -57,8 +35,7 @@ export const resolve_gro_module_path = (path = ''): string => {
 		return join(realpathSync(gro_bin_path), '..', path);
 	}
 	// case 2
-	// If running Gro inside its own repo, require the local dist.
-	// If the local dist is not yet built it will fall back to the global.
+	// a built `dist/` in the cwd, as in Gro's own repo; without one, the running CLI's
 	if (
 		existsSync(join(SVELTEKIT_DIST_DIRNAME, 'gro.js')) &&
 		existsSync(join(SVELTEKIT_DIST_DIRNAME, path))

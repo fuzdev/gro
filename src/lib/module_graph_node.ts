@@ -33,6 +33,12 @@ export interface NodeModuleGraphOptions {
  * is an edge to a file never read, so its imports aren't edges.
  * Its implementation (with chokidar and the import parser) is imported on first use,
  * so a task that never queries the graph never loads them.
+ *
+ * Bare and `#` imports resolve with `import.meta.resolve` against their importer, which Node
+ * honors only under `--experimental-import-meta-resolve`, as the `gro` CLI and
+ * `spawn_with_loader` pass it. Without the flag Node resolves them as Gro's own module would,
+ * so one Gro can't resolve is an error through `log` when there is one and no edge,
+ * and one it can, like a package both depend on or Gro's own `#lib/*`, is an edge to Gro's file.
  */
 export const create_node_module_graph = (options: NodeModuleGraphOptions): ModuleGraph => {
 	const { watch, log } = options;

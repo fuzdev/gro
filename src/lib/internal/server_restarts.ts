@@ -11,7 +11,7 @@ import { to_spawn_result_message } from '../cli.ts';
  * How long a restart waits after the last change that calls for it,
  * so a burst like a save-all or a branch switch restarts once.
  */
-export const SERVER_RESTART_DELAY = 100;
+const SERVER_RESTART_DELAY = 100;
 
 /**
  * Whether `change` reaches the server: a change to the entry itself,

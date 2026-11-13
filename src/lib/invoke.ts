@@ -14,13 +14,13 @@ import { process } from './process.ts';
 
 /*
 
-This module invokes the Gro CLI which in turn invokes tasks.
-Tasks are the CLI's primary concept.
+This module is the Gro CLI's entry, which invokes tasks, the CLI's primary concept.
 To learn more about them, see `src/docs/task.md`.
 
-When the CLI is invoked it passes the first CLI arg as `task_name` to `invoke_cli`,
-a builtin name or the `task` verb with a path, and the rest of the args are forwarded
-to the task's `run` function.
+`to_task_args` parses the CLI args into a `CliTaskArgs`, whose `task_name` is the first
+positional arg, a builtin name or the `task` verb, with the path after `task` as its `task_path`.
+`invoke_cli` runs what they name, taking `to_raw_rest_args`, the args from the first `--` on
+verbatim, as its `raw_rest_args`; `gro run` has none, since every arg after its path is the script's.
 
 */
 
