@@ -1,5 +1,5 @@
 //! The strict ESM resolver: turns an import specifier into the `file:` URL of
-//! a module on disk.
+//! a module on disk, or a builtin's `builtin:` URL.
 //!
 //! The rules and every departure from Node are `src/docs/resolver.md`'s;
 //! this covers what a reader of the code needs beside them.
@@ -13,6 +13,10 @@
 //! the entry module ([`resolve_entry`]) all resolve the same way. The caller
 //! owns the graph's [`Roots`] and passes them into `resolve_from` with the
 //! importer's root it recorded, which admits nothing.
+//!
+//! A bare specifier the builtin table names ([`BUILTINS`]) resolves to that
+//! builtin ([`Resolved::Builtin`]) before any package lookup, reading
+//! nothing; whether its importer may import it is the loader's to decide.
 //!
 //! Details the published doc leaves to the code:
 //!
@@ -50,6 +54,7 @@
 //! [`ResolveErrorKind::NoProjectRoot`], and a world-writable directory with
 //! [`ResolveErrorKind::WorldWritablePackage`].
 
+mod builtin;
 mod entry;
 mod error;
 mod exports;
@@ -65,6 +70,8 @@ mod tests;
 mod tree;
 mod walk;
 
+pub use builtin::{BUILTINS, Builtin, Capability, find_builtin};
+pub(crate) use builtin::{builtin_rows, builtin_url};
 pub use entry::{EntryBound, resolve_entry, resolve_entry_with_bound};
 pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault};
 pub use format::{ModuleFormat, module_format};
@@ -107,6 +114,19 @@ pub struct Resolution {
     pub files_consulted: Vec<ConsultedFile>,
 }
 
+/// What a specifier resolved to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a module is the common case, and boxing it would allocate for every resolution"
+)]
+pub enum Resolved {
+    /// A module on disk.
+    Module(Resolution),
+    /// A builtin, which has no file and no root, and imports nothing.
+    Builtin(&'static Builtin),
+}
+
 /// Resolves `specifier`, imported by the module at `importer`, a real path's
 /// URL inside `importer_root`, one of `roots`, the roots its graph has
 /// admitted.
@@ -117,7 +137,8 @@ pub struct Resolution {
 /// one's real path stays inside its package's real root, and a
 /// self-reference's inside its package's directory and the importer's root
 /// both. The result names the root it is inside, which a caller admits for
-/// a package; nothing is admitted here.
+/// a package; nothing is admitted here. A bare specifier the builtin table
+/// names is that builtin, whoever imports it, and nothing is read.
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
 /// importer's path, since it decides containment: a caller that recorded
@@ -134,7 +155,7 @@ pub(crate) fn resolve_from(
     importer: &Url,
     importer_root: &Root,
     roots: &Roots,
-) -> Result<Resolution, ResolveError> {
+) -> Result<Resolved, ResolveError> {
     let error = |kind| ResolveError {
         specifier: specifier.to_owned(),
         importer: importer.to_string(),
@@ -176,9 +197,15 @@ pub(crate) fn resolve_from(
                 )
             })
             .map_err(error)?;
-            to_resolution(found, &url, importer_root.clone(), consulted).map_err(error)
+            to_resolution(found, &url, importer_root.clone(), consulted)
+                .map(Resolved::Module)
+                .map_err(error)
         }
         Request::Package(specifier) => {
+            // ahead of the package lookup, so no `package.json` is read
+            if let Some(builtin) = find_builtin(specifier) {
+                return Ok(Resolved::Builtin(builtin));
+            }
             // only a bare specifier walks from the importer's path
             let importer_path = importer_path(importer).map_err(error)?;
             let package = resolve_package(
@@ -216,7 +243,9 @@ pub(crate) fn resolve_from(
                     }));
                 }
             };
-            to_resolution(found, &package.url, package.root, consulted).map_err(error)
+            to_resolution(found, &package.url, package.root, consulted)
+                .map(Resolved::Module)
+                .map_err(error)
         }
     }
 }

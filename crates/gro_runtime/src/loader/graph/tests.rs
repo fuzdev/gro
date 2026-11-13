@@ -122,7 +122,7 @@ fn a_re_resolve_keeps_the_first_record() {
     again.file_id.ino = 2;
     graph.admit(&again).unwrap();
     let url = Url::from_file_path("/a/b/i.ts").unwrap();
-    assert_eq!(graph.records[&url].file_id.ino, 1);
+    assert_eq!(graph.records[&url].module().unwrap().file_id.ino, 1);
     // the same URL inside an outer root, not admitted around it
     let a = Root {
         dir: PathBuf::from("/a"),
@@ -302,7 +302,7 @@ fn the_first_edge_and_load_stand_and_distinct_failures_are_kept() {
             hash: blake3::hash(b"second"),
         },
     );
-    assert_eq!(graph.records[&x].loaded, Some(first));
+    assert_eq!(graph.records[&x].module().unwrap().loaded, Some(first));
     // a URL never recorded gets no load
     graph.load(&Url::from_file_path("/a/y.ts").unwrap(), first);
     assert_eq!(graph.records.len(), 2);
@@ -387,7 +387,12 @@ fn recording_off_keeps_only_what_loading_needs() {
         },
     );
     assert_eq!(graph.records.len(), 2);
-    assert!(graph.records.values().all(|record| record.loaded.is_none()));
+    assert!(
+        graph
+            .records
+            .values()
+            .all(|record| record.module().unwrap().loaded.is_none())
+    );
     assert!(graph.edges.is_empty());
     assert!(graph.consulted.is_empty());
     assert!(graph.failures.is_empty());

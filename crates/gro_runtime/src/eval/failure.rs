@@ -300,7 +300,10 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
         | FailureReason::DynamicImport => ErrorKind::Internal,
         // a read that failed or changed, a breach, or a host bug, as the entry's are
         FailureReason::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
-        FailureReason::Resolve(_) | FailureReason::DriverImport => ErrorKind::Resolve,
+        FailureReason::Resolve(_)
+        | FailureReason::DriverImport
+        // a builtin eval doesn't grant, which is every one that needs a grant
+        | FailureReason::NotGranted { .. } => ErrorKind::Resolve,
         FailureReason::Load(
             LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
         ) => ErrorKind::Link,
@@ -375,7 +378,8 @@ mod tests {
     }
 
     /// A load's kind comes from its static failure's variant, never its
-    /// message: a resolution's is `resolve`, a strip refusal, import
+    /// message: a resolution's is `resolve`, an ungranted builtin's
+    /// included, a strip refusal, import
     /// attributes, or a module past its byte cap `link`, and what only a
     /// host bug, a file replaced on disk, a failed read, or a read outside
     /// the box causes `internal`, a resolution's included.
@@ -388,6 +392,13 @@ mod tests {
                 ErrorKind::Resolve,
             ),
             (FailureReason::DriverImport, ErrorKind::Resolve),
+            (
+                FailureReason::NotGranted {
+                    builtin: &crate::resolver::BUILTINS[0],
+                    origin: Origin::Project,
+                },
+                ErrorKind::Resolve,
+            ),
             (
                 FailureReason::Resolve(ResolveErrorKind::InvalidUrl(UrlFault::ImporterNoLocalPath)),
                 ErrorKind::Internal,

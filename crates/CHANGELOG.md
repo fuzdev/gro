@@ -15,12 +15,16 @@ It ships as a bare binary, `fgro-linux-x64-gnu`, with its startup snapshot embed
 beside a `SHA512SUMS` file, each with a provenance attestation.
 
 - `fgro run <file>` runs a JS or TypeScript module from disk.
-  Every argument after the file is the script's, accepted as written, though nothing reads them yet.
+  Every argument after the file is the script's, passed as written,
+  and the script reads them as `process.args` from `@fuzdev/gro/process.ts`,
+  the first builtin host module, which carries nothing else yet.
+  `fgro run` grants it to the project's own modules: a package's module is refused it when the graph links,
+  and `fgro eval` grants it to none.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.
   TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.
   The global scope holds the ECMAScript globals and a set of web-standard ones (no `fetch` or `crypto`),
-  with no `process`, `Deno`, or `Bun`, so code can't read stdin or the environment.
+  with no `process` global, `Deno`, or `Bun`, so code can't read stdin or the environment.
 - `fgro eval <module>` evaluates a project's module to JSON data,
   printed as one envelope on stdout that a caller like zap reads:
   the default export, another with `--export`, or what a driver read from stdin with `--driver -` returns,

@@ -118,7 +118,11 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
             format,
             hash: blake3::hash(source.as_bytes()),
         };
-        assert_eq!(graph.records()[&url(file)].loaded, Some(loaded), "{file}");
+        assert_eq!(
+            graph.records()[&url(file)].module().unwrap().loaded,
+            Some(loaded),
+            "{file}"
+        );
     }
 
     assert_eq!(graph.failures().len(), 1, "{:?}", graph.failures());
@@ -157,7 +161,11 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
     let mut off_recorded: Vec<_> = off.records().keys().cloned().collect();
     off_recorded.sort();
     assert_eq!(off_recorded, expected);
-    assert!(off.records().values().all(|record| record.loaded.is_none()));
+    assert!(
+        off.records()
+            .values()
+            .all(|record| record.module().unwrap().loaded.is_none())
+    );
     assert!(off.edges().is_empty());
     assert!(off.consulted().is_empty());
     assert!(off.failures().is_empty());

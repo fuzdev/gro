@@ -8,12 +8,17 @@
 		"allowJs": true,
 		"checkJs": true,
 		"noEmit": true,
+		"allowImportingTsExtensions": true,
 		"strict": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
 		"noImplicitReturns": true,
 		"noUncheckedIndexedAccess": true,
-		"skipLibCheck": false
+		"skipLibCheck": false,
+		"paths": {
+			"ext:gro/internal/*": ["../../../src/lib/internal/*"],
+			"ext:gro/*": ["./*"]
+		}
 	},
-	"include": ["*.js", "*.d.ts"]
+	"include": ["*.js", "*.ts"]
 }

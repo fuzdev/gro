@@ -110,7 +110,11 @@ fn a_record_s_root_is_the_one_its_path_is_inside() {
     assert_eq!(records.len(), 8);
     for (url, record) in &records {
         let path = url.to_file_path().unwrap();
-        assert_eq!(roots.containing(&path), Some(&record.root), "{url}");
+        assert_eq!(
+            roots.containing(&path),
+            Some(&record.module().unwrap().root),
+            "{url}"
+        );
     }
 }
 

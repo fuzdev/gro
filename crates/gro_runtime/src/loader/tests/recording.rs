@@ -390,21 +390,21 @@ fn a_load_records_its_format_and_hash() {
     load_disk(&loader, &b).unwrap();
     let graph = graph(&loader);
     assert_eq!(
-        graph.records()[&a].loaded,
+        graph.records()[&a].module().unwrap().loaded,
         Some(Loaded {
             format: ModuleFormat::TypeScript,
             hash: blake3::hash(TYPED.as_bytes()),
         })
     );
     assert_eq!(
-        graph.records()[&b].loaded,
+        graph.records()[&b].module().unwrap().loaded,
         Some(Loaded {
             format: ModuleFormat::JavaScript,
             hash: blake3::hash(SOURCE.as_bytes()),
         })
     );
     // not loaded yet
-    assert_eq!(graph.records()[&main].loaded, None);
+    assert_eq!(graph.records()[&main].module().unwrap().loaded, None);
     assert!(graph.failures().is_empty());
 }
 
@@ -458,7 +458,7 @@ fn recording_off_records_only_roots_and_files() {
         graph
             .records()
             .values()
-            .all(|record| record.loaded.is_none())
+            .all(|record| record.module().unwrap().loaded.is_none())
     );
     assert!(graph.edges().is_empty());
     assert!(graph.consulted().is_empty());
@@ -485,7 +485,7 @@ fn a_re_resolve_keeps_the_loaded_record() {
     let after = graph(&loader).records()[&a].clone();
     assert_eq!(after, before);
     assert_eq!(
-        after.loaded.map(|loaded| loaded.hash),
+        after.module().unwrap().loaded.map(|loaded| loaded.hash),
         Some(blake3::hash(TYPED.as_bytes()))
     );
 }
@@ -589,7 +589,7 @@ fn a_refused_load_is_recorded_with_its_reason() {
         graph(&loader)
             .records()
             .values()
-            .all(|record| record.loaded.is_none())
+            .all(|record| record.module().unwrap().loaded.is_none())
     );
 }
 

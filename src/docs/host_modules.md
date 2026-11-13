@@ -4,8 +4,9 @@
 > and what the Node implementation does and doesn't guarantee
 
 > **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
-> On `fgro` the host modules will be builtins, resolved by the binary ahead of package lookup,
-> and none is built there yet ([runtime](runtime.md) lists what `fgro` has today).
+> On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
+> and the one built is `process`, carrying `process.args` alone ([on `fgro`](#process-on-fgro));
+> everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
 Each is an import, so what a module can reach shows in its imports,
@@ -56,8 +57,8 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   Match one with `is_fs_error(error, kind?)`, which also recognizes one from another copy of Gro.
   Both live in `@fuzdev/gro/fs_error.ts`, apart from the host module,
   so code that only makes or matches an error imports no capability.
-  It's part of the host-module surface: on `fgro` it's designed as a builtin that grants nothing,
-  resolved beside `fs`, so the builtin and every importer will share one `FsError` class.
+  It's part of the host-module surface: on `fgro` it's designed as a builtin module that grants nothing,
+  resolved beside `fs`, so the builtin module and every importer will share one `FsError` class.
   An error's `path` is the absolute path the op was asked for, or for `outside_root` the path as given,
   never a path a symlink led to.
 - Each op's one expected failure returns a value instead of throwing:
@@ -209,7 +210,7 @@ const result = await check.closed;
   A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
   matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `spawn`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin module that grants nothing, resolved beside `spawn`.
 - `program.start(args, options?)` resolves to a `SpawnChild` once the child is running,
   its stdio set per stream with `stdio`, one of `'inherit'`, `'pipe'`, `'ignore'` for all or three in order,
   defaulting to `'inherit'`. A launch failure rejects with `launch_failed`, as for `run` and `out`.
@@ -364,9 +365,23 @@ and on `fgro` there's no global at all.
   `process.runtime_version` is opaque, like `node/v24.14.0`, for display and for keying a cache by the runtime that made it, compared for equality only.
 - Errors are `ProcessError`, typed by `kind` (`not_granted`, `io_error`), its `target` the variable or the stream.
   Match one with `is_process_error(error, kind?)`, in `@fuzdev/gro/process_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `process`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin module that grants nothing, resolved beside `process`.
 
 The module's TSDoc has each op's contract.
+
+### process on fgro
+
+On `fgro`, `@fuzdev/gro/process.ts` is a builtin module carrying `process.args` and nothing else:
+the script's arguments, every one after the file `fgro run` was given, as written.
+`process` is frozen with no prototype (Node's has a frozen, null-prototype class prototype; neither is thenable), its one property `args`, a frozen array of strings,
+made when a run first imports the module, from intrinsics the runtime copied before any user code ran,
+so code that patched `Object` or the prototypes before the import changes nothing it holds.
+Its type is `Process`'s for the members it carries, checked by a test against this module's declarations.
+
+`fgro run` grants `process` to the project's own modules, and the import is checked when the graph links,
+for a static import and `import()` alike: a module of an installed or linked package is refused it,
+naming the package, and `fgro eval` grants it to no module ([eval](eval.md)).
+Its namespace has a `default` export of `undefined`, where Node's module has none.
 
 ## net
 
@@ -403,7 +418,7 @@ There's no bare `fetch` export, so a module using the network shows `net` in its
 - Only `http:` and `https:` are sent. `data:`, `blob:`, and every other scheme are `not_granted`, on the root handle too.
 - Errors are `NetError`, of kind `not_granted`, its `target` the refused `hostname:port` or scheme and never a whole URL, which can carry a token.
   Match one with `is_net_error(error, kind?)`, in `@fuzdev/gro/net_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `net`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin module that grants nothing, resolved beside `net`.
   A network failure stays a `TypeError`, as from any `fetch`.
 - Redirects are the escape a host check has to close, so a handle follows them itself:
   each `Location` is resolved against its response and checked against the handle's hosts before anything is sent to it,
@@ -522,7 +537,7 @@ The module's TSDoc has the contract.
 - The boundary's machinery (`internal/fs_boundary.ts`) resolves symlinks through the `Fs` it's built from,
   `fs.real_path` and a handle's `read_link`, so an `FsPaths` reaches nothing that `Fs` doesn't.
 - Gro's library and task code otherwise reaches the filesystem only through the fs host module,
-  and starts programs only through the spawn host module, so it can run unchanged where the modules are builtins.
+  and starts programs only through the spawn host module, so it can run unchanged where the modules are builtin modules.
   The rest that stays on `node:fs` is Node-only machinery: the loader and the modules it runs in its hooks
   (`resolve_specifier.ts`, `svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   `spawn.ts`'s `PATH` walk and pin,
@@ -553,7 +568,7 @@ The module's TSDoc has the contract.
 
 ### The module's invariants
 
-The fs module keeps these in the Node implementation, and the runtime's builtin is designed to keep them too, making its confinement decisions natively ([native requirements](#native-requirements)):
+The fs module keeps these in the Node implementation, and the runtime's builtin module is designed to keep them too, making its confinement decisions natively ([native requirements](#native-requirements)):
 
 - Handles come only from `fs` and other handles.
   Each constructor checks a key only the module holds, so a handle's `constructor` makes nothing.
@@ -701,7 +716,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   where about half come back one step of their own double off,
   and from 1970-04-08 to 1972-02-16, where some come back a nanosecond or a few off.
   Past 2242 the double itself is the limit on either step.
-  The runtime's builtin stores a time exactly.
+  The runtime's builtin module stores a time exactly.
 - A handle is bound to its directory's path, not its inode.
   When the directory is moved or replaced, the handle follows the path,
   refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
@@ -733,7 +748,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
 - `program_in` and a call's `cwd` tell a real handle by a registry in `internal/fs_handles.ts`, which the package doesn't export,
   but code importing that file by its path can register any object with any resolver, run what it names, and start a child in any directory.
-  The runtime's builtin takes the handle's descriptor.
+  The runtime's builtin module takes the handle's descriptor.
 - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
   as for any fs op, and a native binary it pins runs by path, as above.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
@@ -746,7 +761,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   and a patched `on` or stream method holds the raw `ChildProcess` or stream.
 - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
 - Piped `stdin` data reaches the child on a socket, as Node's stdio pipes are socketpairs,
-  so a child reopening it by path, like `cat /dev/stdin`, fails with `ENXIO`, where a native builtin using a real pipe wouldn't.
+  so a child reopening it by path, like `cat /dev/stdin`, fails with `ENXIO`, where a native builtin module using a real pipe wouldn't.
 - A polluted `Object.prototype.encoding`, `highWaterMark`, `objectMode`, or `signal` makes Node's spawn throw after the fork, wrapping the child's streams,
   so the call rejects `launch_failed` with the child untracked and running,
   and with `stdin` data a child reading its stdin never gets EOF and keeps the host alive.
@@ -812,7 +827,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 - `watch.dir` tells a real handle by the registry in `internal/fs_handles.ts`, as `spawn` does,
   so code importing that file by its path can register any object and watch the path it names.
-  The runtime's builtin takes the handle's descriptor.
+  The runtime's builtin module takes the handle's descriptor.
 - The watch is bound to the directory's path, as an fs handle is, so a moved watched directory ends the watch as a removed one does.
 - Chokidar checks an entry with `lstat` and then watches and reads it by path, so a directory swapped for a symlink in between is watched through the link.
   The watcher checks each path before chokidar descends into it and before reporting it: the root still the directory the watch started on (by device and inode),
@@ -832,7 +847,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 ## Native requirements
 
-What the runtime's builtin must do that the Node implementation can't:
+What the runtime's builtin module must do that the Node implementation can't:
 
 ### fs
 

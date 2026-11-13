@@ -171,6 +171,10 @@ caught or not (the driver's are refused as imports from the driver, and not list
 and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
 and the refusal names the real path, so evaluated code can tell whether a path exists and where a link points.
 
+Eval grants nothing, so a host module's import, `@fuzdev/gro/process.ts` among them, is refused when the graph links,
+a `resolve` naming the grant it needs ([resolver](resolver.md#builtin-modules)),
+or, with an import attribute, a `link`.
+
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 
 ## The box
@@ -442,7 +446,7 @@ The path is joined by `/`, with `%`, `?`, and `#` percent-encoded,
 and a module's query and fragment join its id as its URL has them (`project:src/a.js?x#y`),
 so an import with a query or fragment is a module of its own, as it is to V8.
 The package's name and version are only in `origin`.
-No module is built in yet, so `graph_version` 1 has no `builtin:` id and no `builtin` origin.
+Eval grants no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin.
 Absolute paths are only in `local`.
 Every array is sorted, so the dump is a function of what was read, not of the order the run reached it in.
 

@@ -326,6 +326,19 @@ impl RecursiveModuleLoad {
       .module_map_rc
       .has_synthetic_esm_module(module_request.reference.specifier.as_str())
     {
+      // gro patch: refused as a JavaScript module's is below, since a synthetic module has no source and `import.source` of one panicked
+      if module_request.phase == ModuleImportPhase::Source {
+        let message = v8::String::new(
+          scope,
+          &format!(
+            "Source phase imports are not supported for synthetic modules: {} has no source",
+            module_request.reference.specifier
+          ),
+        )
+        .unwrap();
+        let exception = v8::Exception::reference_error(scope, message);
+        return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
+      }
       let module_id = self
         .module_map_rc
         .build_synthetic_esm_module(

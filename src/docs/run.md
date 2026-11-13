@@ -25,8 +25,9 @@ The last part is `no snapshot` for a build without a startup snapshot.
 and every argument after the file is the script's, passed as written, `--` and `--help` included.
 Its only option is `--help` (or `help`, as for every command), and any other before the file is a usage error;
 a file whose name starts with `-` goes after `--`.
-The script's arguments are accepted but not yet readable: no host module on `fgro` reads them ([host modules](host_modules.md)).
-User code can't read stdin or the environment (there is no `process`, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
+The script reads them as `process.args`, from `import {process} from '@fuzdev/gro/process.ts'`,
+a [builtin module](glossary.md#builtin-module) carrying nothing else yet ([process on `fgro`](host_modules.md#process-on-fgro)).
+User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
@@ -54,12 +55,17 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   ([resolver](resolver.md#departures-from-node) has the rules,
   and [roots and origins](resolver.md#roots-and-origins) an entry inside `node_modules`).
   A module's `import.meta.url` is its real path, after symlinks.
+- `@fuzdev/gro/process.ts`, a builtin module: the binary resolves it ahead of package lookup, reading no `package.json`,
+  and grants it to the project's own modules, while a module of an installed or linked package is refused it
+  when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules)).
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
-- Refused with the reason are JSON modules and other import attributes,
+- Refused with the reason are a file imported with a `type` import attribute
+  (JSON modules among them; an attribute under any other key is ignored)
+  and a static import of a builtin module with any attribute,
   any other extension (`.cjs`, `.json`, `.wasm`), `.cts`, `.tsx`, declaration files, Svelte modules,
   `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
-  The host's own modules (`ext:`) are among the refused schemes:
+  The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:
   none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
   A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
 
@@ -76,7 +82,7 @@ The ECMAScript globals, including `Intl`, `Temporal`, and `WebAssembly`, plus th
 - `AbortController`, `AbortSignal`, `Event`, `EventTarget`, `CustomEvent`, `ErrorEvent`, `PromiseRejectionEvent`, `DOMException`
 
 Absent by design are the [authority globals](glossary.md#authority-globals), which would reach outside the run:
-`fetch` is `net.fetch` on the `net` host module (built as its Node implementation, a builtin on `fgro` once the host modules land),
+`fetch` is `net.fetch` on the `net` host module (built as its Node implementation, a builtin module on `fgro` once `net` lands),
 `WebSocket` and `EventSource` would join it there when a consumer needs them,
 and any other web API that carries authority is an import too, if Gro implements it.
 Absent until a consumer needs them, with no grant involved, are `Headers`, `Request`, `Response`,
@@ -95,6 +101,8 @@ with the fix to import `foo` by name.
 A linked package's URL is a path like any other:
 an in-tree one loads as the project's file, since its package was never admitted around it,
 and an out-of-tree one is outside the project's root, refused.
+A builtin module's URL is its specifier in the `builtin:` scheme, returned to any importer, granted or not,
+and refused when imported as written: `import()` of `import.meta.resolve('@fuzdev/gro/process.ts')` fails.
 
 ## Errors and exit codes
 

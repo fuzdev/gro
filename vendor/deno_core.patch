@@ -77,6 +77,30 @@ index a5070ed..ebccba8 100644
      ser.loaded_script_results = cached_results
        .into_iter()
        .map(|(name, value)| (name, data_store.register(value)))
+diff --git a/modules/recursive_load.rs b/modules/recursive_load.rs
+index 73f76e0..9a953c6 100644
+--- a/modules/recursive_load.rs
++++ b/modules/recursive_load.rs
+@@ -326,6 +326,19 @@ impl RecursiveModuleLoad {
+       .module_map_rc
+       .has_synthetic_esm_module(module_request.reference.specifier.as_str())
+     {
++      // gro patch: refused as a JavaScript module's is below, since a synthetic module has no source and `import.source` of one panicked
++      if module_request.phase == ModuleImportPhase::Source {
++        let message = v8::String::new(
++          scope,
++          &format!(
++            "Source phase imports are not supported for synthetic modules: {} has no source",
++            module_request.reference.specifier
++          ),
++        )
++        .unwrap();
++        let exception = v8::Exception::reference_error(scope, message);
++        return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
++      }
+       let module_id = self
+         .module_map_rc
+         .build_synthetic_esm_module(
 diff --git a/runtime/jsrealm.rs b/runtime/jsrealm.rs
 index eb03a44..0eb3325 100644
 --- a/runtime/jsrealm.rs

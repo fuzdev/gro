@@ -20,6 +20,41 @@ fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
     );
 }
 
+/// Eval grants nothing, so a host module's import is refused at link
+/// time, naming the grant, as a `resolve`; with an import attribute it is
+/// refused first, as a `link`, as a file's attribute is.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes() {
+    let run = eval(&["import_process.js"]);
+    run.assert_failed("resolve", 1);
+    let importer = format!("{}/import_process.js", fixtures_url());
+    assert_eq!(
+        run.message(),
+        format!(
+            "cannot import '@fuzdev/gro/process.ts' from {importer}: it needs the grant \
+             'process', and eval grants none"
+        )
+    );
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.ts");
+    assert_eq!(run.envelope["error"]["importer"], importer);
+    let run = eval(&["import_process_attribute.js"]);
+    run.assert_failed("link", 1);
+    let importer = format!("{}/import_process_attribute.js", fixtures_url());
+    assert_eq!(
+        run.message(),
+        format!(
+            "cannot import '@fuzdev/gro/process.ts' from {importer}: a builtin module takes no \
+             import attributes"
+        )
+    );
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.ts");
+    assert_eq!(run.envelope["error"]["importer"], importer);
+}
+
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),

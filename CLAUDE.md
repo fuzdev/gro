@@ -266,8 +266,9 @@ Crates:
 
 - `gro_runtime` - the JS host: a deno_core `JsRuntime` (deno_core patched,
   in `vendor/`) with `deno_webidl`, `deno_web`, and Gro's bootstrap
-  extension; the resolver, the loader, the engine, the box (`confine/`), and
-  `fgro eval`'s protocol (`eval/`). Start at its `lib.rs`
+  extension; the resolver, the loader, the builtin modules, the host ops
+  behind them (`host/`), the engine, the box (`confine/`), and `fgro eval`'s
+  protocol (`eval/`). Start at its `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
@@ -293,14 +294,30 @@ Invariants that live in the code:
   allowed by its function's `#[expect]` and explained by a `// SAFETY:`
   comment. `deno_core::scope!` and the `v8` scope macros hide `unsafe` inside
   dependency macros, outside the lint; eval uses them for handle scopes.
-- `crates/gro_runtime/js/bootstrap.js` is embedded and must be 7-bit ASCII,
-  or the build fails.
+- The embedded sources (`crates/gro_runtime/js/`'s, and the node-free
+  `src/lib/internal/` modules a builtin module embeds as they are) must be 7-bit
+  ASCII, or the build fails (`ascii_str_include!`). The TypeScript among
+  them is stripped by `bootstrap::transpile` when the snapshot is made, or
+  when a runtime starts without one, never on a snapshot start.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
   (`Roots`) and passes them into `resolve_from`. Failures are enums (the
   resolver's `ResolveErrorKind`, the loader's `FailureReason`), never parsed
   from a message; eval's error kind comes from the step that failed and the
   graph's record.
+- The builtin table (`resolver/builtin.rs`) is the one source of the
+  builtin modules: `&'static` data of gro's own types, each row's specifier,
+  grant, and exports. `builtin_rows!` hands the rows to the bootstrap, which
+  makes each backing script (one template) and synthetic module from them at
+  compile time, and a test pins the bootstrap's factories (`js/bootstrap.js`)
+  to the table's specifiers; the resolver returns a table hit ahead of any
+  package lookup; the loader checks it against the run's `Authority` at link
+  time, for a static import and `import()` alike (`loader/resolve.rs`), and a
+  package's module is granted none. A static import of one with import
+  attributes is refused first, in the loader's `resolve_with_scope`;
+  `deno_core` hands an `import()`'s attributes only to the runtime's
+  attribute callback, whose cost lands on every static import, so they
+  aren't checked.
 - Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
   `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
   tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,
@@ -313,12 +330,25 @@ Invariants that live in the code:
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
   sized `gro_runtime::STACK_SIZE`.
-- `bootstrap::extensions` drops every lazy and synthetic ES module the
-  extensions declare: deno_core falls back to a lazy ES module of the exact
-  name when the loader refuses an import, and dispatches a synthetic one
-  before asking the loader, so either would load into user code past the
-  resolver's refusal of `ext:`. `gro_runtime`'s tests import every `ext:`
-  specifier the build knows and expect the refusal.
+- `bootstrap::extensions` drops every lazy ES module the extensions declare
+  and every other extension's synthetic ES modules, keeping gro's own, one
+  per builtin, each named by its `builtin:` URL. deno_core falls back to a
+  lazy ES module of the exact name when the loader refuses an import, which
+  would load it past the resolver's refusal of `ext:`; and it links a static
+  import naming a synthetic module by that raw name, whatever the loader
+  resolved the name to (a refusal still fails the import), so a synthetic
+  module's name must be one the resolver refuses from source. `gro_runtime`'s
+  tests import every `ext:` and `builtin:` specifier the build knows and
+  expect the refusal, and pin the kept synthetic names to the table's URLs.
+- One grant choke point: every host op is declared through
+  `host::host_ops!`, whose first step is `require`, the one place a
+  `Granted` token is made. The run's `Authority` goes into the loader and
+  the runtime's `OpState` per run, never into the snapshot or the extension
+  list, and eval's runtime takes none. A test fails on an op of gro's
+  extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`
+  nor a host op (or that's on an object), and another on a host op that runs
+  without its grant. Nothing at compile time makes a host op use the macro:
+  the first test is the check.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses; a test pins every
   registered op name in `crates/gro_runtime/tests/op_names.txt`, so a
   `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed.

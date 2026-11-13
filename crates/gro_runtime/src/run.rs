@@ -13,9 +13,9 @@ use crate::loader::graph::Recording;
 use crate::phases::{self, Phase};
 use crate::report::uncaught;
 use crate::resolver::{self, DiskTree, ResolveError};
-use crate::runtime::start_runtime;
+use crate::runtime::{HostState, start_runtime};
 use crate::snapshot::StartupSnapshot;
-use crate::{ConsoleOptions, Grants, RuntimeOptions};
+use crate::{ConsoleOptions, RuntimeOptions};
 
 /// Why a run failed.
 #[derive(Debug, thiserror::Error)]
@@ -113,10 +113,15 @@ fn run_resolved(
     entry: &Url,
     loader: &Rc<Loader>,
 ) -> Result<(), RunError> {
+    let host = HostState {
+        authority: options.authority.clone(),
+        args: options.args.clone(),
+    };
     let result = run_loaded(
         engine,
         options.snapshot,
         options.console,
+        host,
         entry,
         Rc::clone(loader),
     );
@@ -125,33 +130,29 @@ fn run_resolved(
 }
 
 /// Resolves the entry at `entry` from `cwd`, returning its URL and the
-/// loader of its graph, recording as `recording` says.
+/// loader of its graph, which checks each builtin import against the run's
+/// authority, recording as `recording` says.
 fn resolve_main(
     options: &RuntimeOptions,
     entry: &Path,
     cwd: &Path,
     recording: Recording,
 ) -> Result<(Url, Rc<Loader>), RunError> {
-    // nothing to grant yet, and no host module to read the arguments;
-    // destructured so a new field can't go unread
-    let RuntimeOptions {
-        grants: Grants {},
-        snapshot: _,
-        console: _,
-        args: _,
-    } = options;
     let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
-    let loader = Rc::new(Loader::new(&entry, roots, recording));
+    let loader =
+        Rc::new(Loader::new(&entry, roots, recording).with_authority(options.authority.clone()));
     Ok((entry.url, loader))
 }
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
-/// started from `snapshot` when there is one, its console as `console` says.
-/// `_engine` is the proof the engine was set up before V8 initializes.
+/// started from `snapshot` when there is one, its console as `console` says,
+/// its host ops holding `host`. `_engine` is the proof the engine was set up
+/// before V8 initializes.
 fn run_loaded(
     _engine: Engine,
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
+    host: HostState,
     entry: &Url,
     loader: Rc<Loader>,
 ) -> Result<(), RunError> {
@@ -160,7 +161,8 @@ fn run_loaded(
         .build()
         .map_err(StartError::EventLoop)?;
     tokio_runtime.block_on(async {
-        let mut runtime = start_runtime(snapshot, console, loader).map_err(StartError::Runtime)?;
+        let mut runtime =
+            start_runtime(snapshot, console, host, loader).map_err(StartError::Runtime)?;
         let id = runtime
             .load_main_es_module(entry)
             .await

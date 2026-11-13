@@ -8,11 +8,12 @@
 //! each URL's root and file, and every other insert returns before it
 //! allocates or clones anything; full, it keeps the whole record:
 //!
-//! - **Records**: each URL resolved, the entry's included, with the root it
-//!   is inside and its file's identity, and, recording in full, once loaded,
-//!   its [`ModuleFormat`] and the BLAKE3 hash of the bytes read for it. The
-//!   first record stands, so its identity, format, and hash describe one
-//!   file, the one the load checked and V8 ran.
+//! - **Records**: each URL resolved, the entry's included: a module's with
+//!   the root it is inside and its file's identity, and, recording in full,
+//!   once loaded, its [`ModuleFormat`] and the BLAKE3 hash of the bytes read
+//!   for it; a builtin's with the builtin, once an import of it is granted.
+//!   The first record stands, so a module's identity, format, and hash
+//!   describe one file, the one the load checked and V8 ran.
 //! - **Edges**: each import that resolved and was admitted, by its importer,
 //!   its specifier as written, and how it was reached ([`Reach`]), to the
 //!   URL it resolved to. `import.meta.resolve` adds none: it imports nothing.
@@ -37,8 +38,8 @@ use url::Url;
 
 use super::reads::{Reads, RecordingTree};
 use crate::resolver::{
-    self, ConsultedFile, FileId, ModuleFormat, Resolution, ResolveError, ResolveErrorKind, Root,
-    Roots, SourceTree,
+    self, Builtin, ConsultedFile, FileId, ModuleFormat, Origin, Resolution, ResolveError,
+    ResolveErrorKind, Resolved, Root, Roots, SourceTree,
 };
 
 /// How much a graph records beyond what loading needs.
@@ -92,7 +93,17 @@ pub struct Graph {
 
 /// What a URL resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Record {
+pub enum Record {
+    /// A module on disk.
+    Module(ModuleRecord),
+    /// A builtin: no file, no root, and never an importer, since a builtin
+    /// imports nothing.
+    Builtin(&'static Builtin),
+}
+
+/// What a URL resolved to on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleRecord {
     /// The root it resolved inside.
     pub root: Root,
     /// Its file's identity, the one loading it must find.
@@ -179,6 +190,15 @@ pub enum FailureReason {
     /// The importer is not a URL this graph resolved: not a URL at all, or
     /// never resolved here.
     UnknownImporter,
+    /// A builtin whose grant the importer isn't granted: the run holds no
+    /// grants (eval's), or not this one, or the importer is a package's
+    /// module, which holds none.
+    NotGranted {
+        /// The builtin.
+        builtin: &'static Builtin,
+        /// The importer's origin.
+        origin: Origin,
+    },
     /// The resolved module didn't load.
     Load(LoadFailure),
     /// An import or `import.meta.resolve` from the driver, a module whose
@@ -198,7 +218,8 @@ pub enum LoadFailure {
     /// supported yet.
     ImportAttributes,
     /// Its URL names no local file. Defense in depth: a recorded URL is a
-    /// resolved file's, so it can't happen.
+    /// resolved file's or a builtin's, which `deno_core` serves as its
+    /// synthetic module without a load, so it can't happen.
     NoLocalPath,
     /// Its file's name doesn't load as a module. Defense in depth: a
     /// recorded URL passed the same table when it resolved, so it can't
@@ -254,10 +275,18 @@ pub enum StripFailure {
 impl Record {
     /// The record of `resolution`, not yet loaded.
     fn new(resolution: &Resolution) -> Self {
-        Self {
+        Self::Module(ModuleRecord {
             root: resolution.root.clone(),
             file_id: resolution.file_id,
             loaded: None,
+        })
+    }
+
+    /// Its module's record, when it is one.
+    pub const fn module(&self) -> Option<&ModuleRecord> {
+        match self {
+            Self::Module(module) => Some(module),
+            Self::Builtin(_) => None,
         }
     }
 }
@@ -326,7 +355,8 @@ impl Graph {
         {
             return Err(conflict(path.to_owned(), recorded, root));
         }
-        if let Some(recorded) = self.records.get(&resolution.url) {
+        // a builtin's URL is no file's, so only a module's record is at it
+        if let Some(recorded) = self.records.get(&resolution.url).and_then(Record::module) {
             let path = || resolution.url.to_file_path().unwrap_or_default();
             if recorded.root.dir != root.dir {
                 return Err(conflict(path(), &recorded.root, root));
@@ -340,6 +370,20 @@ impl Graph {
         // built only now, so a URL already recorded clones nothing
         self.record(&resolution.url, Record::new(resolution));
         Ok(())
+    }
+
+    /// Records the builtin at `url`, imported and granted, unless it is
+    /// recorded already.
+    pub fn admit_builtin(&mut self, url: &Url, builtin: &'static Builtin) {
+        if !self.records.contains_key(url) {
+            self.record(url, Record::Builtin(builtin));
+        }
+    }
+
+    /// The origin of the recorded module at `url`, if it is one.
+    pub fn origin(&self, url: &Url) -> Option<&Origin> {
+        let module = self.records.get(url)?.module()?;
+        Some(&module.root.origin)
     }
 
     /// The project's root, and every package root a bare specifier resolved
@@ -390,16 +434,16 @@ impl Graph {
     /// Resolves `specifier`, imported by the recorded module at `importer`,
     /// from the root it was recorded inside, reading `tree`, through the
     /// graph's reads when recording in full. Admits and records nothing.
-    /// `None` when `importer` was never recorded.
+    /// `None` when `importer` was never recorded as a module.
     pub(crate) fn resolve(
         &mut self,
         tree: &impl SourceTree,
         specifier: &str,
         importer: &Url,
-    ) -> Option<Result<Resolution, ResolveError>> {
+    ) -> Option<Result<Resolved, ResolveError>> {
         // the record's root is the one its path is inside: admitting a root
         // around a recorded module is a conflict, so none moves it
-        let importer_root = &self.records.get(importer)?.root;
+        let importer_root = &self.records.get(importer)?.module()?.root;
         Some(if self.recording.is_full() {
             let tree = RecordingTree::new(tree, &mut self.reads);
             resolver::resolve_from(&tree, specifier, importer, importer_root, &self.roots)
@@ -448,7 +492,7 @@ impl Graph {
         if !self.is_full() {
             return;
         }
-        if let Some(record) = self.records.get_mut(url) {
+        if let Some(Record::Module(record)) = self.records.get_mut(url) {
             record.loaded.get_or_insert(loaded);
         }
     }
@@ -505,7 +549,7 @@ impl Graph {
             .take_while(move |(path, _)| path.starts_with(dir))
             .flat_map(|(path, urls)| {
                 urls.iter()
-                    .filter_map(|url| records.get(url))
+                    .filter_map(|url| records.get(url)?.module())
                     .map(move |record| (path.as_path(), &record.root))
             })
     }

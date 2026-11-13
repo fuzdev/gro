@@ -25,6 +25,22 @@
 //! `TypeError`, which `import()` can catch: `deno_core` rethrows each as one,
 //! whatever its class.
 //!
+//! A builtin ([`Resolved::Builtin`](crate::resolver::Resolved::Builtin)) is
+//! checked against the run's [`Authority`] at link time, for a static import
+//! and `import()` alike: one whose grant the importer isn't granted is
+//! refused ([`FailureReason::NotGranted`]), the message naming the grant. A
+//! loader made without an authority, as eval's is, grants nothing; a
+//! package's module is granted nothing whatever the authority. A granted
+//! import returns the builtin's `builtin:` URL, which `deno_core` serves as
+//! the builtin's synthetic module, never asking the loader to load it.
+//! `import.meta.resolve` returns that URL to any importer, granted or not:
+//! it imports nothing, and the URL imports nothing either, its scheme
+//! refused from source. A static import of a builtin with import attributes
+//! is refused before its grant is checked, recorded as a file's attributes
+//! are ([`LoadFailure::ImportAttributes`]). An `import()`'s attributes never
+//! reach the loader: `deno_core` resolves it with none and serves a builtin
+//! without a load, so `import()` of one with attributes imports it.
+//!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the
 //! driver, a module whose source the host provides and that resolves to
@@ -60,18 +76,20 @@ mod resolve;
 pub mod strip;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
 use deno_core::error::ModuleLoaderError;
 use deno_core::{
     ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
-    ModuleSpecifier, RequestedModuleType, ResolutionKind,
+    ModuleSpecifier, RequestedModuleType, ResolutionKind, v8,
 };
 use url::Url;
 
+use crate::Authority;
 use crate::confine::BoxRoots;
-use crate::resolver::{DiskTree, Resolution, Roots, SourceTree};
+use crate::resolver::{DiskTree, Resolution, Roots, SourceTree, find_builtin};
 use boxed::{BoxCheck, Boxed};
 use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Recording};
 use load::load;
@@ -92,6 +110,9 @@ pub struct Loader {
     driver: Option<Url>,
     /// The box of [`Rules::box_roots`], and the first read it refused.
     box_check: BoxCheck,
+    /// The run's authority, which each builtin import is checked against;
+    /// unset, nothing is granted.
+    authority: Option<Authority>,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -145,13 +166,23 @@ impl Refused {
 
 impl Loader {
     /// A loader for the graph of `entry`, already resolved with `roots`,
-    /// recording as `recording` says.
+    /// recording as `recording` says, granting nothing.
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
             refuse_dynamic_import: false,
             driver: None,
             box_check: BoxCheck::default(),
+            authority: None,
+        }
+    }
+
+    /// The loader, granting the builtins `authority` grants.
+    #[must_use]
+    pub fn with_authority(self, authority: Authority) -> Self {
+        Self {
+            authority: Some(authority),
+            ..self
         }
     }
 
@@ -284,6 +315,7 @@ impl Loader {
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let resolved = resolve_into(
             &mut self.graph.borrow_mut(),
+            self.authority.as_ref(),
             tree,
             specifier,
             referrer,
@@ -293,6 +325,99 @@ impl Loader {
         resolved.map_err(|refused| {
             self.record_refused(specifier, Some(referrer), reached, None, refused)
         })
+    }
+
+    /// Resolves `specifier`, imported by the module at `referrer` as `kind`
+    /// says, with import attributes when `attributes`: the entry's URL as
+    /// it is, already resolved; a refusal of this loader's own rules or of a
+    /// builtin module with attributes; else the resolver's answer over the
+    /// disk.
+    fn resolve_import(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        kind: ResolutionKind,
+        attributes: bool,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        let reach = match kind {
+            // the entry, already resolved by `resolver::resolve_entry`
+            ResolutionKind::MainModule => {
+                return Url::parse(specifier)
+                    .map_err(|error| ModuleLoaderError::type_error(error.to_string()));
+            }
+            ResolutionKind::Import => Reach::Static,
+            ResolutionKind::DynamicImport => Reach::Dynamic,
+        };
+        // the root of the driver's own load, which `deno_core` resolves as a
+        // static import from its root referrer
+        if let Some(driver) = &self.driver
+            && reach == Reach::Static
+            && referrer == ROOT_REFERRER
+            && specifier == driver.as_str()
+        {
+            return Ok(driver.clone());
+        }
+        self.refuse_by_rules(specifier, referrer, reach)?;
+        if attributes {
+            self.refuse_builtin_attributes(specifier, referrer, reach)?;
+        }
+        self.resolve_on_disk(specifier, referrer, Reached::Import(reach))
+    }
+
+    /// Refuses an import from the driver, and with
+    /// [`Rules::refuse_dynamic_import`] every `import()`, recording why.
+    fn refuse_by_rules(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reach: Reach,
+    ) -> Result<(), ModuleLoaderError> {
+        let reached = Reached::Import(reach);
+        self.refuse_from_driver(specifier, referrer, reached)?;
+        if reach == Reach::Dynamic && self.refuse_dynamic_import {
+            let refused = Refused::new(
+                FailureReason::DynamicImport,
+                format!(
+                    "cannot import '{specifier}' from {referrer}: import() is refused in eval, \
+                     whatever it names. Fix: import the module with a static import"
+                ),
+            );
+            return Err(self.record_refused(specifier, Some(referrer), reached, None, refused));
+        }
+        Ok(())
+    }
+
+    /// Refuses an import with import attributes of a builtin module,
+    /// reached as `reach` from `referrer`, recording why; any other
+    /// specifier passes. A builtin takes no attributes, whatever they say,
+    /// and is never loaded, so the load's refusal of a file's attributes
+    /// never sees it; the failure recorded is the same
+    /// ([`LoadFailure::ImportAttributes`]). A builtin is the table hit of its
+    /// exact specifier, which the resolver returns ahead of anything else
+    /// ([`find_builtin`]).
+    fn refuse_builtin_attributes(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reach: Reach,
+    ) -> Result<(), ModuleLoaderError> {
+        if find_builtin(specifier).is_none() {
+            return Ok(());
+        }
+        let refused = Refused::new(
+            FailureReason::Load(LoadFailure::ImportAttributes),
+            format!(
+                "cannot import '{specifier}' from {referrer}: a builtin module takes no import \
+                 attributes"
+            ),
+        );
+        Err(self.record_refused(
+            specifier,
+            Some(referrer),
+            Reached::Import(reach),
+            None,
+            refused,
+        ))
     }
 
     /// Loads the module at `specifier`, a URL resolved here, from the file
@@ -306,25 +431,29 @@ impl Loader {
         reach: Reach,
         referrer: Option<&ModuleLoadReferrer>,
     ) -> Result<ModuleSource, ModuleLoaderError> {
-        let (file_id, recording) = {
+        let (record, recording) = {
             let graph = self.graph.borrow();
-            let file_id = graph.records().get(specifier).map(|record| record.file_id);
-            (file_id, graph.recording())
+            let record = graph
+                .records()
+                .get(specifier)
+                .map(|record| record.module().map(|module| module.file_id));
+            (record, graph.recording())
         };
-        // `deno_core` loads only what `resolve` returned, which recorded it
-        let result = file_id.map_or_else(
-            || {
-                Err(Refused::new(
-                    FailureReason::Load(LoadFailure::NeverResolved),
-                    format!("cannot load {specifier}: it was never resolved"),
-                ))
-            },
-            |file_id| {
-                load(specifier, requested, file_id, recording, |path| {
-                    self.box_check.check_read(path)
-                })
-            },
-        );
+        // `deno_core` loads only what `resolve` returned, which recorded it,
+        // and serves a builtin as its synthetic module, never loading it
+        let result = match record {
+            None => Err(Refused::new(
+                FailureReason::Load(LoadFailure::NeverResolved),
+                format!("cannot load {specifier}: it was never resolved"),
+            )),
+            Some(None) => Err(Refused::new(
+                FailureReason::Load(LoadFailure::NoLocalPath),
+                format!("cannot load {specifier}: a builtin has no file to load"),
+            )),
+            Some(Some(file_id)) => load(specifier, requested, file_id, recording, |path| {
+                self.box_check.check_read(path)
+            }),
+        };
         match result {
             Ok((source, loaded)) => {
                 if let Some(loaded) = loaded {
@@ -358,37 +487,23 @@ impl ModuleLoader for Loader {
         referrer: &str,
         kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        let reach = match kind {
-            // the entry, already resolved by `resolver::resolve_entry`
-            ResolutionKind::MainModule => {
-                return Url::parse(specifier)
-                    .map_err(|error| ModuleLoaderError::type_error(error.to_string()));
-            }
-            ResolutionKind::Import => Reach::Static,
-            ResolutionKind::DynamicImport => Reach::Dynamic,
-        };
-        // the root of the driver's own load, which `deno_core` resolves as a
-        // static import from its root referrer
-        if let Some(driver) = &self.driver
-            && reach == Reach::Static
-            && referrer == ROOT_REFERRER
-            && specifier == driver.as_str()
-        {
-            return Ok(driver.clone());
-        }
-        let reached = Reached::Import(reach);
-        self.refuse_from_driver(specifier, referrer, reached)?;
-        if reach == Reach::Dynamic && self.refuse_dynamic_import {
-            let refused = Refused::new(
-                FailureReason::DynamicImport,
-                format!(
-                    "cannot import '{specifier}' from {referrer}: import() is refused in eval, \
-                     whatever it names. Fix: import the module with a static import"
-                ),
-            );
-            return Err(self.record_refused(specifier, Some(referrer), reached, None, refused));
-        }
-        self.resolve_on_disk(specifier, referrer, reached)
+        self.resolve_import(specifier, referrer, kind, false)
+    }
+
+    /// Resolves as [`ModuleLoader::resolve`] does, refusing an import of a
+    /// builtin module with import attributes. `deno_core` passes a static
+    /// import's attributes here, and an `import()`'s never: it resolves one
+    /// with none.
+    // TODO: refuse an `import()`'s too, once its attributes reach the loader
+    fn resolve_with_scope(
+        &self,
+        _scope: &mut v8::PinScope,
+        specifier: &str,
+        referrer: &str,
+        kind: ResolutionKind,
+        import_attributes: &HashMap<String, String>,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        self.resolve_import(specifier, referrer, kind, !import_attributes.is_empty())
     }
 
     /// Resolves as an import does, roots and all, but admits no root and

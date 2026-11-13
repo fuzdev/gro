@@ -2,6 +2,12 @@
 // as the bootstrap uses them. Only extension code can import these modules.
 
 declare module 'ext:core/mod.js' {
+	/** deno_core's internal object, shared by every extension module and script. */
+	export const internals: object;
+	/** The intrinsics, copied when the runtime is made, before any user code runs. */
+	export const primordials: {
+		ObjectFreeze: <T>(value: T) => Readonly<T>;
+	};
 	export const core: {
 		/** Evaluates a lazily loaded extension script once and returns its exports. */
 		loadExtScript: (specifier: string) => any;
@@ -16,4 +22,5 @@ declare module 'ext:core/ops' {
 	export const op_gro_color: (stderr: boolean) => boolean;
 	export const op_gro_console_stderr: () => boolean;
 	export const op_gro_deny: () => boolean;
+	export const op_gro_process_args: () => Array<string>;
 }

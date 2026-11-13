@@ -49,6 +49,15 @@ and no signal outside it, nor a resource limit, priority, or scheduling set at a
 The first built part of the [kernel backstop](#kernel-backstop) ([eval](eval.md#the-box)).
 The box for runs and their children is designed ([backstop](backstop.md#the-box-for-runs-and-children)).
 
+## builtin module
+
+A [host module](#host-modules) the runtime implements itself, named by a bare specifier in the binary's builtin table,
+like `@fuzdev/gro/process.ts`, the one on `fgro` so far.
+It resolves ahead of package lookup to its `builtin:` URL, which imports nothing when written as is,
+and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links.
+Not a builtin task, which Gro's CLI runs by name.
+[resolver](resolver.md#builtin-modules) has the rules.
+
 ## composition root
 
 The module where capabilities enter a program and get handed down,

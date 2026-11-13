@@ -81,7 +81,7 @@ fn run_help() -> String {
         "  file              the module to run: a path relative to the working directory,",
         "                    or absolute",
         "  args              the script's arguments, every one after the file as written,",
-        "                    flags and `--` included (the script can't read them yet)",
+        "                    flags and `--` included, read as `process.args`",
         "",
         "Options:",
         "  --help, help      display usage information",
@@ -413,7 +413,7 @@ Positional Arguments:
   file              the module to run: a path relative to the working directory,
                     or absolute
   args              the script's arguments, every one after the file as written,
-                    flags and `--` included (the script can't read them yet)
+                    flags and `--` included, read as `process.args`
 
 Options:
   --help, help      display usage information";

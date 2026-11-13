@@ -267,6 +267,10 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
     }
     let mut modules = Vec::with_capacity(graph.records().len());
     for (url, record) in graph.records() {
+        // eval grants no builtin, so its loader records none
+        let Some(record) = record.module() else {
+            return Err(DumpError::NotAPath(url.clone()));
+        };
         let mut imports = imports.remove(url).unwrap_or_default();
         imports.sort_by(|a, b| {
             (&a.specifier, a.reach, &a.resolved).cmp(&(&b.specifier, b.reach, &b.resolved))
@@ -456,7 +460,11 @@ mod tests {
         load(&mut graph, &entry.url);
         for (importer, specifier) in imports {
             let importer = Url::from_file_path(format!("{base}/{importer}")).unwrap();
-            let resolution = graph.resolve(&tree, specifier, &importer).unwrap().unwrap();
+            let resolver::Resolved::Module(resolution) =
+                graph.resolve(&tree, specifier, &importer).unwrap().unwrap()
+            else {
+                panic!("{specifier} is a builtin");
+            };
             graph.consult(resolution.files_consulted.iter().cloned());
             graph.admit(&resolution).unwrap();
             graph.link(&importer, specifier, Reach::Static, &resolution.url);

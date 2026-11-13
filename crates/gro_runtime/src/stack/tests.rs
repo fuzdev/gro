@@ -14,7 +14,7 @@ use crate::engine::{EngineOptions, init_engine};
 use crate::loader::Loader;
 use crate::loader::graph::Recording;
 use crate::resolver::{DiskTree, resolve_entry};
-use crate::runtime::start_runtime;
+use crate::runtime::{HostState, start_runtime};
 use crate::test_support::TestDir;
 use crate::{ConsoleOptions, STACK_SIZE};
 
@@ -179,7 +179,13 @@ fn on_cases<T: Send + 'static>(
                 .build()
                 .unwrap();
             tokio.block_on(async {
-                let mut runtime = start_runtime(None, ConsoleOptions::default(), loader).unwrap();
+                let mut runtime = start_runtime(
+                    None,
+                    ConsoleOptions::default(),
+                    HostState::default(),
+                    loader,
+                )
+                .unwrap();
                 let id = runtime.load_main_es_module(&url).await.unwrap();
                 let evaluation = runtime.mod_evaluate(id);
                 runtime

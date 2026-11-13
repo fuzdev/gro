@@ -1,5 +1,6 @@
-//! Tests for running an entry: the `ext:` specifiers refused to user code, then the
-//! graph a run records (`graph`).
+//! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
+//! user code, then the graph a run records (`graph`) and the builtins
+//! (`builtins`).
 
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ use crate::engine::{EngineOptions, init_engine};
 use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
+mod builtins;
 mod graph;
 
 /// The modules `deno_core` provides itself, which it doesn't list publicly
@@ -32,7 +34,8 @@ const UNLINKED_SPECIFIERS: [&str; 1] = ["ext:deno_net/03_quic.js"];
 
 /// Every `ext:` specifier this build knows: `deno_core`'s own, and each
 /// module, script, lazy module, and synthetic module the extensions
-/// declare, the ones [`bootstrap::extensions`] drops included.
+/// declare, the ones [`bootstrap::extensions`] drops included, with the
+/// synthetic modules' names, the builtins' `builtin:` URLs.
 fn ext_specifiers() -> Vec<String> {
     let mut specifiers: Vec<String> = DENO_CORE_SPECIFIERS
         .iter()
@@ -74,11 +77,13 @@ fn run_source(name: &str, source: &str) -> Result<(), RunError> {
         .unwrap()
 }
 
-/// The refusal the resolver gives every `ext:` specifier.
+/// The refusal the resolver gives every `ext:` and `builtin:` specifier:
+/// its scheme isn't supported.
 fn refusal(specifier: &str) -> [String; 2] {
+    let scheme = specifier.split_once(':').map_or("", |(scheme, _)| scheme);
     [
         format!("cannot resolve '{specifier}'"),
-        "the scheme 'ext:' is not supported".to_owned(),
+        format!("the scheme '{scheme}:' is not supported"),
     ]
 }
 
@@ -93,6 +98,10 @@ fn the_ext_specifiers_include_the_ones_that_reached_user_code() {
         "ext:deno_web/01_console.js",
         "ext:deno_webidl/00_webidl.js",
         "ext:gro/bootstrap.js",
+        "ext:gro/process.ts",
+        "ext:gro/internal/records.ts",
+        "builtin:@fuzdev/gro/process.ts",
+        "ext:gro/builtin/@fuzdev/gro/process.ts.js",
     ] {
         assert!(
             specifiers.iter().any(|specifier| specifier == known),
@@ -119,8 +128,8 @@ fn a_static_import_of_every_ext_specifier_is_refused() {
     }
 }
 
-/// `import()` and `import.meta.resolve` of any `ext:` module throw the
-/// resolver's refusal, a `TypeError`.
+/// `import()` and `import.meta.resolve` of any `ext:` module or `builtin:`
+/// URL throw the resolver's refusal, a `TypeError`.
 #[test]
 fn a_dynamic_import_and_import_meta_resolve_of_every_ext_specifier_are_refused() {
     let specifiers = ext_specifiers();
@@ -133,7 +142,7 @@ const check = (form, specifier, error) => {{
 \tif (
 \t\t!(error instanceof TypeError) ||
 \t\t!message.includes(`cannot resolve '${{specifier}}'`) ||
-\t\t!message.includes(\"the scheme 'ext:' is not supported\")
+\t\t!message.includes(`the scheme '${{specifier.split(':')[0]}}:' is not supported`)
 \t) {{
 \t\tfailures.push(`${{form}} ${{specifier}}: ${{error}}`);
 \t}}

@@ -26,7 +26,6 @@ pub enum Origin {
         /// as with a symlinked path dependency.
         linked: bool,
     },
-    // TODO: `Builtin` joins with the builtin modules
 }
 
 /// A directory whose modules share an origin: the project's root, or a

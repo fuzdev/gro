@@ -42,8 +42,9 @@ against the extracted `.crate`.
 
 The patch makes a V8 startup snapshot a function of its inputs: the same
 sources make the same blob, byte for byte, in every process and checkout. It
-also turns off source maps and makes one internal key public for gro's
-prepare-stack-trace callback (the sections after the snapshot's).
+also turns off source maps, makes one internal key public for gro's
+prepare-stack-trace callback, and refuses a source-phase import of a
+synthetic module (the sections after the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -113,6 +114,21 @@ symbol.
 - `error.rs`, `call_site_evals_key`: `pub`, was `pub(crate)`
 
 Reportable upstream: yes, for embedders that set their own callback.
+
+### A source-phase import of a synthetic module
+
+A synthetic module (an extension's `synthetic_esm_modules` facade, which
+`deno_core` builds from its backing script's exports) has no source, and its
+load skipped the check that refuses a source-phase import of a JavaScript
+module. `import.source` of one then reached the `expect` that reads the
+module's source and panicked, aborting the process.
+
+- `modules/recursive_load.rs`, `RecursiveModuleLoad::register_and_recurse_impl`:
+  a source-phase request for a synthetic module is refused with a
+  `ReferenceError`, as one for a JavaScript module is, before the module is
+  built
+
+Reportable upstream: yes, as a panic reachable from JS.
 
 ## Upgrading a vendored crate
 

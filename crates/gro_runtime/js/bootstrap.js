@@ -14,8 +14,17 @@
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
-import { core } from 'ext:core/mod.js';
+import { core, internals, primordials } from 'ext:core/mod.js';
 import { op_gro_color, op_gro_console_stderr, op_gro_deny } from 'ext:core/ops';
+import { create_process_namespace } from 'ext:gro/process.ts';
+
+// Each builtin's factory by its specifier, which its backing script calls the first time
+// a run imports it (the template is in `bootstrap.rs`). On `internals`, so only
+// extension code reaches them, and frozen, so none is replaced.
+/** @type {any} */ (internals).gro_builtins = primordials.ObjectFreeze({
+	__proto__: null,
+	'@fuzdev/gro/process.ts': create_process_namespace
+});
 
 const load = core.loadExtScript;
 

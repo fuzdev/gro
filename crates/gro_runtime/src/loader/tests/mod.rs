@@ -13,6 +13,7 @@ use crate::resolver::{self, Entry, FileId, ModuleFormat};
 use crate::test_support::TestDir;
 
 mod boxed;
+mod builtins;
 mod identity;
 mod recording;
 mod roots;

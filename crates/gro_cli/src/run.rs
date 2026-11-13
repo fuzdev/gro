@@ -1,10 +1,10 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
 //! drains, returning a failure as a `CliError`.
 
-use gro_runtime::RuntimeOptions;
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
+use gro_runtime::{Authority, Grants, ProcessGrant, RuntimeOptions};
 
 use crate::cli::RunInvocation;
 use crate::color;
@@ -28,13 +28,17 @@ pub fn run_module(run: &RunInvocation) -> Result<(), CliError> {
     Ok(())
 }
 
-/// The options `run`'s runtime starts with.
+/// The options `run`'s runtime starts with: the project's own modules
+/// granted the process host module, which reads only the script's
+/// arguments so far.
 fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     RuntimeOptions {
+        authority: Authority::Confined(Grants {
+            process: Some(ProcessGrant {}),
+        }),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
         args: run.args.clone(),
-        ..RuntimeOptions::default()
     }
 }
 
@@ -66,5 +70,19 @@ mod tests {
             panic!("runs a.js");
         };
         assert!(runtime_options(&run).args.is_empty());
+    }
+
+    /// `run` grants the process host module, and only it.
+    #[test]
+    fn the_run_grants_process() {
+        let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
+            panic!("runs a.js");
+        };
+        assert_eq!(
+            runtime_options(&run).authority,
+            gro_runtime::Authority::Confined(gro_runtime::Grants {
+                process: Some(gro_runtime::ProcessGrant {}),
+            })
+        );
     }
 }

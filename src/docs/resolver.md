@@ -4,14 +4,15 @@
 > packages by `"exports"` only, and the deliberate departures from Node's algorithm
 
 > **status**: built for relative, absolute, and bare specifiers through `"exports"`,
-> with every module contained in its project's or package's root;
+> with every module contained in its project's or package's root, and for the builtin modules;
 > `"imports"` for `#` subpaths comes later.
 
 The runtime resolves modules with its own strict algorithm, not Node's.
 Bridging on the legacy algorithm would let code work on Gro by accident of legacy resolution
 and break when the bridge is removed, and the strict subset is small enough that a bridge saves little.
 It's written once in `gro_runtime` as a pure module with no engine types:
-it reads only through a source-tree trait and returns the resolved URL, the file's identity,
+it reads only through a source-tree trait and returns a builtin module or a module on disk:
+the resolved URL, the file's identity,
 the root the module is inside and its origin (project or package), and the `package.json` files it consulted,
 so a test can drive it without V8, and other tools could reuse it once its roots can be built outside the crate.
 The module loader owns the roots a graph has admitted and passes them in;
@@ -42,14 +43,35 @@ A linked package's real path has no `node_modules` in it, so only its admission 
   and `"imports"` for `#` subpaths (not built yet).
   The package is found by self-reference or in `node_modules`, walking up from the importer's real path
   to its project root.
-- **Files on disk only.** No `https:`, `jsr:`, or `npm:` imports,
+- **Files on disk only,** but for the builtin modules. No `https:`, `jsr:`, or `npm:` imports,
   and Gro never pre-bundles a project's dependencies.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
   a CommonJS package or file, a `.js` file whose nearest `package.json` lacks `"type": "module"`,
-  schemes other than `file:` (the host's own `ext:` modules included), and the file types [typescript](typescript.md#file-types) lists
+  schemes other than `file:` (the host's own `ext:` modules and the builtin modules' `builtin:` URLs included), and the file types [typescript](typescript.md#file-types) lists
   (`.cts`, `.tsx`, declaration files, and Svelte modules).
   The fix for a package is a version with an ESM build,
   an ESM bundle of it vendored into the project, or running it on Node.
+
+## Builtin modules
+
+A bare specifier in the builtin table names a [builtin module](glossary.md#builtin-module), a host module the binary implements:
+today `@fuzdev/gro/process.ts` alone ([host modules](host_modules.md#process-on-fgro)).
+The table is checked before any package lookup, matching the specifier exactly,
+so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
+another spelling, like `@fuzdev/gro/process.js`, is a package specifier like any other.
+A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/process.ts`),
+with no file, root, or origin, and it imports nothing.
+That scheme is refused like every other but `file:`, so only the table's specifier reaches a builtin module.
+
+Whether an importer may import one is the loader's, checked when the graph links,
+for a static import and `import()` alike:
+the run must hold the module's grant, when it needs one, and only the project's own modules are granted one,
+so a module of an installed or linked package is refused, the message naming the grant and the package.
+`fgro run` grants `process`, and `fgro eval` grants nothing ([eval](eval.md)).
+`import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
+A static import of one with any import attribute (`with {type: 'json'}`, `with {x: 'y'}`) is refused before its grant is checked,
+where a file's import is refused only a `type`; an `import()`'s attributes don't reach the loader, so they aren't refused yet,
+and a source-phase import of one (`import source`, `import.source()`) is refused, since a builtin module has no source.
 
 ## Departures from Node
 

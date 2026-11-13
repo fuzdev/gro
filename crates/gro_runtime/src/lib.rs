@@ -19,8 +19,12 @@
 //!   modules, the files consulted, and what failed
 //! - `bootstrap`: the extension that installs the pure web globals from
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
-//!   `AbortController`, `performance`, and the rest) and removes `Deno` and
+//!   `AbortController`, `performance`, and the rest), serves the builtins
+//!   (the host modules the runtime implements, each a synthetic module over
+//!   TypeScript evaluated in the snapshot), and removes `Deno` and
 //!   `__bootstrap` from the global object
+//! - `host`: the host ops, the native half of the builtins, each declared
+//!   through the one choke point that checks the run's [`Grants`] first
 //! - `stack`: an error's stack, with V8's detailed capture for uncaught
 //!   exceptions off, and its `.stack` text formatted as `deno_core` formats
 //!   it by a cheaper callback, with no source map applied (the vendored
@@ -65,6 +69,7 @@ mod bootstrap;
 pub mod confine;
 pub mod engine;
 pub mod eval;
+mod host;
 mod loader;
 pub mod phases;
 pub mod prices;
@@ -79,6 +84,7 @@ mod stack;
 #[cfg(test)]
 mod test_support;
 
+use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
 pub use crate::run::{RunError, StartError, run_main};
@@ -99,9 +105,9 @@ pub fn v8_version() -> &'static str {
 /// How a runtime is constructed.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeOptions {
-    /// The authority the runtime's code holds. Empty by default, the only
-    /// value today.
-    pub grants: Grants,
+    /// The authority the runtime's code holds: confined, granting nothing,
+    /// by default.
+    pub authority: Authority,
     /// The snapshot to start from, made by [`snapshot::make_snapshot`] from
     /// this same build. Without one, the runtime evaluates its extensions'
     /// sources at startup.
@@ -109,8 +115,8 @@ pub struct RuntimeOptions {
     /// Where the console writes and whether it colors.
     pub console: ConsoleOptions,
     /// The script's arguments, every one after the entry on the command
-    /// line, as written: data, not authority. Nothing in the runtime reads
-    /// them yet, so no script can.
+    /// line, as written: data, not authority. A script reads them as the
+    /// process builtin's `process.args`, which needs the `process` grant.
     pub args: Vec<String>,
 }
 
@@ -141,7 +147,47 @@ pub enum ConsoleRouting {
     Stderr,
 }
 
-/// The grant set: what the runtime's code may reach beyond pure computation.
-/// Nothing can be granted yet, so it has no fields.
-#[derive(Debug, Clone, Default)]
-pub struct Grants {}
+/// The authority a run's code holds: which builtin modules its modules may
+/// import, and so which host ops can run.
+///
+/// Grants are per run: they go into the loader and the runtime's `OpState`
+/// when it starts, never into the snapshot or the extension list. Eval's
+/// runtime is started with none at all, not with an empty set: its start
+/// takes no authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Authority {
+    /// The grants given, to the project's own modules only: a module of an
+    /// installed or linked package is refused every builtin that needs a
+    /// grant.
+    // TODO: the unconfined run joins as a variant of its own, with its flag
+    Confined(Grants),
+}
+
+impl Default for Authority {
+    /// Confined, with nothing granted.
+    fn default() -> Self {
+        Self::Confined(Grants::default())
+    }
+}
+
+/// The grant set: what the runtime's code may reach beyond pure computation,
+/// each host module's grant `None` when it isn't granted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Grants {
+    /// The process host module's.
+    pub process: Option<ProcessGrant>,
+}
+
+impl Grants {
+    /// Whether `capability` is granted.
+    pub const fn holds(&self, capability: Capability) -> bool {
+        match capability {
+            Capability::Process => self.process.is_some(),
+        }
+    }
+}
+
+/// The process host module's grant. What it reads today, the script's
+/// arguments, is data, so it scopes nothing yet.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProcessGrant {}

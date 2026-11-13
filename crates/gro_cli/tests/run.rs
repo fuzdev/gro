@@ -1698,6 +1698,66 @@ fn arguments_after_the_file_are_the_script_s() {
     }
 }
 
+/// The script reads its arguments as `process.args`, exactly as given:
+/// none, several, ones spelled like flags, empty, and non-ASCII.
+#[test]
+fn the_script_reads_its_arguments_from_process() {
+    for args in [
+        &[][..],
+        &["a", "b c", "d"],
+        &["--help", "-A", "--", "--allow-env=A", "-"],
+        &["", " ", ""],
+        &["\u{e9}", "\u{1f600}", "\u{65e5}\u{672c}"],
+    ] {
+        let output = fgro(&[&["run", "process_args.js"][..], args].concat());
+        assert_eq!(output.status.code(), Some(0), "{args:?}: {output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            format!("{}\n", serde_json::to_string(args).unwrap()),
+            "{args:?}"
+        );
+    }
+}
+
+/// A package's module is refused `process`, the message naming the
+/// package, while the project imports it in the same run.
+#[test]
+fn a_package_is_refused_process_while_the_project_imports_it() {
+    let fixtures = temp_fixtures(
+        "process_package",
+        &[
+            ("package.json", r#"{"name": "app", "type": "module"}"#),
+            (
+                "node_modules/dep/package.json",
+                r#"{"name": "dep", "type": "module", "exports": "./index.js"}"#,
+            ),
+            (
+                "node_modules/dep/index.js",
+                "export const load = () => import('@fuzdev/gro/process.ts');\n",
+            ),
+            (
+                "main.js",
+                "import { process } from '@fuzdev/gro/process.ts';\n\
+                 import { load } from 'dep';\n\
+                 console.log(JSON.stringify(process.args));\n\
+                 await load().catch((error) => console.log(error instanceof TypeError, error.message));\n\
+                 console.log(import.meta.resolve('@fuzdev/gro/process.ts'));\n",
+            ),
+        ],
+    );
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        format!(
+            "[]\ntrue cannot import '@fuzdev/gro/process.ts' from file://{}/node_modules/dep/index.js: \
+             it needs the grant 'process', which package 'dep' isn't granted: only the project's \
+             own modules are granted host modules\nbuiltin:@fuzdev/gro/process.ts\n",
+            fixtures.0.display()
+        )
+    );
+}
+
 /// An argument that isn't UTF-8 is refused before anything runs, the file or
 /// one of the script's.
 #[cfg(unix)]

@@ -8,9 +8,13 @@
 //! scripts: the `deno_web` and `deno_webidl` scripts that load on demand and
 //! weren't loaded while the snapshot was made. The snapshot holds no copy of
 //! those, so the binary that starts from it embeds them as a table
-//! ([`StartupSnapshot`]); the rest of the extensions' JS lives only in the
-//! snapshot. The extension list declares no lazy ES modules (see
-//! `bootstrap::extensions`), so there is no table of those.
+//! ([`StartupSnapshot`]). gro's own lazy scripts, the builtins' backing
+//! scripts, are embedded in the binary by the bootstrap and registered at
+//! every start, so they aren't residual either; the rest of the extensions'
+//! JS lives only in the snapshot. The extension list declares no lazy ES
+//! modules (see `bootstrap::extensions`), so there is no table of those.
+//! The builtins' TypeScript is stripped here, once
+//! (`bootstrap::transpile`).
 //!
 //! [`Snapshot::write_to`] writes a made snapshot as the two files the binary
 //! embeds, `snapshot.bin` and `residual.rs`.
@@ -18,9 +22,10 @@
 use std::fmt;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot};
-use deno_core::{Extension, ExtensionFileSourceCode};
+use deno_core::{Extension, ExtensionFileSourceCode, ModuleCodeString, ModuleName};
 
 use crate::bootstrap::{self, Ops};
 use crate::engine::Engine;
@@ -184,7 +189,10 @@ pub fn make_snapshot(_engine: Engine) -> Result<Snapshot, SnapshotError> {
             startup_snapshot: None,
             skip_op_registration: false,
             extensions: bootstrap::extensions(Ops::Kept),
-            extension_transpiler: None,
+            // the builtins' TypeScript, stripped once here
+            extension_transpiler: Some(Rc::new(|name: ModuleName, code: ModuleCodeString| {
+                bootstrap::transpile(&name, code)
+            })),
             with_runtime_cb: None,
         },
         None,

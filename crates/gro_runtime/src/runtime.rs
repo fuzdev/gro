@@ -3,17 +3,18 @@
 
 use std::rc::Rc;
 
-use deno_core::{JsRuntime, v8};
+use deno_core::{JsRuntime, ModuleCodeString, ModuleName, v8};
 use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
+use crate::host::ScriptArgs;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
 use crate::report::{report, report_js};
 use crate::snapshot::StartupSnapshot;
 use crate::stack;
-use crate::{ConsoleOptions, eval};
+use crate::{Authority, ConsoleOptions, eval};
 
 /// What kind of runtime to build: `fgro run`'s, or eval's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,24 +28,42 @@ pub enum Mode {
     Eval,
 }
 
+/// What `fgro run`'s host ops read, put in the runtime's `OpState` before
+/// anything runs: the run's authority, which every host op checks first,
+/// and the script's arguments. The default grants nothing.
+#[derive(Debug, Clone, Default)]
+pub struct HostState {
+    /// The run's authority.
+    pub authority: Authority,
+    /// The script's arguments.
+    pub args: Vec<String>,
+}
+
 /// Starts `fgro run`'s runtime over `loader` from `snapshot` when there is
-/// one, and runs the bootstrap's per-run steps with the console as
-/// `console` says, returning the report of what failed when either fails.
-/// Must run inside a tokio runtime, which `deno_core` drives its event loop
-/// with.
+/// one, its host ops holding `host`, and runs the bootstrap's per-run steps
+/// with the console as `console` says, returning the report of what failed
+/// when either fails. Must run inside a tokio runtime, which `deno_core`
+/// drives its event loop with.
 pub fn start_runtime(
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
+    host: HostState,
     loader: Rc<Loader>,
 ) -> Result<JsRuntime, String> {
     let runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
+    let HostState { authority, args } = host;
+    let state = runtime.op_state();
+    state.borrow_mut().put(authority);
+    state.borrow_mut().put(ScriptArgs(args));
+    drop(state);
     start(runtime, console, Mode::Run)
 }
 
 /// Starts eval's runtime as [`start_runtime`] starts `fgro run`'s, built as
 /// [`Mode::Eval`] says, its array buffers allocated by an allocator that
 /// records whether its latest allocation failed, returned with the
-/// runtime.
+/// runtime. It takes no authority: eval's host ops find none, so every one
+/// refuses.
 pub fn start_eval_runtime(
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
@@ -105,6 +124,15 @@ fn new_runtime(
                 Ops::Kept
             },
         ),
+        // the builtins' TypeScript is stripped when the snapshot is made, so
+        // only a start from source strips it
+        extension_transpiler: if snapshot.is_none() {
+            Some(Rc::new(|name: ModuleName, code: ModuleCodeString| {
+                bootstrap::transpile(&name, code)
+            }))
+        } else {
+            None
+        },
         startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
         residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
         create_params,
@@ -124,8 +152,11 @@ mod tests {
     use crate::STACK_SIZE;
     use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
+    use crate::host::HOST_OPS;
     use crate::loader::graph::Recording;
+    use crate::resolver::BUILTINS;
     use crate::test_support::TestDir;
+    use crate::{Grants, ProcessGrant};
 
     /// Runs `test` on a runtime built as `mode` says, from source, before
     /// the bootstrap's per-run steps, so `Deno.core.ops` is still there, on
@@ -200,6 +231,132 @@ mod tests {
         for name in run.iter().filter(|name| name.starts_with("op_blob_")) {
             assert!(bootstrap::REFUSED_OPS.contains(&name.as_str()), "{name}");
         }
+    }
+
+    /// The choke point by registration: the ops gro's extension registers,
+    /// whatever their names, are exactly the bootstrap's ungated list and
+    /// the host ops, declared through `host_ops!`, each once and on one list
+    /// only, and the extension registers no op on an object. A hand-written
+    /// op added to the extension fails here until it's declared as a host op
+    /// or listed as ungated. Each is registered in the runtime as well.
+    #[test]
+    fn every_op_of_gro_s_extension_is_ungated_or_a_host_op() {
+        let extension = bootstrap::gro::init();
+        let mut registered: Vec<&str> = extension.ops.iter().map(|op| op.name).collect();
+        registered.sort_unstable();
+        let mut declared: Vec<&str> = bootstrap::UNGATED_OPS
+            .iter()
+            .chain(HOST_OPS)
+            .copied()
+            .collect();
+        declared.sort_unstable();
+        assert_eq!(registered, declared);
+        let mut unique = declared.clone();
+        unique.dedup();
+        assert_eq!(unique, declared, "an op is listed twice");
+        assert!(extension.objects.is_empty(), "an op on an object");
+        let names = on_new_runtime("gro_ops", Mode::Run, |runtime| -> Vec<String> {
+            runtime
+                .op_names()
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect()
+        });
+        for name in declared {
+            assert!(names.iter().any(|registered| registered == name), "{name}");
+        }
+    }
+
+    /// The bootstrap's factories (`gro_builtins` on `internals`, keyed by
+    /// specifier in `js/bootstrap.js`) are exactly the builtin table's, in
+    /// its order, each a function: the table is the one source of the
+    /// builtins, and a key it lacks or misspells would leave its backing
+    /// script calling nothing.
+    #[test]
+    fn the_bootstrap_s_factories_are_the_builtin_table_s() {
+        let keys = on_new_runtime("builtin_factories", Mode::Run, |runtime| -> Vec<String> {
+            let value = runtime
+                .execute_script(
+                    "<test>",
+                    "const builtins = globalThis.__bootstrap.internals.gro_builtins;
+JSON.stringify(Object.isFrozen(builtins) && Object.getPrototypeOf(builtins) === null
+\t? Object.keys(builtins).filter((key) => typeof builtins[key] === 'function')
+\t: null)",
+                )
+                .unwrap();
+            deno_core::scope!(scope, runtime);
+            let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
+            serde_json::from_str(&json).unwrap()
+        });
+        let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
+        assert_eq!(keys, specifiers);
+    }
+
+    /// Calls every host op through `Deno.core.ops`, before the start
+    /// removes it, on a runtime built as `mode` says whose `OpState` holds
+    /// `authority` (none at all when unset, as eval's) and the script's
+    /// arguments `["a"]`, returning each op's result as JSON or what it
+    /// threw. Each op is called with no argument: a host op that takes one
+    /// needs a sample here, or its argument's conversion throws before
+    /// `require` and the refusal test fails for the wrong reason.
+    fn call_host_ops(name: &str, mode: Mode, authority: Option<Authority>) -> serde_json::Value {
+        let source = format!(
+            "const results = {{}};
+for (const name of {}) {{
+\ttry {{
+\t\tresults[name] = JSON.stringify(Deno.core.ops[name]());
+\t}} catch (error) {{
+\t\tresults[name] = `${{error.constructor.name}}: ${{error.message}}`;
+\t}}
+}}
+JSON.stringify(results)",
+            serde_json::to_string(HOST_OPS).unwrap()
+        );
+        on_new_runtime(name, mode, move |runtime| {
+            let state = runtime.op_state();
+            if let Some(authority) = authority {
+                state.borrow_mut().put(authority);
+            }
+            state.borrow_mut().put(ScriptArgs(vec!["a".to_owned()]));
+            drop(state);
+            let value = runtime.execute_script("<test>", source).unwrap();
+            deno_core::scope!(scope, runtime);
+            let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
+            serde_json::from_str(&json).unwrap()
+        })
+    }
+
+    /// The choke point by behavior: every host op, called by a runtime that
+    /// holds no authority (eval's) or one granting nothing, in either mode,
+    /// throws `not_granted` naming itself and the grant before its body
+    /// runs. A body that skips `require` returns its data here instead.
+    #[test]
+    fn every_host_op_refuses_without_its_grant() {
+        for (case, mode, authority) in [
+            ("host_none_eval", Mode::Eval, None),
+            ("host_none_run", Mode::Run, None),
+            ("host_empty_run", Mode::Run, Some(Authority::default())),
+        ] {
+            let results = call_host_ops(case, mode, authority);
+            for name in HOST_OPS {
+                let result = results[name].as_str().unwrap_or_default();
+                assert!(
+                    result.starts_with(&format!("Error: not_granted: {name} needs the grant '")),
+                    "{case}: {name}: {result}"
+                );
+            }
+        }
+    }
+
+    /// Granted, the process op returns the script's arguments, so the
+    /// refusals above are the grant's doing.
+    #[test]
+    fn a_granted_host_op_runs() {
+        let granted = Authority::Confined(Grants {
+            process: Some(ProcessGrant {}),
+        });
+        let results = call_host_ops("host_granted", Mode::Run, Some(granted));
+        assert_eq!(results["op_gro_process_args"], r#"["a"]"#);
     }
 
     /// In an eval runtime, each refused op throws the refusal, whatever it's
