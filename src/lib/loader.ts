@@ -41,10 +41,11 @@ Usage via `run.task.ts`:
 gro run foo.ts
 ```
 
-Direct usage without register, the args `spawn_with_loader_args` in `gro_helpers.ts` builds:
+Direct usage without register, the args `spawn_with_loader_args` in `gro_helpers.ts` builds,
+which percent-encode the `data:` URL's source and register the loader by its file URL:
 
 ```bash
-node --import 'data:text/javascript,import {register} from "node:module"; import {pathToFileURL} from "node:url"; register("@fuzdev/gro/loader.js", pathToFileURL("./"));' --experimental-import-meta-resolve foo.ts
+node --import 'data:text/javascript,import%20%7Bregister%7D%20from%20%22node%3Amodule%22%3B%20register(%22file%3A%2F%2F%2Fpath%2Fto%2Fgro%2Floader.js%22)%3B' --experimental-import-meta-resolve foo.ts
 ```
 
 */

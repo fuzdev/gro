@@ -2,7 +2,7 @@
 import { realpathSync, existsSync } from 'node:fs';
 import { constants } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import type { SpawnProgram, SpawnResult } from './spawn.ts';
@@ -89,11 +89,10 @@ export const spawn_with_loader_args = (
 ): Array<string> => {
 	const args = [
 		'--import',
-		// This does the same as `register.ts` but without the cost of importing another file.
-		`data:text/javascript,
-			import {register} from "node:module";
-			import {pathToFileURL} from "node:url";
-			register("${loader_path}", pathToFileURL("./"));`,
+		// does what `register.ts` does without importing another file; the source is encoded,
+		// and the loader registered by its file URL, so URL or JS string syntax in its path is data,
+		// though Node's resolver refuses a `\` in it, which the file URL encodes
+		to_register_loader_url(loader_path),
 		// @sync Node options to `gro.ts`
 		'--experimental-import-meta-resolve' // for `import.meta.resolve`
 	];
@@ -104,3 +103,10 @@ export const spawn_with_loader_args = (
 	args.push(invoke_path, ...argv);
 	return args;
 };
+
+// the `data:` URL of a module that registers the loader at `loader_path`, for `--import`
+const to_register_loader_url = (loader_path: string): string =>
+	'data:text/javascript,' +
+	encodeURIComponent(
+		`import {register} from "node:module"; register(${JSON.stringify(pathToFileURL(loader_path).href)});`
+	);

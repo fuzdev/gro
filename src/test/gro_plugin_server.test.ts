@@ -73,7 +73,7 @@ describe('gro_plugin_server', () => {
 			env: { NODE_ENV: 'development', PORT: '4242' }
 		});
 		expect(call!.args.at(-1)).toBe(ENTRY);
-		expect(call!.args.join(' ')).toContain('register("/gro/loader.js"');
+		expect(decodeURIComponent(call!.args.join(' '))).toContain('register("file:///gro/loader.js")');
 		expect(call!.args).toContain('development');
 		await plugin.teardown!(to_ctx());
 	});

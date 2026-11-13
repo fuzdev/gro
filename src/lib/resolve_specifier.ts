@@ -36,6 +36,14 @@ const DIRECTORY_LIKE_MATCHER = /(^|\/)\.{0,2}$/;
 
 const PATH_SPECIFIER_MATCHER = /^(\.\.?(\/|$)|\/)/;
 
+// Node reads a specifier as a URL, where a leading '//' names a host, so it's no path
+const names_url_host = (specifier: string): boolean => specifier.startsWith('//');
+
+const URL_HOST_REFUSAL: Refusal = {
+	reason: "a leading '//' names a URL host, not a path; write a single '/'",
+	code: 'ERR_MODULE_NOT_FOUND'
+};
+
 /**
  * Whether an import `specifier` is a path, relative or absolute,
  * as Node reads one: `./`, `../`, or `/` starting it, or exactly `.` or `..`.
@@ -77,13 +85,7 @@ export const resolve_specifier = (specifier: string, importer: PathId): Resolved
 
 	let refusal: Refusal | null;
 	try {
-		// Node reads a specifier as a URL, where a leading '//' names a host
-		refusal = final_specifier.startsWith('//')
-			? {
-					reason: "a leading '//' names a URL host, not a path; write a single '/'",
-					code: 'ERR_MODULE_NOT_FOUND'
-				}
-			: to_refusal(path_id, specifier);
+		refusal = to_refusal(path_id, specifier);
 	} catch (error) {
 		throw new Error(`cannot resolve '${specifier}' from ${importer}: ${to_error_message(error)}`, {
 			cause: error
@@ -110,12 +112,14 @@ interface Refusal {
 }
 
 /**
- * Why `path_id` doesn't load, or `null` when it names a file.
+ * Why `path_id` doesn't load, or `null` when it names a file,
+ * a `specifier` naming a URL host refused before the path is read.
  * The sibling checks run only after the exact path fails,
  * to name the fix - resolution itself never probes.
  * @param specifier - the specifier as written, optionally ending in `?raw`, which the named fix keeps
  */
 const to_refusal = (path_id: string, specifier: string): Refusal | null => {
+	if (names_url_host(specifier)) return URL_HOST_REFUSAL;
 	const stats = stat_or_null(path_id);
 	if (stats?.isFile()) return null;
 	const code = stats?.isDirectory() ? 'ERR_UNSUPPORTED_DIR_IMPORT' : 'ERR_MODULE_NOT_FOUND';
