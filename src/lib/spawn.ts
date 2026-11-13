@@ -812,22 +812,37 @@ const to_refused_extension_error = (name: string, path: string): SpawnError =>
 	);
 
 /**
- * Whether a `PATH` entry is a `node_modules/.bin` directory, by its spelling: its last two
- * segments are `node_modules` and `.bin` once empty and `.` segments are dropped and `..`
- * resolves lexically. No symlink is resolved, so an entry linking to such a directory is walked.
+ * A path's segments, resolved lexically: empty and `.` segments dropped, and each `..` removing
+ * the segment before it. Indexed rather than iterated, so no array iterator, `push`, or `pop` is
+ * called. Unlike fs's lexical step, which a walk of each component follows, nothing checks the
+ * result again, and a segment a patched `split` returns is taken as it is, the documented gap.
+ * @param climb - what a `..` with nothing before it does: `'clamp'` stays at the start,
+ * as `/..` is `/`, and `'refuse'` makes the result `null`
+ * @returns the segments, or `null` for a refused climb
  */
-const is_package_bin_entry = (entry: string): boolean => {
+const to_lexical_segments = (path: string, climb: 'clamp' | 'refuse'): Array<string> | null => {
 	const segments: Array<string> = [];
-	const parts = entry.split('/');
+	const parts = path.split('/');
 	for (let i = 0; i < parts.length; i++) {
 		const segment = parts[i]!;
 		if (segment === '' || segment === '.') continue;
 		if (segment === '..') {
 			if (segments.length > 0) segments.length -= 1;
+			else if (climb === 'refuse') return null;
 		} else {
 			segments[segments.length] = segment;
 		}
 	}
+	return segments;
+};
+
+/**
+ * Whether a `PATH` entry is a `node_modules/.bin` directory, by its spelling: its last two
+ * segments are `node_modules` and `.bin` once empty and `.` segments are dropped and `..`
+ * resolves lexically. No symlink is resolved, so an entry linking to such a directory is walked.
+ */
+const is_package_bin_entry = (entry: string): boolean => {
+	const segments = to_lexical_segments(entry, 'clamp')!;
 	const count = segments.length;
 	return count >= 2 && segments[count - 1] === '.bin' && segments[count - 2] === 'node_modules';
 };
@@ -875,23 +890,13 @@ const to_project_path = (name: string): string => {
 			`not_granted: ${name} is absolute, and a program name with / resolves beneath the project`
 		);
 	}
-	const segments: Array<string> = [];
-	const parts = name.split('/');
-	for (let i = 0; i < parts.length; i++) {
-		const segment = parts[i]!;
-		if (segment === '' || segment === '.') continue;
-		if (segment === '..') {
-			if (segments.length === 0) {
-				throw new SpawnError(
-					'not_granted',
-					name,
-					`not_granted: ${name} climbs above the project ${PROJECT_ROOT}`
-				);
-			}
-			segments.length -= 1;
-		} else {
-			segments[segments.length] = segment;
-		}
+	const segments = to_lexical_segments(name, 'refuse');
+	if (segments === null) {
+		throw new SpawnError(
+			'not_granted',
+			name,
+			`not_granted: ${name} climbs above the project ${PROJECT_ROOT}`
+		);
 	}
 	const prefix = PROJECT_ROOT === '/' ? '/' : PROJECT_ROOT + '/';
 	return prefix + segments.join('/');

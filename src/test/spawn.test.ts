@@ -400,6 +400,13 @@ describe('the PATH walk skips node_modules/.bin', () => {
 		}
 	});
 
+	test('an entry climbing above `/` stays at `/`, as the kernel resolves it, and is skipped', () => {
+		for (const entry of ['/..' + package_bin, '/../..' + package_bin, '/./..//' + package_bin]) {
+			process.env.PATH = [entry, bin].join(':');
+			assert.strictEqual(spawn.program('tool').path, join(bin, 'tool'), entry);
+		}
+	});
+
 	test('a program only in a `node_modules/.bin` entry is not found, never `not_executable`', () => {
 		write_script(join(package_bin, 'only_bin'), 'exit 0');
 		write_script(join(package_bin, 'plain'), 'exit 0', 0o644);
