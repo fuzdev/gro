@@ -169,6 +169,8 @@ const result = await check.closed;
   The interpreter opens `$0` by path after the exec, so a link retargeted before it does runs what it then leads to,
   and in that window whoever can write a directory on the found path can redirect a held handle,
   where a native binary is reached only through its pin's own path. A native binary runs at its pin, unchecked.
+  The interpreter a `#!` line names is never pinned or confined: the kernel finds it at each exec,
+  so a relative one resolves against the call's `cwd`, and a script beneath `program_in`'s handle can name one outside it.
   `name` and `path` are for display; the pin itself is private, and `path` is the real path for a script too.
 - A file is pinned only when its first bytes are a format the kernel runs, else it's `not_executable`,
   an empty file included, since on Linux `execvp` hands any other file the kernel won't run to `/bin/sh`.
@@ -258,6 +260,8 @@ const result = await check.closed;
   `PATH`, `HOME`, `TMPDIR`, and `TERM` when the host has them, `LC_ALL=C`, and the host's own
   `NO_COLOR` and `FORCE_COLOR`, then the names `pass_env` lists, then the values `env` gives.
   `pass_env` takes names and `PREFIX_*` globs; `*` alone is refused, since `'all'` says that out loud.
+  A glob forwards whatever the host has under its prefix, so `CARGO_*` forwards a `CARGO_TARGET_DIR` too,
+  which changes what `cargo` does, as an argument would.
   Environment options exist only on `program`, never per call,
   because a per-call `LD_PRELOAD` or `GIT_SSH_COMMAND` would turn a `git` handle into arbitrary execution.
   The set is fixed when the handle is made.
@@ -726,7 +730,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
   as for any fs op, and a native binary it pins runs by path, as above.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
-  or a `#!` line naming no interpreter, still reaches the Linux `/bin/sh` fallback of the `execvp` Node starts children with, and a Java class file passes on macOS, sharing the fat binary's magic.
+  or a `#!` line naming no interpreter or one too long for the kernel's buffer, still reaches the Linux `/bin/sh` fallback of the `execvp` Node starts children with, and a Java class file passes on macOS, sharing the fat binary's magic.
 - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`, since Node passes an empty signal name for one.
 - Intrinsics stay pollutable. The module copies at load the Node functions it calls,
   `Array.isArray`, `Number.isSafeInteger`, the `process` functions, the timers, and `Object`'s `assign`, `create`, `freeze`, `keys`, and `hasOwn`,

@@ -27,6 +27,9 @@
  * a link retargeted before the interpreter opens the script runs what it then leads to. In that window, whoever can write
  * a directory on the found path can redirect a held handle, where a native binary is reached
  * only through its pin's own path. A native binary runs at its pin, unchecked.
+ * The interpreter a `#!` line names is never pinned or confined: the kernel finds it at each
+ * exec, so a relative one resolves against the call's `cwd`, and a script beneath
+ * `program_in`'s handle can name one outside it.
  * A file this user can't read can't be told apart, so it's taken as native: an unreadable script
  * pins, and fails at each call when its interpreter can't open it.
  *
@@ -137,8 +140,9 @@
  * - Any module can import `node:child_process`, so a narrowed `spawn` bounds only code
  *   that uses it, a review signal, not a boundary.
  * - The refusal of files with no `#!` reads only the first bytes, so a file with a native magic
- *   the kernel won't load, or a `#!` line naming no interpreter, still reaches Linux's
- *   `/bin/sh` fallback, and a Java class file passes on macOS, sharing the fat binary's magic.
+ *   the kernel won't load, or a `#!` line naming no interpreter or one too long for the kernel's
+ *   buffer, still reaches Linux's `/bin/sh` fallback, and a Java class file passes on macOS,
+ *   sharing the fat binary's magic.
  * - A child killed by a real-time signal is reported as `{kind: 'exited', code: 0}`,
  *   since Node passes an empty signal name for one.
  * - Node copies a set `NODE_V8_COVERAGE` into every child's environment.
