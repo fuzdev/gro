@@ -7,7 +7,7 @@ use super::super::{RunError, run_recorded};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Record, Recording};
-use crate::resolver::{BUILTINS, Origin};
+use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
 use crate::test_support::TestDir;
 use crate::{Authority, Grants, ProcessGrant, RuntimeOptions, STACK_SIZE};
 
@@ -28,14 +28,31 @@ fn run_files(
     files: &[(&str, &str)],
     options: RuntimeOptions,
 ) -> (Result<(), RunError>, Graph) {
+    run_linked(name, files, &[], options)
+}
+
+/// Runs as [`run_files`] does, `files` replacing the default `package.json`
+/// when they hold one, with each of `links`, a path and its target, made a
+/// symlink.
+fn run_linked(
+    name: &str,
+    files: &[(&str, &str)],
+    links: &[(&str, &str)],
+    options: RuntimeOptions,
+) -> (Result<(), RunError>, Graph) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(&format!("builtin_{name}"));
     let dir = test_dir.path().to_owned();
     let package_json = [("package.json", r#"{"name": "fixture", "type": "module"}"#)];
-    for (file, content) in files.iter().chain(&package_json) {
+    for (file, content) in package_json.iter().chain(files) {
         let path = dir.join(file);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
+    }
+    for (link, target) in links {
+        let path = dir.join(link);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(target, path).unwrap();
     }
     let entry = dir.join("main.mjs");
     let (result, graph) = std::thread::Builder::new()
@@ -513,4 +530,122 @@ if (process.args[0] !== 'a') throw new Error('not imported');
     let (result, graph) = run_files("attributes_dynamic", &files, options);
     assert!(result.is_ok(), "{result:?}");
     assert_failures(&graph, "attribute.mjs", Reach::Dynamic, &refused);
+}
+
+/// The project, exporting `args.js`, which imports `process`, and linked
+/// into its own `node_modules` as `self`; and `pkg`, whose modules import
+/// `args.js` by that name: `hop.js` through `import()` and
+/// `import.meta.resolve`, `hopstatic.js` statically.
+const HOP: [(&str, &str); 5] = [
+    (
+        "package.json",
+        r#"{"name": "fixture", "type": "module", "exports": {"./args.js": "./args.js"}}"#,
+    ),
+    (
+        "args.js",
+        "import { process } from '@fuzdev/gro/process.ts';\nexport const args = process.args;\n",
+    ),
+    (
+        "node_modules/pkg/package.json",
+        r#"{"name": "pkg", "type": "module", "exports": {"./hop.js": "./hop.js", "./hopstatic.js": "./hopstatic.js"}}"#,
+    ),
+    (
+        "node_modules/pkg/hop.js",
+        "export const hop = () => import('self/args.js');\n\
+         export const where = () => import.meta.resolve('self/args.js');\n",
+    ),
+    (
+        "node_modules/pkg/hopstatic.js",
+        "import { args } from 'self/args.js';\nexport default args;\n",
+    ),
+];
+
+/// [`HOP`]'s link of the project into its own `node_modules`.
+const SELF_LINK: [(&str, &str); 1] = [("node_modules/self", "..")];
+
+/// Asserts `graph` recorded the refusal of `pkg`'s import of the project's
+/// `args.js` from `importer`, reached as `reached`.
+fn assert_project_refused(graph: &Graph, importer: &str, reached: Reached) {
+    let root = &graph.roots().project().dir;
+    let importer = url::Url::from_file_path(root.join(importer)).unwrap();
+    let failures: Vec<_> = graph
+        .failures()
+        .iter()
+        .filter(|(site, _)| {
+            site.specifier == "self/args.js"
+                && site.importer.as_deref() == Some(importer.as_str())
+                && site.reached == reached
+        })
+        .flat_map(|(_, failures)| failures)
+        .map(|failure| failure.reason.clone())
+        .collect();
+    assert_eq!(
+        failures,
+        [FailureReason::Resolve(
+            ResolveErrorKind::PackageImportsProject {
+                package: Box::from("pkg"),
+                path: root.join("args.js"),
+                project: root.clone(),
+            }
+        )],
+        "{:?}",
+        graph.failures()
+    );
+}
+
+/// A package's bare import of the project's own module, through the
+/// project linked into `node_modules`, is refused whatever the run grants,
+/// by `import()`, `import.meta.resolve`, and a static import, so the
+/// package never reaches the project's grant of `process` through it; the
+/// project imports the same module by that link and by self-reference.
+#[test]
+fn a_package_importing_the_project_by_name_is_refused() {
+    let main = "import { args } from 'self/args.js';
+import { args as own } from 'fixture/args.js';
+import { hop, where } from 'pkg/hop.js';
+if (args !== own || args[0] !== 'SECRET') throw new Error('the project lost it');
+for (const reach of [hop, where]) {
+\ttry {
+\t\tawait reach();
+\t\tthrow new Error('the package reached it');
+\t} catch (error) {
+\t\tif (!(error instanceof TypeError) || !error.message.includes(\"package 'pkg' imports it by name\")) throw error;
+\t}
+}
+";
+    let mut files = HOP.to_vec();
+    files.push(("main.mjs", main));
+    let options = RuntimeOptions {
+        authority: granted(),
+        args: vec!["SECRET".to_owned()],
+        ..RuntimeOptions::default()
+    };
+    let (result, graph) = run_linked("project_by_name", &files, &SELF_LINK, options.clone());
+    assert!(result.is_ok(), "{result:?}");
+    let hop = "node_modules/pkg/hop.js";
+    assert_project_refused(&graph, hop, Reached::Import(Reach::Dynamic));
+    assert_project_refused(&graph, hop, Reached::MetaResolve);
+
+    let mut files = HOP.to_vec();
+    files.push(("main.mjs", "import 'pkg/hopstatic.js';\n"));
+    let (result, graph) = run_linked("project_by_name_static", &files, &SELF_LINK, options);
+    let Err(RunError::Uncaught(report)) = result else {
+        panic!("{result:?}");
+    };
+    let root = graph.roots().project().dir.display().to_string();
+    assert!(
+        report.contains(&format!(
+            "cannot resolve 'self/args.js' from file://{root}/node_modules/pkg/hopstatic.js: \
+             package 'pkg' imports it by name, and it resolves to {root}/args.js, a module of the \
+             project at {root}: a package can't import the project's own modules by name"
+        )),
+        "{report}"
+    );
+    assert_project_refused(
+        &graph,
+        "node_modules/pkg/hopstatic.js",
+        Reached::Import(Reach::Static),
+    );
+    let url = url::Url::parse(BUILTINS[0].url).unwrap();
+    assert!(!graph.records().contains_key(&url));
 }

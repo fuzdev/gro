@@ -5,6 +5,7 @@ mod containment;
 mod exports;
 mod identity;
 mod packages;
+mod project_by_name;
 mod specifier;
 mod tree;
 mod walk;

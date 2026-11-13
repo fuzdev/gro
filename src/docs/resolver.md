@@ -69,6 +69,12 @@ the run must hold the module's grant, when it needs one, and for now only the pr
 so a module of an installed or linked package is refused, the message naming the grant and the package
 (but see [run](run.md#what-loads) for an `import()` in code compiled from a string);
 `-A` and an acceptance in the policy file are designed to lift that.
+A module of an installed or linked package can't import the project's own modules by name either, so it can't borrow a grant through one
+(a bare specifier is the only way across, since relative and absolute ones stay in their root):
+it's refused naming the package and the module, by a static import, `import()`, and `import.meta.resolve` alike.
+The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
+This refuses a workspace sibling or a tool package that imports the app by name;
+an acceptance in the policy file naming the package, or workspace support, is what will admit one.
 `fgro run` grants `process`, and `fgro eval` grants nothing ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 A static import of one with any import attribute (`with {type: 'json'}`, `with {x: 'y'}`) is refused before its grant is checked,
@@ -105,10 +111,9 @@ Where it departs, it departs on purpose, and always toward failing closed:
   so `import(import.meta.resolve('foo'))` for an installed `foo` is a path into `node_modules`, refused with the fix.
   Node allows every crossing, and each one bypasses the package's `"exports"`,
   the boundary a package declares and a grant decision reads its origin from.
-  A package's bare import that resolves into the project root is designed to be refused too (today it loads as the project's module),
-  since a bare specifier is the one way left for a package to reach the project and the grants its modules hold.
-  The project's own self-reference stays allowed, and the route to loosening the rule is
-  an acceptance in the policy file naming the package, or workspace support.
+  A package's bare import that resolves into the project root is refused too,
+  since a bare specifier is the one way left for a package to reach the project and the grants its modules hold
+  ([builtin modules](#builtin-modules)).
 - **The file loaded is the file resolved.**
   The resolver takes each module file's identity, its device and inode numbers and its birth time,
   when it looks the file up, reading them on the real path without following a symlink there.

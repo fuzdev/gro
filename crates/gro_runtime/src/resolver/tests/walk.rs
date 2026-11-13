@@ -62,7 +62,7 @@ fn the_search_ends_at_a_package_json_that_is_not_a_type_marker() {
          which ends the search, as every package.json outside node_modules does except one \
          holding nothing but \"type\" and \"sideEffects\", and the node_modules beside \
          /w/proj/package.json is not searched (npm and yarn workspaces, which install at \
-         their root, aren't supported). Fix: install it into /w/proj/imports/node_modules"
+         their root, aren't supported yet). Fix: install it into /w/proj/imports/node_modules"
     );
     // the marker is the scope, read once and consulted in both roles, and the
     // walk reads every package.json up to the bound before any node_modules,

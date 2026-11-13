@@ -19,6 +19,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   and the script reads them as `process.args` from `@fuzdev/gro/process.ts`,
   the first builtin host module, which carries nothing else yet.
   `fgro run` grants it to the project's own modules: a package's module is refused it when the graph links,
+  and can't import the project's own modules by name to reach it through one,
   and `fgro eval` grants it to none.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.

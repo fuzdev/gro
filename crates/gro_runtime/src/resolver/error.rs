@@ -217,6 +217,22 @@ pub enum ResolveErrorKind {
         /// The nested root.
         root: Box<Root>,
     },
+    /// A package's module imports, by a bare specifier other than its own
+    /// package's self-reference, a module of the project's own root: the
+    /// project linked into `node_modules` (`node_modules/app -> ..`, a
+    /// workspace sibling that depends back on the app). Relative and
+    /// absolute specifiers stay inside the package's root, so a bare one is
+    /// the only way across, and through one a package would reach the
+    /// grants the project's modules hold. The project's own bare imports
+    /// of itself are unaffected.
+    PackageImportsProject {
+        /// The importing package's name.
+        package: Box<str>,
+        /// The module's path, as the project's `"exports"` name it.
+        path: PathBuf,
+        /// The project root's real directory.
+        project: PathBuf,
+    },
     /// An entry inside `node_modules` but in no package: a file directly in
     /// it, or in a directory that names no package (`.bin`, `.deno`), so it
     /// has no origin.
@@ -406,7 +422,7 @@ impl fmt::Display for ResolveErrorKind {
                     write!(
                         f,
                         ", and the node_modules beside {} is not searched (npm and yarn \
-                         workspaces, which install at their root, aren't supported)",
+                         workspaces, which install at their root, aren't supported yet)",
                         above.display()
                     )?;
                 }
@@ -620,6 +636,18 @@ impl fmt::Display for ResolveErrorKind {
                  itself. Fix: use a version of the package that doesn't",
                 path.display(),
                 root.display()
+            ),
+            Self::PackageImportsProject {
+                package,
+                path,
+                project,
+            } => write!(
+                f,
+                "package '{package}' imports it by name, and it resolves to {}, a module of the \
+                 project at {}: a package can't import the project's own modules by name, since \
+                 through one it would reach the grants the project's modules hold",
+                path.display(),
+                project.display()
             ),
             Self::InNoPackage(path) => write!(
                 f,

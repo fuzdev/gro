@@ -60,6 +60,7 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
 - `@fuzdev/gro/process.ts`, a builtin module: the binary resolves it ahead of package lookup, reading no `package.json`,
   and grants it to the project's own modules, while a module of an installed or linked package is refused it for now
   when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules) has the designed route past that).
+  A package's module importing the project's own modules by name is refused too, so it can't reach the grant through one.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
 - Refused with the reason are a file imported with a `type` import attribute

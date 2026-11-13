@@ -286,8 +286,8 @@ fn a_package_is_not_found_past_the_project_root() {
              {fixtures}/package.json, which ends the search, as every package.json outside \
              node_modules does except one holding nothing but \"type\" and \
              \"sideEffects\", and the node_modules beside {}/package.json is not searched (npm \
-             and yarn workspaces, which install at their root, aren't supported). Fix: install it \
-             into {fixtures}/node_modules\n",
+             and yarn workspaces, which install at their root, aren't supported yet). Fix: \
+             install it into {fixtures}/node_modules\n",
             fixtures_url(),
             // gro's own, the repo root
             Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1088,7 +1088,7 @@ fn packages_resolve_through_their_exports() {
              {root}/lonely_checkout/package.json, which ends the search, as every package.json \
              outside node_modules does except one holding nothing but \"type\" and \
              \"sideEffects\", and the node_modules beside {root}/package.json is not searched \
-             (npm and yarn workspaces, which install at their root, aren't supported). Fix: \
+             (npm and yarn workspaces, which install at their root, aren't supported yet). Fix: \
              install it into {root}/lonely_checkout/node_modules\n"
         )
     );

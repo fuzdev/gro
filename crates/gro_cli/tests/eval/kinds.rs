@@ -3,6 +3,7 @@
 
 use serde_json::json;
 
+use crate::support::Scratch;
 use crate::{driven, eval, fixtures_url, spawn_eval};
 
 #[test]
@@ -257,4 +258,66 @@ fn no_source_map_applies() {
         run.envelope["error"]["at"],
         format!("{url}/import_attribute_mapped_dep.js:1:19")
     );
+}
+
+/// A package's bare import of the project's own module, through the
+/// project linked into `node_modules`, is a `resolve` naming the package,
+/// and `import.meta.resolve` of it from the package throws the same
+/// refusal; the project imports the module by that link and by
+/// self-reference.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_package_importing_the_project_by_name_is_a_resolve() {
+    let scratch = Scratch::new(
+        "project_by_name",
+        &[
+            (
+                "package.json",
+                r#"{"name": "app", "type": "module", "exports": {"./config.js": "./config.js"}}"#,
+            ),
+            ("config.js", "export default {name: 'app'};\n"),
+            (
+                "own.js",
+                "import a from 'self/config.js';\nimport b from 'app/config.js';\n\
+                 export default {same: a === b, name: a.name};\n",
+            ),
+            ("hop.js", "import x from 'pkg/hop.js';\nexport default x;\n"),
+            (
+                "where.js",
+                "import {where} from 'pkg/where.js';\nlet message = null;\n\
+                 try { where(); } catch (error) { message = error.message; }\n\
+                 export default {message};\n",
+            ),
+            (
+                "node_modules/pkg/package.json",
+                r#"{"name": "pkg", "type": "module", "exports": {"./hop.js": "./hop.js", "./where.js": "./where.js"}}"#,
+            ),
+            (
+                "node_modules/pkg/hop.js",
+                "import config from 'self/config.js';\nexport default config;\n",
+            ),
+            (
+                "node_modules/pkg/where.js",
+                "export const where = () => import.meta.resolve('self/config.js');\n",
+            ),
+        ],
+    );
+    std::os::unix::fs::symlink("..", scratch.0.join("node_modules/self")).unwrap();
+    let root = scratch.0.display();
+    eval(&[&scratch.path("own.js")]).assert_value(&json!({"same": true, "name": "app"}));
+    let refusal = format!(
+        "cannot resolve 'self/config.js' from file://{root}/node_modules/pkg/hop.js: package \
+         'pkg' imports it by name, and it resolves to {root}/config.js, a module of the project \
+         at {root}: a package can't import the project's own modules by name, since through one \
+         it would reach the grants the project's modules hold"
+    );
+    let run = eval(&[&scratch.path("hop.js")]);
+    run.assert_failed("resolve", 1);
+    assert_eq!(run.message(), refusal);
+    assert_eq!(run.envelope["error"]["specifier"], "self/config.js");
+    let run = eval(&[&scratch.path("where.js")]);
+    run.assert_value(&json!({"message": refusal.replace("pkg/hop.js", "pkg/where.js")}));
 }

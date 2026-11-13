@@ -313,8 +313,11 @@ Invariants that live in the code:
   to the table's specifiers; the resolver returns a table hit ahead of any
   package lookup; the loader checks it against the run's `Authority` at link
   time, for a static import and `import()` alike (`loader/resolve.rs`), and a
-  package's module is granted none. A static import of one with import
-  attributes is refused first, in the loader's `resolve_with_scope`;
+  package's module is granted none. A package's module can't reach a grant through the
+  project's: its bare import resolving into the project root is refused
+  (`ResolveErrorKind::PackageImportsProject`). A static import of a builtin
+  with import attributes is refused first, in the loader's
+  `resolve_with_scope`;
   `deno_core` hands an `import()`'s attributes only to the runtime's
   attribute callback, whose cost lands on every static import, so they
   aren't checked.

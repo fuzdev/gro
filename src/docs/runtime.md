@@ -307,7 +307,7 @@ The design's open questions live with the layer they belong to:
 - **the shape of the `process` split**: which modules each kind of authority becomes, their names, which need no grant,
   how the Node implementation moves to them, and whether the handle modules (`fs`, `spawn`, `net`) split too ([host modules](host_modules.md#process-on-fgro))
 - **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
-  is designed to be refused, so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
+  is refused (built), so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
   wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
 - **whether eval's heap cap bounds one large young object**, which today only its memory cap does ([eval](eval.md#the-engine))
 

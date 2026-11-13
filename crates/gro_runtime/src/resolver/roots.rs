@@ -13,7 +13,9 @@ use super::walk::in_node_modules;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     /// The project's own files: the entry, and what its graph reaches by
-    /// relative and absolute specifiers and by self-reference.
+    /// relative and absolute specifiers, by self-reference, and through a
+    /// link to the project's directory. A package's module reaches none of
+    /// them.
     Project,
     /// An installed package, reached by its name, and what it reaches by
     /// relative specifiers and by self-reference.

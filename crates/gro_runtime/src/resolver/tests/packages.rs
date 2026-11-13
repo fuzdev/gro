@@ -156,7 +156,7 @@ fn package_messages() {
          the importer up to /w/proj/package.json, which ends the search, as every \
          package.json outside node_modules does except one holding nothing but \"type\" and \
          \"sideEffects\", and the node_modules beside /w/package.json is not searched (npm \
-         and yarn workspaces, which install at their root, aren't supported). Fix: install it \
+         and yarn workspaces, which install at their root, aren't supported yet). Fix: install it \
          into /w/proj/node_modules"
     );
     let importer = Url::parse("file:///loose/b.mjs").unwrap();

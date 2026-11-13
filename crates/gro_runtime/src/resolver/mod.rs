@@ -50,7 +50,9 @@
 //!
 //! Each departure from Node refuses with its own kind: containment with
 //! [`ResolveErrorKind::OutsideRoot`], [`ResolveErrorKind::IntoNodeModules`],
-//! and [`ResolveErrorKind::IntoPackageRoot`], the project root's bound with
+//! and [`ResolveErrorKind::IntoPackageRoot`], a package's bare import of the
+//! project's own modules with [`ResolveErrorKind::PackageImportsProject`],
+//! the project root's bound with
 //! [`ResolveErrorKind::NoProjectRoot`], and a world-writable directory with
 //! [`ResolveErrorKind::WorldWritablePackage`].
 
@@ -136,8 +138,9 @@ pub enum Resolved {
 /// as written, and never into another admitted root nested in it. A bare
 /// one's real path stays inside its package's real root, and a
 /// self-reference's inside its package's directory and the importer's root
-/// both. The result names the root it is inside, which a caller admits for
-/// a package; nothing is admitted here. A bare specifier the builtin table
+/// both, and a package's module never reaches the project's root by one.
+/// The result names the root it is inside, which a caller admits for a
+/// package; nothing is admitted here. A bare specifier the builtin table
 /// names is that builtin, whoever imports it, and nothing is read.
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
@@ -218,6 +221,17 @@ pub(crate) fn resolve_from(
             )
             .map_err(error)?;
             let path = url_to_path(&package.url).map_err(error)?;
+            // before the target is read: only the project's root has its origin,
+            // and a package's self-reference keeps the package's
+            if let Origin::Package { name, .. } = &importer_root.origin
+                && package.root.origin == Origin::Project
+            {
+                return Err(error(ResolveErrorKind::PackageImportsProject {
+                    package: Box::from(name.as_str()),
+                    path,
+                    project: package.root.dir,
+                }));
+            }
             let name = package.root.installed_name();
             let check = |real: &Path| {
                 if let Some(scope_dir) = &package.scope_dir {
