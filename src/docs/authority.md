@@ -178,8 +178,8 @@ so children get the project read-only and only the declared write roots writable
 ([backstop](backstop.md#the-box-for-runs-and-children) has the rules and what they close).
 Availability is outside the model: a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
 `gro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
-The terminal is a channel: confined output can carry escape sequences, so the host escapes a run's own console output
-(a child's inherited terminal is unescaped) and never prints a grant diff inside a run's output
+The terminal is a channel: confined output can carry escape sequences, so the host is designed to escape a run's own console output
+(a child's inherited terminal stays unescaped, and today `fgro` escapes none, [run](run.md#usage)) and never to print a grant diff inside a run's output
 ([backstop](backstop.md#the-terminal)).
 Outside the model are `-A` and the named unconfined phases (Gro's `publish` and `deploy`), which run the build they contain unconfined too.
 Linux is the design target, and the kernel backstop and every claim that rests on it are Linux's.

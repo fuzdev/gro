@@ -4,6 +4,7 @@
 
 > **status**: most of these describe the design, not the build.
 > [run](run.md) covers what's built, [authority](authority.md) states the model, and [runtime](runtime.md) marks the rest on its roadmap.
+> `gro eval` names the design; the binary built today runs it as `fgro eval`.
 
 ## access manifest
 
@@ -39,13 +40,14 @@ Compare [host modules](#host-modules).
 
 ## box
 
-The kernel rules `gro eval` holds its process in on Linux (Landlock and seccomp),
-installed from the process's one thread before V8 starts, after it closes every descriptor it inherited above stderr:
+The kernel rules (Landlock and seccomp) a process is held in on Linux.
+`fgro eval`'s box is built, installed from the process's one thread before V8 starts, after it closes every descriptor it inherited above stderr:
 file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
 (a path's metadata stays readable everywhere),
 no write, no execution, no network,
 and no signal outside it, nor a resource limit, priority, or scheduling set at all.
 The first built part of the [kernel backstop](#kernel-backstop) ([eval](eval.md#the-box)).
+The box for runs and their children is designed ([backstop](backstop.md#the-box-for-runs-and-children)).
 
 ## composition root
 

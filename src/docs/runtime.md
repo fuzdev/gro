@@ -155,11 +155,14 @@ The runtime is a Rust binary embedding V8 through [rusty_v8](https://github.com/
 It's bootstrapped on [deno_core](https://crates.io/crates/deno_core)
 and Deno's web-standards extension crates, used thinly behind Gro's own seams
 so each piece can be rewritten on its own as measurements justify it.
+Each bullet marks what's built; anything unmarked past the omissions is designed.
 
-- **Web standards, not Node compat.** The API is the
+- **Web standards, not Node compat.** The API is designed as the
   [WinterTC minimum common API](https://min-common-api.proposal.wintertc.org/)
+  (today `fgro` has the subset [run](run.md#the-global-scope) lists)
   plus a small set of Gro's own host modules
-  (fs, process, spawn, watch, net), each an explicit import.
+  (fs, process, spawn, watch, net; built today only as their Node implementation, [host modules](host_modules.md)),
+  each an explicit import.
   No `node:*`, no `npm:`, no CommonJS, no N-API, and no `process` global.
   The break is what makes the security model enforceable.
   Node's API hands every module ambient authority (`process`, `require`, and `node:fs`
@@ -171,7 +174,7 @@ so each piece can be rewritten on its own as measurements justify it.
   an API that carries authority is an import, never banned,
   and only narrower run kinds like hermetic add constraints, for what they buy.
   Which web APIs Gro implements beyond that set is decided one at a time.
-- **Strict ESM resolution, no legacy algorithm.** Relative and absolute specifiers
+- **Strict ESM resolution, no legacy algorithm** (built). Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
   (`gro`, `import`, `default`), walking `node_modules`, and `imports` for `#` subpaths comes later.
@@ -180,7 +183,7 @@ so each piece can be rewritten on its own as measurements justify it.
   and Gro never pre-bundles a project's dependencies.
   Otherwise it follows Node's algorithm, departing where Node guesses, reads past the project,
   or substitutes a pattern unchecked, and [resolver](resolver.md) has the full rules.
-- **TypeScript by type stripping only.** [tsv](https://github.com/fuzdev/tsv) strips types in process,
+- **TypeScript by type stripping only** (built). [tsv](https://github.com/fuzdev/tsv) strips types in process,
   preserving every position, so stack traces point at the TS source with no source maps.
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
@@ -207,18 +210,18 @@ so each piece can be rewritten on its own as measurements justify it.
   if a measured need brings it (chatty calls, callbacks into JS, a library tied to its process),
   it comes as a grant of its own, never part of `-A`,
   shown in the policy diff as leaving the runtime's checks, with the kernel backstop still around the process.
-- **A toolchain, grown by need.** Run, eval, and tasks come first,
+- **A toolchain, grown by need.** Run and eval (built) and tasks come first,
   then serving (TCP, TLS, WebSocket) so fuz_app's TS backends run on it,
   a test runner, bundled dev and build, and types emitted from the binary.
-  tsv formats, linked in as crates. Nothing lands before a consumer needs it.
+  tsv's formatter joins it as linked crates (today only its type strip is in `fgro`). Nothing lands before a consumer needs it.
 - **Embeddable** (designed). `gro_runtime` is a library other Rust binaries embed,
   with a registration API for their own host modules, and the `gro` binary is one embedder.
   The registration API is Gro's own, not deno_core's,
   so embedders don't break as the core underneath is rewritten.
   Grants are a constructor argument, so an embedder is confined without flags.
   The crates publish when the binary replaces the npm package.
-- **One global binary, pinned per project.** A project declares a compatible range under
-  `engines.gro` in `package.json`, and the binary fails hard outside it.
+- **One global binary, pinned per project** (designed). A project declares a compatible range under
+  `engines.gro` in `package.json`, and the binary will fail hard outside it.
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
 - **Startup.** A snapshot of the host (built), a code cache keyed by content, and lazy host init.
@@ -226,8 +229,8 @@ so each piece can be rewritten on its own as measurements justify it.
   and how a run is kept from reading an entry a less-trusted run wrote is open ([backstop](backstop.md#open)),
   so the cache isn't built until that is.
   On a platform without the kernel backstop it stays off until that platform's sandbox exists.
-- **Fewer platform-isms.** URL resolution with no path separators and argv-only spawn
-  (never a shell string) keep platform differences in a handful of files.
+- **Fewer platform-isms** (designed). URL resolution with no path separators (built) and argv-only spawn
+  (never a shell string, as the Node `spawn` host module already is) keep platform differences in a handful of files.
 
 ## Compared to Deno, Node, and Bun
 
@@ -388,7 +391,7 @@ Future (unknown order):
 - the `fixed` and `seeded` determinism modes beyond eval's `deny`,
   and memoized hermetic runs, gen first
 - owning the core, replacing deno_core's pieces one at a time, measured
-- the `net` handle's members (`net.fetch`, `net.WebSocket`, `net.EventSource`) and `crypto.subtle`, each as a consumer needs it
+- `net.WebSocket` and `net.EventSource` on the `net` handle, and `crypto.subtle`, each as a consumer needs it
 - other web APIs that carry authority (storage, workers, by-name channels), each an import if Gro implements it
 - size: filtered ICU data, V8 build flags
 - V8 contexts per package or trust tier with frozen intrinsics, as an opt-in hardening tier, never the default

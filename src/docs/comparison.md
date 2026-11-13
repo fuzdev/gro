@@ -128,7 +128,7 @@ Gro's cells start with the words [By axis](#by-axis) defines.
 | denied regardless | `--deny-read=…`, opted into per run                                      | designed: inside a granted root, `.env*`, credential files, and writes under `.git` and `node_modules` stay denied short of `-A` by the runtime's own checks; at the kernel, children get the project read-only apart from the declared write roots, and can still read `.env*` inside it; credentials reach one process as named grants, never file reads |
 | native code       | FFI in-process under `--allow-ffi`, which `-A` includes                  | later: FFI as a grant, with the library in its own confined process and no part of `-A`; in-process loading isn't currently planned (feedback welcome in [discussions](https://github.com/fuzdev/gro/discussions)), and if a measured need brings it, it's a grant of its own, shown as leaving the runtime's checks |
 | determinism       | `--seed` fixes randomness; the clock, time zone, and locale have no flag | built for `fgro eval`: clock and randomness denied; designed: a hermetic run fixes or denies them and replays exactly once the host orders async completions |
-| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | built: `gro eval`, its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap and a memory cap, and no environment variable configures it, every knob a flag                             |
+| eval              | `--v8-flags=--jitless` and a heap limit, by flag                         | built: `fgro eval`, its own process, the JIT off unless a flag turns it on, no code generation from strings, a heap cap and a memory cap, and no environment variable configures it, every knob a flag                             |
 
 TypeScript is a simplicity choice rather than a security one:
 Deno transpiles the full language, and Gro strips erasable syntax only, so positions never move
@@ -197,7 +197,7 @@ the comparison is what a run can reach, where Bun has nothing to compare.
 ## By axis
 
 Gro's cells for a feature start with one of these words:
-**built** is in `fgro` today, **designed** is in the public [design](runtime.md#design) but not built,
+**built** is in `fgro` today, or on the Node Gro where the cell says so, **designed** is in the public [design](runtime.md#design) but not built,
 **planned** is a [roadmap](runtime.md#roadmap) milestone with no public design yet,
 **later** is wanted but not scheduled, and **no** is declined by design.
 
@@ -272,7 +272,7 @@ Gro's cells for a feature start with one of these words:
 
 |                                            | Node                    | Deno                        | Bun                     | Gro                                             |
 | ------------------------------------------ | ----------------------- | --------------------------- | ----------------------- | ----------------------------------------------- |
-| `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed: `fetch` as the `net.fetch` import, the classes as pure globals |
+| `fetch`, `Headers`, `Request`, `Response`  | yes                     | yes                         | yes                     | designed for `fgro`, built on the Node Gro: `fetch` as the `net.fetch` import; the classes designed as pure globals |
 | `WebSocket`                                | yes                     | yes                         | yes                     | later, as the `net.WebSocket` import            |
 | streams, `URL`, encoding, timers, `AbortController`, `structuredClone`, `Blob` | yes | yes                 | yes                     | built                                           |
 | `crypto.subtle`                            | yes                     | yes                         | yes                     | later |

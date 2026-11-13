@@ -4,8 +4,8 @@
 > and what the Node implementation does and doesn't guarantee
 
 > **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
-> On `fgro` the host modules will be builtins resolved ahead of package lookup
-> ([authority](authority.md#imports-or-globals) has the design).
+> On `fgro` the host modules will be builtins, resolved by the binary ahead of package lookup,
+> and none is built there yet ([runtime](runtime.md) lists what `fgro` has today).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
 Each is an import, so what a module can reach shows in its imports,
@@ -29,7 +29,7 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   and so does an absolute symlink, or a relative one whose target climbs above the handle,
   even when either would land back inside.
 - A path's own `..` segments resolve lexically, before symlinks, so `link/..` is the handle's directory.
-  The runtime's native op normalizes them the same way before calling the kernel, a requirement on its wrapper,
+  The runtime's native op is to normalize them the same way before calling the kernel, a requirement on its wrapper,
   since the kernel would resolve them physically.
 - A trailing `/` means a directory, as in the kernel: `stat('a.txt/')` is `not_a_directory`,
   `write('new.txt/')` fails, and `remove('link/')` and `rename('link/', …)` refuse a symlink
@@ -50,8 +50,8 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   Match one with `is_fs_error(error, kind?)`, which also recognizes one from another copy of Gro.
   Both live in `@fuzdev/gro/fs_error.ts`, apart from the host module,
   so code that only makes or matches an error imports no capability.
-  It's part of the host-module surface: on `fgro` it's a builtin that grants nothing,
-  resolved beside `fs`, so the builtin and every importer share one `FsError` class.
+  It's part of the host-module surface: on `fgro` it's designed as a builtin that grants nothing,
+  resolved beside `fs`, so the builtin and every importer will share one `FsError` class.
   An error's `path` is the absolute path the op was asked for, or for `outside_root` the path as given,
   never a path a symlink led to.
 - Each op's one expected failure returns a value instead of throwing:
@@ -122,7 +122,7 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A program handle bounds which binary runs, not what it does: for most tools the arguments are code
   (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
-  so on `fgro` a spawn grant is bounded by the kernel backstop around the child, and the policy diff shows it that way ([backstop](backstop.md#the-box-for-runs-and-children)).
+  so on `fgro` a spawn grant is designed to be bounded by the kernel backstop around the child, and the policy diff shows it that way ([backstop](backstop.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd,
   and its `node_modules/.bin` entries stay, so a child's own lookup, like a `#!/usr/bin/env node` script's, still searches them.
@@ -203,7 +203,7 @@ const result = await check.closed;
   A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
   matched with `is_spawn_error(error, kind?)`. Both live in `@fuzdev/gro/spawn_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `spawn`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `spawn`.
 - `program.start(args, options?)` resolves to a `SpawnChild` once the child is running,
   its stdio set per stream with `stdio`, one of `'inherit'`, `'pipe'`, `'ignore'` for all or three in order,
   defaulting to `'inherit'`. A launch failure rejects with `launch_failed`, as for `run` and `out`.
@@ -358,7 +358,7 @@ and on `fgro` there's no global at all.
   `process.runtime_version` is opaque, like `node/v24.14.0`, for display and for keying a cache by the runtime that made it, compared for equality only.
 - Errors are `ProcessError`, typed by `kind` (`not_granted`, `io_error`), its `target` the variable or the stream.
   Match one with `is_process_error(error, kind?)`, in `@fuzdev/gro/process_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `process`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `process`.
 
 The module's TSDoc has each op's contract.
 
@@ -397,7 +397,7 @@ There's no bare `fetch` export, so a module using the network shows `net` in its
 - Only `http:` and `https:` are sent. `data:`, `blob:`, and every other scheme are `not_granted`, on the root handle too.
 - Errors are `NetError`, of kind `not_granted`, its `target` the refused `hostname:port` or scheme and never a whole URL, which can carry a token.
   Match one with `is_net_error(error, kind?)`, in `@fuzdev/gro/net_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's a builtin that grants nothing, resolved beside `net`.
+  so matching one grants nothing; on `fgro` it's designed as a builtin that grants nothing, resolved beside `net`.
   A network failure stays a `TypeError`, as from any `fetch`.
 - Redirects are the escape a host check has to close, so a handle follows them itself:
   each `Location` is resolved against its response and checked against the handle's hosts before anything is sent to it,
@@ -532,7 +532,7 @@ The module's TSDoc has the contract.
   environment for a child; the module implementations (`process.ts`, `internal/cwd.ts`);
   and what runs in the loader's hooks or restores a tool's write, `svelte_config.ts`
   (`NODE_ENV`, `MODE`, and the cwd) and `sveltekit_shim_app_env_vars.ts` (the cwd).
-  The runtime's builtin has no global, so these move when Gro runs on `fgro`.
+  `fgro` has no `process` global, so these move when Gro runs on it.
 
 - Advisory grants, designed and not built, will count a `node:*` import on the Node Gro as the host module it corresponds to,
   and report one with no entry here as ambient:
@@ -548,7 +548,7 @@ The module's TSDoc has the contract.
 
 ### The module's invariants
 
-The fs module keeps these in the Node implementation, and the runtime's builtin keeps them natively:
+The fs module keeps these in the Node implementation, and the runtime's builtin is designed to keep them too, making its confinement decisions natively ([native requirements](#native-requirements)):
 
 - Handles come only from `fs` and other handles.
   Each constructor checks a key only the module holds, so a handle's `constructor` makes nothing.
@@ -619,7 +619,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - `narrow` reads `hosts` by own property and by index with its length read once, and a host it doesn't allow throws `not_granted`.
 - Every send names its `redirect` and dispatcher, and the request's own fields a polluted key would replace,
   since undici's init dictionary reads a key the init doesn't own through `Object.prototype`, even for a null-prototype init.
-  It's no defense against pollution generally, as the [gaps](#net-1) say.
+  It's no defense against pollution generally, as the [gaps](#the-node-implementations-gaps) for net say.
 
 ### watch's invariants
 
@@ -670,6 +670,7 @@ Gro's tooling, not the module, guards what it removes and writes:
 
 ## The Node implementation's gaps
 
+Where a gap below says what the runtime does, that's its design, not yet built.
 The types are the runtime's, and the Node implementation runs the same ops,
 but Node can't enforce what the runtime will.
 It documents each gap rather than weakening the API to match, and is a review signal, not a boundary:
@@ -786,7 +787,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 - The root handle allows every host, where the runtime's holds only the accepted ones.
 - Following relies on Node exposing a `manual` response's status and `Location`, where the Fetch standard filters them behind an `opaqueredirect`.
 - A dispatcher placed at undici's global key reroutes every send, as for the global `fetch`, and a missing one rejects rather than sends past it.
-- Beside native follow, following differs in five ways, each for the reason given:
+- Beside native follow, following differs in these ways, each for the reason given:
   - a response after a cross-origin hop has `type` `basic`, not `cors`, and a `no-cors` one isn't opaque, since each hop is its own request;
   - a `Request` carrying a stream body is buffered and replayed, where native follow rejects, since a `Request`'s source isn't observable from JS.
     It buffers whether or not a redirect comes, so a large upload streams through `init`, where a stream is refused as native follow refuses one;

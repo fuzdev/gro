@@ -425,7 +425,8 @@ Key utilities:
   `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
   handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
   plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import `process.ts`,
-  the process host module, library code taking a `cwd` string, a plain record, or the CLI args,
+  the process host module (`process_error.ts` has its `ProcessError` and `is_process_error`,
+  grant-free), library code taking a `cwd` string, a plain record, or the CLI args,
   but for `internal/fs_boundary.ts`, which reads `HOME` once at load for its protected directories;
   Gro's library and task code uses no `node:child_process` but `spawn.ts`, and
   no `node:fs` but the Node-only machinery
@@ -433,10 +434,13 @@ Key utilities:
   `src/test/host_module_declarations.test.ts`
   fails if a host module's emitted declarations name a type outside the ES libs
   and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
+- Spawn: `spawn.ts`, the spawn host module, `program`/`find`/`program_in`/`find_in`/`narrow`
+  making pinned `SpawnProgram` handles with an explicit environment; `spawn_error.ts`, its
+  `SpawnError` and `is_spawn_error`, grant-free ([docs](src/docs/host_modules.md#spawn))
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
   `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
-- Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal})` an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
+- Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal, max_pending})` resolving, once the watch is in place, to a `Watcher`, an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run` (or `out` with
   `stdin: 'inherit'` when its output is needed), a caller's

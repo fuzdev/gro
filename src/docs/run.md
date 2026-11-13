@@ -72,7 +72,8 @@ The ECMAScript globals, including `Intl`, `Temporal`, and `WebAssembly`, plus th
 - `AbortController`, `AbortSignal`, `Event`, `EventTarget`, `CustomEvent`, `ErrorEvent`, `PromiseRejectionEvent`, `DOMException`
 
 Absent by design are the [authority globals](glossary.md#authority-globals), which would reach outside the run:
-`fetch`, `WebSocket`, and `EventSource` arrive on the `net` import when it lands,
+`fetch` is `net.fetch` on the `net` host module (built as its Node implementation, a builtin on `fgro` once the host modules land),
+`WebSocket` and `EventSource` would join it there when a consumer needs them,
 and any other web API that carries authority is an import too, if Gro implements it.
 Absent until a consumer needs them, with no grant involved, are `Headers`, `Request`, `Response`,
 `crypto`, `self`, `navigator`, `location`, `reportError`, `MessageChannel`,
