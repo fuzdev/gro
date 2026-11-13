@@ -281,6 +281,12 @@ describe('set_mode', () => {
 		assert.strictEqual(mode_of(join(sandbox.root, 'd')), 0o700);
 	});
 
+	test('takes `-0` as `0`', async () => {
+		writeFileSync(join(sandbox.root, 'f.txt'), 'f');
+		await dir.set_mode('f.txt', -0);
+		assert.strictEqual(mode_of(join(sandbox.root, 'f.txt')), 0);
+	});
+
 	test('follows a final symlink inside the handle, leaving the link', async () => {
 		writeFileSync(join(sandbox.root, 'f.txt'), 'f');
 		symlinkSync('f.txt', join(sandbox.root, 'l'));

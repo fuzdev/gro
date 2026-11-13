@@ -527,7 +527,8 @@ const to_permission_mode = (mode: unknown): number => {
 	if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
 		throw new TypeError('fs modes are integers from 0 to 0o777');
 	}
-	return mode;
+	// `-0` as `0`, since Node 24's `chmod` binding aborts the process on a mode that isn't an int32
+	return mode | 0;
 };
 
 /**
