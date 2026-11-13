@@ -166,6 +166,8 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   (fs, process, spawn, watch, net; built today as their Node implementation, and on `fgro` only `process.args`,
   [host modules](host_modules.md)),
   each an explicit import.
+  On `fgro` `process` is designed to split into a module per kind of authority it carries,
+  so each is its own import and its own grant ([process on `fgro`](host_modules.md#process-on-fgro)).
   No `node:*`, no `npm:`, no CommonJS, no N-API, and no `process` global.
   The break is what makes the security model enforceable.
   Node's API hands every module ambient authority (`process`, `require`, and `node:fs`
@@ -227,11 +229,12 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   `engines.gro` in `package.json`, and the binary will fail hard outside it.
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
-- **Startup.** A snapshot of the host (built), a code cache keyed by content, and lazy host init.
-  A cache entry is code to V8, so who writes the cache is the whole defense; `gro eval` and hermetic runs never read it,
-  and how a run is kept from reading an entry a less-trusted run wrote is open ([backstop](backstop.md#open)),
-  so the cache isn't built until that is.
-  On a platform without the kernel backstop it stays off until that platform's sandbox exists.
+- **Startup.** A snapshot of the host (built) and lazy host init.
+  A code cache entry is code to V8, so who writes the cache is the whole defense,
+  and confined runs read none: Gro's own surface is designed to start from the snapshot instead,
+  so its largest consumer needs no cache, and `gro eval` and hermetic runs never read one.
+  A writer outside the box, compiling from source itself, is the route if a measurement on third-party graphs shows a cache worth it,
+  and a cache for unconfined runs is undecided ([backstop](backstop.md#open)).
 - **Fewer platform-isms** (designed). URL resolution with no path separators (built) and argv-only spawn
   (never a shell string, as the Node `spawn` host module already is) keep platform differences in a handful of files.
 
@@ -298,9 +301,15 @@ The design's open questions live with the layer they belong to:
 - the authority model's, in [authority](authority.md#open-questions): keeping an agent out of the policy file,
   deterministic scheduling for replay, interposition within one realm and whether to freeze the intrinsics,
   free names through the global's prototype, and which files under the project count as secrets
-- the kernel layer's, in [backstop](backstop.md#open): name resolution for children, the code cache's writer,
+- the kernel layer's, in [backstop](backstop.md#open): name resolution for children, a code cache for unconfined runs,
   children that need `/proc`, hard links, browser tests, and the platforms
 - **where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime))
+- **the shape of the `process` split**: which modules each kind of authority becomes, their names, which need no grant,
+  how the Node implementation moves to them, and whether the handle modules (`fs`, `spawn`, `net`) split too ([host modules](host_modules.md#process-on-fgro))
+- **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
+  is designed to be refused, so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
+  wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
+- **whether eval's heap cap bounds one large young object**, which today only its memory cap does ([eval](eval.md#the-engine))
 
 ## Gro's workflow on the runtime
 
@@ -312,7 +321,7 @@ As designed, except where marked built:
   running project tasks by full path for explicit resolution,
   while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node Gro).
 - A task runs under the union of what the invocation reaches,
-  its own graph plus the tasks it invokes, since every task holds the shared context (config, `invoke_task`),
+  its own graph plus the tasks it invokes by a literal name (`invoke_task`), since every task holds the shared context (config, `invoke_task`),
   and a Node tool it spawns is confined by the kernel backstop, not the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
   diffs them against the committed policy file, and fails on a widening until `gro policy accept` records it.
@@ -353,7 +362,8 @@ where the host modules and grants land with their first consumer.
       with `run` and `eval`, a SHA-512 checksum file, and a provenance attestation;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
-      (the release workflow is built, and no release is tagged yet)
+      (the release workflow is built, and no release is tagged yet;
+      the first waits for host modules on `fgro`, `process`'s and `fs` first, so `run` reaches past pure computation)
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
@@ -362,7 +372,7 @@ where the host modules and grants land with their first consumer.
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] startup: a tuned snapshot, a content-keyed code cache, lazy host init
+- [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init, with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, process, spawn, watch, net), the grants,
       and the policy file, enforced, with the kernel backstop under every run and its children
@@ -405,7 +415,7 @@ Maybe later or never:
 
 ## Install
 
-No release is tagged yet; the first will be 0.1.0.
+No release is tagged yet; the first will be 0.1.0, once host modules land on `fgro`.
 Each release of `fgro` is a GitHub Release on an `fgro-v<version>` tag,
 with the binary's notes in [crates/CHANGELOG.md](../../crates/CHANGELOG.md).
 Its asset is a bare binary for Linux x86_64, `fgro-linux-x64-gnu`,

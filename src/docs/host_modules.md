@@ -5,7 +5,7 @@
 
 > **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the one built is `process`, carrying `process.args` alone ([on `fgro`](#process-on-fgro));
+> and the one built is `process`, carrying `process.args` alone, with `process` designed to split into a module per kind of authority ([on `fgro`](#process-on-fgro));
 > everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
@@ -22,7 +22,8 @@ const text = await src.read_text_if_exists('notes.md'); // `null` when missing
 await fs.project.write('.gro/out.json', JSON.stringify({text}));
 ```
 
-- `fs.project` is the project directory, an `FsDir`.
+- `fs.project` is the project directory, an `FsDir`
+  (on `fgro`, designed as the entry's [project root](glossary.md#project-root); here the working directory, [a gap](#the-node-implementations-gaps)).
   `fs.open_dir(absolute_path)` opens another,
   and `fs.temp_dir()` makes a fresh one removed on `await using`.
 - `fs.real_path(absolute_path)` returns a path's real path, every symlink followed wherever it leads.
@@ -379,10 +380,21 @@ so code that patched `Object` or the prototypes before the import changes nothin
 Its type is `Process`'s for the members it carries, checked by a test against this module's declarations.
 
 `fgro run` grants `process` to the project's own modules, and the import is checked when the graph links,
-for a static import and `import()` alike: a module of an installed or linked package is refused it,
-naming the package, and `fgro eval` grants it to no module ([eval](eval.md));
+for a static import and `import()` alike: a module of an installed or linked package is refused it for now,
+naming the package, until `-A` or the policy file's acceptance lifts that (both designed),
+and `fgro eval` grants it to no module ([eval](eval.md));
 an `import()` in code compiled from a string is the exception for now ([run](run.md#what-loads)).
 Its namespace has a `default` export of `undefined`, where Node's module has none.
+
+The one `process` object is designed to split on `fgro`.
+Each kind of authority it carries is to become a builtin module of its own.
+It carries the environment, exiting and the exit code, the standard streams, the script's arguments,
+and observations (`cwd`, `pid`, `runtime_version`), and how those group into modules is open.
+Each is then its own import and its own grant, so inference names each reach by itself,
+a package can be accepted for one without the others, and no object carrying several authorities is handed around.
+They're separate modules, not named exports of one, since the loader checks a grant per module when the graph links.
+The module list and names, which of them need no grant, and how the Node implementation moves to them are open
+([runtime](runtime.md#open-questions)).
 
 ## net
 
@@ -732,6 +744,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   so a narrowed handle bounds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
   so importing the module throws when the working directory has been removed.
+  The runtime's is the entry's [project root](glossary.md#project-root), and spawn's project root with it,
+  so the working directory carries no authority.
 - `process.on`, `once`, and `kill` have no equivalent in the process host module,
   so the CLI's uncaught-error and output-error handlers and the spawn module stay on the `process` global.
 
@@ -848,12 +862,16 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 ## Native requirements
 
-What the runtime's builtin module must do that the Node implementation can't:
+What the runtime's builtin module must do that the Node implementation can't.
+Each handle holds a native resource of its own, and every confinement decision is the native op's:
+JS shared with the Node implementation checks shapes and raises early errors, and the op trusts nothing it computed.
 
 ### fs
 
 - Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's descriptor,
   never a check followed by an open.
+- Make `fs.project`, and spawn's project root, the entry's project root, never the working directory,
+  so the working directory is a string with no authority.
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
 - Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
@@ -913,6 +931,7 @@ What the runtime's builtin module must do that the Node implementation can't:
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once,
   skipping `node_modules/.bin` entries by the rule above.
+  The policy file names the program, and its pin, a real path that differs per machine, is recorded in a local file that isn't committed.
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
   so a patched `String.prototype.split` can't forge a segment.
@@ -930,6 +949,8 @@ What the runtime's builtin module must do that the Node implementation can't:
 
 ### process
 
+These hold for whichever module each member lands in once `process` splits ([process on `fgro`](#process-on-fgro)).
+
 - Hold no ambient environment. A grant names each variable, and `get` for a name outside the grants throws `not_granted`,
   `get_all` holding only the granted names that are set.
 - Refuse a name holding a NUL byte, a `=`, or a lone surrogate before it reaches the OS.
@@ -937,6 +958,7 @@ What the runtime's builtin module must do that the Node implementation can't:
 - Own the read of `HOME` behind the protected directories of [Gro's guards](#gros-guards-on-its-own-destructive-paths),
   so `create_fs_paths` grants no environment read to whatever imports it.
 - Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
+  A script's exit code passes to the process verbatim, so `1` and `2` are shared with `fgro`'s own failures.
 - Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
   ignoring `SIGPIPE`.
 - Return `stdin` chunks as owned buffers, never a view of memory the runtime reuses.

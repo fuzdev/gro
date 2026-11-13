@@ -11,7 +11,9 @@
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
 
 - **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
-  each a visible edge in the graph ([host modules](host_modules.md))
+  each a visible edge in the graph ([host modules](host_modules.md)),
+  with `process` designed to split into a module per kind of authority it carries
+  ([process on `fgro`](host_modules.md#process-on-fgro))
 - **authority globals** are the web globals that would carry authority
   (the network, storage that outlives the run, a channel found by name, code outside the graph);
   Gro has none, since a global reaches every module in the graph:
@@ -64,8 +66,9 @@ so the policy holds even where a static walk can't see an `import()` whose speci
 In `fgro run` today the link-time check has one gap in who it takes the importer to be,
 an `import()` inside code compiled from a string by an indirect `eval` or `new Function` ([run](run.md#what-loads)).
 A run outside any project, or one that needs a grant just once, takes it by flag instead,
-in Deno's spelling (`--allow-net=api.example.com`), for that run only and recorded nowhere,
+in Deno's spelling (`--allow-net=api.example.com`, `--allow-env=A,B`), for that run only and recorded nowhere,
 and `-A` is the same flag at its widest.
+A bare `--allow-env` is a usage error, not Deno's grant of every name.
 The network included: `fetch` arrives by import, as `net.fetch`,
 so a dependency that starts fetching is a new edge in the graph, and the diff names the package.
 

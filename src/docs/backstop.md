@@ -144,9 +144,10 @@ Designed: a heap cap, a wall clock, and output caps per run kind, the child limi
 ## Open
 
 - **Name resolution for children** under a net grant, and whether a network namespace is taken where available.
-- **The code cache's writer.** A cache entry is code to V8, so whoever writes one runs code in the next run that reads it.
-  The confined process is the one that compiles, so either no run reads an entry written by a run holding less than it does,
-  or a writer outside the box compiles from source itself. Undecided, and the cache isn't built until it is.
+- **A code cache for unconfined runs.** A cache entry is code to V8, so whoever writes one runs code in the next run that reads it.
+  The confined process is the one that compiles, so an entry it wrote can't be trusted, and confined runs read no code cache;
+  if a measurement shows one worth it, the route is a writer outside the box compiling from source itself.
+  Whether runs under `-A` get a cache is undecided, and none is built.
 - **Children that need `/proc`**, and whether the nested layer costs anything measurable.
 - **Browser tests.** Chromium's sandboxes need a setuid helper or a user namespace, neither of which works inside the box,
   so how a browser-driven test runs under a task (a named grant that spawns it outside the box, or an unconfined phase) is open.

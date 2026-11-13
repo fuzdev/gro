@@ -25,7 +25,9 @@ The last part is `no snapshot` for a build without a startup snapshot.
 and every argument after the file is the script's, passed as written, `--` and `--help` included.
 Its only option is `--help` (or `help`, as for every command), and any other before the file is a usage error;
 a file whose name starts with `-` goes after `--`.
-The script reads them as `process.args`, from `import {process} from '@fuzdev/gro/process.ts'`,
+The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
+where a bare `--allow-env` is a usage error, not a grant of every name.
+The script reads its arguments as `process.args`, from `import {process} from '@fuzdev/gro/process.ts'`,
 a [builtin module](glossary.md#builtin-module) carrying nothing else yet ([process on `fgro`](host_modules.md#process-on-fgro)).
 User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
@@ -56,12 +58,13 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   and [roots and origins](resolver.md#roots-and-origins) an entry inside `node_modules`).
   A module's `import.meta.url` is its real path, after symlinks.
 - `@fuzdev/gro/process.ts`, a builtin module: the binary resolves it ahead of package lookup, reading no `package.json`,
-  and grants it to the project's own modules, while a module of an installed or linked package is refused it
-  when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules)).
+  and grants it to the project's own modules, while a module of an installed or linked package is refused it for now
+  when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules) has the designed route past that).
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
 - Refused with the reason are a file imported with a `type` import attribute
-  (JSON modules among them, until they land; an attribute under any other key is ignored for now, though the language requires its refusal)
+  (JSON modules among them, until they land; an attribute under any other key is ignored for now, though the language requires its refusal,
+  which is designed: any key but `type` refused before anything resolves)
   and a static import of a builtin module with any attribute,
   any other extension (`.cjs`, which is CommonJS; `.json` and `.wasm`, not yet: JSON modules and WASM's ES module integration come later), `.cts`, `.tsx`, declaration files, Svelte modules,
   `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
@@ -146,6 +149,8 @@ Whether a stream is colored is decided once per process, in order:
 | 2    | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
+A script can't set its own exit code on `fgro` yet; as designed, the code it sets passes through verbatim,
+so `1` and `2` are shared between the script and `fgro`'s own failures.
 A panic exits 101 in a debug build; a release build aborts.
 `--version` or `--help` whose stdout can't be written (a pipe whose reader closed) exits 1,
 naming the failure on stderr; a stderr that can't be written is ignored.

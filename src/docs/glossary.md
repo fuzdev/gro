@@ -136,6 +136,7 @@ Designed; `fgro eval` is the closest built thing to it, with the gaps [eval](eva
 
 The imports that reach the OS (fs, process, spawn, watch, net), Gro's own modules under `@fuzdev/gro/*`.
 Each is a visible edge in the import graph, so a run's host modules are [inferred](#inference).
+On `fgro`, `process` is designed to split into a module per kind of authority it carries, each its own grant.
 [host modules](host_modules.md) is the reference.
 
 ## inference
@@ -200,6 +201,7 @@ or enters another root nested in it, and `"exports"` targets and self-references
 The committed record of the grants accepted in review, currently `gro.policy.json`.
 It holds each entry's grants and [run kind](#run-kinds) (for Gro, each task and gen file),
 and the project's check (`gro check`) diffs it like a lockfile, failing on a widening until a person accepts it.
+It names a spawn grant's programs, while each one's pin, a real path that differs per machine, is designed to live in a local file that isn't committed.
 
 ## project root
 
