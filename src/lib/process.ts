@@ -53,7 +53,7 @@ import * as node_util from 'node:util';
 import * as node_worker_threads from 'node:worker_threads';
 
 import { to_checked_cwd } from './internal/cwd.ts';
-import { create_record } from './internal/records.ts';
+import { create_record, to_chunk_result } from './internal/records.ts';
 import { ProcessError } from './process_error.ts';
 
 // the global, under another name since this module's export shadows it
@@ -382,11 +382,6 @@ class NodeProcessOutput implements ProcessOutput {
 	}
 }
 
-const iterator_result = (chunk: Uint8Array | null): IteratorResult<Uint8Array> =>
-	chunk === null
-		? create_record<IteratorResult<Uint8Array>>({ done: true, value: undefined })
-		: create_record<IteratorResult<Uint8Array>>({ done: false, value: chunk });
-
 class NodeProcessInput implements ProcessInput {
 	readonly #fd = 0;
 	#claimed = false;
@@ -428,7 +423,7 @@ class NodeProcessInputIterator implements AsyncIterator<Uint8Array> {
 				cause: error
 			});
 		}
-		if (result.done) return iterator_result(null);
+		if (result.done) return to_chunk_result(null);
 		const { value } = result;
 		// not bytes if something set an encoding on the stream, or forged it to something else through `then`
 		if (!isUint8Array(value)) {
@@ -436,13 +431,13 @@ class NodeProcessInputIterator implements AsyncIterator<Uint8Array> {
 			throw new ProcessError('io_error', 'stdin', "io_error: stdin: a chunk isn't bytes");
 		}
 		// a copy, so a reader never holds a `Buffer` or a view of memory Node reuses
-		return iterator_result(new Uint8ArrayClass(value));
+		return to_chunk_result(new Uint8ArrayClass(value));
 	}
 
 	// reached by leaving a `for await` early
 	async return(): Promise<IteratorResult<Uint8Array>> {
 		await this.#stop();
-		return iterator_result(null);
+		return to_chunk_result(null);
 	}
 
 	/**

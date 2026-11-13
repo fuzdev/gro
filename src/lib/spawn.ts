@@ -167,7 +167,7 @@ import {
 	type FsHandleResolution,
 	type FsHandleResolve
 } from './internal/fs_handles.ts';
-import { create_record, read_own } from './internal/records.ts';
+import { create_record, read_own, to_chunk_result } from './internal/records.ts';
 import { SpawnError } from './spawn_error.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -1811,11 +1811,6 @@ class NodeSpawnOutput implements AsyncIterable<Uint8Array> {
 	}
 }
 
-const iterator_result = (chunk: Uint8Array | null): IteratorResult<Uint8Array> =>
-	chunk === null
-		? create_record<IteratorResult<Uint8Array>>({ done: true, value: undefined })
-		: create_record<IteratorResult<Uint8Array>>({ done: false, value: chunk });
-
 class NodeSpawnOutputIterator implements AsyncIterator<Uint8Array> {
 	readonly #feed: OutputFeed;
 
@@ -1826,13 +1821,13 @@ class NodeSpawnOutputIterator implements AsyncIterator<Uint8Array> {
 
 	async next(): Promise<IteratorResult<Uint8Array>> {
 		const entry = await this.#feed.next();
-		return iterator_result(entry === null ? null : entry.chunk);
+		return to_chunk_result(entry === null ? null : entry.chunk);
 	}
 
 	// reached by leaving a `for await` early
 	return(): Promise<IteratorResult<Uint8Array>> {
 		this.#feed.discard();
-		return Promise.resolve(iterator_result(null));
+		return Promise.resolve(to_chunk_result(null));
 	}
 }
 

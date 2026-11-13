@@ -19,6 +19,16 @@ const { assign, create, hasOwn } = Object;
 export const create_record = <T extends object>(fields: T): T => assign(create(null) as T, fields);
 
 /**
+ * A byte stream's iterator result, a null-prototype record, so a polluted `then` isn't
+ * consulted when a reader's `next()` resolves with one.
+ * @param chunk - the next chunk, or `null` when the stream is done
+ */
+export const to_chunk_result = (chunk: Uint8Array | null): IteratorResult<Uint8Array> =>
+	chunk === null
+		? create_record<IteratorResult<Uint8Array>>({ done: true, value: undefined })
+		: create_record<IteratorResult<Uint8Array>>({ done: false, value: chunk });
+
+/**
  * An option's value, read as an own property so a polluted `Object.prototype` can't set one.
  */
 export const read_own = (options: object | null | undefined, key: string): unknown =>
