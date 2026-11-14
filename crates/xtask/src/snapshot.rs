@@ -40,15 +40,17 @@
 //! budgets (the executable's in a release build only, the snapshot's in
 //! both), that the snapshot `fgro`'s own `make-snapshot` reproduces the
 //! snapshot it embeds byte for byte ([`reproduce`]), clippy over the
-//! `snapshot` feature's code, alone and with `prices`, `fgro`'s integration
+//! `snapshot` feature's code, alone and with `prices`, `gro_runtime`'s
+//! tests of its runtimes built with the build's profile, the one that
+//! starts them from the build's snapshot among them, `fgro`'s integration
 //! tests against the snapshot build, its phases and prices tests against
-//! builds with each feature too, and a fixture run with the cargo registry's
-//! sources (`$CARGO_HOME/registry/src`), the vendored `deno_core`, and gro's
-//! own extension sources hidden (tmpfs mounts in a private user and mount
-//! namespace, `unshare -rm`), its output compared with a run that can see
-//! them. The fixture is TypeScript, so the strip runs off the build tree too.
-//! A machine without unprivileged user namespaces fails that check rather
-//! than skipping it.
+//! builds with each feature too ([`INTEGRATION_TESTS`]), and a fixture run
+//! with the cargo registry's sources (`$CARGO_HOME/registry/src`), the
+//! vendored `deno_core`, and gro's own extension sources hidden (tmpfs
+//! mounts in a private user and mount namespace, `unshare -rm`), its output
+//! compared with a run that can see them. The fixture is TypeScript, so the
+//! strip runs off the build tree too. A machine without unprivileged user
+//! namespaces fails that check rather than skipping it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,6 +81,14 @@ impl Measurement {
             Self::Phases => Some("phases"),
             Self::Prices => Some("prices"),
         }
+    }
+
+    /// `gro_cli`'s features in its build: `snapshot`, and the one it adds.
+    fn features(self) -> String {
+        self.feature().map_or_else(
+            || "snapshot".to_owned(),
+            |feature| format!("snapshot,{feature}"),
+        )
     }
 }
 
@@ -169,10 +179,7 @@ pub fn build(
         })?;
     }
 
-    let features = measurement.feature().map_or_else(
-        || "snapshot".to_owned(),
-        |feature| format!("snapshot,{feature}"),
-    );
+    let features = measurement.features();
     let mut stage_two = vec![
         "build",
         "--locked",
@@ -232,9 +239,23 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
         && matches!((modified(stamp), modified(plain)), (Some(ran), Some(built)) if ran > built)
 }
 
+/// `gro_cli`'s integration tests as [`verify`] runs them against the
+/// snapshot build: the features beside `snapshot` of each run, none for the
+/// build that ships, and the tests it runs. A unit test holds the tests to
+/// the files of `crates/gro_cli/tests/`, so a new one fails until a run
+/// names it.
+const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
+    (Measurement::None, &["run", "host", "eval", "confine"]),
+    // the phases build's marks, eval's written from inside its box
+    (Measurement::Phases, &["phases"]),
+    // the priced build's switches, eval's box among them
+    (Measurement::Prices, &["prices", "confine"]),
+];
+
 /// Checks the snapshot `build`: the size budgets, that it reproduces its
-/// snapshot, clippy over the `snapshot` feature, the integration tests
-/// against it, then the off-build-tree run.
+/// snapshot, clippy over the `snapshot` feature, the runtime's tests of its
+/// runtimes, the integration tests against the build, then the
+/// off-build-tree run.
 pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let binary = &build.binary;
     check_budgets(root, release, binary)?;
@@ -268,58 +289,22 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
             ],
         )?;
     }
-    let mut test = vec![
-        "test",
-        "--locked",
-        "-p",
-        "gro_cli",
-        "--features",
-        "snapshot",
-        "--test",
-        "run",
-        "--test",
-        "host",
-        "--test",
-        "eval",
-        "--test",
-        "confine",
-    ];
-    if release {
-        test.push("--release");
+    let profile_args: &[&str] = if release { &["--release"] } else { &[] };
+    // the runtime's tests of its runtimes, which reach the ops no program
+    // run by `fgro` can, built with this build's profile; the ignored one
+    // starts its runtimes from the snapshot this build embeds, which the
+    // environment names
+    let mut runtime = vec!["test", "--locked", "-p", "gro_runtime", "--lib"];
+    runtime.extend(profile_args);
+    runtime.extend(["--", "--include-ignored", "runtime::tests::"]);
+    run(root, &env, "cargo", &runtime)?;
+    for (measurement, tests) in INTEGRATION_TESTS {
+        let features = measurement.features();
+        let mut test = vec!["test", "--locked", "-p", "gro_cli", "--features", &features];
+        test.extend(tests.iter().flat_map(|test| ["--test", *test]));
+        test.extend(profile_args);
+        run(root, &env, "cargo", &test)?;
     }
-    run(root, &env, "cargo", &test)?;
-    // the phases build's marks, eval's written from inside its box
-    let mut phases = vec![
-        "test",
-        "--locked",
-        "-p",
-        "gro_cli",
-        "--features",
-        "snapshot,phases",
-        "--test",
-        "phases",
-    ];
-    if release {
-        phases.push("--release");
-    }
-    run(root, &env, "cargo", &phases)?;
-    // the priced build's switches, eval's box among them
-    let mut prices = vec![
-        "test",
-        "--locked",
-        "-p",
-        "gro_cli",
-        "--features",
-        "snapshot,prices",
-        "--test",
-        "prices",
-        "--test",
-        "confine",
-    ];
-    if release {
-        prices.push("--release");
-    }
-    run(root, &env, "cargo", &prices)?;
     off_build_tree(root, binary)
 }
 
@@ -571,5 +556,31 @@ mod tests {
         };
         assert_eq!(commit_value(&state(false)), sha);
         assert_eq!(commit_value(&state(true)), format!("{sha}-dirty"));
+    }
+
+    /// The integration tests [`verify`] runs are `gro_cli`'s, every one:
+    /// each file of `crates/gro_cli/tests/` and each directory there with a
+    /// `main.rs`, as cargo finds them.
+    #[test]
+    fn verify_runs_every_integration_test_of_gro_cli() {
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_cli/tests");
+        let mut found: Vec<String> = fs::read_dir(&tests)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension().is_some_and(|extension| extension == "rs")
+                    || path.join("main.rs").is_file()
+            })
+            .map(|path| path.file_stem().unwrap().to_str().unwrap().to_owned())
+            .collect();
+        found.sort_unstable();
+        assert!(!found.is_empty());
+        let mut run: Vec<&str> = INTEGRATION_TESTS
+            .iter()
+            .flat_map(|(_, tests)| tests.iter().copied())
+            .collect();
+        run.sort_unstable();
+        run.dedup();
+        assert_eq!(run, found);
     }
 }

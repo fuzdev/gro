@@ -154,7 +154,8 @@ fn new_runtime(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
     use std::sync::OnceLock;
 
     use serde_json::{Value, json};
@@ -162,7 +163,7 @@ mod tests {
     use super::*;
     use crate::STACK_SIZE;
     use crate::bootstrap::web_scripts;
-    use crate::confine::Confinement;
+    use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::{HOST_OPS, HostOp};
     use crate::loader::graph::Recording;
@@ -193,11 +194,40 @@ mod tests {
     /// What the line [`snapshot_child`] prints its results on starts with.
     const RESULTS_MARK: &str = "snapshot_child results: ";
 
+    /// The variable naming the engine a [`snapshot_child`]'s process sets
+    /// up, one of [`EVAL_ENGINES`]' names: unset, the one `fgro run` does,
+    /// as in a test process's own run.
+    const ENGINE: &str = "GRO_RUNTIME_TEST_ENGINE";
+
+    /// Eval's engines, as [`ENGINE`] names them: jitless, as `fgro eval`
+    /// runs, and with the JIT, as `fgro eval --jit` does. An engine is its
+    /// process's, so each has a child of its own.
+    const EVAL_ENGINES: [(&str, Jit); 2] = [("eval_jitless", Jit::Off), ("eval_jit", Jit::On)];
+
+    /// The options of the engine this process's runtimes run on, as
+    /// [`ENGINE`] says.
+    fn engine_options() -> EngineOptions {
+        let Some(name) = std::env::var_os(ENGINE) else {
+            return EngineOptions::default();
+        };
+        let jit = EVAL_ENGINES
+            .iter()
+            .find_map(|(engine, jit)| (name == *engine).then_some(*jit))
+            .unwrap_or_else(|| panic!("{ENGINE} names no engine: {}", name.display()));
+        eval::engine_options(jit)
+    }
+
+    /// The variable naming the directory of the snapshot the build made,
+    /// `snapshot.bin` in it, which `fgro` embeds from there.
+    const BUILT_SNAPSHOT_DIR: &str = "GRO_SNAPSHOT_DIR";
+
     /// The snapshot [`snapshot_child`]'s runtimes start from, read once from
-    /// the file [`SNAPSHOT_START`] names, with the builtins' backing scripts
-    /// the process that made it wrote beside it, as the residual table: this
-    /// process strips none. It comes with no other residual script, so a
-    /// runtime started from it loads no web script the snapshot lacks.
+    /// the file [`SNAPSHOT_START`] names, with the scripts in the file
+    /// beside it as the residual table: the builtins' backing scripts, which
+    /// the process that made the snapshot wrote there, so this process
+    /// strips none, or none at all beside the build's snapshot. It comes
+    /// with no other residual script, so a runtime started from it loads no
+    /// web script the snapshot lacks.
     fn child_snapshot() -> StartupSnapshot {
         static SNAPSHOT: OnceLock<StartupSnapshot> = OnceLock::new();
         *SNAPSHOT.get_or_init(|| {
@@ -237,7 +267,7 @@ mod tests {
     ) -> T {
         use crate::resolver::DiskTree;
 
-        init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+        init_engine(Confinement::Unconfined, &engine_options()).unwrap();
         let snapshot = (start == Start::Snapshot).then(child_snapshot);
         let dir = TestDir::on_disk(&format!("{name}_{start:?}"));
         std::fs::write(dir.path().join("main.mjs"), "").unwrap();
@@ -283,6 +313,9 @@ mod tests {
         ("builtin_imports", builtin_imports),
     ];
 
+    /// The probe eval's engines are asked: what eval refuses.
+    const EVAL_ENGINE_PROBE: &str = "refused_ops";
+
     /// What the probe `name` saw of runtimes started as `start` says: from
     /// source, run here; from the snapshot, as [`snapshot_child`] ran it.
     /// Either way once a test process, since two tests ask for one probe
@@ -295,42 +328,71 @@ mod tests {
                 let at = PROBES.iter().position(|(probe, _)| *probe == name).unwrap();
                 FROM_SOURCE[at].get_or_init(|| PROBES[at].1(start)).clone()
             }
-            Start::Snapshot => snapshot_results()[name].clone(),
+            Start::Snapshot => snapshot_results().run[name].clone(),
         }
     }
 
-    /// Every probe's results from the snapshot, by name: a child makes the
-    /// snapshot, and [`snapshot_child`] runs the probes in a second, once a
-    /// test process.
-    fn snapshot_results() -> &'static Value {
-        static RESULTS: OnceLock<Value> = OnceLock::new();
+    /// What [`snapshot_child`] saw of runtimes started from the snapshot
+    /// this build's extensions make.
+    struct SnapshotResults {
+        /// Every probe's results, by name, on the engine `fgro run` sets up.
+        run: Value,
+        /// [`eval_engine_results`], on each of [`EVAL_ENGINES`] in their
+        /// order.
+        eval: [Value; EVAL_ENGINES.len()],
+    }
+
+    /// The results from the snapshot this build's extensions make: a child
+    /// makes it, and [`snapshot_child`] runs the probes in others, one an
+    /// engine, once a test process.
+    fn snapshot_results() -> &'static SnapshotResults {
+        static RESULTS: OnceLock<SnapshotResults> = OnceLock::new();
         RESULTS.get_or_init(|| {
             let dir = TestDir::in_system_temp("snapshot_start");
             let file = make_startup_snapshot(dir.path());
-            let output = run_test_in_child(
-                "runtime::tests::snapshot_child",
-                &[(SNAPSHOT_START, file.as_os_str())],
-            );
-            let stdout = String::from_utf8(output.stdout).unwrap();
-            let results = stdout
-                .lines()
-                .find_map(|line| line.strip_prefix(RESULTS_MARK))
-                .unwrap();
-            serde_json::from_str(results).unwrap()
+            SnapshotResults {
+                run: snapshot_child_results(&file, None),
+                eval: EVAL_ENGINES.map(|(engine, _)| eval_engine_results(&file, engine)),
+            }
         })
     }
 
-    /// The child [`snapshot_results`] runs, and nothing in a test process's
-    /// own run: every probe on runtimes started from the snapshot
-    /// [`SNAPSHOT_START`] names, the only runtimes of its process, their
-    /// results printed as one line of JSON.
+    /// [`EVAL_ENGINE_PROBE`]'s results on runtimes started from the snapshot
+    /// at `file`, on the engine `engine` names.
+    fn eval_engine_results(file: &Path, engine: &str) -> Value {
+        snapshot_child_results(file, Some(engine))[EVAL_ENGINE_PROBE].clone()
+    }
+
+    /// What a [`snapshot_child`] printed, run on the snapshot at `file` and
+    /// the engine `engine` names, the one `fgro run` sets up with none: its
+    /// probes' results, by name.
+    fn snapshot_child_results(file: &Path, engine: Option<&str>) -> Value {
+        let mut env = vec![(SNAPSHOT_START, file.as_os_str())];
+        env.extend(engine.map(|engine| (ENGINE, OsStr::new(engine))));
+        let output = run_test_in_child("runtime::tests::snapshot_child", &env);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let results = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(RESULTS_MARK))
+            .unwrap();
+        serde_json::from_str(results).unwrap()
+    }
+
+    /// The child [`snapshot_child_results`] runs, and nothing in a test
+    /// process's own run: the probes on runtimes started from the snapshot
+    /// [`SNAPSHOT_START`] names, the only runtimes of its process, on the
+    /// engine [`ENGINE`] names, their results printed as one line of JSON.
+    /// On the engine `fgro run` sets up it runs every probe, and on one of
+    /// eval's only [`EVAL_ENGINE_PROBE`].
     #[test]
     fn snapshot_child() {
         if std::env::var_os(SNAPSHOT_START).is_none() {
             return;
         }
+        let eval_s = std::env::var_os(ENGINE).is_some();
         let results: serde_json::Map<String, Value> = PROBES
             .iter()
+            .filter(|(name, _)| !eval_s || *name == EVAL_ENGINE_PROBE)
             .map(|(name, probe)| ((*name).to_owned(), probe(Start::Snapshot)))
             .collect();
         println!("\n{RESULTS_MARK}{}", Value::Object(results));
@@ -611,7 +673,7 @@ JSON.stringify(results)",
 
         use crate::resolver::DiskTree;
 
-        init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+        init_engine(Confinement::Unconfined, &engine_options()).unwrap();
         let snapshot = (start == Start::Snapshot).then(child_snapshot);
         let dir = TestDir::on_disk(&format!("builtin_imports_{start:?}"));
         let rows: Vec<(&str, &[&str])> = BUILTINS
@@ -854,6 +916,22 @@ for (const [name, call] of Object.entries({{
         })
     }
 
+    /// Fails unless `results`, [`refused_ops_results`]' of the runtimes
+    /// `runtimes` describes, are that every refused op and each of
+    /// [`REFUSED_WEB_CALLS`] threw the refusal in the eval runtime, and
+    /// that the clock reads and the web calls ran in `fgro run`'s.
+    fn assert_eval_refused(results: &Value, runtimes: &str) {
+        let refusal = format!("Error: {}", bootstrap::REFUSED);
+        for name in bootstrap::REFUSED_OPS.iter().chain(&REFUSED_WEB_CALLS) {
+            assert_eq!(results["eval"][name], refusal.as_str(), "{name} {runtimes}");
+        }
+        // the clock reads run in `fgro run`'s runtime, unrefused
+        let ran = ["op_timer_now", "op_memory_usage"];
+        for name in ran.iter().chain(&REFUSED_WEB_CALLS) {
+            assert_eq!(results["run"][name], "ran", "{name} {runtimes}");
+        }
+    }
+
     /// In an eval runtime, each refused op throws the refusal, and so does
     /// a web global whose own code calls one, before `determinism: deny`
     /// stands in front of it. In `fgro run`'s runtime the same ops run.
@@ -862,16 +940,43 @@ for (const [name, call] of Object.entries({{
     #[test]
     fn eval_refuses_the_refused_ops() {
         for start in STARTS {
-            let results = probed("refused_ops", start);
-            let refusal = format!("Error: {}", bootstrap::REFUSED);
-            for name in bootstrap::REFUSED_OPS.iter().chain(&REFUSED_WEB_CALLS) {
-                assert_eq!(results["eval"][name], refusal.as_str(), "{name} {start:?}");
-            }
-            // the clock reads run in `fgro run`'s runtime, unrefused
-            let ran = ["op_timer_now", "op_memory_usage"];
-            for name in ran.iter().chain(&REFUSED_WEB_CALLS) {
-                assert_eq!(results["run"][name], "ran", "{name} {start:?}");
-            }
+            assert_eval_refused(&probed("refused_ops", start), &format!("{start:?}"));
+        }
+    }
+
+    /// On each of eval's engines, jitless and with the JIT, a runtime
+    /// started from the snapshot refuses as it does on the engine
+    /// `fgro run` sets up, which made the snapshot.
+    #[test]
+    fn eval_refuses_the_refused_ops_on_its_engines() {
+        for ((engine, _), results) in EVAL_ENGINES.iter().zip(&snapshot_results().eval) {
+            assert_eval_refused(results, engine);
+        }
+    }
+
+    /// The snapshot the build made, the one `fgro` embeds, refuses the same
+    /// on each of eval's engines, in runtimes this test binary starts from
+    /// it. The build's `fgro` made it, encoding each op's function by its
+    /// place in that process's table of external references, and a start
+    /// reads the place in its own table, so an op the snapshot encodes by
+    /// another op's place runs here as it would in `fgro`: a refused op as
+    /// one eval keeps, or the other way. The runtimes start with no
+    /// residual script, and the probe loads none.
+    #[test]
+    #[ignore = "needs the snapshot `cargo xtask build` made, in the directory GRO_SNAPSHOT_DIR \
+                names: `cargo xtask build --verify` runs it"]
+    fn the_built_snapshot_refuses_the_refused_ops() {
+        let built = std::env::var_os(BUILT_SNAPSHOT_DIR)
+            .unwrap_or_else(|| panic!("{BUILT_SNAPSHOT_DIR} names no directory"));
+        let dir = TestDir::in_system_temp("built_snapshot");
+        let file = dir.path().join("snapshot.bin");
+        std::fs::copy(PathBuf::from(built).join("snapshot.bin"), &file).unwrap();
+        std::fs::write(backing_scripts_file(&file), "[]").unwrap();
+        for (engine, _) in EVAL_ENGINES {
+            assert_eval_refused(
+                &eval_engine_results(&file, engine),
+                &format!("the built snapshot, {engine}"),
+            );
         }
     }
 

@@ -430,7 +430,17 @@ Invariants that live in the code:
   runtime of its own from it (`runtime::tests::snapshot_child`), since a
   process's isolates share one read-only heap. They hold the op functions,
   eval's refusals, and the host ops' checks to what a start from source
-  gives.
+  gives, and eval's refusals on each of eval's engines, jitless and with
+  the JIT, each engine a child's. `cargo xtask build --verify` runs them
+  built with the build's profile, with one more
+  (`the_built_snapshot_refuses_the_refused_ops`) whose runtimes start from
+  the snapshot the build embeds. A snapshot names an op's function by its
+  place in the table of the process that made it, and a start reads the
+  place in its own table, so that test sees what `fgro` would of an op the
+  snapshot encodes by another's place. The test binary is `gro_runtime`'s,
+  not `fgro`: the release profile but for `panic = "abort"`, which cargo
+  leaves off a test, over another crate graph, so what its link merges
+  needn't be what `fgro`'s does.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in, as it passes the working directory and
@@ -445,7 +455,10 @@ Invariants that live in the code:
 `crates/gro_cli/tests/eval/`'s tests that evaluate are ignored in a plain `cargo test` and run from
 `cargo xtask build --verify`, beside `tests/confine.rs` (no libtest harness,
 whose threads would refuse the box). They need Landlock ABI 6 and fail below
-it, naming the kernel's ABI. `gro_sys`'s tests that close descriptors, clear
+it, naming the kernel's ABI. `--verify` names each of `gro_cli`'s integration
+tests with the features it runs under (`INTEGRATION_TESTS` in
+`crates/xtask/src/snapshot.rs`), and an xtask unit test fails on a file of
+`crates/gro_cli/tests/` no run names. `gro_sys`'s tests that close descriptors, clear
 the environment, cap memory, or signal run in a child process, harness off.
 
 **Vendored crates.** `vendor/` holds patched copies of published crates
@@ -480,7 +493,8 @@ it.
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in
   two stages, at `<target>/gro_snapshot/<profile>/fgro`; `--verify` adds
   the snapshot remade by that `fgro` and compared byte for byte, clippy over
-  the `snapshot` feature, the integration tests against that
+  the `snapshot` feature, `gro_runtime`'s tests of its runtimes built with
+  the build's profile, the integration tests against that
   build, the size budgets, and a run with the build tree hidden
   (`unshare -rm`, which needs unprivileged user namespaces). A plain
   `cargo build` makes an `fgro` with no snapshot that runs only from its
