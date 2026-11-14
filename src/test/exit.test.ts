@@ -65,7 +65,13 @@ describe('exit', () => {
 		mkdirSync(bin);
 		const ready = join(runner.sandbox.base, 'pid');
 		const sleeper = join(bin, 'sleeper');
-		writeFileSync(sleeper, `#!/bin/sh\necho $$ > '${ready}'\nexec sleep 100\n`, { mode: 0o755 });
+		// the pid file appears whole, by rename: the fixture exits as soon as it sees the file,
+		// and a child killed between creating it and writing its pid would leave it empty
+		writeFileSync(
+			sleeper,
+			`#!/bin/sh\necho $$ > '${ready}.tmp'\nmv '${ready}.tmp' '${ready}'\nexec sleep 100\n`,
+			{ mode: 0o755 }
+		);
 		const result = run_fixture(
 			`import {spawn} from ${JSON.stringify(SPAWN_URL)};
 			 import {existsSync} from 'node:fs';
@@ -77,8 +83,12 @@ describe('exit', () => {
 			{ env: { PATH: `${bin}:/usr/bin:/bin` } }
 		);
 		assert.strictEqual(result.status, 3, result.stderr);
-		assert.ok(existsSync(ready));
-		await assert_gone(Number(readFileSync(ready, 'utf8').trim()));
+		assert.ok(existsSync(ready), 'the child published no pid');
+		const pid_text = readFileSync(ready, 'utf8');
+		const pid = Number(pid_text.trim());
+		// `process.kill` takes 0 and negative pids as process groups, the test's own among them
+		assert.ok(Number.isInteger(pid) && pid > 1, `the pid file holds ${JSON.stringify(pid_text)}`);
+		await assert_gone(pid);
 	});
 
 	test('`exit` and `set_exit_code` are frozen functions, no constructors, taking no receiver', () => {
