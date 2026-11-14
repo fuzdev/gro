@@ -231,7 +231,7 @@ fn eval_refuses_a_grant_free_builtin_and_a_run_links_it() {
                 panic!("linked under eval");
             };
             assert_eq!(
-                refused.error.to_string(),
+                refused.message,
                 format!(
                     "cannot import '{}' from {importer}: eval imports no builtin module",
                     GRANT_FREE.specifier
@@ -252,7 +252,7 @@ fn eval_refuses_a_grant_free_builtin_and_a_run_links_it() {
         for importer in [MAIN, BAR] {
             for reach in [Reach::Static, Reach::Dynamic] {
                 let url = link_grant_free(&loader, importer, reach)
-                    .unwrap_or_else(|refused| panic!("{}", refused.error));
+                    .unwrap_or_else(|refused| panic!("{}", refused.message));
                 assert_eq!(url, GRANT_FREE.url);
             }
         }

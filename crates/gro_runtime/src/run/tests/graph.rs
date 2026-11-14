@@ -27,13 +27,13 @@ fn run_graph(
     }
     let entry = dir.join(entry);
     let cwd = dir.to_owned();
-    let (result, graph) = std::thread::Builder::new()
+    let (outcome, graph) = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || run_recorded(engine, &RuntimeOptions::default(), &entry, &cwd, recording))
         .unwrap()
         .join()
         .unwrap();
-    (result, graph, test_dir)
+    (outcome.result, graph, test_dir)
 }
 
 const PACKAGE_JSON: (&str, &str) = ("package.json", r#"{"name": "fixture", "type": "module"}"#);
@@ -137,6 +137,7 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
             [Failure {
                 at: None,
                 reason: FailureReason::Resolve(ResolveErrorKind::NotFound { .. }),
+                ..
             }]
         ),
         "{:?}",
@@ -258,6 +259,7 @@ await import('./s.js');
         [Failure {
             at: Some(Position { line: 1, column: 8 }),
             reason: FailureReason::Load(LoadFailure::Strip { .. }),
+            ..
         }]
     ));
     let failures = static_graph.unwrap().failures().clone();

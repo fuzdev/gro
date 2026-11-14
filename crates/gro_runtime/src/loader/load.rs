@@ -25,7 +25,7 @@ pub(super) fn load(
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
     if *requested != RequestedModuleType::None {
         return Err(refused(
-            LoadFailure::ImportAttributes,
+            LoadFailure::ModuleType,
             format!("cannot load {specifier}: import attributes are not supported yet"),
         ));
     }

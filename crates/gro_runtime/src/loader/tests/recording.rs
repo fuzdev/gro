@@ -40,6 +40,11 @@ fn only(failures: &[Failure]) -> &Failure {
     &failures[0]
 }
 
+/// Where `failure` is and why, its message aside.
+fn located(failure: &Failure) -> (Option<Position>, FailureReason) {
+    (failure.at, failure.reason.clone())
+}
+
 /// An import is an edge per reach, once however often `deno_core`
 /// resolves it, and `import.meta.resolve` adds none.
 #[test]
@@ -557,28 +562,26 @@ fn a_refused_load_is_recorded_with_its_reason() {
         column: 17,
     });
     assert_eq!(
-        *only(&failures[&site(enum_ts.as_str(), Some(main.as_str()), static_)]),
-        Failure {
+        located(only(
+            &failures[&site(enum_ts.as_str(), Some(main.as_str()), static_)]
+        )),
+        (
             at,
-            reason: FailureReason::Load(LoadFailure::Strip {
+            FailureReason::Load(LoadFailure::Strip {
                 failure: StripFailure::Unsupported(tsv_ts::UnsupportedConstruct::Enum),
                 at: Some(Position { line: 2, column: 3 }),
             }),
-        }
+        )
     );
     assert_eq!(
-        *only(&failures[&site(a.as_str(), None, dynamic)]),
-        Failure {
-            at: None,
-            reason: FailureReason::Load(LoadFailure::ReplacedSinceLookup),
-        }
+        located(only(&failures[&site(a.as_str(), None, dynamic)])),
+        (None, FailureReason::Load(LoadFailure::ReplacedSinceLookup))
     );
     assert_eq!(
-        *only(&failures[&site(b.as_str(), Some(main.as_str()), static_)]),
-        Failure {
-            at,
-            reason: FailureReason::Load(LoadFailure::ImportAttributes),
-        }
+        located(only(
+            &failures[&site(b.as_str(), Some(main.as_str()), static_)]
+        )),
+        (at, FailureReason::Load(LoadFailure::ModuleType))
     );
     assert_eq!(
         only(&failures[&site(never.as_str(), None, static_)]).reason,
@@ -640,14 +643,14 @@ fn a_site_keeps_each_distinct_failure() {
     }
     let failures = graph(&loader).failures().clone();
     assert_eq!(failures.len(), 1, "{failures:?}");
-    let failure = |reason| Failure {
-        at: None,
-        reason: FailureReason::Load(reason),
-    };
+    let failure = |reason| (None, FailureReason::Load(reason));
     assert_eq!(
-        failures[&site(a.as_str(), None, Reached::Import(Reach::Dynamic))],
+        failures[&site(a.as_str(), None, Reached::Import(Reach::Dynamic))]
+            .iter()
+            .map(located)
+            .collect::<Vec<_>>(),
         [
-            failure(LoadFailure::ImportAttributes),
+            failure(LoadFailure::ModuleType),
             failure(LoadFailure::ReplacedSinceLookup),
         ]
     );

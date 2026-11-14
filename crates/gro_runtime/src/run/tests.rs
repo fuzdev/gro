@@ -1,7 +1,8 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
 //! user code, then the graph a run records (`graph`), the builtins
-//! (`builtins`), import attributes (`attributes`), and `import()` in code
-//! compiled from a string (`string_code`).
+//! (`builtins`), import attributes (`attributes`), `import()` in code
+//! compiled from a string (`string_code`), and the refusals a run reports
+//! (`reported`).
 
 use std::path::PathBuf;
 
@@ -14,6 +15,7 @@ use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 mod attributes;
 mod builtins;
 mod graph;
+mod reported;
 mod string_code;
 
 /// The modules `deno_core` provides itself, which it doesn't list publicly
@@ -74,7 +76,7 @@ fn run_source(name: &str, source: &str) -> Result<(), RunError> {
     let cwd = dir.path().to_owned();
     std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
+        .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd).result)
         .unwrap()
         .join()
         .unwrap()
@@ -208,7 +210,7 @@ fn a_dynamic_import_failing_to_read_rejects_with_a_type_error() {
     let cwd = dir.path().to_owned();
     let result = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
+        .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd).result)
         .unwrap()
         .join()
         .unwrap();

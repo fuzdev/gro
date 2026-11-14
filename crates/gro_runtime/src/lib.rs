@@ -5,7 +5,8 @@
 //! tokio runtime, and drains the event loop (timers, pending promises). An
 //! uncaught error or an unhandled promise rejection ends the run with a
 //! [`RunError::Uncaught`] carrying the report, stack and source positions
-//! included.
+//! included. Its [`RunOutcome`] also lists the `import()`s gro's rules
+//! refused, caught ones included, but one that is the run's uncaught error.
 //!
 //! - [`resolver`]: the strict ESM resolver, a pure module (relative and
 //!   absolute specifiers with mandatory extensions, and packages in
@@ -14,9 +15,10 @@
 //!   under `"type": "module"`)
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
 //!   that strips TypeScript's types in process with `tsv_ts`, and keeps the
-//!   run's module graph: its roots and each module's root and file, and,
-//!   recording in full, each load's format and hash, the imports between
-//!   modules, the files consulted, and what failed
+//!   run's module graph: its roots and each module's root and file, the
+//!   refusals by rule an `import()` reached, and, recording in full, each
+//!   load's format and hash, the imports between modules, the files
+//!   consulted, and what failed
 //! - `bootstrap`: the extension that installs the pure web globals from
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest), serves the builtins
@@ -66,6 +68,7 @@
 //! once the runtime has started.
 
 mod bootstrap;
+mod clip;
 pub mod confine;
 pub mod engine;
 pub mod eval;
@@ -87,7 +90,7 @@ mod test_support;
 use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
-pub use crate::run::{RunError, StartError, run_main};
+pub use crate::run::{RefusedImport, RunError, RunOutcome, StartError, run_main};
 
 /// The stack to reserve for the thread [`run_main`] runs on: tsv's
 /// `STACK_SIZE`, 32 MiB, twice what its parsers need in a debug build (see

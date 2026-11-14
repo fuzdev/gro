@@ -208,7 +208,8 @@ fn dynamic_import_of_a_sibling() {
 /// The imports of a module an `import()` loads resolve with no JS frame on
 /// the stack, which the check for code compiled from a string must survive
 /// (reading a frame of an empty stack trace crashes the process); an
-/// `import()` in such code is refused, a `TypeError` the program catches.
+/// `import()` in such code is refused, a `TypeError` the program catches,
+/// and reported once on stderr, naming no importer.
 #[test]
 fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
     let run = run("import_string_code.js");
@@ -221,6 +222,169 @@ fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
     assert_eq!(
         run.stdout,
         format!("static sibling\ntrue {refusal}\ntrue {refusal}\n")
+    );
+    assert_eq!(
+        run.stderr,
+        format!("warning: import() refused: {refusal}\n")
+    );
+}
+
+/// An `import()` refused by rule is reported on stderr after the run even
+/// though the program caught it, once a site however often it's retried, in
+/// the binary's warning voice, uncolored; probing for what isn't there, or
+/// for an attribute that isn't supported, prints nothing, stdout is the
+/// program's, and the exit code is 0.
+#[test]
+fn a_caught_refusal_by_rule_is_reported_once_and_exits_0() {
+    let run = run("import_refused_reported.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "done\n");
+    let url = fixtures_url();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "warning: import() refused: cannot import './sibling.js' from code compiled from a \
+             string (eval, a Function constructor, or a string passed to a timer): V8 can share \
+             such code between modules that compile the same string, so it has no importer of \
+             its own. Fix: call import() in a module and pass what it returns to the compiled \
+             code\n\
+             warning: import() refused: cannot resolve '@fuzdev/gro/process.js' from \
+             {url}/import_refused_reported.js: it is the .js spelling of the builtin module \
+             '@fuzdev/gro/process.ts', reserved so it never resolves to a package. Fix: import \
+             '@fuzdev/gro/process.ts'\n"
+        )
+    );
+}
+
+/// A reported refusal's specifier, which the program chose, prints with its
+/// control and bidirectional formatting characters escaped, so it can't
+/// start a line of its own, erase or conceal the warnings around it, or
+/// reorder them.
+#[test]
+fn a_reported_refusal_escapes_control_characters() {
+    let run = run("import_refused_controls.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "done\n");
+    let url = fixtures_url();
+    let remote = "it is a remote or inline specifier; only files on disk load. Fix: save the \
+                  module into the project and import it by a relative path";
+    assert_eq!(
+        run.stderr,
+        format!(
+            "warning: import() refused: cannot resolve 'ext:a\\u{{1b}}[8m' from \
+             {url}/import_refused_controls.js: the scheme 'ext:' is not supported; only files on \
+             disk (file: URLs) load\n\
+             warning: import() refused: cannot resolve 'https://x/\\u{{d}}\\u{{1b}}[2K' from \
+             {url}/import_refused_controls.js: {remote}\n\
+             warning: import() refused: cannot import 'z\\u{{a}}warning: x\\u{{202e}}' from code \
+             compiled from a string (eval, a Function constructor, or a string passed to a \
+             timer): V8 can share such code between modules that compile the same string, so it \
+             has no importer of its own. Fix: call import() in a module and pass what it returns \
+             to the compiled code\n"
+        )
+    );
+}
+
+/// Past the refusals the report lists, one line counts how many more times
+/// an `import()` was refused, a retry of an unlisted one included, and a
+/// probe for a builtin after a flood of other refusals is still listed.
+#[test]
+fn refusals_past_the_listed_ones_are_counted_in_one_line() {
+    let run = run("import_refused_flood.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "done\n");
+    let lines: Vec<&str> = run.stderr.lines().collect();
+    let (last, listed) = lines.split_last().unwrap();
+    assert_eq!(listed.len(), 101, "{}", run.stderr);
+    assert!(
+        listed[0].starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/process.js'"),
+        "{}",
+        run.stderr
+    );
+    assert!(
+        listed[1..]
+            .iter()
+            .all(|line| line.starts_with("warning: import() refused: cannot resolve 'ext:")),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(*last, "warning: import() refused: 3 more times, not listed");
+}
+
+/// Refusals naming a host module past the bound are counted in a line of
+/// their own, before the line counting the rest.
+#[test]
+fn unlisted_probes_are_counted_apart() {
+    let run = run("import_refused_probe_flood.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let lines: Vec<&str> = run.stderr.lines().collect();
+    assert_eq!(
+        lines[lines.len() - 2..],
+        [
+            "warning: import() refused: 5 more times for a host module, not listed",
+            "warning: import() refused: 7 more times, not listed",
+        ],
+        "{}",
+        run.stderr
+    );
+}
+
+/// A probe the program didn't catch is the run's error, and is listed
+/// after it too with the caught refusal's warning, since the program can
+/// bury or erase its own error's text; the run exits 1.
+#[test]
+fn an_uncaught_probe_is_the_error_and_listed() {
+    let run = run("import_refused_uncaught.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert!(run.stdout.is_empty(), "{}", run.stdout);
+    let lines: Vec<&str> = run.stderr.lines().collect();
+    assert!(
+        lines[0].starts_with(
+            "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/process.js'"
+        ),
+        "{}",
+        run.stderr
+    );
+    assert!(
+        lines
+            .last()
+            .unwrap()
+            .starts_with("warning: import() refused: cannot resolve 'ext:core/ops'"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line
+                .starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/process.js'"))
+            .count(),
+        1,
+        "{}",
+        run.stderr
+    );
+}
+
+/// The warnings are the last thing a run writes, after its own error,
+/// whose text the program chose, so cursor-moving or erasing sequences in
+/// that error can't reach back over them on a terminal; the exit code is
+/// the error's.
+#[test]
+fn the_warnings_print_after_the_run_s_error() {
+    // not `run`, which holds stderr free of escapes
+    let output = fgro(&["run", "import_refused_then_throw.js"]);
+    assert_eq!(output.status.code(), Some(1));
+    let url = fixtures_url();
+    let erase = "\x1b[1A\x1b[2K".repeat(3);
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "error: Uncaught (in promise) Error: x{erase}\n    at \
+             {url}/import_refused_then_throw.js:5:7\n\
+             warning: import() refused: cannot resolve 'ext:core/ops' from \
+             {url}/import_refused_then_throw.js: the scheme 'ext:' is not supported; only files \
+             on disk (file: URLs) load\n"
+        )
     );
 }
 
@@ -318,10 +482,13 @@ fn a_package_is_not_found_past_the_project_root() {
     );
 }
 
+/// Refusals of what isn't there (no Node compat, no such package, no
+/// extension, a strip's refusal) are catchable and, caught, print nothing.
 #[test]
 fn dynamic_import_refusals_are_catchable() {
     let run = run("import_refused_dynamic.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "");
     let lines: Vec<&str> = run.stdout.lines().collect();
     assert_eq!(lines.len(), 4, "{}", run.stdout);
     // `deno_core` rethrows every load failure as a `TypeError`, a strip's included

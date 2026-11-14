@@ -351,7 +351,7 @@ mod tests {
         let cwd = dir.path().to_owned();
         let result = std::thread::Builder::new()
             .stack_size(STACK_SIZE)
-            .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd))
+            .spawn(move || run_main(engine, &RuntimeOptions::default(), &entry, &cwd).result)
             .unwrap()
             .join()
             .unwrap();

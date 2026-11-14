@@ -48,12 +48,13 @@
 //! function such code calls that was defined in a module imports as that
 //! module.
 //!
-//! Import attributes are refused, recorded as one failure
-//! ([`LoadFailure::ImportAttributes`]): an attribute under any key but
-//! `type` before anything resolves, as the language orders it, for a file
-//! and a builtin alike; any attribute of a builtin before its grant is
-//! checked; and a file's `type` when it loads, whatever its value, since no
-//! module type past JS loads yet. A static import's attributes and an
+//! Import attributes are refused: an attribute under any key but `type`
+//! before anything resolves, as the language orders it, for a file and a
+//! builtin alike ([`LoadFailure::UnsupportedAttribute`]); any attribute of
+//! a builtin before its grant is checked
+//! ([`LoadFailure::BuiltinAttributes`]); and a file's `type` when it loads,
+//! whatever its value, since no module type past JS loads yet
+//! ([`LoadFailure::ModuleType`]). A static import's attributes and an
 //! `import()`'s alike reach the loader, the latter through gro's patch of
 //! `deno_core`.
 //!
@@ -160,16 +161,16 @@ const SUPPORTED_ATTRIBUTE: &str = "type";
 /// `deno_core`'s, not a URL).
 const ROOT_REFERRER: &str = ".";
 
-/// A failed resolution or load: the reason as data, which the graph records
-/// when it records failures ([`Graph::fail`] does nothing otherwise), and
-/// the error `deno_core` rethrows to JS.
+/// A failed resolution or load: the reason as data and the message of the
+/// error `deno_core` rethrows to JS, both of which the graph records when it
+/// keeps the failure ([`Graph::fail`]).
 struct Refused {
     /// Why, boxed, since it can hold a
     /// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure
     /// is the rare path.
     reason: Box<FailureReason>,
-    /// The error JS sees.
-    error: ModuleLoaderError,
+    /// The message JS sees.
+    message: String,
 }
 
 impl Refused {
@@ -179,7 +180,7 @@ impl Refused {
     fn new(reason: FailureReason, message: String) -> Self {
         Self {
             reason: Box::new(reason),
-            error: ModuleLoaderError::type_error(message),
+            message,
         }
     }
 }
@@ -244,14 +245,17 @@ impl Loader {
         at: Option<Position>,
         refused: Refused,
     ) -> ModuleLoaderError {
+        let error = ModuleLoaderError::type_error(refused.message.clone());
         let failure = Failure {
             at,
             reason: *refused.reason,
+            message: refused.message,
+            message_hash: None,
         };
         self.graph
             .borrow_mut()
             .fail(specifier, referrer, reached, failure);
-        refused.error
+        error
     }
 
     /// Refuses an import or `import.meta.resolve` reached from the driver,
@@ -303,6 +307,11 @@ impl Loader {
             tree: &DiskTree,
         };
         self.resolve_reached(&tree, specifier, referrer, reached)
+    }
+
+    /// The graph as it stands, borrowed.
+    pub fn graph(&self) -> std::cell::Ref<'_, Graph> {
+        self.graph.borrow()
     }
 
     /// The graph, taken from the loader.
@@ -416,8 +425,8 @@ impl Loader {
     }
 
     /// Refuses an import with an attribute under any key but `type`, the one
-    /// key supported, reached as `reach` from `referrer`, recording why as a
-    /// refused attribute ([`LoadFailure::ImportAttributes`]). The language
+    /// key supported, reached as `reach` from `referrer`, recording why
+    /// ([`LoadFailure::UnsupportedAttribute`]). The language
     /// refuses such an attribute before the host resolves anything, for a
     /// file and a builtin module alike; of several, the message names the
     /// least, so it doesn't follow the map's order.
@@ -436,7 +445,7 @@ impl Loader {
             return Ok(());
         };
         let refused = Refused::new(
-            FailureReason::Load(LoadFailure::ImportAttributes),
+            FailureReason::Load(LoadFailure::UnsupportedAttribute),
             format!(
                 "cannot import '{specifier}' from {referrer}: the import attribute '{key}' is not \
                  supported; only '{SUPPORTED_ATTRIBUTE}' is"
@@ -477,21 +486,20 @@ impl Loader {
     /// reached as `reach` from `referrer`, recording why; any other
     /// specifier passes. A builtin takes no attributes, whatever they say,
     /// and is never loaded, so the load's refusal of a file's attributes
-    /// never sees it; the failure recorded is the same
-    /// ([`LoadFailure::ImportAttributes`]). A builtin is the table hit of its
-    /// exact specifier, which the resolver returns ahead of anything else
-    /// ([`find_builtin`]).
+    /// never sees it ([`LoadFailure::BuiltinAttributes`]). A builtin is the
+    /// table hit of its exact specifier, which the resolver returns ahead of
+    /// anything else ([`find_builtin`]).
     fn refuse_builtin_attributes(
         &self,
         specifier: &str,
         referrer: &str,
         reach: Reach,
     ) -> Result<(), ModuleLoaderError> {
-        if find_builtin(specifier).is_none() {
+        let Some(builtin) = find_builtin(specifier) else {
             return Ok(());
-        }
+        };
         let refused = Refused::new(
-            FailureReason::Load(LoadFailure::ImportAttributes),
+            FailureReason::Load(LoadFailure::BuiltinAttributes(builtin)),
             format!(
                 "cannot import '{specifier}' from {referrer}: a builtin module takes no import \
                  attributes"

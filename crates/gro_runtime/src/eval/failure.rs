@@ -314,7 +314,11 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
         // a builtin eval doesn't import, which is every one
         | FailureReason::NotGranted { .. } => ErrorKind::Resolve,
         FailureReason::Load(
-            LoadFailure::Strip { .. } | LoadFailure::ImportAttributes | LoadFailure::TooLarge,
+            LoadFailure::Strip { .. }
+            | LoadFailure::UnsupportedAttribute
+            | LoadFailure::BuiltinAttributes(_)
+            | LoadFailure::ModuleType
+            | LoadFailure::TooLarge,
         ) => ErrorKind::Link,
     };
     let at = match &failure.reason {
@@ -371,6 +375,8 @@ mod tests {
             let failure = Failure {
                 at: Some(Position { line: 2, column: 8 }),
                 reason: error.clone(),
+                message: format!("cannot import '{specifier}'"),
+                message_hash: None,
             };
             graph.fail(specifier, Some("file:///p/main.js"), *reached, failure);
         }
@@ -432,7 +438,17 @@ mod tests {
                 ErrorKind::Link,
             ),
             (
-                FailureReason::Load(LoadFailure::ImportAttributes),
+                FailureReason::Load(LoadFailure::UnsupportedAttribute),
+                ErrorKind::Link,
+            ),
+            (
+                FailureReason::Load(LoadFailure::BuiltinAttributes(
+                    &crate::resolver::BUILTINS[0],
+                )),
+                ErrorKind::Link,
+            ),
+            (
+                FailureReason::Load(LoadFailure::ModuleType),
                 ErrorKind::Link,
             ),
             (FailureReason::Load(LoadFailure::TooLarge), ErrorKind::Link),

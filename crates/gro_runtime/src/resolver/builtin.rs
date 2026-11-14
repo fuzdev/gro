@@ -124,6 +124,17 @@ pub enum Reserved {
     Unbuilt(&'static str),
 }
 
+impl Reserved {
+    /// The host module this reserves a spelling of: a builtin's specifier,
+    /// or an unbuilt host module's without its extension.
+    pub const fn host_module(self) -> &'static str {
+        match self {
+            Self::JsSpelling(builtin) | Self::Respelled(builtin) => builtin.specifier,
+            Self::Unbuilt(stem) => stem,
+        }
+    }
+}
+
 /// What the table reserves `specifier` as, if anything: a builtin's
 /// specifier is no reserved one, since [`find_builtin`] names it.
 ///

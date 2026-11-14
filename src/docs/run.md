@@ -140,6 +140,28 @@ A module that fails to resolve, load, or strip prints its reason without `Uncaug
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
 A dynamic `import()` that fails rejects with an error the code can catch, a `TypeError`,
 an I/O failure reading the resolved file's included.
+When one of gro's rules about authority or containment refused it (an ungranted builtin module, a builtin module with import attributes,
+a package's import of the project, a reserved specifier, a path leaving its root or reaching into `node_modules`,
+a refused scheme like `ext:` or `data:`, code compiled from a string),
+the refusal is reported after a run that ends, even if the program caught it, so a `try/catch` can't hide a probe for authority:
+`warning: import() refused: <its message>` on stderr, its control and bidirectional formatting characters escaped (`\u{1b}`),
+once per specifier, importer, and reason however often it's retried, so a second refusal at one site prints too,
+for the `import()` and the imports of the modules it loads.
+The report is the last thing the run prints, after its error when it fails, so nothing the program wrote can follow it to move the cursor back over it.
+One that is the run's uncaught error (a `TypeError` with its message) prints only as that, unless it names a host module.
+The report is bounded, and whatever else a run refuses, it lists the first refusal naming each host module by the project and by each of the first 32 packages to be refused one,
+where a refusal names a host module when it's a builtin module the importer isn't granted or imports with attributes, or a reserved specifier,
+and each package directory counts, one nested in another's `node_modules` included.
+Past those it lists up to 100 more naming a host module (respellings, a package past the 32) and the first 100 naming none,
+then `warning: import() refused: N more times for a host module, not listed` and `warning: import() refused: N more times, not listed` for the rest,
+counting each refusal past them, a retry of an unlisted one included.
+A listed specifier is clipped to 1 KiB where it stands, marked with its length and the head of its BLAKE3 hash, so two long ones stay apart,
+an importer's URL to 512 bytes, keeping its file and the name of the first package under `node_modules` it's in, the one the project installed, when that name ends in the first 256 bytes, and what's left of the message to 4 KiB.
+A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
+or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)
+isn't reported, so probing for an optional dependency or a feature stays quiet, and neither is `import.meta.resolve`, which imports nothing.
+A reported refusal doesn't change the exit code.
+A run killed by a signal, Ctrl-C included, prints no report.
 A module whose file was replaced between resolving and loading isn't loaded
 (`cannot load <url>: the file at its path is not the one resolved, so it isn't loaded`;
 [resolver](resolver.md#departures-from-node) has what it catches and what it can't),

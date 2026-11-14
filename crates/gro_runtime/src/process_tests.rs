@@ -42,7 +42,7 @@ fn run_source(engine: Engine, name: &str, source: &str, options: RuntimeOptions)
     let cwd = dir.path().to_owned();
     let result = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_main(engine, &options, &entry, &cwd))
+        .spawn(move || run_main(engine, &options, &entry, &cwd).result)
         .unwrap()
         .join()
         .unwrap();

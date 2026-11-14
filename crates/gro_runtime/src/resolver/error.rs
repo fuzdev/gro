@@ -8,6 +8,7 @@ use super::CONDITIONS;
 use super::builtin::Reserved;
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
+use crate::clip::{clip_boxed, clip_path, clip_string};
 
 /// A specifier that didn't resolve.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -351,6 +352,291 @@ impl ResolveErrorKind {
                 | Self::ReadOutsideBox(_)
                 | Self::InvalidUrl(UrlFault::ImporterNoLocalPath)
         )
+    }
+
+    /// Whether this refuses by a rule that guards the run's boundaries,
+    /// rather than finding nothing there to load: a remote, inline, or other
+    /// scheme (`https:`, `data:`, `ext:`, `builtin:`), whose module would have
+    /// no path in a root to take an origin from, a
+    /// name the builtin table reserves, a package found through a
+    /// world-writable directory, a path or `"exports"` target that leaves its
+    /// root or crosses into another's, a package's import of the project, a
+    /// module whose origin is unclear, or a read outside the box. Nothing
+    /// there is a missing file or package, a malformed specifier or package,
+    /// a format or feature `fgro` doesn't load (a `.cts` file or a `.js` one
+    /// outside `"type": "module"`, JSX, an unsupported extension, `node:`, a
+    /// registry, `#` imports), or a failed read: the
+    /// same for every importer, and what probing for an optional dependency
+    /// meets. `fgro run` reports a rule's refusal of an `import()` even when
+    /// the program catches it.
+    pub fn guards_a_boundary(&self) -> bool {
+        match self {
+            Self::Remote
+            | Self::UnsupportedScheme(_)
+            | Self::Reserved(_)
+            | Self::InvalidUrl(UrlFault::EncodedSeparator(_) | UrlFault::EncodedNul(_))
+            | Self::WorldWritablePackage { .. }
+            | Self::InvalidTarget { .. }
+            | Self::InvalidSubpath { .. }
+            | Self::OutsideRoot { .. }
+            | Self::IntoNodeModules { .. }
+            | Self::IntoPackageRoot { .. }
+            | Self::PackageImportsProject { .. }
+            | Self::InNoPackage(_)
+            | Self::RootConflict { .. }
+            | Self::ReadOutsideBox(_) => true,
+            Self::Target { error, .. } => error.guards_a_boundary(),
+            Self::NodeBuiltin
+            | Self::Registry
+            | Self::PackageImport
+            | Self::Empty
+            | Self::InvalidUrl(
+                UrlFault::Join(_)
+                | UrlFault::NoLocalPath
+                | UrlFault::ImporterNoLocalPath
+                | UrlFault::NotAbsolute,
+            )
+            | Self::InvalidPackageName
+            | Self::NoProjectRoot { .. }
+            | Self::PackageNotFound { .. }
+            | Self::NoPackageJson(_)
+            | Self::InvalidPackageJson { .. }
+            | Self::NoExports(_)
+            | Self::NotExported { .. }
+            | Self::NoMatchingCondition { .. }
+            | Self::NoExtension { .. }
+            | Self::NotFound { .. }
+            | Self::NotAFile
+            | Self::CommonJs
+            | Self::NotModuleType { .. }
+            | Self::NoTypeScope { .. }
+            | Self::Jsx
+            | Self::Declaration
+            | Self::SvelteModule
+            | Self::UnsupportedExtension(_)
+            | Self::SymlinkLoop(_)
+            | Self::Io { .. }
+            | Self::ReadReplacedSinceFirstRead(_)
+            | Self::ReadReplacedSinceLookup(_) => false,
+        }
+    }
+
+    /// The host module this refusal names, when it names one: a reserved
+    /// specifier, which spells a builtin's or a host module's not built yet
+    /// ([`Reserved::host_module`]). No other refusal of the resolver's
+    /// names one, since the table's hit returns ahead of them.
+    pub fn host_module(&self) -> Option<&'static str> {
+        match self {
+            Self::Reserved(reserved) => Some(reserved.host_module()),
+            Self::Target { error, .. } => error.host_module(),
+            Self::NodeBuiltin
+            | Self::Registry
+            | Self::Remote
+            | Self::UnsupportedScheme(_)
+            | Self::PackageImport
+            | Self::Empty
+            | Self::InvalidUrl(_)
+            | Self::InvalidPackageName
+            | Self::NoProjectRoot { .. }
+            | Self::PackageNotFound { .. }
+            | Self::WorldWritablePackage { .. }
+            | Self::NoPackageJson(_)
+            | Self::InvalidPackageJson { .. }
+            | Self::NoExports(_)
+            | Self::NotExported { .. }
+            | Self::NoMatchingCondition { .. }
+            | Self::InvalidTarget { .. }
+            | Self::InvalidSubpath { .. }
+            | Self::NoExtension { .. }
+            | Self::NotFound { .. }
+            | Self::NotAFile
+            | Self::CommonJs
+            | Self::NotModuleType { .. }
+            | Self::NoTypeScope { .. }
+            | Self::Jsx
+            | Self::Declaration
+            | Self::SvelteModule
+            | Self::UnsupportedExtension(_)
+            | Self::OutsideRoot { .. }
+            | Self::IntoNodeModules { .. }
+            | Self::IntoPackageRoot { .. }
+            | Self::PackageImportsProject { .. }
+            | Self::InNoPackage(_)
+            | Self::RootConflict { .. }
+            | Self::SymlinkLoop(_)
+            | Self::Io { .. }
+            | Self::ReadReplacedSinceFirstRead(_)
+            | Self::ReadReplacedSinceLookup(_)
+            | Self::ReadOutsideBox(_) => None,
+        }
+    }
+
+    /// This reason with each text and path in it longer than `max` bytes
+    /// clipped to them, marked as clipped (`crate::clip`), for a record that
+    /// keeps it outside V8's heap: a specifier's scheme, a path built from a
+    /// specifier, and a `package.json`'s strings are as long as a program or
+    /// a package makes them.
+    #[must_use]
+    pub fn clipped(self, max: usize) -> Self {
+        let text = |text: String| clip_string(text, max);
+        let path = |path: PathBuf| clip_path(path, max);
+        let root = |root: Box<Root>| Box::new(root.clipped(max));
+        match self {
+            Self::UnsupportedScheme(scheme) => Self::UnsupportedScheme(text(scheme)),
+            Self::InvalidUrl(fault) => Self::InvalidUrl(match fault {
+                UrlFault::EncodedSeparator(url) => UrlFault::EncodedSeparator(text(url)),
+                UrlFault::EncodedNul(url) => UrlFault::EncodedNul(text(url)),
+                UrlFault::Join(_)
+                | UrlFault::NoLocalPath
+                | UrlFault::ImporterNoLocalPath
+                | UrlFault::NotAbsolute => fault,
+            }),
+            Self::NoProjectRoot { dir, stopped_at } => Self::NoProjectRoot {
+                dir: path(dir),
+                stopped_at: stopped_at.map(path),
+            },
+            Self::PackageNotFound { name, bound } => {
+                let PackageSearchBound {
+                    dir,
+                    package_json,
+                    above,
+                } = *bound;
+                Self::PackageNotFound {
+                    name: text(name),
+                    bound: Box::new(PackageSearchBound {
+                        dir: path(dir),
+                        package_json: path(package_json),
+                        above: above.map(path),
+                    }),
+                }
+            }
+            Self::WorldWritablePackage { name, dir } => Self::WorldWritablePackage {
+                name: text(name),
+                dir: path(dir),
+            },
+            Self::NoPackageJson(dir) => Self::NoPackageJson(path(dir)),
+            Self::InvalidPackageJson {
+                path: package_json,
+                reason,
+            } => Self::InvalidPackageJson {
+                path: path(package_json),
+                reason: text(reason),
+            },
+            Self::NoExports(package_json) => Self::NoExports(path(package_json)),
+            Self::NotExported {
+                subpath,
+                package_json,
+                exported,
+            } => Self::NotExported {
+                subpath: text(subpath),
+                package_json: path(package_json),
+                exported: exported.into_iter().map(text).collect(),
+            },
+            Self::NoMatchingCondition { subpath, unmatched } => Self::NoMatchingCondition {
+                subpath: text(subpath),
+                unmatched: unmatched.into_iter().map(text).collect(),
+            },
+            Self::InvalidTarget {
+                key,
+                target,
+                reason,
+            } => Self::InvalidTarget {
+                key: text(key),
+                target: text(target),
+                reason,
+            },
+            Self::InvalidSubpath { key, matched } => Self::InvalidSubpath {
+                key: text(key),
+                matched: text(matched),
+            },
+            Self::Target {
+                path: target,
+                error,
+            } => Self::Target {
+                path: path(target),
+                error: Box::new(error.clipped(max)),
+            },
+            Self::NoExtension { suggestion } => Self::NoExtension {
+                suggestion: suggestion.map(text),
+            },
+            Self::NotFound { ts_sibling } => Self::NotFound {
+                ts_sibling: ts_sibling.map(text),
+            },
+            Self::NotModuleType { package_json } => Self::NotModuleType {
+                package_json: path(package_json),
+            },
+            Self::NoTypeScope { stopped_at } => Self::NoTypeScope {
+                stopped_at: stopped_at.map(path),
+            },
+            Self::UnsupportedExtension(extension) => Self::UnsupportedExtension(text(extension)),
+            Self::OutsideRoot {
+                path: outside,
+                root: dir,
+                package,
+            } => Self::OutsideRoot {
+                path: path(outside),
+                root: path(dir),
+                package: package.map(|package| clip_boxed(package, max)),
+            },
+            Self::IntoNodeModules {
+                path: into,
+                root: dir,
+            } => Self::IntoNodeModules {
+                path: path(into),
+                root: path(dir),
+            },
+            Self::IntoPackageRoot {
+                path: into,
+                root: package_root,
+            } => Self::IntoPackageRoot {
+                path: path(into),
+                root: root(package_root),
+            },
+            Self::PackageImportsProject {
+                package,
+                path: project_path,
+                project,
+            } => Self::PackageImportsProject {
+                package: clip_boxed(package, max),
+                path: path(project_path),
+                project: path(project),
+            },
+            Self::InNoPackage(dir) => Self::InNoPackage(path(dir)),
+            Self::RootConflict {
+                path: conflicted,
+                recorded,
+                admitted,
+            } => Self::RootConflict {
+                path: path(conflicted),
+                recorded: root(recorded),
+                admitted: root(admitted),
+            },
+            Self::SymlinkLoop(link) => Self::SymlinkLoop(path(link)),
+            Self::Io {
+                path: read,
+                kind,
+                message,
+            } => Self::Io {
+                path: path(read),
+                kind,
+                message: text(message),
+            },
+            Self::ReadReplacedSinceFirstRead(read) => Self::ReadReplacedSinceFirstRead(path(read)),
+            Self::ReadReplacedSinceLookup(read) => Self::ReadReplacedSinceLookup(path(read)),
+            Self::ReadOutsideBox(read) => Self::ReadOutsideBox(path(read)),
+            Self::NodeBuiltin
+            | Self::Registry
+            | Self::Remote
+            | Self::PackageImport
+            | Self::Reserved(_)
+            | Self::Empty
+            | Self::InvalidPackageName
+            | Self::NotAFile
+            | Self::CommonJs
+            | Self::Jsx
+            | Self::Declaration
+            | Self::SvelteModule => self,
+        }
     }
 }
 

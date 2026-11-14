@@ -1,31 +1,88 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
-//! drains, returning a failure as a `CliError`.
+//! drains, printing its failure, then warning on stderr of each `import()`
+//! gro's rules refused that the failure doesn't already show.
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::{Authority, Grants, ProcessGrant, RuntimeOptions};
+use gro_runtime::{Authority, Grants, ProcessGrant, RefusedImport, RunOutcome, RuntimeOptions};
 
 use crate::cli::RunInvocation;
 use crate::color;
 use crate::error::CliError;
+use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 
 /// Runs the module `run.file` names (a path relative to the working
-/// directory, or absolute), handing the runtime the script's arguments.
+/// directory, or absolute), handing the runtime the script's arguments,
+/// prints its failure if it failed, and returns the exit code
+/// ([`CliError::exit_code`], 0 on success).
+///
+/// After the failure it warns of each `import()` refused by one of gro's
+/// rules that isn't the run's uncaught error, one line each, its control
+/// characters escaped, then of how many more times one was refused, not
+/// listed. The warnings are the last thing the run writes, so no text the
+/// program chose, its uncaught error's included, prints after them to move
+/// the cursor back over them or erase them. The exit code doesn't change
+/// for them.
+pub fn run_module(run: &RunInvocation) -> u8 {
+    let RunOutcome {
+        result,
+        refused_imports,
+        unlisted_refusals,
+        unlisted_host_module_refusals,
+    } = match start_and_run(run) {
+        Ok(outcome) => outcome,
+        Err(error) => return error.report(),
+    };
+    let code = result.map_or_else(|error| CliError::from(error).report(), |()| 0);
+    warn_of_refusals(
+        &refused_imports,
+        unlisted_host_module_refusals,
+        unlisted_refusals - unlisted_host_module_refusals,
+    );
+    code
+}
+
+/// Starts the engine and runs `run`'s module, returning how the run ended.
 ///
 /// # Errors
 ///
-/// Returns why the engine, the working directory, or the run failed, the
-/// exit code with it ([`CliError::exit_code`]).
-pub fn run_module(run: &RunInvocation) -> Result<(), CliError> {
+/// Returns why the engine or the working directory failed, before anything
+/// ran.
+fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
     let options = runtime_options(run);
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
-    gro_runtime::run_main(engine, &options, &run.file, &cwd)?;
-    Ok(())
+    Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
+}
+
+/// Warns on stderr of each of `refused`, its message's control characters
+/// escaped, then of the `host_modules` more times an `import()` naming a
+/// host module was refused, and the `unlisted` more times another was.
+fn warn_of_refusals(refused: &[RefusedImport], host_modules: u64, unlisted: u64) {
+    for refused in refused {
+        stderr_line(format_args!(
+            "warning: import() refused: {}",
+            escape_controls(&refused.message)
+        ));
+    }
+    match host_modules {
+        0 => {}
+        1 => stderr_line("warning: import() refused: 1 more time for a host module, not listed"),
+        more => stderr_line(format_args!(
+            "warning: import() refused: {more} more times for a host module, not listed"
+        )),
+    }
+    match unlisted {
+        0 => {}
+        1 => stderr_line("warning: import() refused: 1 more time, not listed"),
+        more => stderr_line(format_args!(
+            "warning: import() refused: {more} more times, not listed"
+        )),
+    }
 }
 
 /// The options `run`'s runtime starts with: the project's own modules

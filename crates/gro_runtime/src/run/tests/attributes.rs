@@ -7,6 +7,7 @@
 
 use super::builtins::{HOP, PROCESS, SELF_LINK, granted, run_files, run_linked};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached};
+use crate::resolver::BUILTINS;
 use crate::{RunError, RuntimeOptions};
 
 /// The refusal of an attribute under `key`, of `specifier` imported by the
@@ -19,9 +20,28 @@ fn key_refusal(graph: &Graph, specifier: &str, importer: &str, key: &str) -> Str
     )
 }
 
-/// Asserts `graph` recorded a refused attribute, and nothing else, for
+/// Asserts `graph` recorded an unsupported attribute, and nothing else, for
 /// `specifier` imported by the project's `importer` as `reach`.
 fn assert_attribute_failure(graph: &Graph, specifier: &str, importer: &str, reach: Reach) {
+    assert_attribute_failures(
+        graph,
+        specifier,
+        importer,
+        reach,
+        &[LoadFailure::UnsupportedAttribute],
+    );
+}
+
+/// Asserts `graph` recorded the refused attributes `expected`, in order,
+/// and nothing else, for `specifier` imported by the project's `importer`
+/// as `reach`.
+fn assert_attribute_failures(
+    graph: &Graph,
+    specifier: &str,
+    importer: &str,
+    reach: Reach,
+    expected: &[LoadFailure],
+) {
     let importer = url::Url::from_file_path(graph.roots().project().dir.join(importer)).unwrap();
     let failures: Vec<_> = graph
         .failures()
@@ -34,12 +54,8 @@ fn assert_attribute_failure(graph: &Graph, specifier: &str, importer: &str, reac
         .flat_map(|(_, failures)| failures)
         .map(|failure| failure.reason.clone())
         .collect();
-    assert_eq!(
-        failures,
-        [FailureReason::Load(LoadFailure::ImportAttributes)],
-        "{specifier}: {:?}",
-        graph.failures()
-    );
+    let expected: Vec<_> = expected.iter().cloned().map(FailureReason::Load).collect();
+    assert_eq!(failures, expected, "{specifier}: {:?}", graph.failures());
 }
 
 /// A static import with an attribute under another key fails the run naming
@@ -245,14 +261,20 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         .collect();
     let (result, graph) = run_linked("attributes_dynamic", &files, &SELF_LINK, granted_options());
     assert!(result.is_ok(), "{result:?}");
-    for specifier in [
-        "./who.mjs",
-        "./missing.mjs",
-        PROCESS,
-        "@fuzdev/gro/process.js",
-    ] {
+    for specifier in ["./who.mjs", "./missing.mjs", "@fuzdev/gro/process.js"] {
         assert_attribute_failure(&graph, specifier, "main.mjs", Reach::Dynamic);
     }
+    // the builtin's two refusals, each kept: a key, then `type` on a builtin
+    assert_attribute_failures(
+        &graph,
+        PROCESS,
+        "main.mjs",
+        Reach::Dynamic,
+        &[
+            LoadFailure::UnsupportedAttribute,
+            LoadFailure::BuiltinAttributes(&BUILTINS[0]),
+        ],
+    );
     assert_attribute_failure(
         &graph,
         "self/args.js",

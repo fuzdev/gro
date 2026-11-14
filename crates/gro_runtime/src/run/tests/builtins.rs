@@ -3,7 +3,7 @@
 //! object's shape and its hardening, the grant check, and what a run
 //! records of a builtin import.
 
-use super::super::{RunError, run_recorded};
+use super::super::{RunError, RunOutcome, run_recorded};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Record, Recording};
@@ -40,6 +40,17 @@ pub(super) fn run_linked(
     links: &[(&str, &str)],
     options: RuntimeOptions,
 ) -> (Result<(), RunError>, Graph) {
+    let (outcome, graph) = run_linked_outcome(name, files, links, options);
+    (outcome.result, graph)
+}
+
+/// Runs as [`run_linked`] does, returning the run's whole outcome.
+pub(super) fn run_linked_outcome(
+    name: &str,
+    files: &[(&str, &str)],
+    links: &[(&str, &str)],
+    options: RuntimeOptions,
+) -> (RunOutcome, Graph) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(&format!("builtin_{name}"));
     let dir = test_dir.path().to_owned();
@@ -55,13 +66,13 @@ pub(super) fn run_linked(
         std::os::unix::fs::symlink(target, path).unwrap();
     }
     let entry = dir.join("main.mjs");
-    let (result, graph) = std::thread::Builder::new()
+    let (outcome, graph) = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || run_recorded(engine, &options, &entry, &dir, Recording::Full))
         .unwrap()
         .join()
         .unwrap();
-    (result, graph.unwrap())
+    (outcome, graph.unwrap())
 }
 
 /// Runs `source` as `main.mjs` granted `process`, with `args`.
@@ -459,7 +470,9 @@ const SOURCE_REFUSED: &str = "Source phase imports are not supported for synthet
 /// `import()`'s own, reject it, recorded as dynamic.
 #[test]
 fn an_import_of_a_builtin_with_attributes_is_refused() {
-    let refused = [FailureReason::Load(LoadFailure::ImportAttributes)];
+    let refused = [FailureReason::Load(LoadFailure::BuiltinAttributes(
+        &BUILTINS[0],
+    ))];
     let options = RuntimeOptions {
         authority: granted(),
         args: vec!["a".to_owned()],
