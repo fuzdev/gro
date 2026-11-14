@@ -465,12 +465,22 @@ describe('rescan', () => {
 
 		const first = await events.next();
 		assert.deepEqual(first, { done: false, value: { kind: 'rescan', path: '' } });
-		// once it's read, events queue again, read after they've arrived so none meets a waiting reader
-		writeFileSync(join(sandbox.root, 'after.txt'), '');
-		await read_until(witness, is_event('add', 'after.txt'));
-		const read = to_summary(await read_until(events, is_event('add', 'after.txt')));
-		// the batch's last events may still be arriving behind the rescan
-		for (const event of read.slice(0, -1)) assert.match(event, /^add (f\d+|last)\.txt$/);
+		// once it's read, events queue again, read after they've arrived so none meets a waiting reader;
+		// the batch's last events may still be arriving behind the rescan, the witness no sign of them,
+		// and overflow again, so a file is made until its `add` is read
+		for (let i = 0; i <= count; i++) {
+			const name = `after${i}.txt`;
+			writeFileSync(join(sandbox.root, name), '');
+			await read_until(witness, is_event('add', name));
+			const read = to_summary(
+				await read_until(events, (e) => e.kind === 'rescan' || is_event('add', name)(e))
+			);
+			for (const event of read.slice(0, -1)) {
+				assert.match(event, /^add (f\d+|last|after\d+)\.txt$/);
+			}
+			if (read.at(-1) === `add ${name}`) return;
+		}
+		assert.fail('every file made after the `rescan` was read was dropped');
 	});
 });
 
