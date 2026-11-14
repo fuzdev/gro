@@ -783,6 +783,34 @@ fn a_trap_reports_as_it_is_used() {
     assert!(reports.0.iter().all(|(kind, _)| kind != "done"));
 }
 
+/// How many times [`a_first_import_cut_short_is_run_again_whole`] runs its
+/// fixture before a run that V8's stack check ended fails it.
+///
+/// V8 holds JS to a stack limit and lets the native code JS calls run
+/// 40 KiB past it: a collection started further down fails a check of V8's
+/// (`isolate_->IsOnCentralStack()`), which ends the process by a signal. An
+/// `import()` of a builtin nothing has imported runs `deno_core`'s loading
+/// of it, and its report of a failure, on the caller's stack, in native
+/// frames. An unoptimized build's pass the 40 KiB at some of the depths the
+/// fixture starts an import from, and a collection that happens to start
+/// there ends the run, which then says nothing of the import: a debug build
+/// runs the fixture again, this many times at most. How often a debug run
+/// ends so moves with the build and with the length of the project's path,
+/// up to most runs, and such a run mostly ends at its first import, so the
+/// bound is set to fail only a build in which no run gets through. A release
+/// build's frames stay inside the 40 KiB, so it has the one run, and the
+/// check fails it.
+const FORCED_RUNS: usize = if cfg!(debug_assertions) { 64 } else { 1 };
+
+/// Whether a signal ended the run of `output` after V8's check that a
+/// collection starts within its margin past the stack's limit failed
+/// ([`FORCED_RUNS`]).
+fn ended_by_v8_stack_check(output: &std::process::Output) -> bool {
+    output.status.code().is_none()
+        && String::from_utf8_lossy(&output.stderr)
+            .contains("Check failed: isolate_->IsOnCentralStack().")
+}
+
 /// A first import cut short is run again, whole, for every row of the
 /// table: an `import()` of a builtin nothing has imported runs its
 /// implementation on the caller's stack, so a caller at the stack's limit
@@ -793,7 +821,8 @@ fn a_trap_reports_as_it_is_used() {
 /// later one finds: no builtin is lost to the run, for the project or for
 /// a package that never failed one. A debug `deno_core` warns on stderr
 /// that it couldn't read such a failure's stack, once each, and nothing
-/// else is printed there.
+/// else is printed there. A run V8's stack check ended is run again
+/// ([`FORCED_RUNS`]).
 #[test]
 fn a_first_import_cut_short_is_run_again_whole() {
     let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
@@ -810,12 +839,22 @@ fn a_first_import_cut_short_is_run_again_whole() {
             ("forced.js", &forced),
         ],
     );
-    let mut command = fgro_command(&["run", "forced.js", "a"]);
-    command.current_dir(&project.0);
-    let output = spawn(command, b"");
+    let run = || {
+        let mut command = fgro_command(&["run", "forced.js", "a"]);
+        command.current_dir(&project.0);
+        spawn(command, b"")
+    };
+    let mut output = run();
+    for _ in 1..FORCED_RUNS {
+        if !ended_by_v8_stack_check(&output) {
+            break;
+        }
+        output = run();
+    }
     let stderr = String::from_utf8(output.stderr).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    // the status first: a run a signal ended has no code, and its stderr is long
+    assert_eq!(output.status.code(), Some(0), "{}: {stderr}", output.status);
     let unexpected = stderr
         .lines()
         .find(|line| !line.starts_with("warning: Failed to create JsStackFrame from callsite"));
