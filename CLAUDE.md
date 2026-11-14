@@ -356,10 +356,11 @@ Invariants that live in the code:
     name excepted), a property written, each construct that calls a protocol
     user code can answer (iteration, a string or number made of a value that
     isn't primitive, `await`, `import()`, `using`, `instanceof`, `in`,
-    `for`-`in`, a tagged template, `extends`), and what leaves the type check
-    or turns it off (`any`, written or what a call no signature types gives, a
-    type assertion, `globalThis`, a `@ts-` directive, a reference to a file
-    the program's tsconfig doesn't list).
+    `for`-`in`, a tagged template, `extends`, an accessor in an object
+    literal), and what leaves the type check or turns it off (`any`, written
+    or what a call no signature types gives, a type assertion, `globalThis`,
+    a `@ts-` directive, a reference to a file the program's tsconfig doesn't
+    list).
   - The same test holds the two declaration files to reviewed lists.
     `bootstrap.d.ts`: the bootstrap object gives `core.ops`, gro's host ops,
     and the primordials listed there, each with why it's safe after user code

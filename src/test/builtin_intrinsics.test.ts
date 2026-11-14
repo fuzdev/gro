@@ -33,7 +33,8 @@ each thing it refuses is shown to be refused, on an implementation that does it:
 - a walk of its syntax, with the program's types, for what that program accepts: a member of
   anything but what the bootstrap object gave, a property written, each construct that calls a
   protocol user code can answer (iteration, a string or number made of a value that isn't
-  primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged template, `extends`), and what
+  primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged template, `extends`, an
+  accessor in an object literal), and what
   leaves the type check (`any`, a type assertion, a `@ts-` directive, `globalThis`, a `declare`,
   a reference to a file the reviewed declarations don't hold).
 
@@ -220,6 +221,17 @@ describe.each(rows)('the $name implementation', (row) => {
 			],
 			['(function* () {\n\t\tyield 1;\n\t});', ['generator'], false],
 			['({ ...core });', ['object spread'], true],
+			// an accessor in a literal, which reading the literal calls
+			[
+				'primordials.ObjectAssign(primordials.ObjectCreate(null), {\n\t\tget ops() {\n\t\t\treturn 1;\n\t\t}\n\t});',
+				['accessor'],
+				true
+			],
+			[
+				'primordials.ObjectAssign(primordials.ObjectCreate(null), {\n\t\tset ops(_value: number) {}\n\t});',
+				['accessor'],
+				true
+			],
 			// the other protocols
 			['core instanceof primordials.Error;', ['instanceof'], true],
 			['for (const key in core) primordials.ObjectFreeze(key);', ['for-in'], true],
