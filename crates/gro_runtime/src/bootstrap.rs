@@ -43,11 +43,36 @@
 //! is the inner level's argument, which the script's call passes
 //! ([`scope_argument`]) and an implementation reads no other way; no grant
 //! scopes anything yet, and a grant-free builtin has none, so each is
-//! called with `undefined`. An implementation never throws: `deno_core`
-//! rejects the import with a `TypeError` carrying its own report of what
-//! the script threw, never the error, and runs the whole script again at
-//! the next import, whatever the first run had done by then, so a builtin
-//! that can fail fails in what it exports, as `cwd` does when called.
+//! called with `undefined`.
+//!
+//! **A first import can be cut short.** `deno_core` builds a facade the
+//! first time an `import()` names it, inside that call, so the backing
+//! script runs on the importer's stack, and an importer that left it almost
+//! none, a package's module included for a grant-free builtin, makes it
+//! overflow at a call of the importer's choosing. `deno_core` rejects that
+//! import with a `TypeError` carrying its own report of what the script
+//! threw, never the error, keeps nothing of the run, and runs the whole
+//! script again at the next import. So both levels of an implementation are
+//! safe to cut short at any call and to run again:
+//!
+//! - Neither stores anything outside its own bindings: no property on the
+//!   bootstrap object or on anything it holds. What the outer level makes
+//!   for every importer (a class, a registry) is reached only through the
+//!   namespace the inner level returns, which `deno_core` keeps once both
+//!   have returned, so a half-made one is never published and a second run
+//!   starts from nothing.
+//! - State that is the run's and outlives a script, an ordered writer, a
+//!   table of handles, an exit code, is the host's, in `OpState`, made by
+//!   the host whole: a script reaches it through ops, and what one builtin
+//!   must recognize of another's (a handle) it asks an op.
+//! - An op either level calls is one that can be called again: a read, or
+//!   a get-or-make. An op with an effect that mustn't repeat is called by
+//!   what the builtin exports, never by a level.
+//!
+//! A builtin that can fail for a reason of the run's fails in what it
+//! exports, as `cwd` does when called. The tests fail every row's first
+//! import at the stack's limit and hold the next to the whole module;
+//! that an op is safe to repeat, nothing checks.
 //!
 //! The loader resolves an import to a `builtin:` URL only for a bare
 //! specifier in the table and only for an importer granted it

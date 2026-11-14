@@ -329,8 +329,20 @@ Invariants that live in the code:
     script calls both at once, so a run has one namespace of a builtin, and
     one per importing origin would be one more call of the inner level over
     the same classes and state.
-  - An implementation never throws, which nothing checks (`bootstrap.rs` says
-    what `deno_core` does with one that did).
+  - An implementation throws only when its importer left it no stack: an
+    `import()` runs it on the caller's stack, so any importer can cut a first
+    import short at a call of its choosing, the import rejects with
+    `deno_core`'s report, and the next import runs the whole script again
+    (`bootstrap.rs`). So both levels are safe to cut short at any call and to
+    run again. Neither stores anything outside its own bindings: `deno_core`
+    keeps the namespace only once both have returned, so nothing half-made is
+    published. State every importer shares is the outer level's own, reached
+    through what the inner level returns, or the host's, in `OpState`, and an
+    op either level calls can be called again. What can fail for a reason of
+    the run's fails in what the module exports, as `cwd` does when called.
+    `crates/gro_cli/tests/host.rs` fails every row's first import that way and
+    holds the next to the whole module; nothing checks that an op a level
+    calls is safe to repeat.
   - An implementation can run after user code has patched the global
     intrinsics, so it names no global and reads no member of an intrinsic, its
     top level included: each intrinsic comes from `primordials`, each op from

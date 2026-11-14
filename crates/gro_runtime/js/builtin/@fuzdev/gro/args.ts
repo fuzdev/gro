@@ -20,11 +20,15 @@
 // type-checks it with no global value and no member of an intrinsic type declared
 // (`intrinsics.d.ts`), so either is an error.
 //
-// Neither level throws, since an import of a builtin whose script threw rejects with the
-// host's report of it, not the error: a builtin that can fail fails in what it exports, as
-// `cwd.ts` does. The inner level reads no grant but the scope it's given and keeps no state
-// per importer, so it can be called once per importing origin. The `args` grant scopes
-// nothing, so its scope is `undefined`.
+// An `import()` runs the script on its caller's stack, so a caller that left it none cuts
+// either level short at any call, and the next import runs both again. So a level stores
+// nothing outside its own bindings, and calls only an op that can be called again: what a
+// builtin shares across importers is the outer level's own or the host's, and a builtin that
+// can fail fails in what it exports, as `cwd.ts` does, since an import whose script threw
+// rejects with the host's report of it, not the error. The inner level reads no grant but
+// the scope it's given, which it hands to an op whole, and keeps no state per importer, so
+// it can be called once per importing origin. The `args` grant scopes nothing, so its scope
+// is `undefined`.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 

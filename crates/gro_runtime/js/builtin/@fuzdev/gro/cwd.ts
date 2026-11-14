@@ -7,8 +7,8 @@
 // that string whenever it's called, and a run has no way to change its directory. As in the
 // Node implementation, `cwd` is a frozen function that takes no receiver. When the directory's
 // path isn't UTF-8, which the host checks, `cwd` throws when it's called, where importing the
-// Node module throws: a builtin's script never throws, since the import of a builtin whose
-// script threw would reject with the host's report of it, not the error.
+// Node module throws: a builtin's script throws nothing of the run's when it's imported,
+// since an import whose script threw would reject with the host's report, not the error.
 //
 // A script the runtime compiles and calls on the builtin's first import, in two levels,
 // reaching intrinsics only through `primordials` (`args.ts` has the rules). A grant-free

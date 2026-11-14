@@ -939,7 +939,10 @@ a walk of its syntax refuses a member of anything the runtime didn't hand it and
 and every builtin module is imported by a test in a realm whose every reachable intrinsic reports its use,
 where each function it exports or reaches is called with hostile arguments: a proxy, an object of getters, a subclassed string and array.
 It shares no source with the Node implementation: the cases run under both runtimes hold the two to one behavior.
-A builtin module's import never fails for a reason of the run's: what can fail fails in what the module exports, as `cwd` does when called.
+A builtin module's implementation fails as it loads only when its importer leaves it no stack:
+an `import()` runs the implementation on the caller's stack, the import rejects with the host's report,
+and the next import runs the implementation again, whole, so nothing it does when it loads is left half-done by a run cut short, or done twice to any effect.
+What can fail for a reason of the run's fails in what the module exports, as `cwd` does when called.
 
 ### fs
 

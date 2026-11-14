@@ -15,6 +15,11 @@
 //! and must be what it is in a realm nothing patched and use no trap. A
 //! run reports as it goes, a line of JSON for each thing, so a call that
 //! ended the process would still have left what it used.
+//!
+//! And every builtin's first import made to fail (`tests/fixtures/host/forced/`):
+//! an `import()` runs the implementation on its caller's stack, so a
+//! caller that left it none cuts it short, and the import after must find
+//! nothing of that run and make the module whole.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -593,4 +598,66 @@ fn a_trap_reports_as_it_is_used() {
     assert!(stderr.contains("ended"), "{stderr}");
     assert_eq!(reports.strings("trap"), ["get globalThis.Object"]);
     assert!(reports.0.iter().all(|(kind, _)| kind != "done"));
+}
+
+/// A first import cut short is run again, whole, for every row of the
+/// table: an `import()` of a builtin nothing has imported runs its
+/// implementation on the caller's stack, so a caller at the stack's limit
+/// makes it fail, with the host's report of a `RangeError` naming a frame
+/// of the backing script, as often as it likes; and the import that is left
+/// enough stack makes the module with the row's exports, the same module
+/// every later import gets. So a failed first import leaves nothing a
+/// later one finds: no builtin is lost to the run, for the project or for
+/// a package that never failed one. A debug `deno_core` warns on stderr
+/// that it couldn't read such a failure's stack, once each, and nothing
+/// else is printed there.
+#[test]
+fn a_first_import_cut_short_is_run_again_whole() {
+    let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
+    let modules = format!(
+        "export const SPECIFIERS = {};\n",
+        serde_json::to_string(&specifiers).unwrap()
+    );
+    let forced = std::fs::read_to_string(fixtures().join("forced/forced.js")).unwrap();
+    let project = Scratch::new(
+        "forced",
+        &[
+            ("package.json", "{\"type\": \"module\"}\n"),
+            ("modules.js", &modules),
+            ("forced.js", &forced),
+        ],
+    );
+    let mut command = fgro_command(&["run", "forced.js", "a"]);
+    command.current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    let unexpected = stderr
+        .lines()
+        .find(|line| !line.starts_with("warning: Failed to create JsStackFrame from callsite"));
+    assert_eq!(unexpected, None);
+    let rows: Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), BUILTINS.len());
+    for (row, builtin) in rows.iter().zip(BUILTINS) {
+        assert_eq!(row["specifier"], builtin.specifier);
+        let rejections = row["rejections"].as_array().unwrap();
+        assert!(!rejections.is_empty(), "{row}");
+        for rejection in rejections {
+            let rejection = rejection.as_str().unwrap();
+            assert!(
+                rejection.ends_with("RangeError: Maximum call stack size exceeded"),
+                "{row}"
+            );
+        }
+        // some failure names a frame of the backing script, so the import reached it
+        assert_ne!(row["cut_at"], serde_json::json!([]), "{row}");
+        let mut exports: Vec<&str> = builtin.exports.to_vec();
+        exports.push("default");
+        exports.sort_unstable();
+        assert_eq!(row["exports"], serde_json::json!(exports), "{row}");
+        assert_eq!(row["same"], true, "{row}");
+    }
 }
