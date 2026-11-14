@@ -75,10 +75,13 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:
   none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
   A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
-- An `import()` inside code compiled from a string by an indirect `eval` or `new Function`
-  is attributed to the module that first compiled that exact string, which may not be the caller
-  (a direct `eval` keeps its caller),
-  so such an `import()` doesn't yet separate a package's reach from the project's.
+- An `import()` inside code compiled from a string (an `eval`, direct or indirect, a `Function` constructor, its async and generator ones included,
+  or a string passed to `setTimeout` or `setInterval`) is refused with a `TypeError`, whatever it names, wherever the code is called from.
+  V8 can share such code between the modules that compile the same string and names the first as its importer,
+  so it has no importer of its own whose grants could be checked.
+  This refusal comes before every other check of the `import()`, its attributes' included, so no message about it names a module.
+  A function defined in a module imports as that module, whatever code calls it.
+  The fix is to call `import()` in a module and hand what it returns to the compiled code.
 
 ## The global scope
 

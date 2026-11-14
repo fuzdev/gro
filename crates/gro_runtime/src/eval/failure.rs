@@ -303,8 +303,10 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
             | LoadFailure::Format(_),
         )
         | FailureReason::UnknownImporter
-        // never static: an `import()` is refused before it loads anything
-        | FailureReason::DynamicImport => ErrorKind::Internal,
+        // never static: an `import()` is refused before it loads anything, and
+        // eval compiles no code from a string
+        | FailureReason::DynamicImport
+        | FailureReason::StringCompiledImport => ErrorKind::Internal,
         // a read that failed or changed, a breach, or a host bug, as the entry's are
         FailureReason::Resolve(kind) if !kind.is_refusal() => ErrorKind::Internal,
         FailureReason::Resolve(_)

@@ -42,6 +42,16 @@
 //! reach the loader: `deno_core` resolves it with none and serves a builtin
 //! without a load, so `import()` of one with attributes imports it.
 //!
+//! An `import()` in code compiled from a string (an `eval`, a `Function`
+//! constructor, a string passed to a timer) is refused, whatever it names
+//! and whatever its attributes, ahead of every other check of the import
+//! but eval's own rules ([`FailureReason::StringCompiledImport`]): V8 can
+//! cache that code by its source and name as its importer the module that
+//! compiled the string first, so another module compiling the same string
+//! would import on that module's grants. Its record names no importer. A
+//! function such code calls that was defined in a module imports as that
+//! module.
+//!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the
 //! driver, a module whose source the host provides and that resolves to
@@ -330,15 +340,17 @@ impl Loader {
 
     /// Resolves `specifier`, imported by the module at `referrer` as `kind`
     /// says, with import attributes when `attributes`: the entry's URL as
-    /// it is, already resolved; a refusal of this loader's own rules or of a
-    /// builtin module with attributes; else the resolver's answer over the
-    /// disk.
+    /// it is, already resolved; a refusal of this loader's own rules, of an
+    /// `import()` whose calling code `from_string_code` says was compiled
+    /// from a string (asked only for an `import()`), or of a builtin module
+    /// with attributes; else the resolver's answer over the disk.
     fn resolve_import(
         &self,
         specifier: &str,
         referrer: &str,
         kind: ResolutionKind,
         attributes: bool,
+        from_string_code: impl FnOnce() -> bool,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let reach = match kind {
             // the entry, already resolved by `resolver::resolve_entry`
@@ -359,6 +371,10 @@ impl Loader {
             return Ok(driver.clone());
         }
         self.refuse_by_rules(specifier, referrer, reach)?;
+        // first, so nothing refused in string code names V8's referrer
+        if reach == Reach::Dynamic && from_string_code() {
+            return Err(self.refuse_string_code(specifier));
+        }
         if attributes {
             self.refuse_builtin_attributes(specifier, referrer, reach)?;
         }
@@ -386,6 +402,28 @@ impl Loader {
             return Err(self.record_refused(specifier, Some(referrer), reached, None, refused));
         }
         Ok(())
+    }
+
+    /// Refuses an `import()` of `specifier` in code compiled from a string,
+    /// recording why under no importer: the module V8 names may have
+    /// compiled that string first without being the caller.
+    fn refuse_string_code(&self, specifier: &str) -> ModuleLoaderError {
+        let refused = Refused::new(
+            FailureReason::StringCompiledImport,
+            format!(
+                "cannot import '{specifier}' from code compiled from a string (eval, a Function \
+                 constructor, or a string passed to a timer): V8 can share such code between \
+                 modules that compile the same string, so it has no importer of its own. Fix: \
+                 call import() in a module and pass what it returns to the compiled code"
+            ),
+        );
+        self.record_refused(
+            specifier,
+            None,
+            Reached::Import(Reach::Dynamic),
+            None,
+            refused,
+        )
     }
 
     /// Refuses an import with import attributes of a builtin module,
@@ -488,23 +526,35 @@ impl ModuleLoader for Loader {
         referrer: &str,
         kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        self.resolve_import(specifier, referrer, kind, false)
+        // `deno_core` resolves an `import()` with a scope, so none is here
+        self.resolve_import(specifier, referrer, kind, false, || false)
     }
 
-    /// Resolves as [`ModuleLoader::resolve`] does, refusing an import of a
-    /// builtin module with import attributes. `deno_core` passes a static
-    /// import's attributes here, and an `import()`'s never: it resolves one
-    /// with none.
-    // TODO: refuse an `import()`'s too, once its attributes reach the loader
+    /// Resolves as [`ModuleLoader::resolve`] does, refusing an `import()` in
+    /// code compiled from a string and an import of a builtin module with
+    /// import attributes. `deno_core` passes a static import's attributes
+    /// here, and an `import()`'s never: it resolves one with none.
+    ///
+    /// `deno_core` resolves an `import()`'s own specifier here inside V8's
+    /// dynamic-import callback, the function that called `import()` the top
+    /// JS frame on the stack, and each import of the modules it loads later,
+    /// from the event loop, with no JS frame on the stack.
+    // TODO: refuse an `import()`'s attributes too, once they reach the loader
     fn resolve_with_scope(
         &self,
-        _scope: &mut v8::PinScope,
+        scope: &mut v8::PinScope,
         specifier: &str,
         referrer: &str,
         kind: ResolutionKind,
         import_attributes: &HashMap<String, String>,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        self.resolve_import(specifier, referrer, kind, !import_attributes.is_empty())
+        self.resolve_import(
+            specifier,
+            referrer,
+            kind,
+            !import_attributes.is_empty(),
+            || called_from_string_code(scope),
+        )
     }
 
     /// Resolves as an import does, roots and all, but admits no root and
@@ -537,6 +587,29 @@ impl ModuleLoader for Loader {
             referrer,
         ))
     }
+}
+
+/// Whether the top JS frame on the stack runs code compiled from a string:
+/// an `eval`, direct or indirect, a `Function` constructor (async and
+/// generator ones included), or a string passed to a timer, which
+/// `deno_web` runs through an indirect `eval`.
+///
+/// Asked in V8's dynamic-import callback, the top frame is the function
+/// holding the `import()` call: V8 calls the callback from that function's
+/// own frame, a stack trace lists an inlined function as a frame of its own,
+/// innermost first, and the frames it skips (V8's builtins and scripts that
+/// aren't user JS) never hold an `import()` call. V8 names the referrer of
+/// that call from the same function's script, and from the module that
+/// first compiled that source when the script is compiled from a string,
+/// which is exactly when the frame `is_eval`.
+fn called_from_string_code(scope: &v8::PinScope) -> bool {
+    // with no JS frame on the stack, as when the imports of a module an
+    // `import()` loads resolve, the trace is empty, and reading a frame past
+    // its end reads out of bounds and crashes the process
+    v8::StackTrace::current_stack_trace(scope, 1)
+        .filter(|trace| trace.get_frame_count() > 0)
+        .and_then(|trace| trace.get_frame(scope, 0))
+        .is_some_and(|frame| frame.is_eval())
 }
 
 #[cfg(test)]

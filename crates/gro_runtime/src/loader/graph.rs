@@ -162,8 +162,10 @@ pub struct FailureSite {
     /// a failed load.
     pub specifier: String,
     /// The importing module's URL as `deno_core` named it; unset for a load
-    /// `deno_core` names no importer for: the entry's, and the module an
-    /// `import()` call loads.
+    /// `deno_core` names no importer for (the entry's, and the module an
+    /// `import()` call loads), and for an `import()` in code compiled from a
+    /// string, which has no importer of its own
+    /// ([`FailureReason::StringCompiledImport`]).
     pub importer: Option<String>,
     /// How it was reached.
     pub reached: Reached,
@@ -207,6 +209,11 @@ pub enum FailureReason {
     /// An `import()`, in a graph that refuses every one, whatever its
     /// specifier.
     DynamicImport,
+    /// An `import()` in code compiled from a string, which has no importer
+    /// of its own: V8 can share that code between the modules compiling the
+    /// same string and names the first one as the importer, so its site
+    /// names none.
+    StringCompiledImport,
 }
 
 /// Why a resolved module didn't load.

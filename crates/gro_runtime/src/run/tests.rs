@@ -1,6 +1,7 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
-//! user code, then the graph a run records (`graph`) and the builtins
-//! (`builtins`).
+//! user code, then the graph a run records (`graph`), the builtins
+//! (`builtins`), and `import()` in code compiled from a string
+//! (`string_code`).
 
 use std::path::PathBuf;
 
@@ -12,6 +13,7 @@ use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
 mod builtins;
 mod graph;
+mod string_code;
 
 /// The modules `deno_core` provides itself, which it doesn't list publicly
 /// (`CONTEXT_SETUP_SOURCES`, `BUILTIN_SOURCES`, `BUILTIN_ES_MODULES`, and

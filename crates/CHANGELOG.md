@@ -23,6 +23,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   and `fgro eval` imports no builtin module.
   The `.js` spelling `@fuzdev/gro/process.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts` and the rest),
   are refused, as is a respelling of these or of `@fuzdev/gro/process.ts` (`@fuzdev/gro/f%73.ts`, `@fuzdev/gro/proces%73.ts`), never loaded from the npm package.
+  An `import()` in code compiled from a string (`eval`, a `Function` constructor, a string timer) is refused,
+  since V8 can share that code between the modules compiling the same string, so it has no importer whose grants could be checked.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.
   TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.

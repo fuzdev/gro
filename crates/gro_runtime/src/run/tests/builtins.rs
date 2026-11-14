@@ -11,10 +11,10 @@ use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
 use crate::test_support::TestDir;
 use crate::{Authority, Grants, ProcessGrant, RuntimeOptions, STACK_SIZE};
 
-const PROCESS: &str = "@fuzdev/gro/process.ts";
+pub(super) const PROCESS: &str = "@fuzdev/gro/process.ts";
 
 /// `fgro run`'s authority: `process` granted.
-fn granted() -> Authority {
+pub(super) fn granted() -> Authority {
     Authority::Confined(Grants {
         process: Some(ProcessGrant {}),
     })
@@ -23,7 +23,7 @@ fn granted() -> Authority {
 /// Writes `files` into a fresh directory named for `name` under a
 /// `package.json` of a module project, runs `main.mjs` with `options`,
 /// recording in full, and returns the run's result and graph.
-fn run_files(
+pub(super) fn run_files(
     name: &str,
     files: &[(&str, &str)],
     options: RuntimeOptions,

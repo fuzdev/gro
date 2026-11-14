@@ -73,7 +73,7 @@ Whether an importer may import one is the loader's, checked when the graph links
 for a static import and `import()` alike:
 the run must hold the module's grant, when it needs one, and for now only the project's own modules are granted one,
 so a module of an installed or linked package is refused, the message naming the grant and the package
-(but see [run](run.md#what-loads) for an `import()` in code compiled from a string);
+(an `import()` in code compiled from a string has no importer of its own and is refused, [run](run.md#what-loads));
 `-A` and an acceptance in the policy file are designed to lift that.
 A module of an installed or linked package can't import the project's own modules by name either, so it can't borrow a grant through one
 (a bare specifier is the only way across, since relative and absolute ones stay in their root):

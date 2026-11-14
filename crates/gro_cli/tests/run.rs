@@ -205,6 +205,25 @@ fn dynamic_import_of_a_sibling() {
     assert_eq!(run.stdout, "dynamic sibling true\n");
 }
 
+/// The imports of a module an `import()` loads resolve with no JS frame on
+/// the stack, which the check for code compiled from a string must survive
+/// (reading a frame of an empty stack trace crashes the process); an
+/// `import()` in such code is refused, a `TypeError` the program catches.
+#[test]
+fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
+    let run = run("import_string_code.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let refusal = "cannot import './sibling.js' from code compiled from a string (eval, a \
+                   Function constructor, or a string passed to a timer): V8 can share such code \
+                   between modules that compile the same string, so it has no importer of its \
+                   own. Fix: call import() in a module and pass what it returns to the compiled \
+                   code";
+    assert_eq!(
+        run.stdout,
+        format!("static sibling\ntrue {refusal}\ntrue {refusal}\n")
+    );
+}
+
 #[test]
 fn typescript_import_runs_stripped() {
     let run = run("import_ts.js");
