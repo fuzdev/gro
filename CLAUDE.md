@@ -441,6 +441,17 @@ Invariants that live in the code:
   not `fgro`: the release profile but for `panic = "abort"`, which cargo
   leaves off a test, over another crate graph, so what its link merges
   needn't be what `fgro`'s does.
+- No snapshot is made of ops eval's refusals can't land on. A snapshot
+  writes an op's function by the first external reference that holds its
+  address, a release build merges identical functions into one address,
+  and eval puts its refusal at the refused ops' references alone. So
+  `snapshot::make_snapshot` fails, naming both ops, when a refused op's
+  slow function shares its address with any function but another refused
+  op's slow one, or its fast function with a slow one, and when a name on
+  `bootstrap::REFUSED_OPS` is no op's (the module doc of `snapshot.rs`).
+  The addresses are the making process's, read through the `deno_core`
+  patch: the plain `fgro` of stage one, whose snapshot the build embeds,
+  and the snapshot `fgro` when `--verify` makes it again.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in, as it passes the working directory and
@@ -462,7 +473,8 @@ tests with the features it runs under (`INTEGRATION_TESTS` in
 the environment, cap memory, or signal run in a child process, harness off.
 
 **Vendored crates.** `vendor/` holds patched copies of published crates
-(`deno_core`, patched for deterministic snapshots), wired through
+(`deno_core`, patched for deterministic snapshots and what else its index
+lists), wired through
 `[patch.crates-io]` and outside the workspace and its checks (their own rustc
 warnings print but fail nothing). [vendor/README.md](vendor/README.md) is the
 index of every patch and the upgrade procedure, so a `deno_core` upgrade

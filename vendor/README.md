@@ -44,8 +44,8 @@ The patch makes a V8 startup snapshot a function of its inputs: the same
 sources make the same blob, byte for byte, in every process and checkout. It
 also turns off source maps, makes one internal key public for gro's
 prepare-stack-trace callback, refuses a source-phase import of a synthetic
-module, and hands the loader an `import()`'s attributes (the sections after
-the snapshot's).
+module, hands the loader an `import()`'s attributes, and gives each op's
+function addresses (the sections after the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -145,6 +145,23 @@ it does a static import's. A static import's reach the loader already.
 
 Reportable upstream: yes, so a loader sees the attributes of both forms of
 import.
+
+### The op functions' addresses
+
+A snapshot names an op's function by the first external reference that
+holds its address, so two ops whose functions a build merged into one are
+written as one, and a start that puts another implementation at one op's
+references, as eval does at each op it refuses, runs the other op by it
+too. gro checks the addresses when it makes a snapshot
+(`crates/gro_runtime/src/snapshot.rs`), and `deno_core` keeps an op's
+functions private.
+
+- `runtime/jsruntime.rs`, `JsRuntime::op_function_addresses`, added beside
+  `op_names`: each op's name with the address of its slow function and of
+  its fast one, when it has one, in the order of the external references,
+  as a runtime without op metrics lists them
+
+Reportable upstream: no, a check of gro's own.
 
 ## Upgrading a vendored crate
 

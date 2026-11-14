@@ -519,6 +519,35 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         }
     }
 
+    /// This build's ops pass the check a snapshot's making runs on them
+    /// (`snapshot::check_refused_functions`), on the addresses of a runtime
+    /// built as the snapshot's is: no function of an op eval refuses is at
+    /// an address the snapshot couldn't tell from another op's. The
+    /// addresses are every registered op's, in order, each function's under
+    /// its own kind: an op with a fast function lists it as its fast one,
+    /// apart from its slow one, and the refusal, which is slow only, lists
+    /// none.
+    #[test]
+    fn no_refused_op_shares_a_function_s_address() {
+        let ops = on_new_runtime("op_functions_addresses", Mode::Run, |runtime| {
+            let names: Vec<&str> = runtime.op_names();
+            let ops = crate::snapshot::op_functions(runtime);
+            assert_eq!(ops.iter().map(|op| op.name).collect::<Vec<_>>(), names);
+            ops
+        });
+        let listed = |name: &str| *ops.iter().find(|op| op.name == name).unwrap();
+        let declared = bootstrap::gro::init().ops;
+        let color = declared
+            .iter()
+            .find(|op| op.name == "op_gro_color")
+            .unwrap();
+        let color_fast = color.fast_fn().address() as usize;
+        assert_eq!(listed("op_gro_color").fast, Some(color_fast));
+        assert_ne!(listed("op_gro_color").slow, color_fast);
+        assert_eq!(listed("op_gro_refused").fast, None);
+        crate::snapshot::check_refused_functions(&ops, &bootstrap::REFUSED_OPS).unwrap();
+    }
+
     /// The choke point by registration: the ops gro's extension registers,
     /// whatever their names, are exactly the bootstrap's ungated list and
     /// the host ops, declared through `host_ops!`, a grant-free module's

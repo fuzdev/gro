@@ -8,13 +8,17 @@
 //! [`CHILD_TEST`]; the parent reads its exit status and output.
 //! [`run_test_in_child`] runs any one test of the binary that way.
 
+use std::cell::Cell;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use deno_core::{Extension, OpDecl};
+
+use crate::bootstrap::{self, Ops};
 use crate::confine::Confinement;
 use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
-use crate::snapshot::{ResidualCode, make_snapshot};
+use crate::snapshot::{OpFunction, ResidualCode, SnapshotError, make_snapshot, make_snapshot_of};
 use crate::test_support::TestDir;
 use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
@@ -142,8 +146,54 @@ for (const locale of locales) {
             )
             .unwrap();
         }
+        "snapshot_merged" => {
+            let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+            let error = make_snapshot_of(engine, extensions_merging_a_refused_op).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    SnapshotError::SharedOpFunction {
+                        refused: MERGED_REFUSED,
+                        refused_function: OpFunction::Slow,
+                        other: MERGED_KEPT,
+                        other_function: OpFunction::Slow,
+                    }
+                ),
+                "{error}"
+            );
+        }
         case => panic!("unknown case {case}"),
     }
+}
+
+/// An op eval keeps, registered before [`MERGED_REFUSED`].
+const MERGED_KEPT: &str = "op_void_sync";
+
+/// An op eval refuses, which [`extensions_merging_a_refused_op`] gives
+/// [`MERGED_KEPT`]'s functions.
+const MERGED_REFUSED: &str = "op_now";
+
+/// The extensions a snapshot is made from, but that [`MERGED_REFUSED`] has
+/// the functions of [`MERGED_KEPT`], so the two ops' functions are at one
+/// address each, as a build that merged them leaves the two.
+fn extensions_merging_a_refused_op() -> Vec<Extension> {
+    let mut extensions = bootstrap::extensions(Ops::Kept);
+    let kept = Cell::new(None);
+    let merge = move |op: OpDecl| {
+        if op.name == MERGED_KEPT {
+            kept.set(Some(op));
+        }
+        match kept.get() {
+            Some(kept) if op.name == MERGED_REFUSED => op.with_implementation_from(&kept),
+            _ => op,
+        }
+    };
+    let gro = extensions
+        .iter_mut()
+        .find(|extension| extension.name == "gro")
+        .unwrap();
+    gro.middleware_fn = Some(Box::new(merge));
+    extensions
 }
 
 /// Runs the child for `case`, failing unless it succeeds, and returns its
@@ -258,4 +308,12 @@ fn the_console_can_write_every_level_to_stderr() {
 #[test]
 fn the_engine_locale_reaches_intl() {
     run_child("locale");
+}
+
+/// No snapshot is made of a runtime where an op eval refuses has its
+/// function at the address of one eval keeps: the making fails, naming
+/// both, on the addresses of the runtime it made.
+#[test]
+fn no_snapshot_is_made_of_a_refused_op_merged_with_a_kept_one() {
+    run_child("snapshot_merged");
 }

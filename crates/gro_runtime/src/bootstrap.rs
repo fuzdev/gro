@@ -346,7 +346,9 @@ fn op_gro_refused(scope: &v8::PinScope<'_, '_>) {
 /// only `Blob`, `File`, and the object URLs call (eval deletes all of them;
 /// a blob part's id is random). None is reachable from user code, which
 /// sees no op; this is defence in depth. `op_time_origin` stays: the start
-/// calls it, before any user code.
+/// calls it, before any user code. A snapshot is made only of a runtime
+/// where each one's function is at an address the snapshot can tell from
+/// those of the ops eval keeps (`crate::snapshot`).
 pub const REFUSED_OPS: [&str; 17] = [
     "op_timer_schedule",
     "op_timer_track",

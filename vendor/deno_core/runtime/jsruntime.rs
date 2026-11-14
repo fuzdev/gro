@@ -2013,6 +2013,20 @@ impl JsRuntime {
     state.op_ctxs.iter().map(|o| o.decl().name).collect()
   }
 
+  // gro patch: each op's name with the addresses its slow function and its fast one have in the external references, for gro's check of them when it makes a snapshot
+  pub fn op_function_addresses(
+    &self,
+  ) -> Vec<(&'static str, usize, Option<usize>)> {
+    let state = &self.inner.main_realm.0.context_state;
+    let decls = state.op_ctxs.iter().map(|o| o.decl());
+    decls
+      .map(|decl| {
+        let fast = decl.fast_fn.map(|f| f.address() as usize);
+        (decl.name, decl.slow_fn as usize, fast)
+      })
+      .collect()
+  }
+
   /// Executes traditional, non-ECMAScript-module JavaScript code, This code executes in
   /// the global scope by default, and it is possible to maintain local JS state and invoke
   /// this method multiple times.

@@ -171,7 +171,7 @@ index eb03a44..0eb3325 100644
      {
        let ctx = self.context().open(scope);
 diff --git a/runtime/jsruntime.rs b/runtime/jsruntime.rs
-index 3107f35..c8bcfd1 100644
+index 3107f35..28547fe 100644
 --- a/runtime/jsruntime.rs
 +++ b/runtime/jsruntime.rs
 @@ -1799,6 +1799,11 @@ impl JsRuntime {
@@ -210,6 +210,27 @@ index 3107f35..c8bcfd1 100644
          let timer_info_array = v8::Int32Array::new(scope, ab, 0, 1).unwrap();
          let set_timer_info_fn: v8::Local<v8::Function> = bindings::get(
            scope,
+@@ -1998,6 +2013,20 @@ impl JsRuntime {
+     state.op_ctxs.iter().map(|o| o.decl().name).collect()
+   }
+ 
++  // gro patch: each op's name with the addresses its slow function and its fast one have in the external references, for gro's check of them when it makes a snapshot
++  pub fn op_function_addresses(
++    &self,
++  ) -> Vec<(&'static str, usize, Option<usize>)> {
++    let state = &self.inner.main_realm.0.context_state;
++    let decls = state.op_ctxs.iter().map(|o| o.decl());
++    decls
++      .map(|decl| {
++        let fast = decl.fast_fn.map(|f| f.address() as usize);
++        (decl.name, decl.slow_fn as usize, fast)
++      })
++      .collect()
++  }
++
+   /// Executes traditional, non-ECMAScript-module JavaScript code, This code executes in
+   /// the global scope by default, and it is possible to maintain local JS state and invoke
+   /// this method multiple times.
 diff --git a/runtime/snapshot.rs b/runtime/snapshot.rs
 index fb31eca..ccabeb4 100644
 --- a/runtime/snapshot.rs
