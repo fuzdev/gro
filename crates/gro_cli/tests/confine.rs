@@ -792,7 +792,7 @@ mod confined {
         sized
             .spawn(move || {
                 let engine = init_confined_engine(confined, &engine_options(Jit::Off)).unwrap();
-                let envelope = gro_runtime::eval::eval(engine, prepass);
+                let (envelope, _runtime) = gro_runtime::eval::eval(engine, prepass);
                 let value = envelope.result.map_err(|error| error.message).unwrap();
                 println!("value: {value}");
                 println!(

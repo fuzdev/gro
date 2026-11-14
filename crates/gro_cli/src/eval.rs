@@ -42,7 +42,13 @@ pub fn eval(args: EvalInvocation) -> u8 {
         match init_confined_engine(confined, &options) {
             Ok(engine) => {
                 phases::mark(Phase::Engine);
-                gro_runtime::eval::eval(engine, prepass)
+                let (envelope, runtime) = gro_runtime::eval::eval(engine, prepass);
+                // the process exits once the envelope is written, so the
+                // runtime is left as it is, on the thread that owns it
+                if let Some(runtime) = runtime {
+                    runtime.forget();
+                }
+                envelope
             }
             Err(error) => prepass.failed(EvalError::new(ErrorKind::Internal, error.to_string())),
         }

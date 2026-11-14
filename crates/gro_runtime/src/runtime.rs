@@ -28,6 +28,56 @@ pub enum Mode {
     Eval,
 }
 
+/// The runtime of a run or an eval that is over, with the event loop's
+/// runtime under it, handed back whole so the embedder decides what its
+/// teardown is worth.
+///
+/// Dropping it tears both down: the isolate is disposed and its heap
+/// unmapped, then the event loop's runtime is shut down. That is what an
+/// embedder that goes on running wants, so it's what happens unless
+/// [`SpentRuntime::forget`] is called, which skips the teardown for a
+/// process about to exit: the OS reclaims what the teardown would free, for
+/// less. Nothing of the run is kept in it for the embedder to read.
+#[must_use = "dropping it tears the runtime down; a process about to exit can `forget` it"]
+pub struct SpentRuntime {
+    /// The JS runtime, unset only while it is being dropped.
+    runtime: Option<JsRuntime>,
+    /// The event loop's runtime, which the JS runtime is dropped inside.
+    event_loop: tokio::runtime::Runtime,
+}
+
+impl SpentRuntime {
+    /// The spent `runtime`, which `event_loop` drove.
+    pub(crate) const fn new(runtime: JsRuntime, event_loop: tokio::runtime::Runtime) -> Self {
+        Self {
+            runtime: Some(runtime),
+            event_loop,
+        }
+    }
+
+    /// Leaves the runtime as it is and never tears it down: its memory
+    /// and threads stay until the process exits. For a process about to
+    /// exit, as `fgro` is after a run or an eval; one that goes on running
+    /// drops it instead.
+    pub const fn forget(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl std::fmt::Debug for SpentRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpentRuntime").finish_non_exhaustive()
+    }
+}
+
+impl Drop for SpentRuntime {
+    fn drop(&mut self) {
+        // the JS runtime first, inside the event loop's context, as it was made
+        let _context = self.event_loop.enter();
+        self.runtime.take();
+    }
+}
+
 /// What `fgro run`'s host ops read, put in the runtime's `OpState` before
 /// anything runs: the run's authority, which every host op checks first,
 /// and the run's data they return. The default grants nothing.

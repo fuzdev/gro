@@ -5,7 +5,7 @@
 //! graph, and an uncaught refusal, which the run's error already shows, are
 //! not.
 
-use super::super::{RunError, RunOutcome, run_main};
+use super::super::{Ended, RunError, run_main};
 use super::builtins::{HOP, SELF_LINK, granted, run_linked_outcome};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
@@ -16,7 +16,7 @@ use crate::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RuntimeOptions, STACK_SIZE}
 /// a fresh project named for `name`, runs its `main.mjs` granted `args`
 /// as `fgro run` does, recording off, and returns the outcome with the
 /// project's directory.
-fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (RunOutcome, String) {
+fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (Ended, String) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(&format!("refused_{name}"));
     let dir = test_dir.path().to_owned();
@@ -39,7 +39,7 @@ fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (R
     let cwd = dir.clone();
     let outcome = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_main(engine, &options, &entry, &cwd))
+        .spawn(move || Ended::from(run_main(engine, &options, &entry, &cwd)))
         .unwrap()
         .join()
         .unwrap();

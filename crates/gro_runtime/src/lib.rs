@@ -93,6 +93,7 @@ use crate::snapshot::StartupSnapshot;
 
 pub use crate::loader::refused::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RefusedImports};
 pub use crate::run::{RunError, RunOutcome, StartError, run_main};
+pub use crate::runtime::SpentRuntime;
 
 /// The stack to reserve for the thread [`run_main`] runs on: tsv's
 /// `STACK_SIZE`, 32 MiB, twice what its parsers need in a debug build (see

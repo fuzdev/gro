@@ -19,7 +19,7 @@ use crate::loader::refused::RefusedImports;
 use crate::phases::{self, Phase};
 use crate::report::uncaught;
 use crate::resolver::{self, DiskTree, ResolveError};
-use crate::runtime::{HostState, start_runtime};
+use crate::runtime::{HostState, SpentRuntime, start_runtime};
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, RuntimeOptions};
 
@@ -52,6 +52,9 @@ pub enum StartError {
 
 /// How a run ended. It failed when its result is an error, or when one of
 /// gro's rules refused an `import()` during it.
+///
+/// It holds the run's runtime ([`SpentRuntime`]), so it isn't `Send`: it
+/// stays on the thread that ran the program.
 #[derive(Debug)]
 #[must_use]
 pub struct RunOutcome {
@@ -71,6 +74,22 @@ pub struct RunOutcome {
     /// isn't among them, and one that is the uncaught error `result`'s
     /// report shows isn't listed, though past the listed ones it's counted.
     pub refused: RefusedImports,
+    /// The run's runtime, which is torn down when this is dropped, or left
+    /// as it is by [`SpentRuntime::forget`] in a process about to exit.
+    /// Unset when the run ended before a runtime was made.
+    pub runtime: Option<SpentRuntime>,
+}
+
+impl RunOutcome {
+    /// The outcome of a run that failed with `error` before its runtime
+    /// was made, and so before any import.
+    fn unstarted(error: RunError) -> Self {
+        Self {
+            result: Err(error),
+            refused: RefusedImports::default(),
+            runtime: None,
+        }
+    }
 }
 
 /// Runs the ES module at `entry` (relative to `cwd`, or absolute) and drives
@@ -108,19 +127,35 @@ pub struct RunOutcome {
 pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Path) -> RunOutcome {
     let (entry, loader) = match resolve_main(options, entry, cwd, Recording::Off) {
         Ok(resolved) => resolved,
-        Err(error) => {
-            return RunOutcome {
-                result: Err(error),
-                refused: RefusedImports::default(),
-            };
-        }
+        Err(error) => return RunOutcome::unstarted(error),
     };
     run_resolved(engine, options, &entry, cwd, &loader)
 }
 
-/// Runs as [`run_main`] does, and returns the run's result with the graph its
-/// loader recorded as `recording` says: in full, every module resolved and
-/// loaded with its format and hash, the imports between them, the files
+/// How a run ended, its runtime torn down: what a test's thread returns of
+/// a [`RunOutcome`], whose runtime stays on the thread that ran it.
+#[cfg(test)]
+#[derive(Debug)]
+struct Ended {
+    /// [`RunOutcome::result`].
+    result: Result<(), RunError>,
+    /// [`RunOutcome::refused`].
+    refused: RefusedImports,
+}
+
+#[cfg(test)]
+impl From<RunOutcome> for Ended {
+    fn from(outcome: RunOutcome) -> Self {
+        Self {
+            result: outcome.result,
+            refused: outcome.refused,
+        }
+    }
+}
+
+/// Runs as [`run_main`] does, and returns how the run ended with the graph
+/// its loader recorded as `recording` says: in full, every module resolved
+/// and loaded with its format and hash, the imports between them, the files
 /// consulted, and the failures. The graph is unset only when the entry
 /// didn't resolve.
 #[cfg(test)]
@@ -130,24 +165,19 @@ fn run_recorded(
     entry: &Path,
     cwd: &Path,
     recording: Recording,
-) -> (RunOutcome, Option<Graph>) {
+) -> (Ended, Option<Graph>) {
     let (entry, loader) = match resolve_main(options, entry, cwd, recording) {
         Ok(resolved) => resolved,
-        Err(error) => {
-            let outcome = RunOutcome {
-                result: Err(error),
-                refused: RefusedImports::default(),
-            };
-            return (outcome, None);
-        }
+        Err(error) => return (RunOutcome::unstarted(error).into(), None),
     };
-    let outcome = run_resolved(engine, options, &entry, cwd, &loader);
-    // the runtime, and its share of the loader, is gone once the run ends
-    (outcome, Some(loader.take_graph()))
+    // the runtime is torn down here, so its share of the loader is gone
+    // and the graph is taken whole
+    let ended = Ended::from(run_resolved(engine, options, &entry, cwd, &loader));
+    (ended, Some(loader.take_graph()))
 }
 
-/// Runs the resolved `entry` with `loader`, started in `cwd`, then marks
-/// the teardown, returning the result with the `import()`s refused by rule.
+/// Runs the resolved `entry` with `loader`, started in `cwd`, returning
+/// the result with the `import()`s refused by rule and the spent runtime.
 fn run_resolved(
     engine: Engine,
     options: &RuntimeOptions,
@@ -163,7 +193,7 @@ fn run_resolved(
             runtime_version: options.runtime_version.clone(),
         },
     };
-    let result = run_loaded(
+    let (result, runtime) = run_loaded(
         engine,
         options.snapshot,
         options.console,
@@ -172,9 +202,7 @@ fn run_resolved(
         Rc::clone(loader),
     );
     phases::mark(Phase::Teardown);
-    // every way the run ends, the program's own exit to come, reaches its
-    // outcome through this one call
-    outcome(result, loader.take_refused())
+    outcome(result, loader.take_refused(), runtime)
 }
 
 /// Why a run failed, with the message of the `TypeError` it threw, when
@@ -217,7 +245,11 @@ fn uncaught_failure(error: &CoreError) -> Box<Failed> {
 /// error the program made with the same class and text, which prints the
 /// same; `deno_core` hands the host the error as a copy, so its identity is
 /// out of reach.
-fn outcome(result: Result<(), Box<Failed>>, mut refused: RefusedImports) -> RunOutcome {
+fn outcome(
+    result: Result<(), Box<Failed>>,
+    mut refused: RefusedImports,
+    runtime: Option<SpentRuntime>,
+) -> RunOutcome {
     let result = result.map_err(|failed| {
         let Failed { error, type_error } = *failed;
         if let Some(message) = type_error {
@@ -225,7 +257,11 @@ fn outcome(result: Result<(), Box<Failed>>, mut refused: RefusedImports) -> RunO
         }
         error
     });
-    RunOutcome { result, refused }
+    RunOutcome {
+        result,
+        refused,
+        runtime,
+    }
 }
 
 /// Resolves the entry at `entry` from `cwd`, returning its URL and the
@@ -245,8 +281,9 @@ fn resolve_main(
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
 /// started from `snapshot` when there is one, its console as `console` says,
-/// its host ops holding `host`. `_engine` is the proof the engine was set up
-/// before V8 initializes.
+/// its host ops holding `host`, returning the result with the runtime, once
+/// one was made. `_engine` is the proof the engine was set up before V8
+/// initializes.
 fn run_loaded(
     _engine: Engine,
     snapshot: Option<StartupSnapshot>,
@@ -254,14 +291,18 @@ fn run_loaded(
     host: HostState,
     entry: &Url,
     loader: Rc<Loader>,
-) -> Result<(), Box<Failed>> {
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+) -> (Result<(), Box<Failed>>, Option<SpentRuntime>) {
+    let event_loop = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(StartError::EventLoop)?;
-    tokio_runtime.block_on(async {
-        let mut runtime =
-            start_runtime(snapshot, console, host, loader).map_err(StartError::Runtime)?;
+    {
+        Ok(event_loop) => event_loop,
+        Err(error) => return (Err(StartError::EventLoop(error).into()), None),
+    };
+    let mut started = None;
+    let result = event_loop.block_on(async {
+        let runtime = started
+            .insert(start_runtime(snapshot, console, host, loader).map_err(StartError::Runtime)?);
         let id = runtime
             .load_main_es_module(entry)
             .await
@@ -275,7 +316,9 @@ fn run_loaded(
         let evaluated = evaluation.await.map_err(|error| uncaught_failure(&error));
         phases::mark(Phase::Evaluate);
         evaluated
-    })
+    });
+    let runtime = started.map(|runtime| SpentRuntime::new(runtime, event_loop));
+    (result, runtime)
 }
 
 #[cfg(test)]

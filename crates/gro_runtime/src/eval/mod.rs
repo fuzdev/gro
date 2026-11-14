@@ -71,6 +71,7 @@ use crate::loader::graph::Recording;
 use crate::loader::{Loader, Rules};
 use crate::phases;
 use crate::prices::{self, EvalDefault};
+use crate::runtime::SpentRuntime;
 use crate::snapshot::StartupSnapshot;
 
 /// The driver's URL: a scheme the resolver refuses, so no module can import
@@ -156,13 +157,20 @@ pub struct EvalOptions {
 /// as the module doc describes, on the engine `engine` names, and returns the
 /// envelope, whatever happened.
 ///
+/// The eval's runtime comes back with it, once one was made: dropped, it is
+/// torn down, and a process about to exit can
+/// [`forget`](SpentRuntime::forget) it instead, as `fgro` does.
+///
 /// The engine is a confined one, so there is no eval outside the box: one
 /// confined to another box than the prepass's, or started with no snapshot,
 /// fails as `internal`.
 ///
 /// Runs on the calling thread, which must reserve
 /// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
-pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
+pub fn eval(
+    engine: ConfinedEngine,
+    prepass: Prepass<BoxRoots>,
+) -> (Envelope, Option<SpentRuntime>) {
     let Prepass {
         options,
         entry,
@@ -180,7 +188,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
         Ok(driver_url) => driver_url,
         Err(error) => {
             envelope.result = Err(*error);
-            return envelope;
+            return (envelope, None);
         }
     };
     let stopped = Stopped::default();
@@ -198,7 +206,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
             ErrorKind::Internal,
             "the out-of-memory backstop is set once per process, and an earlier eval set it",
         ));
-        return envelope;
+        return (envelope, None);
     }
     let rules = Rules {
         refuse_dynamic_import: true,
@@ -211,7 +219,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
             .with_reads(reads)
             .with_rules(rules),
     );
-    let result = evaluate(
+    let (result, runtime) = evaluate(
         options,
         &entry.url,
         &driver_url,
@@ -220,8 +228,8 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
     );
     phases::mark(phases::Phase::Teardown);
     let breach = loader.breach().map(Path::to_owned);
-    // the runtime, and its share of the loader, is gone once the eval ends
-    let graph = loader.take_graph();
+    // borrowed: the runtime, handed back whole, still holds its share of the loader
+    let graph = loader.graph();
     envelope.access = Some(access(&graph));
     let host_bug = if let Some(graph_box) = graph_box {
         let (graph, error) = dumped(dump_graph(&graph, &entry.url, &graph_box));
@@ -245,7 +253,7 @@ pub fn eval(engine: ConfinedEngine, prepass: Prepass<BoxRoots>) -> Envelope {
         cap_envelope(&mut envelope, MAX_ENVELOPE_SIZE, MAX_TEXT_KEPT);
     }
     phases::mark(phases::Phase::Envelope);
-    envelope
+    (envelope, runtime)
 }
 
 /// Checks what an eval needs before it starts, returning the driver's URL:

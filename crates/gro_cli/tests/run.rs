@@ -2229,6 +2229,40 @@ fn event_loop_drains_timers() {
     );
 }
 
+/// What a run printed is whole when stdout is a file, as when it's a
+/// pipe: the process exits without tearing its runtime down, and each of
+/// the console's writes was made when it was called, none left for the
+/// end.
+#[test]
+fn output_to_a_file_is_whole_when_the_run_ends() {
+    let fixtures = temp_fixtures(
+        "output_file",
+        &[(
+            "main.js",
+            "for (let i = 0; i < 3000; i++) console.log('line', i);\n\
+             setTimeout(() => console.log('last'), 1);\n",
+        )],
+    );
+    let expected: String = (0..3000)
+        .map(|i| format!("line {i}\n"))
+        .chain(["last\n".to_owned()])
+        .collect();
+    let path = fixtures.0.join("out.txt");
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .current_dir(&fixtures.0)
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&path).unwrap());
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert_eq!(stderr, "");
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(written.len(), expected.len());
+    assert_eq!(written, expected);
+    assert_eq!(run_in(&fixtures, "main.js").stdout, expected);
+}
+
 #[test]
 fn missing_entry_is_a_usage_error() {
     let run = run("missing.js");

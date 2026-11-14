@@ -46,7 +46,6 @@ mod thread;
 mod version;
 
 use std::ffi::OsString;
-use std::process::ExitCode;
 
 use gro_runtime::phases;
 use gro_runtime::prices;
@@ -68,11 +67,25 @@ const EXIT_FAILURE: u8 = 1;
 /// reaches it: the release profile aborts on a panic.
 const EXIT_PANIC: u8 = 101;
 
-fn main() -> ExitCode {
+fn main() {
     phases::start();
-    let code = main_code();
+    end(main_code());
+}
+
+/// Ends the process with `code`, after a phases build writes its file: the
+/// one step every command exits by. Eval's out-of-memory backstop is the
+/// exception: it ends the process from V8's out-of-memory callback without
+/// reaching this. Nothing a run or an eval made is torn down before it:
+/// their runtimes were left as they were for the OS to reclaim, which
+/// costs less than tearing them down.
+///
+/// It takes only a code and reaches no runtime. Console output is written
+/// and flushed as it's printed, so nothing is buffered here today; a later
+/// host module that buffers stdout or stderr must have it written before
+/// the runtime is handed back, or keep the buffer where this can reach it.
+fn end(code: u8) -> ! {
     phases::finish();
-    ExitCode::from(code)
+    std::process::exit(i32::from(code))
 }
 
 /// [`main`]'s work, returning the exit code.

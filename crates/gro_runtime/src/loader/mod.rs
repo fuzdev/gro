@@ -105,6 +105,7 @@ pub mod strip;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+#[cfg(test)]
 use std::rc::Rc;
 
 use deno_core::error::ModuleLoaderError;
@@ -332,17 +333,25 @@ impl Loader {
     }
 
     /// The graph, taken from the loader.
+    #[cfg(test)]
     pub fn into_graph(self) -> Graph {
         self.graph.into_inner()
     }
 
     /// The graph, taken from the loader when this is its last share, or a
     /// copy of it as it stands when another share is still alive.
+    #[cfg(test)]
     pub fn take_graph(self: Rc<Self>) -> Graph {
         Rc::try_unwrap(self).map_or_else(|loader| loader.graph_clone(), Self::into_graph)
     }
 
+    /// The graph as it stands, borrowed: nothing may load while it's held.
+    pub fn graph(&self) -> std::cell::Ref<'_, Graph> {
+        self.graph.borrow()
+    }
+
     /// A copy of the whole graph as it stands.
+    #[cfg(test)]
     pub fn graph_clone(&self) -> Graph {
         self.graph.borrow().clone()
     }

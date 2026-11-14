@@ -232,6 +232,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **Startup.** A snapshot of the host (built) and lazy host init,
   built for the builtin modules: an implementation is outside the snapshot, compiled and run when a run first imports its module,
   so a run pays for the ones it imports.
+  A run or an eval that is over exits without tearing its runtime down (built), leaving the OS to reclaim it.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
   and confined runs read none: Gro's own surface is designed to start from the snapshot instead,
   so its largest consumer needs no cache, and `gro eval` and hermetic runs never read one.

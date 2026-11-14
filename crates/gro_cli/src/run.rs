@@ -1,6 +1,7 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
 //! drains, printing its failure, then each `import()` gro's rules refused,
-//! which fail the run too.
+//! which fail the run too, and leaves the runtime as it is, since the
+//! process exits next.
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
@@ -22,10 +23,19 @@ use crate::version::RUNTIME_VERSION;
 /// ([`CliError::exit_code`]), else [`EXIT_FAILURE`] for a run refused an
 /// `import()`, else 0.
 pub fn run_module(run: &RunInvocation) -> u8 {
-    let RunOutcome { result, refused } = match start_and_run(run) {
+    let RunOutcome {
+        result,
+        refused,
+        runtime,
+    } = match start_and_run(run) {
         Ok(outcome) => outcome,
         Err(error) => return error.report(),
     };
+    // the process exits once this returns, on every path, so the runtime
+    // is never torn down
+    if let Some(runtime) = runtime {
+        runtime.forget();
+    }
     let code = result.map_or_else(|error| CliError::from(error).report(), |()| 0);
     report_refused(&refused);
     exit_code(code, !refused.is_empty())

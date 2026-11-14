@@ -89,7 +89,9 @@ pub enum Phase {
     Serialize,
     /// Eval's event loop drained and the driver's `after_drain` called.
     Drain,
-    /// The runtime and the tokio runtime dropped.
+    /// The run or the eval over and its runtime handed back to the
+    /// embedder, which tears it down by dropping it or, about to exit,
+    /// forgets it, as `fgro` does.
     Teardown,
     /// Eval's envelope finished: the graph's access, its dump, the box
     /// checks, and the cap.

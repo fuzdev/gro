@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::super::{RunError, RunOutcome, run_recorded};
+use super::super::{Ended, RunError, run_recorded};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Record, Recording};
@@ -53,7 +53,7 @@ pub(super) fn run_linked_outcome(
     files: &[(&str, &str)],
     links: &[(&str, &str)],
     options: RuntimeOptions,
-) -> (RunOutcome, Graph) {
+) -> (Ended, Graph) {
     run_started_in(name, files, links, options, None)
 }
 
@@ -77,7 +77,7 @@ fn run_started_in(
     links: &[(&str, &str)],
     options: RuntimeOptions,
     cwd: Option<PathBuf>,
-) -> (RunOutcome, Graph) {
+) -> (Ended, Graph) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(&format!("builtin_{name}"));
     let dir = test_dir.path().to_owned();

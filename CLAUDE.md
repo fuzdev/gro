@@ -510,6 +510,17 @@ Invariants that live in the code:
   when a run first imports the module). The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
+- A run's or an eval's runtime is handed back when it's over
+  (`SpentRuntime`, in `RunOutcome` and beside eval's envelope): dropped, it's
+  torn down, which is what an embedder gets, and `fgro` forgets it on the
+  thread that owns it, since the process exits next. Every command exits
+  through `end` in `crates/gro_cli/src/main.rs`, the one exit step, but for
+  eval's out-of-memory backstop (`eval/limits.rs`), which ends the process
+  from V8's out-of-memory callback without reaching it. `end` takes only a
+  code and reaches no runtime. Console output is written and flushed as
+  it's printed, so nothing is buffered there today; a later host module
+  that buffers stdout or stderr must have it written before the runtime is
+  handed back, or keep the buffer where `end` can reach it.
 - A change to the seccomp allowlist reruns the census
   ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
 

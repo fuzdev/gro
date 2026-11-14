@@ -6,9 +6,10 @@
 
 use std::path::PathBuf;
 
-use super::{RunError, run_main};
+use super::{RunError, resolve_main, run_main, run_resolved};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
+use crate::loader::graph::Recording;
 use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
@@ -81,6 +82,58 @@ fn run_source(name: &str, source: &str) -> Result<(), RunError> {
         .unwrap()
         .join()
         .unwrap()
+}
+
+/// Runs an entry that ran to completion, returning how many shares of its
+/// loader are alive, the test's own among them, while the outcome holds the
+/// runtime, after `end` is done with the runtime, and whether a second run
+/// on the same thread then ran to completion.
+fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, bool) {
+    let dir = TestDir::in_system_temp(name);
+    let entry: PathBuf = dir.path().join("main.mjs");
+    std::fs::write(&entry, "globalThis.ran = 1;").unwrap();
+    let cwd = dir.path().to_owned();
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(move || {
+            let options = RuntimeOptions::default();
+            let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+            let (url, loader) = resolve_main(&options, &entry, &cwd, Recording::Off).unwrap();
+            let outcome = run_resolved(engine, &options, &url, &cwd, &loader);
+            outcome.result.unwrap();
+            let held = std::rc::Rc::strong_count(&loader);
+            end(outcome.runtime.unwrap());
+            let left = std::rc::Rc::strong_count(&loader);
+            let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+            let again = run_main(engine, &options, &entry, &cwd);
+            (held, left, again.result.is_ok())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// A run hands its runtime back whole: the outcome holds it, with its
+/// share of the loader, and dropping it tears it down, so the share is
+/// gone and the thread runs another module after. That's what an embedder
+/// gets by doing nothing.
+#[test]
+fn dropping_a_spent_runtime_tears_it_down() {
+    let (held, left, again) = loader_shares("spent_dropped", drop);
+    assert!(held > 1, "{held}");
+    assert_eq!(left, 1);
+    assert!(again);
+}
+
+/// Forgetting it tears nothing down: the runtime's share of the loader
+/// stays alive, as the runtime does, for a process about to exit, and a
+/// later run on the thread is unaffected.
+#[test]
+fn forgetting_a_spent_runtime_leaves_it_whole() {
+    let (held, left, again) = loader_shares("spent_forgotten", crate::SpentRuntime::forget);
+    assert!(held > 1, "{held}");
+    assert_eq!(left, held);
+    assert!(again);
 }
 
 /// The refusal the resolver gives every `ext:` and `builtin:` specifier:

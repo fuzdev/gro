@@ -18,7 +18,7 @@ use super::{
 use crate::loader::Loader;
 use crate::prices::{self, EvalDefault};
 use crate::report::report_js;
-use crate::runtime::start_eval_runtime;
+use crate::runtime::{SpentRuntime, start_eval_runtime};
 use crate::{ConsoleOptions, ConsoleRouting, phases};
 
 /// The console eval writes with: every level to stderr, uncolored.
@@ -37,33 +37,34 @@ struct Driver {
 }
 
 /// Runs the eval's steps on a runtime over `loader`, returning the value
-/// as JSON text, or the step that failed.
+/// as JSON text, or the step that failed, with the runtime, once one was
+/// made.
 pub(super) fn evaluate(
     options: &EvalOptions,
     entry: &Url,
     driver_url: &Url,
     loader: Rc<Loader>,
     stopped: &Stopped,
-) -> Result<String, Failed> {
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+) -> (Result<String, Failed>, Option<SpentRuntime>) {
+    let event_loop = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|error| {
-            Failed::new(Step::Start, format!("failed to start the runtime: {error}"))
-        })?;
-    tokio_runtime.block_on(async {
-        let (mut runtime, array_buffers) = start_eval_runtime(options.snapshot, CONSOLE, loader)
+    {
+        Ok(event_loop) => event_loop,
+        Err(error) => {
+            let message = format!("failed to start the runtime: {error}");
+            return (Err(Failed::new(Step::Start, message)), None);
+        }
+    };
+    let mut started = None;
+    let result = event_loop.block_on(async {
+        let (runtime, array_buffers) = start_eval_runtime(options.snapshot, CONSOLE, loader)
             .map_err(|message| Failed::new(Step::Start, message))?;
-        run_steps(
-            &mut runtime,
-            options,
-            entry,
-            driver_url,
-            stopped,
-            array_buffers,
-        )
-        .await
-    })
+        let runtime = started.insert(runtime);
+        run_steps(runtime, options, entry, driver_url, stopped, array_buffers).await
+    });
+    let runtime = started.map(|runtime| SpentRuntime::new(runtime, event_loop));
+    (result, runtime)
 }
 
 /// Runs the eval's steps on `runtime`, whose array buffers' allocator
