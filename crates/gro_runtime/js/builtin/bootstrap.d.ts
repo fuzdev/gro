@@ -15,8 +15,10 @@ interface Bootstrap {
 		readonly ops: {
 			readonly op_gro_args: () => Array<string>;
 			readonly op_gro_cwd: () => string | null;
+			readonly op_gro_exit: (code: unknown) => never;
 			readonly op_gro_pid: () => number;
 			readonly op_gro_runtime_version: () => string;
+			readonly op_gro_set_exit_code: (code: unknown) => void;
 		};
 	};
 	/** The intrinsics, each taken by name when the runtime is made, before any user code runs. */

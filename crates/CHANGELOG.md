@@ -21,6 +21,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   `fgro run` grants it to the project's own modules: a package's module is refused it when the graph links,
   and can't import the project's own modules by name to reach it through one,
   and `fgro eval` imports no builtin module.
+  `@fuzdev/gro/exit.ts` is granted the same way: `exit(code?)` ends the process inside the call, with no `finally` and no queued job run,
+  and `set_exit_code(code)` sets the code a run that ends on its own exits with, each code an integer from 0 to 255 passed as it is.
   Three more builtin modules need no grant, so a package's modules import them as the project's do:
   `@fuzdev/gro/cwd.ts`, whose `cwd()` is the directory `fgro` was started in,
   `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,

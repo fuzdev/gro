@@ -24,6 +24,150 @@
 		]
 	},
 	{
+		"name": "exit_shape",
+		"module": "exit",
+		"args": ["shape"],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "exit_0",
+		"module": "exit",
+		"args": ["exit", "0"],
+		"differs": []
+	},
+	{
+		"name": "exit_1",
+		"module": "exit",
+		"args": ["exit", "1"],
+		"differs": []
+	},
+	{
+		"name": "exit_2",
+		"module": "exit",
+		"args": ["exit", "2"],
+		"differs": []
+	},
+	{
+		"name": "exit_3",
+		"module": "exit",
+		"args": ["exit", "3"],
+		"differs": []
+	},
+	{
+		"name": "exit_13",
+		"module": "exit",
+		"args": ["exit", "13"],
+		"differs": []
+	},
+	{
+		"name": "exit_254",
+		"module": "exit",
+		"args": ["exit", "254"],
+		"differs": []
+	},
+	{
+		"name": "exit_255",
+		"module": "exit",
+		"args": ["exit", "255"],
+		"differs": []
+	},
+	{
+		"name": "exit_minus_zero",
+		"module": "exit",
+		"args": ["exit_minus_zero"],
+		"differs": []
+	},
+	{
+		"name": "exit_nothing",
+		"module": "exit",
+		"args": ["exit_nothing"],
+		"differs": []
+	},
+	{
+		"name": "exit_after_set",
+		"module": "exit",
+		"args": ["exit_after_set", "nothing"],
+		"differs": []
+	},
+	{
+		"name": "exit_undefined_after_set",
+		"module": "exit",
+		"args": ["exit_after_set", "undefined"],
+		"differs": []
+	},
+	{
+		"name": "exit_over_set",
+		"module": "exit",
+		"args": ["exit_over_set", "4"],
+		"differs": []
+	},
+	{
+		"name": "exit_0_over_set",
+		"module": "exit",
+		"args": ["exit_over_set", "0"],
+		"differs": []
+	},
+	{
+		"name": "exit_set_then_end",
+		"module": "exit",
+		"args": ["set_then_end", "6"],
+		"differs": []
+	},
+	{
+		"name": "exit_set_twice_then_end",
+		"module": "exit",
+		"args": ["set_then_end", "6", "0"],
+		"differs": []
+	},
+	{
+		"name": "exit_set_255_then_end",
+		"module": "exit",
+		"args": ["set_then_end", "0", "255"],
+		"differs": []
+	},
+	{
+		"name": "exit_set_late",
+		"module": "exit",
+		"args": ["set_late"],
+		"differs": []
+	},
+	{
+		"name": "exit_set_refused_keeps",
+		"module": "exit",
+		"args": ["set_refused_keeps"],
+		"differs": []
+	},
+	{
+		"name": "exit_finally",
+		"module": "exit",
+		"args": ["finally"],
+		"differs": []
+	},
+	{
+		"name": "exit_pending_chain",
+		"module": "exit",
+		"args": ["pending_chain"],
+		"differs": []
+	},
+	{
+		"name": "exit_unwinding",
+		"module": "exit",
+		"args": ["unwinding"],
+		"differs": []
+	},
+	{
+		"name": "exit_timer",
+		"module": "exit",
+		"args": ["timer"],
+		"differs": []
+	},
+	{
 		"name": "cwd",
 		"module": "cwd",
 		"args": ["{cwd}"],

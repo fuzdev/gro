@@ -6,7 +6,7 @@ use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
 use crate::resolver::Capability;
-use crate::{ArgsGrant, Authority, Grants};
+use crate::{ArgsGrant, Authority, ExitGrant, Grants};
 
 /// A host module's grant, as [`Grants`] holds it.
 pub trait Grant: Clone + 'static {
@@ -25,14 +25,28 @@ impl Grant for ArgsGrant {
     }
 }
 
+impl Grant for ExitGrant {
+    const CAPABILITY: Capability = Capability::Exit;
+
+    fn of(grants: &Grants) -> Option<&Self> {
+        grants.exit.as_ref()
+    }
+}
+
 /// Proof that the run holds the grant `G`, carrying its own copy of it, so
 /// an op holds no borrow of the `OpState` while it works. Its field is
 /// private to this module, so only [`require`] makes one.
 #[derive(Debug)]
 pub struct Granted<G: Grant> {
-    /// The grant, scoped data an op reads once a grant carries some.
-    #[expect(dead_code, reason = "no grant carries data yet")]
+    /// The grant, with what it carries for the op.
     grant: G,
+}
+
+impl<G: Grant> Granted<G> {
+    /// The grant the run holds.
+    pub const fn grant(&self) -> &G {
+        &self.grant
+    }
 }
 
 /// A host op called without what it requires.

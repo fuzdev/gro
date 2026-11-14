@@ -8,6 +8,11 @@
 // are armed for the length of a call and no longer, so what a call leaves to run later, a
 // promise's reaction, runs unwatched.
 //
+// A call can end the process, as `exit` does. Each call is reported before it's made, so a run
+// that ended in one left which, with every trap and touch it used before it did; the test
+// runs the entry again with that call among `ended`, the calls to skip, and so on to a run
+// that gets to its end.
+//
 // A hostile argument reports every use made of it during the call it was passed to, a `touch`
 // report: a function that reads, coerces, or iterates what it's given runs the giver's code
 // from inside the builtin, which is never an accident a test should pass over.
@@ -135,17 +140,19 @@ const HOSTILE = [
 const HOSTILE_ARITY = 3;
 
 /**
- * Exercises the exports of builtins, reporting as it goes: a `line` for each call's outcome,
- * a `touch` for each use of a hostile argument, and an `unexercised` for each function or
- * class reached that `exercises` has no entry for: how many parameters a function declares
- * says nothing of the arguments it reads (a default, a rest), so whoever adds one says what
- * it's called with, an empty list when it takes nothing.
+ * Exercises the exports of builtins, reporting as it goes: a `call` before each call, a `line`
+ * for its outcome, a `touch` for each use of a hostile argument, and an `unexercised` for each
+ * function or class reached that `exercises` has no entry for: how many parameters a function
+ * declares says nothing of the arguments it reads (a default, a rest), so whoever adds one
+ * says what it's called with, an empty list when it takes nothing.
  * @param {Map<string, Array<Array<unknown>>>} exercises - the lists of arguments to call a
  * function or construct a class with, by its path
  * @param {number} depth - how far into a value's properties and its calls' results the
  * functions are looked for
+ * @param {ReadonlyArray<string>} ended - the calls an earlier run of the same entry ended the
+ * process in, each by its label, which this run skips
  */
-export const create_exerciser = (exercises, depth) => {
+export const create_exerciser = (exercises, depth, ended) => {
 	/**
 	 * The objects walked, and each function with the receivers it was called with.
 	 * @type {Map<object, Set<unknown>>}
@@ -155,12 +162,18 @@ export const create_exerciser = (exercises, depth) => {
 	const used = new Set();
 
 	/**
-	 * Runs `use` armed, as the call named `label`, and reports its outcome.
+	 * Runs `use` armed, as the call named `label`, and reports its outcome, or that an earlier
+	 * run ended in it.
 	 * @param {string} label
 	 * @param {() => unknown} use
 	 * @returns {[returned: boolean, value: unknown]}
 	 */
 	const attempt = (label, use) => {
+		if (ended.includes(label)) {
+			report('line', `${label}: ended the process`);
+			return [true, undefined];
+		}
+		report('call', label);
 		/** @type {[boolean, unknown]} */
 		let outcome;
 		watched = label;

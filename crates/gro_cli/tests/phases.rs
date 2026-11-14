@@ -1,6 +1,7 @@
 //! The `phases` feature from outside: a default build ignores
 //! `GRO_PHASES_FILE`, and a phases build writes its marks there, in order,
-//! eval's included through the handle it opened before its box. The phases
+//! when its program exits too, and eval's through the handle it opened
+//! before its box. The phases
 //! build's test runs from `cargo xtask build --verify`, which builds `fgro`
 //! with the feature for it.
 
@@ -100,6 +101,22 @@ fn a_phases_build_writes_runs_marks_in_order() {
             "teardown",
             "exit"
         ]
+    );
+}
+
+/// A program's `exit` ends the process by the step every command exits
+/// by, so a phases build writes its file then too: the marks made before
+/// the call, then `exit`, with none for the evaluation it cut short.
+#[cfg(feature = "phases")]
+#[test]
+fn a_phases_build_writes_its_marks_when_the_program_exits() {
+    let dir = phases_dir("exit");
+    let file = dir.0.join("phases");
+    let output = fgro("run", &["run", "exit_3.js"], &file);
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
+    assert_eq!(
+        read_marks(&file),
+        ["engine", "runtime", "bootstrap", "load", "exit"]
     );
 }
 

@@ -40,6 +40,12 @@ fn the_table_is_pinned() {
                 &["args"][..],
             ),
             (
+                "@fuzdev/gro/exit.ts",
+                "builtin:@fuzdev/gro/exit.ts",
+                Some(Capability::Exit),
+                &["exit", "set_exit_code"][..],
+            ),
+            (
                 "@fuzdev/gro/cwd.ts",
                 "builtin:@fuzdev/gro/cwd.ts",
                 None,
@@ -210,16 +216,20 @@ fn the_reserved_specifiers_are_pinned() {
             Some(Reserved::JsSpelling(&BUILTINS[0])),
         ),
         (
-            "@fuzdev/gro/cwd.js",
+            "@fuzdev/gro/exit.js",
             Some(Reserved::JsSpelling(&BUILTINS[1])),
         ),
         (
-            "@fuzdev/gro/pid.js",
+            "@fuzdev/gro/cwd.js",
             Some(Reserved::JsSpelling(&BUILTINS[2])),
         ),
         (
-            "@fuzdev/gro/runtime_version.js",
+            "@fuzdev/gro/pid.js",
             Some(Reserved::JsSpelling(&BUILTINS[3])),
+        ),
+        (
+            "@fuzdev/gro/runtime_version.js",
+            Some(Reserved::JsSpelling(&BUILTINS[4])),
         ),
         ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
         ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
@@ -231,8 +241,6 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/env.ts", unbuilt("@fuzdev/gro/env")),
         ("@fuzdev/gro/env.js", unbuilt("@fuzdev/gro/env")),
-        ("@fuzdev/gro/exit.ts", unbuilt("@fuzdev/gro/exit")),
-        ("@fuzdev/gro/exit.js", unbuilt("@fuzdev/gro/exit")),
         ("@fuzdev/gro/stdin.ts", unbuilt("@fuzdev/gro/stdin")),
         ("@fuzdev/gro/stdin.js", unbuilt("@fuzdev/gro/stdin")),
         ("@fuzdev/gro/stdout.ts", unbuilt("@fuzdev/gro/stdout")),
@@ -399,7 +407,7 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', \
                  '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or \
                  '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/args.ts', \
-                 '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
+                 '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
                  '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run code that uses the \
                  others under Node with gro",
             ),

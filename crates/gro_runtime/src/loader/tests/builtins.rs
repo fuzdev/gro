@@ -2,17 +2,16 @@
 //! authority and the importer's origin, and what the graph records.
 
 use super::*;
+use crate::Authority;
 use crate::resolver::{BUILTINS, Builtin, Origin, ResolveErrorKind};
-use crate::{ArgsGrant, Authority, Grants};
+use crate::test_support::run_authority;
 
 const ARGS: &str = "@fuzdev/gro/args.ts";
 const BAR: &str = "file:///p/node_modules/bar/i.mjs";
 
-/// `fgro run`'s authority: `args` granted.
+/// `fgro run`'s authority: `args` and `exit` granted.
 fn granted() -> Authority {
-    Authority::Confined(Grants {
-        args: Some(ArgsGrant {}),
-    })
+    run_authority()
 }
 
 /// A loader of `tree`'s graph with `bar` admitted, granting as `authority`

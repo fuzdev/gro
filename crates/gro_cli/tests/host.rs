@@ -14,8 +14,10 @@
 //! getter read, a setter given a value), with every intrinsic a program can
 //! reach a reporting trap, and must be what it is in a realm nothing
 //! patched and use no trap. A run reports as it goes, a line of JSON for
-//! each thing, so a call that ended the process would still have left what
-//! it used.
+//! each thing, a call before it's made, so a call that ended the process,
+//! as `exit`'s do, left which it was and what it used: the entry is run
+//! again without that call, to a run that gets to its end, and each call
+//! that ended one is held to the code it exited with.
 //!
 //! And every builtin's first import made to fail (`tests/fixtures/host/forced/`):
 //! an `import()` runs the implementation on its caller's stack, so a
@@ -248,6 +250,17 @@ const TRAPPED_INDICES: std::ops::Range<u32> = 0..16;
 /// and any other fails the test. No builtin's function touches an argument.
 const ARGUMENT_TOUCHES: [&str; 0] = [];
 
+/// The calls that end the process, each as the patched realm names it,
+/// with the code it exits with, in the order they're made: `exit` given
+/// nothing, given the code `use.js` has for it, and borrowed by a hostile
+/// receiver, which it never reads. Any other call that ends a run fails
+/// the test, and so does one of these that returns.
+const ENDING_CALLS: [(&str, i32); 3] = [
+    ("@fuzdev/gro/exit.ts exit()", 0),
+    ("@fuzdev/gro/exit.ts exit(arguments 1)", 7),
+    ("@fuzdev/gro/exit.ts exit.call(proxy)", 0),
+];
+
 /// The names trapped on the shared prototypes: every identifier a
 /// builtin's implementation writes, read from its source, so a property it
 /// reads or writes on an object that lacks it lands on a trap,
@@ -280,10 +293,11 @@ const PATCHED_FILES: [&str; 7] = [
     "ended.js",
 ];
 
-/// A project of the patched realm's fixtures with the two modules written
-/// from the builtin table: `modules.js`, importing every row's namespace
-/// with its exports, each marked when its value is the process's own, and
-/// `names.js`, the names to trap.
+/// A project of the patched realm's fixtures with the modules the test
+/// writes: from the builtin table, `modules.js`, importing every row's
+/// namespace with its exports, each marked when its value is the process's
+/// own, and `names.js`, the names to trap; and `skips.js`, the calls to
+/// skip, none ([`write_skips`]).
 fn patched_project(name: &str) -> Scratch {
     let fixtures = fixtures().join("patched");
     let fixture = |file: &str| std::fs::read_to_string(fixtures.join(file)).unwrap();
@@ -315,10 +329,12 @@ fn patched_project(name: &str) -> Scratch {
         serde_json::to_string(&trapped_names()).unwrap()
     );
     let sources = PATCHED_FILES.map(fixture);
+    let skips = skips_module(&[]);
     let mut files = vec![
         ("package.json", "{\"type\": \"module\"}\n"),
         ("modules.js", modules.as_str()),
         ("names.js", names.as_str()),
+        ("skips.js", skips.as_str()),
     ];
     files.extend(
         PATCHED_FILES
@@ -326,6 +342,15 @@ fn patched_project(name: &str) -> Scratch {
             .zip(sources.iter().map(String::as_str)),
     );
     Scratch::new(name, &files)
+}
+
+/// The module naming the calls a run skips, `ended`: the ones an earlier
+/// run of the same entry ended the process in.
+fn skips_module(ended: &[String]) -> String {
+    format!(
+        "export const ENDED = {};\n",
+        serde_json::to_string(ended).unwrap()
+    )
 }
 
 /// What a run of the patched realm's fixtures reported, in order: each line
@@ -357,6 +382,26 @@ impl Reports {
             last => panic!("the run ended before its end: {last:?}"),
         }
     }
+
+    /// Whether the run got to its end.
+    fn is_whole(&self) -> bool {
+        matches!(self.0.last(), Some((kind, _)) if kind == "done")
+    }
+
+    /// The call under way when the run ended, the last it reported
+    /// starting, in a run that didn't get to its end.
+    fn ended_in(&self) -> &str {
+        let calls = self.strings("call");
+        let last = calls.last().expect("a run that ended in a call");
+        let line = format!("{last}: ");
+        assert!(
+            self.strings("line")
+                .iter()
+                .all(|shown| !shown.starts_with(&line)),
+            "{last} returned, so the run ended past it"
+        );
+        last
+    }
 }
 
 /// `fgro run` of `entry` in `project`, given two arguments: its exit code,
@@ -386,6 +431,34 @@ fn run_whole(project: &Scratch, entry: &str) -> Reports {
     reports
 }
 
+/// What a run of `entry` reported once it got to its end, with each call
+/// that ended an earlier run of it and the code that run exited with: a
+/// run that ends in a call is run again with the call skipped, at most as
+/// often as [`ENDING_CALLS`] has calls. No run printed anything on stderr,
+/// and the last exited `0`.
+fn run_past_ends(project: &Scratch, entry: &str) -> (Reports, Vec<(String, i32)>, Vec<Reports>) {
+    let mut ended: Vec<(String, i32)> = Vec::new();
+    let mut cut_short = Vec::new();
+    loop {
+        let skipped: Vec<String> = ended.iter().map(|(call, _)| call.clone()).collect();
+        std::fs::write(project.0.join("skips.js"), skips_module(&skipped)).unwrap();
+        let (code, reports, stderr) = run_entry(project, entry);
+        assert_eq!(stderr, "", "{entry} after {ended:?}");
+        let code = code.expect("the run exits, not killed by a signal");
+        if reports.is_whole() {
+            assert_eq!(code, 0, "{entry} after {ended:?}");
+            return (reports, ended, cut_short);
+        }
+        assert!(
+            ended.len() < ENDING_CALLS.len(),
+            "{entry} ended in {}, after {ended:?}",
+            reports.ended_in()
+        );
+        ended.push((reports.ended_in().to_owned(), code));
+        cut_short.push(reports);
+    }
+}
+
 /// Every row of the builtin table, imported for the first time in a realm
 /// whose every reachable intrinsic is a trap, with everything it exports or
 /// reaches exercised there (each function called with no arguments, with
@@ -400,9 +473,10 @@ fn run_whole(project: &Scratch, entry: &str) -> Reports {
 /// the reviewed ones. The rows come from the table, so a new one is
 /// imported and exercised here without being listed; a function it exports
 /// or reaches fails here until `use.js` has an entry for it, with the
-/// arguments it takes or none, and one that ends the process fails here for
-/// a run with no end, which that row's test must then expect, with the
-/// reports the run left. Each run has a project of its own, so what a
+/// arguments it takes or none. A call that ends the process, as `exit`'s
+/// do, is one of [`ENDING_CALLS`], with its code, in both realms, and the
+/// run it cut short reported no trap and no touch before it ended; any
+/// other call that ends a run fails here. Each run has a project of its own, so what a
 /// builtin's function did to one's files the other doesn't find, and a
 /// path under it is shown as `{project}`.
 #[test]
@@ -418,8 +492,14 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     }
     let plain_dir = patched_project("plain");
     let patched_dir = patched_project("patched");
-    let plain = run_whole(&plain_dir, "plain.js");
-    let patched = run_whole(&patched_dir, "patched.js");
+    let (plain, plain_ended, plain_cut_short) = run_past_ends(&plain_dir, "plain.js");
+    let (patched, patched_ended, patched_cut_short) = run_past_ends(&patched_dir, "patched.js");
+    let ending_calls: Vec<(String, i32)> = ENDING_CALLS
+        .iter()
+        .map(|(call, code)| ((*call).to_owned(), *code))
+        .collect();
+    assert_eq!(plain_ended, ending_calls);
+    assert_eq!(patched_ended, ending_calls);
     assert_eq!(plain.done()["replaced"], 0);
     // the intrinsics' own properties alone are thousands
     let replaced = &patched.done()["replaced"];
@@ -433,6 +513,16 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     assert_eq!(patched.lines(&patched_dir), lines);
     // the two projects are two directories, which a row that shows one tells apart
     assert_ne!(patched.strings("line"), plain.strings("line"));
+    // a run a call ended used nothing before it did: its traps reported as they fired
+    for run in plain_cut_short.iter().chain(&patched_cut_short) {
+        assert_eq!(run.strings("trap"), [""; 0]);
+        assert_eq!(run.strings("touch"), ARGUMENT_TOUCHES);
+        assert_eq!(run.strings("unexercised"), [""; 0]);
+    }
+    for (call, _) in ENDING_CALLS {
+        let skipped = format!("{call}: ended the process");
+        assert!(lines.contains(&skipped), "{lines:?}");
+    }
     for run in [&plain, &patched] {
         assert_eq!(
             run.strings("unexercised"),
@@ -475,7 +565,8 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
 /// it's given an argument, a method, a getter, and a setter of an exported
 /// object, a method of a call's result and of what a call threw, and a
 /// class's constructor, static method, and getter, with a method that
-/// needs its own instance called on one; it reports each use made of a
+/// needs its own instance called on one; it reports each call before it
+/// makes it, and skips the ones it's told ended an earlier run; it reports each use made of a
 /// hostile argument, of every kind, a callback's call, a fourth argument's,
 /// and one past a check that only a given argument passes among them, the
 /// functions it was given no entry for, and the entry given for a function
@@ -533,7 +624,7 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         let value = value.as_str().unwrap_or_default();
         if kind == "line" {
             calls.push((value, std::mem::take(&mut before)));
-        } else {
+        } else if kind != "call" {
             before.push(format!("{kind} {value}"));
         }
     }
@@ -645,6 +736,24 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         reported("probe.coerces(arguments 1): returned string \"given\""),
         &[""; 0]
     );
+    // each call is reported before it's made, so the last reported is the one a run ended in
+    let made = reports.strings("call");
+    let shown: Vec<&str> = calls.iter().map(|(line, _)| *line).collect();
+    assert!(made.len() > 50, "{made:?}");
+    for (call, line) in made.iter().zip(
+        shown
+            .iter()
+            .filter(|line| !line.ends_with(": ended the process")),
+    ) {
+        assert!(
+            line.starts_with(&format!("{call}: ")),
+            "{call} before {line}"
+        );
+    }
+    // a call an earlier run ended in is skipped, and shown so, and the function's others are made
+    assert_eq!(reported("probe.ended_a_run(): ended the process"), &[""; 0]);
+    assert!(!made.contains(&"probe.ended_a_run()"), "{made:?}");
+    assert!(reported("probe.ended_a_run(proxy): returned").contains(&trap.to_owned()));
     // a function with no entry, whether it declares a parameter or none
     assert_eq!(
         reports.strings("unexercised"),

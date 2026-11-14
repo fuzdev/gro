@@ -28,7 +28,8 @@ a file whose name starts with `-` goes after `--`.
 The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
 where a bare `--allow-env` is a usage error, not a grant of every name.
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
-one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them).
+one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
+and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
@@ -61,6 +62,9 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   and grants it to the project's own modules, while a module of an installed or linked package is refused it for now
   when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules) has the designed route past that).
   A package's module importing the project's own modules by name is refused too, so it can't reach the grant through one.
+- `@fuzdev/gro/exit.ts`, a builtin module granted to the project's own modules as `args` is, and refused to a package's the same way:
+  `exit(code?)` ends the process inside the call, and `set_exit_code(code)` sets the code a run that ends on its own exits with
+  ([host modules](host_modules.md#exit-on-fgro)).
 - `@fuzdev/gro/cwd.ts`, `@fuzdev/gro/pid.ts`, and `@fuzdev/gro/runtime_version.ts`, builtin modules that need no grant,
   so the project's modules and a package's import them alike:
   `cwd()` is the directory `fgro` was started in, `pid` the process's id, and `runtime_version` the string `fgro/<version>+<commit>`,
@@ -150,7 +154,7 @@ an I/O failure reading the resolved file's included.
 When one of gro's rules about authority or containment refused it (an ungranted builtin module, a builtin module with import attributes,
 a package's import of the project, a reserved specifier, a path leaving its root or reaching into `node_modules`,
 a refused scheme like `ext:` or `data:`, code compiled from a string),
-the run fails, exit 1, whether or not the program caught the refusal, so a `try/catch` can't hide a probe for authority,
+the run fails, exiting 1 where it would have exited 0, whether or not the program caught the refusal, so a `try/catch` can't hide a probe for authority,
 and so does a refused import in a module the `import()` loads.
 After the run's own error, if it has one, stderr lists the first 8 distinct refusals in the order they happened,
 `error: import() refused: <its message>`, control and bidirectional formatting characters escaped (`\u{1b}`)
@@ -175,15 +179,21 @@ Whether a stream is colored is decided once per process, in order:
 
 `CLICOLOR`, `CLICOLOR_FORCE`, and `COLORTERM` aren't read.
 
-| exit | when                                                                                                                                                                   |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | the module ran to completion, or `--help` or `--version`                                                                                                               |
-| 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, an `import()` was refused by one of gro's rules, caught or not, or the runtime failed to start |
-| 2    | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| exit           | when                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
+| the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
+| 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, caught or not, in a run that would have exited 0 |
+| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
-A script can't set its own exit code on `fgro` yet; as designed, the code it sets passes through verbatim,
-so `1` and `2` are shared between the script and `fgro`'s own failures, but for a `0` in a run that was refused an `import()` by rule, which exits 1.
+A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.
+`exit` ends the process inside the call: no `finally` block runs, no queued job, no timer, and an error then unwinding isn't reported.
+An `import()` refused by rule turns a `0` into `1` however the run ended, `exit(0)` included, and leaves any other code as it is,
+and its lines are printed before the process ends.
+An `import()` whose graph is still loading when `exit` is called is abandoned where it is:
+a refusal the graph would meet later is never reached, so it neither fails the run nor prints.
+A top-level `await` nothing settles exits 1, where Node exits 13.
 A panic exits 101 in a debug build; a release build aborts.
 `--version` or `--help` whose stdout can't be written (a pipe whose reader closed) exits 1,
 naming the failure on stderr; a stderr that can't be written is ignored.

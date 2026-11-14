@@ -61,6 +61,8 @@ const probe = {
 	},
 	// one that returns an error, whose stack the exerciser must not read for it
 	returns_error: () => made_error,
+	// a function an earlier run is said to have ended the process in, called with nothing
+	ended_a_run: () => Object,
 	// one that throws an object of its own, whose method uses the realm
 	throws: () => {
 		throw { method: () => Object };
@@ -151,9 +153,12 @@ const exerciser = create_exerciser(
 		['new probe.Handle().read', []],
 		['probe.Handle.prototype.read', []],
 		['probe.Handle.open', []],
+		['probe.ended_a_run', []],
 		['probe.never_reached', [[]]]
 	]),
-	4
+	4,
+	// the call an earlier run ended in, which is skipped; its other calls are made
+	['probe.ended_a_run()']
 );
 exerciser.exercise('probe', probe, undefined, 4);
 restore_realm();

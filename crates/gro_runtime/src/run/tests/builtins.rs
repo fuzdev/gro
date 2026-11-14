@@ -12,15 +12,15 @@ use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Record, Recording};
 use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
 use crate::test_support::TestDir;
-use crate::{ArgsGrant, Authority, Grants, RuntimeOptions, STACK_SIZE};
+use crate::test_support::run_authority;
+use crate::{Authority, RuntimeOptions, STACK_SIZE};
 
 pub(super) const ARGS: &str = "@fuzdev/gro/args.ts";
 
-/// `fgro run`'s authority: `args` granted.
+/// `fgro run`'s authority: `args` and `exit` granted, the exit step one
+/// no program here reaches.
 pub(super) fn granted() -> Authority {
-    Authority::Confined(Grants {
-        args: Some(ArgsGrant {}),
-    })
+    run_authority()
 }
 
 /// Writes `files` into a fresh directory named for `name` under a
@@ -191,8 +191,9 @@ check('assign', threw === 2 && JSON.stringify(args) === '[\"x\",\"y\"]');
 /// object a builtin's implementation is called with among them, stay
 /// unreachable before and after the imports, by any own property or
 /// prototype from the global object and from every builtin's namespace,
-/// its exports, and what a function it exports returns or a class it
-/// exports constructs.
+/// its exports, and what a function it exports returns or throws or a
+/// class it exports constructs, but `exit`'s, whose call would end the
+/// test's process.
 #[test]
 fn patched_intrinsics_change_nothing_and_the_internals_stay_unreachable() {
     let source = format!(
@@ -235,13 +236,21 @@ const after = internals();
 if (before !== 'undefined,undefined,undefined,undefined' || after !== before) throw new Error(`internals: ${{before}} ${{after}}`);
 const seen = new Set();
 const queue = [globalThis];
-const made = (fn) => /^class\\b/.test(Function.prototype.toString.call(fn)) ? new fn() : fn();
+// what a call returns, or what it threw
+const made = (fn) => {{
+\ttry {{
+\t\treturn /^class\\b/.test(Function.prototype.toString.call(fn)) ? new fn() : fn();
+\t}} catch (thrown) {{
+\t\treturn thrown;
+\t}}
+}};
 for (const specifier of {specifiers}) {{
 \tconst ns = await import(specifier);
 \tqueue.push(ns);
 \tfor (const key of Reflect.ownKeys(ns)) {{
 \t\tqueue.push(ns[key]);
-\t\tif (typeof ns[key] === 'function') queue.push(made(ns[key]));
+\t\t// `exit` called with nothing ends the process: its calls are made in child processes
+\t\tif (typeof ns[key] === 'function' && ns[key] !== ns.exit) queue.push(made(ns[key]));
 \t}}
 }}
 if (!queue.includes(args)) throw new Error('the walk starts without the array');
@@ -854,9 +863,9 @@ for (const [specifier, words] of cases) {
              use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
              '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', \
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or '@fuzdev/gro/runtime_version.ts'; of \
-             these, only '@fuzdev/gro/args.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
-             '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run code that uses the others \
-             under Node with gro",
+             these, only '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', \
+             '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run \
+             code that uses the others under Node with gro",
             graph.roots().project().dir.display()
         )),
         "{report}"

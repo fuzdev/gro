@@ -27,7 +27,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `watch.ts`           | changes under a directory handle        | not yet                 |
 | `env.ts`             | the environment                         | not yet                 |
 | `args.ts`            | the script's arguments                  | built, the `args` grant |
-| `exit.ts`            | how the run ends                        | not yet                 |
+| `exit.ts`            | how the run ends                        | built, the `exit` grant |
 | `stdin.ts`           | standard input                          | not yet                 |
 | `stdout.ts`          | standard output                         | not yet                 |
 | `stderr.ts`          | standard error                          | not yet                 |
@@ -440,6 +440,7 @@ Each module's TSDoc has its contract.
 
 On `fgro`, the process modules [the table](#the-modules) marks built are builtin modules, each exporting what its Node module does:
 `@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
+`@fuzdev/gro/exit.ts`, whose `exit` ends the run and whose `set_exit_code` sets the code a run that ends on its own exits with ([below](#exit-on-fgro));
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
@@ -466,9 +467,10 @@ so a dirty build's `runtime_version` isn't an identity, and a cache it keys can 
 A build that embeds no commit, a plain `cargo build` or a `cargo xtask build` of a tree git can't read,
 is `fgro/<version>` alone, which every such build of that version shares, so it isn't an identity either.
 
-`args` needs the `args` grant, which `fgro run` gives the project's own modules, and the import is checked when the graph links,
-for a static import and `import()` alike: a module of an installed or linked package is refused it for now,
+`args` needs the `args` grant and `exit` the `exit` grant, both of which `fgro run` gives the project's own modules, and the import is checked when the graph links,
+for a static import and `import()` alike: a module of an installed or linked package is refused each for now,
 naming the package, until `-A` or the policy file's acceptance lifts that (both designed).
+So a dependency can't end the run on its own, though one the project hands `exit` to can call it, as with any handle.
 `fgro eval` imports no builtin module, the grant-free ones included ([eval](eval.md)),
 and an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
 A builtin module's namespace has a `default` export of `undefined`, where a Node module has none.
@@ -477,6 +479,20 @@ until each lands, its specifier is refused as not on `fgro` yet, in either spell
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro has none of, are refused in either spelling too,
 the message naming the modules to import instead ([resolver](resolver.md#builtin-modules)),
 so neither loads from an installed copy of the npm package.
+
+#### exit on fgro
+
+`exit(code?)` ends the process inside the call, as Node's `process.exit` does: no `finally` block runs, no queued job, no timer,
+and an error that was unwinding is never reported. What the console wrote before it is whole, since the console writes when it's called.
+Its code is the one given, else the one `set_exit_code` set, else `0`, and it reaches the process's exit status as it is, 0 to 255.
+`set_exit_code(code)` sets the code of a run that then ends on its own; a run that fails exits 1 whatever was set
+([run](run.md#errors-and-exit-codes) has the table, with the rule for a refused `import()`).
+The host checks a code as the value it is, a number that is an integer from 0 to 255, converting nothing:
+a string, a boxed number, a thenable, and an object with a `Symbol.toPrimitive` are each a `TypeError` with the Node module's message,
+the realm's own `TypeError` whatever the global of that name has become, and no property of the value is read.
+The code set is the run's state, kept by the host, not the module's.
+Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
+On Node, `exit` also runs the spawn module's child cleanup; `fgro` has no spawn module yet.
 
 ## net
 

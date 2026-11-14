@@ -381,8 +381,10 @@ Invariants that live in the code:
     each setter given a value, and the same for what a call returns or throws.
     A function reached fails it until the fixture has an entry for it, with
     the arguments it takes or none, and a use of a hostile argument until the
-    test lists it, reviewed. What a call leaves to run later, a promise's
-    reaction, it doesn't watch.
+    test lists it, reviewed. A call that ends the process, as `exit`'s do,
+    is one the test lists with its code: each call is reported before it's
+    made, and the run is made again without the one it ended in. What a
+    call leaves to run later, a promise's reaction, it doesn't watch.
   - And `bootstrap/web_scripts.rs` holds each implementation's reads of
     `core.ops`, its backing script's scope argument's among them, to the host
     ops of its own row.
@@ -444,7 +446,13 @@ Invariants that live in the code:
   op that names a grant, `require`, the one place a `Granted` token is made;
   for a grant-free module's op, which names none, `require_authority`, which
   refuses only a runtime that holds no `Authority` at all, so the op runs in
-  every run and in no eval. The run's `Authority` goes into the loader and
+  every run and in no eval. An op that takes arguments takes each as the JS
+  value passed (`v8::Local<v8::Value>`), never through an `#[op2]`
+  conversion, which could run the caller's code or truncate: its body reads
+  the value natively, after the check, and throws through the scope an
+  error V8 makes from the realm's intrinsic (`host/exit.rs`), since an op's
+  `Err` is built by a JS callback of `deno_core`'s. A builtin's export that
+  takes arguments is a shell handing them to such an op whole. The run's `Authority` goes into the loader and
   the runtime's `OpState` per run, never into the snapshot or the extension
   list, and eval's runtime takes none. A test fails on an op of gro's
   extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`
@@ -520,7 +528,19 @@ Invariants that live in the code:
   code and reaches no runtime. Console output is written and flushed as
   it's printed, so nothing is buffered there today; a later host module
   that buffers stdout or stderr must have it written before the runtime is
-  handed back, or keep the buffer where `end` can reach it.
+  handed back and before `exit`'s op calls the embedder's step, or keep
+  the buffer where `end` can reach it.
+- `gro_runtime` ends its embedder's process itself in two places only:
+  eval's out-of-memory backstop exits 1, and a confined engine whose random
+  source fails aborts (`engine.rs`). A program's `exit` doesn't: its
+  op calls the step the embedder gave with the grant (`ExitGrant`), from
+  inside the call, since stopping V8 doesn't stop a program at once
+  (`host/exit.rs` has why). `fgro`'s step is `run::exit_now`, which prints
+  the refused `import()`s and reaches `end`; `run::exit_code` is the one
+  place a run's exit code is decided, for a program's code, a failure, and
+  a refusal alike. The exit code a program sets is the run's state in
+  `OpState`, never the implementation's. No in-process test grants a step
+  that returns: a program that exits is run in a child process.
 - A change to the seccomp allowlist reruns the census
   ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
 

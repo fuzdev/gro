@@ -9,6 +9,17 @@
 //! failed too, whether or not the program caught the refusal: its
 //! [`RunOutcome`] lists them ([`RefusedImports`]).
 //!
+//! A run that ends on its own hands its runtime back in the outcome
+//! ([`SpentRuntime`]), with the exit code its program set, if it set one:
+//! dropped, the runtime is torn down, and a process about to exit can
+//! forget it instead. A program granted the exit host module can end the
+//! run from inside a call, and since this crate doesn't end its embedder's
+//! process for a program, it does so by the step the embedder gave with
+//! the grant ([`ExitGrant`], [`Exit`]). It ends the process itself in two
+//! places, neither a program's choice: eval's out-of-memory backstop exits
+//! 1 from V8's out-of-memory callback (`eval/limits.rs`), and a confined
+//! engine whose random source fails aborts (`engine.rs`).
+//!
 //! - [`resolver`]: the strict ESM resolver, a pure module (relative and
 //!   absolute specifiers with mandatory extensions, and packages in
 //!   `node_modules` through their `"exports"`, each module kept inside its
@@ -91,6 +102,7 @@ mod test_support;
 use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
+pub use crate::host::exit::{Exit, ExitStep};
 pub use crate::loader::refused::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RefusedImports};
 pub use crate::run::{RunError, RunOutcome, StartError, run_main};
 pub use crate::runtime::SpentRuntime;
@@ -186,6 +198,8 @@ impl Default for Authority {
 pub struct Grants {
     /// The args host module's.
     pub args: Option<ArgsGrant>,
+    /// The exit host module's.
+    pub exit: Option<ExitGrant>,
 }
 
 impl Grants {
@@ -193,6 +207,7 @@ impl Grants {
     pub const fn holds(&self, capability: Capability) -> bool {
         match capability {
             Capability::Args => self.args.is_some(),
+            Capability::Exit => self.exit.is_some(),
         }
     }
 }
@@ -201,3 +216,25 @@ impl Grants {
 /// data, so it scopes nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArgsGrant {}
+
+/// The exit host module's grant, which scopes nothing and carries the
+/// step that ends the process for a program's `exit`.
+///
+/// The runtime doesn't end its embedder's process for a program (it ends
+/// it itself only from eval's out-of-memory backstop, and by an abort when
+/// a confined engine's random source fails), so granting `exit` is handing
+/// the program the step that does.
+#[derive(Debug, Clone, Copy)]
+pub struct ExitGrant {
+    /// The step `exit` ends the process by.
+    pub end: ExitStep,
+}
+
+impl PartialEq for ExitGrant {
+    /// Whether both end the process by the same step.
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::fn_addr_eq(self.end, other.end)
+    }
+}
+
+impl Eq for ExitGrant {}

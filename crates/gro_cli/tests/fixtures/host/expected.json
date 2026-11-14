@@ -150,6 +150,500 @@
 			"namespace_write_throws": "TypeError"
 		}
 	},
+	"exit_shape": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"exit": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"set_exit_code": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"exit": {
+				"shape": {
+					"type": "function",
+					"prototype": "Function.prototype",
+					"frozen": true,
+					"own": {
+						"length": {
+							"type": "number",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"name": {
+							"type": "string",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"name": "exit",
+				"length": 1
+			},
+			"set_exit_code": {
+				"shape": {
+					"type": "function",
+					"prototype": "Function.prototype",
+					"frozen": true,
+					"own": {
+						"length": {
+							"type": "number",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"name": {
+							"type": "string",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"name": "set_exit_code",
+				"length": 1
+			},
+			"new_throws": [
+				"TypeError",
+				"TypeError"
+			],
+			"property_write_throws": "TypeError",
+			"namespace_write_throws": "TypeError",
+			"exit_refuses": [
+				[
+					"a string",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"an empty string",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a fraction",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a negative",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"past a byte",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"NaN",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"Infinity",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"null",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a boolean",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a bigint",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a symbol",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a boxed number",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"valueOf",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"toPrimitive",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a thenable",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a proxy",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"an array",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a function",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				]
+			],
+			"set_exit_code_refuses": [
+				[
+					"a string",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"an empty string",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a fraction",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a negative",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"past a byte",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"NaN",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"Infinity",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"null",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a boolean",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a bigint",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a symbol",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a boxed number",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"valueOf",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"toPrimitive",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a thenable",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a proxy",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"an array",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"a function",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				],
+				[
+					"undefined",
+					[
+						"TypeError",
+						"an exit code is an integer from 0 to 255"
+					]
+				]
+			],
+			"set_exit_code_refuses_nothing_given": [
+				"TypeError",
+				"an exit code is an integer from 0 to 255"
+			],
+			"touched": 0,
+			"set_exit_code_returns": "undefined"
+		}
+	},
+	"exit_0": {
+		"code": 0,
+		"output": {
+			"before": "exit(0)"
+		}
+	},
+	"exit_1": {
+		"code": 1,
+		"output": {
+			"before": "exit(1)"
+		}
+	},
+	"exit_2": {
+		"code": 2,
+		"output": {
+			"before": "exit(2)"
+		}
+	},
+	"exit_3": {
+		"code": 3,
+		"output": {
+			"before": "exit(3)"
+		}
+	},
+	"exit_13": {
+		"code": 13,
+		"output": {
+			"before": "exit(13)"
+		}
+	},
+	"exit_254": {
+		"code": 254,
+		"output": {
+			"before": "exit(254)"
+		}
+	},
+	"exit_255": {
+		"code": 255,
+		"output": {
+			"before": "exit(255)"
+		}
+	},
+	"exit_minus_zero": {
+		"code": 0,
+		"output": {
+			"before": "exit(-0)"
+		}
+	},
+	"exit_nothing": {
+		"code": 0,
+		"output": {
+			"before": "exit()"
+		}
+	},
+	"exit_after_set": {
+		"code": 9,
+		"output": {
+			"before": "set_exit_code(9), exit(nothing)"
+		}
+	},
+	"exit_undefined_after_set": {
+		"code": 9,
+		"output": {
+			"before": "set_exit_code(9), exit(undefined)"
+		}
+	},
+	"exit_over_set": {
+		"code": 4,
+		"output": {
+			"before": "set_exit_code(9), exit(4)"
+		}
+	},
+	"exit_0_over_set": {
+		"code": 0,
+		"output": {
+			"before": "set_exit_code(9), exit(0)"
+		}
+	},
+	"exit_set_then_end": {
+		"code": 6,
+		"output": {
+			"set": [
+				"6"
+			]
+		}
+	},
+	"exit_set_twice_then_end": {
+		"code": 0,
+		"output": {
+			"set": [
+				"6",
+				"0"
+			]
+		}
+	},
+	"exit_set_255_then_end": {
+		"code": 255,
+		"output": {
+			"set": [
+				"0",
+				"255"
+			]
+		}
+	},
+	"exit_set_late": {
+		"code": 21,
+		"output": {
+			"set": "in a timer"
+		}
+	},
+	"exit_set_refused_keeps": {
+		"code": 17,
+		"output": {
+			"refused": [
+				"TypeError",
+				"an exit code is an integer from 0 to 255"
+			]
+		}
+	},
+	"exit_finally": {
+		"code": 5,
+		"output": {
+			"before": "exit(5) in try/finally"
+		}
+	},
+	"exit_pending_chain": {
+		"code": 8,
+		"output": {
+			"before": "exit(8) in a pending chain"
+		}
+	},
+	"exit_unwinding": {
+		"code": 4,
+		"output": {
+			"before": "exit(4) while an error unwinds"
+		}
+	},
+	"exit_timer": {
+		"code": 3,
+		"output": {
+			"before": "exit(3) in a timer"
+		}
+	},
 	"cwd": {
 		"code": 0,
 		"output": {

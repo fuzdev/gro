@@ -351,6 +351,337 @@ fn a_caught_refusal_fails_the_run_however_it_ends() {
     }
 }
 
+/// The exit-code table, row by row, each way a run ends, with and without
+/// an `import()` refused by rule before it: a program's code passes as it
+/// is, given to `exit` or set and then left to the run's own end; a run
+/// that fails exits 1 whatever its program set; and a refusal turns a 0
+/// into 1 on every path, `exit(0)` included, leaving any other code as it
+/// is, its line printed last, before the process ends. `exit` ends the
+/// run inside the call: nothing after it prints, no `finally` runs, and no
+/// error then unwinding is reported.
+#[test]
+fn the_exit_code_is_the_program_s_or_the_failure_s_and_a_refusal_fails_a_0() {
+    const IMPORT: &str = "import {exit, set_exit_code} from '@fuzdev/gro/exit.ts';\n";
+    const REFUSED: &str = "try {\n\tawait import('ext:core/ops');\n} catch {}\n";
+    // the program after its imports, the code it exits with, the code it
+    // exits with when it was refused an `import()`, its stdout, and the
+    // start of its stderr, `<main>` standing for the entry's URL
+    for (name, program, code, refused_code, stdout, error) in [
+        // ran to completion
+        ("completes", "console.log('done');\n", 0, 1, "done\n", ""),
+        (
+            "completes_set_0",
+            "set_exit_code(0);\nconsole.log('done');\n",
+            0,
+            1,
+            "done\n",
+            "",
+        ),
+        (
+            "completes_set_7",
+            "set_exit_code(7);\nconsole.log('done');\n",
+            7,
+            7,
+            "done\n",
+            "",
+        ),
+        (
+            "completes_set_1",
+            "set_exit_code(2);\nset_exit_code(1);\n",
+            1,
+            1,
+            "",
+            "",
+        ),
+        (
+            "completes_set_in_a_timer",
+            "setTimeout(() => set_exit_code(255), 1);\n",
+            255,
+            255,
+            "",
+            "",
+        ),
+        // the program called `exit`
+        (
+            "exit_0",
+            "console.log('before');\nexit(0);\nconsole.log('after');\n",
+            0,
+            1,
+            "before\n",
+            "",
+        ),
+        (
+            "exit_nothing",
+            "console.log('before');\nexit();\nconsole.log('after');\n",
+            0,
+            1,
+            "before\n",
+            "",
+        ),
+        ("exit_1", "exit(1);\n", 1, 1, "", ""),
+        ("exit_2", "exit(2);\n", 2, 2, "", ""),
+        ("exit_255", "exit(255);\n", 255, 255, "", ""),
+        (
+            "exit_set",
+            "set_exit_code(9);\nexit();\nconsole.log('after');\n",
+            9,
+            9,
+            "",
+            "",
+        ),
+        (
+            "exit_0_over_set",
+            "set_exit_code(9);\nexit(0);\n",
+            0,
+            1,
+            "",
+            "",
+        ),
+        (
+            "exit_in_finally",
+            "try {\n\texit(5);\n} finally {\n\tconsole.log('finally');\n}\n",
+            5,
+            5,
+            "",
+            "",
+        ),
+        (
+            "exit_while_unwinding",
+            "try {\n\tthrow new Error('x');\n} finally {\n\texit(0);\n}\n",
+            0,
+            1,
+            "",
+            "",
+        ),
+        (
+            "exit_in_a_timer",
+            "setTimeout(() => exit(3), 1);\nsetTimeout(() => console.log('later'), 5);\n",
+            3,
+            3,
+            "",
+            "",
+        ),
+        // the run failed, whatever its program set
+        (
+            "throws_set_7",
+            "set_exit_code(7);\nthrow new Error('x');\n",
+            1,
+            1,
+            "",
+            "error: Uncaught (in promise) Error: x\n    at <main>:",
+        ),
+        (
+            "throws_set_0",
+            "set_exit_code(0);\nthrow new Error('x');\n",
+            1,
+            1,
+            "",
+            "error: Uncaught (in promise) Error: x\n    at <main>:",
+        ),
+        (
+            "rejects_set_7",
+            "set_exit_code(7);\nPromise.reject(new Error('x'));\n",
+            1,
+            1,
+            "",
+            "error: Uncaught (in promise) Error: x\n    at <main>:",
+        ),
+        (
+            "unsettled_set_7",
+            "set_exit_code(7);\nawait new Promise(() => {});\n",
+            1,
+            1,
+            "",
+            "error: Top-level await promise never resolved\n    at <main>:",
+        ),
+        (
+            "timer_throws_set_7",
+            "set_exit_code(7);\nsetTimeout(() => {\n\tthrow new Error('late');\n}, 1);\n",
+            1,
+            1,
+            "",
+            "error: Uncaught Error: late\n    at <main>:",
+        ),
+        // a value that is no code ends nothing and sets nothing
+        (
+            "refused_values",
+            "for (const call of [() => exit('1'), () => exit(256), () => set_exit_code(1.5)]) {\n\
+             \ttry {\n\t\tcall();\n\t} catch (error) {\n\
+             \t\tconsole.log(error instanceof TypeError, error.message);\n\t}\n}\n",
+            0,
+            1,
+            "true an exit code is an integer from 0 to 255\n\
+             true an exit code is an integer from 0 to 255\n\
+             true an exit code is an integer from 0 to 255\n",
+            "",
+        ),
+    ] {
+        for (refused, expected) in [(false, code), (true, refused_code)] {
+            let source = format!("{IMPORT}{}{program}", if refused { REFUSED } else { "" });
+            let name = format!("exit_table_{name}_{refused}");
+            let fixtures = temp_fixtures(&name, &[("main.js", &source)]);
+            let run = run_in(&fixtures, "main.js");
+            assert_eq!(run.code, expected, "{name}: {}", run.stderr);
+            assert_eq!(run.stdout, stdout, "{name}");
+            let main = format!("file://{}/main.js", fixtures.0.display());
+            let error = error.replace("<main>", &main);
+            assert!(run.stderr.starts_with(&error), "{name}: {}", run.stderr);
+            if refused {
+                // the last line, after the run's error and its frames
+                assert!(
+                    run.stderr.ends_with(&ext_refused(&main)),
+                    "{name}: {}",
+                    run.stderr
+                );
+                assert_eq!(run.stderr.matches("import() refused").count(), 1, "{name}");
+            } else if error.is_empty() {
+                assert_eq!(run.stderr, "", "{name}");
+            } else {
+                assert!(
+                    !run.stderr.contains("import() refused"),
+                    "{name}: {}",
+                    run.stderr
+                );
+            }
+        }
+    }
+}
+
+/// A refusal by rule after the program's last statement still counts when
+/// `exit` ends the run: one an earlier job's `import()` met, whose
+/// rejection nothing awaited, is listed before the process ends.
+#[test]
+fn a_refusal_nothing_awaited_is_listed_when_the_program_exits() {
+    let source = "import {exit} from '@fuzdev/gro/exit.ts';\n\
+                  import('ext:core/ops').catch(() => {});\n\
+                  setTimeout(() => exit(0), 5);\n";
+    let fixtures = temp_fixtures("exit_refused_unawaited", &[("main.js", source)]);
+    let run = run_in(&fixtures, "main.js");
+    let main = format!("file://{}/main.js", fixtures.0.display());
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, ext_refused(&main));
+}
+
+/// A refusal of the specifier an `import()` names is made as the call is
+/// made, so one in the job that then calls `exit(0)` still fails the run
+/// and is listed.
+#[test]
+fn a_refusal_in_the_job_that_exits_is_listed() {
+    let source = "import {exit} from '@fuzdev/gro/exit.ts';\n\
+                  import('ext:core/ops').catch(() => {});\n\
+                  exit(0);\n";
+    let fixtures = temp_fixtures("exit_refused_same_job", &[("main.js", source)]);
+    let run = run_in(&fixtures, "main.js");
+    let main = format!("file://{}/main.js", fixtures.0.display());
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, ext_refused(&main));
+}
+
+/// An `import()` whose graph is still loading when `exit` is called is
+/// abandoned where it is: a refusal the graph would meet later is never
+/// reached, so it neither fails the run nor prints. Called once the
+/// `import()` has settled, `exit(0)` exits 1 with the refusal listed.
+#[test]
+fn an_import_still_loading_at_exit_is_abandoned_unrefused() {
+    for (call, code) in [
+        ("import('./loads.js').catch(() => {});\nexit(0);", 0),
+        ("import('./loads.js').catch(() => exit(0));", 1),
+    ] {
+        let main = format!("import {{exit}} from '@fuzdev/gro/exit.ts';\n{call}\n");
+        let files = [
+            ("main.js", main.as_str()),
+            ("loads.js", "import 'ext:core/ops';\n"),
+        ];
+        let fixtures = temp_fixtures("exit_import_loading", &files);
+        let run = run_in(&fixtures, "main.js");
+        assert_eq!(run.code, code, "{call}: {}", run.stderr);
+        let loads = format!("file://{}/loads.js", fixtures.0.display());
+        let listed = if code == 0 {
+            String::new()
+        } else {
+            ext_refused(&loads)
+        };
+        assert_eq!(run.stderr, listed, "{call}");
+    }
+}
+
+/// A package's module is refused `exit`, the message naming the grant and
+/// the package, so a dependency can't end the run on its own; the project
+/// imports it, and a function it hands the package ends the run when the
+/// package calls it, since a grant limits what code can import, not what
+/// it's given.
+#[test]
+fn a_package_is_refused_exit_and_ends_the_run_only_when_handed_it() {
+    let files = [
+        ("package.json", r#"{"name": "app", "type": "module"}"#),
+        (
+            "node_modules/dep/package.json",
+            r#"{"name": "dep", "type": "module", "exports": "./index.js"}"#,
+        ),
+        (
+            "node_modules/dep/index.js",
+            "export const load = () => import('@fuzdev/gro/exit.ts');\n\
+             export const end = (exit) => exit(6);\n",
+        ),
+        (
+            "refused.js",
+            "import {load} from 'dep';\n\
+             try {\n\tawait load();\n} catch (error) {\n\tconsole.log(error.message);\n}\n",
+        ),
+        (
+            "handed.js",
+            "import {exit} from '@fuzdev/gro/exit.ts';\nimport {end} from 'dep';\n\
+             console.log('before');\nend(exit);\nconsole.log('after');\n",
+        ),
+    ];
+    let fixtures = temp_fixtures("exit_package", &files);
+    let dep = format!("file://{}/node_modules/dep/index.js", fixtures.0.display());
+    let refusal = format!(
+        "cannot import '@fuzdev/gro/exit.ts' from {dep}: it needs the grant 'exit', which \
+         package 'dep' isn't granted: only the project's own modules are granted host modules"
+    );
+    let run = run_in(&fixtures, "refused.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, format!("{refusal}\n"));
+    assert_eq!(run.stderr, format!("error: import() refused: {refusal}\n"));
+    let run = run_in(&fixtures, "handed.js");
+    assert_eq!(run.code, 6, "{}", run.stderr);
+    assert_eq!(run.stdout, "before\n");
+    assert_eq!(run.stderr, "");
+}
+
+/// What a program printed before `exit` is whole, to a pipe and to a
+/// file: the console writes when it's called, and the process ends with
+/// nothing of its own left to write.
+#[test]
+fn output_before_exit_is_whole() {
+    let fixtures = temp_fixtures(
+        "exit_output",
+        &[(
+            "main.js",
+            "import {exit} from '@fuzdev/gro/exit.ts';\n\
+             for (let i = 0; i < 3000; i++) console.log('line', i);\n\
+             console.error('to stderr');\nexit(4);\nconsole.log('after');\n",
+        )],
+    );
+    let lines: Vec<String> = (0..3000).map(|i| format!("line {i}")).collect();
+    let expected = format!("{}\n", lines.join("\n"));
+    let path = fixtures.0.join("out.txt");
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .current_dir(&fixtures.0)
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&path).unwrap());
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "to stderr\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 4);
+    assert_eq!(run.stdout, expected);
+    assert_eq!(run.stderr, "to stderr\n");
+}
+
 /// A refusal by rule nothing awaits fails the run all the same: one whose
 /// rejection a promise chain handles, and one refused in a timer while the
 /// event loop still has work, each listed once the loop drains; so does one

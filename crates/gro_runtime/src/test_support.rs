@@ -1,6 +1,28 @@
-//! The directories the crate's disk tests write in.
+//! The directories the crate's disk tests write in, and the grants their
+//! runs hold.
 
 use std::path::{Path, PathBuf};
+
+use crate::{ArgsGrant, Authority, Exit, ExitGrant, Grants};
+
+/// The exit step of a test's run, which no test's program reaches: a
+/// program whose `exit` is given a code ends its process, so those run in
+/// child processes, by `gro_cli`'s tests. One that got here aborts the
+/// test's process, saying so.
+#[expect(clippy::print_stderr, reason = "says why the test's process aborted")]
+pub fn never_exits(exit: &Exit) -> ! {
+    eprintln!("a test's program exited with {}", exit.code);
+    std::process::abort()
+}
+
+/// The authority `fgro run` gives: `args` and `exit` granted, the exit
+/// step [`never_exits`].
+pub fn run_authority() -> Authority {
+    Authority::Confined(Grants {
+        args: Some(ArgsGrant {}),
+        exit: Some(ExitGrant { end: never_exits }),
+    })
+}
 
 /// The path of [`TestDir::on_disk`]'s directory for `name`, in the workspace's
 /// `target/tmp`, found from this crate's manifest directory. It's on the

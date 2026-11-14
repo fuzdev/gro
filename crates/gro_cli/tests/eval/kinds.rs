@@ -42,6 +42,18 @@ fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes(
     );
     assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/args.ts");
     assert_eq!(run.envelope["error"]["importer"], importer);
+    // the exit module's too, so no eval ends its process by it
+    let run = eval(&["import_exit.js"]);
+    run.assert_failed("resolve", 1);
+    let importer = format!("{}/import_exit.js", fixtures_url());
+    assert_eq!(
+        run.message(),
+        format!(
+            "cannot import '@fuzdev/gro/exit.ts' from {importer}: it needs the grant 'exit', \
+             and eval imports no builtin module"
+        )
+    );
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/exit.ts");
     let run = eval(&["import_args_attribute.js"]);
     run.assert_failed("link", 1);
     let importer = format!("{}/import_args_attribute.js", fixtures_url());
@@ -150,7 +162,10 @@ fn a_grant_free_builtin_is_a_resolve_and_its_dynamic_import_eval_s_own_refusal()
         })
         .collect();
     run.assert_value(&json!(refusals));
-    let listed: Vec<_> = specifiers
+    // the envelope lists them by specifier, whatever the table's order
+    let mut sorted = specifiers.clone();
+    sorted.sort_unstable();
+    let listed: Vec<_> = sorted
         .iter()
         .map(|specifier| json!({"specifier": specifier, "importer": importer}))
         .collect();

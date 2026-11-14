@@ -17,7 +17,9 @@
 //! order of its steps is `eval::confine_eval`'s.
 //!
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
-//! fails, `2` a usage error, an entry that doesn't resolve included.
+//! fails, `2` a usage error, an entry that doesn't resolve included. A
+//! program under `run` can exit with a code of its own, 0 to 255, by the
+//! exit host module (`run::exit_code` has the rules).
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
@@ -73,16 +75,18 @@ fn main() {
 }
 
 /// Ends the process with `code`, after a phases build writes its file: the
-/// one step every command exits by. Eval's out-of-memory backstop is the
-/// exception: it ends the process from V8's out-of-memory callback without
-/// reaching this. Nothing a run or an eval made is torn down before it:
-/// their runtimes were left as they were for the OS to reclaim, which
-/// costs less than tearing them down.
+/// one step every command exits by, a program's `exit` included, which
+/// reaches it from inside its host op (`run::exit_now`). Eval's
+/// out-of-memory backstop is the exception: it ends the process from V8's
+/// out-of-memory callback without reaching this. Nothing a run or an eval
+/// made is torn down before it: their runtimes were left as they were for
+/// the OS to reclaim, which costs less than tearing them down.
 ///
 /// It takes only a code and reaches no runtime. Console output is written
 /// and flushed as it's printed, so nothing is buffered here today; a later
 /// host module that buffers stdout or stderr must have it written before
-/// the runtime is handed back, or keep the buffer where this can reach it.
+/// the runtime is handed back and before `exit`'s op calls the embedder's
+/// step, or keep the buffer where this can reach it.
 fn end(code: u8) -> ! {
     phases::finish();
     std::process::exit(i32::from(code))

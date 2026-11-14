@@ -50,8 +50,11 @@ pub enum StartError {
     Runtime(String),
 }
 
-/// How a run ended. It failed when its result is an error, or when one of
-/// gro's rules refused an `import()` during it.
+/// How a run that ended on its own ended. It failed when its result is an
+/// error, or when one of gro's rules refused an `import()` during it.
+///
+/// A program's `exit` ends the process by the embedder's step instead
+/// ([`Exit`](crate::Exit)), and no outcome follows it.
 ///
 /// It holds the run's runtime ([`SpentRuntime`]), so it isn't `Send`: it
 /// stays on the thread that ran the program.
@@ -74,6 +77,10 @@ pub struct RunOutcome {
     /// isn't among them, and one that is the uncaught error `result`'s
     /// report shows isn't listed, though past the listed ones it's counted.
     pub refused: RefusedImports,
+    /// The exit code the program set with `set_exit_code`, if it did: the
+    /// code of a run that ended on its own and didn't fail. A run that
+    /// failed has failed whatever it set.
+    pub exit_code: Option<u8>,
     /// The run's runtime, which is torn down when this is dropped, or left
     /// as it is by [`SpentRuntime::forget`] in a process about to exit.
     /// Unset when the run ended before a runtime was made.
@@ -87,6 +94,7 @@ impl RunOutcome {
         Self {
             result: Err(error),
             refused: RefusedImports::default(),
+            exit_code: None,
             runtime: None,
         }
     }
@@ -141,6 +149,8 @@ struct Ended {
     result: Result<(), RunError>,
     /// [`RunOutcome::refused`].
     refused: RefusedImports,
+    /// [`RunOutcome::exit_code`].
+    exit_code: Option<u8>,
 }
 
 #[cfg(test)]
@@ -149,6 +159,7 @@ impl From<RunOutcome> for Ended {
         Self {
             result: outcome.result,
             refused: outcome.refused,
+            exit_code: outcome.exit_code,
         }
     }
 }
@@ -193,7 +204,7 @@ fn run_resolved(
             runtime_version: options.runtime_version.clone(),
         },
     };
-    let (result, runtime) = run_loaded(
+    let (result, mut runtime) = run_loaded(
         engine,
         options.snapshot,
         options.console,
@@ -202,7 +213,14 @@ fn run_resolved(
         Rc::clone(loader),
     );
     phases::mark(Phase::Teardown);
-    outcome(result, loader.take_refused(), runtime)
+    let exit_code = runtime.as_mut().and_then(SpentRuntime::exit_code);
+    let (result, refused) = outcome(result, loader.take_refused());
+    RunOutcome {
+        result,
+        refused,
+        exit_code,
+        runtime,
+    }
 }
 
 /// Why a run failed, with the message of the `TypeError` it threw, when
@@ -238,8 +256,8 @@ fn uncaught_failure(error: &CoreError) -> Box<Failed> {
     })
 }
 
-/// The outcome of a run that ended with `result`, its loader having
-/// refused `refused` by rule: the result, and the refusals but the one that
+/// How a run that ended with `result` ended, its loader having refused
+/// `refused` by rule: the result, and the refusals but the one that
 /// is the run's uncaught error, a `TypeError` carrying its message, which
 /// the result's report prints. That is the refusal's own rejection, or an
 /// error the program made with the same class and text, which prints the
@@ -248,8 +266,7 @@ fn uncaught_failure(error: &CoreError) -> Box<Failed> {
 fn outcome(
     result: Result<(), Box<Failed>>,
     mut refused: RefusedImports,
-    runtime: Option<SpentRuntime>,
-) -> RunOutcome {
+) -> (Result<(), RunError>, RefusedImports) {
     let result = result.map_err(|failed| {
         let Failed { error, type_error } = *failed;
         if let Some(message) = type_error {
@@ -257,11 +274,7 @@ fn outcome(
         }
         error
     });
-    RunOutcome {
-        result,
-        refused,
-        runtime,
-    }
+    (result, refused)
 }
 
 /// Resolves the entry at `entry` from `cwd`, returning its URL and the

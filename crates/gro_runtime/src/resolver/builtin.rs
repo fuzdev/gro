@@ -33,12 +33,15 @@ use super::specifier::to_plain_spelling;
 pub enum Capability {
     /// The args host module's: the script's arguments.
     Args,
+    /// The exit host module's: how the run ends, and the code it ends with.
+    Exit,
 }
 
 impl fmt::Display for Capability {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Args => "args",
+            Self::Exit => "exit",
         })
     }
 }
@@ -70,6 +73,11 @@ macro_rules! builtin_rows {
                 "@fuzdev/gro/args.ts",
                 Some($crate::resolver::Capability::Args),
                 ["args"]
+            ),
+            $row!(
+                "@fuzdev/gro/exit.ts",
+                Some($crate::resolver::Capability::Exit),
+                ["exit", "set_exit_code"]
             ),
             $row!("@fuzdev/gro/cwd.ts", None, ["cwd"]),
             $row!("@fuzdev/gro/pid.ts", None, ["pid"]),
@@ -118,7 +126,6 @@ pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/net",
     "@fuzdev/gro/watch",
     "@fuzdev/gro/env",
-    "@fuzdev/gro/exit",
     "@fuzdev/gro/stdin",
     "@fuzdev/gro/stdout",
     "@fuzdev/gro/stderr",

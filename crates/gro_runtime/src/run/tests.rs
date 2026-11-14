@@ -1,6 +1,6 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
 //! user code, then the graph a run records (`graph`), the builtins
-//! (`builtins`, and the grant-free ones in `observations`), import attributes (`attributes`), `import()` in code
+//! (`builtins`, the exit module in `exit`, and the grant-free ones in `observations`), import attributes (`attributes`), `import()` in code
 //! compiled from a string (`string_code`), and the refusals that fail a
 //! run (`refused`).
 
@@ -15,6 +15,7 @@ use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
 mod attributes;
 mod builtins;
+mod exit;
 mod graph;
 mod observations;
 mod refused;

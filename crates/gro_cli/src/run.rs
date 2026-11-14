@@ -1,12 +1,15 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
-//! drains, printing its failure, then each `import()` gro's rules refused,
-//! which fail the run too, and leaves the runtime as it is, since the
-//! process exits next.
+//! drains or the program exits, printing its failure, then each `import()`
+//! gro's rules refused, which fail the run too, and leaves the runtime as
+//! it is, since the process exits next. [`exit_code`] is the one place the
+//! run's exit code is decided, however the run ended.
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::{ArgsGrant, Authority, Grants, RefusedImports, RunOutcome, RuntimeOptions};
+use gro_runtime::{
+    ArgsGrant, Authority, Exit, ExitGrant, Grants, RefusedImports, RunOutcome, RuntimeOptions,
+};
 
 use crate::EXIT_FAILURE;
 use crate::cli::RunInvocation;
@@ -16,16 +19,33 @@ use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::version::RUNTIME_VERSION;
 
+/// How a run ended, as its exit code is decided from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    /// The program ran to completion, having set this code with
+    /// `set_exit_code`, or none.
+    Completed(Option<u8>),
+    /// The program called `exit`, with this code: the one it gave, else
+    /// the one it had set, else 0.
+    Exited(u8),
+    /// The run failed, with this code of `fgro`'s
+    /// ([`CliError::exit_code`]): an uncaught error, an unhandled
+    /// rejection, a top-level `await` nothing settled, a module that
+    /// didn't load, an entry that didn't resolve.
+    Failed(u8),
+}
+
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
 /// prints its failure if it failed, then the `import()`s gro's rules
-/// refused, and returns the exit code: the failure's
-/// ([`CliError::exit_code`]), else [`EXIT_FAILURE`] for a run refused an
-/// `import()`, else 0.
+/// refused, and returns the exit code ([`exit_code`]). A program that
+/// calls `exit` never gets here: [`exit_now`] ends the process from inside
+/// the call.
 pub fn run_module(run: &RunInvocation) -> u8 {
     let RunOutcome {
         result,
         refused,
+        exit_code: set,
         runtime,
     } = match start_and_run(run) {
         Ok(outcome) => outcome,
@@ -36,16 +56,42 @@ pub fn run_module(run: &RunInvocation) -> u8 {
     if let Some(runtime) = runtime {
         runtime.forget();
     }
-    let code = result.map_or_else(|error| CliError::from(error).report(), |()| 0);
+    let ended = match result {
+        Ok(()) => Ended::Completed(set),
+        Err(error) => Ended::Failed(CliError::from(error).report()),
+    };
     report_refused(&refused);
-    exit_code(code, !refused.is_empty())
+    exit_code(ended, !refused.is_empty())
 }
 
-/// The exit code of a run that ended with `code`, 0 when the program ran to
-/// completion, and that `refused` an `import()` by rule or didn't: a
-/// refusal fails the run, whether or not the program caught it, so it turns
-/// 0 into [`EXIT_FAILURE`], and any other code stands.
-const fn exit_code(code: u8, refused: bool) -> u8 {
+/// The step a program's `exit` ends the process by, called inside its host
+/// op: prints the `import()`s gro's rules refused so far, as a run that
+/// ends on its own does, then ends the process with [`exit_code`]'s code,
+/// by the step every command exits by.
+fn exit_now(exit: &Exit) -> ! {
+    report_refused(&exit.refused);
+    crate::end(exit_code(
+        Ended::Exited(exit.code),
+        !exit.refused.is_empty(),
+    ))
+}
+
+/// The exit code of a run that `ended` so, and that `refused` an
+/// `import()` by rule or didn't: the one place the rules meet.
+///
+/// - A program's code passes as it is, 0 to 255: the one it gave `exit`, or
+///   the one it set with `set_exit_code` when it then ran to completion or
+///   called `exit` with none, else 0.
+/// - A run that failed exits with `fgro`'s code for the failure, whatever
+///   the program set.
+/// - A refusal fails the run, whether or not the program caught it and
+///   however the run ended, `exit(0)` included: it turns 0 into
+///   [`EXIT_FAILURE`], and any other code stands.
+const fn exit_code(ended: Ended, refused: bool) -> u8 {
+    let code = match ended {
+        Ended::Completed(None) => 0,
+        Ended::Completed(Some(code)) | Ended::Exited(code) | Ended::Failed(code) => code,
+    };
     if code == 0 && refused {
         EXIT_FAILURE
     } else {
@@ -88,12 +134,14 @@ fn report_refused(refused: &RefusedImports) {
 }
 
 /// The options `run`'s runtime starts with: the project's own modules
-/// granted the args host module, the script's arguments, and the runtime's
-/// name and version.
+/// granted the args host module and the exit host module, whose step is
+/// [`exit_now`], the script's arguments, and the runtime's name and
+/// version.
 fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     RuntimeOptions {
         authority: Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
+            exit: Some(ExitGrant { end: exit_now }),
         }),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
@@ -104,18 +152,53 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::{RUNTIME_VERSION, exit_code, runtime_options};
+    use super::{EXIT_FAILURE, Ended, RUNTIME_VERSION, exit_code, exit_now, runtime_options};
     use crate::cli::{Invocation, Task, parse};
 
-    /// A refused `import()` turns a run's 0 into 1 and leaves every other
-    /// code as it is.
+    /// A program's code passes as it is, however the run ended: the one
+    /// it gave `exit`, and the one it set when it ran to completion; with
+    /// none set, a run that ran to completion exits 0.
+    #[test]
+    fn a_program_s_code_passes_as_it_is() {
+        assert_eq!(exit_code(Ended::Completed(None), false), 0);
+        for code in [0, 1, 2, 3, 13, 101, 254, 255] {
+            assert_eq!(exit_code(Ended::Completed(Some(code)), false), code);
+            assert_eq!(exit_code(Ended::Exited(code), false), code);
+        }
+    }
+
+    /// A run that failed exits with the failure's code: the code the
+    /// program set is no part of how it ended.
+    #[test]
+    fn a_failed_run_exits_with_the_failure_s_code() {
+        for code in [1, 2] {
+            assert_eq!(exit_code(Ended::Failed(code), false), code);
+            assert_eq!(exit_code(Ended::Failed(code), true), code);
+        }
+    }
+
+    /// A refused `import()` turns 0 into 1 however the run ended, a
+    /// program's `exit(0)` and a set code of 0 included, and leaves every
+    /// other code as it is.
     #[test]
     fn a_refusal_fails_a_run_that_ended_with_0() {
-        assert_eq!(exit_code(0, false), 0);
-        assert_eq!(exit_code(0, true), 1);
+        for ended in [
+            Ended::Completed(None),
+            Ended::Completed(Some(0)),
+            Ended::Exited(0),
+        ] {
+            assert_eq!(exit_code(ended, true), EXIT_FAILURE, "{ended:?}");
+            assert_eq!(exit_code(ended, false), 0, "{ended:?}");
+        }
         for code in [1, 2, 3, 255] {
-            assert_eq!(exit_code(code, true), code);
-            assert_eq!(exit_code(code, false), code);
+            for ended in [
+                Ended::Completed(Some(code)),
+                Ended::Exited(code),
+                Ended::Failed(code),
+            ] {
+                assert_eq!(exit_code(ended, true), code, "{ended:?}");
+                assert_eq!(exit_code(ended, false), code, "{ended:?}");
+            }
         }
     }
 
@@ -153,9 +236,10 @@ mod tests {
         assert_eq!(runtime_options(&run).runtime_version, RUNTIME_VERSION);
     }
 
-    /// `run` grants the args host module, and only it.
+    /// `run` grants the args host module and the exit host module, whose
+    /// step is the CLI's, and nothing else.
     #[test]
-    fn the_run_grants_args() {
+    fn the_run_grants_args_and_exit() {
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
@@ -163,6 +247,7 @@ mod tests {
             runtime_options(&run).authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
+                exit: Some(gro_runtime::ExitGrant { end: exit_now }),
             })
         );
     }

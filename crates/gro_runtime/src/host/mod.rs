@@ -20,18 +20,20 @@
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! an op past the loader.
 
+pub mod exit;
 mod grant;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
-use deno_core::{OpDecl, OpState, op2};
+use deno_core::{OpDecl, OpState, op2, v8};
 
+use exit::{ExitState, throw_not_a_code, to_exit_code};
 #[cfg(test)]
 use grant::Grant;
 use grant::{Granted, require, require_authority};
 
-use crate::ArgsGrant;
 #[cfg(test)]
 use crate::resolver::Capability;
+use crate::{ArgsGrant, ExitGrant};
 
 /// What the host ops return of the run, put in the runtime's `OpState` with
 /// the run's [`Authority`](crate::Authority) when `fgro run`'s runtime
@@ -74,13 +76,23 @@ pub struct HostOp {
 /// op requires to that module's row, so the form that names no grant can't
 /// be written for a module that needs one.
 ///
-/// A body is the op's result, given the op state. A `#[serde]` or
-/// `#[string]` after the arrow is the op's return attribute, and the return
-/// type is written as identifiers (`Vec<String>`), which `#[op2]` reads
-/// token by token. Slow ops only: whether a fast call's refusal throws on
-/// every path is unmeasured, so an op whose signature a fast call could
-/// serve is written `@nofast fn`, which `#[op2]` otherwise refuses to
-/// compile. Arguments join the pattern with the first op that takes one.
+/// An op that takes arguments names them after a `;`, the scope first:
+/// `fn name(state, granted: Grant; scope, value) for "specifier"`. Each
+/// argument is the JS value as it was passed, a `v8::Local<v8::Value>`,
+/// never converted on the way in: `#[op2]`'s typed arguments convert, and
+/// a conversion can run the caller's code or truncate, so the body reads
+/// the value natively and throws through the scope. The check still comes
+/// first, before the body sees an argument.
+///
+/// A body is the op's result, given the op state, and an op written with
+/// no arrow returns nothing. A `#[serde]` or `#[string]` after the arrow is
+/// the op's return attribute, and the return type is written as
+/// identifiers (`Vec<String>`), which `#[op2]` reads token by token.
+///
+/// Slow ops only: whether a fast call's refusal throws on every path is
+/// unmeasured, so an op whose signature a fast call could serve is written
+/// `@nofast fn`, which `#[op2]` otherwise refuses to compile. An op that
+/// takes a value has no such signature, so it's slow as it's written.
 macro_rules! host_ops {
     (@require $name:ident, $state:ident, $granted:ident: $grant:ty) => {
         let $granted: Granted<$grant> =
@@ -95,20 +107,40 @@ macro_rules! host_ops {
     (@grant) => {
         None
     };
+    // an op that returns nothing
+    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [$($params:tt)*], [], $body:block) => {
+        $($attr)*
+        fn $name($state: &OpState $($params)*) -> Result<(), JsErrorBox> {
+            host_ops!(@require $name, $state $($granted)*);
+            Ok($body)
+        }
+    };
+    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [$($params:tt)*], [$($out:tt)+], $body:block) => {
+        $($attr)*
+        fn $name($state: &OpState $($params)*) -> Result<$($out)+, JsErrorBox> {
+            host_ops!(@require $name, $state $($granted)*);
+            Ok($body)
+        }
+    };
     ($(
         $(#[doc = $doc:literal])*
-        $(@$slow:ident)? fn $name:ident($state:ident $(, $granted:ident: $grant:ty)?)
+        $(@$slow:ident)? fn $name:ident(
+            $state:ident $(, $granted:ident: $grant:ty)? $(; $scope:ident $(, $arg:ident)*)?
+        )
             for $module:literal
-            -> $(#[$ret:ident])? $out:ident $(<$($out_arg:ident),+>)? $body:block
+            $(-> $(#[$ret:ident])? $out:ident $(<$($out_arg:ident),+>)?)? $body:block
     )*) => {
         $(
-            $(#[doc = $doc])*
-            #[op2$(($slow))?]
-            $(#[$ret])?
-            fn $name($state: &OpState) -> Result<$out $(<$($out_arg),+>)?, JsErrorBox> {
-                host_ops!(@require $name, $state $(, $granted: $grant)?);
-                Ok($body)
-            }
+            host_ops!(
+                @op
+                [$(#[doc = $doc])* #[op2$(($slow))?] $($(#[$ret])?)?]
+                $name,
+                $state,
+                [$(, $granted: $grant)?],
+                [$(, $scope: &v8::PinScope<'_, '_> $(, $arg: v8::Local<'_, v8::Value>)*)?],
+                [$($out $(<$($out_arg),+>)?)?],
+                $body
+            );
         )*
 
         /// Every host op, in declaration order.
@@ -132,6 +164,31 @@ host_ops! {
         -> #[serde] Vec<String>
     {
         state.borrow::<HostData>().args.clone()
+    }
+
+    /// Ends the run now, by the embedder's step, with `code`, or, given
+    /// `undefined`, with the code `set_exit_code` set, else 0. Any other
+    /// value throws a `TypeError` and ends nothing.
+    fn op_gro_exit(state, granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
+        let exit = state.borrow::<ExitState>();
+        if code.is_undefined() {
+            (granted.grant().end)(&exit.exit(None))
+        }
+        match to_exit_code(code) {
+            Some(code) => (granted.grant().end)(&exit.exit(Some(code))),
+            None => throw_not_a_code(scope),
+        }
+    }
+
+    /// Sets the code the run exits with when it ends on its own, or
+    /// throws a `TypeError` for a value that is no code.
+    fn op_gro_set_exit_code(state, _granted: ExitGrant; scope, code)
+        for "@fuzdev/gro/exit.ts"
+    {
+        match to_exit_code(code) {
+            Some(code) => state.borrow::<ExitState>().set_code(code),
+            None => throw_not_a_code(scope),
+        }
     }
 
     /// The working directory the run was started in, or `null` when its

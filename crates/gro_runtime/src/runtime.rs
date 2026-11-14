@@ -8,6 +8,7 @@ use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
+use crate::host::exit::ExitState;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
@@ -55,6 +56,14 @@ impl SpentRuntime {
         }
     }
 
+    /// The exit code the run's program set with `set_exit_code`, if it
+    /// did, and if the runtime is a run's.
+    pub(crate) fn exit_code(&mut self) -> Option<u8> {
+        let state = self.runtime.as_mut()?.op_state();
+        let state = state.borrow();
+        state.try_borrow::<ExitState>()?.code()
+    }
+
     /// Leaves the runtime as it is and never tears it down: its memory
     /// and threads stay until the process exits. For a process about to
     /// exit, as `fgro` is after a run or an eval; one that goes on running
@@ -100,11 +109,13 @@ pub fn start_runtime(
     host: HostState,
     loader: Rc<Loader>,
 ) -> Result<JsRuntime, String> {
+    let exit = ExitState::new(Rc::clone(&loader));
     let runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
     let HostState { authority, data } = host;
     let state = runtime.op_state();
     state.borrow_mut().put(authority);
     state.borrow_mut().put(data);
+    state.borrow_mut().put(exit);
     drop(state);
     start(runtime, console, Mode::Run)
 }
@@ -743,6 +754,16 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                     grant: Some(Capability::Args),
                 },
                 HostOp {
+                    name: "op_gro_exit",
+                    module: "@fuzdev/gro/exit.ts",
+                    grant: Some(Capability::Exit),
+                },
+                HostOp {
+                    name: "op_gro_set_exit_code",
+                    module: "@fuzdev/gro/exit.ts",
+                    grant: Some(Capability::Exit),
+                },
+                HostOp {
                     name: "op_gro_cwd",
                     module: "@fuzdev/gro/cwd.ts",
                     grant: None,
@@ -775,8 +796,8 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
     /// says whose `OpState` holds `authority` (none at all when unset, as
     /// eval's) and [`host_data`], returning each op's result as JSON or
     /// what it threw. Each op is called with no argument: a host op that
-    /// takes one needs a sample here, or its argument's conversion throws
-    /// before its check and the refusal test fails for the wrong reason.
+    /// takes one takes it as the value passed, converting nothing
+    /// (`host_ops!`), so its check comes first here too.
     fn call_host_ops(name: &str, start: Start, mode: Mode, authority: Option<Authority>) -> Value {
         let names: Vec<&str> = HOST_OPS.iter().map(|op| op.name).collect();
         let source = format!(
@@ -804,10 +825,12 @@ JSON.stringify(results)",
 
     /// Every host op's result in a runtime that holds no authority, in each
     /// mode, in a run that grants nothing, and in one that grants the
-    /// script's arguments, with the id of the process that called them.
+    /// script's arguments alone, with the id of the process that called
+    /// them. No run here grants `exit`, whose op would end this process.
     fn host_ops_results(start: Start) -> Value {
         let granted = Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
+            ..Grants::default()
         });
         json!({
             "none_eval": call_host_ops("host_none_eval", start, Mode::Eval, None),
@@ -865,9 +888,7 @@ check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op
             .spawn(move || -> Result<(), String> {
                 let (entry, roots) =
                     crate::resolver::resolve_entry(&DiskTree, Path::new("main.mjs"), &cwd).unwrap();
-                let authority = Authority::Confined(Grants {
-                    args: Some(ArgsGrant {}),
-                });
+                let authority = crate::test_support::run_authority();
                 let loader = Loader::new(&entry, roots, Recording::Off);
                 let loader = Rc::new(loader.with_authority(authority.clone()));
                 let tokio = tokio::runtime::Builder::new_current_thread()

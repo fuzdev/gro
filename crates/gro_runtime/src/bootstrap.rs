@@ -201,8 +201,9 @@ const BUILTIN_MODULES: &[(&str, &str)] = &builtin_rows!(synthetic_module);
 /// from the scope it was called with and never from the run's grants.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
-        // a grant-free module has no grant to scope, and `args` scopes nothing
-        None | Some(Capability::Args) => "undefined",
+        // a grant-free module has no grant to scope, and neither `args`
+        // nor `exit` scopes anything
+        None | Some(Capability::Args | Capability::Exit) => "undefined",
     }
 }
 

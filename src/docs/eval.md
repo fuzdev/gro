@@ -501,7 +501,7 @@ A reader refuses a `graph_version` it doesn't know.
 
 ## Exit codes
 
-The same table as [run](run.md#errors-and-exit-codes):
+The same codes as [run](run.md#errors-and-exit-codes), but for a program's own, which an eval can't set, since it imports no builtin module:
 
 | exit | when                                                                                                     |
 | ---- | -------------------------------------------------------------------------------------------------------- |
