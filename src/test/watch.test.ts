@@ -1,4 +1,4 @@
-import { describe, test, assert, beforeEach, afterEach } from 'vitest';
+import { describe, test, assert, vi, beforeEach, afterEach } from 'vitest';
 import { spawn as node_spawn } from 'node:child_process';
 import { getEventListeners } from 'node:events';
 import {
@@ -30,6 +30,9 @@ import {
 
 // how long a test waits for an event before failing, a bound, never an assertion
 const EVENT_TIMEOUT_MS = 10_000;
+
+// past the wait for an event, so a read that stalls fails with what it had read
+vi.setConfig({ testTimeout: 3 * EVENT_TIMEOUT_MS });
 
 /**
  * Reads events until one matches, failing past the timeout.
@@ -91,6 +94,9 @@ const count_inotify_watches = (): number | null => {
 	return count;
 };
 
+// how many rounds `read_overflow_rescan` makes before failing, a bound, never an assertion
+const OVERFLOW_ROUNDS = 20;
+
 let sandbox: FsSandbox;
 const watchers: Array<Watcher> = [];
 
@@ -98,6 +104,49 @@ const start = async (...args: Parameters<typeof watch.dir>): Promise<AsyncIterat
 	const watcher = await watch.dir(...args);
 	watchers.push(watcher);
 	return watcher[Symbol.asyncIterator]();
+};
+
+/**
+ * Overflows a bounded watcher and reads its `rescan`, with nothing read before it
+ * but an `add` of a file made here.
+ *
+ * Nothing shows when a bounded watcher has caught up with its directory. `witness`, a second
+ * watcher of it, unbounded, shows when a round's files have been reported, but the two are
+ * separate chokidar instances, each holding an `add` on its own timers, so `events` can still be
+ * short of its bound then, and its read an `add`. So files are made in rounds, each of more than
+ * the bound, and one event is read a round: what a round leaves unread fills the buffer,
+ * and the next round's files overflow it once the watcher has caught up.
+ * @param events - a watcher of the sandbox's root with a `max_pending` below `round_size`
+ * @param witness - an unbounded watcher of the same directory
+ * @param round_size - how many files a round makes
+ * @returns the names of the files made
+ */
+const read_overflow_rescan = async (
+	events: AsyncIterator<WatchEvent>,
+	witness: AsyncIterator<WatchEvent>,
+	round_size: number
+): Promise<Set<string>> => {
+	const names: Set<string> = new Set();
+	const read: Array<WatchEvent> = [];
+	for (let round = 0; round < OVERFLOW_ROUNDS; round++) {
+		let name = '';
+		for (let i = 0; i < round_size; i++) {
+			name = `round${round}_${i}.txt`;
+			names.add(name);
+			writeFileSync(join(sandbox.root, name), '');
+		}
+		await read_until(witness, is_event('add', name));
+		const [event] = await read_until(events, () => true);
+		assert.ok(event);
+		if (event.kind === 'rescan') {
+			assert.deepEqual(event, { kind: 'rescan', path: '' });
+			return names;
+		}
+		read.push(event);
+		// behind the witness, so its buffer hadn't overflowed
+		assert.ok(event.kind === 'add' && names.has(event.path), JSON.stringify(read));
+	}
+	assert.fail(`no \`rescan\` in ${OVERFLOW_ROUNDS} rounds, read ${JSON.stringify(read)}`);
 };
 
 beforeEach(async () => {
@@ -446,39 +495,32 @@ describe('rescan', () => {
 		assert.sameMembers(read, ['add a', 'add b', 'add c']);
 	});
 
-	test('one event past `max_pending` is a `rescan`', async () => {
+	// the bound itself, to the event, is held in `watch.mocked_chokidar.test.ts`,
+	// where a test emits chokidar's events and none arrives late
+	test('one event past `max_pending` overflows a real watcher into a `rescan`', async () => {
 		const events = await start(sandbox.dir, { max_pending: 3 });
 		const witness = await start(sandbox.dir);
-		for (const name of ['a', 'b', 'c', 'd']) writeFileSync(join(sandbox.root, name), '');
-		await read_until(witness, is_event('add', 'd'));
-		assert.deepEqual(await events.next(), { done: false, value: { kind: 'rescan', path: '' } });
+		await read_overflow_rescan(events, witness, 4);
 	});
 
 	test('events past `max_pending` are dropped for one `rescan` of everything', async () => {
 		const events = await start(sandbox.dir, { max_pending: 3 });
-		// a second watcher, unbounded, shows when the events have arrived
 		const witness = await start(sandbox.dir);
-		const count = 40;
-		for (let i = 0; i < count; i++) writeFileSync(join(sandbox.root, `f${i}.txt`), '');
-		writeFileSync(join(sandbox.root, 'last.txt'), '');
-		await read_until(witness, is_event('add', 'last.txt'));
-
-		const first = await events.next();
-		assert.deepEqual(first, { done: false, value: { kind: 'rescan', path: '' } });
+		const names = await read_overflow_rescan(events, witness, 40);
 		// once it's read, events queue again, read after they've arrived so none meets a waiting reader;
-		// the batch's last events may still be arriving behind the rescan, the witness no sign of them,
+		// the files' last events may still be arriving behind the rescan, the witness no sign of them,
 		// and overflow again, so a file is made until its `add` is read
-		for (let i = 0; i <= count; i++) {
+		const late = names.size;
+		for (let i = 0; i <= late; i++) {
 			const name = `after${i}.txt`;
+			names.add(name);
 			writeFileSync(join(sandbox.root, name), '');
 			await read_until(witness, is_event('add', name));
-			const read = to_summary(
-				await read_until(events, (e) => e.kind === 'rescan' || is_event('add', name)(e))
-			);
+			const read = await read_until(events, (e) => e.kind === 'rescan' || is_event('add', name)(e));
 			for (const event of read.slice(0, -1)) {
-				assert.match(event, /^add (f\d+|last|after\d+)\.txt$/);
+				assert.ok(event.kind === 'add' && names.has(event.path), JSON.stringify(read));
 			}
-			if (read.at(-1) === `add ${name}`) return;
+			if (read.at(-1)?.kind === 'add') return;
 		}
 		assert.fail('every file made after the `rescan` was read was dropped');
 	});
