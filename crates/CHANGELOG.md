@@ -26,6 +26,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,
   and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`.
   Each has the exports and types of its Node module in the npm package.
+  A builtin module's implementation is compiled and run when a run first imports it, so a run that imports none pays for none.
   The `.js` spelling `@fuzdev/gro/args.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `@fuzdev/gro/env.ts`, and the rest),
   are refused, as is a respelling of these or of `@fuzdev/gro/args.ts` (`@fuzdev/gro/f%73.ts`, `@fuzdev/gro/arg%73.ts`), never loaded from the npm package.
   So are `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro doesn't have, either spelling,

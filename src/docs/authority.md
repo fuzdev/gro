@@ -136,6 +136,8 @@ Existing globals and the shared prototypes stay mutable, as in browsers
 A reference parked on one is handing, which can widen what other modules reach but never what its holder could,
 and a module that patches a shared prototype can interpose on calls that pass through it,
 and so obtain capabilities it was never handed.
+A builtin module's own code passes through none of them: it runs when a run first imports the module, which can be after such a patch,
+and it takes every intrinsic it uses from copies the runtime made before any user code ran ([host modules](host_modules.md#native-requirements)).
 Against a dependency treated as hostile the realm isn't the boundary,
 and freezing the intrinsics is a hardening the design hasn't made the default ([open questions](#open-questions)).
 

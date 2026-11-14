@@ -294,11 +294,16 @@ Invariants that live in the code:
   allowed by its function's `#[expect]` and explained by a `// SAFETY:`
   comment. `deno_core::scope!` and the `v8` scope macros hide `unsafe` inside
   dependency macros, outside the lint; eval uses them for handle scopes.
-- The embedded sources (`crates/gro_runtime/js/`'s, and the node-free
-  `src/lib/internal/` modules a builtin module embeds as they are) must be 7-bit
-  ASCII, or the build fails (`ascii_str_include!`). The TypeScript among
-  them is stripped by `bootstrap::transpile` when the snapshot is made, or
-  when a runtime starts without one, never on a snapshot start.
+- The embedded sources (`crates/gro_runtime/js/`'s: the bootstrap module,
+  and each builtin's implementation under `js/builtin/`) must be 7-bit
+  ASCII, or the build fails (`ascii_str_include!`, and a constant assertion
+  on each implementation). The implementations are TypeScript, stripped by
+  `bootstrap::to_backing_script` when the snapshot is made, into the
+  residual table the binary embeds, or once a process when a runtime starts
+  without a snapshot, never on a snapshot start, which a runtime test holds
+  by counting the strips. A builtin embeds no module of `src/lib`: what it
+  shares with its Node module is behavior, held by the differential cases,
+  never source.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
   (`Roots`) and passes them into `resolve_from`. Failures are enums (the
@@ -308,21 +313,39 @@ Invariants that live in the code:
 - The builtin table (`resolver/builtin.rs`) is the one source of the
   builtin modules: `&'static` data of gro's own types, each row's specifier,
   grant, and exports. `builtin_rows!` hands the rows to the bootstrap, which
-  makes each backing script (one template) and synthetic module from them at
-  compile time, and a test pins the bootstrap's factories (`js/bootstrap.js`)
-  to the table's specifiers, each taking one argument, the scope of its
-  importer's grant (`undefined` while no grant has one); a factory never
-  throws, which nothing checks (`bootstrap.rs` says what `deno_core` does
-  with one that did); the resolver returns a table hit ahead of any
+  embeds each row's implementation, the script at `js/builtin/<specifier>`,
+  and makes its backing script and synthetic module from it. No snapshot
+  holds an implementation, and gro's extension declares no lazy script:
+  `deno_core` reads a backing script from its residual table the first time
+  a run imports the builtin, and runs it then, so an unimported builtin
+  costs a start its facade's name and its ops. An implementation is one
+  function of `deno_core`'s bootstrap object and the scope of its importer's
+  grant, an argument the backing script's call passes
+  (`bootstrap::scope_argument`; `undefined` while no grant has one) and the
+  implementation reads no other way; it never throws, which nothing checks
+  (`bootstrap.rs` says what `deno_core` does with one that did). It can run
+  after user code has patched the global intrinsics, so it names no global
+  and reads no member of an intrinsic, its top level included: each
+  intrinsic comes from `primordials`, each op from `core.ops`. Three checks
+  hold every row to that: the implementations' own program
+  (`js/builtin/tsconfig.json`, with no library but `intrinsics.d.ts`, which
+  declares no value and no member), where either is a type error;
+  `src/test/builtin_intrinsics.test.ts`, which also refuses the syntax a
+  type check lets through (iteration, `instanceof`, `in`, `globalThis`,
+  `any`, a type assertion); and
+  `crates/gro_cli/tests/host.rs`, which imports every row of the table and
+  calls every function it reaches in a realm whose every reachable intrinsic
+  is a recording trap. A test holds each implementation's reads of
+  `core.ops` to the host ops of its own row (`bootstrap/web_scripts.rs`). The resolver returns a table hit ahead of any
   package lookup; the loader checks it against the run's `Authority` at link
   time, for a static import and `import()` alike (`loader/resolve.rs`): with
   none (eval's) nothing is imported, a grant-free row included, checked
   before the grant, a package's module is granted none, and a grant-free row
   (`cwd`, `pid`, `runtime_version`) links for the project and a package
-  alike. A builtin's implementation keeps no per-run or per-importer state
-  at its top level. `src/test/builtin_types.test.ts` holds every row's
-  inferred types to its Node module's, reading the rows from the bootstrap
-  and the table.
+  alike. A builtin's implementation keeps no per-importer state.
+  `src/test/builtin_types.test.ts` holds every row's
+  inferred types to its Node module's, reading the rows from the table and
+  each implementation from its file.
   `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
   module printed (`tests/fixtures/host/`, whose `expected.json`
   `node oracle.js --write` regenerates under Node and
@@ -358,7 +381,9 @@ Invariants that live in the code:
   sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy ES module the extensions declare
   and every other extension's synthetic ES modules, keeping gro's own, one
-  per builtin, each named by its `builtin:` URL. deno_core falls back to a
+  per builtin, each named by its `builtin:` URL; gro's own extension
+  declares no lazy script, which deno_core would register at every start
+  (the builtins' backing scripts are residual ones). deno_core falls back to a
   lazy ES module of the exact name when the loader refuses an import, which
   would load it past the resolver's refusal of `ext:`; and it links a static
   import naming a synthetic module by that raw name, whatever the loader
@@ -386,7 +411,8 @@ Invariants that live in the code:
   registers those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the
   ones a script it can load reads from `core.ops`, and drops the rest before
   the runtime or the snapshot is made (`bootstrap::extensions`). The tests
-  of `bootstrap/web_scripts.rs` read the scripts and fail on a read that
+  of `bootstrap/web_scripts.rs` read the scripts, the web extensions' and
+  the builtins' implementations, and fail on a read that
   isn't kept, on a kept name no script reads, and on a script that reaches
   `ops` any way but destructuring `core.ops`; a runtime test fails on a read
   that isn't a function. Tests pin every registered op name in
@@ -394,8 +420,9 @@ Invariants that live in the code:
   `tests/dropped_op_names.txt` beside it, so a `deno_core`/`deno_web`
   upgrade that adds an op fails until it's reviewed.
 - A start from the snapshot binds no op again (`skip_op_registration`, set
-  in `runtime::new_runtime`): the snapshot's op functions are the only ones,
-  and each reaches the starting runtime's implementation of its op, eval's
+  in `runtime::new_runtime`): the snapshot's op functions are the only ones
+  (a builtin's implementation takes its ops from the bootstrap object, which
+  holds them), and each reaches the starting runtime's implementation of its op, eval's
   refusal included, and that runtime's `OpState`, through the
   external-reference table `deno_core` builds from the runtime's ops. The
   runtime's tests start from a snapshot too, in child processes: one makes
@@ -446,7 +473,8 @@ it.
 **Commands.** The toolchain is pinned in `rust-toolchain.toml`.
 
 - `cargo xtask check` - the one local gate: `check-rust`, `check-js` (the
-  JS/TS under `crates/`, which `gro check` doesn't reach), then `gro check`.
+  JS/TS under `crates/`, which `gro check` doesn't reach: `tsc` over every
+  `tsconfig.json` under `crates/*/js/`, then the format check), then `gro check`.
   CI runs `check-rust` and `check-js` as its own jobs, so the steps live in
   the xtask only (`crates/xtask/src/check.rs`)
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in

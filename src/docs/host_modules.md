@@ -416,8 +416,12 @@ On `fgro`, these are built, each a builtin module exporting what its Node module
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`, like `fgro/0.1.0`, where Node's is `node/<version>`.
-Each is made when a run first imports its module, from intrinsics the runtime copied before any user code ran,
-so code that patched `Object` or the prototypes before the import changes nothing it holds.
+A builtin module's implementation is no part of the startup snapshot: it's compiled and run when a run first imports the module,
+so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
+That first import can come after user code has patched the intrinsics, so the whole implementation, not only what it exports,
+names no global and reads no property of an intrinsic: it takes each one from copies the runtime made before any user code ran,
+and code that patched `Object` or the prototypes before the import changes nothing it holds and is never called by it
+([native requirements](#native-requirements)).
 Each module's exports have the types of the Node module's, checked by a test against that module's declarations for every builtin module.
 A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
 their shapes, property descriptors, and what throws, but where a case names a difference by design.
@@ -911,7 +915,17 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 What the runtime's builtin module must do that the Node implementation can't.
 Each handle holds a native resource of its own, and every confinement decision is the native op's:
-JS shared with the Node implementation checks shapes and raises early errors, and the op trusts nothing it computed.
+the builtin module's JS checks shapes and raises early errors, as the Node implementation's does, and the op trusts nothing it computed.
+
+That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
+where the Node implementation copies what it needs when it loads and can be loaded first.
+So a builtin module's implementation reaches intrinsics only through the runtime's own copies, taken before any user code ran:
+it names no global, calls no method and reads no property of an array, string, function, or promise,
+and what it hands to user code is made natively, a frozen function of its own, or a null-prototype record.
+It's type-checked with no global value and no member of an intrinsic declared, so either is an error,
+and every builtin module is imported and called by a test in a realm whose every reachable intrinsic records its use.
+It shares no source with the Node implementation: the cases run under both runtimes hold the two to one behavior.
+A builtin module's import never fails for a reason of the run's: what can fail fails in what the module exports, as `cwd` does when called.
 
 ### fs
 

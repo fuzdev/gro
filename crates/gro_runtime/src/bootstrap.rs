@@ -4,28 +4,43 @@
 //! Its JS (`js/bootstrap.js`) is embedded in the binary at compile time. The
 //! embedding (`ascii_str_include!`) asserts in a constant that the source is
 //! 7-bit ASCII, so a non-ASCII character fails the build rather than reaching
-//! V8, which reads extension sources as one-byte strings. So are the builtins'
-//! implementations, TypeScript (one module a builtin, like `js/args.ts`, and
-//! the node-free modules of `src/lib/internal/` they share with the Node
-//! implementation, embedded as they are), stripped of their types by
-//! [`transpile`] when the snapshot is made, or when a runtime starts with no
-//! snapshot.
+//! V8, which reads extension sources as one-byte strings. So are the
+//! builtins' implementations ([`IMPLEMENTATIONS`]), TypeScript, held to
+//! ASCII the same way.
 //!
 //! **The builtin modules.** Each row of the resolver's builtin table
 //! ([`crate::resolver::BUILTINS`]) is served as a `deno_core` synthetic
-//! module (a facade) named by its `builtin:` URL, over a backing script made
-//! from one template: it calls the builtin's factory, which its
-//! implementation module stores on `deno_core`'s `internals` when the
-//! snapshot evaluates it, so only extension code reaches it. The factory
-//! runs once a run, when the builtin is first imported, after the start, and
-//! returns the namespace: the facade's exports are its own properties, with
-//! a `default` of `undefined`. Its one argument is the scope of the
-//! importer's grant, which the template passes and a factory reads no other
-//! way; no grant scopes anything yet, and a grant-free builtin has none, so
-//! the template passes `undefined`. A factory never throws: `deno_core`
-//! evaluates a backing script once, rejecting the import with its own
-//! report of what the script threw and every later import of the builtin
-//! with the script's absence, so a builtin that can fail fails in what it
+//! module (a facade) named by its `builtin:` URL, over a backing script that
+//! is the builtin's implementation, `js/builtin/<specifier>`: one function,
+//! called with `deno_core`'s bootstrap object (the ops, `primordials`) and
+//! the scope of the importer's grant ([`to_backing_script`]). No snapshot
+//! holds any of it. `deno_core` compiles and runs a backing script the first
+//! time a run imports its facade, after the start, and the facade's exports
+//! are the own properties of what the script returns, with a `default` of
+//! `undefined`. Until then a builtin costs a run its facade's name and its
+//! ops, and an eval, which imports none, never more.
+//!
+//! The scripts reach `deno_core` as its table of residual lazy scripts,
+//! their types stripped and each wrapped as the function body `deno_core`
+//! compiles: a snapshot's table carries them, made when the snapshot was
+//! ([`crate::snapshot`]), so a start from one strips nothing, and a runtime
+//! that starts without one reads [`source_backing_scripts`], stripped once a
+//! process. Either way the text is the same, and nothing registers a script
+//! per start.
+//!
+//! A first import can come after user code has patched the global
+//! intrinsics, so an implementation, its top level included, names no global
+//! and reads no property of an intrinsic: it takes each intrinsic from
+//! `primordials` and each op from `core.ops`. Its own `tsconfig.json`
+//! type-checks it with no global value and no member of an intrinsic
+//! declared, and the tests run every row under patched intrinsics. The scope
+//! is an argument, which the script's call passes ([`scope_argument`]) and
+//! an implementation reads no other way; no grant scopes anything yet, and
+//! a grant-free builtin has none, so each is called with `undefined`. An
+//! implementation never throws: `deno_core` rejects the import with a
+//! `TypeError` carrying its own report of what the script threw, never the
+//! error, and runs the whole script again at the next import, whatever the
+//! first run had done by then, so a builtin that can fail fails in what it
 //! exports, as `cwd` does when called. The loader resolves an import to a
 //! `builtin:` URL only for a bare specifier in the table and only for an
 //! importer granted it (`import.meta.resolve` returns the URL to any
@@ -70,97 +85,190 @@
 //! bootstrap's refusals still finds none of them.
 
 use std::borrow::Cow;
+use std::sync::OnceLock;
 
-use deno_core::error::{JsError, ModuleLoaderError};
+use deno_core::error::JsError;
 use deno_core::{
-    Extension, ExtensionFileSource, JsRuntime, ModuleCodeString, ModuleName, OpDecl, OpState,
-    SourceMapData, ascii_str, ascii_str_include, op2, v8,
+    Extension, ExtensionFileSource, JsRuntime, OpDecl, OpState, ascii_str, ascii_str_include, op2,
+    v8,
 };
 use url::Url;
 
 use crate::host::host_ops;
 use crate::loader::strip::strip_module;
-use crate::resolver::{builtin_rows, builtin_url};
+use crate::resolver::{Capability, builtin_rows, builtin_url};
 use crate::{ConsoleOptions, ConsoleRouting};
 
 /// The bootstrap module's specifier.
 const BOOTSTRAP_SPECIFIER: &str = "ext:gro/bootstrap.js";
 
-/// The bootstrap module and the builtins' implementations, embedded.
-const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[
-    ExtensionFileSource::new(
-        BOOTSTRAP_SPECIFIER,
-        ascii_str_include!("../js/bootstrap.js"),
-    ),
-    ExtensionFileSource::new("ext:gro/args.ts", ascii_str_include!("../js/args.ts")),
-    ExtensionFileSource::new("ext:gro/cwd.ts", ascii_str_include!("../js/cwd.ts")),
-    ExtensionFileSource::new("ext:gro/pid.ts", ascii_str_include!("../js/pid.ts")),
-    ExtensionFileSource::new(
-        "ext:gro/runtime_version.ts",
-        ascii_str_include!("../js/runtime_version.ts"),
-    ),
-    ExtensionFileSource::new(
-        "ext:gro/internal/records.ts",
-        ascii_str_include!("../../../src/lib/internal/records.ts"),
-    ),
-];
+/// The bootstrap module, embedded: the extension's one module, which the
+/// snapshot evaluates.
+const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[ExtensionFileSource::new(
+    BOOTSTRAP_SPECIFIER,
+    ascii_str_include!("../js/bootstrap.js"),
+)];
 
-/// A builtin's backing script, from one template: it returns the namespace
-/// the builtin's factory makes, given the scope of the importer's grant,
-/// `undefined` while no grant has one.
-macro_rules! backing_script {
-    ($specifier:literal, $grant:expr, [$($export:literal),*]) => {
-        ExtensionFileSource::new(
-            concat!("ext:gro/builtin/", $specifier, ".js"),
-            ascii_str!(concat!(
-                "(function () {\n\treturn __bootstrap.internals.gro_builtins['",
-                $specifier,
-                "'](undefined);\n})()\n"
-            )),
-        )
+/// A builtin's implementation, embedded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Implementation {
+    /// Its backing script's specifier, which nothing resolves: `deno_core`
+    /// names the script by it, and a stack frame shows it.
+    pub script: &'static str,
+    /// Its TypeScript source, `js/builtin/<specifier>`: one function.
+    pub source: &'static str,
+    /// The grant its importer needs, as its row has it.
+    pub grant: Option<Capability>,
+}
+
+/// The specifier of the backing script of the builtin named `$specifier`, a
+/// literal.
+macro_rules! backing_specifier {
+    ($specifier:literal) => {
+        concat!("ext:gro/builtin/", $specifier)
     };
+}
+
+/// A builtin's [`Implementation`]: the file its specifier names under
+/// `js/builtin/`, which fails the build when it isn't 7-bit ASCII.
+macro_rules! implementation {
+    ($specifier:literal, $grant:expr, [$($export:literal),*]) => {{
+        const SOURCE: &str = include_str!(concat!("../js/builtin/", $specifier));
+        const _: () = assert!(
+            SOURCE.is_ascii(),
+            concat!("js/builtin/", $specifier, " is not 7-bit ASCII")
+        );
+        Implementation {
+            script: backing_specifier!($specifier),
+            source: SOURCE,
+            grant: $grant,
+        }
+    }};
 }
 
 /// A builtin's synthetic module: its URL, over its backing script.
 macro_rules! synthetic_module {
     ($specifier:literal, $grant:expr, [$($export:literal),*]) => {
-        (
-            builtin_url!($specifier),
-            concat!("ext:gro/builtin/", $specifier, ".js"),
-        )
+        (builtin_url!($specifier), backing_specifier!($specifier))
     };
 }
 
-/// Each builtin's backing script.
-const BUILTIN_SCRIPTS: &[ExtensionFileSource] = &builtin_rows!(backing_script);
+/// Each builtin's implementation, in the table's order.
+pub const IMPLEMENTATIONS: &[Implementation] = &builtin_rows!(implementation);
 
 /// Each builtin's synthetic module, `(name, backing script)`.
 const BUILTIN_MODULES: &[(&str, &str)] = &builtin_rows!(synthetic_module);
 
-/// The extension transpiler: strips the types from a `.ts` source, and
-/// passes every other through as it is. Set when the snapshot is made and
-/// when a runtime starts without one, never on a snapshot start, where
-/// `deno_core` would pass every runtime-loadable script through it at each
-/// start.
+/// What a backing script passes its implementation as the scope of the
+/// importer's grant, a JS expression over the script's `__bootstrap`: the
+/// one place a builtin's scope comes from. No grant scopes anything yet, so
+/// every implementation is called with `undefined`. A grant that carries a
+/// scope names here how the host hands it over, a native value the
+/// implementation gives back to each op, so an op decides from the scope it
+/// was called with and never from the run's grants.
+const fn scope_argument(grant: Option<Capability>) -> &'static str {
+    match grant {
+        // a grant-free module has no grant to scope, and `args` scopes nothing
+        None | Some(Capability::Args) => "undefined",
+    }
+}
+
+/// How many implementations this process has stripped, for the tests that
+/// hold a start from a snapshot to none.
+#[cfg(test)]
+pub static STRIPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// What `deno_core` wraps a lazy script in to compile it as a function's
+/// body, and takes a script that starts with [`WRAP_OPEN`] to be wrapped
+/// in already, compiling it as it is, an external string V8 never copies.
+/// A test holds the two to `deno_core`'s own wrapping.
+const WRAP_OPEN: &str = "\"use strict\"; return (";
+
+/// The end of the wrapping [`WRAP_OPEN`] starts.
+const WRAP_CLOSE: &str = ");";
+
+/// A builtin's backing script, the text `deno_core` compiles as a function
+/// of `__bootstrap` on the builtin's first import: `implementation`'s
+/// source stripped of its types, called with the bootstrap object and its
+/// grant's scope ([`scope_argument`]), and wrapped as `deno_core` wraps a
+/// lazy script. The comments above the function are emptied line by line
+/// and the strip keeps every other character where it was, so a position
+/// in the script, as a stack frame shows it, is the source's.
 ///
 /// # Errors
 ///
-/// Returns the strip's refusal, which fails the snapshot or the start.
-pub fn transpile(
-    name: &ModuleName,
-    code: ModuleCodeString,
-) -> Result<(ModuleCodeString, Option<SourceMapData>), ModuleLoaderError> {
-    if !std::path::Path::new(name.as_str())
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("ts"))
+/// Returns the strip's refusal, that the source isn't comments and then
+/// one function, or that the script isn't 7-bit ASCII, which `deno_core`
+/// takes on trust of its table.
+pub fn to_backing_script(implementation: &Implementation) -> Result<String, String> {
+    #[cfg(test)]
+    STRIPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let script = implementation.script;
+    let url = Url::parse(script).map_err(|error| format!("{script}: {error}"))?;
+    let stripped = strip_module(implementation.source, &url).map_err(|refusal| refusal.message)?;
+    let is_above = |line: &&str| line.trim().is_empty() || line.trim_start().starts_with("//");
+    let above = stripped.lines().take_while(is_above).count();
+    let function: Vec<&str> = stripped.lines().skip(above).collect();
+    if !function
+        .first()
+        .is_some_and(|line| line.starts_with("(function "))
     {
-        return Ok((code, None));
+        return Err(format!(
+            "{script} is not one function, `(function (bootstrap, scope) {{ ... }})`, under \
+             comments"
+        ));
     }
-    let url = Url::parse(name.as_str())
-        .map_err(|error| ModuleLoaderError::generic(format!("{}: {error}", name.as_str())))?;
-    let stripped = strip_module(code.as_str(), &url)
-        .map_err(|refusal| ModuleLoaderError::generic(refusal.message))?;
-    Ok((stripped.into(), None))
+    let function = function.join("\n");
+    // the source is one expression statement
+    let function = function.trim_end_matches(|c: char| c.is_whitespace() || c == ';');
+    let backing = format!(
+        "{WRAP_OPEN}{}{function}(__bootstrap, {}){WRAP_CLOSE}",
+        "\n".repeat(above),
+        scope_argument(implementation.grant)
+    );
+    if backing.is_ascii() {
+        Ok(backing)
+    } else {
+        Err(format!("{script} is not 7-bit ASCII"))
+    }
+}
+
+/// Each builtin's backing script, by its specifier, sorted by it as
+/// `deno_core`'s table of residual lazy scripts must be.
+///
+/// # Errors
+///
+/// Returns why an implementation made no script ([`to_backing_script`]).
+pub fn backing_scripts() -> Result<Vec<(&'static str, String)>, String> {
+    let mut scripts = IMPLEMENTATIONS
+        .iter()
+        .map(|implementation| Ok((implementation.script, to_backing_script(implementation)?)))
+        .collect::<Result<Vec<_>, String>>()?;
+    scripts.sort_unstable_by_key(|(specifier, _)| *specifier);
+    Ok(scripts)
+}
+
+/// The backing scripts as a runtime that starts without a snapshot gives
+/// them to `deno_core`, its table of residual lazy scripts: made the first
+/// time the process starts such a runtime, and kept for the process's life,
+/// since the table is `'static`. A start from a snapshot never calls this:
+/// its table came with the snapshot.
+///
+/// # Errors
+///
+/// Returns why an implementation made no script, at each call.
+pub fn source_backing_scripts() -> Result<&'static [(&'static str, &'static str)], String> {
+    type Table = Box<[(&'static str, &'static str)]>;
+    static SCRIPTS: OnceLock<Result<Table, String>> = OnceLock::new();
+    SCRIPTS
+        .get_or_init(|| {
+            let scripts = backing_scripts()?.into_iter();
+            Ok(scripts
+                .map(|(specifier, script)| (specifier, &*script.leak()))
+                .collect())
+        })
+        .as_deref()
+        .map_err(Clone::clone)
 }
 
 /// Whether the console colors its output to stderr, or with `stderr` false
@@ -357,7 +465,6 @@ deno_core::extension!(
         // the macro's own `esm` list reads files from the build tree at runtime
         extension.esm_files = Cow::Borrowed(BOOTSTRAP_ESM);
         extension.esm_entry_point = Some(BOOTSTRAP_SPECIFIER);
-        extension.lazy_loaded_js_files = Cow::Borrowed(BUILTIN_SCRIPTS);
         extension.synthetic_esm_modules = Cow::Borrowed(BUILTIN_MODULES);
     },
 );
@@ -482,8 +589,10 @@ mod tests {
     /// The synthetic modules the runtime keeps are exactly the builtin
     /// table's, each named by its `builtin:` URL, a scheme the resolver
     /// refuses from source, since `deno_core` links a static import naming
-    /// one by that raw name; each over a backing script of gro's own; and
-    /// no extension keeps a lazy ES module.
+    /// one by that raw name; each over the backing script of its row's
+    /// implementation, in the table's order; and no extension keeps a lazy
+    /// ES module, nor gro's a lazy script, which `deno_core` would register
+    /// at every start.
     #[test]
     fn the_kept_synthetic_modules_are_the_builtin_table_s() {
         for ops in [Ops::Kept, Ops::Refused] {
@@ -495,26 +604,81 @@ mod tests {
             for name in names {
                 assert!(name.starts_with("builtin:"), "{name}");
             }
-            let gro = extensions
+            let scripts: Vec<&str> = modules.iter().map(|(_, script)| *script).collect();
+            let implemented: Vec<&str> = IMPLEMENTATIONS
                 .iter()
-                .find(|extension| extension.name == "gro")
-                .unwrap();
-            for (name, script) in modules {
-                assert!(
-                    gro.lazy_loaded_js_files
-                        .iter()
-                        .any(|file| file.specifier == script && script.starts_with("ext:gro/")),
-                    "{name}: {script}"
-                );
-            }
+                .map(|implementation| implementation.script)
+                .collect();
+            assert_eq!(scripts, implemented);
             for extension in &extensions {
                 assert!(
                     extension.lazy_loaded_esm_files.is_empty(),
                     "{}",
                     extension.name
                 );
+                assert_eq!(
+                    extension.lazy_loaded_js_files.is_empty(),
+                    extension.name == "gro",
+                    "{}",
+                    extension.name
+                );
             }
         }
+    }
+
+    /// The implementations are the builtin table's rows, in its order: each
+    /// row's backing script is named for its specifier in a scheme the
+    /// resolver refuses from source, and carries the row's grant.
+    #[test]
+    fn the_implementations_are_the_builtin_table_s() {
+        let rows: Vec<(String, Option<Capability>)> = BUILTINS
+            .iter()
+            .map(|builtin| {
+                (
+                    format!("ext:gro/builtin/{}", builtin.specifier),
+                    builtin.grant,
+                )
+            })
+            .collect();
+        let implemented: Vec<(String, Option<Capability>)> = IMPLEMENTATIONS
+            .iter()
+            .map(|implementation| (implementation.script.to_owned(), implementation.grant))
+            .collect();
+        assert_eq!(implemented, rows);
+    }
+
+    /// The backing scripts are one a row, sorted by specifier as
+    /// `deno_core`'s table must be, each wrapped, so `deno_core` compiles it
+    /// as it is, with its function on the line the source has it on, under
+    /// the comments; and the table a source start reads is the same
+    /// scripts, made once.
+    #[test]
+    fn the_backing_scripts_are_sorted_and_wrapped() {
+        let scripts = backing_scripts().unwrap();
+        assert_eq!(scripts.len(), BUILTINS.len());
+        assert!(scripts.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        let function_line = |text: &str| {
+            text.lines()
+                .position(|line| line.starts_with("(function (bootstrap"))
+        };
+        for (specifier, script) in &scripts {
+            let implementation = IMPLEMENTATIONS
+                .iter()
+                .find(|implementation| implementation.script == *specifier)
+                .unwrap();
+            assert!(script.starts_with(WRAP_OPEN), "{specifier}: {script}");
+            let line = function_line(script);
+            assert!(line > Some(0), "{specifier}: {script}");
+            assert_eq!(line, function_line(implementation.source), "{specifier}");
+        }
+        let table = source_backing_scripts().unwrap();
+        let again = source_backing_scripts().unwrap();
+        assert!(std::ptr::eq(table, again));
+        let kept: Vec<(&str, &str)> = scripts
+            .iter()
+            .map(|(specifier, script)| (*specifier, script.as_str()))
+            .collect();
+        assert_eq!(table, kept);
     }
 
     /// Another extension's synthetic and lazy ES modules are dropped, and
@@ -565,30 +729,63 @@ mod tests {
         }
     }
 
-    /// The transpiler strips a `.ts` source and passes every other through
-    /// as it is.
+    /// An implementation standing in for a row's, to see what its backing
+    /// script does with it.
+    fn probe(source: &'static str) -> Implementation {
+        Implementation {
+            script: "ext:gro/builtin/probe.ts",
+            source,
+            grant: None,
+        }
+    }
+
+    /// A backing script is its implementation without its types or the
+    /// statement's end, called once with `__bootstrap` and the scope, each
+    /// comment line above the function emptied, so every line below is
+    /// where the source has it; an implementation that doesn't strip, isn't
+    /// one function under comments, or isn't ASCII makes none.
     #[test]
-    fn the_transpiler_strips_only_typescript() {
-        let code = |source: &'static str| ModuleCodeString::from_static(source);
-        let (stripped, map) = transpile(
-            &ModuleName::from_static("ext:gro/x.ts"),
-            code("export const a: number = 1;\n"),
-        )
+    fn a_backing_script_calls_its_stripped_implementation() {
+        let script = to_backing_script(&probe(
+            "// a comment\n\n// another\n(function (bootstrap: Bootstrap, _scope: undefined) \
+             {\n\treturn bootstrap;\n});\n",
+        ))
         .unwrap();
-        assert_eq!(stripped.as_str(), "export const a         = 1;\n");
-        assert!(map.is_none());
-        let (kept, _) = transpile(
-            &ModuleName::from_static("ext:gro/x.js"),
-            code("export const a: number = 1;\n"),
-        )
-        .unwrap();
-        assert_eq!(kept.as_str(), "export const a: number = 1;\n");
-        assert!(
-            transpile(
-                &ModuleName::from_static("ext:gro/x.ts"),
-                code("enum E { A }\n")
-            )
-            .is_err()
+        assert_eq!(
+            script,
+            "\"use strict\"; return (\n\n\n(function (bootstrap           , _scope           ) \
+             {\n\treturn bootstrap;\n})(__bootstrap, undefined));"
+        );
+        let refused = to_backing_script(&probe("(function () {\n\tenum E { A }\n});\n"));
+        assert!(refused.unwrap_err().contains("ext:gro/builtin/probe.ts:2:"));
+        for other in [
+            "const a = 1;\n(function () {});\n",
+            "/* a block comment */\n(function () {});\n",
+            "(() => 1);\n",
+            "// only a comment\n",
+        ] {
+            let refused = to_backing_script(&probe(other)).unwrap_err();
+            assert!(
+                refused.contains("is not one function"),
+                "{other}: {refused}"
+            );
+        }
+        let unicode = to_backing_script(&probe("(function () {\n\treturn '\u{e9}';\n});\n"));
+        assert_eq!(
+            unicode.unwrap_err(),
+            "ext:gro/builtin/probe.ts is not 7-bit ASCII"
+        );
+    }
+
+    /// The wrapping a backing script is made with is `deno_core`'s own of a
+    /// lazy script, so `deno_core` compiles a backing script as it is and
+    /// never wraps one again.
+    #[test]
+    fn a_backing_script_is_wrapped_as_deno_core_wraps_a_lazy_script() {
+        let function = "(function () {})()";
+        assert_eq!(
+            deno_core::wrap_lazy_ext_script(function),
+            format!("{WRAP_OPEN}{function}{WRAP_CLOSE}")
         );
     }
 }

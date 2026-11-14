@@ -14,7 +14,7 @@ use std::process::{Command, Output};
 
 use crate::confine::Confinement;
 use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
-use crate::snapshot::make_snapshot;
+use crate::snapshot::{ResidualCode, make_snapshot};
 use crate::test_support::TestDir;
 use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
@@ -124,7 +124,23 @@ for (const locale of locales) {
         "snapshot" => {
             let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
             let snapshot = make_snapshot(engine).unwrap();
-            std::fs::write(std::env::var_os(SNAPSHOT_FILE).unwrap(), snapshot.bytes).unwrap();
+            let file = PathBuf::from(std::env::var_os(SNAPSHOT_FILE).unwrap());
+            std::fs::write(&file, snapshot.bytes).unwrap();
+            let scripts: Vec<(&str, &str)> = snapshot
+                .residual_lazy_js
+                .iter()
+                .filter_map(|source| match &source.code {
+                    ResidualCode::Text(script) => {
+                        Some((source.specifier.as_str(), script.as_str()))
+                    }
+                    ResidualCode::File(_) => None,
+                })
+                .collect();
+            std::fs::write(
+                backing_scripts_file(&file),
+                serde_json::to_string(&scripts).unwrap(),
+            )
+            .unwrap();
         }
         case => panic!("unknown case {case}"),
     }
@@ -158,8 +174,16 @@ pub fn run_test_in_child(test: &str, env: &[(&str, &OsStr)]) -> Output {
     output
 }
 
+/// The file beside the snapshot's at `snapshot` that holds the builtins'
+/// backing scripts the snapshot was made with, a JSON array of
+/// `[specifier, script]` sorted by specifier.
+pub fn backing_scripts_file(snapshot: &Path) -> PathBuf {
+    snapshot.with_file_name("backing_scripts.json")
+}
+
 /// Makes the startup snapshot of this build's extensions in `dir` and
-/// returns its file, the serialized heap alone. A child makes it: V8 makes
+/// returns its file, the serialized heap alone, with the builtins' backing
+/// scripts beside it ([`backing_scripts_file`]). A child makes it: V8 makes
 /// a snapshot only in a process that runs no other runtime.
 pub fn make_startup_snapshot(dir: &Path) -> PathBuf {
     let file = dir.join("snapshot.bin");

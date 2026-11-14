@@ -229,7 +229,9 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   `engines.gro` in `package.json`, and the binary will fail hard outside it.
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
-- **Startup.** A snapshot of the host (built) and lazy host init.
+- **Startup.** A snapshot of the host (built) and lazy host init,
+  built for the builtin modules: an implementation is outside the snapshot, compiled and run when a run first imports its module,
+  so a run pays for the ones it imports.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
   and confined runs read none: Gro's own surface is designed to start from the snapshot instead,
   so its largest consumer needs no cache, and `gro eval` and hermetic runs never read one.
@@ -371,7 +373,8 @@ where the host modules and grants land with their first consumer.
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init, with no code cache for confined runs
+- [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init
+      (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants,
       and the policy file, enforced, with the kernel backstop under every run and its children

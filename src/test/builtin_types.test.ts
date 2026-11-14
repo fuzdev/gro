@@ -1,83 +1,57 @@
 import { describe, test, assert } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import ts from 'typescript';
 
 import { paths } from '#lib/paths.ts';
 
+import {
+	BUILTIN_DIR,
+	read_builtin_rows,
+	read_implementation,
+	read_implementation_specifiers,
+	type BuiltinRow
+} from './builtin_test_helpers.ts';
+
 /*
 
-A builtin module of the runtime (`crates/gro_runtime/js/<name>.ts`) declares no type of its own:
-its exports have one declaration, the Node host module's (`src/lib/<name>.ts`). This checks, for
-every row of the runtime's builtin table, the namespace the builtin's factory infers against that
-module's exports, exactly and both ways, in a program shaped like the builtin's own: the builtin's
-tsconfig, no Node types, and the Node module as its emitted declarations, which name no Node type
-(`host_module_declarations.test.ts`).
+A builtin module of the runtime declares no type of its own: its exports have one declaration,
+the Node host module's (`src/lib/<name>.ts`). Its implementation
+(`crates/gro_runtime/js/builtin/<specifier>`) is a script, one function of the bootstrap object
+and its grant's scope that returns the namespace. This checks, for every row of the runtime's
+builtin table, the namespace that function infers against the Node module's exports, exactly and
+both ways, and its parameters, in a program with the implementation's own declaration of the
+bootstrap object, the ES library, no Node types, and the Node module as its emitted
+declarations, which name no Node type (`host_module_declarations.test.ts`).
 
-The rows are read, never listed here, so a row can't join the table without its Node module
-being compared: the factories from the bootstrap (`js/bootstrap.js`), which the runtime's own
-tests hold to the table, and the table's specifiers from its source, which the two must match.
+The implementation's own program has no library at all (`builtin_intrinsics.test.ts`), so the
+Node module's types couldn't be written there; the function's types are the same in both.
+
+The rows are read from the table's source, never listed here, so a row can't join the table
+without its Node module being compared, and the implementations on disk are exactly the rows'.
 
 */
 
-const JS_DIR = join(paths.root, 'crates/gro_runtime/js');
-
-const TABLE_PATH = join(paths.root, 'crates/gro_runtime/src/resolver/builtin.rs');
-
-const SPECIFIER_PREFIX = '@fuzdev/gro/';
-
-interface BuiltinRow {
-	/** The builtin's specifier, like `@fuzdev/gro/args.ts`. */
-	specifier: string;
-	/** The host module's name, like `args`. */
-	name: string;
-	/** The factory's name, an export of `js/<name>.ts`. */
-	factory: string;
-}
+const JS_DIR = dirname(BUILTIN_DIR);
 
 /**
- * The bootstrap's factories, each row's specifier with the factory it names and the module
- * the bootstrap imports that factory from, which must be the row's own.
+ * The implementation as a module, so its one function can be named: a script exports nothing.
  */
-const read_bootstrap_rows = (): Array<BuiltinRow> => {
-	const source = readFileSync(join(JS_DIR, 'bootstrap.js'), 'utf8');
-	const table = /gro_builtins = primordials\.ObjectFreeze\(\{([^}]*)\}\)/.exec(source);
-	assert.ok(table, 'the bootstrap has its factories');
-	const rows: Array<BuiltinRow> = [];
-	for (const [, specifier, factory] of table[1]!.matchAll(/'([^']+)': (\w+)/g)) {
-		assert.ok(specifier!.startsWith(SPECIFIER_PREFIX) && specifier!.endsWith('.ts'), specifier);
-		const name = specifier!.slice(SPECIFIER_PREFIX.length, -'.ts'.length);
-		assert.include(
-			source,
-			`import { ${factory} } from 'ext:gro/${name}.ts';`,
-			`${factory} comes from the builtin's own module`
-		);
-		rows.push({ specifier: specifier!, name, factory: factory! });
-	}
-	return rows;
-};
+const to_subject = (implementation: string): string =>
+	`export const implementation =\n${implementation}`;
 
 /**
- * The specifiers of the builtin table's rows, in its order, read from its source.
+ * The check, a module beside the implementation: the namespace's exports are the Node module's
+ * and `default`, each export exactly the Node module's, the two namespaces assign both ways,
+ * and the function takes the bootstrap object and one more argument, its grant's scope, which
+ * no row's grant has.
  */
-const read_table_specifiers = (): Array<string> => {
-	const source = readFileSync(TABLE_PATH, 'utf8');
-	const rows = /macro_rules! builtin_rows \{([\s\S]*?)\n\}\n/.exec(source);
-	assert.ok(rows, 'the table has its rows');
-	return Array.from(rows[1]!.matchAll(/\$row!\(\s*"([^"]+)"/g), (match) => match[1]!);
-};
-
-/**
- * The check, a module beside the builtin: the namespace's exports are the Node module's and
- * `default`, each export exactly the Node module's, the two namespaces assign both ways, and
- * the factory takes one argument, its grant's scope, which no row's grant has.
- */
-const to_check = ({ name, factory }: BuiltinRow): string => `
-import type { ${factory} } from './${name}.ts';
+const to_check = ({ name }: BuiltinRow): string => `
+import type { implementation } from './${name}.subject.ts';
 import type * as node from './${name}.node_declarations.d.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-type Namespace = ReturnType<typeof ${factory}>;
+type Namespace = ReturnType<typeof implementation>;
 type Builtin = Omit<Namespace, 'default'>;
 type Node = typeof node;
 
@@ -86,31 +60,36 @@ export const no_default: Equal<Namespace['default'], undefined> = true;
 export const members: Equal<{ [K in keyof Node]: Equal<Builtin[K], Node[K]> }[keyof Node], true> = true;
 export const to_node = (builtin: Builtin): Node => builtin;
 export const to_builtin = (node: Node): Builtin => node;
-export const scope: Equal<Parameters<typeof ${factory}>, [_scope: undefined]> = true;
+export const parameters: Equal<Parameters<typeof implementation>, [bootstrap: Bootstrap, _scope: undefined]> = true;
 `;
 
 // the files every check reads from disk, parsed once
 const source_files: Map<string, ts.SourceFile | undefined> = new Map();
 
 /**
- * Type-checks a row's check beside the builtin, against `declarations` standing in for the
- * Node module's, under the builtin's tsconfig.
+ * Type-checks a row's check beside its implementation, against `declarations` standing in for
+ * the Node module's, under the bootstrap's tsconfig, the ES library with no other types.
  * @param row - the builtin's row
  * @param declarations - the Node module's declarations
- * @param builtin - the builtin's source in place of its file, when given
+ * @param implementation - the implementation's source in place of its file, when given
  * @returns the check's diagnostics, each as text
  */
-const check_types = (row: BuiltinRow, declarations: string, builtin?: string): Array<string> => {
+const check_types = (
+	row: BuiltinRow,
+	declarations: string,
+	implementation = read_implementation(row)
+): Array<string> => {
 	const config_path = join(JS_DIR, 'tsconfig.json');
 	const config = ts.readConfigFile(config_path, ts.sys.readFile);
-	assert.ok(!config.error, 'the builtin tsconfig reads');
+	assert.ok(!config.error, 'the bootstrap tsconfig reads');
 	const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, JS_DIR);
-	const check_path = join(JS_DIR, `${row.name}.types_check.ts`);
+	const dir = dirname(row.path);
+	const check_path = join(dir, `${row.name}.types_check.ts`);
 	const virtual = new Map([
 		[check_path, to_check(row)],
-		[join(JS_DIR, `${row.name}.node_declarations.d.ts`), declarations]
+		[join(dir, `${row.name}.subject.ts`), to_subject(implementation)],
+		[join(dir, `${row.name}.node_declarations.d.ts`), declarations]
 	]);
-	if (builtin !== undefined) virtual.set(join(JS_DIR, `${row.name}.ts`), builtin);
 	const host = ts.createCompilerHost(options);
 	const get_source_file = host.getSourceFile.bind(host);
 	host.getSourceFile = (file_name, language_version, ...rest) => {
@@ -123,7 +102,11 @@ const check_types = (row: BuiltinRow, declarations: string, builtin?: string): A
 	};
 	const file_exists = host.fileExists.bind(host);
 	host.fileExists = (file_name) => virtual.has(file_name) || file_exists(file_name);
-	const program = ts.createProgram([check_path, join(JS_DIR, 'internal.d.ts')], options, host);
+	const program = ts.createProgram(
+		[check_path, join(BUILTIN_DIR, 'bootstrap.d.ts')],
+		{ ...options, allowImportingTsExtensions: true },
+		host
+	);
 	return ts
 		.getPreEmitDiagnostics(program)
 		.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
@@ -138,16 +121,11 @@ const node_declarations = (name: string): string => {
 	return result.outputText;
 };
 
-const read_builtin = (name: string): string => readFileSync(join(JS_DIR, `${name}.ts`), 'utf8');
-
-const rows = read_bootstrap_rows();
+const rows = read_builtin_rows();
 
 describe('the builtin table', () => {
-	test("the rows compared are the table's", () => {
-		assert.deepEqual(
-			rows.map((row) => row.specifier),
-			read_table_specifiers()
-		);
+	test("the implementations are the table's rows", () => {
+		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
 		// each kind of export the checks below mutate is among them
 		for (const name of ['args', 'cwd', 'pid', 'runtime_version']) {
 			assert.ok(
@@ -190,7 +168,7 @@ describe.each(rows)('the $name builtin types', (row) => {
 
 	test("a mismatch on the builtin's side fails the check", () => {
 		const declarations = node_declarations(row.name);
-		const source = read_builtin(row.name);
+		const source = read_implementation(row);
 		const made = 'default: undefined }';
 		assert.include(source, made, 'the namespace to mutate is there');
 		// an export the Node module doesn't have
@@ -203,14 +181,21 @@ describe.each(rows)('the $name builtin types', (row) => {
 			check_types(row, declarations, source.replace(made, 'default: null }')),
 			[]
 		);
-		// a factory that takes no scope, and one that takes another
-		const scoped = '(_scope: undefined) =>';
-		assert.include(source, scoped, 'the factory to mutate is there');
-		assert.notDeepEqual(check_types(row, declarations, source.replace(scoped, '() =>')), []);
-		assert.notDeepEqual(
-			check_types(row, declarations, source.replace(scoped, '(_scope: string) =>')),
-			[]
-		);
+		// an implementation that takes no scope, one that takes another, and one that takes
+		// another bootstrap object
+		const scoped = '(bootstrap: Bootstrap, _scope: undefined) {';
+		assert.include(source, scoped, 'the parameters to mutate are there');
+		for (const parameters of [
+			'(bootstrap: Bootstrap) {',
+			'(bootstrap: Bootstrap, _scope: string) {',
+			'(bootstrap: Bootstrap & { extra: 1 }, _scope: undefined) {'
+		]) {
+			assert.notDeepEqual(
+				check_types(row, declarations, source.replace(scoped, parameters)),
+				[],
+				parameters
+			);
+		}
 	});
 });
 
@@ -228,7 +213,7 @@ describe('a retyped export fails its check', () => {
 	const assert_mismatch = (name: string, side: 'builtin' | 'node', from: string, to: string) => {
 		const row = find_row(name);
 		const declarations = node_declarations(name);
-		const source = read_builtin(name);
+		const source = read_implementation(row);
 		const text = side === 'builtin' ? source : declarations;
 		assert.include(text, from, 'the text to mutate is there');
 		const mutated = text.replace(from, to);

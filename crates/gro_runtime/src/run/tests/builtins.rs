@@ -187,9 +187,11 @@ check('assign', threw === 2 && JSON.stringify(args) === '[\"x\",\"y\"]');
 /// the intrinsics (setters on `Array.prototype` and `Object.prototype`, a
 /// `then`, the global `Object`'s functions, `Array.prototype`'s methods
 /// and iterator) changes nothing the builtin
-/// makes, and calls none of the patches; the internals, the op among them,
-/// stay unreachable before and after the import, by any own property or
-/// prototype from the global object, the namespace, and the array.
+/// makes, and calls none of the patches; the internals, the ops and the
+/// object a builtin's implementation is called with among them, stay
+/// unreachable before and after the imports, by any own property or
+/// prototype from the global object and from every builtin's namespace,
+/// its exports, and what a function it exports returns.
 #[test]
 fn patched_intrinsics_change_nothing_and_the_internals_stay_unreachable() {
     let source = format!(
@@ -230,9 +232,17 @@ if (JSON.stringify(args) !== '[\"a\",\"b\"]' || !Object.isFrozen(args))
 if (Reflect.ownKeys(args).length !== 3) throw new Error(`args keys: ${{Reflect.ownKeys(args).length}}`);
 const after = internals();
 if (before !== 'undefined,undefined,undefined,undefined' || after !== before) throw new Error(`internals: ${{before}} ${{after}}`);
-const ns = await import('{ARGS}');
 const seen = new Set();
-const queue = [globalThis, ns, args];
+const queue = [globalThis];
+for (const specifier of {specifiers}) {{
+\tconst ns = await import(specifier);
+\tqueue.push(ns);
+\tfor (const key of Reflect.ownKeys(ns)) {{
+\t\tqueue.push(ns[key]);
+\t\tif (typeof ns[key] === 'function') queue.push(ns[key]());
+\t}}
+}}
+if (!queue.includes(args)) throw new Error('the walk starts without the array');
 while (queue.length > 0) {{
 \tconst value = queue.shift();
 \tif ((typeof value !== 'object' && typeof value !== 'function') || value === null || seen.has(value)) continue;
@@ -240,14 +250,21 @@ while (queue.length > 0) {{
 \tif (typeof value === 'function' && String(Reflect.get(value, 'name')).startsWith('op_')) throw new Error(`reached ${{value.name}}`);
 \tqueue.push(Reflect.getPrototypeOf(value));
 \tfor (const key of Reflect.ownKeys(value)) {{
-\t\tif (typeof key === 'string' && /^op_|^__bootstrap$|^Deno$|^gro_builtins$/.test(key)) throw new Error(`reached key ${{key}}`);
+\t\tif (typeof key === 'string' && /^op_|^__bootstrap$|^Deno$|^internals$|^primordials$/.test(key)) throw new Error(`reached key ${{key}}`);
 \t\tconst descriptor = Reflect.getOwnPropertyDescriptor(value, key);
 \t\tif (descriptor === undefined) continue;
 \t\tqueue.push(descriptor.value, descriptor.get, descriptor.set);
 \t}}
 }}
 if (seen.size < 100) throw new Error(`walked only ${{seen.size}}`);
-"
+",
+        specifiers = serde_json::to_string(
+            &BUILTINS
+                .iter()
+                .map(|builtin| builtin.specifier)
+                .collect::<Vec<_>>()
+        )
+        .unwrap()
     );
     let (result, _) = run_granted("pollution", &source, &["a", "b"]);
     assert!(result.is_ok(), "{result:?}");

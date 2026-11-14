@@ -2,7 +2,8 @@
 //! `runtime_version`), from source in a debug build: their values and
 //! shapes through every import form, that a run granting nothing links
 //! them for the project and a package alike, their hardening against
-//! patched intrinsics, and a working directory whose path isn't UTF-8.
+//! patched intrinsics, a working directory whose path isn't UTF-8, and
+//! what a call site of one shows.
 
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt as _;
@@ -12,7 +13,7 @@ use super::super::RunError;
 use super::builtins::{run_files, run_files_from};
 use crate::loader::graph::{Reach, Record};
 use crate::resolver::find_builtin;
-use crate::{Authority, RuntimeOptions};
+use crate::{Authority, RuntimeOptions, bootstrap};
 
 const CWD: &str = "@fuzdev/gro/cwd.ts";
 const PID: &str = "@fuzdev/gro/pid.ts";
@@ -207,6 +208,59 @@ check('called', called === expected_cwd);
         "observations_pollution",
         &[("main.mjs", &main)],
         ungranted(),
+    );
+    assert!(result.is_ok(), "{result:?}");
+}
+
+/// A builtin's frames show nothing of its functions: with
+/// `Error.prepareStackTrace` set, the call sites of an error a builtin's
+/// function threw, `cwd` in a directory whose path isn't UTF-8, name the
+/// builtin's script, at the line its source throws on, and each of those
+/// gives `undefined` for `getFunction()` and `getThis()`, so no call site
+/// hands out a function that closes over the ops or the object its script
+/// was called with.
+#[test]
+fn a_builtin_s_call_sites_give_no_function_and_no_receiver() {
+    let cwd = Path::new(OsStr::from_bytes(b"/not_utf8_\xff"));
+    let script = format!("ext:gro/builtin/{CWD}");
+    let implementation = bootstrap::IMPLEMENTATIONS
+        .iter()
+        .find(|implementation| implementation.script == script)
+        .unwrap();
+    let throws = implementation
+        .source
+        .lines()
+        .position(|line| line.contains("throw new Error("));
+    let line = throws.unwrap() + 1;
+    let main = format!(
+        "import {{ cwd }} from '{CWD}';
+let sites;
+Error.prepareStackTrace = (error, call_sites) => {{
+\tsites = call_sites;
+\treturn 'prepared';
+}};
+let stack;
+try {{
+\tcwd();
+}} catch (error) {{
+\tstack = error.stack;
+}}
+delete Error.prepareStackTrace;
+if (stack !== 'prepared') throw new Error(`the stack wasn't prepared: ${{stack}}`);
+const builtin = sites.filter((site) => String(site.getFileName()).startsWith('ext:gro/builtin/'));
+if (builtin.length === 0) throw new Error(`no frame of the builtin: ${{sites.map((site) => site.getFileName())}}`);
+for (const site of builtin) {{
+\tif (site.getFileName() !== '{script}') throw new Error(`named ${{site.getFileName()}}`);
+\tif (site.getLineNumber() !== {line}) throw new Error(`at line ${{site.getLineNumber()}}, not {line}`);
+\tif (site.getFunction() !== undefined || site.getThis() !== undefined) throw new Error('a call site gave a function or a receiver');
+}}
+"
+    );
+    let (result, _) = run_files_from(
+        "observations_call_sites",
+        &[("main.mjs", &main)],
+        ungranted(),
+        cwd,
     );
     assert!(result.is_ok(), "{result:?}");
 }

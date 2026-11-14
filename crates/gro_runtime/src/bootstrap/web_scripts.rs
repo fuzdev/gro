@@ -6,24 +6,30 @@
 //! `core.ops`, so a name it reads that the runtime doesn't register is
 //! `undefined` there and fails only where the script calls it. The walk
 //! ([`loadable`]) starts from the scripts gro's own sources load (the
-//! bootstrap, and any a builtin's implementation or backing script names) and
-//! follows every script a walked one names, at its top level (the snapshot
-//! then holds it) or inside a function (a residual script, loaded when the
-//! function first runs).
+//! bootstrap, and any a builtin's implementation names) and follows every
+//! script a walked one names, at its top level (the snapshot then holds it)
+//! or inside a function (a residual script, loaded when the function first
+//! runs).
+//!
+//! A builtin's implementation is a script the runtime can load too, and
+//! reads its ops the same way, so its reads are held with the web scripts'
+//! ([`loadable_reads`]): each is registered, a web op among them kept, and
+//! each host op it reads is its own module's.
 
 use std::collections::BTreeMap;
 
 use deno_core::ExtensionFileSourceCode;
 
-use super::{WEB_CLASSES, WEB_OPS, declared_extensions};
+use super::{IMPLEMENTATIONS, WEB_CLASSES, WEB_OPS, declared_extensions};
 
 /// The bootstrap's source, the one of gro's that loads web scripts today.
 const BOOTSTRAP: &str = include_str!("../../js/bootstrap.js");
 
-/// Every source of gro's extension, where the walk starts: the bootstrap,
-/// the builtins' implementations, and their backing scripts.
+/// Every source of gro's, where the walk starts: its extension's modules,
+/// the bootstrap, and the builtins' implementations, which no extension
+/// declares.
 fn gro_sources() -> Vec<String> {
-    declared_extensions()
+    let mut sources: Vec<String> = declared_extensions()
         .iter()
         .filter(|extension| extension.name == "gro")
         .flat_map(|extension| {
@@ -31,7 +37,13 @@ fn gro_sources() -> Vec<String> {
             files.chain(extension.lazy_loaded_js_files.iter())
         })
         .map(|file| file.load().unwrap().as_str().to_owned())
-        .collect()
+        .collect();
+    sources.extend(
+        IMPLEMENTATIONS
+            .iter()
+            .map(|implementation| implementation.source.to_owned()),
+    );
+    sources
 }
 
 /// The `ext:` specifiers `source` writes as string literals.
@@ -143,26 +155,41 @@ pub fn core_ops_reads<'a>(specifier: &str, source: &'a str) -> Vec<&'a str> {
     reads
 }
 
-/// Every name a loadable script reads from `core.ops`, with the scripts
-/// that read it.
+/// Every name a script the runtime can load reads from `core.ops`, with the
+/// scripts that read it: the web extensions' loadable scripts and the
+/// builtins' implementations.
 pub fn loadable_reads() -> BTreeMap<String, Vec<&'static str>> {
     let mut reads: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
-    for (specifier, source) in loadable() {
-        for name in core_ops_reads(specifier, &source) {
+    let web = loadable();
+    let web = web
+        .iter()
+        .map(|(specifier, source)| (*specifier, source.as_str()));
+    let implementations = IMPLEMENTATIONS
+        .iter()
+        .map(|implementation| (implementation.script, implementation.source));
+    for (specifier, source) in web.chain(implementations) {
+        for name in core_ops_reads(specifier, source) {
             reads.entry(name.to_owned()).or_default().push(specifier);
         }
     }
     reads
 }
 
-/// The walk starts from every source of gro's extension, the bootstrap
-/// among them, and reaches more than they name: a script another loads, and
-/// one loaded only inside a function.
+/// The walk starts from every source of gro's, the bootstrap and each
+/// builtin's implementation among them, and reaches more than they name: a
+/// script another loads, and one loaded only inside a function.
 #[test]
 fn the_walk_follows_the_scripts_a_script_names() {
     let sources = gro_sources();
     assert!(sources.iter().any(|source| source == BOOTSTRAP));
-    assert!(sources.len() > 1);
+    for implementation in IMPLEMENTATIONS {
+        assert!(
+            sources.iter().any(|source| source == implementation.source),
+            "{}",
+            implementation.script
+        );
+    }
+    assert!(!IMPLEMENTATIONS.is_empty());
     let loadable = loadable();
     for specifier in [
         "ext:deno_web/01_console.js",
@@ -174,6 +201,34 @@ fn the_walk_follows_the_scripts_a_script_names() {
     }
     assert!(!BOOTSTRAP.contains("13_message_port.js"));
     assert!(loadable.len() < declared_scripts().len());
+}
+
+/// A builtin's implementation reads its ops as a web script does, and
+/// reads only its own module's host ops: every host op declared for its
+/// row and no other op, another row's or one of `deno_core`'s or
+/// `deno_web`'s. So no builtin calls an op a grant it doesn't need guards,
+/// a grant-free one none that needs a grant, and none an op that compiles
+/// code or imports a module. An implementation that comes to need a web
+/// op names it here.
+#[test]
+fn an_implementation_reads_the_host_ops_of_its_own_module() {
+    use crate::host::HOST_OPS;
+
+    for implementation in IMPLEMENTATIONS {
+        let module = implementation
+            .script
+            .strip_prefix("ext:gro/builtin/")
+            .unwrap();
+        let mut reads = core_ops_reads(implementation.script, implementation.source);
+        reads.sort_unstable();
+        let mut own: Vec<&str> = HOST_OPS
+            .iter()
+            .filter(|op| op.module == module)
+            .map(|op| op.name)
+            .collect();
+        own.sort_unstable();
+        assert_eq!(reads, own, "{module}");
+    }
 }
 
 /// The reader takes each destructured name, a renamed one by the name it

@@ -62,8 +62,8 @@ fn the_table_is_pinned() {
 }
 
 /// Every row's specifier is unique and can be spliced into a JS string
-/// literal and a URL as is, and its URL is the specifier in the `builtin:`
-/// scheme, a URL the resolver refuses from source.
+/// literal, a URL, and a path as is, and its URL is the specifier in the
+/// `builtin:` scheme, a URL the resolver refuses from source.
 #[test]
 fn every_row_is_well_formed() {
     for builtin in BUILTINS {

@@ -15,7 +15,7 @@
 //!    V8 library copy it left is checked before the tests run V8 code
 //! 3. the snapshot build, as `build --verify`
 //! 4. the JS/TS under `crates/`, which `gro check`'s typecheck and format
-//!    don't reach: `tsc` over each `crates/*/js/tsconfig.json`, then
+//!    don't reach: `tsc` over each `tsconfig.json` under `crates/*/js/`, then
 //!    `gro format --check` over every `.ts`, `.mts`, and `.js` file under
 //!    `crates/` (it says so when there are none)
 //! 5. `gro check`
@@ -146,7 +146,7 @@ pub fn check_crates_js(root: &Path) -> StepResult {
 
     let tsconfigs = find_tsconfigs(&crates).map_err(|error| io_failure(&crates, &error))?;
     if tsconfigs.is_empty() {
-        println!("[xtask] no crates/*/js/tsconfig.json found, nothing to typecheck");
+        println!("[xtask] no tsconfig.json found under crates/*/js/, nothing to typecheck");
     }
     let tsc = root.join(TSC);
     for tsconfig in &tsconfigs {
@@ -172,17 +172,34 @@ pub fn check_crates_js(root: &Path) -> StepResult {
     run(root, &[], "gro", &args)
 }
 
-/// Finds `crates/*/js/tsconfig.json`, sorted.
+/// Finds every `tsconfig.json` under `crates/*/js/`, sorted: a crate's own,
+/// and one in a directory under it that is a program of its own.
 fn find_tsconfigs(crates: &Path) -> io::Result<Vec<PathBuf>> {
     let mut tsconfigs = Vec::new();
     for entry in fs::read_dir(crates)? {
-        let tsconfig = entry?.path().join("js/tsconfig.json");
-        if tsconfig.is_file() {
-            tsconfigs.push(tsconfig);
+        let js = entry?.path().join("js");
+        if js.is_dir() {
+            find_tsconfigs_under(&js, &mut tsconfigs)?;
         }
     }
     tsconfigs.sort();
     Ok(tsconfigs)
+}
+
+/// Collects every `tsconfig.json` under `dir`, skipping `node_modules`.
+fn find_tsconfigs_under(dir: &Path, tsconfigs: &mut Vec<PathBuf>) -> io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            if entry.file_name() != "node_modules" {
+                find_tsconfigs_under(&path, tsconfigs)?;
+            }
+        } else if entry.file_name() == "tsconfig.json" {
+            tsconfigs.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Collects every `.ts`, `.mts`, and `.js` file under `dir`, skipping

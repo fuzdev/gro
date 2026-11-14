@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use deno_core::{JsRuntime, ModuleCodeString, ModuleName, v8};
+use deno_core::{JsRuntime, v8};
 use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
@@ -124,17 +124,14 @@ fn new_runtime(
                 Ops::Kept
             },
         ),
-        // the builtins' TypeScript is stripped when the snapshot is made, so
-        // only a start from source strips it
-        extension_transpiler: if snapshot.is_none() {
-            Some(Rc::new(|name: ModuleName, code: ModuleCodeString| {
-                bootstrap::transpile(&name, code)
-            }))
-        } else {
-            None
-        },
         startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
-        residual_lazy_js_sources: snapshot.map_or(&[], |snapshot| snapshot.residual_lazy_js),
+        // the scripts no snapshot holds, the builtins' backing scripts among
+        // them: a snapshot's own table, made with it, or the one this
+        // process makes, stripping the builtins' TypeScript here
+        residual_lazy_js_sources: match snapshot {
+            Some(snapshot) => snapshot.residual_lazy_js,
+            None => bootstrap::source_backing_scripts()?,
+        },
         // a snapshot holds every op's function already, and each calls this
         // runtime's implementation of its op and reads this runtime's
         // `OpState`: V8 resolves an op's implementation and its context
@@ -142,8 +139,9 @@ fn new_runtime(
         // from this runtime's ops, a refused op's refusal included. Unset,
         // `deno_core` would make every function again at each start and
         // write it to `Deno.core.ops`, which no code reads: the snapshot's
-        // modules hold the functions they took when it was made, and the
-        // start removes `Deno`
+        // modules hold the functions they took when it was made, so does the
+        // bootstrap object a lazy script is called with, a builtin's
+        // implementation included, and the start removes `Deno`
         skip_op_registration: snapshot.is_some(),
         create_params,
         ..Default::default()
@@ -168,7 +166,7 @@ mod tests {
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::{HOST_OPS, HostOp};
     use crate::loader::graph::Recording;
-    use crate::process_tests::{make_startup_snapshot, run_test_in_child};
+    use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
     use crate::resolver::{BUILTINS, Capability, find_builtin};
     use crate::test_support::TestDir;
     use crate::{ArgsGrant, Grants};
@@ -196,19 +194,26 @@ mod tests {
     const RESULTS_MARK: &str = "snapshot_child results: ";
 
     /// The snapshot [`snapshot_child`]'s runtimes start from, read once from
-    /// the file [`SNAPSHOT_START`] names. It comes with no residual script,
-    /// so a runtime started from it loads none.
+    /// the file [`SNAPSHOT_START`] names, with the builtins' backing scripts
+    /// the process that made it wrote beside it, as the residual table: this
+    /// process strips none. It comes with no other residual script, so a
+    /// runtime started from it loads no web script the snapshot lacks.
     fn child_snapshot() -> StartupSnapshot {
-        static BYTES: OnceLock<&'static [u8]> = OnceLock::new();
-        let bytes = BYTES.get_or_init(|| {
+        static SNAPSHOT: OnceLock<StartupSnapshot> = OnceLock::new();
+        *SNAPSHOT.get_or_init(|| {
             let file = std::env::var_os(SNAPSHOT_START)
                 .expect("a runtime starts from the snapshot only in `snapshot_child`'s process");
-            Box::leak(std::fs::read(file).unwrap().into_boxed_slice())
-        });
-        StartupSnapshot {
-            bytes,
-            residual_lazy_js: &[],
-        }
+            let scripts = std::fs::read_to_string(backing_scripts_file(Path::new(&file))).unwrap();
+            let scripts: Vec<(String, String)> = serde_json::from_str(&scripts).unwrap();
+            let table: Vec<(&'static str, &'static str)> = scripts
+                .into_iter()
+                .map(|(specifier, script)| (&*specifier.leak(), &*script.leak()))
+                .collect();
+            StartupSnapshot {
+                bytes: Box::leak(std::fs::read(file).unwrap().into_boxed_slice()),
+                residual_lazy_js: Box::leak(table.into_boxed_slice()),
+            }
+        })
     }
 
     /// Runs `test` on a runtime built as `mode` says, from source, as
@@ -270,11 +275,12 @@ mod tests {
     type Probe = fn(Start) -> Value;
 
     /// What the tests below ask of a runtime from either start, by name.
-    const PROBES: [(&str, Probe); 4] = [
+    const PROBES: [(&str, Probe); 5] = [
         ("op_functions", op_functions),
         ("unregistered_reads", unregistered_reads),
         ("host_ops", host_ops_results),
         ("refused_ops", refused_ops_results),
+        ("builtin_imports", builtin_imports),
     ];
 
     /// What the probe `name` saw of runtimes started as `start` says: from
@@ -486,31 +492,6 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         }
     }
 
-    /// The bootstrap's factories (`gro_builtins` on `internals`, keyed by
-    /// specifier in `js/bootstrap.js`) are exactly the builtin table's, in
-    /// its order, each a function of one parameter, its grant's scope: the
-    /// table is the one source of the builtins, and a key it lacks or
-    /// misspells would leave its backing script calling nothing.
-    #[test]
-    fn the_bootstrap_s_factories_are_the_builtin_table_s() {
-        let keys = on_new_runtime("builtin_factories", Mode::Run, |runtime| -> Vec<String> {
-            let value = runtime
-                .execute_script(
-                    "<test>",
-                    "const builtins = globalThis.__bootstrap.internals.gro_builtins;
-JSON.stringify(Object.isFrozen(builtins) && Object.getPrototypeOf(builtins) === null
-\t? Object.keys(builtins).filter((key) => typeof builtins[key] === 'function' && builtins[key].length === 1)
-\t: null)",
-                )
-                .unwrap();
-            deno_core::scope!(scope, runtime);
-            let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
-            serde_json::from_str(&json).unwrap()
-        });
-        let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
-        assert_eq!(keys, specifiers);
-    }
-
     /// The host ops' grants are the table's: each host op names the row of
     /// the module it serves and requires exactly that row's grant, none for
     /// a grant-free row's, so an op of a module that needs a grant can't be
@@ -614,6 +595,120 @@ JSON.stringify(results)",
             "granted_run": call_host_ops("host_granted_run", start, Mode::Run, Some(granted)),
             "pid": std::process::id(),
         })
+    }
+
+    /// What a module that imports every builtin saw on a runtime started as
+    /// `start` says, in a run that grants `args`: `ok`, or the report of
+    /// what failed. The run's arguments are replaced between the runtime's
+    /// start and the module's load, so the module tells a script run by its
+    /// import from one the start ran. With it, how many implementations the
+    /// process had stripped by then, and whether the import made an op's
+    /// function again: `deno_core` remakes each op that has a fast call the
+    /// first time code calls `core.loadExtScript` for a script the snapshot
+    /// lacks, and a builtin's first import doesn't go through that call.
+    fn builtin_imports(start: Start) -> Value {
+        use std::sync::atomic::Ordering;
+
+        use crate::resolver::DiskTree;
+
+        init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+        let snapshot = (start == Start::Snapshot).then(child_snapshot);
+        let dir = TestDir::on_disk(&format!("builtin_imports_{start:?}"));
+        let rows: Vec<(&str, &[&str])> = BUILTINS
+            .iter()
+            .map(|builtin| (builtin.specifier, builtin.exports))
+            .collect();
+        let source = format!(
+            "const check = (what, ok) => {{ if (!ok) throw new Error(what); }};
+const seen = {{}};
+for (const [specifier, exports] of {}) {{
+\tconst ns = await import(specifier);
+\tconst keys = Reflect.ownKeys(ns).filter((key) => typeof key === 'string');
+\tcheck(`${{specifier}} exports ${{keys}}`, JSON.stringify(keys) === JSON.stringify([...exports, 'default'].sort()));
+\tcheck(`${{specifier}} default`, ns.default === undefined);
+\tObject.assign(seen, ns);
+}}
+check(`args ${{JSON.stringify(seen.args)}}`, JSON.stringify(seen.args) === '[\"a\"]');
+check(`cwd ${{seen.cwd()}}`, seen.cwd() === '/work');
+check(`pid ${{seen.pid}}`, seen.pid === {});
+check(`runtime_version ${{seen.runtime_version}}`, seen.runtime_version === 'test/1.2.3');
+check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op_gro_color);
+",
+            serde_json::to_string(&rows).unwrap(),
+            std::process::id()
+        );
+        std::fs::write(dir.path().join("main.mjs"), source).unwrap();
+        let cwd = dir.path().to_owned();
+        let imported = std::thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || -> Result<(), String> {
+                let (entry, roots) =
+                    crate::resolver::resolve_entry(&DiskTree, Path::new("main.mjs"), &cwd).unwrap();
+                let authority = Authority::Confined(Grants {
+                    args: Some(ArgsGrant {}),
+                });
+                let loader = Loader::new(&entry, roots, Recording::Off);
+                let loader = Rc::new(loader.with_authority(authority.clone()));
+                let tokio = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                tokio.block_on(async {
+                    let mut runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
+                    // a fast op's function, and the object the remaking writes to
+                    runtime
+                        .execute_script(
+                            "<test>",
+                            "globalThis.core_ops = Deno.core.ops;
+globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
+                        )
+                        .map_err(|error| report_js(&error))?;
+                    let state = runtime.op_state();
+                    state.borrow_mut().put(authority);
+                    state.borrow_mut().put(HostData {
+                        args: vec!["the start's".to_owned()],
+                        ..host_data()
+                    });
+                    let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;
+                    state.borrow_mut().put(host_data());
+                    let id = runtime
+                        .load_main_es_module(&entry.url)
+                        .await
+                        .map_err(|error| report(&error))?;
+                    let evaluation = runtime.mod_evaluate(id);
+                    runtime
+                        .run_event_loop(deno_core::PollEventLoopOptions::default())
+                        .await
+                        .map_err(|error| report(&error))?;
+                    evaluation.await.map_err(|error| report(&error))
+                })
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        json!({
+            "imported": imported.err().unwrap_or_else(|| "ok".to_owned()),
+            "stripped": bootstrap::STRIPPED.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Every builtin imports from either start with the run's values, its
+    /// script run by its first import, never by the start, with the ops the
+    /// runtime's code already holds; and a process whose runtimes start from
+    /// a snapshot strips no implementation, where one that starts a runtime
+    /// from source strips each.
+    #[test]
+    fn a_builtin_s_script_runs_at_its_first_import_from_either_start() {
+        for start in STARTS {
+            assert_eq!(
+                probed("builtin_imports", start)["imported"],
+                "ok",
+                "{start:?}"
+            );
+        }
+        assert_eq!(probed("builtin_imports", Start::Snapshot)["stripped"], 0);
+        let stripped = probed("builtin_imports", Start::Source)["stripped"].as_u64();
+        assert!(stripped.unwrap() >= BUILTINS.len() as u64, "{stripped:?}");
     }
 
     /// What the host op `op` throws in a runtime that holds no authority.
