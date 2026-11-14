@@ -224,6 +224,30 @@ fn a_priced_build_turns_off_what_it_names() {
     );
 }
 
+/// The op refusals stand behind `determinism: deny` in a build that starts
+/// from its snapshot: with `deny` off, the clock, a blob, and a timer each
+/// reach an op eval refuses and throw its refusal, and with the refusals
+/// off too each runs.
+#[cfg(feature = "prices")]
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn the_op_refusals_stand_behind_deny() {
+    const REFUSED: &str = "a host operation eval refuses was called: eval has no timers, no \
+                           clock or machine reads, no blobs, no code generation from strings, \
+                           and no import past its loader";
+    assert_eq!(
+        value(&fgro(&["eval", "refused_ops.js"], Some("deny"))),
+        serde_json::json!({ "now": REFUSED, "blob": REFUSED, "timer": REFUSED })
+    );
+    assert_eq!(
+        value(&fgro(&["eval", "refused_ops.js"], Some("deny,refuse_ops"))),
+        serde_json::json!({ "now": "ran", "blob": "ran", "timer": "ran" })
+    );
+}
+
 /// Every thread eval starts sets its own stack, so a `RUST_MIN_STACK` too
 /// large to reserve changes nothing even with the environment kept, the
 /// clear off: the threads all start, the watchdog among them, and the value

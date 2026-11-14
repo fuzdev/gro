@@ -384,6 +384,17 @@ Invariants that live in the code:
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses; a test pins every
   registered op name in `crates/gro_runtime/tests/op_names.txt`, so a
   `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed.
+- A start from the snapshot binds no op again (`skip_op_registration`, set
+  in `runtime::new_runtime`): the snapshot's op functions are the only ones,
+  and each reaches the starting runtime's implementation of its op, eval's
+  refusal included, and that runtime's `OpState`, through the
+  external-reference table `deno_core` builds from the runtime's ops. The
+  runtime's tests start from a snapshot too, in child processes: one makes
+  it (`process_tests::make_startup_snapshot`), and a second starts every
+  runtime of its own from it (`runtime::tests::snapshot_child`), since a
+  process's isolates share one read-only heap. They hold the op functions,
+  eval's refusals, and the host ops' checks to what a start from source
+  gives.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in, as it passes the working directory and

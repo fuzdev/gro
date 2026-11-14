@@ -1,14 +1,20 @@
 //! What a test can see only from a process of its own: the console's output
-//! on the process's stdout and stderr, and the engine's process-wide options.
+//! on the process's stdout and stderr, and the engine's process-wide options;
+//! and what only a process of its own can make, the startup snapshot
+//! ([`make_startup_snapshot`]).
 //!
 //! Each case runs in a child, this test binary run again with [`CASE`] naming
 //! the case and the filter selecting only [`child`] by its full path,
 //! [`CHILD_TEST`]; the parent reads its exit status and output.
+//! [`run_test_in_child`] runs any one test of the binary that way.
 
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crate::confine::Confinement;
 use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
+use crate::snapshot::make_snapshot;
 use crate::test_support::TestDir;
 use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
 
@@ -18,6 +24,9 @@ const CHILD_TEST: &str = "process_tests::child";
 
 /// The variable naming the case a child runs.
 const CASE: &str = "GRO_RUNTIME_TEST_CASE";
+
+/// The variable naming the file the `snapshot` case writes.
+const SNAPSHOT_FILE: &str = "GRO_RUNTIME_TEST_SNAPSHOT_FILE";
 
 /// Writes a line per level, each a number, which the console colors when its
 /// stream is colored.
@@ -112,6 +121,11 @@ for (const locale of locales) {
                 RuntimeOptions::default(),
             );
         }
+        "snapshot" => {
+            let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+            let snapshot = make_snapshot(engine).unwrap();
+            std::fs::write(std::env::var_os(SNAPSHOT_FILE).unwrap(), snapshot.bytes).unwrap();
+        }
         case => panic!("unknown case {case}"),
     }
 }
@@ -119,23 +133,44 @@ for (const locale of locales) {
 /// Runs the child for `case`, failing unless it succeeds, and returns its
 /// output.
 fn run_child(case: &str) -> Output {
+    run_test_in_child(CHILD_TEST, &[(CASE, OsStr::new(case))])
+}
+
+/// Runs the test at the full path `test` alone, in a child with `env` set,
+/// failing unless it ran and succeeded, and returns its output.
+pub fn run_test_in_child(test: &str, env: &[(&str, &OsStr)]) -> Output {
     let output = Command::new(std::env::current_exe().unwrap())
-        .args([CHILD_TEST, "--exact", "--nocapture", "--quiet"])
-        .env(CASE, case)
+        .args([test, "--exact", "--nocapture", "--quiet"])
+        .envs(env.iter().copied())
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "{case}: {}\n{}",
+        "{test} with {env:?}: {}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     // a filter that matches no test exits 0 as well
     assert!(
         String::from_utf8_lossy(&output.stdout).contains(" 1 passed;"),
-        "{case}: the child ran no test"
+        "{test} with {env:?}: the child ran no test"
     );
     output
+}
+
+/// Makes the startup snapshot of this build's extensions in `dir` and
+/// returns its file, the serialized heap alone. A child makes it: V8 makes
+/// a snapshot only in a process that runs no other runtime.
+pub fn make_startup_snapshot(dir: &Path) -> PathBuf {
+    let file = dir.join("snapshot.bin");
+    run_test_in_child(
+        CHILD_TEST,
+        &[
+            (CASE, OsStr::new("snapshot")),
+            (SNAPSHOT_FILE, file.as_os_str()),
+        ],
+    );
+    file
 }
 
 /// The lines of `output` that are one of the console's numbers, colored or
