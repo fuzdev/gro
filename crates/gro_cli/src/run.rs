@@ -5,7 +5,7 @@
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::{Authority, Grants, ProcessGrant, RefusedImport, RunOutcome, RuntimeOptions};
+use gro_runtime::{ArgsGrant, Authority, Grants, RefusedImport, RunOutcome, RuntimeOptions};
 
 use crate::cli::RunInvocation;
 use crate::color;
@@ -86,12 +86,11 @@ fn warn_of_refusals(refused: &[RefusedImport], host_modules: u64, unlisted: u64)
 }
 
 /// The options `run`'s runtime starts with: the project's own modules
-/// granted the process host module, which reads only the script's
-/// arguments so far.
+/// granted the args host module, the script's arguments.
 fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     RuntimeOptions {
         authority: Authority::Confined(Grants {
-            process: Some(ProcessGrant {}),
+            args: Some(ArgsGrant {}),
         }),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
@@ -129,16 +128,16 @@ mod tests {
         assert!(runtime_options(&run).args.is_empty());
     }
 
-    /// `run` grants the process host module, and only it.
+    /// `run` grants the args host module, and only it.
     #[test]
-    fn the_run_grants_process() {
+    fn the_run_grants_args() {
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
         assert_eq!(
             runtime_options(&run).authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
-                process: Some(gro_runtime::ProcessGrant {}),
+                args: Some(gro_runtime::ArgsGrant {}),
             })
         );
     }

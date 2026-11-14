@@ -30,29 +30,29 @@ fn a_static_import_that_does_not_resolve_is_a_resolve_exiting_1() {
     ignore = "a confined eval needs a snapshot build"
 )]
 fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes() {
-    let run = eval(&["import_process.js"]);
+    let run = eval(&["import_args.js"]);
     run.assert_failed("resolve", 1);
-    let importer = format!("{}/import_process.js", fixtures_url());
+    let importer = format!("{}/import_args.js", fixtures_url());
     assert_eq!(
         run.message(),
         format!(
-            "cannot import '@fuzdev/gro/process.ts' from {importer}: it needs the grant \
-             'process', and eval imports no builtin module"
+            "cannot import '@fuzdev/gro/args.ts' from {importer}: it needs the grant 'args', \
+             and eval imports no builtin module"
         )
     );
-    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.ts");
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/args.ts");
     assert_eq!(run.envelope["error"]["importer"], importer);
-    let run = eval(&["import_process_attribute.js"]);
+    let run = eval(&["import_args_attribute.js"]);
     run.assert_failed("link", 1);
-    let importer = format!("{}/import_process_attribute.js", fixtures_url());
+    let importer = format!("{}/import_args_attribute.js", fixtures_url());
     assert_eq!(
         run.message(),
         format!(
-            "cannot import '@fuzdev/gro/process.ts' from {importer}: a builtin module takes no \
+            "cannot import '@fuzdev/gro/args.ts' from {importer}: a builtin module takes no \
              import attributes"
         )
     );
-    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.ts");
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/args.ts");
     assert_eq!(run.envelope["error"]["importer"], importer);
 }
 
@@ -67,7 +67,7 @@ fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes(
 fn an_attribute_under_another_key_is_a_link_naming_it() {
     for (fixture, specifier) in [
         ("import_attribute_key.js", "./value.js"),
-        ("import_process_attribute_key.js", "@fuzdev/gro/process.ts"),
+        ("import_args_attribute_key.js", "@fuzdev/gro/args.ts"),
     ] {
         let run = eval(&[fixture]);
         run.assert_failed("link", 1);
@@ -366,7 +366,7 @@ fn a_reserved_specifier_is_a_resolve() {
             ("package.json", r#"{"name": "p", "type": "module"}"#),
             (
                 "js_spelling.js",
-                "import {process} from '@fuzdev/gro/process.js';\nexport default process;\n",
+                "import {args} from '@fuzdev/gro/args.js';\nexport default args;\n",
             ),
             (
                 "where.js",
@@ -376,7 +376,11 @@ fn a_reserved_specifier_is_a_resolve() {
             ),
             (
                 "respelled.js",
-                "import {process} from '@fuzdev/gro/proces%73.ts';\nexport default process;\n",
+                "import {args} from '@fuzdev/gro/arg%73.ts';\nexport default args;\n",
+            ),
+            (
+                "split.js",
+                "import {process} from '@fuzdev/gro/process.ts';\nexport default process;\n",
             ),
             (
                 "where_respelled.js",
@@ -392,12 +396,12 @@ fn a_reserved_specifier_is_a_resolve() {
     assert_eq!(
         run.message(),
         format!(
-            "cannot resolve '@fuzdev/gro/process.js' from file://{root}/js_spelling.js: it is the \
-             .js spelling of the builtin module '@fuzdev/gro/process.ts', reserved so it never \
-             resolves to a package. Fix: import '@fuzdev/gro/process.ts'"
+            "cannot resolve '@fuzdev/gro/args.js' from file://{root}/js_spelling.js: it is the \
+             .js spelling of the builtin module '@fuzdev/gro/args.ts', reserved so it never \
+             resolves to a package. Fix: import '@fuzdev/gro/args.ts'"
         )
     );
-    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/process.js");
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/args.js");
     eval(&[&scratch.path("where.js")]).assert_value(&json!({
         "message": format!(
             "cannot resolve '@fuzdev/gro/fs.ts' from file://{root}/where.js: it names Gro's host \
@@ -410,14 +414,23 @@ fn a_reserved_specifier_is_a_resolve() {
     assert_eq!(
         run.message(),
         format!(
-            "cannot resolve '@fuzdev/gro/proces%73.ts' from file://{root}/respelled.js: it \
-             respells the builtin module '@fuzdev/gro/process.ts', reserved so no spelling of it \
-             resolves to a package. Fix: import '@fuzdev/gro/process.ts'"
+            "cannot resolve '@fuzdev/gro/arg%73.ts' from file://{root}/respelled.js: it \
+             respells the builtin module '@fuzdev/gro/args.ts', reserved so no spelling of it \
+             resolves to a package. Fix: import '@fuzdev/gro/args.ts'"
         )
     );
-    assert_eq!(
-        run.envelope["error"]["specifier"],
-        "@fuzdev/gro/proces%73.ts"
+    assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/arg%73.ts");
+    let run = eval(&[&scratch.path("split.js")]);
+    run.assert_failed("resolve", 1);
+    assert!(
+        run.message().starts_with(&format!(
+            "cannot resolve '@fuzdev/gro/process.ts' from file://{root}/split.js: it names \
+             '@fuzdev/gro/process.ts', which isn't one of Gro's modules: its members are modules \
+             of their own, and its specifier never resolves to a package. Fix: import what you \
+             use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts',"
+        )),
+        "{}",
+        run.message()
     );
     eval(&[&scratch.path("where_respelled.js")]).assert_value(&json!({
         "message": format!(

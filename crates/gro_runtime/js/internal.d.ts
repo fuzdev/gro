@@ -22,5 +22,5 @@ declare module 'ext:core/ops' {
 	export const op_gro_color: (stderr: boolean) => boolean;
 	export const op_gro_console_stderr: () => boolean;
 	export const op_gro_deny: () => boolean;
-	export const op_gro_process_args: () => Array<string>;
+	export const op_gro_args: () => Array<string>;
 }

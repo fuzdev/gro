@@ -75,7 +75,8 @@ mod tree;
 mod walk;
 
 pub use builtin::{
-    BUILTINS, Builtin, Capability, Reserved, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
+    BUILTINS, Builtin, Capability, Reserved, SPLIT_MODULES, SplitModule, UNBUILT_HOST_MODULES,
+    find_builtin, find_reserved,
 };
 pub(crate) use builtin::{builtin_rows, builtin_url};
 pub use entry::{EntryBound, resolve_entry, resolve_entry_with_bound};

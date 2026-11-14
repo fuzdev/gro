@@ -2,7 +2,7 @@
 //! compiled it and in whichever order, while every `import()` a module's own
 //! function makes is allowed, wherever it's called from.
 
-use super::builtins::{PROCESS, granted, run_files};
+use super::builtins::{ARGS, granted, run_files};
 use crate::RuntimeOptions;
 use crate::loader::graph::{FailureReason, Reach, Reached};
 
@@ -31,7 +31,7 @@ export const own = () => import('./who.js');
 /// module function's `import()` however it's reached, allowed.
 const MAIN: &str = "import * as pkg from 'pkg/lib.js';
 import * as lib from './lib.mjs';
-const B = \"import('@fuzdev/gro/process.ts')\";
+const B = \"import('@fuzdev/gro/args.ts')\";
 const W = \"import('./who.mjs')\";
 const failures = [];
 const refused = async (name, f) => {
@@ -99,10 +99,10 @@ await refused('an async function after awaits', () =>
 // a module's own function, however string-compiled code or a package reaches it
 await allowed('a literal', () => import('./who.mjs'));
 await allowed('a computed specifier', () => import('./' + 'who.mjs'));
-await allowed('a builtin', () => import('@fuzdev/gro/process.ts'));
+await allowed('a builtin', () => import('@fuzdev/gro/args.ts'));
 await allowed('a module function new Function calls', () => new Function('f', 'return f()')(() => import('./who.mjs')));
 await allowed('a module function eval calls', () => lib.ind('(load) => load()')(lib.load));
-await allowed('a callback the package calls', () => pkg.call(() => import('@fuzdev/gro/process.ts')));
+await allowed('a callback the package calls', () => pkg.call(() => import('@fuzdev/gro/args.ts')));
 await allowed('a callback the package calls in a timer', () => pkg.later(() => import('./who.mjs')));
 await allowed('a microtask', () => Promise.resolve().then(() => import('./who.mjs')));
 await allowed('a timer', () => new Promise((resolve) => setTimeout(() => resolve(import('./who.mjs')), 0)));
@@ -120,8 +120,8 @@ const FILES: [(&str, &str); 7] = [
     ("who.mjs", "export default 'project';\n"),
     (
         "dep.mjs",
-        "import who from './who.mjs';\nimport { process } from '@fuzdev/gro/process.ts';\n\
-         export default [who, process.args];\n",
+        "import who from './who.mjs';\nimport { args } from '@fuzdev/gro/args.ts';\n\
+         export default [who, args];\n",
     ),
     (
         "node_modules/pkg/package.json",
@@ -159,7 +159,7 @@ fn an_import_in_code_compiled_from_a_string_is_refused() {
             .all(|site| site.reached == Reached::Import(Reach::Dynamic)),
         "{refused:?}"
     );
-    for specifier in [PROCESS, "./who.mjs"] {
+    for specifier in [ARGS, "./who.mjs"] {
         assert!(
             refused.iter().any(|site| site.specifier == specifier),
             "{specifier}: {:?}",

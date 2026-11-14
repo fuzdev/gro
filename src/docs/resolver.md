@@ -55,17 +55,22 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 ## Builtin modules
 
 A bare specifier in the builtin table names a [builtin module](glossary.md#builtin-module), a host module the binary implements:
-today `@fuzdev/gro/process.ts` alone ([host modules](host_modules.md#the-process-modules-on-fgro)).
+today `@fuzdev/gro/args.ts` alone ([host modules](host_modules.md#the-process-modules-on-fgro)).
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
-the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/process.js`), and the specifier of a host module not built on `fgro` yet
-(`@fuzdev/gro/fs.ts`, `spawn`, `net`, and `watch`, each with its `.js` spelling), are refused the same way, naming the one to import
+the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/args.js`), and the specifier of a host module not built on `fgro` yet
+(`@fuzdev/gro/fs.ts`, `spawn`, `net`, `watch`, `env`, `exit`, `stdin`, `stdout`, `stderr`, `cwd`, `pid`, and `runtime_version`,
+each with its `.js` spelling), are refused the same way, naming the one to import
 or that the module isn't on `fgro` yet, never looked up as a package, so none of them changes meaning when its builtin module lands.
+`@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, each with its `.js` spelling, are refused the same way:
+Gro has neither, since their members are modules of their own, and the refusal names those modules
+(the process modules, or `env_error.ts` and `stdio_error.ts`), saying which of them `fgro` has so far.
 So is a respelling of any of these or of a builtin module's specifier, one whose subpath a package's `"exports"` would turn into the same path
-(percent-encoding as in `@fuzdev/gro/proces%73.ts`, a query or fragment as in `@fuzdev/gro/fs.js?.ts`, a tab or line break):
+(percent-encoding as in `@fuzdev/gro/arg%73.ts`, a query or fragment as in `@fuzdev/gro/fs.js?.ts`, a tab or line break):
 the resolver reads its subpath as URL parsing and the path's decoding do, whatever patterns the installed package has.
-Any other spelling, like `@fuzdev/gro/process`, is a package specifier like any other.
-A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/process.ts`),
+Any other spelling, like `@fuzdev/gro/args`, is a package specifier like any other,
+as are the error modules `env_error.ts` and `stdio_error.ts`, which grant nothing and load from the package.
+A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/args.ts`),
 with no file, root, or origin, and it imports nothing.
 That scheme is refused like every other but `file:`, so only the table's specifier reaches a builtin module.
 
@@ -81,7 +86,7 @@ it's refused naming the package and the module, by a static import, `import()`, 
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants `process`, and `fgro eval` imports no builtin module, a grant-free one included ([eval](eval.md)).
+`fgro run` grants `args`, and `fgro eval` imports no builtin module, a grant-free one included ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 Attributes follow the language's rule: `type` is the one key supported, and an attribute under any other key (`with {x: 'y'}`)
 is refused before anything resolves, for a static import and `import()`, a file and a builtin module alike.

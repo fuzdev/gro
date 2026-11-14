@@ -5,7 +5,7 @@ use std::io;
 use std::path::PathBuf;
 
 use super::CONDITIONS;
-use super::builtin::Reserved;
+use super::builtin::{Reserved, UNBUILT_HOST_MODULES};
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
 use crate::clip::{clip_boxed, clip_path, clip_string};
@@ -37,8 +37,9 @@ pub enum ResolveErrorKind {
     /// A `#` package import.
     PackageImport,
     /// A specifier the builtin table reserves without serving: the `.js`
-    /// spelling of a builtin module's, a host module's not built yet, or a
-    /// respelling of either or of a builtin module's. It's refused ahead of
+    /// spelling of a builtin module's, a host module's not built yet, a
+    /// module's whose members are modules of their own, or a respelling of
+    /// any of these or of a builtin module's. It's refused ahead of
     /// any package lookup, so it never resolves to a package, gro's own Node
     /// implementation included.
     Reserved(Reserved),
@@ -422,8 +423,8 @@ impl ResolveErrorKind {
     }
 
     /// The host module this refusal names, when it names one: a reserved
-    /// specifier, which spells a builtin's or a host module's not built yet
-    /// ([`Reserved::host_module`]). No other refusal of the resolver's
+    /// specifier, which spells a builtin's, a host module's not built yet,
+    /// or a split module's ([`Reserved::host_module`]). No other refusal of the resolver's
     /// names one, since the table's hit returns ahead of them.
     pub fn host_module(&self) -> Option<&'static str> {
         match self {
@@ -692,6 +693,40 @@ impl fmt::Display for ResolveErrorKind {
                 "it names Gro's host module '{stem}.ts', which isn't on fgro yet, and a host \
                  module's specifier never resolves to a package. Fix: run this under Node with gro"
             ),
+            Self::Reserved(Reserved::Split(split)) => {
+                write!(
+                    f,
+                    "it names '{}.ts', which isn't one of Gro's modules: its members are modules \
+                     of their own, and its specifier never resolves to a package. Fix: import \
+                     what you use from ",
+                    split.stem
+                )?;
+                write_specifiers(f, split.modules.iter().copied(), split.modules.len())?;
+                // the ones refused on fgro, which the fix can't promise there
+                let is_unbuilt = |module: &str| {
+                    module
+                        .strip_suffix(".ts")
+                        .is_some_and(|stem| UNBUILT_HOST_MODULES.contains(&stem))
+                };
+                let available = split.modules.iter().filter(|module| !is_unbuilt(module));
+                let count = available.clone().count();
+                if count == split.modules.len() {
+                    return Ok(());
+                }
+                if count == 0 {
+                    return f.write_str(
+                        "; none of them is on fgro yet, so run code that uses them under Node \
+                         with gro",
+                    );
+                }
+                f.write_str("; of these, only ")?;
+                write_specifiers(f, available.copied(), count)?;
+                let verb = if count == 1 { "is" } else { "are" };
+                write!(
+                    f,
+                    " {verb} on fgro yet, so run code that uses the others under Node with gro"
+                )
+            }
             Self::Empty => f.write_str("the specifier is empty"),
             Self::InvalidUrl(fault) => write!(f, "not a valid file URL: {fault}"),
             Self::InvalidPackageName => f.write_str(
@@ -1058,4 +1093,24 @@ impl fmt::Display for UrlFault {
             Self::NotAbsolute => f.write_str("not an absolute path"),
         }
     }
+}
+
+/// Writes `count` specifiers quoted, joined as a list: `'a'`, `'a' or 'b'`,
+/// `'a', 'b', or 'c'`.
+fn write_specifiers<'a>(
+    f: &mut fmt::Formatter<'_>,
+    specifiers: impl Iterator<Item = &'a str>,
+    count: usize,
+) -> fmt::Result {
+    let last = count.saturating_sub(1);
+    for (i, specifier) in specifiers.enumerate() {
+        let separator = match i {
+            0 => "",
+            _ if i == last && last == 1 => " or ",
+            _ if i == last => ", or ",
+            _ => ", ",
+        };
+        write!(f, "{separator}'{specifier}'")?;
+    }
+    Ok(())
 }

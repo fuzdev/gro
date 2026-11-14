@@ -567,8 +567,8 @@ mod tests {
                  in fgro, so no graph is written",
             ),
             (
-                DumpError::Builtin(Url::parse("builtin:@fuzdev/gro/process.ts").unwrap()),
-                "the graph records the builtin module builtin:@fuzdev/gro/process.ts, which eval \
+                DumpError::Builtin(Url::parse("builtin:@fuzdev/gro/args.ts").unwrap()),
+                "the graph records the builtin module builtin:@fuzdev/gro/args.ts, which eval \
                  never imports, a bug in fgro, so no graph is written",
             ),
         ];

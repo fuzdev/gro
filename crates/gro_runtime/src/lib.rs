@@ -119,7 +119,7 @@ pub struct RuntimeOptions {
     pub console: ConsoleOptions,
     /// The script's arguments, every one after the entry on the command
     /// line, as written: data, not authority. A script reads them as the
-    /// process builtin's `process.args`, which needs the `process` grant.
+    /// args builtin's `args`, which needs the `args` grant.
     pub args: Vec<String>,
 }
 
@@ -177,20 +177,20 @@ impl Default for Authority {
 /// each host module's grant `None` when it isn't granted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Grants {
-    /// The process host module's.
-    pub process: Option<ProcessGrant>,
+    /// The args host module's.
+    pub args: Option<ArgsGrant>,
 }
 
 impl Grants {
     /// Whether `capability` is granted.
     pub const fn holds(&self, capability: Capability) -> bool {
         match capability {
-            Capability::Process => self.process.is_some(),
+            Capability::Args => self.args.is_some(),
         }
     }
 }
 
-/// The process host module's grant. What it reads today, the script's
-/// arguments, is data, so it scopes nothing yet.
+/// The args host module's grant. What it reads, the script's arguments, is
+/// data, so it scopes nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProcessGrant {}
+pub struct ArgsGrant {}

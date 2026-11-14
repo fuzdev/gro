@@ -2,7 +2,7 @@
 const caught = [];
 for (const [specifier, attributes] of [
 	['./value.js', { x: 'y' }],
-	['@fuzdev/gro/process.ts', { type: 'json' }]
+	['@fuzdev/gro/args.ts', { type: 'json' }]
 ]) {
 	try {
 		await import(specifier, { with: attributes });

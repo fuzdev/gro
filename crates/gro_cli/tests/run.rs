@@ -248,10 +248,10 @@ fn a_caught_refusal_by_rule_is_reported_once_and_exits_0() {
              such code between modules that compile the same string, so it has no importer of \
              its own. Fix: call import() in a module and pass what it returns to the compiled \
              code\n\
-             warning: import() refused: cannot resolve '@fuzdev/gro/process.js' from \
+             warning: import() refused: cannot resolve '@fuzdev/gro/args.js' from \
              {url}/import_refused_reported.js: it is the .js spelling of the builtin module \
-             '@fuzdev/gro/process.ts', reserved so it never resolves to a package. Fix: import \
-             '@fuzdev/gro/process.ts'\n"
+             '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
+             '@fuzdev/gro/args.ts'\n"
         )
     );
 }
@@ -297,7 +297,7 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
     let (last, listed) = lines.split_last().unwrap();
     assert_eq!(listed.len(), 101, "{}", run.stderr);
     assert!(
-        listed[0].starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/process.js'"),
+        listed[0].starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/args.js'"),
         "{}",
         run.stderr
     );
@@ -340,7 +340,7 @@ fn an_uncaught_probe_is_the_error_and_listed() {
     let lines: Vec<&str> = run.stderr.lines().collect();
     assert!(
         lines[0].starts_with(
-            "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/process.js'"
+            "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/args.js'"
         ),
         "{}",
         run.stderr
@@ -357,7 +357,7 @@ fn an_uncaught_probe_is_the_error_and_listed() {
         lines
             .iter()
             .filter(|line| line
-                .starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/process.js'"))
+                .starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/args.js'"))
             .count(),
         1,
         "{}",
@@ -1884,10 +1884,10 @@ fn arguments_after_the_file_are_the_script_s() {
     }
 }
 
-/// The script reads its arguments as `process.args`, exactly as given:
-/// none, several, ones spelled like flags, empty, and non-ASCII.
+/// The script reads its arguments as `args`, exactly as given: none,
+/// several, ones spelled like flags, empty, and non-ASCII.
 #[test]
-fn the_script_reads_its_arguments_from_process() {
+fn the_script_reads_its_arguments_from_args() {
     for args in [
         &[][..],
         &["a", "b c", "d"],
@@ -1895,7 +1895,7 @@ fn the_script_reads_its_arguments_from_process() {
         &["", " ", ""],
         &["\u{e9}", "\u{1f600}", "\u{65e5}\u{672c}"],
     ] {
-        let output = fgro(&[&["run", "process_args.js"][..], args].concat());
+        let output = fgro(&[&["run", "args.js"][..], args].concat());
         assert_eq!(output.status.code(), Some(0), "{args:?}: {output:?}");
         assert_eq!(
             String::from_utf8(output.stdout).unwrap(),
@@ -1905,12 +1905,12 @@ fn the_script_reads_its_arguments_from_process() {
     }
 }
 
-/// A package's module is refused `process`, the message naming the
-/// package, while the project imports it in the same run.
+/// A package's module is refused `args`, the message naming the package,
+/// while the project imports it in the same run.
 #[test]
-fn a_package_is_refused_process_while_the_project_imports_it() {
+fn a_package_is_refused_args_while_the_project_imports_it() {
     let fixtures = temp_fixtures(
-        "process_package",
+        "args_package",
         &[
             ("package.json", r#"{"name": "app", "type": "module"}"#),
             (
@@ -1919,15 +1919,15 @@ fn a_package_is_refused_process_while_the_project_imports_it() {
             ),
             (
                 "node_modules/dep/index.js",
-                "export const load = () => import('@fuzdev/gro/process.ts');\n",
+                "export const load = () => import('@fuzdev/gro/args.ts');\n",
             ),
             (
                 "main.js",
-                "import { process } from '@fuzdev/gro/process.ts';\n\
+                "import { args } from '@fuzdev/gro/args.ts';\n\
                  import { load } from 'dep';\n\
-                 console.log(JSON.stringify(process.args));\n\
+                 console.log(JSON.stringify(args));\n\
                  await load().catch((error) => console.log(error instanceof TypeError, error.message));\n\
-                 console.log(import.meta.resolve('@fuzdev/gro/process.ts'));\n",
+                 console.log(import.meta.resolve('@fuzdev/gro/args.ts'));\n",
             ),
         ],
     );
@@ -1936,9 +1936,9 @@ fn a_package_is_refused_process_while_the_project_imports_it() {
     assert_eq!(
         run.stdout,
         format!(
-            "[]\ntrue cannot import '@fuzdev/gro/process.ts' from file://{}/node_modules/dep/index.js: \
-             it needs the grant 'process', which package 'dep' isn't granted: only the project's \
-             own modules are granted host modules\nbuiltin:@fuzdev/gro/process.ts\n",
+            "[]\ntrue cannot import '@fuzdev/gro/args.ts' from file://{}/node_modules/dep/index.js: \
+             it needs the grant 'args', which package 'dep' isn't granted: only the project's \
+             own modules are granted host modules\nbuiltin:@fuzdev/gro/args.ts\n",
             fixtures.0.display()
         )
     );

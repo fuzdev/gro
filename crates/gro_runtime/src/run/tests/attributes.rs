@@ -5,7 +5,7 @@
 //! `type` on a file is refused when it loads, whatever its value, and no
 //! value makes a file load another way.
 
-use super::builtins::{HOP, PROCESS, SELF_LINK, granted, run_files, run_linked};
+use super::builtins::{ARGS, HOP, SELF_LINK, granted, run_files, run_linked};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached};
 use crate::resolver::BUILTINS;
 use crate::{RunError, RuntimeOptions};
@@ -68,11 +68,11 @@ fn a_static_import_with_another_key_is_refused_before_it_resolves() {
     let cases: [(&str, &str, &str, RuntimeOptions); 7] = [
         ("file", "./who.mjs", "{ x: 'y' }", granted_options()),
         ("missing", "./missing.mjs", "{ x: 'y' }", granted_options()),
-        ("builtin", PROCESS, "{ x: 'y' }", granted_options()),
-        ("ungranted", PROCESS, "{ x: 'y' }", ungranted()),
+        ("builtin", ARGS, "{ x: 'y' }", granted_options()),
+        ("ungranted", ARGS, "{ x: 'y' }", ungranted()),
         (
             "reserved",
-            "@fuzdev/gro/process.js",
+            "@fuzdev/gro/args.js",
             "{ x: 'y' }",
             granted_options(),
         ),
@@ -143,7 +143,7 @@ fn a_static_import_with_another_key_is_refused_before_it_resolves() {
     );
 }
 
-/// `fgro run`'s options: `process` granted.
+/// `fgro run`'s options: `args` granted.
 fn granted_options() -> RuntimeOptions {
     RuntimeOptions {
         authority: granted(),
@@ -212,14 +212,14 @@ const refused = async (name, f, expected) => {{
 const key = (k) => `the import attribute '${{k}}' is not supported; only 'type' is`;
 await refused('file', () => import('./who.mjs', {{ with: {{ x: 'y' }} }}), key('x'));
 await refused('missing file', () => import('./missing.mjs', {{ with: {{ x: 'y' }} }}), key('x'));
-await refused('builtin', () => import('{PROCESS}', {{ with: {{ x: 'y' }} }}), key('x'));
-await refused('reserved', () => import('@fuzdev/gro/process.js', {{ with: {{ x: 'y' }} }}), key('x'));
+await refused('builtin', () => import('{ARGS}', {{ with: {{ x: 'y' }} }}), key('x'));
+await refused('reserved', () => import('@fuzdev/gro/args.js', {{ with: {{ x: 'y' }} }}), key('x'));
 await refused('several', () => import('./who.mjs', {{ with: {{ type: 'json', b: '1', a: '2' }} }}), key('a'));
 await refused('a package importing the project', () => hopx(), key('x'));
 // code compiled from a string is refused first, so its refusal names no importer
 await refused('from string code', () => (0, eval)(\"import('./who.mjs', {{ with: {{ x: 'y' }} }})\"), 'from code compiled from a string');
-await refused('a builtin from string code', () => (0, eval)(\"import('{PROCESS}', {{ with: {{ type: 'json' }} }})\"), 'from code compiled from a string');
-await refused('builtin with type', () => import('{PROCESS}', {{ with: {{ type: 'json' }} }}), 'a builtin module takes no import attributes');
+await refused('a builtin from string code', () => (0, eval)(\"import('{ARGS}', {{ with: {{ type: 'json' }} }})\"), 'from code compiled from a string');
+await refused('builtin with type', () => import('{ARGS}', {{ with: {{ type: 'json' }} }}), 'a builtin module takes no import attributes');
 await refused('file with type', () => import('./who.mjs', {{ with: {{ type: 'json' }} }}), 'import attributes are not supported yet');
 await refused('text by extension', () => import('./secret.txt', {{ with: {{ type: 'text' }} }}), \"the extension '.txt' does not load as a module\");
 await refused('text by name', () => import('./.env', {{ with: {{ type: 'text' }} }}), 'the path has no extension');
@@ -228,7 +228,7 @@ for (const [name, f] of [
 \t['no attributes', () => import('./who.mjs')],
 \t['an empty with', () => import('./who.mjs', {{ with: {{}} }})],
 \t['undefined options', () => import('./who.mjs', undefined)],
-\t['an empty with on a builtin', () => import('{PROCESS}', {{ with: {{}} }})],
+\t['an empty with on a builtin', () => import('{ARGS}', {{ with: {{}} }})],
 ]) {{
 \ttry {{
 \t\tawait f();
@@ -261,13 +261,13 @@ if (failures.length > 0) throw new Error(failures.join('\\n'));
         .collect();
     let (result, graph) = run_linked("attributes_dynamic", &files, &SELF_LINK, granted_options());
     assert!(result.is_ok(), "{result:?}");
-    for specifier in ["./who.mjs", "./missing.mjs", "@fuzdev/gro/process.js"] {
+    for specifier in ["./who.mjs", "./missing.mjs", "@fuzdev/gro/args.js"] {
         assert_attribute_failure(&graph, specifier, "main.mjs", Reach::Dynamic);
     }
     // the builtin's two refusals, each kept: a key, then `type` on a builtin
     assert_attribute_failures(
         &graph,
-        PROCESS,
+        ARGS,
         "main.mjs",
         Reach::Dynamic,
         &[

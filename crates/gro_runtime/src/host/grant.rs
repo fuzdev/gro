@@ -5,7 +5,7 @@ use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
 use crate::resolver::Capability;
-use crate::{Authority, Grants, ProcessGrant};
+use crate::{ArgsGrant, Authority, Grants};
 
 /// A host module's grant, as [`Grants`] holds it.
 pub trait Grant: Clone + 'static {
@@ -16,11 +16,11 @@ pub trait Grant: Clone + 'static {
     fn of(grants: &Grants) -> Option<&Self>;
 }
 
-impl Grant for ProcessGrant {
-    const CAPABILITY: Capability = Capability::Process;
+impl Grant for ArgsGrant {
+    const CAPABILITY: Capability = Capability::Args;
 
     fn of(grants: &Grants) -> Option<&Self> {
-        grants.process.as_ref()
+        grants.args.as_ref()
     }
 }
 

@@ -5,7 +5,7 @@
 //! already shows, are not.
 
 use super::super::{RunError, RunOutcome, run_main};
-use super::builtins::{HOP, PROCESS, SELF_LINK, granted};
+use super::builtins::{ARGS, HOP, SELF_LINK, granted};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{MAX_KEPT_MESSAGE, MAX_KEPT_REFUSALS, MAX_KEPT_TEXT};
@@ -13,7 +13,7 @@ use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE};
 
 /// Writes `files` and `links` (a path and its target, made a symlink) into
-/// a fresh project named for `name`, runs its `main.mjs` granted `process`
+/// a fresh project named for `name`, runs its `main.mjs` granted `args`
 /// as `fgro run` does, recording off, and returns the outcome with the
 /// project's directory.
 fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (RunOutcome, String) {
@@ -46,7 +46,7 @@ fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (R
     (outcome, dir.display().to_string())
 }
 
-/// The package `pkg`, whose modules try `process` and the project's
+/// The package `pkg`, whose modules try `args` and the project's
 /// `args.js` by name, and the project linked into its `node_modules`
 /// ([`HOP`]).
 const PKG: [(&str, &str); 2] = [
@@ -58,7 +58,7 @@ const PKG: [(&str, &str); 2] = [
         "node_modules/pkg/probe.js",
         "const attempt = async (f) => { try { await f(); } catch {} };
 export const probe = async () => {
-\tawait attempt(() => import('@fuzdev/gro/process.ts'));
+\tawait attempt(() => import('@fuzdev/gro/args.ts'));
 \tawait attempt(() => import('self/args.js'));
 };
 ",
@@ -79,10 +79,10 @@ fn a_caught_refusal_by_rule_is_listed_once() {
 const attempt = async (f) => { try { await f(); } catch {} };
 for (let i = 0; i < 3; i++) {
 \tawait probe();
-\tawait attempt(() => import('@fuzdev/gro/process.js'));
+\tawait attempt(() => import('@fuzdev/gro/args.js'));
 \tawait attempt(() => import('ext:core/ops'));
 \tawait attempt(() => import('./node_modules/pkg/probe.js'));
-\tawait attempt(() => import('@fuzdev/gro/process.ts', { with: { type: 'json' } }));
+\tawait attempt(() => import('@fuzdev/gro/args.ts', { with: { type: 'json' } }));
 \tawait attempt(() => (0, eval)(\"import('./who.mjs')\"));
 \t// nothing there, or nothing that loads yet
 \tawait attempt(() => import('./who.mjs', { with: { x: 'y' } }));
@@ -92,7 +92,7 @@ for (let i = 0; i < 3; i++) {
 \tawait attempt(() => import('node:fs'));
 \tawait attempt(() => import('npm:left-pad'));
 \tawait attempt(() => import('./enum.ts'));
-\ttry { import.meta.resolve('@fuzdev/gro/process.js'); } catch {}
+\ttry { import.meta.resolve('@fuzdev/gro/args.js'); } catch {}
 }
 ";
     let files: Vec<_> = HOP
@@ -120,9 +120,9 @@ for (let i = 0; i < 3; i++) {
         [
             ("./node_modules/pkg/probe.js", Some(main.as_str())),
             ("./who.mjs", None),
-            ("@fuzdev/gro/process.js", Some(main.as_str())),
-            (PROCESS, Some(main.as_str())),
-            (PROCESS, Some(pkg.as_str())),
+            ("@fuzdev/gro/args.js", Some(main.as_str())),
+            (ARGS, Some(main.as_str())),
+            (ARGS, Some(pkg.as_str())),
             ("ext:core/ops", Some(main.as_str())),
             ("self/args.js", Some(pkg.as_str())),
         ],
@@ -158,10 +158,10 @@ fn every_distinct_refusal_at_a_site_is_listed() {
     let probe = "const attempt = async (f) => { try { await f(); } catch {} };
 export const probe = async () => {
 \tfor (let i = 0; i < 3; i++) {
-\t\tawait attempt(() => new Function(\"return import('@fuzdev/gro/process.ts')\")());
-\t\tawait attempt(() => import('@fuzdev/gro/process.ts', { with: { lazy: 'true' } }));
-\t\tawait attempt(() => import('@fuzdev/gro/process.ts', { with: { type: 'json' } }));
-\t\tawait attempt(() => import('@fuzdev/gro/process.ts'));
+\t\tawait attempt(() => new Function(\"return import('@fuzdev/gro/args.ts')\")());
+\t\tawait attempt(() => import('@fuzdev/gro/args.ts', { with: { lazy: 'true' } }));
+\t\tawait attempt(() => import('@fuzdev/gro/args.ts', { with: { type: 'json' } }));
+\t\tawait attempt(() => import('@fuzdev/gro/args.ts'));
 \t}
 };
 ";
@@ -188,7 +188,7 @@ export const probe = async () => {
         outcome
             .refused_imports
             .iter()
-            .all(|refused| refused.specifier == PROCESS),
+            .all(|refused| refused.specifier == ARGS),
         "{listed:?}"
     );
     let expected = [
@@ -212,7 +212,7 @@ export const probe = async () => {
 #[test]
 fn an_uncaught_refusal_is_the_error_and_listed_when_a_probe() {
     let main = "try { await import('ext:core/ops'); } catch {}
-await import('@fuzdev/gro/process.js');
+await import('@fuzdev/gro/args.js');
 ";
     let (outcome, _) = run_project("uncaught", &[("main.mjs", main)], &[]);
     let Err(RunError::Uncaught(report)) = &outcome.result else {
@@ -226,11 +226,11 @@ await import('@fuzdev/gro/process.js');
         .collect();
     assert_eq!(
         listed,
-        ["@fuzdev/gro/process.js", "ext:core/ops"],
+        ["@fuzdev/gro/args.js", "ext:core/ops"],
         "{:?}",
         outcome.refused_imports
     );
-    let main = "try { await import('@fuzdev/gro/process.js'); } catch {}
+    let main = "try { await import('@fuzdev/gro/args.js'); } catch {}
 await import('ext:core/ops');
 ";
     let (outcome, _) = run_project("uncaught_other", &[("main.mjs", main)], &[]);
@@ -241,7 +241,7 @@ await import('ext:core/ops');
         .collect();
     assert_eq!(
         listed,
-        ["@fuzdev/gro/process.js"],
+        ["@fuzdev/gro/args.js"],
         "{:?}",
         outcome.refused_imports
     );
@@ -321,7 +321,7 @@ fn refusals_past_the_cap_are_counted_not_listed() {
     let main = "const attempt = async (f) => { try { await f(); } catch {} };
 for (let i = 0; i < 150; i++) await attempt(() => import(`ext:${i}`));
 for (let i = 0; i < 3; i++) await attempt(() => import('ext:0'));
-for (let i = 0; i < 2; i++) await attempt(() => import('@fuzdev/gro/process.js'));
+for (let i = 0; i < 2; i++) await attempt(() => import('@fuzdev/gro/args.js'));
 ";
     let (outcome, _) = run_project("cap", &[("main.mjs", main)], &[]);
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
@@ -331,7 +331,7 @@ for (let i = 0; i < 2; i++) await attempt(() => import('@fuzdev/gro/process.js')
         .map(|refused| refused.specifier.clone())
         .collect();
     listed.sort_by_key(|specifier| specifier[4..].parse::<usize>().ok());
-    let expected: Vec<_> = std::iter::once("@fuzdev/gro/process.js".to_owned())
+    let expected: Vec<_> = std::iter::once("@fuzdev/gro/args.js".to_owned())
         .chain((0..MAX_KEPT_REFUSALS).map(|i| format!("ext:{i}")))
         .collect();
     assert_eq!(listed, expected);
@@ -385,7 +385,7 @@ const FLOOD: &str = "\tfor (let i = 0; i < 150; i++) await attempt(() => import(
 /// counted.
 #[test]
 fn a_probe_is_listed_before_or_after_a_flood() {
-    let probe = "\tawait attempt(() => import('@fuzdev/gro/process.ts'));";
+    let probe = "\tawait attempt(() => import('@fuzdev/gro/args.ts'));";
     for (name, body) in [
         ("flood_first", format!("{FLOOD}\n{probe}")),
         ("probe_first", format!("{probe}\n{FLOOD}")),
@@ -395,7 +395,7 @@ fn a_probe_is_listed_before_or_after_a_flood() {
         let probes: Vec<_> = outcome
             .refused_imports
             .iter()
-            .filter(|refused| refused.specifier == PROCESS)
+            .filter(|refused| refused.specifier == ARGS)
             .map(|refused| (refused.importer.clone(), refused.message.as_str()))
             .collect();
         let [(importer, message)] = probes.as_slice() else {
@@ -424,9 +424,10 @@ fn a_probe_is_listed_before_or_after_a_flood() {
 /// listed up to [`MAX_KEPT_REFUSALS`] and counted after.
 #[test]
 fn a_flood_of_respellings_hides_no_other_probe() {
-    let respellings = "\tfor (let i = 0; i < 150; i++) await attempt(() => import(`@fuzdev/gro/process.ts?${i}`));
+    let respellings =
+        "\tfor (let i = 0; i < 150; i++) await attempt(() => import(`@fuzdev/gro/args.ts?${i}`));
 \tawait attempt(() => import('@fuzdev/gro/fs.ts'));";
-    let probe = "\tawait attempt(() => import('@fuzdev/gro/process.ts'));";
+    let probe = "\tawait attempt(() => import('@fuzdev/gro/args.ts'));";
     let (outcome, dir) = run_packages(
         "respellings",
         &[
@@ -442,14 +443,14 @@ fn a_flood_of_respellings_hides_no_other_probe() {
             refused.specifier == specifier && refused.importer.as_deref() == Some(importer)
         })
     };
-    assert!(listed(PROCESS, &second), "{:#?}", outcome.refused_imports);
+    assert!(listed(ARGS, &second), "{:#?}", outcome.refused_imports);
     assert!(listed("@fuzdev/gro/fs.ts", &first));
     let respelled = outcome
         .refused_imports
         .iter()
-        .filter(|refused| refused.specifier.starts_with("@fuzdev/gro/process.ts?"))
+        .filter(|refused| refused.specifier.starts_with("@fuzdev/gro/args.ts?"))
         .count();
-    // the first is p0's probe of `process`, then the bound
+    // the first is p0's probe of `args`, then the bound
     assert_eq!(respelled, 1 + MAX_KEPT_REFUSALS);
     assert_eq!(outcome.unlisted_refusals, 50 + 49);
     // the respellings past the bound, counted apart from the other flood
@@ -623,7 +624,7 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
     let main = "try { await import('./dep.mjs'); } catch {}\n";
     let files = [
         ("main.mjs", main),
-        ("dep.mjs", "import '@fuzdev/gro/process.js';\n"),
+        ("dep.mjs", "import '@fuzdev/gro/args.js';\n"),
     ];
     let (outcome, dir) = run_project("edge", &files, &[]);
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
@@ -634,10 +635,7 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
         .collect();
     assert_eq!(
         listed,
-        [(
-            "@fuzdev/gro/process.js",
-            Some(format!("file://{dir}/dep.mjs"))
-        )],
+        [("@fuzdev/gro/args.js", Some(format!("file://{dir}/dep.mjs")))],
     );
 }
 

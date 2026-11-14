@@ -156,7 +156,7 @@ mod tests {
     use crate::loader::graph::Recording;
     use crate::resolver::BUILTINS;
     use crate::test_support::TestDir;
-    use crate::{Grants, ProcessGrant};
+    use crate::{ArgsGrant, Grants};
 
     /// Runs `test` on a runtime built as `mode` says, from source, before
     /// the bootstrap's per-run steps, so `Deno.core.ops` is still there, on
@@ -348,15 +348,15 @@ JSON.stringify(results)",
         }
     }
 
-    /// Granted, the process op returns the script's arguments, so the
+    /// Granted, the args op returns the script's arguments, so the
     /// refusals above are the grant's doing.
     #[test]
     fn a_granted_host_op_runs() {
         let granted = Authority::Confined(Grants {
-            process: Some(ProcessGrant {}),
+            args: Some(ArgsGrant {}),
         });
         let results = call_host_ops("host_granted", Mode::Run, Some(granted));
-        assert_eq!(results["op_gro_process_args"], r#"["a"]"#);
+        assert_eq!(results["op_gro_args"], r#"["a"]"#);
     }
 
     /// In an eval runtime, each refused op throws the refusal, whatever it's

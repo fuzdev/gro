@@ -360,4 +360,4 @@ op_gro_color
 op_gro_console_stderr
 op_gro_deny
 op_gro_refused
-op_gro_process_args
+op_gro_args

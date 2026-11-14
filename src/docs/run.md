@@ -27,8 +27,8 @@ Its only option is `--help` (or `help`, as for every command), and any other bef
 a file whose name starts with `-` goes after `--`.
 The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
 where a bare `--allow-env` is a usage error, not a grant of every name.
-The script reads its arguments as `process.args`, from `import {process} from '@fuzdev/gro/process.ts'`,
-a [builtin module](glossary.md#builtin-module) carrying nothing else yet ([on `fgro`](host_modules.md#the-process-modules-on-fgro)).
+The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
+the one [builtin module](glossary.md#builtin-module) built so far ([on `fgro`](host_modules.md#the-process-modules-on-fgro)).
 User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
@@ -57,12 +57,14 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   ([resolver](resolver.md#departures-from-node) has the rules,
   and [roots and origins](resolver.md#roots-and-origins) an entry inside `node_modules`).
   A module's `import.meta.url` is its real path, after symlinks.
-- `@fuzdev/gro/process.ts`, a builtin module: the binary resolves it ahead of package lookup, reading no `package.json`,
+- `@fuzdev/gro/args.ts`, a builtin module: the binary resolves it ahead of package lookup, reading no `package.json`,
   and grants it to the project's own modules, while a module of an installed or linked package is refused it for now
   when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules) has the designed route past that).
   A package's module importing the project's own modules by name is refused too, so it can't reach the grant through one.
-  `@fuzdev/gro/process.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `spawn`, `net`, `watch`, either spelling),
-  are refused ahead of package lookup, as is a respelling of these or of `@fuzdev/gro/process.ts` (`@fuzdev/gro/proces%73.ts`), naming the specifier to import or that the module isn't on `fgro` yet,
+  `@fuzdev/gro/args.js`, the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, and the rest, either spelling),
+  and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
+  are refused ahead of package lookup, as is a respelling of these or of `@fuzdev/gro/args.ts` (`@fuzdev/gro/arg%73.ts`),
+  naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,
   never loaded from the npm package's Node implementation.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
@@ -121,7 +123,7 @@ A linked package's URL is a path like any other:
 an in-tree one loads as the project's file, since its package was never admitted around it,
 and an out-of-tree one is outside the project's root, refused.
 A builtin module's URL is its specifier in the `builtin:` scheme, returned to any importer, granted or not,
-and refused when imported as written: `import()` of `import.meta.resolve('@fuzdev/gro/process.ts')` fails.
+and refused when imported as written: `import()` of `import.meta.resolve('@fuzdev/gro/args.ts')` fails.
 
 ## Errors and exit codes
 

@@ -5,7 +5,7 @@
 //! embedding (`ascii_str_include!`) asserts in a constant that the source is
 //! 7-bit ASCII, so a non-ASCII character fails the build rather than reaching
 //! V8, which reads extension sources as one-byte strings. So are the builtins'
-//! implementations, TypeScript (`js/process.ts`, and the node-free modules of
+//! implementations, TypeScript (`js/args.ts`, and the node-free modules of
 //! `src/lib/internal/` they share with the Node implementation, embedded as
 //! they are), stripped of their types by [`transpile`] when the snapshot is
 //! made, or when a runtime starts with no snapshot.
@@ -76,7 +76,7 @@ const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[
         BOOTSTRAP_SPECIFIER,
         ascii_str_include!("../js/bootstrap.js"),
     ),
-    ExtensionFileSource::new("ext:gro/process.ts", ascii_str_include!("../js/process.ts")),
+    ExtensionFileSource::new("ext:gro/args.ts", ascii_str_include!("../js/args.ts")),
     ExtensionFileSource::new(
         "ext:gro/internal/records.ts",
         ascii_str_include!("../../../src/lib/internal/records.ts"),

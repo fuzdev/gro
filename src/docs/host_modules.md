@@ -6,7 +6,7 @@
 
 > **status**: every host module here exists as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the one built carries the script's arguments, under the `@fuzdev/gro/process.ts` specifier the npm package no longer has
+> and the one built is `args`, the script's arguments, as `@fuzdev/gro/args.ts`
 > (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package; [on `fgro`](#the-process-modules-on-fgro));
 > everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
@@ -335,7 +335,7 @@ The running process is nine modules, one per kind of authority, each exporting a
 | module               | exports                 | what it carries          | grant on `fgro`          |
 | -------------------- | ----------------------- | ------------------------ | ------------------------ |
 | `env.ts`             | `env`                   | the environment, secrets | `env`, designed          |
-| `args.ts`            | `args`                  | the run's inputs         | `args`, designed         |
+| `args.ts`            | `args`                  | the run's inputs         | `args`, built            |
 | `exit.ts`            | `exit`, `set_exit_code` | control over the run     | `exit`, designed         |
 | `stdin.ts`           | `stdin`                 | a channel in             | `stdin`, designed        |
 | `stdout.ts`          | `stdout`                | a channel out            | `stdout`, designed       |
@@ -404,12 +404,11 @@ Each module's TSDoc has its contract.
 
 ### The process modules on fgro
 
-On `fgro`, the one built is the arguments, as the builtin module `@fuzdev/gro/process.ts` exporting `process`,
-a frozen object with no prototype whose one property `args` is a frozen array of strings:
-the script's arguments, every one after the file `fgro run` was given, as written.
+On `fgro`, the one built is `args`, as the builtin module `@fuzdev/gro/args.ts` exporting `args`,
+a frozen array of strings: the script's arguments, every one after the file `fgro run` was given, as written.
 It's made when a run first imports the module, from intrinsics the runtime copied before any user code ran,
 so code that patched `Object` or the prototypes before the import changes nothing it holds.
-Its `args` has the type of the Node module's `args`, checked by a test against that module's declarations.
+Its exports have the types of the Node module's, checked by a test against that module's declarations.
 
 `fgro run` grants it to the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused it for now,
@@ -417,7 +416,11 @@ naming the package, until `-A` or the policy file's acceptance lifts that (both 
 and `fgro eval` grants it to no module ([eval](eval.md));
 an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
 Its namespace has a `default` export of `undefined`, where a Node module has none.
-The other modules in the table are designed as builtin modules of their own, each with the grant it names.
+The other modules in the table are designed as builtin modules of their own, each with the grant it names;
+until each lands, its specifier is refused as not on `fgro` yet, in either spelling.
+`@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro has none of, are refused in either spelling too,
+the message naming the modules to import instead ([resolver](resolver.md#builtin-modules)),
+so neither loads from an installed copy of the npm package.
 
 ## net
 

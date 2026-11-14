@@ -103,10 +103,10 @@ fn the_ext_specifiers_include_the_ones_that_reached_user_code() {
         "ext:deno_web/01_console.js",
         "ext:deno_webidl/00_webidl.js",
         "ext:gro/bootstrap.js",
-        "ext:gro/process.ts",
+        "ext:gro/args.ts",
         "ext:gro/internal/records.ts",
-        "builtin:@fuzdev/gro/process.ts",
-        "ext:gro/builtin/@fuzdev/gro/process.ts.js",
+        "builtin:@fuzdev/gro/args.ts",
+        "ext:gro/builtin/@fuzdev/gro/args.ts.js",
     ] {
         assert!(
             specifiers.iter().any(|specifier| specifier == known),

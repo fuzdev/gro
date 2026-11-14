@@ -12,7 +12,7 @@ use super::{kind, resolve, resolve_any, roots};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
     BUILTINS, Capability, Entry, FileId, Origin, Reserved, ResolveErrorKind, Resolved, Root,
-    SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
+    SPLIT_MODULES, SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
 };
 
 /// The table's rows, pinned: a row added, removed, or regranted fails here
@@ -33,10 +33,10 @@ fn the_table_is_pinned() {
     assert_eq!(
         rows,
         [(
-            "@fuzdev/gro/process.ts",
-            "builtin:@fuzdev/gro/process.ts",
-            Some(Capability::Process),
-            &["process"][..],
+            "@fuzdev/gro/args.ts",
+            "builtin:@fuzdev/gro/args.ts",
+            Some(Capability::Args),
+            &["args"][..],
         )]
     );
 }
@@ -90,7 +90,7 @@ impl SourceTree for Watched {
     }
 }
 
-/// A project named `@fuzdev/gro` exporting `./process.ts` itself, with the
+/// A project named `@fuzdev/gro` exporting `./args.ts` itself, with the
 /// npm package installed too and a package `dep` beside it, so a package
 /// lookup of the builtin's specifier would succeed twice over.
 fn shadowed() -> MemoryTree {
@@ -98,15 +98,15 @@ fn shadowed() -> MemoryTree {
         files: BTreeMap::from([
             (
                 "/p/package.json",
-                r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./process.ts": "./process.ts"}}"#,
+                r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./args.ts": "./args.ts"}}"#,
             ),
             ("/p/main.js", ""),
-            ("/p/process.ts", ""),
+            ("/p/args.ts", ""),
             (
                 "/p/node_modules/@fuzdev/gro/package.json",
-                r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./process.ts": "./process.ts", "./process.js": "./process.ts"}}"#,
+                r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./args.ts": "./args.ts", "./args.js": "./args.ts"}}"#,
             ),
-            ("/p/node_modules/@fuzdev/gro/process.ts", ""),
+            ("/p/node_modules/@fuzdev/gro/args.ts", ""),
             (
                 "/p/node_modules/dep/package.json",
                 r#"{"name": "dep", "type": "module"}"#,
@@ -139,7 +139,7 @@ fn a_table_hit_reads_nothing() {
     };
     for importer in ["file:///p/main.js", "file:///p/node_modules/dep/index.js"] {
         let importer = Url::parse(importer).unwrap();
-        let resolved = resolve_any(&watched, "@fuzdev/gro/process.ts", &importer, &roots);
+        let resolved = resolve_any(&watched, "@fuzdev/gro/args.ts", &importer, &roots);
         assert_eq!(resolved, Ok(Resolved::Builtin(&BUILTINS[0])), "{importer}");
     }
     assert_eq!(*watched.calls.borrow(), Vec::<PathBuf>::new());
@@ -154,16 +154,16 @@ fn near_misses_are_packages() {
     let roots = roots(&tree, &main);
     // a self-reference, so a package lookup, refused for what the project doesn't export
     assert!(matches!(
-        resolve_any(&tree, "@fuzdev/gro/process", &main, &roots),
+        resolve_any(&tree, "@fuzdev/gro/args", &main, &roots),
         Err(error) if matches!(error.kind, ResolveErrorKind::NotExported { .. })
     ));
     for specifier in [
-        "@fuzdev/gro/process.js",
-        "@fuzdev/gro/process",
-        "@fuzdev/gro/./process.ts",
-        "@FUZDEV/gro/process.ts",
-        "@fuzdev/gro/process.ts?x",
-        "@fuzdev/gro/process.ts ",
+        "@fuzdev/gro/args.js",
+        "@fuzdev/gro/args",
+        "@fuzdev/gro/./args.ts",
+        "@FUZDEV/gro/args.ts",
+        "@fuzdev/gro/args.ts?x",
+        "@fuzdev/gro/args.ts ",
     ] {
         assert!(
             !matches!(
@@ -176,65 +176,78 @@ fn near_misses_are_packages() {
 }
 
 /// Every specifier the table reserves, pinned: the `.js` spelling of each
-/// row's, and both spellings of each host module not built yet. None is a
-/// row's, and each unbuilt one is a host module of the npm package's.
+/// row's, and both spellings of each host module not built yet and of each
+/// split module. None is a row's, each unbuilt one is a host module of the
+/// npm package's, and each split one is none, each of its modules one.
 #[test]
 fn the_reserved_specifiers_are_pinned() {
-    let process = &BUILTINS[0];
-    let reserved: Vec<_> = [
-        "@fuzdev/gro/process.js",
-        "@fuzdev/gro/fs.ts",
-        "@fuzdev/gro/fs.js",
-        "@fuzdev/gro/spawn.ts",
-        "@fuzdev/gro/spawn.js",
-        "@fuzdev/gro/net.ts",
-        "@fuzdev/gro/net.js",
-        "@fuzdev/gro/watch.ts",
-        "@fuzdev/gro/watch.js",
-    ]
-    .into_iter()
-    .map(|specifier| (specifier, find_reserved(specifier)))
-    .collect();
+    let unbuilt = |stem| Some(Reserved::Unbuilt(stem));
+    let process = Some(Reserved::Split(&SPLIT_MODULES[0]));
+    let process_error = Some(Reserved::Split(&SPLIT_MODULES[1]));
+    let expected = [
+        (
+            "@fuzdev/gro/args.js",
+            Some(Reserved::JsSpelling(&BUILTINS[0])),
+        ),
+        ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
+        ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
+        ("@fuzdev/gro/spawn.ts", unbuilt("@fuzdev/gro/spawn")),
+        ("@fuzdev/gro/spawn.js", unbuilt("@fuzdev/gro/spawn")),
+        ("@fuzdev/gro/net.ts", unbuilt("@fuzdev/gro/net")),
+        ("@fuzdev/gro/net.js", unbuilt("@fuzdev/gro/net")),
+        ("@fuzdev/gro/watch.ts", unbuilt("@fuzdev/gro/watch")),
+        ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
+        ("@fuzdev/gro/env.ts", unbuilt("@fuzdev/gro/env")),
+        ("@fuzdev/gro/env.js", unbuilt("@fuzdev/gro/env")),
+        ("@fuzdev/gro/exit.ts", unbuilt("@fuzdev/gro/exit")),
+        ("@fuzdev/gro/exit.js", unbuilt("@fuzdev/gro/exit")),
+        ("@fuzdev/gro/stdin.ts", unbuilt("@fuzdev/gro/stdin")),
+        ("@fuzdev/gro/stdin.js", unbuilt("@fuzdev/gro/stdin")),
+        ("@fuzdev/gro/stdout.ts", unbuilt("@fuzdev/gro/stdout")),
+        ("@fuzdev/gro/stdout.js", unbuilt("@fuzdev/gro/stdout")),
+        ("@fuzdev/gro/stderr.ts", unbuilt("@fuzdev/gro/stderr")),
+        ("@fuzdev/gro/stderr.js", unbuilt("@fuzdev/gro/stderr")),
+        ("@fuzdev/gro/cwd.ts", unbuilt("@fuzdev/gro/cwd")),
+        ("@fuzdev/gro/cwd.js", unbuilt("@fuzdev/gro/cwd")),
+        ("@fuzdev/gro/pid.ts", unbuilt("@fuzdev/gro/pid")),
+        ("@fuzdev/gro/pid.js", unbuilt("@fuzdev/gro/pid")),
+        (
+            "@fuzdev/gro/runtime_version.ts",
+            unbuilt("@fuzdev/gro/runtime_version"),
+        ),
+        (
+            "@fuzdev/gro/runtime_version.js",
+            unbuilt("@fuzdev/gro/runtime_version"),
+        ),
+        ("@fuzdev/gro/process.ts", process),
+        ("@fuzdev/gro/process.js", process),
+        ("@fuzdev/gro/process_error.ts", process_error),
+        ("@fuzdev/gro/process_error.js", process_error),
+    ];
+    let reserved: Vec<_> = expected
+        .iter()
+        .map(|(specifier, _)| (*specifier, find_reserved(specifier)))
+        .collect();
+    assert_eq!(reserved, expected);
+    let stems: Vec<_> = SPLIT_MODULES.iter().map(|split| split.stem).collect();
+    assert_eq!(stems, ["@fuzdev/gro/process", "@fuzdev/gro/process_error"]);
     assert_eq!(
-        reserved,
+        SPLIT_MODULES[0].modules,
         [
-            (
-                "@fuzdev/gro/process.js",
-                Some(Reserved::JsSpelling(process))
-            ),
-            (
-                "@fuzdev/gro/fs.ts",
-                Some(Reserved::Unbuilt("@fuzdev/gro/fs"))
-            ),
-            (
-                "@fuzdev/gro/fs.js",
-                Some(Reserved::Unbuilt("@fuzdev/gro/fs"))
-            ),
-            (
-                "@fuzdev/gro/spawn.ts",
-                Some(Reserved::Unbuilt("@fuzdev/gro/spawn"))
-            ),
-            (
-                "@fuzdev/gro/spawn.js",
-                Some(Reserved::Unbuilt("@fuzdev/gro/spawn"))
-            ),
-            (
-                "@fuzdev/gro/net.ts",
-                Some(Reserved::Unbuilt("@fuzdev/gro/net"))
-            ),
-            (
-                "@fuzdev/gro/net.js",
-                Some(Reserved::Unbuilt("@fuzdev/gro/net"))
-            ),
-            (
-                "@fuzdev/gro/watch.ts",
-                Some(Reserved::Unbuilt("@fuzdev/gro/watch"))
-            ),
-            (
-                "@fuzdev/gro/watch.js",
-                Some(Reserved::Unbuilt("@fuzdev/gro/watch"))
-            ),
+            "@fuzdev/gro/env.ts",
+            "@fuzdev/gro/args.ts",
+            "@fuzdev/gro/exit.ts",
+            "@fuzdev/gro/stdin.ts",
+            "@fuzdev/gro/stdout.ts",
+            "@fuzdev/gro/stderr.ts",
+            "@fuzdev/gro/cwd.ts",
+            "@fuzdev/gro/pid.ts",
+            "@fuzdev/gro/runtime_version.ts",
         ]
+    );
+    assert_eq!(
+        SPLIT_MODULES[1].modules,
+        ["@fuzdev/gro/env_error.ts", "@fuzdev/gro/stdio_error.ts"]
     );
     for builtin in BUILTINS {
         assert_eq!(
@@ -247,22 +260,43 @@ fn the_reserved_specifiers_are_pinned() {
     // the grant-free error modules load from the package, and nothing else is reserved
     for specifier in [
         "@fuzdev/gro/fs_error.ts",
-        "@fuzdev/gro/process_error.js",
+        "@fuzdev/gro/env_error.ts",
+        "@fuzdev/gro/env_error.js",
+        "@fuzdev/gro/stdio_error.ts",
+        "@fuzdev/gro/stdio_error.js",
         "@fuzdev/gro/fs_search.ts",
+        "@fuzdev/gro/env_files.ts",
+        "@fuzdev/gro/task_args.ts",
         "@fuzdev/gro/fs",
         "@fuzdev/gro/fs.mts",
+        "@fuzdev/gro/args",
         "@fuzdev/gro/process",
         "@fuzdev/gro/process.mjs",
+        "@fuzdev/gro/process_errors.ts",
         "@fuzdev/grox/fs.ts",
+        "@fuzdev/grox/process.ts",
         "fs.ts",
     ] {
         assert_eq!(find_reserved(specifier), None, "{specifier}");
     }
     let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib");
+    let in_lib = |specifier: &str| {
+        let name = specifier.strip_prefix("@fuzdev/gro/").unwrap();
+        lib.join(name).is_file()
+    };
     for unbuilt in UNBUILT_HOST_MODULES {
-        let name = unbuilt.strip_prefix("@fuzdev/gro/").unwrap();
-        assert!(lib.join(format!("{name}.ts")).is_file(), "{unbuilt}");
+        assert!(in_lib(&format!("{unbuilt}.ts")), "{unbuilt}");
         assert_eq!(find_builtin(&format!("{unbuilt}.ts")), None, "{unbuilt}");
+    }
+    for split in SPLIT_MODULES {
+        assert!(!in_lib(&format!("{}.ts", split.stem)), "{}", split.stem);
+        for module in split.modules {
+            assert!(in_lib(module), "{module}");
+            assert!(
+                !matches!(find_reserved(module), Some(Reserved::Split(_))),
+                "{module}"
+            );
+        }
     }
 }
 
@@ -283,7 +317,11 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
     );
     files.insert("/p/fs.ts", "");
     files.insert("/p/fs_error.ts", "");
+    files.insert("/p/env_error.ts", "");
+    files.insert("/p/process.ts", "");
+    files.insert("/p/process_error.ts", "");
     files.insert("/p/node_modules/@fuzdev/gro/fs.ts", "");
+    files.insert("/p/node_modules/@fuzdev/gro/process.ts", "");
     let tree = MemoryTree {
         files,
         ..MemoryTree::default()
@@ -299,10 +337,12 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
         },
     });
     // unreserved, the self-reference resolves the project's own file
-    assert!(matches!(
-        resolve_any(&tree, "@fuzdev/gro/fs_error.ts", &main, &roots),
-        Ok(Resolved::Module(resolution)) if resolution.url.as_str() == "file:///p/fs_error.ts"
-    ));
+    for name in ["fs_error.ts", "env_error.ts"] {
+        assert!(matches!(
+            resolve_any(&tree, &format!("@fuzdev/gro/{name}"), &main, &roots),
+            Ok(Resolved::Module(resolution)) if resolution.url.as_str() == format!("file:///p/{name}")
+        ));
+    }
     let watched = Watched {
         tree,
         calls: RefCell::default(),
@@ -311,10 +351,10 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
         let importer = Url::parse(importer).unwrap();
         for (specifier, reserved, message) in [
             (
-                "@fuzdev/gro/process.js",
+                "@fuzdev/gro/args.js",
                 Reserved::JsSpelling(&BUILTINS[0]),
-                "it is the .js spelling of the builtin module '@fuzdev/gro/process.ts', reserved \
-                 so it never resolves to a package. Fix: import '@fuzdev/gro/process.ts'",
+                "it is the .js spelling of the builtin module '@fuzdev/gro/args.ts', reserved \
+                 so it never resolves to a package. Fix: import '@fuzdev/gro/args.ts'",
             ),
             (
                 "@fuzdev/gro/fs.ts",
@@ -329,6 +369,25 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                 "it names Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a \
                  host module's specifier never resolves to a package. Fix: run this under Node \
                  with gro",
+            ),
+            (
+                "@fuzdev/gro/process.ts",
+                Reserved::Split(&SPLIT_MODULES[0]),
+                "it names '@fuzdev/gro/process.ts', which isn't one of Gro's modules: its members \
+                 are modules of their own, and its specifier never resolves to a package. Fix: \
+                 import what you use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', \
+                 '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', \
+                 '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or \
+                 '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/args.ts' is on \
+                 fgro yet, so run code that uses the others under Node with gro",
+            ),
+            (
+                "@fuzdev/gro/process_error.js",
+                Reserved::Split(&SPLIT_MODULES[1]),
+                "it names '@fuzdev/gro/process_error.ts', which isn't one of Gro's modules: its \
+                 members are modules of their own, and its specifier never resolves to a \
+                 package. Fix: import what you use from '@fuzdev/gro/env_error.ts' or \
+                 '@fuzdev/gro/stdio_error.ts'",
             ),
         ] {
             let error = resolve_any(&watched, specifier, &importer, &roots).unwrap_err();
@@ -355,19 +414,22 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
 /// file, or that the package lookup refuses anyway, is no respelling.
 #[test]
 fn a_respelled_specifier_is_reserved() {
-    let process = &BUILTINS[0];
+    let args = &BUILTINS[0];
     let fs = Reserved::Unbuilt("@fuzdev/gro/fs");
+    let process = Reserved::Split(&SPLIT_MODULES[0]);
+    let process_error = Reserved::Split(&SPLIT_MODULES[1]);
     let cases = [
-        ("proces%73.ts", "process.ts", Reserved::Respelled(process)),
-        ("process.ts?x", "process.ts", Reserved::Respelled(process)),
-        ("process.ts#x", "process.ts", Reserved::Respelled(process)),
-        ("pro\tcess.ts", "process.ts", Reserved::Respelled(process)),
-        ("proces%73.js", "process.js", Reserved::JsSpelling(process)),
-        (
-            "process.js#.ts",
-            "process.js",
-            Reserved::JsSpelling(process),
-        ),
+        ("arg%73.ts", "args.ts", Reserved::Respelled(args)),
+        ("args.ts?x", "args.ts", Reserved::Respelled(args)),
+        ("args.ts#x", "args.ts", Reserved::Respelled(args)),
+        ("ar\tgs.ts", "args.ts", Reserved::Respelled(args)),
+        ("arg%73.js", "args.js", Reserved::JsSpelling(args)),
+        ("args.js#.ts", "args.js", Reserved::JsSpelling(args)),
+        ("proces%73.ts", "process.ts", process),
+        ("process.js?.ts", "process.js", process),
+        ("process_error.ts#x", "process_error.ts", process_error),
+        ("process%5ferror.js", "process_error.js", process_error),
+        ("%65nv.ts", "env.ts", Reserved::Unbuilt("@fuzdev/gro/env")),
         ("f%73.ts", "fs.ts", fs),
         ("f%73.js", "fs.js", fs),
         ("fs%2ets", "fs.ts", fs),
@@ -391,8 +453,13 @@ fn a_respelled_specifier_is_reserved() {
                 "/p/node_modules/other/package.json",
                 r#"{"name": "other", "type": "module", "exports": {"./*": "./*"}}"#,
             ),
+            ("/p/node_modules/other/args.ts", ""),
+            ("/p/node_modules/other/args.js", ""),
             ("/p/node_modules/other/process.ts", ""),
             ("/p/node_modules/other/process.js", ""),
+            ("/p/node_modules/other/process_error.ts", ""),
+            ("/p/node_modules/other/process_error.js", ""),
+            ("/p/node_modules/other/env.ts", ""),
             ("/p/node_modules/other/fs.ts", ""),
             ("/p/node_modules/other/fs.js", ""),
             ("/p/node_modules/other/watch.ts", ""),
@@ -413,15 +480,17 @@ fn a_respelled_specifier_is_reserved() {
         );
     }
     assert_eq!(
-        ResolveErrorKind::Reserved(Reserved::Respelled(process)).to_string(),
-        "it respells the builtin module '@fuzdev/gro/process.ts', reserved so no spelling of it \
-         resolves to a package. Fix: import '@fuzdev/gro/process.ts'"
+        ResolveErrorKind::Reserved(Reserved::Respelled(args)).to_string(),
+        "it respells the builtin module '@fuzdev/gro/args.ts', reserved so no spelling of it \
+         resolves to a package. Fix: import '@fuzdev/gro/args.ts'"
     );
     for specifier in [
         "@fuzdev/gro/fs_paths.ts",
         "@fuzdev/gro/fs.ts.map",
         "@fuzdev/gro/fs_error.ts?x",
-        "@fuzdev/gro/process_error.ts#x",
+        "@fuzdev/gro/env_error.ts#x",
+        "@fuzdev/gro/stdio_error.ts?x",
+        "@fuzdev/gro/proces%73",
         "@fuzdev/gro/f%7.ts",
         "@fuzdev/gro/f%zzs.ts",
         "@fuzdev/gro/F%73.ts",
@@ -473,15 +542,16 @@ fn a_respelled_specifier_is_refused_reading_nothing() {
     for importer in ["file:///p/main.js", "file:///p/node_modules/dep/index.js"] {
         let importer = Url::parse(importer).unwrap();
         for (specifier, reserved) in [
+            ("@fuzdev/gro/arg%73.ts", Reserved::Respelled(&BUILTINS[0])),
             (
-                "@fuzdev/gro/proces%73.ts",
-                Reserved::Respelled(&BUILTINS[0]),
-            ),
-            (
-                "@fuzdev/gro/process.js#.ts",
+                "@fuzdev/gro/args.js#.ts",
                 Reserved::JsSpelling(&BUILTINS[0]),
             ),
             ("@fuzdev/gro/f%73.ts", Reserved::Unbuilt("@fuzdev/gro/fs")),
+            (
+                "@fuzdev/gro/proces%73.ts",
+                Reserved::Split(&SPLIT_MODULES[0]),
+            ),
         ] {
             let error = resolve_any(&watched, specifier, &importer, &roots).unwrap_err();
             assert_eq!(
@@ -510,8 +580,14 @@ fn a_respelled_specifier_is_refused_reading_nothing() {
 /// or reaches no table module through either package.
 #[test]
 fn every_respelling_the_lookup_reads_as_a_table_module_is_reserved() {
-    let stems = ["process", "fs", "spawn", "net", "watch"];
-    let files = BTreeMap::from([
+    let stems: Vec<&str> = BUILTINS
+        .iter()
+        .map(|builtin| builtin.specifier.strip_suffix(".ts").unwrap())
+        .chain(UNBUILT_HOST_MODULES.iter().copied())
+        .chain(SPLIT_MODULES.iter().map(|split| split.stem))
+        .map(|stem| stem.strip_prefix("@fuzdev/gro/").unwrap())
+        .collect();
+    let mut files = BTreeMap::from([
         ("/p/package.json", r#"{"name": "app", "type": "module"}"#),
         ("/p/main.js", ""),
         (
@@ -522,22 +598,16 @@ fn every_respelling_the_lookup_reads_as_a_table_module_is_reserved() {
             "/p/node_modules/shaped/package.json",
             r#"{"name": "shaped", "type": "module", "exports": {"./*.ts": "./dist/*.js", "./*.js": "./dist/*.js"}}"#,
         ),
-        ("/p/node_modules/any/process.ts", ""),
-        ("/p/node_modules/any/process.js", ""),
-        ("/p/node_modules/shaped/dist/process.js", ""),
-        ("/p/node_modules/any/fs.ts", ""),
-        ("/p/node_modules/any/fs.js", ""),
-        ("/p/node_modules/shaped/dist/fs.js", ""),
-        ("/p/node_modules/any/spawn.ts", ""),
-        ("/p/node_modules/any/spawn.js", ""),
-        ("/p/node_modules/shaped/dist/spawn.js", ""),
-        ("/p/node_modules/any/net.ts", ""),
-        ("/p/node_modules/any/net.js", ""),
-        ("/p/node_modules/shaped/dist/net.js", ""),
-        ("/p/node_modules/any/watch.ts", ""),
-        ("/p/node_modules/any/watch.js", ""),
-        ("/p/node_modules/shaped/dist/watch.js", ""),
     ]);
+    for stem in &stems {
+        for path in [
+            format!("/p/node_modules/any/{stem}.ts"),
+            format!("/p/node_modules/any/{stem}.js"),
+            format!("/p/node_modules/shaped/dist/{stem}.js"),
+        ] {
+            files.insert(Box::leak(path.into_boxed_str()), "");
+        }
+    }
     let tree = MemoryTree {
         files,
         ..MemoryTree::default()
@@ -549,7 +619,7 @@ fn every_respelling_the_lookup_reads_as_a_table_module_is_reserved() {
         "?", "#", "?.ts", "#.ts", "/", "\\", " ", "./", "x/../", "\u{0}", "\u{1}", "\u{c}",
     ];
     let mut rests = Vec::new();
-    for stem in stems {
+    for stem in &stems {
         for extension in ["ts", "js"] {
             let plain: Vec<char> = format!("{stem}.{extension}").chars().collect();
             for index in 0..plain.len() {

@@ -11,6 +11,6 @@ for (let i = 0; i < 101; i++) {
 // retries of the one past the bound, each counted
 await attempt(() => import('ext:100'));
 await attempt(() => import('ext:100'));
-await attempt(() => import('@fuzdev/gro/process.js'));
-await attempt(() => import('@fuzdev/gro/process.js'));
+await attempt(() => import('@fuzdev/gro/args.js'));
+await attempt(() => import('@fuzdev/gro/args.js'));
 console.log('done');

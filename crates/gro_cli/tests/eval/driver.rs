@@ -203,13 +203,13 @@ fn a_dynamic_import_with_attributes_is_refused_as_every_one_is() {
     };
     run.assert_value(&json!([
         refusal("./value.js"),
-        refusal("@fuzdev/gro/process.ts")
+        refusal("@fuzdev/gro/args.ts")
     ]));
     assert_eq!(
         run.envelope["access"],
         json!({"dynamic": [
             {"specifier": "./value.js", "importer": url},
-            {"specifier": "@fuzdev/gro/process.ts", "importer": url},
+            {"specifier": "@fuzdev/gro/args.ts", "importer": url},
         ]})
     );
 }

@@ -10,12 +10,14 @@
 //!
 //! The table also reserves specifiers it doesn't serve ([`find_reserved`]):
 //! the `.js` spelling of each row's specifier, the host modules not built
-//! yet ([`UNBUILT_HOST_MODULES`]), and every respelling of these or of a
-//! row's specifier that a package's `"exports"` would turn into the same
-//! path. The resolver refuses one ahead of any package lookup, so a host
-//! module's specifier never resolves to a package, and none changes meaning
-//! when its builtin lands. A reserved specifier is data only: no backing
-//! script, synthetic module, or bootstrap factory is made for one.
+//! yet ([`UNBUILT_HOST_MODULES`]), the modules Gro has none of whose
+//! members are host modules of their own ([`SPLIT_MODULES`]), and every
+//! respelling of these or of a row's specifier that a package's `"exports"`
+//! would turn into the same path. The resolver refuses one ahead of any
+//! package lookup, so a host module's specifier never resolves to a
+//! package, and none changes meaning when its builtin lands. A reserved
+//! specifier is data only: no backing script, synthetic module, or
+//! bootstrap factory is made for one.
 //!
 //! A builtin's URL is its specifier in the `builtin:` scheme, which the
 //! resolver refuses from source like every scheme but `file:`
@@ -29,14 +31,14 @@ use super::specifier::to_plain_spelling;
 /// A host capability a builtin needs its importer to be granted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Capability {
-    /// The process host module's.
-    Process,
+    /// The args host module's: the script's arguments.
+    Args,
 }
 
 impl fmt::Display for Capability {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::Process => "process",
+            Self::Args => "args",
         })
     }
 }
@@ -62,9 +64,9 @@ pub struct Builtin {
 macro_rules! builtin_rows {
     ($row:ident) => {
         [$row!(
-            "@fuzdev/gro/process.ts",
-            Some($crate::resolver::Capability::Process),
-            ["process"]
+            "@fuzdev/gro/args.ts",
+            Some($crate::resolver::Capability::Args),
+            ["args"]
         )]
     };
 }
@@ -108,6 +110,49 @@ pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/spawn",
     "@fuzdev/gro/net",
     "@fuzdev/gro/watch",
+    "@fuzdev/gro/env",
+    "@fuzdev/gro/exit",
+    "@fuzdev/gro/stdin",
+    "@fuzdev/gro/stdout",
+    "@fuzdev/gro/stderr",
+    "@fuzdev/gro/cwd",
+    "@fuzdev/gro/pid",
+    "@fuzdev/gro/runtime_version",
+];
+
+/// A module Gro has none of, whose members are modules of their own.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SplitModule {
+    /// Its specifier without the extension, reserved under `.ts` and `.js`.
+    pub stem: &'static str,
+    /// The modules that hold its members, each by its `.ts` specifier.
+    pub modules: &'static [&'static str],
+}
+
+/// The modules Gro has none of whose members are modules of their own.
+///
+/// `process` is one host module per kind of authority, and its errors one
+/// grant-free module per family. Each is reserved so it never resolves to
+/// a package, its refusal naming the modules to import instead.
+pub const SPLIT_MODULES: &[SplitModule] = &[
+    SplitModule {
+        stem: "@fuzdev/gro/process",
+        modules: &[
+            "@fuzdev/gro/env.ts",
+            "@fuzdev/gro/args.ts",
+            "@fuzdev/gro/exit.ts",
+            "@fuzdev/gro/stdin.ts",
+            "@fuzdev/gro/stdout.ts",
+            "@fuzdev/gro/stderr.ts",
+            "@fuzdev/gro/cwd.ts",
+            "@fuzdev/gro/pid.ts",
+            "@fuzdev/gro/runtime_version.ts",
+        ],
+    },
+    SplitModule {
+        stem: "@fuzdev/gro/process_error",
+        modules: &["@fuzdev/gro/env_error.ts", "@fuzdev/gro/stdio_error.ts"],
+    },
 ];
 
 /// A specifier the table reserves without serving.
@@ -122,15 +167,19 @@ pub enum Reserved {
     /// A host module not built yet, by its specifier without the extension
     /// ([`UNBUILT_HOST_MODULES`]).
     Unbuilt(&'static str),
+    /// A module Gro has none of, whose members are modules of their own
+    /// ([`SPLIT_MODULES`]).
+    Split(&'static SplitModule),
 }
 
 impl Reserved {
     /// The host module this reserves a spelling of: a builtin's specifier,
-    /// or an unbuilt host module's without its extension.
+    /// or an unbuilt or split module's without its extension.
     pub const fn host_module(self) -> &'static str {
         match self {
             Self::JsSpelling(builtin) | Self::Respelled(builtin) => builtin.specifier,
             Self::Unbuilt(stem) => stem,
+            Self::Split(split) => split.stem,
         }
     }
 }
@@ -172,4 +221,10 @@ fn find_reserved_exact(specifier: &str) -> Option<Reserved> {
         .iter()
         .find(|unbuilt| **unbuilt == stem)
         .map(|unbuilt| Reserved::Unbuilt(unbuilt))
+        .or_else(|| {
+            SPLIT_MODULES
+                .iter()
+                .find(|split| split.stem == stem)
+                .map(Reserved::Split)
+        })
 }

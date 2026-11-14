@@ -316,9 +316,11 @@ Invariants that live in the code:
   none (eval's) nothing is imported, a grant-free row included, checked
   before the grant, and a package's module is granted none. The table also
   reserves specifiers it doesn't serve (each row's `.js` spelling, derived
-  from the row, `UNBUILT_HOST_MODULES`, and a respelling of these or of a
-  row's specifier, read as URL parsing and the path's decoding read an
-  `"exports"` target, in `resolver/specifier.rs`), which the resolver refuses
+  from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`, the modules Gro
+  has none of whose members are modules of their own, each refused naming
+  them, and a respelling of these or of a row's specifier, read as URL
+  parsing and the path's decoding read an `"exports"` target, in
+  `resolver/specifier.rs`), which the resolver refuses
   ahead of any package lookup; a reserved one is data only, never reaching
   `builtin_rows!`. A package's module can't reach a grant through the
   project's: its bare import resolving into the project root is refused

@@ -6,7 +6,7 @@ const attempt = async (f) => {
 	} catch {}
 };
 for (let i = 0; i < 3; i++) {
-	await attempt(() => import('@fuzdev/gro/process.js'));
+	await attempt(() => import('@fuzdev/gro/args.js'));
 	await attempt(() => import('./sibling.js', { with: { x: 'y' } }));
 	await attempt(() => (0, eval)("import('./sibling.js')"));
 	await attempt(() => import('optional-dependency'));

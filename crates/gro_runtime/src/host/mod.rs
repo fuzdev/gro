@@ -19,7 +19,7 @@ use deno_core::{OpDecl, OpState, op2};
 
 use grant::{Granted, require};
 
-use crate::ProcessGrant;
+use crate::ArgsGrant;
 
 /// The script's arguments, put in the runtime's `OpState` with the run's
 /// [`Authority`](crate::Authority) when `fgro run`'s runtime starts.
@@ -67,7 +67,7 @@ macro_rules! host_ops {
 
 host_ops! {
     /// The script's arguments, a new array of strings each call.
-    fn op_gro_process_args(state, _granted: ProcessGrant) -> #[serde] Vec<String> {
+    fn op_gro_args(state, _granted: ArgsGrant) -> #[serde] Vec<String> {
         state.borrow::<ScriptArgs>().0.clone()
     }
 }

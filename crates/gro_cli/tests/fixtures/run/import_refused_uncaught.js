@@ -2,4 +2,4 @@
 try {
 	await import('ext:core/ops');
 } catch {}
-await import('@fuzdev/gro/process.js');
+await import('@fuzdev/gro/args.js');

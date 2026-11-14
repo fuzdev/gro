@@ -3,7 +3,9 @@
 //! which failures are refusals by rule.
 
 use super::*;
-use crate::resolver::{BUILTINS, FileRole, Origin, Reserved, UNBUILT_HOST_MODULES, UrlFault};
+use crate::resolver::{
+    BUILTINS, FileRole, Origin, Reserved, SPLIT_MODULES, UNBUILT_HOST_MODULES, UrlFault,
+};
 
 fn package(dir: &str, name: &str) -> Root {
     Root {
@@ -539,7 +541,7 @@ fn recording_off_bounds_the_refusals_it_keeps() {
     }
 }
 
-/// The refusal of `process` to an importer of `origin`, which holds no grant.
+/// The refusal of `args` to an importer of `origin`, which holds no grant.
 fn not_granted(origin: &Origin) -> FailureReason {
     FailureReason::NotGranted {
         builtin: &BUILTINS[0],
@@ -585,7 +587,7 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     let unbuilt = FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Unbuilt(
         UNBUILT_HOST_MODULES[0],
     )));
-    let process = BUILTINS[0].specifier;
+    let args = BUILTINS[0].specifier;
     let kept = |graph: &Graph, specifier: &str| {
         graph
             .failures
@@ -594,7 +596,7 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     };
     // a package's probe before the flood, then a flood of other refusals
     graph.fail(
-        process,
+        args,
         Some("file:///a/node_modules/early/x.js"),
         dynamic,
         failure(not_granted(&package("early"))),
@@ -607,23 +609,20 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     // bound of the rest naming a host module
     for i in 0..MAX_KEPT_REFUSALS + 20 {
         graph.fail(
-            &format!("{process}?{i}"),
+            &format!("{args}?{i}"),
             Some(main),
             dynamic,
             failure(respelled()),
         );
     }
     assert_eq!(graph.unkept_refusals(), 10 + 19);
-    assert!(kept(&graph, &format!("{process}?{MAX_KEPT_REFUSALS}")));
-    assert!(!kept(
-        &graph,
-        &format!("{process}?{}", MAX_KEPT_REFUSALS + 1)
-    ));
+    assert!(kept(&graph, &format!("{args}?{MAX_KEPT_REFUSALS}")));
+    assert!(!kept(&graph, &format!("{args}?{}", MAX_KEPT_REFUSALS + 1)));
     // past both floods: the project's probe of another host module, and
     // another package's probe
     graph.fail("@fuzdev/gro/fs.ts", Some(main), dynamic, failure(unbuilt));
     graph.fail(
-        process,
+        args,
         Some("file:///a/node_modules/late/x.js"),
         dynamic,
         failure(not_granted(&package("late"))),
@@ -632,7 +631,7 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     let importers: Vec<_> = graph
         .failures
         .keys()
-        .filter(|site| site.specifier == process)
+        .filter(|site| site.specifier == args)
         .map(|site| site.importer.as_deref().unwrap())
         .collect();
     assert_eq!(
@@ -645,13 +644,13 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     // a retry of a probe is neither kept again nor counted, and another of
     // a known origin's probes of the same host module is past the bound
     graph.fail(
-        process,
+        args,
         Some("file:///a/node_modules/late/x.js"),
         dynamic,
         failure(not_granted(&package("late"))),
     );
     graph.fail(
-        process,
+        args,
         Some("file:///a/node_modules/late/y.js"),
         dynamic,
         failure(not_granted(&package("late"))),
@@ -663,7 +662,7 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     for i in 0..room + 2 {
         let importer = format!("file:///a/node_modules/p{i}/x.js");
         graph.fail(
-            process,
+            args,
             Some(&importer),
             dynamic,
             failure(not_granted(&package(&format!("p{i}")))),
@@ -672,7 +671,7 @@ fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
     let probed = graph
         .failures
         .keys()
-        .filter(|site| site.specifier == process)
+        .filter(|site| site.specifier == args)
         .count();
     assert_eq!(probed, 2 + room);
     assert_eq!(graph.unkept_refusals(), 10 + 19 + 1 + 2);
@@ -715,7 +714,7 @@ fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
         message: "refused".to_owned(),
         message_hash: None,
     };
-    let process = BUILTINS[0].specifier;
+    let args = BUILTINS[0].specifier;
     for i in 0..=MAX_PROBING_ORIGINS + MAX_KEPT_REFUSALS {
         let origin = Origin::Package {
             name: format!("p{i}"),
@@ -723,7 +722,7 @@ fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
             linked: false,
         };
         graph.fail(
-            process,
+            args,
             Some(&format!("file:///a/node_modules/p{i}/x.js")),
             dynamic,
             failure(not_granted(&origin)),
@@ -733,7 +732,7 @@ fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
     assert_eq!(graph.unkept_host_module_refusals(), 1);
     // the project's probes, by a grant's origin and by the recorded importer
     graph.fail(
-        process,
+        args,
         Some(main),
         dynamic,
         failure(not_granted(&Origin::Project)),
@@ -751,7 +750,7 @@ fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
         graph
             .failures
             .keys()
-            .any(|site| site.specifier == process && site.importer.as_deref() == Some(main))
+            .any(|site| site.specifier == args && site.importer.as_deref() == Some(main))
     );
     assert!(
         graph
@@ -769,24 +768,24 @@ fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
 #[test]
 fn a_probe_names_its_host_module() {
     let path = || PathBuf::from("/a/x.js");
-    let process = BUILTINS[0].specifier;
+    let args = BUILTINS[0].specifier;
     for (reason, host_module) in [
-        (not_granted(&Origin::Project), process),
+        (not_granted(&Origin::Project), args),
         (
             FailureReason::Load(LoadFailure::BuiltinAttributes(&BUILTINS[0])),
-            process,
+            args,
         ),
         (
             FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::JsSpelling(
                 &BUILTINS[0],
             ))),
-            process,
+            args,
         ),
         (
             FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Respelled(
                 &BUILTINS[0],
             ))),
-            process,
+            args,
         ),
         (
             FailureReason::Resolve(ResolveErrorKind::Target {
@@ -796,6 +795,12 @@ fn a_probe_names_its_host_module() {
                 ))),
             }),
             "@fuzdev/gro/fs",
+        ),
+        (
+            FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Split(
+                &SPLIT_MODULES[0],
+            ))),
+            "@fuzdev/gro/process",
         ),
     ] {
         assert_eq!(reason.host_module(), Some(host_module), "{reason:?}");

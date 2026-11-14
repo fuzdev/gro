@@ -4,15 +4,15 @@
 use super::super::resolve::resolve_builtin;
 use super::*;
 use crate::resolver::{BUILTINS, Builtin, Origin, ResolveErrorKind};
-use crate::{Authority, Grants, ProcessGrant};
+use crate::{ArgsGrant, Authority, Grants};
 
-const PROCESS: &str = "@fuzdev/gro/process.ts";
+const ARGS: &str = "@fuzdev/gro/args.ts";
 const BAR: &str = "file:///p/node_modules/bar/i.mjs";
 
-/// `fgro run`'s authority: `process` granted.
+/// `fgro run`'s authority: `args` granted.
 fn granted() -> Authority {
     Authority::Confined(Grants {
-        process: Some(ProcessGrant {}),
+        args: Some(ArgsGrant {}),
     })
 }
 
@@ -36,23 +36,23 @@ fn bar_origin() -> Origin {
     }
 }
 
-/// Asserts `loader` refuses `process` to `importer`, reached as `reached`,
+/// Asserts `loader` refuses `args` to `importer`, reached as `reached`,
 /// with a message ending in `why`, recording [`FailureReason::NotGranted`]
 /// with `origin`.
 fn assert_refused(loader: &Loader, importer: &str, reached: Reached, origin: &Origin, why: &str) {
     let tree = tree();
     let error = loader
-        .resolve_reached(&tree, PROCESS, importer, reached)
+        .resolve_reached(&tree, ARGS, importer, reached)
         .unwrap_err()
         .to_string();
     assert_eq!(
         error,
-        format!("cannot import '{PROCESS}' from {importer}: it needs the grant 'process', {why}")
+        format!("cannot import '{ARGS}' from {importer}: it needs the grant 'args', {why}")
     );
     let graph = graph(loader);
     assert_failed(
         &graph,
-        PROCESS,
+        ARGS,
         &FailureReason::NotGranted {
             builtin: &BUILTINS[0],
             origin: origin.clone(),
@@ -95,7 +95,7 @@ fn no_authority_grants_nothing() {
     assert_no_builtin(&loader);
 }
 
-/// Granting nothing refuses the project; granting `process` grants it to
+/// Granting nothing refuses the project; granting `args` grants it to
 /// the project and still refuses the package, whichever imports first.
 #[test]
 fn the_project_is_granted_and_a_package_never() {
@@ -118,9 +118,7 @@ fn the_project_is_granted_and_a_package_never() {
             assert_no_builtin(&granted);
         }
         for reached in [STATIC, Reached::Import(Reach::Dynamic)] {
-            let url = granted
-                .resolve_reached(&tree, PROCESS, MAIN, reached)
-                .unwrap();
+            let url = granted.resolve_reached(&tree, ARGS, MAIN, reached).unwrap();
             assert_eq!(url.as_str(), BUILTINS[0].url);
         }
         assert_refused(
@@ -160,7 +158,7 @@ fn import_meta_resolve_returns_the_url_to_anyone() {
         let before = graph(&loader);
         for importer in [MAIN, BAR] {
             let url = loader
-                .resolve_reached(&tree, PROCESS, importer, Reached::MetaResolve)
+                .resolve_reached(&tree, ARGS, importer, Reached::MetaResolve)
                 .unwrap();
             assert_eq!(url.as_str(), BUILTINS[0].url);
         }
