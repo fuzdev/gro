@@ -17,13 +17,20 @@
 import { core, internals, primordials } from 'ext:core/mod.js';
 import { op_gro_color, op_gro_console_stderr, op_gro_deny } from 'ext:core/ops';
 import { create_args_namespace } from 'ext:gro/args.ts';
+import { create_cwd_namespace } from 'ext:gro/cwd.ts';
+import { create_pid_namespace } from 'ext:gro/pid.ts';
+import { create_runtime_version_namespace } from 'ext:gro/runtime_version.ts';
 
 // Each builtin's factory by its specifier, which its backing script calls the first time
-// a run imports it (the template is in `bootstrap.rs`). On `internals`, so only
-// extension code reaches them, and frozen, so none is replaced.
+// a run imports it, with the scope of the importer's grant (the template is in
+// `bootstrap.rs`). On `internals`, so only extension code reaches them, and frozen, so none
+// is replaced.
 /** @type {any} */ (internals).gro_builtins = primordials.ObjectFreeze({
 	__proto__: null,
-	'@fuzdev/gro/args.ts': create_args_namespace
+	'@fuzdev/gro/args.ts': create_args_namespace,
+	'@fuzdev/gro/cwd.ts': create_cwd_namespace,
+	'@fuzdev/gro/pid.ts': create_pid_namespace,
+	'@fuzdev/gro/runtime_version.ts': create_runtime_version_namespace
 });
 
 const load = core.loadExtScript;

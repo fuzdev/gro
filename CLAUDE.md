@@ -310,11 +310,20 @@ Invariants that live in the code:
   grant, and exports. `builtin_rows!` hands the rows to the bootstrap, which
   makes each backing script (one template) and synthetic module from them at
   compile time, and a test pins the bootstrap's factories (`js/bootstrap.js`)
-  to the table's specifiers; the resolver returns a table hit ahead of any
+  to the table's specifiers, each taking one argument, the scope of its
+  importer's grant (`undefined` while no grant has one); a factory never
+  throws, which nothing checks (`bootstrap.rs` says what `deno_core` does
+  with one that did); the resolver returns a table hit ahead of any
   package lookup; the loader checks it against the run's `Authority` at link
   time, for a static import and `import()` alike (`loader/resolve.rs`): with
   none (eval's) nothing is imported, a grant-free row included, checked
-  before the grant, and a package's module is granted none. The table also
+  before the grant, a package's module is granted none, and a grant-free row
+  (`cwd`, `pid`, `runtime_version`) links for the project and a package
+  alike. A builtin's implementation keeps no per-run or per-importer state
+  at its top level. `src/test/builtin_types.test.ts` holds every row's
+  inferred types to its Node module's, reading the rows from the bootstrap
+  and the table.
+  The table also
   reserves specifiers it doesn't serve (each row's `.js` spelling, derived
   from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`, the modules Gro
   has none of whose members are modules of their own, each refused naming
@@ -354,20 +363,28 @@ Invariants that live in the code:
   tests import every `ext:` and `builtin:` specifier the build knows and
   expect the refusal, and pin the kept synthetic names to the table's URLs.
 - One grant choke point: every host op is declared through
-  `host::host_ops!`, whose first step is `require`, the one place a
-  `Granted` token is made. The run's `Authority` goes into the loader and
+  `host::host_ops!`, whose first step is a check in `host/grant.rs`: for an
+  op that names a grant, `require`, the one place a `Granted` token is made;
+  for a grant-free module's op, which names none, `require_authority`, which
+  refuses only a runtime that holds no `Authority` at all, so the op runs in
+  every run and in no eval. The run's `Authority` goes into the loader and
   the runtime's `OpState` per run, never into the snapshot or the extension
   list, and eval's runtime takes none. A test fails on an op of gro's
   extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`
-  nor a host op (or that's on an object), and another on a host op that runs
-  without its grant. Nothing at compile time makes a host op use the macro:
-  the first test is the check.
+  nor a host op (or that's on an object), another on a host op that runs
+  with no authority, or without the grant it names, and another on a host
+  op that requires anything but what the row of the module it serves does
+  (each names it in `host_ops!`). Nothing at compile time
+  makes a host op use the macro: the first test is the check, so a
+  grant-free module's op joins `host_ops!`, never the ungated list.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses; a test pins every
   registered op name in `crates/gro_runtime/tests/op_names.txt`, so a
   `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
-  decides color and passes it in. The `phases` and `prices` features (on
+  decides color and passes it in, as it passes the working directory and
+  its own name and version (the `pid` op asks the OS for the process's id
+  when a run first imports the module). The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
 - A change to the seccomp allowlist reruns the census

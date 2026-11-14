@@ -56,6 +56,107 @@ fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes(
     assert_eq!(run.envelope["error"]["importer"], importer);
 }
 
+/// Eval imports no builtin module, a grant-free one included: a static
+/// import of each grant-free row of the table is refused at link time as a
+/// `resolve` whose message names no grant, the envelope's error naming the
+/// specifier and the importer and carrying nothing else; and an `import()`
+/// of any builtin is refused by eval's own rule first, as every `import()`
+/// is.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_grant_free_builtin_is_a_resolve_and_its_dynamic_import_eval_s_own_refusal() {
+    use gro_runtime::resolver::BUILTINS;
+
+    let grant_free: Vec<&str> = BUILTINS
+        .iter()
+        .filter(|builtin| builtin.grant.is_none())
+        .map(|builtin| builtin.specifier)
+        .collect();
+    assert!(grant_free.contains(&"@fuzdev/gro/cwd.ts"), "{grant_free:?}");
+    let sources: Vec<(String, String)> = grant_free
+        .iter()
+        .enumerate()
+        .map(|(i, specifier)| {
+            (
+                format!("static_{i}.js"),
+                format!("import * as ns from '{specifier}';\nexport default Object.keys(ns);\n"),
+            )
+        })
+        .collect();
+    let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
+    let dynamic = format!(
+        "const caught = [];\n\
+         for (const specifier of {}) {{\n\
+         \ttry {{\n\t\tawait import(specifier);\n\t\tcaught.push('imported');\n\t}} catch (error) {{\n\
+         \t\tcaught.push(`${{error instanceof TypeError}} ${{error.message}}`);\n\t}}\n}}\n\
+         export default caught;\n",
+        serde_json::to_string(&specifiers).unwrap()
+    );
+    let mut files = vec![
+        ("package.json", r#"{"name": "p", "type": "module"}"#),
+        ("dynamic.js", dynamic.as_str()),
+    ];
+    files.extend(
+        sources
+            .iter()
+            .map(|(file, source)| (file.as_str(), source.as_str())),
+    );
+    let scratch = Scratch::new("grant_free", &files);
+    let root = scratch.0.display();
+    for (specifier, (file, _)) in grant_free.iter().zip(&sources) {
+        let run = eval(&[&scratch.path(file)]);
+        run.assert_failed("resolve", 1);
+        let importer = format!("file://{root}/{file}");
+        assert_eq!(
+            run.envelope["error"],
+            json!({
+                "kind": "resolve",
+                "message": format!(
+                    "cannot import '{specifier}' from {importer}: eval imports no builtin module"
+                ),
+                "specifier": specifier,
+                "importer": importer,
+            }),
+            "{specifier}"
+        );
+        assert_eq!(run.envelope["access"], json!({"dynamic": []}));
+        let mut keys: Vec<&str> = run
+            .envelope
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["access", "entry", "error", "eval_protocol", "ok", "runtime"],
+            "{specifier}"
+        );
+        assert!(run.stderr.is_empty(), "{}", run.stderr);
+    }
+    let run = eval(&[&scratch.path("dynamic.js")]);
+    let importer = format!("file://{root}/dynamic.js");
+    let refusals: Vec<String> = specifiers
+        .iter()
+        .map(|specifier| {
+            format!(
+                "true cannot import '{specifier}' from {importer}: import() is refused in eval, \
+                 whatever it names. Fix: import the module with a static import"
+            )
+        })
+        .collect();
+    run.assert_value(&json!(refusals));
+    let listed: Vec<_> = specifiers
+        .iter()
+        .map(|specifier| json!({"specifier": specifier, "importer": importer}))
+        .collect();
+    assert_eq!(run.envelope["access"], json!({"dynamic": listed}));
+}
+
 /// An import attribute under any key but `type` is refused before the
 /// specifier resolves, as a `link` naming the key, a file's and a builtin
 /// module's alike.

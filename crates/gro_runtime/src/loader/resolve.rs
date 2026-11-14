@@ -67,7 +67,7 @@ pub(super) fn resolve_into(
 /// for an import, once its grant is checked against `authority` and the
 /// importer's origin, recorded with the edge to it; for
 /// `import.meta.resolve`, unchecked, since it imports nothing.
-pub(super) fn resolve_builtin(
+fn resolve_builtin(
     graph: &mut Graph,
     authority: Option<&Authority>,
     builtin: &'static Builtin,

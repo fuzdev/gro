@@ -5,10 +5,11 @@
 //! embedding (`ascii_str_include!`) asserts in a constant that the source is
 //! 7-bit ASCII, so a non-ASCII character fails the build rather than reaching
 //! V8, which reads extension sources as one-byte strings. So are the builtins'
-//! implementations, TypeScript (`js/args.ts`, and the node-free modules of
-//! `src/lib/internal/` they share with the Node implementation, embedded as
-//! they are), stripped of their types by [`transpile`] when the snapshot is
-//! made, or when a runtime starts with no snapshot.
+//! implementations, TypeScript (one module a builtin, like `js/args.ts`, and
+//! the node-free modules of `src/lib/internal/` they share with the Node
+//! implementation, embedded as they are), stripped of their types by
+//! [`transpile`] when the snapshot is made, or when a runtime starts with no
+//! snapshot.
 //!
 //! **The builtin modules.** Each row of the resolver's builtin table
 //! ([`crate::resolver::BUILTINS`]) is served as a `deno_core` synthetic
@@ -18,7 +19,14 @@
 //! snapshot evaluates it, so only extension code reaches it. The factory
 //! runs once a run, when the builtin is first imported, after the start, and
 //! returns the namespace: the facade's exports are its own properties, with
-//! a `default` of `undefined`. The loader resolves an import to a
+//! a `default` of `undefined`. Its one argument is the scope of the
+//! importer's grant, which the template passes and a factory reads no other
+//! way; no grant scopes anything yet, and a grant-free builtin has none, so
+//! the template passes `undefined`. A factory never throws: `deno_core`
+//! evaluates a backing script once, rejecting the import with its own
+//! report of what the script threw and every later import of the builtin
+//! with the script's absence, so a builtin that can fail fails in what it
+//! exports, as `cwd` does when called. The loader resolves an import to a
 //! `builtin:` URL only for a bare specifier in the table and only for an
 //! importer granted it (`import.meta.resolve` returns the URL to any
 //! importer, and the URL itself imports nothing), and refuses one written
@@ -77,6 +85,12 @@ const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[
         ascii_str_include!("../js/bootstrap.js"),
     ),
     ExtensionFileSource::new("ext:gro/args.ts", ascii_str_include!("../js/args.ts")),
+    ExtensionFileSource::new("ext:gro/cwd.ts", ascii_str_include!("../js/cwd.ts")),
+    ExtensionFileSource::new("ext:gro/pid.ts", ascii_str_include!("../js/pid.ts")),
+    ExtensionFileSource::new(
+        "ext:gro/runtime_version.ts",
+        ascii_str_include!("../js/runtime_version.ts"),
+    ),
     ExtensionFileSource::new(
         "ext:gro/internal/records.ts",
         ascii_str_include!("../../../src/lib/internal/records.ts"),
@@ -84,7 +98,8 @@ const BOOTSTRAP_ESM: &[ExtensionFileSource] = &[
 ];
 
 /// A builtin's backing script, from one template: it returns the namespace
-/// the builtin's factory makes.
+/// the builtin's factory makes, given the scope of the importer's grant,
+/// `undefined` while no grant has one.
 macro_rules! backing_script {
     ($specifier:literal, $grant:expr, [$($export:literal),*]) => {
         ExtensionFileSource::new(
@@ -92,7 +107,7 @@ macro_rules! backing_script {
             ascii_str!(concat!(
                 "(function () {\n\treturn __bootstrap.internals.gro_builtins['",
                 $specifier,
-                "']();\n})()\n"
+                "'](undefined);\n})()\n"
             )),
         )
     };
@@ -177,11 +192,11 @@ fn op_gro_deny(state: &OpState) -> bool {
     *state.borrow::<Determinism>() == Determinism::Denied
 }
 
-/// The ops of gro's extension that check no grant: the console's and
+/// The ops of gro's extension that make no check: the console's and
 /// eval's, which read only the run's own settings or refuse. Every other op
-/// the extension registers, whatever its name, is a host op, declared
-/// through the choke point (`crate::host`); a test fails on one that is
-/// neither.
+/// the extension registers, whatever its name, is a host op, a grant-free
+/// module's included, declared through the choke point (`crate::host`); a
+/// test fails on one that is neither.
 #[cfg(test)]
 pub const UNGATED_OPS: [&str; 4] = [
     "op_gro_color",

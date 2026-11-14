@@ -361,3 +361,6 @@ op_gro_console_stderr
 op_gro_deny
 op_gro_refused
 op_gro_args
+op_gro_cwd
+op_gro_pid
+op_gro_runtime_version

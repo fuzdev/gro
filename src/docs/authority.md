@@ -253,6 +253,9 @@ Clock and randomness stay globals for a different reason.
 `Date.now()` and `Math.random()` are everywhere and can't be removed,
 and determinism is a property of the whole run,
 so they're set per run kind rather than granted.
+The working directory, the process's id, and the runtime's version are on that axis too, though they're imports
+(`cwd`, `pid`, and `runtime_version`, [host modules](host_modules.md#the-process-modules)): none reaches anything, so none takes a grant,
+and a package's module imports them as the project's does (built on `fgro`), while an import of one is a fact of the graph a run kind can act on (designed).
 
 ## Open questions
 

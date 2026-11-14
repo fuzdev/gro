@@ -1944,6 +1944,135 @@ fn a_package_is_refused_args_while_the_project_imports_it() {
     );
 }
 
+/// The script reads the observations with no grant: `cwd()` is the
+/// directory `fgro` was started in, `pid` the id of the `fgro` process, and
+/// `runtime_version` the binary's name and version.
+#[test]
+fn the_script_reads_the_observations() {
+    let mut command = fgro_command(&["run", "observations.js"]);
+    command.current_dir(fixtures());
+    let (pid, output) = support::spawn_with_pid(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        printed,
+        serde_json::json!({
+            "cwd": fixtures().canonicalize().unwrap().to_str().unwrap(),
+            "pid": pid,
+            "runtime_version": concat!("fgro/", env!("CARGO_PKG_VERSION")),
+        })
+    );
+}
+
+/// A package's module reads the observations as the project does, by a
+/// static import and `import()`, with nothing reported, and `cwd()` is the
+/// directory the run was started in, not the entry's or the project's.
+#[test]
+fn a_package_reads_the_observations_and_cwd_is_the_start_directory() {
+    let fixtures = temp_fixtures(
+        "observations_package",
+        &[
+            ("package.json", r#"{"name": "app", "type": "module"}"#),
+            (
+                "node_modules/dep/package.json",
+                r#"{"name": "dep", "type": "module", "exports": "./index.js"}"#,
+            ),
+            (
+                "node_modules/dep/index.js",
+                "import { cwd } from '@fuzdev/gro/cwd.ts';\n\
+                 import { pid } from '@fuzdev/gro/pid.ts';\n\
+                 import { runtime_version } from '@fuzdev/gro/runtime_version.ts';\n\
+                 export const read = () => [cwd(), pid, runtime_version];\n\
+                 export const load = async () => [\n\
+                 \t(await import('@fuzdev/gro/cwd.ts')).cwd(),\n\
+                 \t(await import('@fuzdev/gro/pid.ts')).pid,\n\
+                 \t(await import('@fuzdev/gro/runtime_version.ts')).runtime_version\n\
+                 ];\n",
+            ),
+            (
+                "main.js",
+                "import { cwd } from '@fuzdev/gro/cwd.ts';\n\
+                 import { pid } from '@fuzdev/gro/pid.ts';\n\
+                 import { runtime_version } from '@fuzdev/gro/runtime_version.ts';\n\
+                 import { load, read } from 'dep';\n\
+                 console.log(JSON.stringify([[cwd(), pid, runtime_version], read(), await load()]));\n",
+            ),
+            ("started/in/keep", ""),
+        ],
+    );
+    let started_in = fixtures.0.join("started/in");
+    let mut command = fgro_command(&["run", "../../main.js"]);
+    command.current_dir(&started_in);
+    let (pid, output) = support::spawn_with_pid(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected = serde_json::json!([
+        started_in.to_str().unwrap(),
+        pid,
+        concat!("fgro/", env!("CARGO_PKG_VERSION"))
+    ]);
+    assert_eq!(printed, serde_json::json!([expected, expected, expected]));
+}
+
+/// Started in a directory whose path isn't UTF-8, a run imports `cwd`, and
+/// calling it throws an `Error` saying so, which uncaught fails the run;
+/// a script that never calls it runs as anywhere.
+#[cfg(unix)]
+#[test]
+fn cwd_throws_when_called_in_a_directory_that_is_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let fixtures = temp_fixtures(
+        "observations_not_utf8",
+        &[
+            (
+                "caught.js",
+                "import { cwd } from '@fuzdev/gro/cwd.ts';\n\
+                 try {\n\tconsole.log(cwd());\n} catch (error) {\n\
+                 \tconsole.log(Object.getPrototypeOf(error) === Error.prototype, error.message);\n}\n",
+            ),
+            (
+                "uncaught.js",
+                "import { cwd } from '@fuzdev/gro/cwd.ts';\ncwd();\n",
+            ),
+            (
+                "unused.js",
+                "import { cwd } from '@fuzdev/gro/cwd.ts';\nconsole.log(typeof cwd);\n",
+            ),
+        ],
+    );
+    let started_in = fixtures.0.join(OsStr::from_bytes(b"not_utf8_\xff"));
+    std::fs::create_dir(&started_in).unwrap();
+    let run_file = |file: &str| {
+        let mut command = fgro_command(&["run", &fixtures.path(file)]);
+        command.current_dir(&started_in);
+        let output = spawn(command, b"");
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let message = "the working directory's path isn't UTF-8, so Gro can't name it";
+    assert_eq!(
+        run_file("caught.js"),
+        (Some(0), format!("true {message}\n"), String::new())
+    );
+    assert_eq!(
+        run_file("unused.js"),
+        (Some(0), "function\n".to_owned(), String::new())
+    );
+    let (code, stdout, stderr) = run_file("uncaught.js");
+    assert_eq!((code, stdout.as_str()), (Some(1), ""), "{stderr}");
+    assert!(
+        stderr.starts_with(&format!("error: Uncaught (in promise) Error: {message}\n")),
+        "{stderr}"
+    );
+}
+
 /// An argument that isn't UTF-8 is refused before anything runs, the file or
 /// one of the script's.
 #[cfg(unix)]

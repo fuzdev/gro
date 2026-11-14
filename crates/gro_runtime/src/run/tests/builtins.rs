@@ -1,7 +1,10 @@
 //! Tests for the builtins, from source in a debug build (whose runtime
 //! checks every extension module was evaluated): `args`, the namespace's
 //! and the array's shape and hardening, the grant check, the reserved
-//! specifiers, and what a run records of a builtin import.
+//! specifiers, and what a run records of a builtin import. The grant-free
+//! builtins' are in `observations`.
+
+use std::path::{Path, PathBuf};
 
 use super::super::{RunError, RunOutcome, run_recorded};
 use crate::confine::Confinement;
@@ -51,6 +54,30 @@ pub(super) fn run_linked_outcome(
     links: &[(&str, &str)],
     options: RuntimeOptions,
 ) -> (RunOutcome, Graph) {
+    run_started_in(name, files, links, options, None)
+}
+
+/// Runs as [`run_files`] does, the run started in `cwd`, which needn't
+/// exist, since the entry is given by its absolute path.
+pub(super) fn run_files_from(
+    name: &str,
+    files: &[(&str, &str)],
+    options: RuntimeOptions,
+    cwd: &Path,
+) -> (Result<(), RunError>, Graph) {
+    let (outcome, graph) = run_started_in(name, files, &[], options, Some(cwd.to_owned()));
+    (outcome.result, graph)
+}
+
+/// Runs as [`run_linked_outcome`] does, the run started in `cwd`, or in
+/// the files' directory with none.
+fn run_started_in(
+    name: &str,
+    files: &[(&str, &str)],
+    links: &[(&str, &str)],
+    options: RuntimeOptions,
+    cwd: Option<PathBuf>,
+) -> (RunOutcome, Graph) {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
     let test_dir = TestDir::on_disk(&format!("builtin_{name}"));
     let dir = test_dir.path().to_owned();
@@ -66,9 +93,10 @@ pub(super) fn run_linked_outcome(
         std::os::unix::fs::symlink(target, path).unwrap();
     }
     let entry = dir.join("main.mjs");
+    let cwd = cwd.unwrap_or(dir);
     let (outcome, graph) = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
-        .spawn(move || run_recorded(engine, &options, &entry, &dir, Recording::Full))
+        .spawn(move || run_recorded(engine, &options, &entry, &cwd, Recording::Full))
         .unwrap()
         .join()
         .unwrap();
@@ -807,7 +835,8 @@ for (const [specifier, words] of cases) {
              use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
              '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', \
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or '@fuzdev/gro/runtime_version.ts'; of \
-             these, only '@fuzdev/gro/args.ts' is on fgro yet, so run code that uses the others \
+             these, only '@fuzdev/gro/args.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
+             '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run code that uses the others \
              under Node with gro",
             graph.roots().project().dir.display()
         )),

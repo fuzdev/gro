@@ -1,7 +1,6 @@
 //! A builtin through the loader: the grant check at link time, by the run's
 //! authority and the importer's origin, and what the graph records.
 
-use super::super::resolve::resolve_builtin;
 use super::*;
 use crate::resolver::{BUILTINS, Builtin, Origin, ResolveErrorKind};
 use crate::{ArgsGrant, Authority, Grants};
@@ -191,70 +190,79 @@ fn the_builtin_url_is_refused_from_source() {
     );
 }
 
-/// A grant-free builtin of the test's own: the table has none yet, so the
-/// check is driven past the table's lookup, from the resolved builtin on.
-static GRANT_FREE: Builtin = Builtin {
-    specifier: "@fuzdev/gro/grant_free.ts",
-    url: "builtin:@fuzdev/gro/grant_free.ts",
-    grant: None,
-    exports: &[],
-};
-
-/// Links [`GRANT_FREE`] into `loader`'s graph, imported by `importer` as
-/// `reach`, under `loader`'s authority.
-fn link_grant_free(loader: &Loader, importer: &str, reach: Reach) -> Result<String, Refused> {
-    let importer = Url::parse(importer).unwrap();
-    resolve_builtin(
-        &mut loader.graph.borrow_mut(),
-        loader.authority.as_ref(),
-        &GRANT_FREE,
-        GRANT_FREE.specifier,
-        &importer,
-        Reached::Import(reach),
-    )
-    .map(|url| url.to_string())
+/// The table's grant-free rows, of which it has some.
+fn grant_free_rows() -> Vec<&'static Builtin> {
+    let rows: Vec<_> = BUILTINS
+        .iter()
+        .filter(|builtin| builtin.grant.is_none())
+        .collect();
+    assert!(!rows.is_empty());
+    rows
 }
 
-/// With no authority, as eval's loader, a grant-free builtin is refused
-/// too, the eval checked before the grant, with a message that names no
-/// grant; a run's loader links it for the project and a package alike,
-/// whatever the run grants.
+/// With no authority, as eval's loader, every grant-free builtin is
+/// refused too, to the project and a package, by a static import and
+/// `import()`, the eval checked before the grant, with a message that
+/// names no grant; a run's loader links each for the project and a package
+/// alike, whatever the run grants, nothing included.
 #[test]
 fn eval_refuses_a_grant_free_builtin_and_a_run_links_it() {
     let tree = tree();
-    let eval = loader(&tree, None);
-    for (importer, origin) in [(MAIN, Origin::Project), (BAR, bar_origin())] {
-        for reach in [Reach::Static, Reach::Dynamic] {
-            let Err(refused) = link_grant_free(&eval, importer, reach) else {
-                panic!("linked under eval");
-            };
-            assert_eq!(
-                refused.message,
-                format!(
-                    "cannot import '{}' from {importer}: eval imports no builtin module",
-                    GRANT_FREE.specifier
-                )
-            );
-            assert_eq!(
-                *refused.reason,
-                FailureReason::NotGranted {
-                    builtin: &GRANT_FREE,
-                    origin: origin.clone(),
-                }
-            );
-        }
-    }
-    assert_no_builtin(&eval);
-    for authority in [Authority::default(), granted()] {
-        let loader = loader(&tree, Some(authority));
-        for importer in [MAIN, BAR] {
+    for builtin in grant_free_rows() {
+        let specifier = builtin.specifier;
+        let eval = loader(&tree, None);
+        for (importer, origin) in [(MAIN, Origin::Project), (BAR, bar_origin())] {
             for reach in [Reach::Static, Reach::Dynamic] {
-                let url = link_grant_free(&loader, importer, reach)
-                    .unwrap_or_else(|refused| panic!("{}", refused.message));
-                assert_eq!(url, GRANT_FREE.url);
+                let refused = eval
+                    .resolve_reached(&tree, specifier, importer, Reached::Import(reach))
+                    .unwrap_err();
+                assert_eq!(
+                    refused.to_string(),
+                    format!(
+                        "cannot import '{specifier}' from {importer}: eval imports no builtin \
+                         module"
+                    )
+                );
+                assert_failed(
+                    &graph(&eval),
+                    specifier,
+                    &FailureReason::NotGranted {
+                        builtin,
+                        origin: origin.clone(),
+                    },
+                );
             }
         }
-        let url = Url::parse(GRANT_FREE.url).unwrap();
-        assert_eq!(graph(&loader).records()[&url], Record::Builtin(&GRANT_FREE));
+        assert_no_builtin(&eval);
+        for authority in [Authority::default(), granted()] {
+            let loader = loader(&tree, Some(authority));
+            for importer in [MAIN, BAR] {
+                for reach in [Reach::Static, Reach::Dynamic] {
+                    let url = loader
+                        .resolve_reached(&tree, specifier, importer, Reached::Import(reach))
+                        .unwrap_or_else(|refused| panic!("{refused}"));
+                    assert_eq!(url.as_str(), builtin.url);
+                }
+            }
+            let url = Url::parse(builtin.url).unwrap();
+            let graph = graph(&loader);
+            assert_eq!(graph.records()[&url], Record::Builtin(builtin));
+            assert_eq!(graph.roots().iter().count(), 2, "a builtin admits no root");
+            let edges: Vec<_> = graph
+                .edges()
+                .iter()
+                .filter(|(_, to)| **to == url)
+                .map(|(edge, _)| (edge.importer.as_str(), edge.reach))
+                .collect();
+            assert_eq!(
+                edges,
+                [
+                    (MAIN, Reach::Static),
+                    (MAIN, Reach::Dynamic),
+                    (BAR, Reach::Static),
+                    (BAR, Reach::Dynamic),
+                ]
+            );
+        }
     }
 }

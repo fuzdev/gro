@@ -90,7 +90,13 @@ fn fgro_command_in(mut command: Command, args: &[&str]) -> Command {
 /// can't block it, killing it at the [`DEADLINE`] or past [`MAX_RSS_KIB`] so
 /// a run that never ends or grows without bound fails its test instead of
 /// hanging the suite or taking the machine's memory.
-pub fn spawn(mut command: Command, stdin: &[u8]) -> Output {
+pub fn spawn(command: Command, stdin: &[u8]) -> Output {
+    spawn_with_pid(command, stdin).1
+}
+
+/// Runs `command` as [`spawn`] does, returning the child's process id with
+/// its output.
+pub fn spawn_with_pid(mut command: Command, stdin: &[u8]) -> (u32, Output) {
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -124,11 +130,12 @@ pub fn spawn(mut command: Command, stdin: &[u8]) -> Output {
         }
         std::thread::sleep(Duration::from_millis(5));
     };
-    Output {
+    let output = Output {
         status,
         stdout: stdout.join().unwrap(),
         stderr: stderr.join().unwrap(),
-    }
+    };
+    (child.id(), output)
 }
 
 /// The most resident memory the process `pid` has reached, in KiB, as

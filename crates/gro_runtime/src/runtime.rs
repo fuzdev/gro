@@ -7,7 +7,7 @@ use deno_core::{JsRuntime, ModuleCodeString, ModuleName, v8};
 use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
-use crate::host::ScriptArgs;
+use crate::host::HostData;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
@@ -30,13 +30,13 @@ pub enum Mode {
 
 /// What `fgro run`'s host ops read, put in the runtime's `OpState` before
 /// anything runs: the run's authority, which every host op checks first,
-/// and the script's arguments. The default grants nothing.
+/// and the run's data they return. The default grants nothing.
 #[derive(Debug, Clone, Default)]
 pub struct HostState {
     /// The run's authority.
     pub authority: Authority,
-    /// The script's arguments.
-    pub args: Vec<String>,
+    /// The run's data.
+    pub data: HostData,
 }
 
 /// Starts `fgro run`'s runtime over `loader` from `snapshot` when there is
@@ -51,10 +51,10 @@ pub fn start_runtime(
     loader: Rc<Loader>,
 ) -> Result<JsRuntime, String> {
     let runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
-    let HostState { authority, args } = host;
+    let HostState { authority, data } = host;
     let state = runtime.op_state();
     state.borrow_mut().put(authority);
-    state.borrow_mut().put(ScriptArgs(args));
+    state.borrow_mut().put(data);
     drop(state);
     start(runtime, console, Mode::Run)
 }
@@ -152,9 +152,9 @@ mod tests {
     use crate::STACK_SIZE;
     use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
-    use crate::host::HOST_OPS;
+    use crate::host::{HOST_OPS, HostOp};
     use crate::loader::graph::Recording;
-    use crate::resolver::BUILTINS;
+    use crate::resolver::{BUILTINS, Capability, find_builtin};
     use crate::test_support::TestDir;
     use crate::{ArgsGrant, Grants};
 
@@ -235,10 +235,11 @@ mod tests {
 
     /// The choke point by registration: the ops gro's extension registers,
     /// whatever their names, are exactly the bootstrap's ungated list and
-    /// the host ops, declared through `host_ops!`, each once and on one list
-    /// only, and the extension registers no op on an object. A hand-written
-    /// op added to the extension fails here until it's declared as a host op
-    /// or listed as ungated. Each is registered in the runtime as well.
+    /// the host ops, declared through `host_ops!`, a grant-free module's
+    /// included, each once and on one list only, and the extension
+    /// registers no op on an object. A hand-written op added to the
+    /// extension fails here until it's declared as a host op or listed as
+    /// ungated. Each is registered in the runtime as well.
     #[test]
     fn every_op_of_gro_s_extension_is_ungated_or_a_host_op() {
         let extension = bootstrap::gro::init();
@@ -246,8 +247,8 @@ mod tests {
         registered.sort_unstable();
         let mut declared: Vec<&str> = bootstrap::UNGATED_OPS
             .iter()
-            .chain(HOST_OPS)
             .copied()
+            .chain(HOST_OPS.iter().map(|op| op.name))
             .collect();
         declared.sort_unstable();
         assert_eq!(registered, declared);
@@ -269,9 +270,9 @@ mod tests {
 
     /// The bootstrap's factories (`gro_builtins` on `internals`, keyed by
     /// specifier in `js/bootstrap.js`) are exactly the builtin table's, in
-    /// its order, each a function: the table is the one source of the
-    /// builtins, and a key it lacks or misspells would leave its backing
-    /// script calling nothing.
+    /// its order, each a function of one parameter, its grant's scope: the
+    /// table is the one source of the builtins, and a key it lacks or
+    /// misspells would leave its backing script calling nothing.
     #[test]
     fn the_bootstrap_s_factories_are_the_builtin_table_s() {
         let keys = on_new_runtime("builtin_factories", Mode::Run, |runtime| -> Vec<String> {
@@ -280,7 +281,7 @@ mod tests {
                     "<test>",
                     "const builtins = globalThis.__bootstrap.internals.gro_builtins;
 JSON.stringify(Object.isFrozen(builtins) && Object.getPrototypeOf(builtins) === null
-\t? Object.keys(builtins).filter((key) => typeof builtins[key] === 'function')
+\t? Object.keys(builtins).filter((key) => typeof builtins[key] === 'function' && builtins[key].length === 1)
 \t: null)",
                 )
                 .unwrap();
@@ -292,14 +293,72 @@ JSON.stringify(Object.isFrozen(builtins) && Object.getPrototypeOf(builtins) === 
         assert_eq!(keys, specifiers);
     }
 
+    /// The host ops' grants are the table's: each host op names the row of
+    /// the module it serves and requires exactly that row's grant, none for
+    /// a grant-free row's, so an op of a module that needs a grant can't be
+    /// declared grant-free; and each grant a host op requires is a row's,
+    /// and a table with a grant-free row has a grant-free op, so neither
+    /// list grows a kind the other lacks.
+    #[test]
+    fn the_host_ops_grants_are_the_builtin_table_s() {
+        for op in HOST_OPS {
+            let row = find_builtin(op.module)
+                .unwrap_or_else(|| panic!("{}: {} is no row of the table", op.name, op.module));
+            assert_eq!(op.grant, row.grant, "{}", op.name);
+        }
+        let mut ops: Vec<Option<Capability>> = HOST_OPS.iter().map(|op| op.grant).collect();
+        let mut rows: Vec<Option<Capability>> =
+            BUILTINS.iter().map(|builtin| builtin.grant).collect();
+        for grants in [&mut ops, &mut rows] {
+            grants.sort_unstable_by_key(|grant| grant.map(|grant| grant.to_string()));
+            grants.dedup();
+        }
+        assert_eq!(ops, rows);
+        assert_eq!(
+            HOST_OPS,
+            [
+                HostOp {
+                    name: "op_gro_args",
+                    module: "@fuzdev/gro/args.ts",
+                    grant: Some(Capability::Args),
+                },
+                HostOp {
+                    name: "op_gro_cwd",
+                    module: "@fuzdev/gro/cwd.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_pid",
+                    module: "@fuzdev/gro/pid.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_runtime_version",
+                    module: "@fuzdev/gro/runtime_version.ts",
+                    grant: None,
+                },
+            ]
+        );
+    }
+
+    /// The run's data the host ops are called with below.
+    fn host_data() -> HostData {
+        HostData {
+            args: vec!["a".to_owned()],
+            cwd: Some("/work".to_owned()),
+            runtime_version: "test/1.2.3".to_owned(),
+        }
+    }
+
     /// Calls every host op through `Deno.core.ops`, before the start
     /// removes it, on a runtime built as `mode` says whose `OpState` holds
-    /// `authority` (none at all when unset, as eval's) and the script's
-    /// arguments `["a"]`, returning each op's result as JSON or what it
-    /// threw. Each op is called with no argument: a host op that takes one
-    /// needs a sample here, or its argument's conversion throws before
-    /// `require` and the refusal test fails for the wrong reason.
+    /// `authority` (none at all when unset, as eval's) and [`host_data`],
+    /// returning each op's result as JSON or what it threw. Each op is
+    /// called with no argument: a host op that takes one needs a sample
+    /// here, or its argument's conversion throws before its check and the
+    /// refusal test fails for the wrong reason.
     fn call_host_ops(name: &str, mode: Mode, authority: Option<Authority>) -> serde_json::Value {
+        let names: Vec<&str> = HOST_OPS.iter().map(|op| op.name).collect();
         let source = format!(
             "const results = {{}};
 for (const name of {}) {{
@@ -310,14 +369,14 @@ for (const name of {}) {{
 \t}}
 }}
 JSON.stringify(results)",
-            serde_json::to_string(HOST_OPS).unwrap()
+            serde_json::to_string(&names).unwrap()
         );
         on_new_runtime(name, mode, move |runtime| {
             let state = runtime.op_state();
             if let Some(authority) = authority {
                 state.borrow_mut().put(authority);
             }
-            state.borrow_mut().put(ScriptArgs(vec!["a".to_owned()]));
+            state.borrow_mut().put(host_data());
             drop(state);
             let value = runtime.execute_script("<test>", source).unwrap();
             deno_core::scope!(scope, runtime);
@@ -326,37 +385,90 @@ JSON.stringify(results)",
         })
     }
 
-    /// The choke point by behavior: every host op, called by a runtime that
-    /// holds no authority (eval's) or one granting nothing, in either mode,
-    /// throws `not_granted` naming itself and the grant before its body
-    /// runs. A body that skips `require` returns its data here instead.
+    /// What the host op `op` throws in a runtime that holds no authority.
+    fn refusal_without_authority(op: &HostOp) -> String {
+        let name = op.name;
+        op.grant.map_or_else(
+            || {
+                format!(
+                    "Error: not_granted: {name} is a host op, and this runtime holds no \
+                     authority, so it runs none"
+                )
+            },
+            |grant| {
+                format!(
+                    "Error: not_granted: {name} needs the grant '{grant}', which this runtime \
+                     doesn't hold"
+                )
+            },
+        )
+    }
+
+    /// The choke point by behavior: every host op, a grant-free module's
+    /// included, called by a runtime that holds no authority (eval's), in
+    /// either mode, throws `not_granted` naming itself before its body
+    /// runs; and each that requires a grant throws it, naming the grant,
+    /// in a run that grants nothing. A body that skips its check returns
+    /// its data here instead.
     #[test]
     fn every_host_op_refuses_without_its_grant() {
-        for (case, mode, authority) in [
-            ("host_none_eval", Mode::Eval, None),
-            ("host_none_run", Mode::Run, None),
-            ("host_empty_run", Mode::Run, Some(Authority::default())),
-        ] {
-            let results = call_host_ops(case, mode, authority);
-            for name in HOST_OPS {
-                let result = results[name].as_str().unwrap_or_default();
-                assert!(
-                    result.starts_with(&format!("Error: not_granted: {name} needs the grant '")),
-                    "{case}: {name}: {result}"
+        for (case, mode) in [("host_none_eval", Mode::Eval), ("host_none_run", Mode::Run)] {
+            let results = call_host_ops(case, mode, None);
+            for op in HOST_OPS {
+                assert_eq!(
+                    results[op.name].as_str().unwrap_or_default(),
+                    refusal_without_authority(op),
+                    "{case}"
                 );
             }
+        }
+        let results = call_host_ops("host_empty_run", Mode::Run, Some(Authority::default()));
+        let granted: Vec<&HostOp> = HOST_OPS.iter().filter(|op| op.grant.is_some()).collect();
+        assert!(!granted.is_empty());
+        for op in granted {
+            assert_eq!(
+                results[op.name].as_str().unwrap_or_default(),
+                refusal_without_authority(op)
+            );
         }
     }
 
     /// Granted, the args op returns the script's arguments, so the
-    /// refusals above are the grant's doing.
+    /// refusals above are the grant's doing; and a grant-free module's op
+    /// runs in a run whatever it grants, nothing included, returning the
+    /// run's data, so its refusals above are the missing authority's.
     #[test]
-    fn a_granted_host_op_runs() {
+    fn a_granted_host_op_runs_and_a_grant_free_one_in_every_run() {
         let granted = Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
         });
-        let results = call_host_ops("host_granted", Mode::Run, Some(granted));
+        let results = call_host_ops("host_granted", Mode::Run, Some(granted.clone()));
         assert_eq!(results["op_gro_args"], r#"["a"]"#);
+        for (case, authority) in [
+            ("host_free_granted", granted),
+            ("host_free_empty", Authority::default()),
+        ] {
+            let results = call_host_ops(case, Mode::Run, Some(authority));
+            assert_eq!(results["op_gro_cwd"], r#""/work""#, "{case}");
+            assert_eq!(
+                results["op_gro_pid"],
+                std::process::id().to_string(),
+                "{case}"
+            );
+            assert_eq!(
+                results["op_gro_runtime_version"], r#""test/1.2.3""#,
+                "{case}"
+            );
+            let free = HOST_OPS.iter().filter(|op| op.grant.is_none());
+            for op in free {
+                let result = results[op.name].as_str().unwrap_or_default();
+                assert!(
+                    !result.starts_with("Error"),
+                    "{case}: {}: {result}",
+                    op.name
+                );
+            }
+        }
     }
 
     /// In an eval runtime, each refused op throws the refusal, whatever it's

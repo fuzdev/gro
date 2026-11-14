@@ -6,6 +6,7 @@ declare module 'ext:core/mod.js' {
 	export const internals: object;
 	/** The intrinsics, copied when the runtime is made, before any user code runs. */
 	export const primordials: {
+		Error: ErrorConstructor;
 		ObjectFreeze: <T>(value: T) => Readonly<T>;
 	};
 	export const core: {
@@ -23,4 +24,7 @@ declare module 'ext:core/ops' {
 	export const op_gro_console_stderr: () => boolean;
 	export const op_gro_deny: () => boolean;
 	export const op_gro_args: () => Array<string>;
+	export const op_gro_cwd: () => string | null;
+	export const op_gro_pid: () => number;
+	export const op_gro_runtime_version: () => string;
 }

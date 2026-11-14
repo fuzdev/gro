@@ -51,7 +51,9 @@ pub struct Builtin {
     /// Its URL, the specifier in the `builtin:` scheme: what a resolution
     /// returns and `import.meta.resolve` shows.
     pub url: &'static str,
-    /// The grant its importer needs, or none for a grant-free module.
+    /// The grant its importer needs, or none for a grant-free module, which
+    /// every importer of a run may import, the project's and a package's
+    /// alike.
     pub grant: Option<Capability>,
     /// Its named exports, beside the `default` every builtin has.
     pub exports: &'static [&'static str],
@@ -63,11 +65,16 @@ pub struct Builtin {
 /// spliced into the backing script's source.
 macro_rules! builtin_rows {
     ($row:ident) => {
-        [$row!(
-            "@fuzdev/gro/args.ts",
-            Some($crate::resolver::Capability::Args),
-            ["args"]
-        )]
+        [
+            $row!(
+                "@fuzdev/gro/args.ts",
+                Some($crate::resolver::Capability::Args),
+                ["args"]
+            ),
+            $row!("@fuzdev/gro/cwd.ts", None, ["cwd"]),
+            $row!("@fuzdev/gro/pid.ts", None, ["pid"]),
+            $row!("@fuzdev/gro/runtime_version.ts", None, ["runtime_version"]),
+        ]
     };
 }
 pub(crate) use builtin_rows;
@@ -115,9 +122,6 @@ pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/stdin",
     "@fuzdev/gro/stdout",
     "@fuzdev/gro/stderr",
-    "@fuzdev/gro/cwd",
-    "@fuzdev/gro/pid",
-    "@fuzdev/gro/runtime_version",
 ];
 
 /// A module Gro has none of, whose members are modules of their own.

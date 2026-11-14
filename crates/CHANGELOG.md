@@ -21,6 +21,11 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   `fgro run` grants it to the project's own modules: a package's module is refused it when the graph links,
   and can't import the project's own modules by name to reach it through one,
   and `fgro eval` imports no builtin module.
+  Three more builtin modules need no grant, so a package's modules import them as the project's do:
+  `@fuzdev/gro/cwd.ts`, whose `cwd()` is the directory `fgro` was started in,
+  `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,
+  and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`.
+  Each has the exports and types of its Node module in the npm package.
   The `.js` spelling `@fuzdev/gro/args.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `@fuzdev/gro/env.ts`, and the rest),
   are refused, as is a respelling of these or of `@fuzdev/gro/args.ts` (`@fuzdev/gro/f%73.ts`, `@fuzdev/gro/arg%73.ts`), never loaded from the npm package.
   So are `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro doesn't have, either spelling,

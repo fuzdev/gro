@@ -9,6 +9,7 @@ use deno_core::error::{CoreError, CoreErrorKind};
 use url::Url;
 
 use crate::engine::Engine;
+use crate::host::HostData;
 use crate::loader::Loader;
 use crate::loader::graph::{Graph, Reach, Reached, Recording};
 use crate::phases::{self, Phase};
@@ -100,6 +101,8 @@ pub struct RefusedImport {
 ///
 /// `cwd` is the working directory, an absolute path. It is an input, not
 /// read from the process, so an embedder decides it; `fgro` passes its own.
+/// The entry resolves from it, and the cwd host module's `cwd` returns it
+/// as given, when its path is UTF-8.
 ///
 /// The event loop drains before the entry's evaluation is checked, so a
 /// top-level `await` on a promise that never settles ends the run as an
@@ -137,7 +140,7 @@ pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Pa
             };
         }
     };
-    run_resolved(engine, options, &entry, &loader)
+    run_resolved(engine, options, &entry, cwd, &loader)
 }
 
 /// Runs as [`run_main`] does, and returns the run's result with the graph its
@@ -165,22 +168,27 @@ fn run_recorded(
             return (outcome, None);
         }
     };
-    let outcome = run_resolved(engine, options, &entry, &loader);
+    let outcome = run_resolved(engine, options, &entry, cwd, &loader);
     // the runtime, and its share of the loader, is gone once the run ends
     (outcome, Some(loader.take_graph()))
 }
 
-/// Runs the resolved `entry` with `loader`, then marks the teardown,
-/// returning the result with the `import()`s refused by rule.
+/// Runs the resolved `entry` with `loader`, started in `cwd`, then marks
+/// the teardown, returning the result with the `import()`s refused by rule.
 fn run_resolved(
     engine: Engine,
     options: &RuntimeOptions,
     entry: &Url,
+    cwd: &Path,
     loader: &Rc<Loader>,
 ) -> RunOutcome {
     let host = HostState {
         authority: options.authority.clone(),
-        args: options.args.clone(),
+        data: HostData {
+            args: options.args.clone(),
+            cwd: cwd.to_str().map(ToOwned::to_owned),
+            runtime_version: options.runtime_version.clone(),
+        },
     };
     let result = run_loaded(
         engine,

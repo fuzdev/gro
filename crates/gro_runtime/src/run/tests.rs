@@ -1,6 +1,6 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
 //! user code, then the graph a run records (`graph`), the builtins
-//! (`builtins`), import attributes (`attributes`), `import()` in code
+//! (`builtins`, and the grant-free ones in `observations`), import attributes (`attributes`), `import()` in code
 //! compiled from a string (`string_code`), and the refusals a run reports
 //! (`reported`).
 
@@ -15,6 +15,7 @@ use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 mod attributes;
 mod builtins;
 mod graph;
+mod observations;
 mod reported;
 mod string_code;
 
@@ -104,9 +105,16 @@ fn the_ext_specifiers_include_the_ones_that_reached_user_code() {
         "ext:deno_webidl/00_webidl.js",
         "ext:gro/bootstrap.js",
         "ext:gro/args.ts",
+        "ext:gro/cwd.ts",
+        "ext:gro/pid.ts",
+        "ext:gro/runtime_version.ts",
         "ext:gro/internal/records.ts",
         "builtin:@fuzdev/gro/args.ts",
         "ext:gro/builtin/@fuzdev/gro/args.ts.js",
+        "builtin:@fuzdev/gro/cwd.ts",
+        "ext:gro/builtin/@fuzdev/gro/cwd.ts.js",
+        "builtin:@fuzdev/gro/pid.ts",
+        "builtin:@fuzdev/gro/runtime_version.ts",
     ] {
         assert!(
             specifiers.iter().any(|specifier| specifier == known),

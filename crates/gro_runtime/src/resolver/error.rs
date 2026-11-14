@@ -701,7 +701,7 @@ impl fmt::Display for ResolveErrorKind {
                      what you use from ",
                     split.stem
                 )?;
-                write_specifiers(f, split.modules.iter().copied(), split.modules.len())?;
+                write_specifiers(f, split.modules.iter().copied(), split.modules.len(), "or")?;
                 // the ones refused on fgro, which the fix can't promise there
                 let is_unbuilt = |module: &str| {
                     module
@@ -720,7 +720,7 @@ impl fmt::Display for ResolveErrorKind {
                     );
                 }
                 f.write_str("; of these, only ")?;
-                write_specifiers(f, available.copied(), count)?;
+                write_specifiers(f, available.copied(), count, "and")?;
                 let verb = if count == 1 { "is" } else { "are" };
                 write!(
                     f,
@@ -1095,22 +1095,23 @@ impl fmt::Display for UrlFault {
     }
 }
 
-/// Writes `count` specifiers quoted, joined as a list: `'a'`, `'a' or 'b'`,
-/// `'a', 'b', or 'c'`.
+/// Writes `count` specifiers quoted, joined as a list by `conjunction`
+/// (`or`, `and`): `'a'`, `'a' or 'b'`, `'a', 'b', or 'c'`.
 fn write_specifiers<'a>(
     f: &mut fmt::Formatter<'_>,
     specifiers: impl Iterator<Item = &'a str>,
     count: usize,
+    conjunction: &str,
 ) -> fmt::Result {
     let last = count.saturating_sub(1);
     for (i, specifier) in specifiers.enumerate() {
-        let separator = match i {
-            0 => "",
-            _ if i == last && last == 1 => " or ",
-            _ if i == last => ", or ",
-            _ => ", ",
-        };
-        write!(f, "{separator}'{specifier}'")?;
+        match i {
+            0 => {}
+            _ if i == last && last == 1 => write!(f, " {conjunction} ")?,
+            _ if i == last => write!(f, ", {conjunction} ")?,
+            _ => f.write_str(", ")?,
+        }
+        write!(f, "'{specifier}'")?;
     }
     Ok(())
 }

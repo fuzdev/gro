@@ -54,10 +54,11 @@ The box for runs and their children is designed ([backstop](backstop.md#the-box-
 ## builtin module
 
 A [host module](#host-modules) the runtime implements itself, named by a bare specifier in the binary's builtin table,
-like `@fuzdev/gro/args.ts`, the one on `fgro` so far.
+like `@fuzdev/gro/args.ts`; `args`, `cwd`, `pid`, and `runtime_version` are on `fgro` so far.
 It resolves ahead of package lookup to its `builtin:` URL, which imports nothing when written as is,
-and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links;
-`fgro eval` imports none, and a package's modules can't reach one through a project module they import by name.
+and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links,
+while one that needs none (`cwd`, `pid`, `runtime_version`) is imported by any module of a run, a package's included;
+`fgro eval` imports none, and a package's modules can't reach a granted one through a project module they import by name.
 Not a builtin task, which Gro's CLI runs by name.
 [resolver](resolver.md#builtin-modules) has the rules.
 
@@ -84,6 +85,9 @@ A declaration is a proposal until the [policy file](#policy-file) accepts it.
 How a run sees the clock and randomness: `real` (the default for `run` and tasks), `deny` (every read throws; `fgro eval`'s one mode, built),
 and `fixed` and `seeded` (a fixed clock and a seeded generator, designed for hermetic runs that need a time or random values).
 [eval](eval.md#determinism) lists what `deny` refuses.
+The observation modules (`cwd`, `pid`, `runtime_version`) are on this axis, not the grants':
+they need no grant, are real under `fgro run`, and are refused in `fgro eval` with every builtin module;
+what a hermetic run does with each is designed, not built ([host modules](host_modules.md#the-process-modules)).
 
 ## driver
 
@@ -139,7 +143,7 @@ Designed; `fgro eval` is the closest built thing to it, with the gaps [eval](eva
 The imports that reach the OS (fs, spawn, watch, net, and the process modules), Gro's own modules under `@fuzdev/gro/*`.
 Each is a visible edge in the import graph, so a run's host modules are [inferred](#inference).
 The running process is one module per kind of authority it carries (`env`, `args`, `exit`, `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`),
-each designed as its own grant on `fgro` but the observations, which need none.
+each designed as its own grant on `fgro` but the observations (`cwd`, `pid`, `runtime_version`), which need none and are built there, as `args` is.
 [host modules](host_modules.md) is the reference.
 
 ## inference

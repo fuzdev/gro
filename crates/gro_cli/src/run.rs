@@ -12,6 +12,7 @@ use crate::color;
 use crate::error::CliError;
 use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
+use crate::version::RUNTIME_VERSION;
 
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
@@ -86,7 +87,8 @@ fn warn_of_refusals(refused: &[RefusedImport], host_modules: u64, unlisted: u64)
 }
 
 /// The options `run`'s runtime starts with: the project's own modules
-/// granted the args host module, the script's arguments.
+/// granted the args host module, the script's arguments, and the runtime's
+/// name and version.
 fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     RuntimeOptions {
         authority: Authority::Confined(Grants {
@@ -95,6 +97,7 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
         args: run.args.clone(),
+        runtime_version: RUNTIME_VERSION.to_owned(),
     }
 }
 
@@ -126,6 +129,18 @@ mod tests {
             panic!("runs a.js");
         };
         assert!(runtime_options(&run).args.is_empty());
+    }
+
+    /// The runtime is named `fgro` with the binary's version.
+    #[test]
+    fn the_runtime_is_named_with_its_version() {
+        let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
+            panic!("runs a.js");
+        };
+        assert_eq!(
+            runtime_options(&run).runtime_version,
+            concat!("fgro/", env!("CARGO_PKG_VERSION"))
+        );
     }
 
     /// `run` grants the args host module, and only it.

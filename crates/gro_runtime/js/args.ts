@@ -10,6 +10,11 @@
 // and the namespace is made by `create_record`, which copied `Object`'s functions when the
 // snapshot evaluated it.
 //
+// A builtin's factory takes the scope of its importer's grant as its one argument and reads
+// no grant any other way, and this module keeps no state per run or per importer at its top
+// level, so a factory can be called once per importing origin. The `args` grant scopes
+// nothing, so its scope is `undefined`.
+//
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 import { primordials } from 'ext:core/mod.js';
@@ -21,6 +26,7 @@ const { ObjectFreeze } = primordials;
 /**
  * The builtin's namespace: `args`, the script's arguments as a frozen array of strings, and the
  * `default` every builtin has, `undefined`.
+ * @param _scope - the scope of the importer's `args` grant, which has none
  */
-export const create_args_namespace = () =>
+export const create_args_namespace = (_scope: undefined) =>
 	create_record({ args: ObjectFreeze(op_gro_args()), default: undefined });

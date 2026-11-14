@@ -6,7 +6,7 @@
 
 > **status**: every host module here exists as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the one built is `args`, the script's arguments, as `@fuzdev/gro/args.ts`
+> and the ones built are `args`, the script's arguments, and the three observations, `cwd`, `pid`, and `runtime_version`, which need no grant
 > (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package; [on `fgro`](#the-process-modules-on-fgro));
 > everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
@@ -340,17 +340,21 @@ The running process is nine modules, one per kind of authority, each exporting a
 | `stdin.ts`           | `stdin`                 | a channel in             | `stdin`, designed        |
 | `stdout.ts`          | `stdout`                | a channel out            | `stdout`, designed       |
 | `stderr.ts`          | `stderr`                | a channel out            | `stderr`, designed       |
-| `cwd.ts`             | `cwd`                   | an observation           | none, designed           |
-| `pid.ts`             | `pid`                   | an observation           | none, designed           |
-| `runtime_version.ts` | `runtime_version`       | an observation           | none, designed           |
+| `cwd.ts`             | `cwd`                   | an observation           | none, built              |
+| `pid.ts`             | `pid`                   | an observation           | none, built              |
+| `runtime_version.ts` | `runtime_version`       | an observation           | none, built              |
 
 Each is its own import, so a module's use of the process shows in its imports, as for `fs` and `spawn`:
 one that writes progress imports `stdout` without holding `stdin` or the environment,
 and on `fgro`, where there's no `process` global, each is to be its own grant, so a package can be accepted for one without the others.
 No module gathers them, since the loader checks a grant per module when the graph links.
-The observations need no grant on `fgro`: a package reads nothing through them it couldn't learn otherwise,
-and they differ on what a reproducible run can allow (`cwd` can be virtualized, `pid` differs every run,
-`runtime_version` keys a cache), so each stays a module of its own.
+The observations need no grant on `fgro`: each is a value that reaches nothing, and what a package learns from one is little
+(the directory the run was started in, where its own `import.meta.url` is already its absolute path, the process's id, and the runtime's version),
+so the project's modules and a package's import them alike.
+They differ on what a reproducible run can allow (`cwd` can be virtualized, `pid` differs every run,
+`runtime_version` keys a cache), so each stays a module of its own, and an import of one is a static fact of the graph
+that a hermetic run is designed to act on when it links: virtualize `cwd`, keep `runtime_version`, refuse `pid`.
+None of that is built: under `fgro run` each is the real value.
 
 - `env` is an `Env`. `get(name)` returns the value or `undefined` when it's unset,
   and own names only, so `toString` is unset. `get_all()` returns a frozen null-prototype record of the variables,
@@ -372,7 +376,10 @@ and they differ on what a reproducible run can allow (`cwd` can be virtualized, 
   In the CLI's own process they're the CLI's arguments, the task name included;
   a task reads its parsed args from its context's `task_args`, since a nested `invoke_task` shares this process.
   With `node -e` the first argument is the first, and a script read from stdin as `-` keeps its arguments too.
-- `cwd()` is the working directory when the module loaded, checked as for `fs.project`.
+- `cwd()` is the working directory when the module loaded, checked as for `fs.project`,
+  so importing the module throws in a removed directory or one whose path isn't UTF-8.
+  On `fgro` it's the directory `fgro` was started in, its real path with any symlink resolved, and in one whose path isn't UTF-8 the import succeeds and `cwd()` throws when called
+  (`fgro` doesn't start in a removed one).
 - `exit(code?)` exits, and without a `code` uses what `set_exit_code` set, else `0`.
   `set_exit_code(code)` sets the code the process exits with when it ends on its own.
   A code is an integer from 0 to 255, anything else a `TypeError`, checked with no value of the caller's run,
@@ -404,18 +411,24 @@ Each module's TSDoc has its contract.
 
 ### The process modules on fgro
 
-On `fgro`, the one built is `args`, as the builtin module `@fuzdev/gro/args.ts` exporting `args`,
-a frozen array of strings: the script's arguments, every one after the file `fgro run` was given, as written.
-It's made when a run first imports the module, from intrinsics the runtime copied before any user code ran,
+On `fgro`, these are built, each a builtin module exporting what its Node module does:
+`@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
+`@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
+`@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
+and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`, like `fgro/0.1.0`, where Node's is `node/<version>`.
+Each is made when a run first imports its module, from intrinsics the runtime copied before any user code ran,
 so code that patched `Object` or the prototypes before the import changes nothing it holds.
-Its exports have the types of the Node module's, checked by a test against that module's declarations.
+Each module's exports have the types of the Node module's, checked by a test against that module's declarations for every builtin module.
 
-`fgro run` grants it to the project's own modules, and the import is checked when the graph links,
+`cwd`, `pid`, and `runtime_version` need no grant: any module of a run imports them, a package's included,
+and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
+
+`args` needs the `args` grant, which `fgro run` gives the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused it for now,
-naming the package, until `-A` or the policy file's acceptance lifts that (both designed),
-and `fgro eval` grants it to no module ([eval](eval.md));
-an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
-Its namespace has a `default` export of `undefined`, where a Node module has none.
+naming the package, until `-A` or the policy file's acceptance lifts that (both designed).
+`fgro eval` imports no builtin module, the grant-free ones included ([eval](eval.md)),
+and an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
+A builtin module's namespace has a `default` export of `undefined`, where a Node module has none.
 The other modules in the table are designed as builtin modules of their own, each with the grant it names;
 until each lands, its specifier is refused as not on `fgro` yet, in either spelling.
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro has none of, are refused in either spelling too,

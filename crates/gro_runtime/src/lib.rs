@@ -26,7 +26,8 @@
 //!   TypeScript evaluated in the snapshot), and removes `Deno` and
 //!   `__bootstrap` from the global object
 //! - `host`: the host ops, the native half of the builtins, each declared
-//!   through the one choke point that checks the run's [`Grants`] first
+//!   through the one choke point that checks the run's [`Grants`] first, or,
+//!   for a grant-free builtin's, that the runtime holds an [`Authority`]
 //! - `stack`: an error's stack, with V8's detailed capture for uncaught
 //!   exceptions off, and its `.stack` text formatted as `deno_core` formats
 //!   it by a cheaper callback, with no source map applied (the vendored
@@ -121,6 +122,10 @@ pub struct RuntimeOptions {
     /// line, as written: data, not authority. A script reads them as the
     /// args builtin's `args`, which needs the `args` grant.
     pub args: Vec<String>,
+    /// The runtime's name and version, as the embedder names itself, like
+    /// `fgro/0.1.0`: data a script reads as `runtime_version`, from the
+    /// builtin of that name, which needs no grant.
+    pub runtime_version: String,
 }
 
 /// The console's output: which stream each level writes to, and whether each
@@ -161,7 +166,7 @@ pub enum ConsoleRouting {
 pub enum Authority {
     /// The grants given, to the project's own modules only: a module of an
     /// installed or linked package is refused every builtin that needs a
-    /// grant.
+    /// grant, and imports a grant-free one as the project does.
     // TODO: the unconfined run joins as a variant of its own, with its flag
     Confined(Grants),
 }

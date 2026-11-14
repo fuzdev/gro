@@ -28,7 +28,8 @@ a file whose name starts with `-` goes after `--`.
 The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
 where a bare `--allow-env` is a usage error, not a grant of every name.
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
-the one [builtin module](glossary.md#builtin-module) built so far ([on `fgro`](host_modules.md#the-process-modules-on-fgro)).
+one of the [builtin modules](glossary.md#builtin-module) built so far, beside `cwd`, `pid`, and `runtime_version`,
+each from the module of its name ([on `fgro`](host_modules.md#the-process-modules-on-fgro)).
 User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
@@ -61,9 +62,13 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   and grants it to the project's own modules, while a module of an installed or linked package is refused it for now
   when the graph links, the message naming the grant and the package ([resolver](resolver.md#builtin-modules) has the designed route past that).
   A package's module importing the project's own modules by name is refused too, so it can't reach the grant through one.
-  `@fuzdev/gro/args.js`, the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, and the rest, either spelling),
+- `@fuzdev/gro/cwd.ts`, `@fuzdev/gro/pid.ts`, and `@fuzdev/gro/runtime_version.ts`, builtin modules that need no grant,
+  so the project's modules and a package's import them alike:
+  `cwd()` is the directory `fgro` was started in, `pid` the process's id, and `runtime_version` the string `fgro/<version>`.
+  In a working directory whose path isn't UTF-8, `cwd()` throws when it's called.
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
-  are refused ahead of package lookup, as is a respelling of these or of `@fuzdev/gro/args.ts` (`@fuzdev/gro/arg%73.ts`),
+  are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,
   never loaded from the npm package's Node implementation.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,

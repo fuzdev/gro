@@ -55,11 +55,11 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 ## Builtin modules
 
 A bare specifier in the builtin table names a [builtin module](glossary.md#builtin-module), a host module the binary implements:
-today `@fuzdev/gro/args.ts` alone ([host modules](host_modules.md#the-process-modules-on-fgro)).
+today `@fuzdev/gro/args.ts`, `@fuzdev/gro/cwd.ts`, `@fuzdev/gro/pid.ts`, and `@fuzdev/gro/runtime_version.ts` ([host modules](host_modules.md#the-process-modules-on-fgro)).
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
 the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/args.js`), and the specifier of a host module not built on `fgro` yet
-(`@fuzdev/gro/fs.ts`, `spawn`, `net`, `watch`, `env`, `exit`, `stdin`, `stdout`, `stderr`, `cwd`, `pid`, and `runtime_version`,
+(`@fuzdev/gro/fs.ts`, `spawn`, `net`, `watch`, `env`, `exit`, `stdin`, `stdout`, and `stderr`,
 each with its `.js` spelling), are refused the same way, naming the one to import
 or that the module isn't on `fgro` yet, never looked up as a package, so none of them changes meaning when its builtin module lands.
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, each with its `.js` spelling, are refused the same way:
@@ -77,7 +77,8 @@ That scheme is refused like every other but `file:`, so only the table's specifi
 Whether an importer may import one is the loader's, checked when the graph links,
 for a static import and `import()` alike:
 the run must hold the module's grant, when it needs one, and for now only the project's own modules are granted one,
-so a module of an installed or linked package is refused, the message naming the grant and the package
+so a module of an installed or linked package is refused, the message naming the grant and the package,
+while a module that needs none (`cwd.ts`, `pid.ts`, `runtime_version.ts`) is imported by the project's modules and a package's alike
 (an `import()` in code compiled from a string has no importer of its own and is refused, [run](run.md#what-loads));
 `-A` and an acceptance in the policy file are designed to lift that.
 A module of an installed or linked package can't import the project's own modules by name either, so it can't borrow a grant through one
@@ -86,7 +87,8 @@ it's refused naming the package and the module, by a static import, `import()`, 
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants `args`, and `fgro eval` imports no builtin module, a grant-free one included ([eval](eval.md)).
+`fgro run` grants `args`, and `fgro eval` imports no builtin module, a grant-free one included,
+refused with a message that names no grant ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 Attributes follow the language's rule: `type` is the one key supported, and an attribute under any other key (`with {x: 'y'}`)
 is refused before anything resolves, for a static import and `import()`, a file and a builtin module alike.

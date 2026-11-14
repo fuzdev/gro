@@ -19,6 +19,10 @@ pub const COMMIT: Option<&str> = if cfg!(feature = "snapshot") {
     None
 };
 
+/// The runtime's name and version, what a script reads as `runtime_version`
+/// from the `runtime_version` host module: opaque, compared for equality only.
+pub const RUNTIME_VERSION: &str = concat!("fgro/", env!("CARGO_PKG_VERSION"));
+
 /// What `--version` prints for a build without [`COMMIT`].
 pub const COMMIT_UNKNOWN: &str = "unknown";
 

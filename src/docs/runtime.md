@@ -125,7 +125,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   ([threat model](authority.md#threat-model)).
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
-`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the script's arguments its only host API,
+`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the script's arguments and three grant-free observations (`cwd`, `pid`, `runtime_version`) its only host APIs,
 and the rest of the host modules, the grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
