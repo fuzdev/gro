@@ -252,6 +252,11 @@ const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
     (Measurement::Prices, &["prices", "confine"]),
 ];
 
+/// The filter [`verify`] runs `gro_runtime`'s unit tests by: the tests of
+/// its runtimes. libtest passes when a filter matches no test, so a unit
+/// test holds this one to the module it names.
+const RUNTIME_TESTS: &str = "runtime::tests::";
+
 /// Checks the snapshot `build`: the size budgets, that it reproduces its
 /// snapshot, clippy over the `snapshot` feature, the runtime's tests of its
 /// runtimes, the integration tests against the build, then the
@@ -296,7 +301,7 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     // environment names
     let mut runtime = vec!["test", "--locked", "-p", "gro_runtime", "--lib"];
     runtime.extend(profile_args);
-    runtime.extend(["--", "--include-ignored", "runtime::tests::"]);
+    runtime.extend(["--", "--include-ignored", RUNTIME_TESTS]);
     run(root, &env, "cargo", &runtime)?;
     for (measurement, tests) in INTEGRATION_TESTS {
         let features = measurement.features();
@@ -556,6 +561,19 @@ mod tests {
         };
         assert_eq!(commit_value(&state(false)), sha);
         assert_eq!(commit_value(&state(true)), format!("{sha}-dirty"));
+    }
+
+    /// The filter [`verify`] runs `gro_runtime`'s tests by matches the tests
+    /// it means: `runtime.rs` has a `tests` module, and in it the test that
+    /// starts its runtimes from the build's snapshot. A renamed module or
+    /// test would otherwise leave the step running nothing, and passing.
+    #[test]
+    fn verify_s_runtime_tests_filter_matches_the_tests() {
+        assert_eq!(RUNTIME_TESTS, "runtime::tests::");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/src/runtime.rs");
+        let source = fs::read_to_string(source).unwrap();
+        let (_, tests) = source.split_once("\nmod tests {\n").unwrap();
+        assert!(tests.contains("\n    fn the_built_snapshot_refuses_the_refused_ops() {\n"));
     }
 
     /// The integration tests [`verify`] runs are `gro_cli`'s, every one:

@@ -519,6 +519,86 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         }
     }
 
+    /// The ops eval refuses, pinned in `tests/refused_op_names.txt` in the
+    /// list's order. The tests of the refusals, and the check a snapshot's
+    /// making runs, read the names from `bootstrap::REFUSED_OPS`, so a name
+    /// that left the list would be asked of none of them. To accept a
+    /// change deliberately, write the list the assertion prints over the
+    /// file, one name a line.
+    #[test]
+    fn the_refused_ops_are_pinned() {
+        let pinned = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/refused_op_names.txt"
+        ))
+        .unwrap();
+        let mut listed = bootstrap::REFUSED_OPS.join("\n");
+        listed.push('\n');
+        assert_eq!(
+            listed, pinned,
+            "the ops eval refuses differ from tests/refused_op_names.txt; update it only if the \
+             change is deliberate (see this test's doc)"
+        );
+    }
+
+    /// The op functions of the runtime the product starts for `mode`, by
+    /// [`start_eval_runtime`] or [`start_runtime`], from source.
+    fn started_op_functions(mode: Mode) -> Vec<crate::snapshot::OpFunctions> {
+        use crate::resolver::DiskTree;
+
+        init_engine(Confinement::Unconfined, &engine_options()).unwrap();
+        let dir = TestDir::on_disk(&format!("started_{mode:?}"));
+        std::fs::write(dir.path().join("main.mjs"), "").unwrap();
+        let cwd = dir.path().to_owned();
+        std::thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || {
+                let (entry, roots) =
+                    crate::resolver::resolve_entry(&DiskTree, Path::new("main.mjs"), &cwd).unwrap();
+                let loader = Rc::new(Loader::new(&entry, roots, Recording::Off));
+                let tokio = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let _entered = tokio.enter();
+                let console = ConsoleOptions::default();
+                let runtime = match mode {
+                    Mode::Eval => start_eval_runtime(None, console, loader).unwrap().0,
+                    Mode::Run => {
+                        start_runtime(None, console, HostState::default(), loader).unwrap()
+                    }
+                };
+                crate::snapshot::op_functions(&runtime)
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    /// The runtime eval starts (`start_eval_runtime`) has the refusal as
+    /// each refused op's function, slow only, and every other op's as
+    /// `fgro run`'s (`start_runtime`) has them, where each refused op has
+    /// its own. Read from the started runtimes' ops, which no script
+    /// reaches once a runtime has started: the tests that call the ops
+    /// build their runtimes a step short of that.
+    #[test]
+    fn the_runtime_eval_starts_has_the_refusal_at_each_refused_op() {
+        let eval = started_op_functions(Mode::Eval);
+        let run = started_op_functions(Mode::Run);
+        assert_eq!(eval.len(), run.len());
+        let refusal = *run.iter().find(|op| op.name == "op_gro_refused").unwrap();
+        assert_eq!(refusal.fast, None);
+        for (eval, run) in eval.iter().zip(&run) {
+            assert_eq!(eval.name, run.name);
+            if bootstrap::REFUSED_OPS.contains(&run.name) {
+                assert_eq!((eval.slow, eval.fast), (refusal.slow, None), "{}", run.name);
+                assert_ne!(run.slow, refusal.slow, "{}", run.name);
+            } else {
+                assert_eq!(eval, run);
+            }
+        }
+    }
+
     /// This build's ops pass the check a snapshot's making runs on them
     /// (`snapshot::check_refused_functions`), on the addresses of a runtime
     /// built as the snapshot's is: no function of an op eval refuses is at

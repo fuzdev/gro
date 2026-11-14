@@ -418,7 +418,9 @@ Invariants that live in the code:
   that isn't a function. Tests pin every registered op name in
   `crates/gro_runtime/tests/op_names.txt` and every dropped one in
   `tests/dropped_op_names.txt` beside it, so a `deno_core`/`deno_web`
-  upgrade that adds an op fails until it's reviewed.
+  upgrade that adds an op fails until it's reviewed, and every refused one
+  in `tests/refused_op_names.txt`, since the tests of the refusals read
+  their names from the list itself.
 - A start from the snapshot binds no op again (`skip_op_registration`, set
   in `runtime::new_runtime`): the snapshot's op functions are the only ones
   (a builtin's implementation takes its ops from the bootstrap object, which
@@ -446,8 +448,9 @@ Invariants that live in the code:
   address, a release build merges identical functions into one address,
   and eval puts its refusal at the refused ops' references alone. So
   `snapshot::make_snapshot` fails, naming both ops, when a refused op's
-  slow function shares its address with any function but another refused
-  op's slow one, or its fast function with a slow one, and when a name on
+  slow function shares its address with another op's function, unless
+  that is a refused op's slow one, or its fast function with another op's
+  slow one, and when a name on
   `bootstrap::REFUSED_OPS` is no op's (the module doc of `snapshot.rs`).
   The addresses are the making process's, read through the `deno_core`
   patch: the plain `fgro` of stage one, whose snapshot the build embeds,
