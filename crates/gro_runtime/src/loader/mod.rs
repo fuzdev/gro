@@ -75,6 +75,15 @@
 //! ([`ResolveErrorKind::ReadOutsideBox`](crate::resolver::ResolveErrorKind::ReadOutsideBox),
 //! [`LoadFailure::OutsideBox`]).
 //!
+//! An `import()` refused by one of gro's rules
+//! ([`FailureReason::guards_a_boundary`]), or an import in a module it
+//! loads, is listed in the loader's [`RefusedImports`], whatever the graph
+//! records and whatever the program does with the rejection, which
+//! [`run_main`](crate::run_main) returns for its caller to fail the run by.
+//! `import.meta.resolve`, which imports nothing, lists none, and neither
+//! does a static import of the entry's graph, whose refusal ends the run as
+//! its error.
+//!
 //! The loader keeps the run's [`Graph`], recording as [`Recording`] says (the
 //! graph's module doc lists the record, each loaded module's
 //! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in
@@ -89,6 +98,7 @@ mod boxed;
 pub mod graph;
 mod load;
 pub mod reads;
+pub mod refused;
 mod resolve;
 pub mod strip;
 
@@ -111,6 +121,7 @@ use boxed::{BoxCheck, Boxed};
 use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Recording};
 use load::load;
 use reads::Reads;
+use refused::RefusedImports;
 use resolve::resolve_into;
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
@@ -121,6 +132,8 @@ pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
     /// of its record.
     graph: RefCell<Graph>,
+    /// The `import()`s refused by rule so far.
+    refused: RefCell<RefusedImports>,
     /// [`Rules::refuse_dynamic_import`].
     refuse_dynamic_import: bool,
     /// [`Rules::driver`].
@@ -161,9 +174,9 @@ const SUPPORTED_ATTRIBUTE: &str = "type";
 /// `deno_core`'s, not a URL).
 const ROOT_REFERRER: &str = ".";
 
-/// A failed resolution or load: the reason as data and the message of the
-/// error `deno_core` rethrows to JS, both of which the graph records when it
-/// keeps the failure ([`Graph::fail`]).
+/// A failed resolution or load: the reason as data, which the graph records
+/// when it records failures ([`Graph::fail`]), and the message of the error
+/// `deno_core` rethrows to JS.
 struct Refused {
     /// Why, boxed, since it can hold a
     /// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure
@@ -191,6 +204,7 @@ impl Loader {
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
         Self {
             graph: RefCell::new(Graph::new(entry, roots, recording)),
+            refused: RefCell::default(),
             refuse_dynamic_import: false,
             driver: None,
             box_check: BoxCheck::default(),
@@ -236,7 +250,8 @@ impl Loader {
 
     /// Records `refused` as the failure of `specifier`, reached from
     /// `referrer` as `reached`, at `at` in its importer when `deno_core`
-    /// says, and returns the error JS sees.
+    /// says, lists it among the refused `import()`s when it's a rule's
+    /// refusal of what one reached, and returns the error JS sees.
     fn record_refused(
         &self,
         specifier: &str,
@@ -245,17 +260,18 @@ impl Loader {
         at: Option<Position>,
         refused: Refused,
     ) -> ModuleLoaderError {
-        let error = ModuleLoaderError::type_error(refused.message.clone());
+        let Refused { reason, message } = refused;
+        if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
+            self.refused.borrow_mut().record(&message);
+        }
         let failure = Failure {
             at,
-            reason: *refused.reason,
-            message: refused.message,
-            message_hash: None,
+            reason: *reason,
         };
         self.graph
             .borrow_mut()
             .fail(specifier, referrer, reached, failure);
-        error
+        ModuleLoaderError::type_error(message)
     }
 
     /// Refuses an import or `import.meta.resolve` reached from the driver,
@@ -309,9 +325,10 @@ impl Loader {
         self.resolve_reached(&tree, specifier, referrer, reached)
     }
 
-    /// The graph as it stands, borrowed.
-    pub fn graph(&self) -> std::cell::Ref<'_, Graph> {
-        self.graph.borrow()
+    /// The `import()`s refused by rule so far, taken from the loader, which
+    /// starts its list again.
+    pub fn take_refused(&self) -> RefusedImports {
+        self.refused.take()
     }
 
     /// The graph, taken from the loader.

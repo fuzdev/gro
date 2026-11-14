@@ -120,7 +120,7 @@ fn run(task: &Task) -> u8 {
         Task::Version => stdout_line(version::version_line()).map_err(CliError::Stdout),
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
-        // it prints its own failure, before its warnings
+        // it prints its own failure, before the imports it was refused
         Task::Run(invocation) => return run::run_module(invocation),
     };
     result.map_or_else(|error| error.report(), |()| 0)

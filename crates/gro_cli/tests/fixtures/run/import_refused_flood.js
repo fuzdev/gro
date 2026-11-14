@@ -1,16 +1,14 @@
-// past the refusals the report lists, the rest are counted, a retry included;
-// a probe of a builtin after the flood is listed, and its retry is neither
+// past the refusals listed, each is counted, a retry of one included; a retry of a listed one
+// is neither
 const attempt = async (f) => {
 	try {
 		await f();
 	} catch {}
 };
-for (let i = 0; i < 101; i++) {
+for (let i = 0; i < 10; i++) {
 	await attempt(() => import(`ext:${i}`));
 }
-// retries of the one past the bound, each counted
-await attempt(() => import('ext:100'));
-await attempt(() => import('ext:100'));
-await attempt(() => import('@fuzdev/gro/args.js'));
+await attempt(() => import('ext:0'));
+await attempt(() => import('ext:9'));
 await attempt(() => import('@fuzdev/gro/args.js'));
 console.log('done');

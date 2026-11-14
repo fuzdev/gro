@@ -8,7 +8,6 @@ use super::CONDITIONS;
 use super::builtin::{Reserved, UNBUILT_HOST_MODULES};
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
-use crate::clip::{clip_boxed, clip_path, clip_string};
 
 /// A specifier that didn't resolve.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -335,8 +334,8 @@ pub enum TargetFault {
 }
 
 impl ResolveErrorKind {
-    /// Whether the resolver refused the import by its rules, from what the
-    /// specifier names and the files on disk hold: the specifier, the
+    /// Whether the resolver refused the import for what the specifier names
+    /// and the files on disk hold, a missing file included: the specifier, the
     /// project, or a package must change for it to resolve, the common case.
     /// Otherwise reading the tree failed (an I/O error, a symlink loop, a
     /// file replaced mid-run, a read refused) or the caller broke an
@@ -368,7 +367,7 @@ impl ResolveErrorKind {
     /// outside `"type": "module"`, JSX, an unsupported extension, `node:`, a
     /// registry, `#` imports), or a failed read: the
     /// same for every importer, and what probing for an optional dependency
-    /// meets. `fgro run` reports a rule's refusal of an `import()` even when
+    /// meets. A rule's refusal of an `import()` fails an `fgro run` even when
     /// the program catches it.
     pub fn guards_a_boundary(&self) -> bool {
         match self {
@@ -419,224 +418,6 @@ impl ResolveErrorKind {
             | Self::Io { .. }
             | Self::ReadReplacedSinceFirstRead(_)
             | Self::ReadReplacedSinceLookup(_) => false,
-        }
-    }
-
-    /// The host module this refusal names, when it names one: a reserved
-    /// specifier, which spells a builtin's, a host module's not built yet,
-    /// or a split module's ([`Reserved::host_module`]). No other refusal of the resolver's
-    /// names one, since the table's hit returns ahead of them.
-    pub fn host_module(&self) -> Option<&'static str> {
-        match self {
-            Self::Reserved(reserved) => Some(reserved.host_module()),
-            Self::Target { error, .. } => error.host_module(),
-            Self::NodeBuiltin
-            | Self::Registry
-            | Self::Remote
-            | Self::UnsupportedScheme(_)
-            | Self::PackageImport
-            | Self::Empty
-            | Self::InvalidUrl(_)
-            | Self::InvalidPackageName
-            | Self::NoProjectRoot { .. }
-            | Self::PackageNotFound { .. }
-            | Self::WorldWritablePackage { .. }
-            | Self::NoPackageJson(_)
-            | Self::InvalidPackageJson { .. }
-            | Self::NoExports(_)
-            | Self::NotExported { .. }
-            | Self::NoMatchingCondition { .. }
-            | Self::InvalidTarget { .. }
-            | Self::InvalidSubpath { .. }
-            | Self::NoExtension { .. }
-            | Self::NotFound { .. }
-            | Self::NotAFile
-            | Self::CommonJs
-            | Self::NotModuleType { .. }
-            | Self::NoTypeScope { .. }
-            | Self::Jsx
-            | Self::Declaration
-            | Self::SvelteModule
-            | Self::UnsupportedExtension(_)
-            | Self::OutsideRoot { .. }
-            | Self::IntoNodeModules { .. }
-            | Self::IntoPackageRoot { .. }
-            | Self::PackageImportsProject { .. }
-            | Self::InNoPackage(_)
-            | Self::RootConflict { .. }
-            | Self::SymlinkLoop(_)
-            | Self::Io { .. }
-            | Self::ReadReplacedSinceFirstRead(_)
-            | Self::ReadReplacedSinceLookup(_)
-            | Self::ReadOutsideBox(_) => None,
-        }
-    }
-
-    /// This reason with each text and path in it longer than `max` bytes
-    /// clipped to them, marked as clipped (`crate::clip`), for a record that
-    /// keeps it outside V8's heap: a specifier's scheme, a path built from a
-    /// specifier, and a `package.json`'s strings are as long as a program or
-    /// a package makes them.
-    #[must_use]
-    pub fn clipped(self, max: usize) -> Self {
-        let text = |text: String| clip_string(text, max);
-        let path = |path: PathBuf| clip_path(path, max);
-        let root = |root: Box<Root>| Box::new(root.clipped(max));
-        match self {
-            Self::UnsupportedScheme(scheme) => Self::UnsupportedScheme(text(scheme)),
-            Self::InvalidUrl(fault) => Self::InvalidUrl(match fault {
-                UrlFault::EncodedSeparator(url) => UrlFault::EncodedSeparator(text(url)),
-                UrlFault::EncodedNul(url) => UrlFault::EncodedNul(text(url)),
-                UrlFault::Join(_)
-                | UrlFault::NoLocalPath
-                | UrlFault::ImporterNoLocalPath
-                | UrlFault::NotAbsolute => fault,
-            }),
-            Self::NoProjectRoot { dir, stopped_at } => Self::NoProjectRoot {
-                dir: path(dir),
-                stopped_at: stopped_at.map(path),
-            },
-            Self::PackageNotFound { name, bound } => {
-                let PackageSearchBound {
-                    dir,
-                    package_json,
-                    above,
-                } = *bound;
-                Self::PackageNotFound {
-                    name: text(name),
-                    bound: Box::new(PackageSearchBound {
-                        dir: path(dir),
-                        package_json: path(package_json),
-                        above: above.map(path),
-                    }),
-                }
-            }
-            Self::WorldWritablePackage { name, dir } => Self::WorldWritablePackage {
-                name: text(name),
-                dir: path(dir),
-            },
-            Self::NoPackageJson(dir) => Self::NoPackageJson(path(dir)),
-            Self::InvalidPackageJson {
-                path: package_json,
-                reason,
-            } => Self::InvalidPackageJson {
-                path: path(package_json),
-                reason: text(reason),
-            },
-            Self::NoExports(package_json) => Self::NoExports(path(package_json)),
-            Self::NotExported {
-                subpath,
-                package_json,
-                exported,
-            } => Self::NotExported {
-                subpath: text(subpath),
-                package_json: path(package_json),
-                exported: exported.into_iter().map(text).collect(),
-            },
-            Self::NoMatchingCondition { subpath, unmatched } => Self::NoMatchingCondition {
-                subpath: text(subpath),
-                unmatched: unmatched.into_iter().map(text).collect(),
-            },
-            Self::InvalidTarget {
-                key,
-                target,
-                reason,
-            } => Self::InvalidTarget {
-                key: text(key),
-                target: text(target),
-                reason,
-            },
-            Self::InvalidSubpath { key, matched } => Self::InvalidSubpath {
-                key: text(key),
-                matched: text(matched),
-            },
-            Self::Target {
-                path: target,
-                error,
-            } => Self::Target {
-                path: path(target),
-                error: Box::new(error.clipped(max)),
-            },
-            Self::NoExtension { suggestion } => Self::NoExtension {
-                suggestion: suggestion.map(text),
-            },
-            Self::NotFound { ts_sibling } => Self::NotFound {
-                ts_sibling: ts_sibling.map(text),
-            },
-            Self::NotModuleType { package_json } => Self::NotModuleType {
-                package_json: path(package_json),
-            },
-            Self::NoTypeScope { stopped_at } => Self::NoTypeScope {
-                stopped_at: stopped_at.map(path),
-            },
-            Self::UnsupportedExtension(extension) => Self::UnsupportedExtension(text(extension)),
-            Self::OutsideRoot {
-                path: outside,
-                root: dir,
-                package,
-            } => Self::OutsideRoot {
-                path: path(outside),
-                root: path(dir),
-                package: package.map(|package| clip_boxed(package, max)),
-            },
-            Self::IntoNodeModules {
-                path: into,
-                root: dir,
-            } => Self::IntoNodeModules {
-                path: path(into),
-                root: path(dir),
-            },
-            Self::IntoPackageRoot {
-                path: into,
-                root: package_root,
-            } => Self::IntoPackageRoot {
-                path: path(into),
-                root: root(package_root),
-            },
-            Self::PackageImportsProject {
-                package,
-                path: project_path,
-                project,
-            } => Self::PackageImportsProject {
-                package: clip_boxed(package, max),
-                path: path(project_path),
-                project: path(project),
-            },
-            Self::InNoPackage(dir) => Self::InNoPackage(path(dir)),
-            Self::RootConflict {
-                path: conflicted,
-                recorded,
-                admitted,
-            } => Self::RootConflict {
-                path: path(conflicted),
-                recorded: root(recorded),
-                admitted: root(admitted),
-            },
-            Self::SymlinkLoop(link) => Self::SymlinkLoop(path(link)),
-            Self::Io {
-                path: read,
-                kind,
-                message,
-            } => Self::Io {
-                path: path(read),
-                kind,
-                message: text(message),
-            },
-            Self::ReadReplacedSinceFirstRead(read) => Self::ReadReplacedSinceFirstRead(path(read)),
-            Self::ReadReplacedSinceLookup(read) => Self::ReadReplacedSinceLookup(path(read)),
-            Self::ReadOutsideBox(read) => Self::ReadOutsideBox(path(read)),
-            Self::NodeBuiltin
-            | Self::Registry
-            | Self::Remote
-            | Self::PackageImport
-            | Self::Reserved(_)
-            | Self::Empty
-            | Self::InvalidPackageName
-            | Self::NotAFile
-            | Self::CommonJs
-            | Self::Jsx
-            | Self::Declaration
-            | Self::SvelteModule => self,
         }
     }
 }

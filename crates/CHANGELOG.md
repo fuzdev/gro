@@ -36,8 +36,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   Import attributes follow the language's rule: an attribute under any key but `type` is refused before anything resolves,
   for a static import and `import()` alike, and an import of a builtin module with any attribute is refused, `import()`'s included.
   An `import()` refused by one of gro's rules (an ungranted builtin module, a reserved specifier, a refused scheme, and the like)
-  is reported on stderr after the run and its error even when the program catches it, once per specifier, importer, and reason, escaped and bounded,
-  the first refusal naming each host module by the project and by each of the first 32 packages listed past any flood, and one naming a host module listed even when it's the run's error, the exit code unchanged; one refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, isn't.
+  fails the run, exit 1, even when the program catches it, and stderr lists the first distinct refusals after the run's error, escaped and cut to a bound, and counts the rest;
+  one refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, doesn't.
   Resolution is strict: mandatory extensions, packages only through their `"exports"`,
   `.js` only under `"type": "module"`, and every module kept inside its project's or package's root.
   TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.

@@ -1,12 +1,13 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
-//! drains, printing its failure, then warning on stderr of each `import()`
-//! gro's rules refused that the failure doesn't already show.
+//! drains, printing its failure, then each `import()` gro's rules refused,
+//! which fail the run too.
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::{ArgsGrant, Authority, Grants, RefusedImport, RunOutcome, RuntimeOptions};
+use gro_runtime::{ArgsGrant, Authority, Grants, RefusedImports, RunOutcome, RuntimeOptions};
 
+use crate::EXIT_FAILURE;
 use crate::cli::RunInvocation;
 use crate::color;
 use crate::error::CliError;
@@ -16,33 +17,30 @@ use crate::version::RUNTIME_VERSION;
 
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
-/// prints its failure if it failed, and returns the exit code
-/// ([`CliError::exit_code`], 0 on success).
-///
-/// After the failure it warns of each `import()` refused by one of gro's
-/// rules that isn't the run's uncaught error, one line each, its control
-/// characters escaped, then of how many more times one was refused, not
-/// listed. The warnings are the last thing the run writes, so no text the
-/// program chose, its uncaught error's included, prints after them to move
-/// the cursor back over them or erase them. The exit code doesn't change
-/// for them.
+/// prints its failure if it failed, then the `import()`s gro's rules
+/// refused, and returns the exit code: the failure's
+/// ([`CliError::exit_code`]), else [`EXIT_FAILURE`] for a run refused an
+/// `import()`, else 0.
 pub fn run_module(run: &RunInvocation) -> u8 {
-    let RunOutcome {
-        result,
-        refused_imports,
-        unlisted_refusals,
-        unlisted_host_module_refusals,
-    } = match start_and_run(run) {
+    let RunOutcome { result, refused } = match start_and_run(run) {
         Ok(outcome) => outcome,
         Err(error) => return error.report(),
     };
     let code = result.map_or_else(|error| CliError::from(error).report(), |()| 0);
-    warn_of_refusals(
-        &refused_imports,
-        unlisted_host_module_refusals,
-        unlisted_refusals - unlisted_host_module_refusals,
-    );
-    code
+    report_refused(&refused);
+    exit_code(code, !refused.is_empty())
+}
+
+/// The exit code of a run that ended with `code`, 0 when the program ran to
+/// completion, and that `refused` an `import()` by rule or didn't: a
+/// refusal fails the run, whether or not the program caught it, so it turns
+/// 0 into [`EXIT_FAILURE`], and any other code stands.
+const fn exit_code(code: u8, refused: bool) -> u8 {
+    if code == 0 && refused {
+        EXIT_FAILURE
+    } else {
+        code
+    }
 }
 
 /// Starts the engine and runs `run`'s module, returning how the run ended.
@@ -60,28 +58,21 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
 }
 
-/// Warns on stderr of each of `refused`, its message's control characters
-/// escaped, then of the `host_modules` more times an `import()` naming a
-/// host module was refused, and the `unlisted` more times another was.
-fn warn_of_refusals(refused: &[RefusedImport], host_modules: u64, unlisted: u64) {
-    for refused in refused {
+/// Prints to stderr each `import()` `refused` lists, one line each, its
+/// message's control characters escaped, since the program chose its
+/// specifier, then one line counting the refusals it doesn't list.
+fn report_refused(refused: &RefusedImports) {
+    for message in &refused.listed {
         stderr_line(format_args!(
-            "warning: import() refused: {}",
-            escape_controls(&refused.message)
+            "error: import() refused: {}",
+            escape_controls(message)
         ));
     }
-    match host_modules {
+    match refused.unlisted {
         0 => {}
-        1 => stderr_line("warning: import() refused: 1 more time for a host module, not listed"),
+        1 => stderr_line("error: import() refused: 1 more time, not listed"),
         more => stderr_line(format_args!(
-            "warning: import() refused: {more} more times for a host module, not listed"
-        )),
-    }
-    match unlisted {
-        0 => {}
-        1 => stderr_line("warning: import() refused: 1 more time, not listed"),
-        more => stderr_line(format_args!(
-            "warning: import() refused: {more} more times, not listed"
+            "error: import() refused: {more} more times, not listed"
         )),
     }
 }
@@ -103,8 +94,20 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::runtime_options;
+    use super::{exit_code, runtime_options};
     use crate::cli::{Invocation, Task, parse};
+
+    /// A refused `import()` turns a run's 0 into 1 and leaves every other
+    /// code as it is.
+    #[test]
+    fn a_refusal_fails_a_run_that_ended_with_0() {
+        assert_eq!(exit_code(0, false), 0);
+        assert_eq!(exit_code(0, true), 1);
+        for code in [1, 2, 3, 255] {
+            assert_eq!(exit_code(code, true), code);
+            assert_eq!(exit_code(code, false), code);
+        }
+    }
 
     /// The script's arguments reach the runtime's options in order and as
     /// written, whatever they look like.

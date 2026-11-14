@@ -1019,7 +1019,8 @@ These hold for the process modules' builtins on `fgro` ([on `fgro`](#the-process
 - Own the read of `HOME` behind the protected directories of [Gro's guards](#gros-guards-on-its-own-destructive-paths),
   so `create_fs_paths` grants no environment read to whatever imports it.
 - Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
-  A script's exit code passes to the process verbatim, so `1` and `2` are shared with `fgro`'s own failures.
+  A script's exit code passes to the process verbatim, so `1` and `2` are shared with `fgro`'s own failures,
+  but for a `0` in a run that was refused an `import()` by rule, which exits 1 ([run](run.md#errors-and-exit-codes)).
 - Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
   ignoring `SIGPIPE`.
 - Return `stdin` chunks as owned buffers, never a view of memory the runtime reuses.

@@ -25,31 +25,9 @@
 //!   succeeds depends on them staying absent.
 //! - **Failures**: each resolution or load that failed, by where it was
 //!   reached from, with the reason as data ([`FailureReason`]), never parsed
-//!   from a message, and the message JS saw. A site keeps each distinct
-//!   failure once, in the order each first happened.
-//!
-//! Recording off, a graph still keeps one kind of failure: a refusal by one
-//! of gro's rules guarding the run's authority or containment, reached by an
-//! `import()` ([`FailureReason::guards_a_boundary`]), which `fgro run`
-//! reports whether or not the program caught it. That is the rare path, so
-//! loading pays nothing for it. What it keeps is bounded, so a program
-//! can't make it hold much outside V8's heap, and a flood of one kind of
-//! refusal can't push a probe for authority out of it ([`Graph::fail`]):
-//!
-//! - **Probes**: the first refusal naming each host module
-//!   ([`FailureReason::host_module`]) by the project and by each of the
-//!   first [`MAX_PROBING_ORIGINS`] packages refused one, kept ahead of
-//!   everything else.
-//! - **Refusals naming a host module** past those, up to
-//!   [`MAX_KEPT_REFUSALS`]: respellings and the origins past the cap.
-//! - **Every other refusal**, up to [`MAX_KEPT_REFUSALS`] of its own.
-//!
-//! Past them it counts, those naming a host module apart
-//! ([`Graph::unkept_refusals`], [`Graph::unkept_host_module_refusals`]).
-//! Each kept refusal's specifier, reason's text, and message are clipped
-//! ([`MAX_KEPT_TEXT`], [`MAX_KEPT_IMPORTER`], [`MAX_KEPT_MESSAGE`]).
+//!   from a message. A site keeps each distinct failure once, in the order
+//!   each first happened.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::ops::Bound;
@@ -59,54 +37,16 @@ use tsv_ts::UnsupportedConstruct;
 use url::Url;
 
 use super::reads::{Reads, RecordingTree};
-use crate::clip::{clip_middle, clip_middle_at, clip_str_hashed};
 use crate::resolver::{
     self, Builtin, ConsultedFile, FileId, ModuleFormat, Origin, Resolution, ResolveError,
     ResolveErrorKind, Resolved, Root, Roots, SourceTree,
 };
 
-/// The most refusals by rule of each kind, naming a host module or not, a
-/// graph recording off keeps beside each origin's first probe of each host
-/// module ([`MAX_PROBING_ORIGINS`]): a program meets one only by importing
-/// what a rule refuses, a few times in a real program (a library probing
-/// for gro's host modules tries each specifier once), never a hundred; past
-/// them it's a loop, which the count of the rest stands for.
-pub const MAX_KEPT_REFUSALS: usize = 100;
-
-/// The most packages whose first refusal naming each host module a graph
-/// recording off keeps whatever else was refused, beside the project's,
-/// so a second package's probe is kept past the first's flood. Each
-/// package directory is an origin, a nested one under a package's own
-/// `node_modules` included, so one installed package can fill them; a
-/// package past them shares [`MAX_KEPT_REFUSALS`] with the respellings,
-/// counted apart from the other refusals when past it. The probes kept
-/// this way are at most one more than this many times the host modules the
-/// table knows.
-pub const MAX_PROBING_ORIGINS: usize = 32;
-
-/// The bytes of a refused specifier, and of each text and path in its
-/// reason, a graph recording off keeps: an npm package name is at most 214
-/// bytes, and a specifier past a few hundred is one no one wrote, like a
-/// `data:` module, whose first kilobyte says what it is.
-pub const MAX_KEPT_TEXT: usize = 1024;
-
-/// The bytes of a refusal's message a graph recording off keeps, its middle
-/// cut past them: room for a specifier clipped to [`MAX_KEPT_TEXT`], the
-/// importer's URL, and the reason with its fix, which a real message holds.
-pub const MAX_KEPT_MESSAGE: usize = 4 * MAX_KEPT_TEXT;
-
-/// The bytes of an importer's URL a refusal's message keeps, its middle cut
-/// past them: half of [`MAX_KEPT_TEXT`], so a message's head, its clipped
-/// specifier and the importer, fits in the half of [`MAX_KEPT_MESSAGE`] a
-/// cut of its middle keeps, and who refused stays in view.
-pub const MAX_KEPT_IMPORTER: usize = MAX_KEPT_TEXT / 2;
-
 /// How much a graph records beyond what loading needs.
 #[derive(Debug, Clone, Copy)]
 pub enum Recording {
-    /// Only the roots and each URL's root and file, which loading reads,
-    /// and the refusals by rule of what an `import()` reached, bounded (see
-    /// [`Graph::fail`]); nothing else is recorded or built.
+    /// Only the roots and each URL's root and file, which loading reads;
+    /// nothing else is recorded or built.
     Off,
     /// The whole record: besides what loading needs, each load's format and
     /// hash, the edges, the consulted files with their reads' hashes, the
@@ -143,77 +83,12 @@ pub struct Graph {
     reads: Reads,
     /// See [`Graph::failures`].
     failures: BTreeMap<FailureSite, Vec<Failure>>,
-    /// What `failures` holds against its bounds, recording off.
-    kept: KeptRefusals,
     /// The recorded URLs by their real path, which `Path`'s ordering
     /// compares by component, so the paths under a directory are one range.
     /// A path has more than one URL when specifiers differ in their query or
     /// fragment. Built at the first admission that can conflict, so a graph
     /// whose new roots are all outside every admitted one never builds it.
     paths: Option<BTreeMap<PathBuf, Vec<Url>>>,
-}
-
-/// The refusals a graph recording off has kept against each bound, and how
-/// many it didn't keep (see [`Graph::fail`]).
-#[derive(Debug, Clone, Default)]
-struct KeptRefusals {
-    /// The host modules each origin's kept probes name, for the project
-    /// and at most [`MAX_PROBING_ORIGINS`] packages.
-    probes: HashMap<Origin, Vec<&'static str>>,
-    /// The refusals naming a host module kept past the probes, at most
-    /// [`MAX_KEPT_REFUSALS`].
-    host_modules: usize,
-    /// The other refusals kept, at most [`MAX_KEPT_REFUSALS`].
-    others: usize,
-    /// See [`Graph::unkept_refusals`].
-    unkept: u64,
-    /// See [`Graph::unkept_host_module_refusals`].
-    unkept_host_modules: u64,
-}
-
-impl KeptRefusals {
-    /// Whether to keep a new refusal naming `host_module`, if it names one,
-    /// by `origin`, when its origin is known, counting it against its bound
-    /// either way: the first naming each host module by the project and by
-    /// each of the first [`MAX_PROBING_ORIGINS`] packages is always kept,
-    /// the rest up to their kind's [`MAX_KEPT_REFUSALS`].
-    fn admit(&mut self, host_module: Option<&'static str>, origin: Option<Origin>) -> bool {
-        let Some(host_module) = host_module else {
-            return Self::take(&mut self.others, &mut self.unkept);
-        };
-        if let Some(origin) = origin {
-            if let Some(probed) = self.probes.get_mut(&origin) {
-                if !probed.contains(&host_module) {
-                    probed.push(host_module);
-                    return true;
-                }
-            } else if origin == Origin::Project || self.probing_packages() < MAX_PROBING_ORIGINS {
-                self.probes.insert(origin, vec![host_module]);
-                return true;
-            }
-        }
-        let kept = Self::take(&mut self.host_modules, &mut self.unkept);
-        if !kept {
-            self.unkept_host_modules += 1;
-        }
-        kept
-    }
-
-    /// How many origins but the project's have a kept probe.
-    fn probing_packages(&self) -> usize {
-        self.probes.len() - usize::from(self.probes.contains_key(&Origin::Project))
-    }
-
-    /// Takes one of `kept`'s [`MAX_KEPT_REFUSALS`], or, when they're all
-    /// taken, counts one more in `unkept`.
-    const fn take(kept: &mut usize, unkept: &mut u64) -> bool {
-        if *kept == MAX_KEPT_REFUSALS {
-            *unkept += 1;
-            return false;
-        }
-        *kept += 1;
-        true
-    }
 }
 
 /// What a URL resolved to.
@@ -306,25 +181,6 @@ pub struct Failure {
     pub at: Option<Position>,
     /// Why it failed.
     pub reason: FailureReason,
-    /// The message of the error JS saw, a `TypeError`'s, clipped recording
-    /// off (see [`Graph::fail`]).
-    pub message: String,
-    /// The BLAKE3 hash of the message JS saw, when `message` was clipped
-    /// from it, so the failure can still be matched to the run's uncaught
-    /// error ([`Failure::is_message`]).
-    pub message_hash: Option<blake3::Hash>,
-}
-
-impl Failure {
-    /// Whether the message JS saw is `message`, whose BLAKE3 hash is
-    /// `hash`: compared whole when it was kept whole, else by the hash of
-    /// what it was clipped from, so two messages that clip alike don't
-    /// match.
-    pub fn is_message(&self, message: &str, hash: &blake3::Hash) -> bool {
-        self.message_hash
-            .as_ref()
-            .map_or_else(|| self.message == message, |kept| kept == hash)
-    }
 }
 
 /// Why a resolution or load failed.
@@ -367,10 +223,11 @@ impl FailureReason {
     /// failed: a builtin the importer isn't granted, or asked for with
     /// import attributes, an `import()` in code compiled from a string, an
     /// importer the graph never resolved, eval's rules, and the resolver's
-    /// refusals by rule ([`ResolveErrorKind::guards_a_boundary`]). `fgro run`
-    /// reports such a refusal of an `import()` whether or not the program
-    /// caught it, so a `try`/`catch` can't hide a probe for authority, while
-    /// probing for an optional dependency or a feature stays quiet.
+    /// refusals by rule ([`ResolveErrorKind::guards_a_boundary`]). Such a
+    /// refusal of an `import()` fails an `fgro run` whether or not the
+    /// program caught it, so a `try`/`catch` can't hide a probe for
+    /// authority, while probing for an optional dependency or a feature
+    /// doesn't.
     pub fn guards_a_boundary(&self) -> bool {
         match self {
             Self::Resolve(kind) => kind.guards_a_boundary(),
@@ -380,48 +237,6 @@ impl FailureReason {
             | Self::DriverImport
             | Self::DynamicImport
             | Self::StringCompiledImport => true,
-        }
-    }
-
-    /// The host module this refusal names, when it names one, by its
-    /// specifier (an unbuilt one's without its extension): a builtin the
-    /// importer isn't granted or asked for with import attributes, or a
-    /// reserved specifier. Such a refusal says that its importer's origin
-    /// asked for a host module it doesn't hold, the probe for authority a
-    /// report must keep in view, so a graph recording off keeps it apart
-    /// from the rest ([`Graph::fail`]). An `import()` in code compiled from
-    /// a string names none: it's refused before its specifier is read, the
-    /// same for every specifier, and has no importer to take an origin from.
-    pub fn host_module(&self) -> Option<&'static str> {
-        match self {
-            Self::NotGranted { builtin, .. } => Some(builtin.specifier),
-            Self::Resolve(kind) => kind.host_module(),
-            Self::Load(failure) => failure.host_module(),
-            Self::UnknownImporter
-            | Self::DriverImport
-            | Self::DynamicImport
-            | Self::StringCompiledImport => None,
-        }
-    }
-
-    /// This reason with each text and path in it clipped to `max` bytes, as
-    /// [`ResolveErrorKind::clipped`] clips a resolver's.
-    #[must_use]
-    pub fn clipped(self, max: usize) -> Self {
-        match self {
-            Self::Resolve(kind) => Self::Resolve(kind.clipped(max)),
-            Self::NotGranted { builtin, origin } => Self::NotGranted {
-                builtin,
-                origin: origin.clipped(max),
-            },
-            Self::Load(LoadFailure::Format(kind)) => {
-                Self::Load(LoadFailure::Format(kind.clipped(max)))
-            }
-            Self::Load(_)
-            | Self::UnknownImporter
-            | Self::DriverImport
-            | Self::DynamicImport
-            | Self::StringCompiledImport => self,
         }
     }
 }
@@ -522,24 +337,6 @@ impl LoadFailure {
             | Self::Strip { .. } => false,
         }
     }
-
-    /// The host module this failure names, when it names one: a builtin
-    /// imported with attributes.
-    pub fn host_module(&self) -> Option<&'static str> {
-        match self {
-            Self::BuiltinAttributes(builtin) => Some(builtin.specifier),
-            Self::Format(kind) => kind.host_module(),
-            Self::NeverResolved
-            | Self::UnsupportedAttribute
-            | Self::ModuleType
-            | Self::NoLocalPath
-            | Self::ReplacedSinceLookup
-            | Self::Read(_)
-            | Self::OutsideBox
-            | Self::TooLarge
-            | Self::Strip { .. } => None,
-        }
-    }
 }
 
 impl Record {
@@ -573,7 +370,6 @@ impl Graph {
             consulted: BTreeSet::new(),
             reads: Reads::default(),
             failures: BTreeMap::new(),
-            kept: KeptRefusals::default(),
             paths: None,
         };
         graph.consult(entry.files_consulted.iter().cloned());
@@ -687,38 +483,19 @@ impl Graph {
         &self.reads
     }
 
-    /// What failed at each site, recording in full, and recording off, the
-    /// refusals by rule an `import()` reached: each distinct failure once,
-    /// in the order each first happened. One with the position and reason
-    /// of a failure already there is skipped, keeping the first's message,
-    /// since `deno_core` can resolve a specifier twice and a retried import
-    /// fails the same way, but another reason at the same site is kept: a caught
-    /// `import()` with attributes and a later plain `import()` of the same
-    /// URL are one site, and the second can be the failure that ends the
-    /// run.
+    /// What failed at each site, recording in full: each distinct failure
+    /// once, in the order each first happened. One equal to a failure
+    /// already there is skipped, since `deno_core` can resolve a specifier
+    /// twice and a retried import fails the same way, but another reason at
+    /// the same site is kept: a caught `import()` with attributes and a
+    /// later plain `import()` of the same URL are one site, and the second
+    /// can be the failure that ends the run.
     ///
     /// A run records at most one failure reached statically: `deno_core`
     /// stops the entry's load at its first error, and linking reuses the
     /// specifiers it already resolved, so it resolves none again.
-    ///
-    /// Recording off, the refusals [`Graph::fail`] keeps within its bounds,
-    /// their text clipped.
     pub const fn failures(&self) -> &BTreeMap<FailureSite, Vec<Failure>> {
         &self.failures
-    }
-
-    /// How many times a refusal by rule, recording off, wasn't kept, being
-    /// past its bound ([`Graph::fail`]): each time counted, a retry of one
-    /// not kept included, since telling a retry from a new refusal would
-    /// take keeping it. Always 0 recording in full.
-    pub const fn unkept_refusals(&self) -> u64 {
-        self.kept.unkept
-    }
-
-    /// How many of [`Graph::unkept_refusals`] named a host module
-    /// ([`FailureReason::host_module`]).
-    pub const fn unkept_host_module_refusals(&self) -> u64 {
-        self.kept.unkept_host_modules
     }
 
     /// Resolves `specifier`, imported by the recorded module at `importer`,
@@ -788,21 +565,8 @@ impl Graph {
     }
 
     /// Records `failure` at the site of `specifier`, imported by `importer`
-    /// and reached as `reached`, unless one of its position and reason is
-    /// recorded there (see [`Graph::failures`]): recording in full, any
-    /// failure, as it is; off, only a refusal by rule reached by an
-    /// `import()`, clipped ([`MAX_KEPT_TEXT`] for its specifier, marked with
-    /// the head of its BLAKE3 hash so two long ones stay two sites, and for
-    /// its reason's text; its message as [`clip_message`] clips it), within
-    /// its bound, and past it only counted ([`Graph::unkept_refusals`]).
-    ///
-    /// The bound keeps the probes for authority in view: the first refusal
-    /// naming each host module ([`FailureReason::host_module`]) by the
-    /// project and by each of the first [`MAX_PROBING_ORIGINS`] packages is
-    /// always kept, whatever else was refused, then up to
-    /// [`MAX_KEPT_REFUSALS`] more naming a host module and as many naming
-    /// none, each kind bounded and counted apart, so a flood of either can't
-    /// push a probe out.
+    /// and reached as `reached`, recording in full, unless an equal failure
+    /// is recorded there (see [`Graph::failures`]); off, it does nothing.
     pub fn fail(
         &mut self,
         specifier: &str,
@@ -810,57 +574,18 @@ impl Graph {
         reached: Reached,
         failure: Failure,
     ) {
-        let full = self.is_full();
-        let kept = full
-            || (reached == Reached::Import(Reach::Dynamic) && failure.reason.guards_a_boundary());
-        if !kept {
+        if !self.is_full() {
             return;
         }
-        let (specifier, failure) = if full {
-            (Cow::Borrowed(specifier), failure)
-        } else {
-            let clipped = clip_str_hashed(specifier, MAX_KEPT_TEXT);
-            let (message, message_hash) =
-                clip_message(failure.message, specifier, &clipped, importer);
-            let failure = Failure {
-                at: failure.at,
-                reason: failure.reason.clipped(MAX_KEPT_TEXT),
-                message,
-                message_hash,
-            };
-            (clipped, failure)
-        };
         let site = FailureSite {
-            specifier: specifier.into_owned(),
+            specifier: specifier.to_owned(),
             importer: importer.map(str::to_owned),
             reached,
         };
-        let recorded = self.failures.get(&site).is_some_and(|failures| {
-            failures
-                .iter()
-                .any(|kept| kept.at == failure.at && kept.reason == failure.reason)
-        });
-        if recorded {
-            return;
+        let failures = self.failures.entry(site).or_default();
+        if !failures.contains(&failure) {
+            failures.push(failure);
         }
-        if !full {
-            let host_module = failure.reason.host_module();
-            let origin = host_module.and_then(|_| self.refusing_origin(&failure.reason, importer));
-            if !self.kept.admit(host_module, origin) {
-                return;
-            }
-        }
-        self.failures.entry(site).or_default().push(failure);
-    }
-
-    /// The origin of the importer `reason` refused, clipped as a kept
-    /// reason's is: a refused grant's own, else the recorded importer's.
-    fn refusing_origin(&self, reason: &FailureReason, importer: Option<&str>) -> Option<Origin> {
-        if let FailureReason::NotGranted { origin, .. } = reason {
-            return Some(origin.clone());
-        }
-        let importer = Url::parse(importer?).ok()?;
-        Some(self.origin(&importer)?.clone().clipped(MAX_KEPT_TEXT))
     }
 
     /// Records `url` as `record`, by its path too once the paths are indexed.
@@ -895,64 +620,6 @@ impl Graph {
                     .map(move |record| (path.as_path(), &record.root))
             })
     }
-}
-
-/// `message`, the refusal of `specifier` imported by `importer`, held to
-/// [`MAX_KEPT_MESSAGE`] bytes with who refused what kept in view, and the
-/// BLAKE3 hash of the whole message when it was clipped. The parts a
-/// program controls are clipped first, where they stand: each copy of the
-/// specifier becomes `clipped`, its clipped form, and each copy of an
-/// importer's URL past [`MAX_KEPT_IMPORTER`] bytes its form clipped by
-/// [`clip_importer`]. Only then is the middle of what's still past the
-/// bound cut, which leaves the message's head, the specifier and the
-/// importer, whole.
-fn clip_message(
-    message: String,
-    specifier: &str,
-    clipped: &str,
-    importer: Option<&str>,
-) -> (String, Option<blake3::Hash>) {
-    let long_importer = importer.filter(|importer| importer.len() > MAX_KEPT_IMPORTER);
-    if message.len() <= MAX_KEPT_MESSAGE && specifier == clipped && long_importer.is_none() {
-        return (message, None);
-    }
-    let hash = blake3::hash(message.as_bytes());
-    let mut message = if specifier == clipped {
-        message
-    } else {
-        message.replace(specifier, clipped)
-    };
-    if let Some(importer) = long_importer {
-        message = message.replace(importer, &clip_importer(importer));
-    }
-    (clip_middle(message, MAX_KEPT_MESSAGE), Some(hash))
-}
-
-/// `importer`, a module's URL past [`MAX_KEPT_IMPORTER`] bytes, with the
-/// middle of its path cut, keeping through the name of the first package
-/// under `node_modules` it's inside, the package the project installed,
-/// and the end of the path, the module's file. With no such package, or one
-/// whose name ends past half the bound, it keeps the URL's two halves.
-fn clip_importer(importer: &str) -> String {
-    let package_end = importer
-        .find("/node_modules/")
-        .map(|start| {
-            let name_start = start + "/node_modules/".len();
-            let rest = &importer[name_start..];
-            // a scoped name is two segments
-            let segments = if rest.starts_with('@') { 2 } else { 1 };
-            let name_length = rest
-                .match_indices('/')
-                .nth(segments - 1)
-                .map_or(rest.len(), |(at, _)| at);
-            name_start + name_length
-        })
-        .filter(|end| *end <= MAX_KEPT_IMPORTER / 2);
-    clip_middle_at(
-        importer,
-        package_end.unwrap_or(MAX_KEPT_IMPORTER / 2),
-        MAX_KEPT_IMPORTER,
-    )
 }
 
 /// Adds `url` to `paths` by its real path, if it names one.

@@ -123,7 +123,7 @@ the seal is designed ([authority](authority.md#by-construction-or-by-default)).
 so unlike the web's it throws a `TypeError` for a file that's missing or refused.
 It admits no package and records nothing, so the URL it returns for a package is only a path.
 For an installed package, `import(import.meta.resolve('foo'))` is refused as a path into `node_modules`,
-with the fix to import `foo` by name.
+with the fix to import `foo` by name, and that refusal fails the run even when caught ([below](#errors-and-exit-codes)).
 A linked package's URL is a path like any other:
 an in-tree one loads as the project's file, since its package was never admitted around it,
 and an out-of-tree one is outside the project's root, refused.
@@ -150,25 +150,17 @@ an I/O failure reading the resolved file's included.
 When one of gro's rules about authority or containment refused it (an ungranted builtin module, a builtin module with import attributes,
 a package's import of the project, a reserved specifier, a path leaving its root or reaching into `node_modules`,
 a refused scheme like `ext:` or `data:`, code compiled from a string),
-the refusal is reported after a run that ends, even if the program caught it, so a `try/catch` can't hide a probe for authority:
-`warning: import() refused: <its message>` on stderr, its control and bidirectional formatting characters escaped (`\u{1b}`),
-once per specifier, importer, and reason however often it's retried, so a second refusal at one site prints too,
-for the `import()` and the imports of the modules it loads.
-The report is the last thing the run prints, after its error when it fails, so nothing the program wrote can follow it to move the cursor back over it.
-One that is the run's uncaught error (a `TypeError` with its message) prints only as that, unless it names a host module.
-The report is bounded, and whatever else a run refuses, it lists the first refusal naming each host module by the project and by each of the first 32 packages to be refused one,
-where a refusal names a host module when it's a builtin module the importer isn't granted or imports with attributes, or a reserved specifier,
-and each package directory counts, one nested in another's `node_modules` included.
-Past those it lists up to 100 more naming a host module (respellings, a package past the 32) and the first 100 naming none,
-then `warning: import() refused: N more times for a host module, not listed` and `warning: import() refused: N more times, not listed` for the rest,
-counting each refusal past them, a retry of an unlisted one included.
-A listed specifier is clipped to 1 KiB where it stands, marked with its length and the head of its BLAKE3 hash, so two long ones stay apart,
-an importer's URL to 512 bytes, keeping its file and the name of the first package under `node_modules` it's in, the one the project installed, when that name ends in the first 256 bytes, and what's left of the message to 4 KiB.
+the run fails, exit 1, whether or not the program caught the refusal, so a `try/catch` can't hide a probe for authority,
+and so does a refused import in a module the `import()` loads.
+After the run's own error, if it has one, stderr lists the first 8 distinct refusals in the order they happened,
+`error: import() refused: <its message>`, control and bidirectional formatting characters escaped (`\u{1b}`)
+and a message past 2 KiB cut there and marked with its length,
+then counts the rest, a retry of an unlisted one included: `error: import() refused: N more times, not listed`.
+One that is the run's uncaught error (a `TypeError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
 A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
 or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)
-isn't reported, so probing for an optional dependency or a feature stays quiet, and neither is `import.meta.resolve`, which imports nothing.
-A reported refusal doesn't change the exit code.
-A run killed by a signal, Ctrl-C included, prints no report.
+doesn't fail the run and isn't listed, so probing for an optional dependency or a feature still exits 0, and neither does `import.meta.resolve`, which imports nothing.
+A run that a signal kills, Ctrl-C included, or that aborts, as V8 does out of memory, lists nothing, and never exits 0.
 A module whose file was replaced between resolving and loading isn't loaded
 (`cannot load <url>: the file at its path is not the one resolved, so it isn't loaded`;
 [resolver](resolver.md#departures-from-node) has what it catches and what it can't),
@@ -186,12 +178,12 @@ Whether a stream is colored is decided once per process, in order:
 | exit | when                                                                                                                                                                   |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0    | the module ran to completion, or `--help` or `--version`                                                                                                               |
-| 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start |
+| 1    | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, an `import()` was refused by one of gro's rules, caught or not, or the runtime failed to start |
 | 2    | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A script can't set its own exit code on `fgro` yet; as designed, the code it sets passes through verbatim,
-so `1` and `2` are shared between the script and `fgro`'s own failures.
+so `1` and `2` are shared between the script and `fgro`'s own failures, but for a `0` in a run that was refused an `import()` by rule, which exits 1.
 A panic exits 101 in a debug build; a release build aborts.
 `--version` or `--help` whose stdout can't be written (a pipe whose reader closed) exits 1,
 naming the failure on stderr; a stderr that can't be written is ignored.

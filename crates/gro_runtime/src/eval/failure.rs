@@ -375,8 +375,6 @@ mod tests {
             let failure = Failure {
                 at: Some(Position { line: 2, column: 8 }),
                 reason: error.clone(),
-                message: format!("cannot import '{specifier}'"),
-                message_hash: None,
             };
             graph.fail(specifier, Some("file:///p/main.js"), *reached, failure);
         }

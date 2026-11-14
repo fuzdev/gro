@@ -3,9 +3,7 @@
 //! which failures are refusals by rule.
 
 use super::*;
-use crate::resolver::{
-    BUILTINS, FileRole, Origin, Reserved, SPLIT_MODULES, UNBUILT_HOST_MODULES, UrlFault,
-};
+use crate::resolver::{BUILTINS, FileRole, Origin, Reserved, SPLIT_MODULES, TargetFault, UrlFault};
 
 fn package(dir: &str, name: &str) -> Root {
     Root {
@@ -309,12 +307,7 @@ fn the_first_edge_and_load_stand_and_distinct_failures_are_kept() {
     // a URL never recorded gets no load
     graph.load(&Url::from_file_path("/a/y.ts").unwrap(), first);
     assert_eq!(graph.records.len(), 2);
-    let failure = |reason| Failure {
-        at: None,
-        reason,
-        message: "refused".to_owned(),
-        message_hash: None,
-    };
+    let failure = |reason| Failure { at: None, reason };
     let dynamic = Reached::Import(Reach::Dynamic);
     let main = main.as_str();
     for error in [
@@ -357,7 +350,8 @@ fn the_first_edge_and_load_stand_and_distinct_failures_are_kept() {
 
 /// Recording off, a graph keeps its roots and records, the entry's
 /// included, and conflicts are still refused, but no edge, load,
-/// consulted file, or static failure is recorded.
+/// consulted file, or failure is recorded, a rule's refusal of an
+/// `import()` included.
 #[test]
 fn recording_off_keeps_only_what_loading_needs() {
     let project = Root {
@@ -385,17 +379,17 @@ fn recording_off_keeps_only_what_loading_needs() {
             hash: blake3::hash(b""),
         },
     );
-    graph.fail(
-        "./x.ts",
-        Some(main.as_str()),
-        Reached::Import(Reach::Static),
-        Failure {
-            at: None,
-            reason: FailureReason::UnknownImporter,
-            message: "refused".to_owned(),
-            message_hash: None,
-        },
-    );
+    for reach in [Reach::Static, Reach::Dynamic] {
+        graph.fail(
+            "./x.ts",
+            Some(main.as_str()),
+            Reached::Import(reach),
+            Failure {
+                at: None,
+                reason: FailureReason::UnknownImporter,
+            },
+        );
+    }
     assert_eq!(graph.records.len(), 2);
     assert!(
         graph
@@ -406,526 +400,6 @@ fn recording_off_keeps_only_what_loading_needs() {
     assert!(graph.edges.is_empty());
     assert!(graph.consulted.is_empty());
     assert!(graph.failures.is_empty());
-}
-
-/// Recording off, a refusal by rule reached by an `import()` is kept, once,
-/// while one reached statically or by `import.meta.resolve`, and an
-/// `import()` that found nothing there, are not.
-#[test]
-fn recording_off_keeps_the_dynamic_refusals_by_rule() {
-    let project = Root {
-        dir: PathBuf::from("/a"),
-        origin: Origin::Project,
-    };
-    let entry = resolution("/a/main.ts", &project);
-    let mut graph = Graph::new(&entry, Roots::new(project.dir), Recording::Off);
-    let main = entry.url.as_str();
-    let failure = |reason| Failure {
-        at: None,
-        reason,
-        message: "refused".to_owned(),
-        message_hash: None,
-    };
-    let rule = || FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme("ext".to_owned()));
-    let nothing = || FailureReason::Resolve(ResolveErrorKind::NotFound { ts_sibling: None });
-    let dynamic = Reached::Import(Reach::Dynamic);
-    for (specifier, reached, reason) in [
-        ("ext:a", dynamic, rule()),
-        ("ext:a", dynamic, rule()),
-        ("ext:b", Reached::Import(Reach::Static), rule()),
-        ("ext:c", Reached::MetaResolve, rule()),
-        ("./d.ts", dynamic, nothing()),
-    ] {
-        graph.fail(specifier, Some(main), reached, failure(reason));
-    }
-    let site = FailureSite {
-        specifier: "ext:a".to_owned(),
-        importer: Some(main.to_owned()),
-        reached: dynamic,
-    };
-    assert_eq!(
-        graph.failures,
-        BTreeMap::from([(site, vec![failure(rule())])])
-    );
-}
-
-/// Recording off, the first [`MAX_KEPT_REFUSALS`] refusals naming no host
-/// module are kept and the rest counted, each time, a retry of a kept one
-/// neither; each kept one's specifier is clipped to [`MAX_KEPT_TEXT`] with
-/// its hash in the marker, its reason's text to [`MAX_KEPT_TEXT`], and its
-/// message to [`MAX_KEPT_MESSAGE`], keeping the hash of the whole.
-/// Recording in full keeps every one as it is.
-#[test]
-fn recording_off_bounds_the_refusals_it_keeps() {
-    let project = Root {
-        dir: PathBuf::from("/a"),
-        origin: Origin::Project,
-    };
-    let entry = resolution("/a/main.ts", &project);
-    let main = entry.url.as_str();
-    let dynamic = Reached::Import(Reach::Dynamic);
-    let scheme = |i: usize| format!("s{i}{}", "x".repeat(MAX_KEPT_TEXT));
-    let refusal = |i: usize| {
-        let scheme = scheme(i);
-        Failure {
-            at: None,
-            message: format!(
-                "cannot resolve '{scheme}:a' from {main}: {}",
-                "y".repeat(10_000)
-            ),
-            reason: FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme(scheme)),
-            message_hash: None,
-        }
-    };
-    for recording in [Recording::Off, Recording::Full] {
-        let mut graph = Graph::new(&entry, Roots::new(project.dir.clone()), recording);
-        for i in 0..MAX_KEPT_REFUSALS + 3 {
-            graph.fail(&format!("{}:a", scheme(i)), Some(main), dynamic, refusal(i));
-            // a retry of each
-            graph.fail(&format!("{}:a", scheme(i)), Some(main), dynamic, refusal(i));
-        }
-        let kept: Vec<_> = graph.failures.iter().collect();
-        if recording.is_full() {
-            assert_eq!(kept.len(), MAX_KEPT_REFUSALS + 3);
-            assert_eq!(graph.unkept_refusals(), 0);
-            assert!(kept.iter().all(|(site, failures)| {
-                failures.len() == 1 && site.specifier.len() > MAX_KEPT_TEXT
-            }));
-            continue;
-        }
-        assert_eq!(kept.len(), MAX_KEPT_REFUSALS);
-        // the three past the cap, and their retries
-        assert_eq!(graph.unkept_refusals(), 6);
-        for (site, failures) in kept {
-            let [failure] = failures.as_slice() else {
-                panic!("{failures:?}");
-            };
-            assert!(
-                site.specifier.contains(" bytes, clipped, blake3 "),
-                "{}",
-                site.specifier
-            );
-            assert!(
-                site.specifier.len() < MAX_KEPT_TEXT + 64,
-                "{}",
-                site.specifier
-            );
-            assert!(failure.message.len() < MAX_KEPT_MESSAGE + 32);
-            assert!(failure.message.contains(" bytes clipped) …"));
-            // the clipped specifier stands in the message for the whole
-            assert!(
-                failure.message.starts_with(&format!(
-                    "cannot resolve '{}' from {main}: ",
-                    site.specifier
-                )),
-                "{}",
-                failure.message
-            );
-            let i: usize = site.specifier[1..]
-                .split('x')
-                .next()
-                .unwrap()
-                .parse()
-                .unwrap();
-            let whole = blake3::hash(refusal(i).message.as_bytes());
-            assert_eq!(failure.message_hash, Some(whole));
-            assert!(failure.is_message(&refusal(i).message, &whole));
-            let FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme(scheme)) =
-                &failure.reason
-            else {
-                panic!("{:?}", failure.reason);
-            };
-            assert!(scheme.ends_with(" bytes, clipped)"), "{scheme}");
-            assert!(scheme.len() < MAX_KEPT_TEXT + 32, "{scheme}");
-        }
-    }
-}
-
-/// The refusal of `args` to an importer of `origin`, which holds no grant.
-fn not_granted(origin: &Origin) -> FailureReason {
-    FailureReason::NotGranted {
-        builtin: &BUILTINS[0],
-        origin: origin.clone(),
-    }
-}
-
-/// Recording off, the first refusal naming each host module by the project
-/// and by each of the first [`MAX_PROBING_ORIGINS`] packages is kept
-/// whatever else was refused,
-/// then up to [`MAX_KEPT_REFUSALS`] more naming a host module and as many
-/// naming none, each kind counted apart: a flood of other refusals, before
-/// or after, can't push a probe out, nor can one origin's flood of
-/// respellings push out another's probe, or its own of another host
-/// module; an origin past the cap shares the respellings' bound.
-#[test]
-fn recording_off_keeps_each_origin_s_probe_of_each_host_module() {
-    let project = Root {
-        dir: PathBuf::from("/a"),
-        origin: Origin::Project,
-    };
-    let entry = resolution("/a/main.ts", &project);
-    let main = entry.url.as_str();
-    let mut graph = Graph::new(&entry, Roots::new(project.dir), Recording::Off);
-    let dynamic = Reached::Import(Reach::Dynamic);
-    let failure = |reason| Failure {
-        at: None,
-        reason,
-        message: "refused".to_owned(),
-        message_hash: None,
-    };
-    let package = |name: &str| Origin::Package {
-        name: name.to_owned(),
-        version: None,
-        linked: false,
-    };
-    let other = || FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme("ext".to_owned()));
-    let respelled = || {
-        FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Respelled(
-            &BUILTINS[0],
-        )))
-    };
-    let unbuilt = FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Unbuilt(
-        UNBUILT_HOST_MODULES[0],
-    )));
-    let args = BUILTINS[0].specifier;
-    let kept = |graph: &Graph, specifier: &str| {
-        graph
-            .failures
-            .keys()
-            .any(|site| site.specifier == specifier)
-    };
-    // a package's probe before the flood, then a flood of other refusals
-    graph.fail(
-        args,
-        Some("file:///a/node_modules/early/x.js"),
-        dynamic,
-        failure(not_granted(&package("early"))),
-    );
-    for i in 0..MAX_KEPT_REFUSALS + 10 {
-        graph.fail(&format!("ext:{i}"), Some(main), dynamic, failure(other()));
-    }
-    assert_eq!(graph.unkept_refusals(), 10);
-    // the project's flood of respellings: its first is its probe, then the
-    // bound of the rest naming a host module
-    for i in 0..MAX_KEPT_REFUSALS + 20 {
-        graph.fail(
-            &format!("{args}?{i}"),
-            Some(main),
-            dynamic,
-            failure(respelled()),
-        );
-    }
-    assert_eq!(graph.unkept_refusals(), 10 + 19);
-    assert!(kept(&graph, &format!("{args}?{MAX_KEPT_REFUSALS}")));
-    assert!(!kept(&graph, &format!("{args}?{}", MAX_KEPT_REFUSALS + 1)));
-    // past both floods: the project's probe of another host module, and
-    // another package's probe
-    graph.fail("@fuzdev/gro/fs.ts", Some(main), dynamic, failure(unbuilt));
-    graph.fail(
-        args,
-        Some("file:///a/node_modules/late/x.js"),
-        dynamic,
-        failure(not_granted(&package("late"))),
-    );
-    assert!(kept(&graph, "@fuzdev/gro/fs.ts"));
-    let importers: Vec<_> = graph
-        .failures
-        .keys()
-        .filter(|site| site.specifier == args)
-        .map(|site| site.importer.as_deref().unwrap())
-        .collect();
-    assert_eq!(
-        importers,
-        [
-            "file:///a/node_modules/early/x.js",
-            "file:///a/node_modules/late/x.js"
-        ]
-    );
-    // a retry of a probe is neither kept again nor counted, and another of
-    // a known origin's probes of the same host module is past the bound
-    graph.fail(
-        args,
-        Some("file:///a/node_modules/late/x.js"),
-        dynamic,
-        failure(not_granted(&package("late"))),
-    );
-    graph.fail(
-        args,
-        Some("file:///a/node_modules/late/y.js"),
-        dynamic,
-        failure(not_granted(&package("late"))),
-    );
-    assert_eq!(graph.unkept_refusals(), 10 + 19 + 1);
-    // the packages so far are `early` and `late`, the project outside the
-    // cap; the cap's last ones are kept, and the next shares the full bound
-    let room = MAX_PROBING_ORIGINS - 2;
-    for i in 0..room + 2 {
-        let importer = format!("file:///a/node_modules/p{i}/x.js");
-        graph.fail(
-            args,
-            Some(&importer),
-            dynamic,
-            failure(not_granted(&package(&format!("p{i}")))),
-        );
-    }
-    let probed = graph
-        .failures
-        .keys()
-        .filter(|site| site.specifier == args)
-        .count();
-    assert_eq!(probed, 2 + room);
-    assert_eq!(graph.unkept_refusals(), 10 + 19 + 1 + 2);
-    assert_eq!(graph.unkept_host_module_refusals(), 19 + 1 + 2);
-    assert_eq!(
-        graph.failures.len(),
-        MAX_KEPT_REFUSALS + 1 + MAX_KEPT_REFUSALS + 1 + 2 + room
-    );
-    // the project's probe of a third host module is kept past the cap
-    let third = UNBUILT_HOST_MODULES[1];
-    graph.fail(
-        &format!("{third}.ts"),
-        Some(main),
-        dynamic,
-        failure(FailureReason::Resolve(ResolveErrorKind::Reserved(
-            Reserved::Unbuilt(third),
-        ))),
-    );
-    assert!(kept(&graph, &format!("{third}.ts")));
-    assert_eq!(graph.unkept_refusals(), 10 + 19 + 1 + 2);
-}
-
-/// The project is outside [`MAX_PROBING_ORIGINS`]: its first probe of each
-/// host module is kept even when the packages' probes filled the cap and
-/// the bound past it first, and a package past both is counted as a
-/// refusal naming a host module.
-#[test]
-fn recording_off_keeps_the_project_s_probe_past_a_full_cap() {
-    let project = Root {
-        dir: PathBuf::from("/a"),
-        origin: Origin::Project,
-    };
-    let entry = resolution("/a/main.ts", &project);
-    let main = entry.url.as_str();
-    let mut graph = Graph::new(&entry, Roots::new(project.dir), Recording::Off);
-    let dynamic = Reached::Import(Reach::Dynamic);
-    let failure = |reason| Failure {
-        at: None,
-        reason,
-        message: "refused".to_owned(),
-        message_hash: None,
-    };
-    let args = BUILTINS[0].specifier;
-    for i in 0..=MAX_PROBING_ORIGINS + MAX_KEPT_REFUSALS {
-        let origin = Origin::Package {
-            name: format!("p{i}"),
-            version: None,
-            linked: false,
-        };
-        graph.fail(
-            args,
-            Some(&format!("file:///a/node_modules/p{i}/x.js")),
-            dynamic,
-            failure(not_granted(&origin)),
-        );
-    }
-    assert_eq!(graph.unkept_refusals(), 1);
-    assert_eq!(graph.unkept_host_module_refusals(), 1);
-    // the project's probes, by a grant's origin and by the recorded importer
-    graph.fail(
-        args,
-        Some(main),
-        dynamic,
-        failure(not_granted(&Origin::Project)),
-    );
-    let fs = UNBUILT_HOST_MODULES[0];
-    graph.fail(
-        &format!("{fs}.ts"),
-        Some(main),
-        dynamic,
-        failure(FailureReason::Resolve(ResolveErrorKind::Reserved(
-            Reserved::Unbuilt(fs),
-        ))),
-    );
-    assert!(
-        graph
-            .failures
-            .keys()
-            .any(|site| site.specifier == args && site.importer.as_deref() == Some(main))
-    );
-    assert!(
-        graph
-            .failures
-            .keys()
-            .any(|site| site.specifier == format!("{fs}.ts"))
-    );
-    assert_eq!(graph.unkept_refusals(), 1);
-}
-
-/// The refusals naming a host module are a builtin the importer isn't
-/// granted or asked for with attributes, and each kind of reserved
-/// specifier, through an `"exports"` target too; none of the other
-/// refusals by rule names one.
-#[test]
-fn a_probe_names_its_host_module() {
-    let path = || PathBuf::from("/a/x.js");
-    let args = BUILTINS[0].specifier;
-    for (reason, host_module) in [
-        (not_granted(&Origin::Project), args),
-        (
-            FailureReason::Load(LoadFailure::BuiltinAttributes(&BUILTINS[0])),
-            args,
-        ),
-        (
-            FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::JsSpelling(
-                &BUILTINS[0],
-            ))),
-            args,
-        ),
-        (
-            FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Respelled(
-                &BUILTINS[0],
-            ))),
-            args,
-        ),
-        (
-            FailureReason::Resolve(ResolveErrorKind::Target {
-                path: path(),
-                error: Box::new(ResolveErrorKind::Reserved(Reserved::Unbuilt(
-                    "@fuzdev/gro/fs",
-                ))),
-            }),
-            "@fuzdev/gro/fs",
-        ),
-        (
-            FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Split(
-                &SPLIT_MODULES[0],
-            ))),
-            "@fuzdev/gro/process",
-        ),
-    ] {
-        assert_eq!(reason.host_module(), Some(host_module), "{reason:?}");
-        assert!(reason.guards_a_boundary(), "{reason:?}");
-    }
-    for reason in [
-        FailureReason::StringCompiledImport,
-        FailureReason::UnknownImporter,
-        FailureReason::DynamicImport,
-        FailureReason::DriverImport,
-        FailureReason::Load(LoadFailure::NeverResolved),
-        FailureReason::Load(LoadFailure::OutsideBox),
-        FailureReason::Resolve(ResolveErrorKind::Remote),
-        FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme("builtin".to_owned())),
-        FailureReason::Resolve(ResolveErrorKind::PackageImportsProject {
-            package: Box::from("p"),
-            path: path(),
-            project: path(),
-        }),
-        FailureReason::Resolve(ResolveErrorKind::IntoNodeModules {
-            path: path(),
-            root: path(),
-        }),
-    ] {
-        assert_eq!(reason.host_module(), None, "{reason:?}");
-    }
-}
-
-/// A long refusal's message keeps who refused what: the specifier is
-/// clipped where it stands, an importer past [`MAX_KEPT_IMPORTER`] keeps
-/// its first installed package's name and its file, and only then is the
-/// rest's middle cut; a short one is kept whole, unhashed.
-#[test]
-fn a_message_is_clipped_part_by_part() {
-    let specifier = format!("https://x/{}", "a".repeat(5000));
-    let clipped = clip_str_hashed(&specifier, MAX_KEPT_TEXT);
-    let deep = format!(
-        "file:///p/node_modules/@scope/pkg/{}probe.js",
-        "d/".repeat(1500)
-    );
-    let message = format!("cannot resolve '{specifier}' from {deep}: it is remote");
-    let (kept, hash) = clip_message(message.clone(), &specifier, &clipped, Some(&deep));
-    assert_eq!(hash, Some(blake3::hash(message.as_bytes())));
-    let importer = clip_importer(&deep);
-    assert!(
-        importer.starts_with("file:///p/node_modules/@scope/pkg… ("),
-        "{importer}"
-    );
-    assert!(importer.ends_with("d/d/probe.js"), "{importer}");
-    assert_eq!(
-        kept,
-        format!("cannot resolve '{clipped}' from {importer}: it is remote")
-    );
-    // the reason's own long text is what a middle cut takes
-    let scheme = "s".repeat(10_000);
-    let message = format!("cannot resolve '{specifier}' from {deep}: the scheme '{scheme}:'");
-    let (kept, _) = clip_message(message, &specifier, &clipped, Some(&deep));
-    assert!(kept.len() <= MAX_KEPT_MESSAGE + 32, "{}", kept.len());
-    assert!(
-        kept.starts_with(&format!(
-            "cannot resolve '{clipped}' from {importer}: the scheme 's"
-        )),
-        "{kept}"
-    );
-    // no package to keep: the URL's two halves
-    let flat = format!("file:///p/{}x.js", "f".repeat(2000));
-    assert_eq!(
-        clip_importer(&flat),
-        clip_middle_at(&flat, MAX_KEPT_IMPORTER / 2, MAX_KEPT_IMPORTER)
-    );
-    // a package whose name ends past half the bound: the URL's two halves
-    let long_name = format!(
-        "file:///p/node_modules/{}/{}x.js",
-        "n".repeat(MAX_KEPT_IMPORTER / 2),
-        "d/".repeat(1000)
-    );
-    assert_eq!(
-        clip_importer(&long_name),
-        clip_middle_at(&long_name, MAX_KEPT_IMPORTER / 2, MAX_KEPT_IMPORTER)
-    );
-    let short = "cannot resolve 'ext:a' from file:///p/main.js: refused".to_owned();
-    assert_eq!(
-        clip_message(short.clone(), "ext:a", "ext:a", Some("file:///p/main.js")),
-        (short, None)
-    );
-}
-
-/// Clipping a reason clips every text and path in it, a package's
-/// `"version"` in a grant refusal's origin among them, and leaves short
-/// ones as they are.
-#[test]
-fn a_reason_s_text_is_clipped() {
-    let long = "v".repeat(5000);
-    let reason = FailureReason::NotGranted {
-        builtin: &BUILTINS[0],
-        origin: Origin::Package {
-            name: "p".to_owned(),
-            version: Some(long.clone()),
-            linked: false,
-        },
-    };
-    let FailureReason::NotGranted { origin, .. } = reason.clipped(10) else {
-        panic!("not a grant refusal");
-    };
-    assert_eq!(
-        origin,
-        Origin::Package {
-            name: "p".to_owned(),
-            version: Some("vvvvvvvvvv… (5000 bytes, clipped)".to_owned()),
-            linked: false,
-        }
-    );
-    let outside = FailureReason::Resolve(ResolveErrorKind::OutsideRoot {
-        path: PathBuf::from(format!("/a/{long}")),
-        root: PathBuf::from("/a"),
-        package: None,
-    });
-    assert_eq!(
-        outside.clipped(10),
-        FailureReason::Resolve(ResolveErrorKind::OutsideRoot {
-            path: PathBuf::from("/a/vvvvvvv… (5003 bytes, clipped)"),
-            root: PathBuf::from("/a"),
-            package: None,
-        })
-    );
 }
 
 /// Each failure that guards the run's authority or boundaries is a refusal
@@ -947,6 +421,19 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
         FailureReason::Load(LoadFailure::OutsideBox),
         FailureReason::Resolve(ResolveErrorKind::Remote),
         FailureReason::Resolve(ResolveErrorKind::UnsupportedScheme("builtin".to_owned())),
+        // each kind of reserved specifier
+        FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::JsSpelling(
+            &BUILTINS[0],
+        ))),
+        FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Respelled(
+            &BUILTINS[0],
+        ))),
+        FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Unbuilt(
+            "@fuzdev/gro/fs",
+        ))),
+        FailureReason::Resolve(ResolveErrorKind::Reserved(Reserved::Split(
+            &SPLIT_MODULES[0],
+        ))),
         FailureReason::Resolve(ResolveErrorKind::OutsideRoot {
             path: path(),
             root: path(),
@@ -968,6 +455,32 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
         FailureReason::Resolve(ResolveErrorKind::InvalidUrl(UrlFault::EncodedSeparator(
             "%2F".to_owned(),
         ))),
+        FailureReason::Resolve(ResolveErrorKind::InvalidUrl(UrlFault::EncodedNul(
+            "%00".to_owned(),
+        ))),
+        FailureReason::Resolve(ResolveErrorKind::InvalidTarget {
+            key: "./x.js".to_owned(),
+            target: "\"../x.js\"".to_owned(),
+            reason: TargetFault::NotRelative,
+        }),
+        FailureReason::Resolve(ResolveErrorKind::InvalidSubpath {
+            key: "./*".to_owned(),
+            matched: "../x.js".to_owned(),
+        }),
+        FailureReason::Resolve(ResolveErrorKind::IntoPackageRoot {
+            path: path(),
+            root: Box::new(package("/a", "p")),
+        }),
+        FailureReason::Resolve(ResolveErrorKind::InNoPackage(path())),
+        FailureReason::Resolve(ResolveErrorKind::RootConflict {
+            path: path(),
+            recorded: Box::new(package("/a", "p")),
+            admitted: Box::new(package("/a", "q")),
+        }),
+        FailureReason::Resolve(ResolveErrorKind::ReadOutsideBox(path())),
+        // the loads that can't happen, each one that skipped resolution
+        FailureReason::Load(LoadFailure::NoLocalPath),
+        FailureReason::Load(LoadFailure::Format(ResolveErrorKind::Remote)),
         // an `"exports"` target by what refused it
         FailureReason::Resolve(ResolveErrorKind::Target {
             path: path(),

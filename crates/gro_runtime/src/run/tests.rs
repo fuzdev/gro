@@ -1,8 +1,8 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
 //! user code, then the graph a run records (`graph`), the builtins
 //! (`builtins`, and the grant-free ones in `observations`), import attributes (`attributes`), `import()` in code
-//! compiled from a string (`string_code`), and the refusals a run reports
-//! (`reported`).
+//! compiled from a string (`string_code`), and the refusals that fail a
+//! run (`refused`).
 
 use std::path::PathBuf;
 
@@ -16,7 +16,7 @@ mod attributes;
 mod builtins;
 mod graph;
 mod observations;
-mod reported;
+mod refused;
 mod string_code;
 
 /// The modules `deno_core` provides itself, which it doesn't list publicly

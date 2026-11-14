@@ -8,10 +8,9 @@ use std::path::{Path, PathBuf};
 
 use super::error::ResolveErrorKind;
 use super::walk::in_node_modules;
-use crate::clip::{clip_path, clip_string};
 
 /// Where a resolved module comes from, the input a grant decision reads.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     /// The project's own files: the entry, and what its graph reaches by
     /// relative and absolute specifiers, by self-reference, and through a
@@ -62,37 +61,6 @@ impl Root {
                 ..
             } => Some(name),
             Origin::Package { linked: true, .. } | Origin::Project => None,
-        }
-    }
-
-    /// This root with its path and its package's strings each clipped to
-    /// `max` bytes ([`Origin::clipped`]).
-    #[must_use]
-    pub fn clipped(self, max: usize) -> Self {
-        Self {
-            dir: clip_path(self.dir, max),
-            origin: self.origin.clipped(max),
-        }
-    }
-}
-
-impl Origin {
-    /// This origin with its package's name and `"version"` each clipped to
-    /// `max` bytes, marked as clipped (`crate::clip`): a package's
-    /// `package.json` makes the version as long as it likes.
-    #[must_use]
-    pub fn clipped(self, max: usize) -> Self {
-        match self {
-            Self::Project => Self::Project,
-            Self::Package {
-                name,
-                version,
-                linked,
-            } => Self::Package {
-                name: clip_string(name, max),
-                version: version.map(|version| clip_string(version, max)),
-                linked,
-            },
         }
     }
 }

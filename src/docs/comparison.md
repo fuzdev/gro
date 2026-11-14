@@ -80,7 +80,7 @@ Most of Gro's permission model follows from the first of these:
 - **Where it fails.** Deno denies at the call, deep inside a dependency,
   with a `NotCapable` error the code can catch, so a denial can go unreported (it's still denied).
   Gro denies before the code runs: an ungranted host module doesn't link
-  (a computed `import()` of one is refused at the call, which code can catch, and `fgro run` reports the refusal after the run even then),
+  (a computed `import()` of one is refused at the call, which code can catch, and the refusal fails an `fgro run` even then),
   and there's no global `fetch` to reach around it.
   What's left for the call is the scoped check inside a grant
   (a path outside the root, a host not accepted), and the host is designed to report those too.
@@ -122,7 +122,7 @@ Gro's cells start with the words [By axis](#by-axis) defines.
 |                   | Deno                                                                     | Gro                                                                                                                                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prompts           | asks on a terminal, unless `--no-prompt`                                 | designed: never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`; built: `fgro` has no prompt |
-| denials           | a thrown error the code can catch                                        | built for `import()`: `fgro run` reports a refused one even when caught; designed for the rest: reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run |
+| denials           | a thrown error the code can catch                                        | built for `import()`: a refused one fails an `fgro run` even when caught; designed for the rest: reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run |
 | permission file   | a hand-written permission set in `deno.json` (`-P`)                      | designed: the policy file, committed beside the lockfile and diffed in review, a widening failing the check until accepted; inferred from the imports, which Deno can't do (above) |
 | children          | `--allow-run` spawns outside the sandbox (it refuses the dynamic loader's variables under a scoped run grant) | designed: a coarsening of the grant set becomes kernel rules for every child (hierarchies and ports, not hosts), with the project read-only and only the declared write roots writable: an argv, never a shell string, executables resolved when granted, a cleared environment plus a small base set and an allowlist; a program's arguments are still code, so every spawn grant is shown as backstop-only |
 | kernel            | the op checks stand alone                                                | built for `fgro eval`, designed for every run: Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box ([backstop](backstop.md)) |

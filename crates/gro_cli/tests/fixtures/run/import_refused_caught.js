@@ -1,5 +1,5 @@
-// a refusal by rule is reported on stderr even when the program catches it, once a site;
-// probing for what isn't there, or for an attribute that isn't supported, stays quiet
+// a refusal by rule fails the run even when the program catches it, listed once however often
+// it's retried; probing for what isn't there, or for an attribute that isn't supported, doesn't
 const attempt = async (f) => {
 	try {
 		await f();

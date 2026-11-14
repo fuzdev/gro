@@ -176,18 +176,6 @@ pub enum Reserved {
     Split(&'static SplitModule),
 }
 
-impl Reserved {
-    /// The host module this reserves a spelling of: a builtin's specifier,
-    /// or an unbuilt or split module's without its extension.
-    pub const fn host_module(self) -> &'static str {
-        match self {
-            Self::JsSpelling(builtin) | Self::Respelled(builtin) => builtin.specifier,
-            Self::Unbuilt(stem) => stem,
-            Self::Split(split) => split.stem,
-        }
-    }
-}
-
 /// What the table reserves `specifier` as, if anything: a builtin's
 /// specifier is no reserved one, since [`find_builtin`] names it.
 ///

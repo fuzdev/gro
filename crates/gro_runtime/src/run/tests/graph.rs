@@ -137,7 +137,6 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
             [Failure {
                 at: None,
                 reason: FailureReason::Resolve(ResolveErrorKind::NotFound { .. }),
-                ..
             }]
         ),
         "{:?}",
@@ -259,7 +258,6 @@ await import('./s.js');
         [Failure {
             at: Some(Position { line: 1, column: 8 }),
             reason: FailureReason::Load(LoadFailure::Strip { .. }),
-            ..
         }]
     ));
     let failures = static_graph.unwrap().failures().clone();

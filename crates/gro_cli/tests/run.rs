@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc::RecvTimeoutError;
 
-use support::{COLOR_VARS, Scratch, fgro_command, spawn};
+use support::{COLOR_VARS, Scratch, fgro_command, spawn, wrapped_fgro_command};
 
 fn fixtures() -> PathBuf {
     support::fixtures("run")
@@ -240,11 +240,11 @@ fn dynamic_import_of_a_sibling() {
 /// the stack, which the check for code compiled from a string must survive
 /// (reading a frame of an empty stack trace crashes the process); an
 /// `import()` in such code is refused, a `TypeError` the program catches,
-/// and reported once on stderr, naming no importer.
+/// which fails the run, listed once on stderr, naming no importer.
 #[test]
 fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
     let run = run("import_string_code.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
     let refusal = "cannot import './sibling.js' from code compiled from a string (eval, a \
                    Function constructor, or a string passed to a timer): V8 can share such code \
                    between modules that compile the same string, so it has no importer of its \
@@ -254,47 +254,391 @@ fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
         run.stdout,
         format!("static sibling\ntrue {refusal}\ntrue {refusal}\n")
     );
-    assert_eq!(
-        run.stderr,
-        format!("warning: import() refused: {refusal}\n")
-    );
+    assert_eq!(run.stderr, format!("error: import() refused: {refusal}\n"));
 }
 
-/// An `import()` refused by rule is reported on stderr after the run even
-/// though the program caught it, once a site however often it's retried, in
-/// the binary's warning voice, uncolored; probing for what isn't there, or
-/// for an attribute that isn't supported, prints nothing, stdout is the
-/// program's, and the exit code is 0.
+/// The line `fgro run` prints for the refused `import()` of `ext:core/ops`
+/// by the module at `importer`.
+fn ext_refused(importer: &str) -> String {
+    format!(
+        "error: import() refused: cannot resolve 'ext:core/ops' from {importer}: the scheme \
+         'ext:' is not supported; only files on disk (file: URLs) load\n"
+    )
+}
+
+/// An `import()` refused by rule fails the run though the program caught
+/// it: exit 1, and the refusal on stderr in the binary's error voice,
+/// uncolored, once however often it's retried, in the order each first
+/// happened; probing for what isn't there, or for an attribute that isn't
+/// supported, prints nothing, and stdout is the program's.
 #[test]
-fn a_caught_refusal_by_rule_is_reported_once_and_exits_0() {
-    let run = run("import_refused_reported.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+fn a_caught_refusal_by_rule_fails_the_run_and_is_listed_once() {
+    let run = run("import_refused_caught.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(run.stdout, "done\n");
     let url = fixtures_url();
     assert_eq!(
         run.stderr,
         format!(
-            "warning: import() refused: cannot import './sibling.js' from code compiled from a \
+            "error: import() refused: cannot resolve '@fuzdev/gro/args.js' from \
+             {url}/import_refused_caught.js: it is the .js spelling of the builtin module \
+             '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
+             '@fuzdev/gro/args.ts'\n\
+             error: import() refused: cannot import './sibling.js' from code compiled from a \
              string (eval, a Function constructor, or a string passed to a timer): V8 can share \
              such code between modules that compile the same string, so it has no importer of \
              its own. Fix: call import() in a module and pass what it returns to the compiled \
-             code\n\
-             warning: import() refused: cannot resolve '@fuzdev/gro/args.js' from \
-             {url}/import_refused_reported.js: it is the .js spelling of the builtin module \
-             '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
-             '@fuzdev/gro/args.ts'\n"
+             code\n"
         )
     );
 }
 
-/// A reported refusal's specifier, which the program chose, prints with its
+/// However a run ends after its program caught a refusal by rule, it
+/// fails, exit 1, and the refusal is listed after whatever error the run
+/// printed: the program running to completion, an uncaught error, an
+/// unhandled rejection, a top-level `await` that never settles, and an
+/// error thrown in a timer.
+#[test]
+fn a_caught_refusal_fails_the_run_however_it_ends() {
+    // each error's first lines, `<main>` standing for the entry's URL
+    for (name, rest, stdout, error) in [
+        ("completes", "console.log('done');\n", "done\n", ""),
+        (
+            "throws",
+            "throw new Error('x');\n",
+            "",
+            "error: Uncaught (in promise) Error: x\n    at <main>:4:7\n",
+        ),
+        (
+            "rejects",
+            "Promise.reject(new Error('x'));\n",
+            "",
+            "error: Uncaught (in promise) Error: x\n    at <main>:4:16\n",
+        ),
+        (
+            "unsettled",
+            "await new Promise(() => {});\n",
+            "",
+            "error: Top-level await promise never resolved\n    at <main>:4:1\n",
+        ),
+        (
+            "timer_throws",
+            "console.log('before');\nsetTimeout(() => {\n\tthrow new Error('late');\n}, 1);\n",
+            "before\n",
+            "error: Uncaught Error: late\n    at <main>:6:8\n",
+        ),
+    ] {
+        let source = format!("try {{\n\tawait import('ext:core/ops');\n}} catch {{}}\n{rest}");
+        let fixtures = temp_fixtures(&format!("refused_then_{name}"), &[("main.js", &source)]);
+        let run = run_in(&fixtures, "main.js");
+        assert_eq!(run.code, 1, "{name}: {}", run.stderr);
+        assert_eq!(run.stdout, stdout, "{name}");
+        let main = format!("file://{}/main.js", fixtures.0.display());
+        let error = error.replace("<main>", &main);
+        assert!(run.stderr.starts_with(&error), "{name}: {}", run.stderr);
+        // after the error and its frames, the last line
+        assert!(
+            run.stderr.ends_with(&ext_refused(&main)),
+            "{name}: {}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches("import() refused").count(),
+            1,
+            "{name}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// A refusal by rule nothing awaits fails the run all the same: one whose
+/// rejection a promise chain handles, and one refused in a timer while the
+/// event loop still has work, each listed once the loop drains; so does one
+/// of a static import in a module an `import()` loads, listed under that
+/// module.
+#[test]
+fn a_refusal_nothing_awaits_fails_the_run() {
+    for (name, source, stdout) in [
+        (
+            "chain",
+            "import('ext:core/ops').then(\n\t() => {},\n\t() => {}\n);\nconsole.log('done');\n",
+            "done\n",
+        ),
+        (
+            "timer",
+            "setTimeout(async () => {\n\ttry {\n\t\tawait import('ext:core/ops');\n\t} catch {}\n}, 1);\n\
+             setTimeout(() => console.log('later'), 30);\nconsole.log('first');\n",
+            "first\nlater\n",
+        ),
+    ] {
+        let fixtures = temp_fixtures(&format!("refused_unawaited_{name}"), &[("main.js", source)]);
+        let run = run_in(&fixtures, "main.js");
+        assert_eq!(run.code, 1, "{name}: {}", run.stderr);
+        assert_eq!(run.stdout, stdout, "{name}");
+        assert_eq!(
+            run.stderr,
+            ext_refused(&format!("file://{}/main.js", fixtures.0.display())),
+            "{name}"
+        );
+    }
+    let fixtures = temp_fixtures(
+        "refused_in_a_loaded_module",
+        &[
+            (
+                "main.js",
+                "try {\n\tawait import('./dep.js');\n} catch {}\n",
+            ),
+            ("dep.js", "import 'ext:core/ops';\n"),
+        ],
+    );
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        ext_refused(&format!("file://{}/dep.js", fixtures.0.display()))
+    );
+}
+
+/// Each rule's refusal of an `import()` the program catches fails the run,
+/// exit 1, listed once: a path that leaves its root, the project's or a
+/// package's, or enters `node_modules` or an admitted package's root, an
+/// encoded separator or NUL, a remote or inline specifier, a host module's
+/// reserved name, a builtin with attributes or that a package isn't
+/// granted, a package's import of the project, an `"exports"` target or a
+/// pattern's match that leaves its package, a package admitted around a
+/// module already resolved, and a package found through a world-writable
+/// directory. A missing file beside them leaves the run's exit 0.
+#[test]
+fn each_rule_s_refusal_of_a_caught_import_fails_the_run() {
+    let caught = |import: &str| {
+        format!("try {{\n\tawait import({import});\n}} catch {{}}\nconsole.log('done');\n")
+    };
+    // a package's module that catches its own refused `import()`
+    let package_catches =
+        |import: &str| format!("try {{\n\tawait import({import});\n}} catch {{}}\n");
+    let through = |module: &str| format!("await import('{module}');\nconsole.log('done');\n");
+    let cases: [(&str, String, &str); 15] = [
+        ("outside_root.js", caught("'../outside.mjs'"), ", outside "),
+        (
+            "into_node_modules.js",
+            caught("'./node_modules/bar/i.mjs'"),
+            "inside node_modules below",
+        ),
+        (
+            "encoded_separator.js",
+            caught("'./a%2fb.js'"),
+            "has an encoded '/' or '\\'",
+        ),
+        (
+            "encoded_nul.js",
+            caught("'./a%00b.js'"),
+            "has an encoded NUL",
+        ),
+        (
+            "remote.js",
+            caught("'https://example.com/x.js'"),
+            "it is a remote or inline specifier",
+        ),
+        (
+            "inline.js",
+            caught("'data:text/javascript,1'"),
+            "it is a remote or inline specifier",
+        ),
+        (
+            "reserved.js",
+            caught("'@fuzdev/gro/fs.ts'"),
+            "it names Gro's host module",
+        ),
+        (
+            "builtin_attributes.js",
+            caught("'@fuzdev/gro/args.ts', {with: {type: 'json'}}"),
+            "a builtin module takes no import attributes",
+        ),
+        (
+            "invalid_target.js",
+            caught("'bad/up.mjs'"),
+            "is invalid: a target must start with './'",
+        ),
+        (
+            "invalid_subpath.js",
+            caught("'pat/a/../ok.mjs'"),
+            "has a '.', '..', or 'node_modules' segment",
+        ),
+        (
+            "package_outside.js",
+            through("foo/outside.mjs"),
+            "outside package 'foo'",
+        ),
+        (
+            "package_not_granted.js",
+            through("foo/args.mjs"),
+            "which package 'foo' isn't granted",
+        ),
+        (
+            "package_imports_project.js",
+            through("foo/project.mjs"),
+            "a package can't import the project's own modules by name",
+        ),
+        (
+            "into_package_root.js",
+            format!(
+                "await import('lnk/x.mjs');\n{}",
+                caught("'./packages/lnk/x.mjs'")
+            ),
+            "inside package 'lnk'",
+        ),
+        (
+            "root_conflict.js",
+            format!(
+                "await import('./packages/lnk/x.mjs');\n{}",
+                caught("'lnk/x.mjs'")
+            ),
+            "was then admitted around it",
+        ),
+    ];
+    let world_writable = caught("'bar'");
+    let missing = caught("'./missing.js'");
+    let outside = package_catches("'../bar/i.mjs'");
+    let args = package_catches("'@fuzdev/gro/args.ts'");
+    let project = package_catches("'proj/ok.js'");
+    let mut files = vec![
+        ("outside.mjs", "console.log('outside');\n"),
+        (
+            "proj/package.json",
+            r#"{"name": "proj", "type": "module", "exports": {"./ok.js": "./ok.js"}}"#,
+        ),
+        ("proj/ok.js", "console.log('ok');\n"),
+        ("proj/world_writable.js", world_writable.as_str()),
+        ("proj/nothing_there.js", missing.as_str()),
+        (
+            "proj/node_modules/bar/package.json",
+            r#"{"type": "module", "exports": "./i.mjs"}"#,
+        ),
+        ("proj/node_modules/bar/i.mjs", "console.log('bar');\n"),
+        (
+            "proj/node_modules/bad/package.json",
+            r#"{"exports": {"./up.mjs": "../bar/i.mjs"}}"#,
+        ),
+        (
+            "proj/node_modules/pat/package.json",
+            r#"{"exports": {"./*": "./*"}}"#,
+        ),
+        ("proj/node_modules/pat/ok.mjs", "console.log('pat');\n"),
+        (
+            "proj/node_modules/foo/package.json",
+            r#"{"name": "foo", "exports": {"./*": "./*"}}"#,
+        ),
+        ("proj/node_modules/foo/outside.mjs", outside.as_str()),
+        ("proj/node_modules/foo/args.mjs", args.as_str()),
+        ("proj/node_modules/foo/project.mjs", project.as_str()),
+        (
+            "proj/packages/lnk/package.json",
+            r#"{"name": "lnk", "exports": {"./x.mjs": "./x.mjs"}}"#,
+        ),
+        ("proj/packages/lnk/x.mjs", "console.log('x');\n"),
+    ];
+    let entries: Vec<String> = cases
+        .iter()
+        .map(|(name, _, _)| format!("proj/{name}"))
+        .collect();
+    files.extend(
+        entries
+            .iter()
+            .zip(&cases)
+            .map(|(entry, (_, source, _))| (entry.as_str(), source.as_str())),
+    );
+    let fixtures = temp_fixtures("each_rule", &files);
+    let root = &fixtures.0;
+    std::os::unix::fs::symlink(
+        root.join("proj/packages/lnk"),
+        root.join("proj/node_modules/lnk"),
+    )
+    .unwrap();
+    // the project linked into its own `node_modules`
+    std::os::unix::fs::symlink(root.join("proj"), root.join("proj/node_modules/proj")).unwrap();
+    let refused = |entry: &str, reason: &str| {
+        let run = run_in(&fixtures, entry);
+        assert_eq!(run.code, 1, "{entry}: {}", run.stderr);
+        assert!(run.stdout.ends_with("done\n"), "{entry}: {}", run.stdout);
+        assert!(
+            run.stderr.starts_with("error: import() refused: cannot "),
+            "{entry}: {}",
+            run.stderr
+        );
+        assert_eq!(run.stderr.lines().count(), 1, "{entry}: {}", run.stderr);
+        assert!(run.stderr.contains(reason), "{entry}: {}", run.stderr);
+    };
+    // nothing there to load, in the same tree
+    let run = run_in(&fixtures, "proj/nothing_there.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "done\n");
+    assert_eq!(run.stderr, "");
+    for (entry, (_, _, reason)) in entries.iter().zip(&cases) {
+        refused(entry, reason);
+    }
+    // last, since every package is found through it
+    fixtures.set_mode("proj/node_modules", 0o777);
+    refused("proj/world_writable.js", "which is world-writable");
+}
+
+/// A refusal by rule that is the run's own error prints once, as that
+/// error, exit 1, with no listing after it: an `import()` awaited at the
+/// top level and uncaught, one whose rejection nothing handles, and a
+/// static import, which fails the run before any of it evaluates.
+#[test]
+fn a_refusal_that_is_the_run_s_error_prints_once() {
+    for (name, source, error) in [
+        (
+            "awaited",
+            "await import('ext:core/ops');\n",
+            "error: Uncaught (in promise) TypeError: cannot resolve",
+        ),
+        (
+            "unhandled",
+            "import('ext:core/ops');\n",
+            "error: Uncaught (in promise) TypeError: cannot resolve",
+        ),
+        (
+            "static",
+            "import 'ext:core/ops';\n",
+            "error: cannot resolve",
+        ),
+    ] {
+        let fixtures = temp_fixtures(&format!("refused_error_{name}"), &[("main.js", source)]);
+        let run = run_in(&fixtures, "main.js");
+        assert_eq!(run.code, 1, "{name}: {}", run.stderr);
+        assert_eq!(run.stdout, "", "{name}");
+        assert!(
+            run.stderr.starts_with(&format!(
+                "{error} 'ext:core/ops' from file://{}/main.js: the scheme 'ext:' is not \
+                 supported; only files on disk (file: URLs) load\n",
+                fixtures.0.display()
+            )),
+            "{name}: {}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches("'ext:core/ops'").count(),
+            1,
+            "{name}: {}",
+            run.stderr
+        );
+        assert!(
+            !run.stderr.contains("import() refused"),
+            "{name}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// A listed refusal's specifier, which the program chose, prints with its
 /// control and bidirectional formatting characters escaped, so it can't
-/// start a line of its own, erase or conceal the warnings around it, or
+/// start a line of its own, erase or conceal the lines around it, or
 /// reorder them.
 #[test]
-fn a_reported_refusal_escapes_control_characters() {
+fn a_listed_refusal_escapes_control_characters() {
     let run = run("import_refused_controls.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(run.stdout, "done\n");
     let url = fixtures_url();
     let remote = "it is a remote or inline specifier; only files on disk load. Fix: save the \
@@ -302,12 +646,12 @@ fn a_reported_refusal_escapes_control_characters() {
     assert_eq!(
         run.stderr,
         format!(
-            "warning: import() refused: cannot resolve 'ext:a\\u{{1b}}[8m' from \
+            "error: import() refused: cannot resolve 'https://x/\\u{{d}}\\u{{1b}}[2K' from \
+             {url}/import_refused_controls.js: {remote}\n\
+             error: import() refused: cannot resolve 'ext:a\\u{{1b}}[8m' from \
              {url}/import_refused_controls.js: the scheme 'ext:' is not supported; only files on \
              disk (file: URLs) load\n\
-             warning: import() refused: cannot resolve 'https://x/\\u{{d}}\\u{{1b}}[2K' from \
-             {url}/import_refused_controls.js: {remote}\n\
-             warning: import() refused: cannot import 'z\\u{{a}}warning: x\\u{{202e}}' from code \
+             error: import() refused: cannot import 'z\\u{{a}}error: x\\u{{202e}}' from code \
              compiled from a string (eval, a Function constructor, or a string passed to a \
              timer): V8 can share such code between modules that compile the same string, so it \
              has no importer of its own. Fix: call import() in a module and pass what it returns \
@@ -316,107 +660,152 @@ fn a_reported_refusal_escapes_control_characters() {
     );
 }
 
-/// Past the refusals the report lists, one line counts how many more times
-/// an `import()` was refused, a retry of an unlisted one included, and a
-/// probe for a builtin after a flood of other refusals is still listed.
+/// The first distinct refusals are listed, in the order they happened, and
+/// one line counts how many more times an `import()` was refused, a retry
+/// of an unlisted one included and a retry of a listed one not.
 #[test]
 fn refusals_past_the_listed_ones_are_counted_in_one_line() {
     let run = run("import_refused_flood.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(run.stdout, "done\n");
-    let lines: Vec<&str> = run.stderr.lines().collect();
-    let (last, listed) = lines.split_last().unwrap();
-    assert_eq!(listed.len(), 101, "{}", run.stderr);
-    assert!(
-        listed[0].starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/args.js'"),
-        "{}",
-        run.stderr
+    let url = fixtures_url();
+    let expected: String = (0..gro_runtime::MAX_LISTED_REFUSALS)
+        .map(|i| {
+            format!(
+                "error: import() refused: cannot resolve 'ext:{i}' from \
+                 {url}/import_refused_flood.js: the scheme 'ext:' is not supported; only files \
+                 on disk (file: URLs) load\n"
+            )
+        })
+        .chain(["error: import() refused: 4 more times, not listed\n".to_owned()])
+        .collect();
+    assert_eq!(run.stderr, expected);
+    // one past the listed
+    let source = format!(
+        "for (let i = 0; i <= {}; i++) {{\n\ttry {{\n\t\tawait import(`ext:${{i}}`);\n\t}} catch {{}}\n}}\n",
+        gro_runtime::MAX_LISTED_REFUSALS
     );
-    assert!(
-        listed[1..]
-            .iter()
-            .all(|line| line.starts_with("warning: import() refused: cannot resolve 'ext:")),
-        "{}",
-        run.stderr
-    );
-    assert_eq!(*last, "warning: import() refused: 3 more times, not listed");
-}
-
-/// Refusals naming a host module past the bound are counted in a line of
-/// their own, before the line counting the rest.
-#[test]
-fn unlisted_probes_are_counted_apart() {
-    let run = run("import_refused_probe_flood.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    let fixtures = temp_fixtures("refused_one_more", &[("main.js", &source)]);
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
     let lines: Vec<&str> = run.stderr.lines().collect();
     assert_eq!(
-        lines[lines.len() - 2..],
-        [
-            "warning: import() refused: 5 more times for a host module, not listed",
-            "warning: import() refused: 7 more times, not listed",
-        ],
+        lines.len(),
+        gro_runtime::MAX_LISTED_REFUSALS + 1,
         "{}",
         run.stderr
     );
+    assert_eq!(
+        lines.last(),
+        Some(&"error: import() refused: 1 more time, not listed")
+    );
 }
 
-/// A probe the program didn't catch is the run's error, and is listed
-/// after it too with the caught refusal's warning, since the program can
-/// bury or erase its own error's text; the run exits 1.
+/// A long refusal is listed cut, marked with its message's whole length,
+/// so a specifier as long as the program's heap holds prints as one short
+/// line.
 #[test]
-fn an_uncaught_probe_is_the_error_and_listed() {
+fn a_long_refusal_is_listed_cut() {
+    let source = "try {\n\tawait import('data:,' + 'a'.repeat(1 << 20));\n} catch {}\n";
+    let fixtures = temp_fixtures("refused_long", &[("main.js", source)]);
+    let run = run_in(&fixtures, "main.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let whole = format!(
+        "cannot resolve 'data:,{}' from file://{}/main.js: it is a remote or inline specifier; \
+         only files on disk load. Fix: save the module into the project and import it by a \
+         relative path",
+        "a".repeat(1 << 20),
+        fixtures.0.display()
+    );
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: import() refused: {}… ({} bytes)\n",
+            &whole[..gro_runtime::MAX_LISTED_MESSAGE],
+            whole.len()
+        )
+    );
+}
+
+/// A refusal the program didn't catch is the run's error, printed once,
+/// and the one it caught before is listed after it; the run exits 1.
+#[test]
+fn an_uncaught_refusal_is_the_error_and_a_caught_one_is_listed() {
     let run = run("import_refused_uncaught.js");
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert!(run.stdout.is_empty(), "{}", run.stdout);
-    let lines: Vec<&str> = run.stderr.lines().collect();
-    assert!(
-        lines[0].starts_with(
-            "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/args.js'"
-        ),
-        "{}",
-        run.stderr
-    );
-    assert!(
-        lines
-            .last()
-            .unwrap()
-            .starts_with("warning: import() refused: cannot resolve 'ext:core/ops'"),
-        "{}",
-        run.stderr
-    );
+    let url = fixtures_url();
     assert_eq!(
-        lines
-            .iter()
-            .filter(|line| line
-                .starts_with("warning: import() refused: cannot resolve '@fuzdev/gro/args.js'"))
-            .count(),
-        1,
-        "{}",
-        run.stderr
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/args.js' from \
+             {url}/import_refused_uncaught.js: it is the .js spelling of the builtin module \
+             '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
+             '@fuzdev/gro/args.ts'\n    at async {url}/import_refused_uncaught.js:5:1\n{}",
+            ext_refused(&format!("{url}/import_refused_uncaught.js"))
+        )
     );
 }
 
-/// The warnings are the last thing a run writes, after its own error,
-/// whose text the program chose, so cursor-moving or erasing sequences in
-/// that error can't reach back over them on a terminal; the exit code is
-/// the error's.
+/// A run killed by a signal after its program caught a refusal by rule
+/// ends by the signal, never exit 0, and prints nothing.
 #[test]
-fn the_warnings_print_after_the_run_s_error() {
-    // not `run`, which holds stderr free of escapes
-    let output = fgro(&["run", "import_refused_then_throw.js"]);
-    assert_eq!(output.status.code(), Some(1));
-    let url = fixtures_url();
-    let erase = "\x1b[1A\x1b[2K".repeat(3);
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        format!(
-            "error: Uncaught (in promise) Error: x{erase}\n    at \
-             {url}/import_refused_then_throw.js:5:7\n\
-             warning: import() refused: cannot resolve 'ext:core/ops' from \
-             {url}/import_refused_then_throw.js: the scheme 'ext:' is not supported; only files \
-             on disk (file: URLs) load\n"
-        )
-    );
+fn a_run_killed_by_a_signal_after_a_refusal_ends_by_the_signal() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    let source = "try {\n\tawait import('ext:core/ops');\n} catch {}\nconsole.log('refused');\n\
+                  setInterval(() => {}, 1000);\n";
+    let fixtures = temp_fixtures("refused_then_signal", &[("main.js", source)]);
+    for (name, signal) in [("TERM", 15), ("INT", 2)] {
+        let mut command = fgro_command(&["run", "main.js"]);
+        command
+            .current_dir(&fixtures.0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = support::KillOnDrop(command.spawn().unwrap());
+        let stdout = support::lines(child.stdout.take().unwrap());
+        let stderr = support::drain(child.stderr.take().unwrap());
+        assert_eq!(
+            stdout.recv_timeout(support::DEADLINE).as_deref(),
+            Ok("refused\n"),
+            "{name}"
+        );
+        let killed = Command::new("kill")
+            .args([format!("-{name}"), child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(killed.success(), "{name}");
+        let status = child.wait().unwrap();
+        assert_eq!(status.signal(), Some(signal), "{name}: {status}");
+        assert_eq!(status.code(), None, "{name}");
+        assert_eq!(
+            String::from_utf8(stderr.join().unwrap()).unwrap(),
+            "",
+            "{name}"
+        );
+    }
+}
+
+/// A run V8 aborts, out of memory under a data limit, after its program
+/// caught a refusal by rule ends by a signal, never exit 0, with V8's
+/// report and no listing.
+#[test]
+fn a_run_v8_aborts_after_a_refusal_ends_by_a_signal() {
+    let source = "try {\n\tawait import('ext:core/ops');\n} catch {}\nconsole.log('refused');\n\
+                  const held = [];\nfor (;;) held.push(new Array(1 << 16).fill(held.length));\n";
+    let fixtures = temp_fixtures("refused_then_abort", &[("main.js", source)]);
+    let mut prlimit = Command::new("prlimit");
+    // far below what the harness's own cap lets a child reach
+    prlimit.arg(format!("--data={0}:{0}", 768 << 20));
+    let mut command = wrapped_fgro_command(prlimit, &["run", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), None, "{}: {stderr}", output.status);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "refused\n");
+    assert!(stderr.contains("out of memory"), "{stderr}");
+    assert!(!stderr.contains("import() refused"), "{stderr}");
 }
 
 #[test]
@@ -514,14 +903,17 @@ fn a_package_is_not_found_past_the_project_root() {
 }
 
 /// Refusals of what isn't there (no Node compat, no such package, no
-/// extension, a strip's refusal) are catchable and, caught, print nothing.
+/// extension, a strip's refusal), of a feature that isn't (an attribute's
+/// key, a module type), and `import.meta.resolve`'s, which imports nothing,
+/// are catchable and, caught, print nothing and leave the run's exit 0, so
+/// probing for an optional dependency or a feature doesn't fail a run.
 #[test]
 fn dynamic_import_refusals_are_catchable() {
     let run = run("import_refused_dynamic.js");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stderr, "");
     let lines: Vec<&str> = run.stdout.lines().collect();
-    assert_eq!(lines.len(), 4, "{}", run.stdout);
+    assert_eq!(lines.len(), 8, "{}", run.stdout);
     // `deno_core` rethrows every load failure as a `TypeError`, a strip's included
     for (line, (start, reason)) in lines.iter().zip([
         (
@@ -539,6 +931,22 @@ fn dynamic_import_refusals_are_catchable() {
         (
             "true \"TypeError: cannot strip an enum. Fix: ",
             "/enum.ts:2:1\"",
+        ),
+        (
+            "true \"TypeError: cannot import './sibling.js' from ",
+            "the import attribute 'lazy' is not supported",
+        ),
+        (
+            "true \"TypeError: cannot load ",
+            "import attributes are not supported yet",
+        ),
+        (
+            "true \"TypeError: cannot resolve '@fuzdev/gro/args.js' from ",
+            "it is the .js spelling of the builtin module",
+        ),
+        (
+            "true \"TypeError: cannot resolve 'ext:core/ops' from ",
+            "the scheme 'ext:' is not supported",
         ),
     ]) {
         assert!(line.starts_with(start), "{line}");
@@ -599,7 +1007,20 @@ fn an_ext_specifier_is_refused_to_import_and_import_meta_resolve() {
     );
     let fixtures = temp_fixtures("ext_dynamic", &[("main.js", &source)]);
     let run = run_in(&fixtures, "main.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    // each `import()`'s refusal fails the run, caught as it is, and is listed
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let listed: Vec<String> = EXT_SPECIFIERS
+        .iter()
+        .map(|specifier| {
+            format!(
+                "error: import() refused: cannot resolve '{specifier}' from \
+                 file://{}/main.js: the scheme 'ext:' is not supported; only files on disk \
+                 (file: URLs) load",
+                fixtures.0.display()
+            )
+        })
+        .collect();
+    assert_eq!(run.stderr.lines().collect::<Vec<_>>(), listed);
     let expected: String = EXT_SPECIFIERS
         .iter()
         .flat_map(|specifier| {
@@ -1675,18 +2096,18 @@ fn imports_stay_inside_their_root() {
     let run = run_in(&fixtures, "meta_resolve_admits_nothing.ts");
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, format!("x\nfile://{root}/packages/lnk/x.ts\n"));
-    // so what it returns for an installed package is a path into node_modules
+    // so what it returns for an installed package is a path into node_modules,
+    // whose `import()` a rule refuses, which fails the run though it's caught
     let run = run_in(&fixtures, "meta_resolve.ts");
-    assert_eq!(run.code, 0, "{}", run.stderr);
-    assert_eq!(
-        run.stdout,
-        format!(
-            "TypeError: cannot resolve 'file://{root}/node_modules/bar/i.mjs' from \
-             file://{root}/meta_resolve.ts: it resolves to {root}/node_modules/bar/i.mjs, inside \
-             node_modules below {root}, which only a bare specifier reaches, through the \
-             package's \"exports\". Fix: import it by name\n"
-        )
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let refusal = format!(
+        "cannot resolve 'file://{root}/node_modules/bar/i.mjs' from \
+         file://{root}/meta_resolve.ts: it resolves to {root}/node_modules/bar/i.mjs, inside \
+         node_modules below {root}, which only a bare specifier reaches, through the package's \
+         \"exports\". Fix: import it by name\n"
     );
+    assert_eq!(run.stdout, format!("TypeError: {refusal}"));
+    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
 }
 
 /// An entry inside `node_modules` runs as the package it is in, so its
@@ -1937,7 +2358,8 @@ fn the_script_reads_its_arguments_from_args() {
 }
 
 /// A package's module is refused `args`, the message naming the package,
-/// while the project imports it in the same run.
+/// while the project imports it in the same run, which the refusal fails
+/// though the project caught it.
 #[test]
 fn a_package_is_refused_args_while_the_project_imports_it() {
     let fixtures = temp_fixtures(
@@ -1963,16 +2385,18 @@ fn a_package_is_refused_args_while_the_project_imports_it() {
         ],
     );
     let run = run_in(&fixtures, "main.js");
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let refusal = format!(
+        "cannot import '@fuzdev/gro/args.ts' from file://{}/node_modules/dep/index.js: it needs \
+         the grant 'args', which package 'dep' isn't granted: only the project's own modules \
+         are granted host modules\n",
+        fixtures.0.display()
+    );
     assert_eq!(
         run.stdout,
-        format!(
-            "[]\ntrue cannot import '@fuzdev/gro/args.ts' from file://{}/node_modules/dep/index.js: \
-             it needs the grant 'args', which package 'dep' isn't granted: only the project's \
-             own modules are granted host modules\nbuiltin:@fuzdev/gro/args.ts\n",
-            fixtures.0.display()
-        )
+        format!("[]\ntrue {refusal}builtin:@fuzdev/gro/args.ts\n")
     );
+    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
 }
 
 /// The script reads the observations with no grant: `cwd()` is the
@@ -1997,7 +2421,7 @@ fn the_script_reads_the_observations() {
 }
 
 /// A package's module reads the observations as the project does, by a
-/// static import and `import()`, with nothing reported, and `cwd()` is the
+/// static import and `import()`, with nothing refused, and `cwd()` is the
 /// directory the run was started in, not the entry's or the project's.
 #[test]
 fn a_package_reads_the_observations_and_cwd_is_the_start_directory() {

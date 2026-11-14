@@ -1,4 +1,4 @@
-// an uncaught probe is the run's error, and listed after it with the caught refusal
+// an uncaught refusal is the run's error, printed once, and the caught one is listed after it
 try {
 	await import('ext:core/ops');
 } catch {}

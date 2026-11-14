@@ -121,7 +121,8 @@ Where it departs, it departs on purpose, and always toward failing closed:
   the import fails naming both roots, never choosing one;
   when both are packages, one nested in the other holds the file, and the fix is to import it through only one.
   `import.meta.resolve` runs the same checks and admits nothing,
-  so `import(import.meta.resolve('foo'))` for an installed `foo` is a path into `node_modules`, refused with the fix.
+  so `import(import.meta.resolve('foo'))` for an installed `foo` is a path into `node_modules`, refused with the fix,
+  which fails an `fgro run` even when the program catches it ([run](run.md#errors-and-exit-codes)).
   Node allows every crossing, and each one bypasses the package's `"exports"`,
   the boundary a package declares and a grant decision reads its origin from.
   A package's bare import that resolves into the project root is refused too,

@@ -222,8 +222,8 @@ The net grant is inferred from the graph like a filesystem one, and the hosts it
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
 and the scoped checks inside a grant (a path outside a root, a host not accepted) are the host's, at the call,
 and designed to be reported so a `try/catch` can't hide them (today a caught one is silent).
-An `import()` refused by rule, an ungranted host module's among them, is reported after an `fgro run` even when caught
-([run](run.md#errors-and-exit-codes)); the host ops' scoped refusals join it once ops can refuse.
+An `import()` refused by rule, an ungranted host module's among them, fails an `fgro run` even when caught, and is listed after it
+([run](run.md#errors-and-exit-codes)); the host ops' scoped refusals are designed to be reported beside it once ops can refuse.
 
 Where the import happens matters: at the [composition root](glossary.md#composition-root),
 the task or entry module where authority enters, with library code taking capabilities as parameters
