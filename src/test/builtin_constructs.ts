@@ -299,6 +299,7 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 		// a call no signature types, as of a value narrowed to a function, gives `any`
 		if (
 			(ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+			!ts.isMetaProperty(node.expression) &&
 			(checker.getTypeAtLocation(node).flags & ts.TypeFlags.Any) !== 0 &&
 			checker.getResolvedSignature(node)?.declaration === undefined
 		) {
@@ -417,8 +418,14 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 
 		// the other protocols
 		if (ts.isAwaitExpression(node)) found.push('await');
-		// `import()` makes a promise, and asks the loader for a module no table row names
-		if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+		// `import()` makes a promise, and asks the loader for a module no table row names, and
+		// so does a phase of it (`import.defer()`), whose signature the compiler can't be asked
+		if (
+			ts.isCallExpression(node) &&
+			(node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+				(ts.isMetaProperty(node.expression) &&
+					node.expression.keywordToken === ts.SyntaxKind.ImportKeyword))
+		) {
 			found.push('import');
 		}
 		if (

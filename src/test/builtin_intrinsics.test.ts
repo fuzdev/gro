@@ -226,6 +226,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			["'ops' in core;", ['in'], true],
 			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
 			["import('x');", ['any', 'import'], false],
+			["import.defer('x');", ['import'], false],
 			['using held = core;\n\tprimordials.ObjectFreeze(held);', ['using'], false],
 			[
 				'(async () => {\n\t\tawait using held = core;\n\t\theld.ops;\n\t});',
@@ -257,6 +258,11 @@ describe.each(rows)('the $name implementation', (row) => {
 			// of a binding a closure assigns after its type was checked
 			[
 				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext = core;\n\t};\n\tset();\n\tprimordials.ObjectFreeze(`${text}`);",
+				['coercion'],
+				true
+			],
+			[
+				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext ||= core;\n\t};\n\tset();\n\tprimordials.ObjectFreeze(`${text}`);",
 				['coercion'],
 				true
 			],

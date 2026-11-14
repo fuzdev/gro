@@ -76,7 +76,9 @@ const probe = {
 		},
 		set written(/** @type {unknown} */ value) {
 			Object;
-		}
+		},
+		// a setter that uses nothing, of the realm or of what it's given
+		set kept(/** @type {unknown} */ value) {}
 	},
 	returns_holder: () => ({ method: () => Object }),
 	// a class: its constructor, a static method, and a getter use the realm, and a method reads

@@ -615,6 +615,19 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         calls.iter().all(|(line, _)| !line.contains(".stack")),
         "{calls:?}"
     );
+    // a setter that uses nothing reports nothing, whatever it's given: a hostile value is made
+    // before the traps are armed
+    for given in [
+        "",
+        " = proxy",
+        " = callable",
+        " = getters",
+        " = string",
+        " = array",
+    ] {
+        let call = format!("set probe.holder.kept{given}: returned");
+        assert_eq!(reported(&call), &[""; 0], "{call}");
+    }
     // a hostile argument's own report uses no trap: a proxy's trap of one argument has no key
     let enumerated = reported("probe.enumerates(proxy): ");
     assert!(

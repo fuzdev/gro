@@ -266,7 +266,9 @@ export const create_exerciser = (exercises, depth) => {
 					if (set !== undefined) {
 						attempt(`set ${member}`, () => call(set, value, [undefined]));
 						for (const [kind, make] of HOSTILE) {
-							attempt(`set ${member} = ${kind}`, () => call(set, value, [make()]));
+							// made before the traps are armed, since making one uses the realm
+							const hostile = make();
+							attempt(`set ${member} = ${kind}`, () => call(set, value, [hostile]));
 						}
 					}
 				}
