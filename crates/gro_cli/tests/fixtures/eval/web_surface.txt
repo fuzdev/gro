@@ -1,0 +1,23 @@
+text 1 { a: [ 1 ] } %
+Map(1) { 1 => { a: 1 } } Set(1) { "s" } [ 1, <1 empty item>, 3 ] 10n Symbol(s) URL {
+  href: "https://x.test/p?q",
+  origin: "https://x.test",
+  protocol: "https:",
+  username: "",
+  password: "",
+  host: "x.test",
+  hostname: "x.test",
+  port: "",
+  pathname: "/p",
+  hash: "",
+  search: "?q"
+}
+┌───────┬───┬─────┐
+│ (idx) │ a │ b   │
+├───────┼───┼─────┤
+│     0 │ 1 │ "x" │
+└───────┴───┴─────┘
+group
+  { nested: [Object] }
+default: 1
+Assertion failed: asserted

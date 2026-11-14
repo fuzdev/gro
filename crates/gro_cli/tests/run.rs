@@ -68,6 +68,22 @@ fn console_writes_log_to_stdout_and_warn_and_error_to_stderr() {
     assert_eq!(run.stderr, "warn\nerror Map(1) { \"k\" => 1 }\n");
 }
 
+/// `console.trace` writes what it's given and the stack to stderr, formatted
+/// by an op of its own, which no other method calls.
+#[test]
+fn console_trace_writes_its_stack_to_stderr() {
+    let run = run("console_trace.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "");
+    assert_eq!(
+        run.stderr,
+        format!(
+            "Trace: trace 1\n    at {}/console_trace.js:1:9\n",
+            fixtures_url()
+        )
+    );
+}
+
 // A top-level throw reads `Uncaught (in promise)` by design: evaluating a
 // module settles a promise, and Deno prints the same.
 #[test]
@@ -165,6 +181,21 @@ fn web_globals_work() {
          dom_exception=AbortError\nevent=pong\nabort=true\nblob=abc\nfile=f.txt\n\
          stream=streamed\ncompression=150\nperformance=true\n"
     );
+}
+
+/// Every web global's constructor and a method or two, the console's
+/// methods after them, with the output pinned in `web_surface.txt`: the ops
+/// and classes the globals' code calls are called through it, so one the
+/// runtime didn't register fails here where it's called. An op a script
+/// reads and no global reaches (a message port's, a stream resource's) is
+/// held only to being a function, by `gro_runtime`'s tests.
+#[test]
+fn every_web_global_works() {
+    let run = run("web_surface.js");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stderr, "");
+    let expected = std::fs::read_to_string(fixtures().join("web_surface.txt")).unwrap();
+    assert_eq!(run.stdout, expected);
 }
 
 /// The time origin is set per process, so two runs differ, and it agrees with

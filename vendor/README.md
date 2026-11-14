@@ -164,3 +164,12 @@ import.
 5. `cargo update -p <name> --offline` points `Cargo.lock` back at the path,
    then `cargo xtask check` reruns the vendor check and, in its snapshot
    build, the reproducibility gate.
+6. For `deno_core` and `deno_web`, review each op the upgrade adds, removes,
+   or renames: the pins in `crates/gro_runtime/tests/` fail until they match
+   (`op_names.txt`, the ops the runtime registers, and `dropped_op_names.txt`,
+   the web ops it drops). An op a script the runtime loads reads joins
+   `bootstrap::WEB_OPS` (a class, `WEB_CLASSES`), which the tests of
+   `bootstrap/web_scripts.rs` check against the scripts, and an op the
+   runtime registers that compiles code, imports, or reads the clock or
+   randomness joins `bootstrap::REFUSED_OPS` (a web op no script reads stays
+   dropped, and eval refuses only registered ops).

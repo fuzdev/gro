@@ -163,6 +163,7 @@ mod tests {
 
     use super::*;
     use crate::STACK_SIZE;
+    use crate::bootstrap::web_scripts;
     use crate::confine::Confinement;
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::{HOST_OPS, HostOp};
@@ -269,8 +270,9 @@ mod tests {
     type Probe = fn(Start) -> Value;
 
     /// What the tests below ask of a runtime from either start, by name.
-    const PROBES: [(&str, Probe); 3] = [
+    const PROBES: [(&str, Probe); 4] = [
         ("op_functions", op_functions),
+        ("unregistered_reads", unregistered_reads),
         ("host_ops", host_ops_results),
         ("refused_ops", refused_ops_results),
     ];
@@ -373,15 +375,50 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         }
     }
 
+    /// The names a script the runtime can load reads from `core.ops` that
+    /// aren't a function there, in a runtime of each mode.
+    fn unregistered_reads(start: Start) -> Value {
+        let reads: Vec<String> = web_scripts::loadable_reads().into_keys().collect();
+        let source = format!(
+            "JSON.stringify({}.filter((name) => typeof Deno.core.ops[name] !== 'function'))",
+            serde_json::to_string(&reads).unwrap()
+        );
+        let unregistered =
+            |source: String| move |runtime: &mut JsRuntime| script_json(runtime, source);
+        json!({
+            "read": reads.len(),
+            "eval": on_runtime("reads_eval", start, Mode::Eval, unregistered(source.clone())),
+            "run": on_runtime("reads_run", start, Mode::Run, unregistered(source)),
+        })
+    }
+
+    /// Every name a script the runtime can load reads from `core.ops` is a
+    /// function there, from either start and in either mode: no script
+    /// holds `undefined` for an op the runtime dropped, which would fail
+    /// only where the script calls it.
+    #[test]
+    fn every_op_a_loadable_script_reads_is_registered() {
+        for start in STARTS {
+            let results = probed("unregistered_reads", start);
+            assert!(results["read"].as_u64().unwrap() > 0, "{start:?}");
+            for mode in ["eval", "run"] {
+                assert_eq!(results[mode], json!([]), "{mode} {start:?}");
+            }
+        }
+    }
+
     /// Every op a runtime registers, `deno_core`'s own included, pinned in
-    /// `tests/op_names.txt` in registration order, so a `deno_core` or
-    /// `deno_web` bump that adds, removes, or renames one fails here and
-    /// gets a look: an op that compiles code, imports, or reads the clock or
-    /// randomness joins `bootstrap::REFUSED_OPS`. An eval runtime registers the same
-    /// names, since the middleware keeps each refused op's name, and every
-    /// name eval refuses is registered, so none is refused in name only. To
-    /// accept a change deliberately, write the list the assertion prints
-    /// over the file, one name a line.
+    /// `tests/op_names.txt` in registration order, so a `deno_core` bump
+    /// that adds, removes, or renames one fails here and gets a look: an op
+    /// that compiles code, imports, or reads the clock or randomness joins
+    /// `bootstrap::REFUSED_OPS`. Of the web extensions' ops these are the
+    /// kept ones (`bootstrap::WEB_OPS`, `bootstrap::WEB_CLASSES`); the ones
+    /// the runtime drops are pinned beside them, in
+    /// `tests/dropped_op_names.txt`, where a `deno_web` bump's new op lands.
+    /// An eval runtime registers the same names, since the middleware keeps
+    /// each refused op's name, and every name eval refuses is registered, so
+    /// none is refused in name only. To accept a change deliberately, write
+    /// the list the assertion prints over the file, one name a line.
     #[test]
     fn the_registered_ops_are_pinned() {
         let names = |runtime: &mut JsRuntime| -> Vec<String> {
@@ -745,8 +782,8 @@ for (const [name, call] of Object.entries({{
 
     /// An op that raises a `DOMException` class reaches JS as a
     /// `DOMException` of that name, built by the bootstrap's builders:
-    /// `atob`'s op and the geometry ops (which no global reaches) among
-    /// them, and every class the bootstrap registers builds one.
+    /// `atob`'s op among them, and every class the bootstrap registers
+    /// builds one.
     #[test]
     fn op_errors_of_a_dom_exception_class_are_dom_exceptions() {
         let source = "const read = (f) => {
@@ -761,7 +798,6 @@ const {ops} = Deno.core;
 JSON.stringify([
 \tread(() => atob('!')),
 \tread(() => ops.op_base64_atob('!')),
-\tread(() => ops.op_geometry_matrix_to_string(new ops.DOMMatrix([NaN, 0, 0, 1, 0, 0]))),
 \t...['IndexSizeError', 'InvalidCharacterError', 'InvalidStateError', 'OperationError', 'SyntaxError'].map(
 \t\t(name) => read(() => { throw Deno.core.buildCustomError(`DOMException${name}`, 'm'); })
 \t)
@@ -777,7 +813,6 @@ JSON.stringify([
             [
                 "InvalidCharacterError 5: Failed to decode base64",
                 "InvalidCharacterError 5: Failed to decode base64",
-                "InvalidStateError 11: Cannot be serialized with NaN or Infinity values",
                 "IndexSizeError 1: m",
                 "InvalidCharacterError 5: m",
                 "InvalidStateError 11: m",

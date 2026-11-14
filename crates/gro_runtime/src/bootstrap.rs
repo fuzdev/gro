@@ -46,6 +46,14 @@
 //! `deno_core` builds from the class name the op gives; with no builder, such
 //! an error reaches JS as `undefined`.
 //!
+//! **The web ops.** `deno_web` declares ops and classes for more of the web
+//! than the bootstrap installs (the geometry and stylesheet classes,
+//! `ImageData`, the broadcast channel, the lock manager). The runtime
+//! registers the ones on [`WEB_OPS`] and [`WEB_CLASSES`], which a script it
+//! can load reads, and drops the rest from the extension before the runtime
+//! or the snapshot is made ([`restrict`]), so no start makes a function for
+//! an op no script reads. `web_scripts` holds the two lists to the scripts.
+//!
 //! The console's choices are the run's, never the snapshot's: which stream
 //! each level writes to and whether each stream is colored come from the
 //! run's [`ConsoleOptions`], which the embedder puts in the runtime's
@@ -251,6 +259,79 @@ pub const REFUSED_OPS: [&str; 17] = [
     "op_blob_from_object_url",
 ];
 
+/// The ops of `deno_web` the runtime registers, in the order `deno_web`
+/// declares them: every one a script the runtime can load reads from
+/// `core.ops`, and no other, which the tests of `web_scripts` hold by
+/// reading the scripts. [`restrict`] drops every other op the web extensions
+/// declare. An op [`REFUSED_OPS`] names stays on this list while a script
+/// reads it, so eval refuses it by name; a test fails on a refused name the
+/// runtime doesn't register.
+pub const WEB_OPS: [&str; 56] = [
+    "op_base64_decode",
+    "op_base64_encode_from_buffer",
+    "op_base64_atob",
+    "op_base64_btoa",
+    "op_encoding_normalize_label",
+    "op_encoding_decode_single",
+    "op_encoding_decode_utf8",
+    "op_encoding_decode_utf8_ascii_only",
+    "op_encoding_new_decoder",
+    "op_encoding_decode",
+    "op_encoding_encode_into",
+    "op_encoding_encode_into_fallback",
+    "op_blob_create_part",
+    "op_blob_slice_part",
+    "op_blob_read_part",
+    "op_blob_remove_part",
+    "op_blob_clone_part",
+    "op_blob_create_object_url",
+    "op_blob_revoke_object_url",
+    "op_blob_from_object_url",
+    "op_message_port_create_entangled",
+    "op_message_port_post_message",
+    "op_message_port_post_message_raw",
+    "op_message_port_recv_message",
+    "op_message_port_recv_message_sync",
+    "op_compression_new",
+    "op_compression_write",
+    "op_compression_finish",
+    "op_now",
+    "op_time_origin",
+    "op_defer",
+    "op_readable_stream_resource_allocate",
+    "op_readable_stream_resource_allocate_sized",
+    "op_readable_stream_resource_get_sink",
+    "op_readable_stream_resource_write_error",
+    "op_readable_stream_resource_write_buf",
+    "op_readable_stream_resource_write_sync",
+    "op_readable_stream_resource_close",
+    "op_readable_stream_resource_await_close",
+    "op_url_reparse",
+    "op_url_parse",
+    "op_url_get_serialization",
+    "op_url_parse_with_base",
+    "op_url_parse_search_params",
+    "op_url_stringify_search_params",
+    "op_urlpattern_parse",
+    "op_urlpattern_process_match_input",
+    "op_console_inspect",
+    "op_console_inspect_args",
+    "op_console_format_value",
+    "op_console_quote_string",
+    "op_console_parse_css",
+    "op_console_parse_css_color",
+    "op_console_css_to_ansi",
+    "op_console_get_string_width",
+    "op_console_strip_vt",
+];
+
+/// The classes of `deno_web` the runtime registers, each a constructor and
+/// its methods' ops, in the order `deno_web` declares them: the ones a
+/// script the runtime can load reads from `core.ops`, as [`WEB_OPS`] are.
+/// [`restrict`] drops every other class the web extensions declare, so the
+/// runtime has no constructor for one and no op that makes one.
+pub const WEB_CLASSES: [&str; 1] = ["Console"];
+
 /// The op middleware of an eval runtime: an op in [`REFUSED_OPS`] gets
 /// [`op_gro_refused`]'s implementation, keeping its name, and every other
 /// op is kept as is.
@@ -295,9 +376,12 @@ pub enum Ops {
 /// bootstrap's extension carries [`refuse_ops`], which `deno_core` applies
 /// to every op, its own included; the list is the same either way.
 ///
+/// The web extensions register the ops on [`WEB_OPS`] and the classes on
+/// [`WEB_CLASSES`], and no other they declare ([`restrict`]).
+///
 /// Each extension's lazy ES modules (`deno_web`'s `locks.js` and
 /// `webtransport.js`) and every other extension's synthetic ES modules (none
-/// today) are dropped from its declaration ([`restrict`]), so the runtime
+/// today) are dropped from its declaration too, so the runtime
 /// knows gro's builtins and no other. `deno_core` resolves an import its
 /// module loader refuses to the lazy ES module of that exact name when it
 /// knows one, whoever the importer, and that module resolves its own `ext:`
@@ -311,14 +395,18 @@ pub fn extensions(ops: Ops) -> Vec<Extension> {
     restrict(declared_extensions(), ops)
 }
 
-/// `extensions` with each one's lazy ES modules dropped, and its synthetic
-/// ES modules unless it is gro's, and gro's carrying [`refuse_ops`] when
-/// `ops` says.
+/// `extensions` with each one's lazy ES modules dropped; unless it is gro's,
+/// its synthetic ES modules, its ops but those on [`WEB_OPS`], and its
+/// classes but those on [`WEB_CLASSES`]; and gro's carrying [`refuse_ops`]
+/// when `ops` says.
 fn restrict(mut extensions: Vec<Extension>, ops: Ops) -> Vec<Extension> {
     for extension in &mut extensions {
         extension.lazy_loaded_esm_files = Cow::Borrowed(&[]);
         if extension.name != "gro" {
             extension.synthetic_esm_modules = Cow::Borrowed(&[]);
+            extension.ops = Cow::Owned(kept(&extension.ops, &WEB_OPS, |op| op.name));
+            extension.objects =
+                Cow::Owned(kept(&extension.objects, &WEB_CLASSES, |class| class.name.0));
         }
         if ops == Ops::Refused && extension.name == "gro" {
             extension.middleware_fn = Some(Box::new(refuse_ops));
@@ -327,8 +415,21 @@ fn restrict(mut extensions: Vec<Extension>, ops: Ops) -> Vec<Extension> {
     extensions
 }
 
+/// The `declared` items whose names `names` lists, in one pass over both:
+/// `names` is in the order the items are declared in, and a name out of
+/// that order, or one no item has, keeps no item and neither does any name
+/// after it, which the tests of the registered ops catch.
+fn kept<T: Copy>(declared: &[T], names: &[&str], name: impl Fn(&T) -> &'static str) -> Vec<T> {
+    let mut names = names.iter().peekable();
+    declared
+        .iter()
+        .filter(|item| names.next_if(|kept| **kept == name(item)).is_some())
+        .copied()
+        .collect()
+}
+
 /// The extensions as their crates declare them, before [`extensions`] drops
-/// the modules user code could reach.
+/// the modules user code could reach and the ops no script reads.
 pub fn declared_extensions() -> Vec<Extension> {
     vec![
         deno_webidl::deno_webidl::init(),
@@ -360,6 +461,9 @@ pub fn start(runtime: &mut JsRuntime) -> Result<(), Box<JsError>> {
         )
         .map(drop)
 }
+
+#[cfg(test)]
+pub mod web_scripts;
 
 #[cfg(test)]
 mod tests {
@@ -413,10 +517,10 @@ mod tests {
         }
     }
 
-    /// Another extension's synthetic and lazy ES modules are dropped, gro's
-    /// synthetic modules kept.
+    /// Another extension's synthetic and lazy ES modules are dropped, and
+    /// its ops but the kept ones, gro's synthetic modules and ops kept.
     #[test]
-    fn another_extension_s_reachable_modules_are_dropped() {
+    fn another_extension_s_reachable_modules_and_unlisted_ops_are_dropped() {
         const FOREIGN_LAZY: &[ExtensionFileSource] = &[ExtensionFileSource::new(
             "ext:foreign/lazy.js",
             ascii_str!("export {};"),
@@ -425,12 +529,40 @@ mod tests {
             name: "foreign",
             synthetic_esm_modules: Cow::Borrowed(&[("builtin:foreign", "ext:foreign/x.js")]),
             lazy_loaded_esm_files: Cow::Borrowed(FOREIGN_LAZY),
+            // an op of gro's stands in for an unlisted one
+            ops: Cow::Owned(vec![op_gro_deny()]),
             ..Extension::default()
         };
         let restricted = restrict(vec![foreign, gro::init()], Ops::Kept);
         assert!(restricted[0].synthetic_esm_modules.is_empty());
         assert!(restricted[0].lazy_loaded_esm_files.is_empty());
+        assert!(restricted[0].ops.is_empty());
         assert_eq!(restricted[1].synthetic_esm_modules, BUILTIN_MODULES);
+        assert_eq!(restricted[1].ops.len(), gro::init().ops.len());
+    }
+
+    /// The web extensions register exactly the kept ops and classes, in
+    /// their order, whichever way the ops run, and each kept name is one
+    /// they declare: a name [`kept`] passes over, misspelled or out of the
+    /// declared order, is missing here.
+    #[test]
+    fn the_web_extensions_register_the_kept_ops_and_classes() {
+        for ops in [Ops::Kept, Ops::Refused] {
+            let extensions = extensions(ops);
+            let web = || {
+                extensions
+                    .iter()
+                    .filter(|extension| extension.name != "gro")
+            };
+            let registered: Vec<&str> = web()
+                .flat_map(|extension| extension.ops.iter().map(|op| op.name))
+                .collect();
+            assert_eq!(registered, WEB_OPS);
+            let classes: Vec<&str> = web()
+                .flat_map(|extension| extension.objects.iter().map(|class| class.name.0))
+                .collect();
+            assert_eq!(classes, WEB_CLASSES);
+        }
     }
 
     /// The transpiler strips a `.ts` source and passes every other through

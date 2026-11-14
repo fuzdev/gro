@@ -381,9 +381,18 @@ Invariants that live in the code:
   (each names it in `host_ops!`). Nothing at compile time
   makes a host op use the macro: the first test is the check, so a
   grant-free module's op joins `host_ops!`, never the ungated list.
-- `bootstrap::REFUSED_OPS` lists the ops eval refuses; a test pins every
-  registered op name in `crates/gro_runtime/tests/op_names.txt`, so a
-  `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed.
+- `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime
+  registers. Of the ops and classes `deno_web` declares, the runtime
+  registers those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the
+  ones a script it can load reads from `core.ops`, and drops the rest before
+  the runtime or the snapshot is made (`bootstrap::extensions`). The tests
+  of `bootstrap/web_scripts.rs` read the scripts and fail on a read that
+  isn't kept, on a kept name no script reads, and on a script that reaches
+  `ops` any way but destructuring `core.ops`; a runtime test fails on a read
+  that isn't a function. Tests pin every registered op name in
+  `crates/gro_runtime/tests/op_names.txt` and every dropped one in
+  `tests/dropped_op_names.txt` beside it, so a `deno_core`/`deno_web`
+  upgrade that adds an op fails until it's reviewed.
 - A start from the snapshot binds no op again (`skip_op_registration`, set
   in `runtime::new_runtime`): the snapshot's op functions are the only ones,
   and each reaches the starting runtime's implementation of its op, eval's

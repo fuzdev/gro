@@ -61,6 +61,24 @@ fn the_console_writes_to_stderr_uncolored() {
     assert_eq!(run.stderr, "1001\n1002\n1003\n1004\n");
 }
 
+/// Every web global eval has: its constructor and a method or two, the
+/// value pinned in `web_surface.json` and the console's output in
+/// `web_surface.txt`. The ops and classes the globals' code calls are called
+/// through it, so one the runtime didn't register fails here where it's
+/// called, and the timers, `Blob`, `File`, and the clock are as absent or
+/// refused as `determinism: deny` leaves them.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn every_web_global_works() {
+    let read = |file: &str| std::fs::read_to_string(fixtures().join(file)).unwrap();
+    let run = eval(&["web_surface.js"]);
+    run.assert_value(&serde_json::from_str(&read("web_surface.json")).unwrap());
+    assert_eq!(run.stderr, read("web_surface.txt"));
+}
+
 /// Every global name eval's code sees, pinned: jitless in
 /// `global_names_jitless.txt`, and with `--jit` in `global_names.txt`, which
 /// adds only `WebAssembly`. Each is `fgro run`'s list, `run/global_names.txt`,

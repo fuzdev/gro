@@ -1,0 +1,30 @@
+{
+	"url": "https://user@example.test:8080/a/b?x=1&y=2 false https://x.test/p",
+	"search_params": "a=1&b=2 1 false",
+	"url_pattern": "true /:kind/*",
+	"object_urls": "undefined undefined undefined",
+	"dom_exception": "DataCloneError 25 true",
+	"base64": "gro InvalidCharacterError",
+	"events": "e,detail",
+	"error_event": 3,
+	"rejection_event": "why",
+	"structured_clone": "8 8 true DataCloneError",
+	"timers": "undefined undefined Error",
+	"microtask": "ran",
+	"abort": "why true true",
+	"streams": "AB",
+	"byob": "3 true",
+	"writer": true,
+	"strategy": 16,
+	"stream_classes": "TypeError,TypeError,TypeError,TypeError,TypeError,TypeError",
+	"text_encoder": "5 1 2",
+	"text_decoder": "café gr é TypeError RangeError",
+	"text_streams": "st",
+	"compression": {
+		"gzip": 150,
+		"deflate": 150,
+		"deflate-raw": 150
+	},
+	"compression_format": "TypeError",
+	"performance": "function Error Error"
+}

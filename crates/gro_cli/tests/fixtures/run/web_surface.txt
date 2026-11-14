@@ -1,0 +1,61 @@
+URL=https://user@example.test:8080/a/b?x=1&y=2 false https://x.test/p
+URLSearchParams=a=1&b=2 1 false
+URLPattern=true /:kind/*
+object_url=true
+DOMException=DataCloneError 25 true
+atob=gro InvalidCharacterError
+events=e,detail
+ErrorEvent=3
+PromiseRejectionEvent=why
+structuredClone=8 8 0 true DataCloneError
+setTimeout=fired
+setInterval=2
+queueMicrotask=ran
+AbortController=why true true
+AbortSignal.timeout=TimeoutError
+streams=AB
+byob=3 true
+tee=1 1 true
+writer=true
+ByteLengthQueuingStrategy=16
+stream_classes=TypeError,TypeError,TypeError,TypeError,TypeError
+TextEncoder=5 1 2
+TextDecoder=café café gr é TypeError RangeError
+text_streams=st
+Blob=3 text/plain bc 3 3 abc
+File=f.txt 5 abcd true
+Blob_clone=true true abc
+gzip=150
+deflate=150
+deflate-raw=150
+CompressionStream=TypeError
+performance=1 true true number
+text 1 1 1.5 { a: [ 1 ] } { b: 2 } %
+Map(1) { 1 => { a: 1 } } Set(1) { "s" } [ 1, <1 empty item>, 3 ] 10n Symbol(s) null undefined
+URL {
+  href: "https://x.test/p?q",
+  origin: "https://x.test",
+  protocol: "https:",
+  username: "",
+  password: "",
+  host: "x.test",
+  hostname: "x.test",
+  port: "",
+  pathname: "/p",
+  hash: "",
+  search: "?q"
+} Uint8Array(2) [ 0, 0 ] shown -0
+info
+debug
+{ nested: [Object] }
+dirxml
+┌───────┬───┬─────┐
+│ (idx) │ a │ b   │
+├───────┼───┼─────┤
+│     0 │ 1 │ "x" │
+└───────┴───┴─────┘
+group
+  inside
+default: 1
+named: 1
+default: 1
