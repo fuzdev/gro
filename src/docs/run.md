@@ -151,7 +151,7 @@ Bundled JS that carries a map (`//# sourceMappingURL=…`) shows positions in th
 A web API that fails with a `DOMException` throws one of its name, like `InvalidCharacterError` from `atob('!')`.
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
-A dynamic `import()` that fails rejects with an error the code can catch, a `TypeError` with the `code` `'ERR_MODULE_NOT_FOUND'`,
+A dynamic `import()` of such a module rejects with an error the code can catch, a `TypeError` with the `code` `'ERR_MODULE_NOT_FOUND'`,
 an I/O failure reading the resolved file's included.
 An `import()` of a builtin module with too little stack left to run its implementation is refused that way too, without failing the run
 ([host modules](host_modules.md)).
