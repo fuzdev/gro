@@ -24,7 +24,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   Three more builtin modules need no grant, so a package's modules import them as the project's do:
   `@fuzdev/gro/cwd.ts`, whose `cwd()` is the directory `fgro` was started in,
   `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,
-  and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`.
+  and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, the commit the binary was built from.
   Each has the exports and types of its Node module in the npm package.
   A builtin module's implementation is compiled and run when a run first imports it, so a run that imports none pays for none.
   The `.js` spelling `@fuzdev/gro/args.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `@fuzdev/gro/env.ts`, and the rest),

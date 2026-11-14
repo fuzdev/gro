@@ -10,8 +10,8 @@
  */
 
 /**
- * The runtime's name and version, opaque, like `node/v24.14.0` here and `fgro/0.1.0` on the
- * runtime, for display and for keying caches by the runtime that made them.
+ * The runtime's name and version, opaque, like `node/v24.14.0` here and `fgro/0.1.0+<commit>`
+ * on the runtime, for display and for keying caches by the runtime that made them.
  * Compare it for equality only; a program that branches on it is one this module can't serve.
  */
 export const runtime_version: string = `node/${globalThis.process.version}`;

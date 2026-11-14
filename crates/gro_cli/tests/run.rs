@@ -2249,18 +2249,32 @@ fn typescript_entry_runs() {
     assert!(run.stdout.ends_with("\nstripped\n"), "{}", run.stdout);
 }
 
-/// The bench records this line, so it must say which build ran: the plain one
-/// under `cargo test`, with no commit, the snapshot one under
-/// `cargo xtask build --verify`, with the commit the xtask embedded (it builds
+/// The commit the binary under test was built from: none for the plain one
+/// under `cargo test`, and for the snapshot one under
+/// `cargo xtask build --verify`, the commit the xtask embedded (it builds
 /// these tests with the same `GRO_COMMIT`).
+fn commit() -> Option<&'static str> {
+    option_env!("GRO_COMMIT").filter(|value| cfg!(feature = "snapshot") && !value.is_empty())
+}
+
+/// What a script run by the binary under test reads as `runtime_version`:
+/// `fgro/<version>`, then `+` and [`commit`] when the build has one.
+fn runtime_version() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    commit().map_or_else(
+        || format!("fgro/{version}"),
+        |commit| format!("fgro/{version}+{commit}"),
+    )
+}
+
+/// The bench records this line, so it must say which build ran: the plain
+/// one with no commit, the snapshot one with [`commit`].
 #[test]
 fn version_names_the_commit_v8_and_the_snapshot() {
     let output = fgro(&["--version"]);
     assert!(output.status.success(), "{output:?}");
     let line = String::from_utf8(output.stdout).unwrap();
-    let commit = option_env!("GRO_COMMIT")
-        .filter(|value| cfg!(feature = "snapshot") && !value.is_empty())
-        .unwrap_or("unknown");
+    let commit = commit().unwrap_or("unknown");
     assert!(
         line.starts_with(&format!(
             "fgro {} (commit {commit}, V8 ",
@@ -2401,7 +2415,8 @@ fn a_package_is_refused_args_while_the_project_imports_it() {
 
 /// The script reads the observations with no grant: `cwd()` is the
 /// directory `fgro` was started in, `pid` the id of the `fgro` process, and
-/// `runtime_version` the binary's name and version.
+/// `runtime_version` the binary's name and version, with the commit of a
+/// build that has one.
 #[test]
 fn the_script_reads_the_observations() {
     let mut command = fgro_command(&["run", "observations.js"]);
@@ -2415,7 +2430,7 @@ fn the_script_reads_the_observations() {
         serde_json::json!({
             "cwd": fixtures().canonicalize().unwrap().to_str().unwrap(),
             "pid": pid,
-            "runtime_version": concat!("fgro/", env!("CARGO_PKG_VERSION")),
+            "runtime_version": runtime_version(),
         })
     );
 }
@@ -2463,11 +2478,7 @@ fn a_package_reads_the_observations_and_cwd_is_the_start_directory() {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
     let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let expected = serde_json::json!([
-        started_in.to_str().unwrap(),
-        pid,
-        concat!("fgro/", env!("CARGO_PKG_VERSION"))
-    ]);
+    let expected = serde_json::json!([started_in.to_str().unwrap(), pid, runtime_version()]);
     assert_eq!(printed, serde_json::json!([expected, expected, expected]));
 }
 

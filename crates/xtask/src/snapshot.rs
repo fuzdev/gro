@@ -18,9 +18,9 @@
 //!    `<target>/gro_snapshot/<profile>/fgro`, so later plain builds, which
 //!    replace `<target>/<profile>/fgro`, leave it alone. The build also
 //!    embeds the checkout's commit through `GRO_COMMIT` ([`commit`]), read
-//!    right before it, which `fgro --version` prints; cargo tracks the
-//!    variable, so a new commit or a change to the tree's dirtiness rebuilds
-//!    `gro_cli`.
+//!    right before it, which `fgro --version` prints and a script's
+//!    `runtime_version` carries; cargo tracks the variable, so a new commit
+//!    or a change to the tree's dirtiness rebuilds `gro_cli`.
 //!
 //! Between the stage-one build and `make-snapshot`, the V8 library copy is
 //! checked against the pin ([`crate::v8_archive::verify_linked`]), before any

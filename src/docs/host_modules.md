@@ -415,7 +415,7 @@ On `fgro`, these are built, each a builtin module exporting what its Node module
 `@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
-and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>`, like `fgro/0.1.0`, where Node's is `node/<version>`.
+and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
 A builtin module's implementation is no part of the startup snapshot: it's compiled and run when a run first imports the module,
 so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
 That first import can come after user code has patched the intrinsics, so the whole implementation, not only what it exports,
@@ -428,6 +428,16 @@ their shapes, property descriptors, and what throws, but where a case names a di
 
 `cwd`, `pid`, and `runtime_version` need no grant: any module of a run imports them, a package's included,
 and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
+
+`runtime_version` carries the commit the binary was built from, as `fgro --version` prints it,
+so that builds of different commits never share what a cache keys by the string:
+the full SHA, never a prefix of it, since the string is only compared, where a collision costs more than length does.
+It's written as semver writes build metadata, and it's a constant of the build, read from nothing when a run starts.
+A build whose working tree differed from its commit ends in `-dirty`, like `fgro/0.1.0+<commit>-dirty`,
+which names the commit, not the sources: two such builds of one commit read alike whatever each was built from,
+so a dirty build's `runtime_version` isn't an identity, and a cache it keys can be another build's.
+A build that embeds no commit, a plain `cargo build` or a `cargo xtask build` of a tree git can't read,
+is `fgro/<version>` alone, which every such build of that version shares, so it isn't an identity either.
 
 `args` needs the `args` grant, which `fgro run` gives the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused it for now,

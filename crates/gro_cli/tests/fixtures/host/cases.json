@@ -60,7 +60,7 @@
 			{
 				"at": "/runtime",
 				"fgro": "fgro",
-				"why": "runtime_version names the runtime that runs the process, node/<version> on Node and fgro/<version> on fgro"
+				"why": "runtime_version names the runtime that runs the process, node/<version> on Node and fgro/<version> on fgro, with +<commit> after it in a build that has one"
 			}
 		]
 	}

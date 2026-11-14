@@ -94,7 +94,7 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::{exit_code, runtime_options};
+    use super::{RUNTIME_VERSION, exit_code, runtime_options};
     use crate::cli::{Invocation, Task, parse};
 
     /// A refused `import()` turns a run's 0 into 1 and leaves every other
@@ -134,16 +134,13 @@ mod tests {
         assert!(runtime_options(&run).args.is_empty());
     }
 
-    /// The runtime is named `fgro` with the binary's version.
+    /// The runtime is named as the build names itself.
     #[test]
-    fn the_runtime_is_named_with_its_version() {
+    fn the_runtime_is_named_with_the_build_s_version() {
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
-        assert_eq!(
-            runtime_options(&run).runtime_version,
-            concat!("fgro/", env!("CARGO_PKG_VERSION"))
-        );
+        assert_eq!(runtime_options(&run).runtime_version, RUNTIME_VERSION);
     }
 
     /// `run` grants the args host module, and only it.
