@@ -55,12 +55,12 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 ## Builtin modules
 
 A bare specifier in the builtin table names a [builtin module](glossary.md#builtin-module), a host module the binary implements:
-today `@fuzdev/gro/args.ts`, `@fuzdev/gro/cwd.ts`, `@fuzdev/gro/pid.ts`, and `@fuzdev/gro/runtime_version.ts` ([host modules](host_modules.md#the-process-modules-on-fgro)).
+like `@fuzdev/gro/args.ts` ([host modules](host_modules.md#the-modules) lists the ones built).
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
 the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/args.js`), and the specifier of a host module not built on `fgro` yet
-(`@fuzdev/gro/fs.ts`, `spawn`, `net`, `watch`, `env`, `exit`, `stdin`, `stdout`, and `stderr`,
-each with its `.js` spelling), are refused the same way, naming the one to import
+(like `@fuzdev/gro/fs.ts`, each one [host modules](host_modules.md#the-modules) marks not yet,
+with its `.js` spelling), are refused the same way, naming the one to import
 or that the module isn't on `fgro` yet, never looked up as a package, so none of them changes meaning when its builtin module lands.
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, each with its `.js` spelling, are refused the same way:
 Gro has neither, since their members are modules of their own, and the refusal names those modules

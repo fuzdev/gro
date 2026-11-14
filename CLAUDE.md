@@ -390,8 +390,8 @@ Invariants that live in the code:
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
     imported, a grant-free row included, checked before the grant, a package's
-    module is granted none, and a grant-free row (`cwd`, `pid`,
-    `runtime_version`) links for the project and a package alike. A builtin's
+    module is granted none, and a grant-free row links for the project and
+    a package alike. A builtin's
     implementation keeps no per-importer state.
   - `src/test/builtin_types.test.ts` holds every row's inferred types to its
     Node module's, reading the rows from the table and each implementation

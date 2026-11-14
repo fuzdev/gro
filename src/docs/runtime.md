@@ -13,9 +13,9 @@
 >   ([eval](eval.md))
 >
 > Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
-> [host modules](host_modules.md), and on `fgro` only the script's arguments), the grant flags, the policy file,
+> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags, the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
-> Until they land, `fgro run` gives code no API past its own module graph, the console, and the script's arguments,
+> Until they land, `fgro run` gives code no API past its own module graph, the console, and those builtin modules,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
@@ -125,7 +125,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   ([threat model](authority.md#threat-model)).
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
-`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the script's arguments and three grant-free observations (`cwd`, `pid`, `runtime_version`) its only host APIs,
+`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the modules [host modules](host_modules.md#the-modules) marks built its only host APIs,
 and the rest of the host modules, the grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
@@ -163,8 +163,8 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   [WinterTC minimum common API](https://min-common-api.proposal.wintertc.org/)
   (today `fgro` has the subset [run](run.md#the-global-scope) lists)
   plus a small set of Gro's own host modules
-  (fs, spawn, watch, net, and the process modules; built today as their Node implementation, and on `fgro` only the script's arguments,
-  [host modules](host_modules.md)),
+  (fs, spawn, watch, net, and the process modules; built today as their Node implementation, and on `fgro` only the ones
+  [host modules](host_modules.md#the-modules) marks built),
   each an explicit import.
   The running process is one module per kind of authority it carries,
   so each is its own import and its own grant ([the process modules](host_modules.md#the-process-modules)).

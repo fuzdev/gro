@@ -6,13 +6,38 @@
 
 > **status**: every host module here exists as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the ones built are `args`, the script's arguments, and the three observations, `cwd`, `pid`, and `runtime_version`, which need no grant
+> and [the table below](#the-modules) marks the ones built
 > (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package; [on `fgro`](#the-process-modules-on-fgro));
-> everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
+> everything else on this page is the Node implementation's ([runtime](runtime.md) is the hub of the runtime's docs).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
 Each is an import, so what a module can reach shows in its imports,
 and narrowing it means handing down a narrower handle.
+
+## The modules
+
+Every host module, each `@fuzdev/gro/<module>`, and whether it's a builtin module on `fgro` yet.
+This table is the one list of what's on `fgro`: the other runtime docs link here rather than restate it.
+
+| module               | what it reaches                         | on `fgro`               |
+| -------------------- | --------------------------------------- | ----------------------- |
+| `fs.ts`              | the filesystem, through handles         | not yet                 |
+| `spawn.ts`           | programs, as child processes            | not yet                 |
+| `net.ts`             | the network, by host                    | not yet                 |
+| `watch.ts`           | changes under a directory handle        | not yet                 |
+| `env.ts`             | the environment                         | not yet                 |
+| `args.ts`            | the script's arguments                  | built, the `args` grant |
+| `exit.ts`            | how the run ends                        | not yet                 |
+| `stdin.ts`           | standard input                          | not yet                 |
+| `stdout.ts`          | standard output                         | not yet                 |
+| `stderr.ts`          | standard error                          | not yet                 |
+| `cwd.ts`             | nothing: the working directory, a value | built, no grant         |
+| `pid.ts`             | nothing: the process's id, a value      | built, no grant         |
+| `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant         |
+
+The error modules (`fs_error.ts`, `spawn_error.ts`, `net_error.ts`, `env_error.ts`, `stdio_error.ts`) reach nothing
+and are designed as builtin modules that need no grant; none is on `fgro` yet.
+A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
 ## fs
 
@@ -332,17 +357,19 @@ if (args.includes('--fail')) set_exit_code(1);
 
 The running process is nine modules, one per kind of authority, each exporting a binding of its name:
 
-| module               | exports                 | what it carries          | grant on `fgro`          |
-| -------------------- | ----------------------- | ------------------------ | ------------------------ |
-| `env.ts`             | `env`                   | the environment, secrets | `env`, designed          |
-| `args.ts`            | `args`                  | the run's inputs         | `args`, built            |
-| `exit.ts`            | `exit`, `set_exit_code` | control over the run     | `exit`, designed         |
-| `stdin.ts`           | `stdin`                 | a channel in             | `stdin`, designed        |
-| `stdout.ts`          | `stdout`                | a channel out            | `stdout`, designed       |
-| `stderr.ts`          | `stderr`                | a channel out            | `stderr`, designed       |
-| `cwd.ts`             | `cwd`                   | an observation           | none, built              |
-| `pid.ts`             | `pid`                   | an observation           | none, built              |
-| `runtime_version.ts` | `runtime_version`       | an observation           | none, built              |
+| module               | exports                 | what it carries          | grant on `fgro` |
+| -------------------- | ----------------------- | ------------------------ | --------------- |
+| `env.ts`             | `env`                   | the environment, secrets | `env`           |
+| `args.ts`            | `args`                  | the run's inputs         | `args`          |
+| `exit.ts`            | `exit`, `set_exit_code` | control over the run     | `exit`          |
+| `stdin.ts`           | `stdin`                 | a channel in             | `stdin`         |
+| `stdout.ts`          | `stdout`                | a channel out            | `stdout`        |
+| `stderr.ts`          | `stderr`                | a channel out            | `stderr`        |
+| `cwd.ts`             | `cwd`                   | an observation           | none            |
+| `pid.ts`             | `pid`                   | an observation           | none            |
+| `runtime_version.ts` | `runtime_version`       | an observation           | none            |
+
+The grants are the design; [the modules](#the-modules) marks which of these are on `fgro`.
 
 Each is its own import, so a module's use of the process shows in its imports, as for `fs` and `spawn`:
 one that writes progress imports `stdout` without holding `stdin` or the environment,
@@ -411,7 +438,7 @@ Each module's TSDoc has its contract.
 
 ### The process modules on fgro
 
-On `fgro`, these are built, each a builtin module exporting what its Node module does:
+On `fgro`, the process modules [the table](#the-modules) marks built are builtin modules, each exporting what its Node module does:
 `@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
@@ -445,7 +472,7 @@ naming the package, until `-A` or the policy file's acceptance lifts that (both 
 `fgro eval` imports no builtin module, the grant-free ones included ([eval](eval.md)),
 and an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
 A builtin module's namespace has a `default` export of `undefined`, where a Node module has none.
-The other modules in the table are designed as builtin modules of their own, each with the grant it names;
+The other process modules are designed as builtin modules of their own, each with the grant its row above names;
 until each lands, its specifier is refused as not on `fgro` yet, in either spelling.
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro has none of, are refused in either spelling too,
 the message naming the modules to import instead ([resolver](resolver.md#builtin-modules)),

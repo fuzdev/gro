@@ -54,7 +54,7 @@ The box for runs and their children is designed ([backstop](backstop.md#the-box-
 ## builtin module
 
 A [host module](#host-modules) the runtime implements itself, named by a bare specifier in the binary's builtin table,
-like `@fuzdev/gro/args.ts`; `args`, `cwd`, `pid`, and `runtime_version` are on `fgro` so far.
+like `@fuzdev/gro/args.ts`; [host modules](host_modules.md#the-modules) lists the ones on `fgro` so far.
 It resolves ahead of package lookup to its `builtin:` URL, which imports nothing when written as is,
 and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links,
 while one that needs none (`cwd`, `pid`, `runtime_version`) is imported by any module of a run, a package's included;
@@ -143,8 +143,8 @@ Designed; `fgro eval` is the closest built thing to it, with the gaps [eval](eva
 The imports that reach the OS (fs, spawn, watch, net, and the process modules), Gro's own modules under `@fuzdev/gro/*`.
 Each is a visible edge in the import graph, so a run's host modules are [inferred](#inference).
 The running process is one module per kind of authority it carries (`env`, `args`, `exit`, `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`),
-each designed as its own grant on `fgro` but the observations (`cwd`, `pid`, `runtime_version`), which need none and are built there, as `args` is.
-[host modules](host_modules.md) is the reference.
+each designed as its own grant on `fgro` but the observations (`cwd`, `pid`, `runtime_version`), which need none.
+[host modules](host_modules.md) is the reference, and its [table](host_modules.md#the-modules) marks the ones built on `fgro`.
 
 ## inference
 
