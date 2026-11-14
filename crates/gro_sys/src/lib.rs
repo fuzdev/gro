@@ -17,6 +17,8 @@
 //! - [`set_default_thread_stack`] lowers the stack size of a thread started
 //!   without one, which glibc otherwise takes from `RLIMIT_STACK`, never
 //!   raising it; `default_thread_stack` reads it.
+//! - [`stack_start`] reads the calling thread's stack start as V8 takes it,
+//!   the address V8's limit on JS's stack is measured from.
 //! - [`thread_count`] reads the process's thread count, which a box or a
 //!   process-wide change installed from one thread needs to be 1.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
@@ -397,6 +399,66 @@ pub fn default_thread_stack() -> io::Result<usize> {
 unsafe extern "C" {
     fn pthread_setattr_default_np(attr: *const libc::pthread_attr_t) -> libc::c_int;
     fn pthread_getattr_default_np(attr: *mut libc::pthread_attr_t) -> libc::c_int;
+}
+
+/// The calling thread's stack start, its highest address, as V8 takes it
+/// (`base::Stack::GetStackStart` on glibc).
+///
+/// That's the top of the stack `pthread_getattr_np` reports, or glibc's
+/// `__libc_stack_end` when that lies inside it, as it does on the main
+/// thread, or when the call fails, as it can on the main thread. V8 holds JS
+/// to a limit below this address, so a caller on the same thread finds how
+/// much of the limit's stack is left from it.
+///
+/// Every call asks again: it reads the thread's attributes, a system call
+/// among them, so a caller that needs it more than once keeps it.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[expect(
+    unsafe_code,
+    reason = "std has no thread attributes, and a libc call and a C static are `unsafe`"
+)]
+pub fn stack_start() -> usize {
+    // SAFETY: glibc's dynamic loader sets `__libc_stack_end` before any code
+    // of the process runs and never writes it again, so the read races
+    // nothing; only the address it holds is used, never what's there
+    let libc_stack_end = unsafe { __libc_stack_end }.addr();
+    let mut attr = std::mem::MaybeUninit::<libc::pthread_attr_t>::uninit();
+    // SAFETY: `pthread_getattr_np` initializes the attribute the pointer
+    // names, a live local of the type it expects, from the thread
+    // `pthread_self` names, the calling one, alive for the call
+    let code = unsafe { libc::pthread_getattr_np(libc::pthread_self(), attr.as_mut_ptr()) };
+    if code != 0 {
+        // the attribute is uninitialized, so there's nothing to destroy
+        return libc_stack_end;
+    }
+    let mut base: *mut libc::c_void = std::ptr::null_mut();
+    let mut size: libc::size_t = 0;
+    // SAFETY: the attribute was initialized above; the call writes only to
+    // `base` and `size`, live locals of the types it expects
+    let code = unsafe { libc::pthread_attr_getstack(attr.as_ptr(), &raw mut base, &raw mut size) };
+    // SAFETY: the attribute was initialized above and is destroyed once
+    unsafe { libc::pthread_attr_destroy(attr.as_mut_ptr()) };
+    if code != 0 {
+        // V8 aborts here, on a stack glibc reported without its bounds
+        return libc_stack_end;
+    }
+    let base = base.addr();
+    let start = base + size;
+    if (base..=start).contains(&libc_stack_end) {
+        libc_stack_end
+    } else {
+        start
+    }
+}
+
+// glibc's dynamic loader's; the `libc` crate doesn't declare it
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[expect(
+    unsafe_code,
+    reason = "the `libc` crate lacks it, so it's declared here, as glibc's own code does"
+)]
+unsafe extern "C" {
+    static __libc_stack_end: *mut libc::c_void;
 }
 
 /// The process's thread count, its `Threads:` line in `/proc/self/status`,
@@ -944,6 +1006,28 @@ fn context(what: &str, error: &io::Error) -> io::Error {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use std::ffi::OsString;
+
+    /// A thread's stack start lies above every frame of the thread and no
+    /// further above the first than the thread's stack holds, and a second
+    /// read finds the same address.
+    #[cfg(target_env = "gnu")]
+    #[test]
+    fn the_stack_start_is_the_top_of_the_thread_s_stack() {
+        const SIZE: usize = 1 << 20;
+        let (start, again, here) = std::thread::Builder::new()
+            .stack_size(SIZE)
+            .spawn(|| {
+                let marker = 0u8;
+                let here = std::ptr::from_ref(&marker).addr();
+                (super::stack_start(), super::stack_start(), here)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(start, again);
+        assert!(here < start, "{here:#x} {start:#x}");
+        assert!(start - here < SIZE, "{here:#x} {start:#x}");
+    }
 
     /// The listing's names above stderr are the ones closed, in order; 0 to
     /// 2 stay.
