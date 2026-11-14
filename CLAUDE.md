@@ -334,16 +334,37 @@ Invariants that live in the code:
   - An implementation can run after user code has patched the global
     intrinsics, so it names no global and reads no member of an intrinsic, its
     top level included: each intrinsic comes from `primordials`, each op from
-    `core.ops`. Three checks hold every row to that: the implementations' own
-    program (`js/builtin/tsconfig.json`, with no library but
-    `intrinsics.d.ts`, which declares no value and no member), where either is
-    a type error; `src/test/builtin_intrinsics.test.ts`, which also refuses
-    the syntax a type check lets through (iteration, `instanceof`, `in`,
-    `globalThis`, `any`, a type assertion); and
-    `crates/gro_cli/tests/host.rs`, which imports every row of the table and
-    calls every function it reaches in a realm whose every reachable intrinsic
-    is a recording trap. A test holds each implementation's reads of
-    `core.ops` to the host ops of its own row (`bootstrap/web_scripts.rs`).
+    `core.ops`. Three checks hold every row to that.
+  - The static one (`src/test/builtin_intrinsics.test.ts`, over
+    `builtin_constructs.ts`) is one pass over the implementations' own program
+    (`js/builtin/tsconfig.json`, with no library but `intrinsics.d.ts`, which
+    declares no value and no member, so either is a type error), whose walk
+    refuses what the program accepts: a member of anything but what the
+    bootstrap object gave (an argument, the scope, a result, `this`; a private
+    name excepted), a property written, each construct that calls a protocol
+    user code can answer (iteration, a string or number made of a value that
+    isn't primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged
+    template, `extends`), and what leaves the type check (`any`, a type
+    assertion, `globalThis`).
+  - The same test holds `bootstrap.d.ts` to a reviewed list: the bootstrap
+    object gives `core.ops`, gro's host ops, and the primordials listed there,
+    each with why it's safe after user code ran, and nothing else. So no
+    implementation calls `core.loadExtScript`, which makes every op that has a
+    fast call again the first time a run calls it, for nothing a host op
+    gains, or touches `internals`, an ordinary object, where a read or a write
+    passes through `Object.prototype`: a helper two builtins need is written
+    in each.
+  - The runtime one (`crates/gro_cli/tests/host.rs`) imports every row of the
+    table in a realm whose every reachable intrinsic is a trap that reports as
+    it's used, and exercises everything the row exports or reaches: each
+    function called with no arguments, with hostile ones (a proxy, an object
+    of getters, a subclassed string and array), and with a hostile receiver,
+    each class constructed, each getter read. A function that declares
+    parameters fails it until the fixture has arguments for it, and a use of a
+    hostile argument until the test lists it, reviewed.
+  - And `bootstrap/web_scripts.rs` holds each implementation's reads of
+    `core.ops`, its backing script's scope argument's among them, to the host
+    ops of its own row.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is

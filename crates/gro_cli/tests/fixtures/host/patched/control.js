@@ -1,16 +1,63 @@
-// The entry of the control run: in a patched realm, armed, it does what a builtin's
-// implementation must not, once each, and prints what the traps recorded, so a patched run
-// that records nothing is known to have been watched.
+// The entry of the control run: in a patched realm it does what a builtin's implementation
+// must not, once each and armed, then exercises a namespace of its own whose exports do the
+// same from every place the exerciser must reach, and reports as it goes. So a patched run
+// that reports no trap, no touch, and no unexercised function was watched.
 
 import { NAMES } from './names.js';
-import { arm, disarm, patch_realm, print_line, read_recorded, restore_realm } from './realm.js';
+import { create_exerciser } from './exercise.js';
+import { arm, disarm, patch_realm, report, restore_realm } from './realm.js';
 
 await null;
+
+class Sub extends Array {}
+
+/**
+ * What a builtin might export, each doing from its own place what an implementation must not:
+ * `Object`, read as a global, stands for any use of the realm.
+ */
+class Handle {
+	#brand = 1;
+	constructor() {
+		Object;
+	}
+	read() {
+		return this.#brand;
+	}
+	get size() {
+		Object;
+		return 1;
+	}
+	static open() {
+		Object;
+	}
+}
+const probe = {
+	// a function that declares a parameter, and uses the realm only when it's given one
+	with_parameter: (/** @type {unknown} */ given) => (given === undefined ? 1 : Object),
+	// one that makes a string of its argument, and one that iterates it
+	coerces: (/** @type {unknown} */ given) => `${given}`,
+	iterates: (/** @type {Iterable<unknown>} */ given) => [...given],
+	// one that reads an option of its argument
+	reads_option: (/** @type {{ recursive?: boolean }} */ options) => options.recursive === true,
+	// an object whose method and getter use the realm, and a function whose result's method does
+	holder: {
+		method() {
+			Object;
+		},
+		get getter() {
+			Object;
+			return 1;
+		}
+	},
+	returns_holder: () => ({ method: () => Object }),
+	// a class: its constructor, a static method, and a getter use the realm, and a method reads
+	// a private field, so only an instance is its receiver
+	Handle
+};
 
 patch_realm(NAMES);
 const record = { args: 1 };
 const list = [1, 2];
-class Sub extends Array {}
 const sub = new Sub();
 /** @type {Array<() => unknown>} */
 const uses = [
@@ -34,21 +81,35 @@ const uses = [
 	},
 	// a thenable lookup, and a descriptor's fields
 	() => Promise.resolve(record),
-	() => Object.defineProperty(record, 'x', { value: 1 })
+	() => Object.defineProperty(record, 'x', { value: 1 }),
+	// an index past an array's end
+	() => list[5],
+	// the options a web class reads from an object given to it
+	() => new TextDecoder('utf-8', {}),
+	// the formatter of an error's stack
+	() => new Error('made').stack
 ];
-/** @type {Array<string>} */
-const seen = [];
 for (let i = 0; i < uses.length; i++) {
-	const before = read_recorded().length;
 	const use = /** @type {() => unknown} */ (uses[i]);
+	report('use', i);
 	arm();
 	try {
 		use();
 	} catch {
-		// a patched realm can fail what it traps, which is recorded all the same
+		// a patched realm can fail what it traps, which is reported all the same
 	}
 	disarm();
-	seen[i] = read_recorded().slice(before);
 }
+
+report('use', 'probe');
+const exerciser = create_exerciser(
+	new Map([
+		['probe.coerces', [['given']]],
+		['probe.iterates', [[['given']]]],
+		['probe.never_reached', [[]]]
+	]),
+	4
+);
+exerciser.exercise('probe', probe, undefined, 4);
 restore_realm();
-print_line(JSON.stringify(seen));
+report('done', { unused: exerciser.unused() });

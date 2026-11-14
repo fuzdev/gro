@@ -9,9 +9,12 @@
 //! Then every builtin in a patched realm (`tests/fixtures/host/patched/`):
 //! a builtin's implementation runs at its first import, which can be after
 //! user code replaced the intrinsics, so each row of the table is imported
-//! for the first time, and each function it exports or reaches called, with
-//! every intrinsic a program can reach a recording trap, and must be what
-//! it is in a realm nothing patched and use no trap.
+//! for the first time, and everything it exports or reaches exercised (a
+//! function called, with hostile arguments too, a class constructed, a
+//! getter read), with every intrinsic a program can reach a reporting trap,
+//! and must be what it is in a realm nothing patched and use no trap. A
+//! run reports as it goes, a line of JSON for each thing, so a call that
+//! ended the process would still have left what it used.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -201,8 +204,12 @@ const PER_PROCESS: [(&str, &str); 1] = [("@fuzdev/gro/pid.ts", "pid")];
 /// Property names trapped on the prototypes every value shares, beside the
 /// names the implementations write: the ones a promise resolution, a
 /// property definition, an iteration, a serialization, and an error read
-/// from any object given to them.
-const PROTOCOL_NAMES: [&str; 14] = [
+/// from any object given to them, the options a web class or a clone reads
+/// from one, and the formatter the host looks up when an error's stack is
+/// read. No list can hold every name an intrinsic reads from an object it's
+/// given, and nothing can stand beneath `Object.prototype` to catch the
+/// rest, so this is the names known to matter, not a proof.
+const PROTOCOL_NAMES: [&str; 19] = [
     "then",
     "get",
     "set",
@@ -213,19 +220,36 @@ const PROTOCOL_NAMES: [&str; 14] = [
     "toJSON",
     "next",
     "done",
+    "return",
     "length",
     "name",
     "message",
     "cause",
+    "fatal",
+    "ignoreBOM",
+    "transfer",
+    "prepareStackTrace",
 ];
+
+/// The indices trapped on the shared prototypes, where a read past an
+/// array's end or of a hole lands, and a write of one an object lacks.
+const TRAPPED_INDICES: std::ops::Range<u32> = 0..16;
+
+/// The uses of a hostile argument a builtin's function is known to make,
+/// each as the patched realm reports it, `<call>: <use>`: a function that
+/// reads, converts, or iterates what it's given runs the giver's code from
+/// inside the builtin, so each use is listed here once it's been reviewed,
+/// and any other fails the test. No builtin's function touches an argument.
+const ARGUMENT_TOUCHES: [&str; 0] = [];
 
 /// The names trapped on the shared prototypes: every identifier a
 /// builtin's implementation writes, read from its source, so a property it
-/// reads or writes on an object that lacks it lands on a trap, and
-/// [`PROTOCOL_NAMES`].
+/// reads or writes on an object that lacks it lands on a trap,
+/// [`PROTOCOL_NAMES`], and [`TRAPPED_INDICES`].
 fn trapped_names() -> BTreeSet<String> {
     let implementations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/js/builtin");
     let mut names: BTreeSet<String> = PROTOCOL_NAMES.iter().map(ToString::to_string).collect();
+    names.extend(TRAPPED_INDICES.map(|index| index.to_string()));
     for builtin in BUILTINS {
         let source = std::fs::read_to_string(implementations.join(builtin.specifier)).unwrap();
         let words = source.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'));
@@ -238,6 +262,17 @@ fn trapped_names() -> BTreeSet<String> {
     }
     names
 }
+
+/// The patched realm's fixtures.
+const PATCHED_FILES: [&str; 7] = [
+    "realm.js",
+    "exercise.js",
+    "use.js",
+    "patched.js",
+    "plain.js",
+    "control.js",
+    "ended.js",
+];
 
 /// A project of the patched realm's fixtures with the two modules written
 /// from the builtin table: `modules.js`, importing every row's namespace
@@ -273,45 +308,83 @@ fn patched_project(name: &str) -> Scratch {
         "export const NAMES = {};\n",
         serde_json::to_string(&trapped_names()).unwrap()
     );
-    let files = ["realm.js", "use.js", "patched.js", "plain.js", "control.js"].map(fixture);
-    Scratch::new(
-        name,
-        &[
-            ("package.json", "{\"type\": \"module\"}\n"),
-            ("modules.js", &modules),
-            ("names.js", &names),
-            ("realm.js", &files[0]),
-            ("use.js", &files[1]),
-            ("patched.js", &files[2]),
-            ("plain.js", &files[3]),
-            ("control.js", &files[4]),
-        ],
-    )
+    let sources = PATCHED_FILES.map(fixture);
+    let mut files = vec![
+        ("package.json", "{\"type\": \"module\"}\n"),
+        ("modules.js", modules.as_str()),
+        ("names.js", names.as_str()),
+    ];
+    files.extend(
+        PATCHED_FILES
+            .into_iter()
+            .zip(sources.iter().map(String::as_str)),
+    );
+    Scratch::new(name, &files)
 }
 
-/// What `fgro run` of `entry` in `project`, given two arguments, printed,
-/// one line of JSON, having exited `0` with nothing on stderr.
-fn run_entry(project: &Scratch, entry: &str) -> Value {
+/// What a run of the patched realm's fixtures reported, in order: each line
+/// of its stdout, `[kind, value]`.
+struct Reports(Vec<(String, Value)>);
+
+impl Reports {
+    /// The values of the reports of `kind`, in order, each a string.
+    fn strings(&self, kind: &str) -> Vec<&str> {
+        let of_kind = self.0.iter().filter(|(reported, _)| reported == kind);
+        of_kind
+            .map(|(_, value)| value.as_str().expect("a string"))
+            .collect()
+    }
+
+    /// The run's last report, `done`, which a run that got to its end makes.
+    fn done(&self) -> &Value {
+        match self.0.last() {
+            Some((kind, value)) if kind == "done" => value,
+            last => panic!("the run ended before its end: {last:?}"),
+        }
+    }
+}
+
+/// `fgro run` of `entry` in `project`, given two arguments: its exit code,
+/// what it reported, and its stderr.
+fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
     let mut command = fgro_command(&["run", entry, "a", "b c"]);
     command.current_dir(&project.0);
     let output = spawn(command, b"");
-    let stderr = String::from_utf8(output.stderr).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(stderr, "", "{entry}: {stdout}");
-    assert_eq!(output.status.code(), Some(0), "{entry}: {stdout}");
-    serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{entry}: {error}: {stdout}"))
+    let reports = stdout
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|error| panic!("{entry}: {error}: {line}"))
+        })
+        .collect();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    (output.status.code(), Reports(reports), stderr)
+}
+
+/// What a run of `entry` that got to its end reported, having exited `0`
+/// with nothing on stderr.
+fn run_whole(project: &Scratch, entry: &str) -> Reports {
+    let (code, reports, stderr) = run_entry(project, entry);
+    assert_eq!(stderr, "", "{entry}");
+    assert_eq!(code, Some(0), "{entry}");
+    reports.done();
+    reports
 }
 
 /// Every row of the builtin table, imported for the first time in a realm
-/// whose every reachable intrinsic is a trap, with each function it exports
-/// called there, and each method of an object it exports or a call returns,
-/// is what it is in a realm nothing patched: the same namespace, exports,
-/// and results, shown property by property. And no trap recorded a use
-/// while the implementations ran, at their top level, which the import
-/// runs, or in a call. The rows come from the table, so a new one is
-/// imported and called here without being listed; a function that declares
-/// parameters isn't called, which fails here until `use.js` calls it with
-/// arguments.
+/// whose every reachable intrinsic is a trap, with everything it exports or
+/// reaches exercised there (each function called with no arguments, with
+/// hostile ones, and with a hostile receiver, each class constructed, each
+/// getter read, and the same for what a call returns and what an object or
+/// a prototype the builtin made holds), is what it is in a realm nothing
+/// patched: the same namespace, exports, and outcomes, shown property by
+/// property. And no trap reported a use while the implementations ran, at
+/// their top level, which the import runs, or in a call, and no hostile
+/// argument a use but the reviewed ones. The rows come from the table, so a
+/// new one is imported and exercised here without being listed; a function
+/// that declares parameters fails here until `use.js` has arguments for it,
+/// and one that ends the process fails here for a run with no end, which
+/// that row's test must then expect, with the reports the run left.
 #[test]
 fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     for (specifier, export) in PER_PROCESS {
@@ -324,31 +397,36 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
         );
     }
     let project = patched_project("patched");
-    let plain = run_entry(&project, "plain.js");
-    let patched = run_entry(&project, "patched.js");
-    assert_eq!(plain["replaced"], 0);
-    assert_eq!(plain["recorded"], "");
+    let plain = run_whole(&project, "plain.js");
+    let patched = run_whole(&project, "patched.js");
+    assert_eq!(plain.done()["replaced"], 0);
     // the intrinsics' own properties alone are thousands
-    assert!(
-        patched["replaced"].as_u64().unwrap() > 2000,
-        "{}",
-        patched["replaced"]
+    let replaced = &patched.done()["replaced"];
+    assert!(replaced.as_u64().unwrap() > 2000, "{replaced}");
+    assert_eq!(
+        patched.strings("trap"),
+        [""; 0],
+        "the traps an implementation used"
     );
-    assert_eq!(patched["recorded"], "", "the traps an implementation used");
-    assert_eq!(patched["lines"], plain["lines"]);
+    assert_eq!(patched.strings("line"), plain.strings("line"));
     for run in [&plain, &patched] {
         assert_eq!(
-            run["uncalled"],
+            run.strings("unexercised"),
+            [""; 0],
+            "the functions that declare parameters and `use.js` has no arguments for"
+        );
+        assert_eq!(
+            run.done()["unused"],
             serde_json::json!([]),
-            "the functions `use.js` reached and didn't call"
+            "the arguments `use.js` has for a function nothing reached"
+        );
+        assert_eq!(
+            run.strings("touch"),
+            ARGUMENT_TOUCHES,
+            "the uses a builtin's function made of a hostile argument"
         );
     }
-    let lines: Vec<&str> = plain["lines"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|line| line.as_str().unwrap())
-        .collect();
+    let lines = plain.strings("line");
     for builtin in BUILTINS {
         let specifier = builtin.specifier;
         let shown = |prefix: String| lines.iter().any(|line| line.starts_with(&prefix));
@@ -357,46 +435,162 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
             assert!(shown(format!("{specifier} {export}: ")), "{lines:?}");
         }
     }
-    assert!(
-        lines.iter().any(|line| line.contains("(): returned ")),
-        "{lines:?}"
-    );
+    // some row exports a function, called every way
+    for call in ["(): returned ", "(proxy): ", ".call(proxy): "] {
+        assert!(lines.iter().any(|line| line.contains(call)), "{lines:?}");
+    }
 }
 
-/// The patched realm records each thing an implementation must not do,
+/// The patched realm reports each thing an implementation must not do,
 /// done once in it while armed: a global read, a method of an intrinsic's
 /// constructor and of its prototype, an iteration, a string made of an
 /// object, `instanceof`, a species lookup, a read and a write of a property
-/// an object lacks, a thenable lookup, and a property definition's read of
-/// its descriptor. So a patched run that records nothing was watched.
+/// an object lacks, a thenable lookup, a property definition's read of its
+/// descriptor, a read past an array's end, a web class's read of its
+/// options, and the lookup of a stack's formatter. And the exerciser
+/// reaches every place a builtin can do one from: a function only when
+/// it's given an argument, a method and a getter of an exported object, a
+/// method of a call's result, and a class's constructor, static method, and
+/// getter, with a method that needs its own instance called on one; it
+/// reports each use made of a hostile argument, of every kind, the
+/// functions that declare parameters and were given no arguments, and the
+/// arguments given for a function it never reached. So a patched run that
+/// reports nothing was watched.
 #[test]
-fn the_patched_realm_records_what_an_implementation_must_not_do() {
+fn the_patched_realm_reports_what_an_implementation_must_not_do() {
     let project = patched_project("control");
-    let recorded = run_entry(&project, "control.js");
-    let recorded: Vec<&str> = recorded
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|uses| uses.as_str().unwrap())
-        .collect();
+    let reports = run_whole(&project, "control.js");
+    // the reports after each `use`, by what the use is
+    let mut uses: Vec<(String, Vec<&(String, Value)>)> = Vec::new();
+    for report in &reports.0 {
+        match (report.0.as_str(), uses.last_mut()) {
+            ("use", _) => uses.push((report.1.to_string(), Vec::new())),
+            (_, Some((_, after))) => after.push(report),
+            (_, None) => panic!("{report:?} before any use"),
+        }
+    }
     // a property reached through more than one object is named for the
     // first that reached it, so each is matched by its key
     let expected = [
-        "get globalThis.Object;",
-        ".ownKeys;",
-        ".map;",
-        ".call;",
-        ".Symbol(Symbol.iterator);",
-        "get Object.prototype.Symbol(Symbol.toPrimitive);",
-        "Symbol(Symbol.hasInstance);",
-        "Symbol(Symbol.species);",
-        "get Object.prototype.default;",
-        "set Object.prototype.cwd;",
-        "get Object.prototype.then;",
-        "get Object.prototype.get;",
+        "get globalThis.Object",
+        ".ownKeys",
+        ".map",
+        ".call",
+        ".Symbol(Symbol.iterator)",
+        "get Object.prototype.Symbol(Symbol.toPrimitive)",
+        "Symbol(Symbol.hasInstance)",
+        "Symbol(Symbol.species)",
+        "get Object.prototype.default",
+        "set Object.prototype.cwd",
+        "get Object.prototype.then",
+        "get Object.prototype.get",
+        "get Array.prototype.5",
+        "get Object.prototype.fatal",
+        ".prepareStackTrace",
     ];
-    assert_eq!(recorded.len(), expected.len(), "{recorded:?}");
-    for (uses, expected) in recorded.iter().zip(expected) {
-        assert!(uses.contains(expected), "{expected} in {uses}");
+    let (probe, done) = uses.split_last().unwrap();
+    assert_eq!(done.len(), expected.len(), "{uses:?}");
+    for ((_, after), expected) in done.iter().zip(expected) {
+        let traps = after.iter().filter(|(kind, _)| kind == "trap");
+        let mut traps = traps.map(|(_, trap)| trap.as_str().unwrap());
+        assert!(
+            traps.any(|trap| trap.contains(expected)),
+            "{expected} in {after:?}"
+        );
     }
+    // the probe: what each call reported, the reports before its line
+    assert_eq!(probe.0, "\"probe\"");
+    let mut calls: Vec<(&str, Vec<String>)> = Vec::new();
+    let mut before = Vec::new();
+    for (kind, value) in &probe.1 {
+        let value = value.as_str().unwrap_or_default();
+        if kind == "line" {
+            calls.push((value, std::mem::take(&mut before)));
+        } else {
+            before.push(format!("{kind} {value}"));
+        }
+    }
+    let reported = |call: &str| {
+        let found = calls.iter().find(|(line, _)| line.starts_with(call));
+        &found.unwrap_or_else(|| panic!("no {call} in {calls:?}")).1
+    };
+    let trap = "trap get globalThis.Object";
+    for (call, uses_the_realm) in [
+        ("probe.with_parameter(): returned", false),
+        ("probe.with_parameter(proxy): returned", true),
+        ("probe.with_parameter(getters): returned", true),
+        ("probe.with_parameter(string): returned", true),
+        ("probe.with_parameter(array): returned", true),
+        ("probe.holder.method(): returned", true),
+        ("get probe.holder.getter: returned", true),
+        ("probe.returns_holder(): returned", false),
+        ("probe.returns_holder().method(): returned", true),
+        ("new probe.Handle(): returned", true),
+        ("new probe.Handle(proxy): returned", true),
+        ("new probe.Handle().read(): returned number 1", false),
+        ("new probe.Handle().read.call(proxy): threw", false),
+        ("probe.Handle.prototype.read(): threw", false),
+        ("get new probe.Handle().size: returned", true),
+        ("probe.Handle.open(): returned", true),
+    ] {
+        let reported = reported(call);
+        assert_eq!(
+            reported.iter().any(|use_| use_ == trap),
+            uses_the_realm,
+            "{call}: {reported:?}"
+        );
+    }
+    for (call, touch) in [
+        (
+            "probe.coerces(proxy): ",
+            "proxy.get Symbol(Symbol.toPrimitive)",
+        ),
+        (
+            "probe.coerces(getters): ",
+            "getters.Symbol(Symbol.toPrimitive)",
+        ),
+        ("probe.coerces(getters): ", "getters.toString"),
+        ("probe.coerces(string): ", "string[Symbol.toPrimitive]"),
+        (
+            "probe.iterates(proxy): ",
+            "proxy.get Symbol(Symbol.iterator)",
+        ),
+        (
+            "probe.iterates(getters): ",
+            "getters.Symbol(Symbol.iterator)",
+        ),
+        ("probe.iterates(array): ", "array[Symbol.iterator]"),
+        ("probe.reads_option(proxy): ", "proxy.get recursive"),
+    ] {
+        let reported = reported(call);
+        let touch = format!("touch {call}{touch}");
+        assert!(reported.contains(&touch), "{touch}: {reported:?}");
+    }
+    // the arguments given for a function reach what no other call does, and touch nothing
+    assert_eq!(
+        reported("probe.coerces(arguments 1): returned string \"given\""),
+        &[""; 0]
+    );
+    assert_eq!(
+        reports.strings("unexercised"),
+        ["probe.with_parameter", "probe.reads_option"]
+    );
+    assert_eq!(
+        reports.done()["unused"],
+        serde_json::json!(["probe.never_reached"])
+    );
+}
+
+/// A trap's report is printed when the trap is used, never kept for the
+/// run's end: a run that uses the realm once, armed, and then fails has
+/// reported the use, though it never got to its end. So a builtin's
+/// function that ends the process leaves what it used before it did.
+#[test]
+fn a_trap_reports_as_it_is_used() {
+    let project = patched_project("ended");
+    let (code, reports, stderr) = run_entry(&project, "ended.js");
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(stderr.contains("ended"), "{stderr}");
+    assert_eq!(reports.strings("trap"), ["get globalThis.Object"]);
+    assert!(reports.0.iter().all(|(kind, _)| kind != "done"));
 }

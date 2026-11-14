@@ -10,10 +10,12 @@
 // read after user code ran, so none is, and `Promise` and the iterator types stay undeclared,
 // which makes `async`, `import()`, and a generator errors too.
 //
-// What a type check can't see stays a rule the tests hold by running the builtins under
-// patched intrinsics: iterating (`for`-`of`, spread, both of which read `Symbol.iterator`),
-// `instanceof`, a string made of an object, and a property read or written on an object whose
-// prototype is `Object.prototype`.
+// What a type check can't see, a walk of each implementation's syntax refuses
+// (`src/test/builtin_constructs.ts`, which also holds these interfaces to no member):
+// iterating (`for`-`of`, spread, both of which read `Symbol.iterator`), `instanceof`, a string
+// made of an object, and a member read or written of anything but what the bootstrap object
+// gave. And the tests run the builtins under patched intrinsics, for what an intrinsic reads
+// of a value it's given.
 
 interface Array<T> {}
 interface Boolean {}

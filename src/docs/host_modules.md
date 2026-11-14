@@ -419,7 +419,7 @@ and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>
 A builtin module's implementation is no part of the startup snapshot: it's compiled and run when a run first imports the module,
 so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
 That first import can come after user code has patched the intrinsics, so the whole implementation, not only what it exports,
-names no global and reads no property of an intrinsic: it takes each one from copies the runtime made before any user code ran,
+names no global and reads no property of an intrinsic: it takes each one from references the runtime took before any user code ran,
 and code that patched `Object` or the prototypes before the import changes nothing it holds and is never called by it
 ([native requirements](#native-requirements)).
 Each module's exports have the types of the Node module's, checked by a test against that module's declarations for every builtin module.
@@ -929,11 +929,15 @@ the builtin module's JS checks shapes and raises early errors, as the Node imple
 
 That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
 where the Node implementation copies what it needs when it loads and can be loaded first.
-So a builtin module's implementation reaches intrinsics only through the runtime's own copies, taken before any user code ran:
+So a builtin module's implementation reaches intrinsics only through the runtime's own references to them, taken before any user code ran,
+and uses none whose work reads a prototype user code can patch:
 it names no global, calls no method and reads no property of an array, string, function, or promise,
+reads no member of a value a caller passed it, makes no string of one, and iterates none,
 and what it hands to user code is made natively, a frozen function of its own, or a null-prototype record.
-It's type-checked with no global value and no member of an intrinsic declared, so either is an error,
-and every builtin module is imported and called by a test in a realm whose every reachable intrinsic records its use.
+It's type-checked with no global value and no member of an intrinsic declared, so either is an error;
+a walk of its syntax refuses a member of anything the runtime didn't hand it and each construct that calls a protocol user code can answer;
+and every builtin module is imported by a test in a realm whose every reachable intrinsic reports its use,
+where each function it exports or reaches is called with hostile arguments: a proxy, an object of getters, a subclassed string and array.
 It shares no source with the Node implementation: the cases run under both runtimes hold the two to one behavior.
 A builtin module's import never fails for a reason of the run's: what can fail fails in what the module exports, as `cwd` does when called.
 

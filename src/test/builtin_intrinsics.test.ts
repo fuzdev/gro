@@ -1,7 +1,15 @@
 import { describe, test, assert } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import ts from 'typescript';
 
+import {
+	analyze_implementation,
+	BOOTSTRAP_DECLARATIONS_PATH,
+	find_unreviewed_declarations,
+	INTRINSICS_DECLARATIONS_PATH,
+	read_builtin_config,
+	type ReviewedMember
+} from './builtin_constructs.ts';
 import {
 	BUILTIN_DIR,
 	read_builtin_rows,
@@ -14,97 +22,57 @@ import {
 A builtin module's implementation (`crates/gro_runtime/js/builtin/<specifier>`) runs when a
 run first imports the builtin, which can be after user code has patched the global intrinsics.
 So it names no global and reads no property of an intrinsic: every intrinsic it uses comes
-from `primordials`, a parameter. Two checks hold every row of the builtin table to that here,
-and each is shown to fail on an implementation that breaks the rule:
+from `primordials`, which the bootstrap object, its outer level's parameter, gives it. One
+static check holds every row of the builtin table to that here (`builtin_constructs.ts`), and
+each thing it refuses is shown to be refused, on an implementation that does it:
 
 - its own program (`builtin/tsconfig.json`), which has no library but `intrinsics.d.ts`: the
   types the compiler asks for, with no member, and no value. A global or a member of an
   intrinsic is a type error there. `cargo xtask check-js` runs the same program.
-- a walk of its syntax for what that program accepts and still reaches an intrinsic or leaves
-  the type check: iteration (`for`-`of`, a spread, an array pattern, each reading
-  `Symbol.iterator`), `instanceof` (`Symbol.hasInstance`), `for`-`in` and `in` (which read the
-  prototype chain), `globalThis` (the one global the compiler declares itself), `any`, a type
-  assertion but `as const` (which can give a value members it wasn't declared with), and a
-  `@ts-` directive.
+- a walk of its syntax, with the program's types, for what that program accepts: a member of
+  anything but what the bootstrap object gave, a property written, each construct that calls a
+  protocol user code can answer (iteration, a string or number made of a value that isn't
+  primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged template, `extends`), and what
+  leaves the type check (`any`, a type assertion, a `@ts-` directive, `globalThis`, a `declare`).
+
+And what the bootstrap object gives is a reviewed list: `bootstrap.d.ts` declares the ops and
+the primordials an implementation may use, and a test holds its declarations to the list
+below, each primordial with why it's safe after user code ran, so one more is a deliberate
+edit of both. `core` gives `ops` alone: no `loadExtScript`, and the bootstrap object no
+`internals`.
 
 Each is also the text the runtime's build takes: 7-bit ASCII, and line comments over one
 function, or the binary's build or its start fails, which `gro check` doesn't run.
 
-Neither sees a string made of an object, or a property read or written on an object whose
-prototype is `Object.prototype`: the runtime's tests run every builtin in a realm whose
-intrinsics are traps for those (`crates/gro_cli/tests/host.rs`).
+What no static check sees is which values reach a primordial, and what an intrinsic reads of
+an object it's given: the runtime's tests run every builtin in a realm whose intrinsics are
+traps, and call its functions with hostile arguments (`crates/gro_cli/tests/host.rs`).
 
 */
 
-const CONFIG_PATH = join(BUILTIN_DIR, 'tsconfig.json');
-
-const read_config = (): ts.ParsedCommandLine => {
-	const config = ts.readConfigFile(CONFIG_PATH, ts.sys.readFile);
-	assert.ok(!config.error, 'the builtin tsconfig reads');
-	return ts.parseJsonConfigFileContent(config.config, ts.sys, BUILTIN_DIR);
-};
-
-// the files every check reads from disk, parsed once
-const source_files: Map<string, ts.SourceFile | undefined> = new Map();
-
 /**
- * Type-checks the implementations' program, the files its tsconfig includes.
- * @param row - the row whose implementation `implementation` stands in for, when given
- * @param implementation - the source in place of that row's file
- * @returns the program's diagnostics, each as text
+ * The primordials an implementation may use, each reviewed: what it's declared as, and why
+ * a call of it after user code patched the realm runs none of that code. A primordial is the
+ * realm's own function, taken by name before user code ran, so what protects a call is what
+ * the function does with its arguments, never that it's a copy.
  */
-const check_program = (row?: BuiltinRow, implementation?: string): Array<string> => {
-	const { options, fileNames } = read_config();
-	const host = ts.createCompilerHost(options);
-	const get_source_file = host.getSourceFile.bind(host);
-	host.getSourceFile = (file_name, language_version, ...rest) => {
-		if (row !== undefined && implementation !== undefined && file_name === row.path) {
-			return ts.createSourceFile(file_name, implementation, language_version, true);
-		}
-		if (!source_files.has(file_name)) {
-			source_files.set(file_name, get_source_file(file_name, language_version, ...rest));
-		}
-		return source_files.get(file_name);
-	};
-	return ts
-		.getPreEmitDiagnostics(ts.createProgram(fileNames, options, host))
-		.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
-};
-
-/**
- * What `implementation`'s syntax holds that reaches an intrinsic past the type check, or
- * leaves the check, each named.
- */
-const find_unchecked_syntax = (implementation: string): Array<string> => {
-	const source = ts.createSourceFile('implementation.ts', implementation, ts.ScriptTarget.ES2024);
-	const found: Array<string> = [];
-	if (/@ts-(?:ignore|expect-error|nocheck)/.test(implementation)) found.push('@ts- directive');
-	const visit = (node: ts.Node): void => {
-		if (ts.isForOfStatement(node)) found.push('for-of');
-		if (ts.isSpreadElement(node)) found.push('spread');
-		if (ts.isArrayBindingPattern(node)) found.push('array pattern');
-		if (
-			ts.isBinaryExpression(node) &&
-			node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword
-		) {
-			found.push('instanceof');
-		}
-		if (ts.isForInStatement(node)) found.push('for-in');
-		if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.InKeyword) {
-			found.push('in');
-		}
-		if (ts.isIdentifier(node) && node.text === 'globalThis') found.push('globalThis');
-		if (node.kind === ts.SyntaxKind.AnyKeyword) found.push('any');
-		if (
-			(ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) &&
-			!ts.isConstTypeReference(node.type)
-		) {
-			found.push('type assertion');
-		}
-		ts.forEachChild(node, visit);
-	};
-	visit(source);
-	return found;
+const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
+	Error: {
+		type: 'ErrorConstructor',
+		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown."
+	},
+	ObjectAssign: {
+		type: '<T extends object, U>(target: T, source: U) => T & U',
+		why: "defines nothing: it reads each own enumerable property of the source and sets it on the target, so the source is a literal of the implementation's own, with no getter, and the target has a null prototype, where no setter is inherited."
+	},
+	ObjectCreate: {
+		type: '(prototype: null) => object',
+		why: 'declared for a null prototype alone, with no descriptors, so what it makes inherits nothing and nothing is read to make it.'
+	},
+	ObjectFreeze: {
+		type: '<T>(value: T) => Readonly<T>',
+		why: "reads no property through a prototype: it redefines the own properties of its argument, a value the implementation or an op made, never one a caller passed, whose proxy's traps it would call."
+	}
 };
 
 const rows = read_builtin_rows();
@@ -118,9 +86,16 @@ const TOP_LEVEL = '\tconst { core, primordials } = bootstrap;\n';
 const in_a_function = (use: string): string =>
 	`${TOP_LEVEL}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
 
+/**
+ * The diagnostics of the implementations' program, with `implementation` in place of the
+ * file of `row` when given.
+ */
+const check_program = (row: BuiltinRow, implementation?: string): Array<string> =>
+	analyze_implementation(row, implementation).diagnostics;
+
 describe("the implementations' program", () => {
 	test('has no library but its own declarations', () => {
-		const { options, fileNames } = read_config();
+		const { options, fileNames } = read_builtin_config();
 		assert.strictEqual(options.noLib, true);
 		assert.deepEqual(options.types, []);
 		assert.includeMembers(fileNames, [
@@ -132,7 +107,7 @@ describe("the implementations' program", () => {
 	});
 
 	test('type-checks', () => {
-		assert.deepEqual(check_program(), []);
+		assert.deepEqual(check_program(rows[0]!), []);
 	});
 });
 
@@ -204,25 +179,345 @@ describe.each(rows)('the $name implementation', (row) => {
 		}
 	});
 
-	test('has no syntax the type check lets reach an intrinsic', () => {
-		assert.deepEqual(find_unchecked_syntax(source), []);
-		for (const [use, name] of [
-			['for (const item of [core]) ObjectCreate(null);', 'for-of'],
-			['ObjectCreate(...[null]);', 'spread'],
-			['[...[core]];', 'spread'],
-			['const [first] = [core];', 'array pattern'],
-			['core instanceof primordials.Error;', 'instanceof'],
-			['for (const key in core) ObjectCreate(null);', 'for-in'],
-			["'ops' in core;", 'in'],
-			['globalThis;', 'globalThis'],
-			['(core as { ops: object }).ops;', 'type assertion'],
-			['<object>core;', 'type assertion'],
-			['((loose: any) => loose.ops)(core);', 'any'],
-			['// @ts-expect-error\n\tcore.nope;', '@ts- directive']
-		] as const) {
+	test('holds nothing the walk refuses, and each is refused', () => {
+		assert.deepEqual(analyze_implementation(row, source).refused, []);
+		// each use, what the walk names it, and whether the program accepts it, so the walk
+		// alone refuses it
+		for (const [use, refused, accepted] of [
+			// iteration
+			['for (const item of [core]) primordials.ObjectFreeze(item);', ['for-of'], true],
+			['primordials.ObjectCreate(...[null]);', ['spread'], true],
+			['[...[core]];', ['spread'], true],
+			['const [first] = [core];\n\tprimordials.ObjectFreeze(first);', ['array pattern'], true],
+			[
+				'let first;\n\t[first] = [core];\n\tprimordials.ObjectFreeze(first);',
+				['destructuring assignment'],
+				true
+			],
+			['(function* () {\n\t\tyield 1;\n\t});', ['generator'], false],
+			['({ ...core });', ['object spread'], true],
+			// the other protocols
+			['core instanceof primordials.Error;', ['instanceof'], true],
+			['for (const key in core) primordials.ObjectFreeze(key);', ['for-in'], true],
+			["'ops' in core;", ['in'], true],
+			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
+			['primordials.ObjectFreeze``;', ['tagged template'], false],
+			['class Failure extends primordials.Error {}\n\tnew Failure();', ['extends'], true],
+			// a string or a number made of a value that isn't primitive
+			['`${core}`;', ['coercion'], true],
+			["'' + core;", ['coercion'], true],
+			["let text = '';\n\ttext += core;\n\tprimordials.ObjectFreeze(text);", ['coercion'], true],
+			['core == bootstrap.core;', ['coercion'], true],
+			['core < bootstrap.core;', ['coercion'], true],
+			['+core;', ['coercion'], true],
+			['({ [primordials.ObjectCreate(null)]: 1 });', ['coercion'], false],
+			// of a value whose type says nothing, or not enough, of what it is
+			['((given: unknown) => `${given}`);', ['coercion'], true],
+			['((given: string | object) => `${given}`);', ['coercion'], true],
+			['(<T>(given: T) => `${given}`);', ['coercion'], true],
+			['((given: string & { brand: true }) => `${given}`);', ['coercion'], true],
+			["((loose: any) => '' + loose);", ['any', 'coercion'], true],
+			// a member of a value the bootstrap object didn't give
+			['({ core }).core;', ['member'], true],
+			["((given: { name: string }) => given.name)({ name: '' });", ['member'], true],
+			["(({ name }: { name: string }) => name)({ name: '' });", ['member'], true],
+			["const { name } = { name: '' };\n\tprimordials.ObjectFreeze(name);", ['member'], true],
+			["const made = { name: '' };\n\tmade.name;", ['member'], true],
+			['let ops = core;\n\tops = core;\n\tops.ops;', ['member'], true],
+			['core?.ops;', ['member'], true],
+			['for (const item of [core]) item.ops;', ['for-of', 'member'], true],
+			['const [first] = core;\n\tfirst.ops;', ['array pattern', 'member'], false],
+			[
+				"const key = 'ops';\n\tconst { [key]: ops } = core;\n\tprimordials.ObjectFreeze(ops);",
+				['member'],
+				true
+			],
+			["core['ops'];", ['member'], true],
+			['const { ops = 1 } = core;\n\tprimordials.ObjectFreeze(ops);', ['member'], true],
+			[
+				'class Handle {\n\t\tbrand = 1;\n\t\tread(): number {\n\t\t\treturn this.brand;\n\t\t}\n\t}\n\tnew Handle();',
+				['member'],
+				true
+			],
+			// a property written
+			["const made = { name: '' };\n\tmade.name = '';", ['member', 'property write'], true],
+			['const made = { count: 0 };\n\tmade.count++;', ['member', 'property write'], true],
+			['core.ops = core.ops;', ['property write'], false],
+			['delete core.ops;', ['property write'], false],
+			["core['ops'] = core.ops;", ['member', 'property write'], false],
+			['const made = { count: 0 };\n\tmade.count--;', ['member', 'property write'], true],
+			['const made = { count: 0 };\n\t++made.count;', ['member', 'property write'], true],
+			['const made = { count: 0 };\n\tmade.count += 1;', ['member', 'property write'], true],
+			[
+				'let held;\n\t({ core: held } = bootstrap);\n\tprimordials.ObjectFreeze(held);',
+				['destructuring assignment'],
+				true
+			],
+			['function* make() {\n\t\tyield 1;\n\t}\n\tmake;', ['generator'], false],
+			['({\n\t\t*make() {\n\t\t\tyield 1;\n\t\t}\n\t});', ['generator'], false],
+			// what leaves the type check
+			['globalThis;', ['globalThis'], true],
+			['(function () {\n\t\treturn arguments;\n\t});', ['arguments'], true],
+			['(core as { ops: object }).ops;', ['member', 'type assertion'], true],
+			[
+				'(primordials.ObjectCreate(null) as unknown as { slice(): string }).slice();',
+				['member', 'type assertion'],
+				true
+			],
+			['<object>core;', ['type assertion'], true],
+			['core!;', ['type assertion'], true],
+			['((loose: any) => loose.ops)(core);', ['any', 'member'], true],
+			['// @ts-expect-error\n\tcore.nope;', ['@ts- directive'], true],
+			['// @ts-ignore\n\tcore.nope;', ['@ts- directive'], true],
+			['glob\\u0061lThis;', ['globalThis'], true],
+			[
+				'declare const structuredClone: (value: object) => object;\n\tstructuredClone(core);',
+				['declare'],
+				false
+			],
+			[
+				'function to_text(value: unknown): string;\n\tfunction to_text(value: unknown): unknown {\n\t\treturn value;\n\t}\n\t`${to_text(core)}`;',
+				['overload'],
+				true
+			],
+			[
+				'class Reader {\n\t\tread(value: unknown): string;\n\t\tread(value: unknown): unknown {\n\t\t\treturn value;\n\t\t}\n\t}\n\tnew Reader();',
+				['overload'],
+				true
+			],
+			[
+				'const is_text = (value: unknown): value is string => value === core;\n\tconst made: unknown = core;\n\tif (is_text(made)) `${made}`;',
+				['type predicate'],
+				true
+			],
+			['bootstrap = { core, primordials };', ['parameter write'], true],
+			// what it doesn't refuse: a member of what the bootstrap object gave, by a pattern
+			// or a name, a private name, a spread of a literal, and a string made of primitives
+			['bootstrap.core.ops;', [], true],
+			['const { ops } = core;\n\tprimordials.ObjectFreeze(ops);', [], true],
+			['const given = core;\n\tgiven.ops;', [], true],
+			[
+				'class Handle {\n\t\t#brand = 1;\n\t\tread(): number {\n\t\t\treturn this.#brand;\n\t\t}\n\t}\n\tnew Handle();',
+				[],
+				true
+			],
+			[
+				'class Handle {\n\t\t#brand = 1;\n\t\tstatic is(value: object): boolean {\n\t\t\treturn #brand in value;\n\t\t}\n\t}\n\tprimordials.ObjectFreeze(Handle);',
+				[],
+				true
+			],
+			['({ ...{ core } });', [], true],
+			["primordials.ObjectFreeze('made' as const);", [], true],
+			["`${1}${''}`;", [], true],
+			['`${true}${1n}${null}${undefined}`;', [], true],
+			["((given: unknown) => (typeof given === 'string' ? `${given}` : ''));", [], true],
+			['((key: symbol) => ({ __proto__: null, [key]: 1 }));', [], true],
+			['((count: number) => {\n\t\tcount = 1;\n\t\treturn count;\n\t});', [], true],
+			['((callback: () => number) => callback() + 1);', [], true],
+			[
+				'interface Shape {\n\t\tread(): number;\n\t}\n\tclass Handle implements Shape {\n\t\tread(): number {\n\t\t\treturn 1;\n\t\t}\n\t}\n\tnew Handle();',
+				[],
+				true
+			],
+			["1 + 1 < 3 === ('' + 1 === '1');", [], true]
+		] satisfies Array<[string, Array<string>, boolean]>) {
 			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
 			assert.notStrictEqual(mutated, source);
-			assert.deepEqual(find_unchecked_syntax(mutated), [name], use);
+			const analysis = analyze_implementation(row, mutated);
+			assert.deepEqual(analysis.refused, refused, use);
+			assert.strictEqual(analysis.diagnostics.length === 0, accepted, `${use}: the program`);
+		}
+	});
+
+	test('each operator that makes a string or a number of a value that is not one is refused', () => {
+		const refused = (use: string): Array<string> =>
+			analyze_implementation(row, source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`)).refused;
+		const binary = ['+', '-', '*', '**', '/', '%', '<<', '>>', '>>>', '&', '|', '^'];
+		for (const operator of [...binary, '==', '!=', '<', '<=', '>', '>=']) {
+			// either operand
+			assert.deepEqual(refused(`core ${operator} 1;`), ['coercion'], `core ${operator} 1`);
+			assert.deepEqual(refused(`1 ${operator} core;`), ['coercion'], `1 ${operator} core`);
+		}
+		for (const operator of binary) {
+			const use = `let made = 1;\n\tmade ${operator}= core;\n\tprimordials.ObjectFreeze(made);`;
+			assert.deepEqual(refused(use), ['coercion'], `${operator}=`);
+		}
+		for (const operator of ['+', '-', '~', '++', '--']) {
+			assert.deepEqual(refused(`let held = core;\n\t${operator}held;`), ['coercion'], operator);
+		}
+		for (const operator of ['++', '--']) {
+			assert.deepEqual(refused(`let held = core;\n\theld${operator};`), ['coercion'], operator);
+		}
+		// and none of them of numbers
+		for (const operator of binary) {
+			const use = `let made = 1;\n\tmade ${operator}= 2 ${operator} 3;\n\tprimordials.ObjectFreeze(-made);`;
+			assert.deepEqual(refused(use), [], use);
+		}
+	});
+
+	test('a member declared optional is refused, of the bootstrap object too', () => {
+		const declarations = readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8');
+		const declared = '\treadonly core: {\n';
+		assert.include(declarations, declared, 'the declaration to mutate is there');
+		// read as a member, and bound by a pattern
+		for (const use of [
+			'bootstrap.maybe;',
+			'const { maybe } = bootstrap;\n\tprimordials.ObjectFreeze(maybe);'
+		]) {
+			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+			for (const [member, refused] of [
+				['readonly maybe: object;', []],
+				['readonly maybe?: object;', ['member']]
+			] satisfies Array<[string, Array<string>]>) {
+				const analysis = analyze_implementation(
+					row,
+					mutated,
+					declarations.replace(declared, `\t${member}\n${declared}`)
+				);
+				assert.deepEqual(analysis.diagnostics, [], member);
+				assert.deepEqual(analysis.refused, refused, `${use} with ${member}`);
+			}
+		}
+	});
+
+	test('a script that is not one function is refused', () => {
+		for (const other of [`${source}(function () {});\n`, 'const made = 1;\n', '(() => 1);\n']) {
+			assert.include(analyze_implementation(row, other).refused, 'not one function', other);
+		}
+	});
+});
+
+describe('what the bootstrap object gives', () => {
+	const bootstrap = readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8');
+	const intrinsics = readFileSync(INTRINSICS_DECLARATIONS_PATH, 'utf8');
+
+	const find = (declared = bootstrap, declared_intrinsics = intrinsics): Array<string> =>
+		find_unreviewed_declarations(declared, declared_intrinsics, REVIEWED_PRIMORDIALS);
+
+	/**
+	 * `text` with `from` replaced by `to`, `from` being there.
+	 */
+	const mutate = (text: string, from: string, to: string): string => {
+		assert.include(text, from, 'the declaration to mutate is there');
+		return text.replace(from, to);
+	};
+
+	test('is the reviewed ops and primordials, and no more', () => {
+		assert.deepEqual(find(), []);
+		for (const { why } of Object.values(REVIEWED_PRIMORDIALS)) assert.isAbove(why.length, 40);
+	});
+
+	test('an unreviewed declaration is found', () => {
+		const core = '\treadonly core: {\n';
+		const ops = '\t\treadonly ops: {\n';
+		const primordials = '\treadonly primordials: {\n';
+		for (const [mutated, found] of [
+			// the object every extension script shares, and the bootstrap object's other members
+			[mutate(bootstrap, core, `\treadonly internals: object;\n${core}`), ['Bootstrap.internals']],
+			// a script loaded from an implementation, and any other function of `core`
+			[
+				mutate(
+					bootstrap,
+					ops,
+					`\t\treadonly loadExtScript: (specifier: string) => object;\n${ops}`
+				),
+				['core.loadExtScript']
+			],
+			// an op that isn't a host op of gro's, and one that isn't a function
+			[
+				mutate(bootstrap, ops, `${ops}\t\t\treadonly op_eval_context: () => object;\n`),
+				['core.ops.op_eval_context']
+			],
+			[
+				mutate(bootstrap, ops, `${ops}\t\t\treadonly op_gro_made: { call: () => object };\n`),
+				['core.ops.op_gro_made']
+			],
+			// a primordial nothing reviewed, and a reviewed one declared otherwise
+			[
+				mutate(
+					bootstrap,
+					primordials,
+					`${primordials}\t\treadonly ArrayPrototypeMap: (list: object) => object;\n`
+				),
+				['primordials.ArrayPrototypeMap']
+			],
+			[
+				mutate(bootstrap, '(prototype: null) => object', '(prototype: object | null) => object'),
+				['primordials.ObjectCreate: (prototype: object | null) => object']
+			],
+			// an optional member, and a method
+			[
+				mutate(bootstrap, primordials, `${primordials}\t\treadonly Maybe?: () => object;\n`),
+				['Bootstrap.primordials: readonly Maybe?: () => object;']
+			],
+			[mutate(bootstrap, core, `\tload(): object;\n${core}`), ['Bootstrap: load(): object;']],
+			// a reviewed primordial that's no longer declared
+			[
+				mutate(bootstrap, '\t\treadonly ObjectFreeze: <T>(value: T) => Readonly<T>;\n', ''),
+				['primordials.ObjectFreeze is reviewed and gone']
+			],
+			// a second declaration, another name, and members taken from another interface
+			[
+				`${bootstrap}interface Extra {}\n`,
+				['bootstrap.d.ts declares more or less than the interface `Bootstrap`']
+			],
+			[
+				mutate(bootstrap, 'interface Bootstrap {', 'interface Other {'),
+				['bootstrap.d.ts declares more or less than the interface `Bootstrap`']
+			],
+			[
+				mutate(
+					bootstrap,
+					'interface Bootstrap {',
+					'interface Bootstrap extends ErrorConstructor {'
+				),
+				['bootstrap.d.ts declares more or less than the interface `Bootstrap`']
+			]
+		] satisfies Array<[string, Array<string>]>) {
+			assert.deepEqual(find(mutated), found);
+		}
+		// a member whose type is written elsewhere, where this reads none of its members
+		const named = 'interface Bootstrap {\n\treadonly core: Core;\n\treadonly primordials: {};\n}\n';
+		assert.include(find(named), "Bootstrap.core isn't an object's type written in place");
+	});
+
+	test('a member of an intrinsic is found', () => {
+		for (const [mutated, found] of [
+			[
+				mutate(intrinsics, 'interface Array<T> {}', 'interface Array<T> {\n\tlength: number;\n}'),
+				['intrinsics.d.ts Array']
+			],
+			[
+				mutate(
+					intrinsics,
+					'\tnew (message?: string): Error;\n',
+					'\tnew (message?: string, options?: object): Error;\n'
+				),
+				['intrinsics.d.ts ErrorConstructor']
+			],
+			[
+				mutate(
+					intrinsics,
+					'\tnew (message?: string): Error;\n',
+					'\tnew (message?: string): Error;\n\tcaptureStackTrace(target: object): void;\n'
+				),
+				['intrinsics.d.ts ErrorConstructor']
+			],
+			[
+				mutate(intrinsics, 'interface String {}', 'interface String extends Object {}'),
+				['intrinsics.d.ts String extends']
+			],
+			// the one member allowed, of another interface
+			[
+				mutate(
+					intrinsics,
+					'interface Array<T> {}',
+					'interface Array<T> {\n\tnew (message?: string): Error;\n}'
+				),
+				['intrinsics.d.ts Array']
+			]
+		] satisfies Array<[string, Array<string>]>) {
+			assert.deepEqual(find(bootstrap, mutated), found);
 		}
 	});
 });

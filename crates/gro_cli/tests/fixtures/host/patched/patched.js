@@ -4,6 +4,8 @@
 
 import { NAMES } from './names.js';
 import { arm, patch_realm } from './realm.js';
+// loaded now, before the patch, for what it takes from the realm
+import './exercise.js';
 
 // the runtime takes this module's evaluation promise now, while `then` is the realm's own
 await null;

@@ -191,7 +191,8 @@ check('assign', threw === 2 && JSON.stringify(args) === '[\"x\",\"y\"]');
 /// object a builtin's implementation is called with among them, stay
 /// unreachable before and after the imports, by any own property or
 /// prototype from the global object and from every builtin's namespace,
-/// its exports, and what a function it exports returns.
+/// its exports, and what a function it exports returns or a class it
+/// exports constructs.
 #[test]
 fn patched_intrinsics_change_nothing_and_the_internals_stay_unreachable() {
     let source = format!(
@@ -234,12 +235,13 @@ const after = internals();
 if (before !== 'undefined,undefined,undefined,undefined' || after !== before) throw new Error(`internals: ${{before}} ${{after}}`);
 const seen = new Set();
 const queue = [globalThis];
+const made = (fn) => /^class\\b/.test(Function.prototype.toString.call(fn)) ? new fn() : fn();
 for (const specifier of {specifiers}) {{
 \tconst ns = await import(specifier);
 \tqueue.push(ns);
 \tfor (const key of Reflect.ownKeys(ns)) {{
 \t\tqueue.push(ns[key]);
-\t\tif (typeof ns[key] === 'function') queue.push(ns[key]());
+\t\tif (typeof ns[key] === 'function') queue.push(made(ns[key]));
 \t}}
 }}
 if (!queue.includes(args)) throw new Error('the walk starts without the array');
