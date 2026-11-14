@@ -136,9 +136,10 @@ Designed; `fgro eval` is the closest built thing to it, with the gaps [eval](eva
 
 ## host modules
 
-The imports that reach the OS (fs, process, spawn, watch, net), Gro's own modules under `@fuzdev/gro/*`.
+The imports that reach the OS (fs, spawn, watch, net, and the process modules), Gro's own modules under `@fuzdev/gro/*`.
 Each is a visible edge in the import graph, so a run's host modules are [inferred](#inference).
-On `fgro`, `process` is designed to split into a module per kind of authority it carries, each its own grant.
+The running process is one module per kind of authority it carries (`env`, `args`, `exit`, `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`),
+each designed as its own grant on `fgro` but the observations, which need none.
 [host modules](host_modules.md) is the reference.
 
 ## inference

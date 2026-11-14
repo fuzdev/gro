@@ -26,14 +26,24 @@ because it isn't on the list.
 */
 
 // each host module with its error module, apart from it so matching an error grants nothing;
-// `watch.ts` throws `FsError`, so it has none of its own
+// `watch.ts` throws `FsError`, the three stdio modules share `stdio_error.ts`, and `args.ts`,
+// `exit.ts`, `cwd.ts`, `pid.ts`, and `runtime_version.ts` throw none of their own
 const HOST_MODULES = [
 	'fs.ts',
 	'fs_error.ts',
 	'spawn.ts',
 	'spawn_error.ts',
-	'process.ts',
-	'process_error.ts',
+	'env.ts',
+	'env_error.ts',
+	'args.ts',
+	'exit.ts',
+	'stdin.ts',
+	'stdout.ts',
+	'stderr.ts',
+	'stdio_error.ts',
+	'cwd.ts',
+	'pid.ts',
+	'runtime_version.ts',
 	'net.ts',
 	'net_error.ts',
 	'watch.ts'

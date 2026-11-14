@@ -140,7 +140,7 @@ const to_path_first_hint = (
  * @throws TaskError when a flag replaces the positional args, like `--_` or `--no-_`,
  *   `gro run` has a flag other than `--help` before its path,
  *   or `gro task` has a flag before its path or one other than `--help` with none
- * @param cli_args - the args after the CLI's own path, the task name first, as in `process.args`
+ * @param cli_args - the args after the CLI's own path, the task name first, as in the `args` host module
  */
 export const to_task_args = (cli_args: ReadonlyArray<string>): CliTaskArgs => {
 	assert_no_task_flags_before_path(cli_args);
@@ -200,7 +200,7 @@ const to_positionals = (args: Args, argv: Array<string>): Array<Positional> => {
 /**
  * Gets the array of raw string args starting with the first `--`, if any.
  * `gro run <path> ...rest` has none, as everything after the path is the script's.
- * @param cli_args - the args after the CLI's own path, as in `process.args`
+ * @param cli_args - the args after the CLI's own path, as in the `args` host module
  */
 export const to_raw_rest_args = (cli_args: ReadonlyArray<string>): Array<string> => {
 	if (to_run_path_index(cli_args) !== -1) return [];
@@ -258,7 +258,7 @@ export const to_forwarded_argv = (
  * A first section starting with `gro` (a Gro task's) or with `command` (an explicit section,
  * read by `to_forwarded_argv`) is none.
  * @param task_name - the asking task's name, a builtin name or a normalized task path
- * @param cli_args - the args after the CLI's own path, as in `process.args`
+ * @param cli_args - the args after the CLI's own path, as in the `args` host module
  * @param root - the project root a task path in `cli_args` is relative to
  * @param command - the tool's CLI name, whose explicit section isn't implicit
  * @returns the first section's args, empty when absent or not for `task_name`

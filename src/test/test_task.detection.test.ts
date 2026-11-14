@@ -6,11 +6,9 @@ import { is_task_error } from '#lib/task.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
-import { set_mock_process_args } from './process_mocks.ts';
+import { set_mock_args } from './args_mocks.ts';
 
-vi.mock('#lib/process.ts', async () =>
-	(await import('./process_mocks.ts')).create_mock_process_module()
-);
+vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -36,7 +34,7 @@ const NO_RUNNER = 'no test runner found, add vitest to devDependencies';
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	set_mock_process_args(['test']);
+	set_mock_args(['test']);
 	(await get_mock_spawn()).reset();
 });
 

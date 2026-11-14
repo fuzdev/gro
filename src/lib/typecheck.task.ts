@@ -2,7 +2,9 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { stderr } from './stderr.ts';
+import { stdout } from './stdout.ts';
 import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
 import {
 	find_cli,
@@ -54,7 +56,7 @@ export const task: Task<Args> = {
 			env: { FORCE_COLOR: '1' } // Needed for colors (maybe make an option)
 		});
 		if (found_svelte_check_cli) {
-			const forwarded_argv = to_forwarded_argv(svelte_check_cli, to_raw_rest_args(process.args));
+			const forwarded_argv = to_forwarded_argv(svelte_check_cli, to_raw_rest_args(args));
 			const svelte_check_child = await spawn_cli_process(
 				found_svelte_check_cli,
 				forwarded_argv,
@@ -67,7 +69,7 @@ export const task: Task<Args> = {
 				svelte_check_child,
 				path_replacement,
 				cwd,
-				process
+				{ stdout, stderr }
 			);
 			const [svelte_check_result] = await Promise.all([svelte_check_child.closed, output_written]);
 
@@ -81,7 +83,7 @@ export const task: Task<Args> = {
 		// Fall back to tsc.
 		const found_typescript_cli = find_cli(spawn, typescript_cli, { pass_env: 'all' });
 		if (found_typescript_cli) {
-			const forwarded_argv = to_forwarded_argv(typescript_cli, to_raw_rest_args(process.args));
+			const forwarded_argv = to_forwarded_argv(typescript_cli, to_raw_rest_args(args));
 			// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
 			// and `--noEmit` goes last because `--build` must be tsc's first arg
 			const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)

@@ -23,7 +23,7 @@ import {
 	to_git_program
 } from './git.ts';
 import { spawn } from './spawn.ts';
-import { process } from './process.ts';
+import { runtime_version } from './runtime_version.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -86,7 +86,7 @@ export const task: Task<Args> = {
 		const [workspace_status, initial_commit, cache_dependencies] = await Promise.all([
 			git_check_clean_workspace(git),
 			git_current_commit_hash(git),
-			load_build_cache_dependencies(fs_paths, process.runtime_version)
+			load_build_cache_dependencies(fs_paths, runtime_version)
 		]);
 		const workspace_dirty = !!workspace_status;
 

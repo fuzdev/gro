@@ -10,12 +10,10 @@ import type { FsSearchResult } from '#lib/fs_search.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { git_ops, install_mock_git } from './git_mocks.ts';
-import { set_mock_process_args } from './process_mocks.ts';
+import { set_mock_args } from './args_mocks.ts';
 import { FsError } from '#lib/fs_error.ts';
 
-vi.mock('#lib/process.ts', async () =>
-	(await import('./process_mocks.ts')).create_mock_process_module()
-);
+vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -83,7 +81,7 @@ describe('gro check test step', () => {
 		vi.clearAllMocks();
 		(await get_mock_spawn()).reset();
 		(await find_mock()).mockResolvedValue([]);
-		set_mock_process_args(['check']);
+		set_mock_args(['check']);
 	});
 
 	test('runs the test task with vitest declared, with no search', async () => {
@@ -183,7 +181,7 @@ describe('gro check test step', () => {
 
 	test('a forwarded `gro test` section runs the test task, with no search', async () => {
 		await declare({});
-		set_mock_process_args(['check', '--', 'gro', 'test', '--dir', 'x']);
+		set_mock_args(['check', '--', 'gro', 'test', '--dir', 'x']);
 		const ctx = create_ctx();
 		await check_task.run(ctx);
 		assert.strictEqual(test_invocations(ctx), 1);
@@ -192,11 +190,11 @@ describe('gro check test step', () => {
 
 	test('args forwarded to vitest run the test task, an empty section does not', async () => {
 		await declare({});
-		set_mock_process_args(['check', '--', 'vitest', '--dir', 'x']);
+		set_mock_args(['check', '--', 'vitest', '--dir', 'x']);
 		const ctx = create_ctx();
 		await check_task.run(ctx);
 		assert.strictEqual(test_invocations(ctx), 1);
-		set_mock_process_args(['check', '--', 'vitest']);
+		set_mock_args(['check', '--', 'vitest']);
 		const empty_ctx = create_ctx();
 		await check_task.run(empty_ctx);
 		assert.strictEqual(test_invocations(empty_ctx), 0);
@@ -205,7 +203,7 @@ describe('gro check test step', () => {
 
 	test('a forwarded section for another task still searches', async () => {
 		await declare({});
-		set_mock_process_args(['check', '--', 'gro', 'typecheck', '--a']);
+		set_mock_args(['check', '--', 'gro', 'typecheck', '--a']);
 		const ctx = create_ctx();
 		await check_task.run(ctx);
 		assert.strictEqual(test_invocations(ctx), 0);

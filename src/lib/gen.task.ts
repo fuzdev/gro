@@ -21,10 +21,10 @@ import {
 import { SOURCE_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
-import { process } from './process.ts';
+import { cwd } from './cwd.ts';
 
 // read once when the module loads, so every parse fills in the same directory
-const root_dir_default = process.cwd();
+const root_dir_default = cwd();
 
 /** @nodocs */
 export const Args = s.object({

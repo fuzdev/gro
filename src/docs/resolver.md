@@ -55,7 +55,7 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 ## Builtin modules
 
 A bare specifier in the builtin table names a [builtin module](glossary.md#builtin-module), a host module the binary implements:
-today `@fuzdev/gro/process.ts` alone ([host modules](host_modules.md#process-on-fgro)).
+today `@fuzdev/gro/process.ts` alone ([host modules](host_modules.md#the-process-modules-on-fgro)).
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
 the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/process.js`), and the specifier of a host module not built on `fgro` yet

@@ -3,7 +3,8 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { stderr } from './stderr.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
@@ -141,12 +142,12 @@ export const task: Task<Args> = {
 		if (force) {
 			install_args.push('--force');
 		}
-		install_args.push(...to_forwarded_argv(config.pm_cli, to_raw_rest_args(process.args)));
+		install_args.push(...to_forwarded_argv(config.pm_cli, to_raw_rest_args(args)));
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 			install_args,
 			heal_cache: !dry,
 			log,
-			stderr: process.stderr
+			stderr
 		});
 
 		// TODO @many this relies on npm behavior that changed in v11
@@ -156,7 +157,7 @@ export const task: Task<Args> = {
 			log.info(`installing again to fix npm lockfile bugs`);
 			await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 				log,
-				stderr: process.stderr
+				stderr
 			});
 		}
 

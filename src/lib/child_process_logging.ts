@@ -1,10 +1,10 @@
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
 
-import type { ProcessOutput } from './process.ts';
+import type { ProcessOutput } from './stdout.ts';
 import type { SpawnChild } from './spawn.ts';
 
 /**
- * Where a child's mapped output goes, like the process host module's `stdout` and `stderr`.
+ * Where a child's mapped output goes, like the `stdout` and `stderr` host modules.
  */
 export interface ChildOutputTargets {
 	stdout: ProcessOutput;
@@ -15,7 +15,7 @@ export interface ChildOutputTargets {
  * Maps a child's piped output through a transform function to `targets`,
  * chunk by chunk, decoding each stream as UTF-8 across chunk boundaries.
  * Each write is awaited, so a slow reader paces the child.
- * @param targets - where the output goes, `process.stdout` and `process.stderr` at a root
+ * @param targets - where the output goes, `stdout` and `stderr` at a root
  * @returns a promise that resolves once both streams have ended and been written
  */
 export const map_child_process_output = async (

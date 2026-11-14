@@ -48,7 +48,7 @@ errors and exit codes. Where it lives:
   reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
   own) in `task_args.ts`; CLI-forwarded args override args passed to
   `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
-  take the CLI args after the CLI's own path (`process.args`), and a root or
+  take the CLI args after the CLI's own path (`args`, from `args.ts`), and a root or
   `invoke_task`'s `raw_rest_args` option passes them
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
@@ -473,10 +473,14 @@ Key utilities:
   `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
   `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
   handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
-  plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import `process.ts`,
-  the process host module (`process_error.ts` has its `ProcessError` and `is_process_error`,
-  grant-free), library code taking a `cwd` string, a plain record, or the CLI args,
-  but for `internal/fs_boundary.ts`, which reads `HOME` once at load for its protected directories;
+  plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import the process
+  modules, one per kind of authority: `env.ts`, `args.ts`, `exit.ts` (`exit`, `set_exit_code`),
+  `stdin.ts`, `stdout.ts` (with `ProcessOutput`, the type `stderr.ts` shares), `stderr.ts`,
+  `cwd.ts`, `pid.ts`, `runtime_version.ts`, the two streams' implementation in
+  `internal/process_output.ts`; their errors grant-free in `env_error.ts` (`EnvError`,
+  `is_env_error`) and `stdio_error.ts` (`StdioError`, `is_stdio_error`); library code takes a
+  `cwd` string, a plain record, the CLI args, or a stream,
+  but for `internal/fs_boundary.ts`, which reads `HOME` through `env` once at load for its protected directories;
   Gro's library and task code uses no `node:child_process` but `spawn.ts`, and
   no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;

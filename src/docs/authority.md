@@ -10,10 +10,10 @@
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
 
-- **host modules** are the imports that reach the OS (fs, process, spawn, watch, net),
+- **host modules** are the imports that reach the OS (fs, spawn, watch, net, and the process modules),
   each a visible edge in the graph ([host modules](host_modules.md)),
-  with `process` designed to split into a module per kind of authority it carries
-  ([process on `fgro`](host_modules.md#process-on-fgro))
+  the running process one module per kind of authority it carries, each its own grant
+  ([the process modules](host_modules.md#the-process-modules))
 - **authority globals** are the web globals that would carry authority
   (the network, storage that outlives the run, a channel found by name, code outside the graph);
   Gro has none, since a global reaches every module in the graph:

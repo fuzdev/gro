@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import type { Plugin } from './plugin.ts';
 import { spawn } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
-import { process } from './process.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { load_env_file } from './env_files.ts';
@@ -72,7 +73,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 			if (!(await entry_file.dir.exists(entry_file.path))) {
 				throw new TaskError(`${LABEL} cannot find the server entry: ${entry}`);
 			}
-			const entry_id = resolve(process.cwd(), entry);
+			const entry_id = resolve(cwd(), entry);
 
 			if (watch) {
 				const { dir, filter } = config.watch;
@@ -92,21 +93,21 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 					log.warn(`${LABEL} env file not found, loading none: ${env_file}`);
 				} else {
 					for (const [name, value] of Object.entries(loaded)) {
-						if (process.env.get(name) === undefined) file_env[name] = value;
+						if (env.get(name) === undefined) file_env[name] = value;
 					}
 				}
 			}
-			const env = { ...file_env, NODE_ENV: 'development', ...extra_env };
+			const child_env = { ...file_env, NODE_ENV: 'development', ...extra_env };
 
 			log.info(`${LABEL} starting ${entry}${watch ? ', restarting on changes' : ''}`);
 			try {
 				// pinned here, so every restart runs this `node` with this environment
-				const node = spawn.program('node', { pass_env: 'all', env });
+				const node = spawn.program('node', { pass_env: 'all', env: child_env });
 				const args = spawn_with_loader_args(
 					resolve_gro_module_path('loader.js'),
 					entry,
 					[],
-					env.NODE_ENV
+					child_env.NODE_ENV
 				);
 				server = await start_watched_server({
 					program: node,
@@ -115,7 +116,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 					graph: watch ? graph : null,
 					log,
 					label: LABEL,
-					cwd: process.cwd()
+					cwd: cwd()
 				});
 			} catch (error) {
 				if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });

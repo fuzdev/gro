@@ -24,7 +24,8 @@ import { CHANGESET_CLI, changeset_has_pending } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { spawn } from './spawn.ts';
-import { process } from './process.ts';
+import { env } from './env.ts';
+import { stderr } from './stderr.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -202,7 +203,7 @@ export const task: Task<Args> = {
 			if (!preserve_changelog) {
 				const token = await load_from_env(
 					fs_paths,
-					process.env.narrow(['SECRET_GITHUB_API_TOKEN']).get_all(),
+					env.narrow(['SECRET_GITHUB_API_TOKEN']).get_all(),
 					'SECRET_GITHUB_API_TOKEN',
 					// one key, named here, so a token in a workspace's `.env` serves its repos
 					['.env', '../.env']
@@ -228,7 +229,7 @@ export const task: Task<Args> = {
 			if (install) {
 				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 					log,
-					stderr: process.stderr,
+					stderr,
 					context: 'after version bump'
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,

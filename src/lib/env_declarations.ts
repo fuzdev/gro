@@ -23,7 +23,7 @@ export interface LoadEnvOptions {
 	 */
 	env_files?: Array<string>;
 	/**
-	 * The env merged in last, a plain record a root builds, like `process.env.get_all()`.
+	 * The env merged in last, a plain record a root builds, like `env.get_all()`.
 	 */
 	ambient_env: Readonly<Record<string, string | undefined>>;
 }

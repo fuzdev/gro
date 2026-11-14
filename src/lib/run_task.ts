@@ -19,8 +19,9 @@ import {
 import { log_task_help } from './task_logging.ts';
 import { is_fs_error } from './fs_error.ts';
 import { is_net_error } from './net_error.ts';
-import { is_process_error } from './process_error.ts';
 import { is_spawn_error } from './spawn_error.ts';
+import { is_env_error } from './env_error.ts';
+import { is_stdio_error } from './stdio_error.ts';
 
 /**
  * A task's run: its return value as `output`, or why it failed, with the error.
@@ -146,4 +147,8 @@ export const run_task = async (
 
 // an error from a host module, from any copy of Gro, which a broken install doesn't explain
 const is_host_module_error = (error: unknown): boolean =>
-	is_fs_error(error) || is_spawn_error(error) || is_net_error(error) || is_process_error(error);
+	is_fs_error(error) ||
+	is_spawn_error(error) ||
+	is_net_error(error) ||
+	is_env_error(error) ||
+	is_stdio_error(error);

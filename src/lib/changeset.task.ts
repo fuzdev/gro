@@ -13,7 +13,7 @@ import {
 } from './git.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
-import { process } from './process.ts';
+import { stderr } from './stderr.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import {
 	CHANGESET_CLI,
@@ -159,7 +159,7 @@ export const task: Task<Args> = {
 				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 					install_args: ['-D', changelog],
 					log,
-					stderr: process.stderr,
+					stderr,
 					throw_if_gro_packages_changed: true,
 					fs_paths
 				});

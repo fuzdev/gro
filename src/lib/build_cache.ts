@@ -104,7 +104,7 @@ export const BuildCacheMetadata = s.object({
 	}),
 	gro_version: meta(s.string, { description: 'version of the Gro that ran the build' }),
 	runtime_version: meta(s.string, {
-		description: 'name and version of the runtime that ran the build, `process.runtime_version`'
+		description: 'name and version of the runtime that ran the build, `runtime_version`'
 	}),
 	package_lock_hash: meta(s.nullable(s.string), {
 		description: 'BLAKE3 hash of node_modules/.package-lock.json, null when missing'

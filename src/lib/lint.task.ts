@@ -4,7 +4,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { spawn } from './spawn.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
 import { TaskError, type Task } from './task.ts';
 
 const ESLINT_CLI = 'eslint';
@@ -31,7 +31,7 @@ export const task: Task<Args> = {
 		}
 
 		// the forwarded text goes verbatim after Gro's own args, which drop what it overrides
-		const forwarded_argv = to_forwarded_argv(eslint_cli, to_raw_rest_args(process.args));
+		const forwarded_argv = to_forwarded_argv(eslint_cli, to_raw_rest_args(args));
 		const serialized_args = [..._];
 		if (!has_forwarded_flag(forwarded_argv, 'max-warnings')) {
 			serialized_args.push('--max-warnings', '0');

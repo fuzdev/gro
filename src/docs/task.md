@@ -422,7 +422,7 @@ A failed task is reported once, where it fails:
 `invoke_task` logs the error and throws a `SilentError` with the original error as its `cause`,
 so an invoking task reports only that it failed.
 Any other error is logged with its stack: a host module's (`FsError`, `SpawnError`, `NetError`,
-`ProcessError`) as the task's own failure, like a missing file, and anything else as unexpected,
+`EnvError`, `StdioError`) as the task's own failure, like a missing file, and anything else as unexpected,
 with a hint to reinstall dependencies and run `gro clean`.
 The CLI exits with `1`, or with the `exit_code` of a `TaskError` thrown by the task it invoked,
 an integer 1–255, like `throw new TaskError('failed', {exit_code: 3})`.

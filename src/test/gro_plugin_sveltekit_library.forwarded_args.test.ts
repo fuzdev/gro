@@ -4,11 +4,9 @@ import { gro_plugin_sveltekit_library } from '#lib/gro_plugin_sveltekit_library.
 import { rewrite_dist_imports } from '#lib/dist_rewrite_imports.ts';
 import type { PluginContext } from '#lib/plugin.ts';
 import { create_mock_task_context } from './test_helpers.ts';
-import { set_mock_process_args } from './process_mocks.ts';
+import { set_mock_args } from './args_mocks.ts';
 
-vi.mock('#lib/process.ts', async () =>
-	(await import('./process_mocks.ts')).create_mock_process_module()
-);
+vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
@@ -25,7 +23,7 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 }));
 
 afterEach(() => {
-	set_mock_process_args([]);
+	set_mock_args([]);
 	vi.clearAllMocks();
 });
 
@@ -34,7 +32,7 @@ const to_rewritten_dir = async (
 	forwarded: Array<string> | null,
 	output?: string
 ): Promise<string> => {
-	set_mock_process_args(['build', ...(forwarded ? ['--', 'svelte-package', ...forwarded] : [])]);
+	set_mock_args(['build', ...(forwarded ? ['--', 'svelte-package', ...forwarded] : [])]);
 	const ctx = {
 		...create_mock_task_context(),
 		dev: false,

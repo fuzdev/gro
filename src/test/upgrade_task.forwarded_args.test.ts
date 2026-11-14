@@ -6,11 +6,9 @@ import { TaskError } from '#lib/task.ts';
 import { install_with_cache_healing_or_throw } from '#lib/npm_install_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_task_context } from './test_helpers.ts';
-import { set_mock_process_args } from './process_mocks.ts';
+import { set_mock_args } from './args_mocks.ts';
 
-vi.mock('#lib/process.ts', async () =>
-	(await import('./process_mocks.ts')).create_mock_process_module()
-);
+vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/npm_install_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/npm_install_helpers.ts')>()),
@@ -29,7 +27,7 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 }));
 
 afterEach(async () => {
-	set_mock_process_args([]);
+	set_mock_args([]);
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
 });
@@ -37,7 +35,7 @@ afterEach(async () => {
 describe('upgrade task forwarded args', () => {
 	test('the package manager gets the text verbatim after the install args', async () => {
 		const forwarded = ['--no-audit', '--fetch-retries', '01', '--x='];
-		set_mock_process_args(['upgrade', '--', 'npm', ...forwarded]);
+		set_mock_args(['upgrade', '--', 'npm', ...forwarded]);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
@@ -50,7 +48,7 @@ describe('upgrade task forwarded args', () => {
 	test('a dry run passes `--dry-run` and never heals the cache, and a real one may', async () => {
 		for (const dry of [true, false]) {
 			vi.mocked(install_with_cache_healing_or_throw).mockClear();
-			set_mock_process_args(['upgrade']);
+			set_mock_args(['upgrade']);
 			const parsed = args_parse({ 'no-pull': true, pull: false, dry }, Args);
 			expect(parsed.ok).toBe(true);
 			await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
@@ -61,7 +59,7 @@ describe('upgrade task forwarded args', () => {
 	});
 
 	test('`gro sync` re-invokes the local Gro with the whole environment', async () => {
-		set_mock_process_args(['upgrade']);
+		set_mock_args(['upgrade']);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
@@ -72,7 +70,7 @@ describe('upgrade task forwarded args', () => {
 	});
 
 	test('a failed `gro sync` is a TaskError', async () => {
-		set_mock_process_args(['upgrade']);
+		set_mock_args(['upgrade']);
 		const mock = await get_mock_spawn();
 		mock.result = { kind: 'exited', code: 3 };
 		const parsed = args_parse({ 'no-pull': true, pull: false }, Args);
@@ -88,7 +86,7 @@ describe('upgrade task forwarded args', () => {
 	});
 
 	test('--dry runs the package manager with --dry-run, and neither pulls nor syncs', async () => {
-		set_mock_process_args(['upgrade']);
+		set_mock_args(['upgrade']);
 		const parsed = args_parse({ dry: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));

@@ -5,7 +5,7 @@ import type { Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
-import { process } from './process.ts';
+import { stderr } from './stderr.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -39,7 +39,7 @@ export const task: Task<Args> = {
 		if (install) {
 			await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 				log,
-				stderr: process.stderr,
+				stderr,
 				throw_if_gro_packages_changed: true,
 				fs_paths
 			});

@@ -3,7 +3,7 @@ import { describe, test, assert, vi, beforeEach } from 'vitest';
 import { task as sync_task, type Args } from '#lib/sync.task.ts';
 import { TaskError, type TaskContext } from '#lib/task.ts';
 import { fs } from '#lib/fs.ts';
-import { process as process_host } from '#lib/process.ts';
+import { stderr } from '#lib/stderr.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 
@@ -49,7 +49,7 @@ describe('sync_task install', () => {
 		const { fs_paths, ...options } = install_with_cache_healing_or_throw.mock.calls[0]![2];
 		assert.deepEqual(options, {
 			log: ctx.log,
-			stderr: process_host.stderr,
+			stderr,
 			throw_if_gro_packages_changed: true
 		});
 		// the task's own boundary, over the fs host module's project

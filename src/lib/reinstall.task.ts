@@ -2,7 +2,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import type { Task } from './task.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
-import { process } from './process.ts';
+import { stderr } from './stderr.ts';
 import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -22,7 +22,7 @@ export const task: Task<Args> = {
 		log.info(`running the initial \`${config.pm_cli} install\``);
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 			log,
-			stderr: process.stderr,
+			stderr,
 			context: '(initial)'
 		});
 
@@ -38,7 +38,7 @@ export const task: Task<Args> = {
 		);
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 			log,
-			stderr: process.stderr,
+			stderr,
 			context: `after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}`
 		});
 
@@ -49,7 +49,7 @@ export const task: Task<Args> = {
 		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
 			log,
-			stderr: process.stderr
+			stderr
 		});
 	}
 };

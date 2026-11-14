@@ -17,7 +17,7 @@ import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_sear
 import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
 import { to_checked_cwd } from './cwd.ts';
 import { create_record } from './records.ts';
-import { process } from '../process.ts';
+import { env } from '../env.ts';
 
 // the most symlinks one resolution follows, Linux's own limit
 const MAX_SYMLINKS = 40;
@@ -70,7 +70,7 @@ const to_real_path = async (fs: Fs, path: string, links = { count: 0 }): Promise
 };
 
 // read once, when the module loads; an unset, empty, or relative `HOME` protects nothing
-const HOME = process.env.get('HOME');
+const HOME = env.get('HOME');
 
 // the process's working directory, the project Gro runs in, protected whatever project
 // an `FsPaths` is over, read once when the module loads, as `fs.project` is

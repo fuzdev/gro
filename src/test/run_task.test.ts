@@ -11,8 +11,9 @@ import { SilentError, TaskError, type Task, type TaskContext } from '#lib/task.t
 import { task as run_task_task } from '#lib/run.task.ts';
 import { FsError } from '#lib/fs_error.ts';
 import { NetError } from '#lib/net_error.ts';
-import { ProcessError } from '#lib/process_error.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
+import { EnvError } from '#lib/env_error.ts';
+import { StdioError } from '#lib/stdio_error.ts';
 
 import {
 	TEST_TIMEOUT_MD,
@@ -186,7 +187,8 @@ test('run_task reports a host module error as the task failing, without the rein
 		new FsError('not_found', '/p/missing.txt'),
 		new SpawnError('not_found', 'missing_program'),
 		new NetError('not_granted', 'example.com:443'),
-		new ProcessError('not_granted', 'SECRET')
+		new EnvError('not_granted', 'SECRET'),
+		new StdioError('io_error', 'stdout')
 	]) {
 		const result = await run_task(
 			{

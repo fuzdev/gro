@@ -36,7 +36,7 @@ import {
 	to_protected_dirs
 } from './internal/fs_boundary.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
-import { process } from './process.ts';
+import { cwd } from './cwd.ts';
 
 // docs at ../docs/deploy.md
 
@@ -44,7 +44,7 @@ import { process } from './process.ts';
 // npm run bootstrap && rm -rf .gro && clear && gro deploy --source no-git-workspace --no-build --dry
 
 // TODO customize
-const dir = process.cwd();
+const dir = cwd();
 const INITIAL_FILE_PATH = '.gitkeep';
 const DEPLOY_DIR = GRO_DIRNAME + '/deploy';
 const SOURCE_BRANCH = 'main';

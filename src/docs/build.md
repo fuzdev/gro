@@ -55,7 +55,7 @@ The cache key has these components:
 - **`build_cache_config` hash** - optional, for tracking external inputs like environment variables
   or feature flags (see [cache configuration](#cache-configuration))
 - **Gro version** - from the running Gro's `package.json`
-- **runtime version** - the running runtime's name and version, `process.runtime_version`
+- **runtime version** - the running runtime's name and version, `runtime_version` from `@fuzdev/gro/runtime_version.ts`
 - **installed packages** - a hash of `node_modules/.package-lock.json`,
   the hidden lockfile npm rewrites when it changes what's installed
 
@@ -303,7 +303,7 @@ The `.gro/build.json` file stores:
 	"git_commit": "abc123...", // commit at build time
 	"build_cache_config_hash": "...", // BLAKE3 of user config
 	"gro_version": "...", // version of the Gro that ran the build
-	"runtime_version": "node/v24.0.0", // process.runtime_version
+	"runtime_version": "node/v24.0.0", // runtime_version
 	"package_lock_hash": "...", // BLAKE3 of node_modules/.package-lock.json, null when missing
 	"timestamp": "ISO-8601", // build completion time
 	"outputs": [

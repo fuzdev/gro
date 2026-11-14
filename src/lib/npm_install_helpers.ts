@@ -10,7 +10,7 @@ import { is_spawn_error } from './spawn_error.ts';
 import type { FsReadDir } from './fs.ts';
 import { package_json_load } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
-import type { ProcessOutput } from './process.ts';
+import type { ProcessOutput } from './stdout.ts';
 
 /**
  * Env vars that tell npm to skip devDependencies. We strip these from the
@@ -121,7 +121,7 @@ const create_npm_command_runner =
 export type InstallCacheHealingOptions = InstallCacheHealingBaseOptions &
 	(
 		| {
-				/** where the default runner tees the install's stderr, `process.stderr` at a root */
+				/** where the default runner tees the install's stderr, `stderr` at a root */
 				stderr: ProcessOutput;
 				run?: undefined;
 		  }

@@ -3,16 +3,14 @@ import { describe, test, expect, vi, afterEach } from 'vitest';
 import { task } from '#lib/lint.task.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
-import { set_mock_process_args } from './process_mocks.ts';
+import { set_mock_args } from './args_mocks.ts';
 
-vi.mock('#lib/process.ts', async () =>
-	(await import('./process_mocks.ts')).create_mock_process_module()
-);
+vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
 afterEach(async () => {
-	set_mock_process_args([]);
+	set_mock_args([]);
 	(await get_mock_spawn()).reset();
 });
 
@@ -20,7 +18,7 @@ const run_lint = async (
 	forwarded: Array<string>,
 	_: Array<string> = []
 ): Promise<Array<string>> => {
-	set_mock_process_args(['lint', '--', 'eslint', ...forwarded]);
+	set_mock_args(['lint', '--', 'eslint', ...forwarded]);
 	await task.run(create_mock_task_context({ _, eslint_cli: 'eslint' }));
 	const { finds, calls } = await get_mock_spawn();
 	expect(finds[0]).toBe('node_modules/.bin/eslint');

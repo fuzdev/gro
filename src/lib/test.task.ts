@@ -7,7 +7,8 @@ import { VITEST_CLI } from './constants.ts';
 import { paths } from './paths.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { cwd } from './cwd.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { TaskError, type Task } from './task.ts';
 import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
@@ -61,8 +62,8 @@ export const task: Task<Args> = {
 		}
 		// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth
 		vitest_args.push(
-			...to_implicit_forwarded_argv(TEST_TASK_NAME, process.args, process.cwd(), VITEST_CLI),
-			...to_forwarded_argv(VITEST_CLI, to_raw_rest_args(process.args))
+			...to_implicit_forwarded_argv(TEST_TASK_NAME, args, cwd(), VITEST_CLI),
+			...to_forwarded_argv(VITEST_CLI, to_raw_rest_args(args))
 		);
 
 		const result = await spawn_cli(vitest, vitest_args);

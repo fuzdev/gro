@@ -7,7 +7,7 @@ import {
 	type ChildOutputTargets
 } from '#lib/child_process_logging.ts';
 
-import { create_mock_process_output } from './process_mocks.ts';
+import { create_mock_process_output } from './process_output_mocks.ts';
 import { create_mock_child, create_mock_stream } from './spawn_mocks.ts';
 
 const bytes = (...values: Array<number>): Uint8Array => new Uint8Array(values);

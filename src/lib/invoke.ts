@@ -10,7 +10,11 @@ import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { env } from './env.ts';
+import { exit, set_exit_code } from './exit.ts';
+import { stderr } from './stderr.ts';
+import { stdout } from './stdout.ts';
 
 /*
 
@@ -75,7 +79,7 @@ const FLUSH_TIMEOUT_MS = 5_000;
  */
 const flush_output = async (): Promise<void> => {
 	await Promise.race([
-		Promise.all([process.stdout.write(''), process.stderr.write('')]),
+		Promise.all([stdout.write(''), stderr.write('')]),
 		new Promise((resolve) => {
 			setTimeout(resolve, FLUSH_TIMEOUT_MS).unref();
 		})
@@ -86,7 +90,7 @@ const flush_output = async (): Promise<void> => {
 host_process.on('uncaughtException', (err, origin) => {
 	exiting = true;
 	// so every exit path carries the code, even if the flush below never settles
-	process.set_exit_code(to_exit_code(err));
+	set_exit_code(to_exit_code(err));
 	if (is_task_error(err)) {
 		// a known failure, so its message with no stack
 		new Logger('TaskError').error(st('red', err.message));
@@ -94,10 +98,10 @@ host_process.on('uncaughtException', (err, origin) => {
 		// `print_error` reads properties, so a thrown `undefined` or `null` would throw here
 		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error(err));
 	}
-	void flush_output().finally(() => process.exit(to_exit_code(err)));
+	void flush_output().finally(() => exit(to_exit_code(err)));
 });
 
-if (!process.env.get('NO_COLOR')) {
+if (!env.get('NO_COLOR')) {
 	configure_print_colors(st);
 }
 
@@ -108,15 +112,10 @@ await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
 
 let task_args: CliTaskArgs;
 try {
-	task_args = to_task_args(process.args);
+	task_args = to_task_args(args);
 } catch (error) {
 	if (!is_task_error(error)) throw error;
 	new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
 	throw new SilentError();
 }
-await invoke_cli(
-	fs_paths,
-	task_args,
-	await load_gro_config(fs_paths),
-	to_raw_rest_args(process.args)
-);
+await invoke_cli(fs_paths, task_args, await load_gro_config(fs_paths), to_raw_rest_args(args));

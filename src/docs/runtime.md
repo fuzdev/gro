@@ -12,8 +12,8 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules (`fs`, `spawn`, `process`, `net`, and `watch` exist as their Node implementation,
-> [host modules](host_modules.md), and on `fgro` only `process.args`), the grant flags, the policy file,
+> Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
+> [host modules](host_modules.md), and on `fgro` only the script's arguments), the grant flags, the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and the script's arguments,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
@@ -28,7 +28,7 @@ The runtime's docs:
 - [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, why not namespaces, the box designed for runs and children, the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
-- [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `process`, `net`, and `watch`, how to hand them down, and the Node implementation's gaps
+- [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `net`, `watch`, and the process modules, how to hand them down, and the Node implementation's gaps
 - [resolver](resolver.md) - how module specifiers resolve, and the departures from Node
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
@@ -96,7 +96,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 [authority](authority.md) is the full statement; this is its shape.
 
-- **Authority enters by import.** The host modules (fs, process, spawn, watch, net) are the only way to the OS,
+- **Authority enters by import.** The host modules (fs, spawn, watch, net, and the process modules) are the only way to the OS,
   each a visible edge in the graph, and no global carries authority: `fetch` is `net.fetch`, an import.
   So a run's reach is inferred from its import graph, and a dependency bump that newly reaches the network
   or a process is a new edge, attributed to the package.
@@ -125,7 +125,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   ([threat model](authority.md#threat-model)).
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
-`fgro eval`'s box is built, the builtin modules' link-time grant check is built with `process.args` its only host API,
+`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the script's arguments its only host API,
 and the rest of the host modules, the grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
@@ -163,11 +163,11 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   [WinterTC minimum common API](https://min-common-api.proposal.wintertc.org/)
   (today `fgro` has the subset [run](run.md#the-global-scope) lists)
   plus a small set of Gro's own host modules
-  (fs, process, spawn, watch, net; built today as their Node implementation, and on `fgro` only `process.args`,
+  (fs, spawn, watch, net, and the process modules; built today as their Node implementation, and on `fgro` only the script's arguments,
   [host modules](host_modules.md)),
   each an explicit import.
-  On `fgro` `process` is designed to split into a module per kind of authority it carries,
-  so each is its own import and its own grant ([process on `fgro`](host_modules.md#process-on-fgro)).
+  The running process is one module per kind of authority it carries,
+  so each is its own import and its own grant ([the process modules](host_modules.md#the-process-modules)).
   No `node:*`, no `npm:`, no CommonJS, no N-API, and no `process` global.
   The break is what makes the security model enforceable.
   Node's API hands every module ambient authority (`process`, `require`, and `node:fs`
@@ -304,8 +304,7 @@ The design's open questions live with the layer they belong to:
 - the kernel layer's, in [backstop](backstop.md#open): name resolution for children, a code cache for unconfined runs,
   children that need `/proc`, hard links, browser tests, and the platforms
 - **where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime))
-- **the shape of the `process` split**: which modules each kind of authority becomes, their names, which need no grant,
-  how the Node implementation moves to them, and whether the handle modules (`fs`, `spawn`, `net`) split too ([host modules](host_modules.md#process-on-fgro))
+- **whether `fs` splits** as the process modules are split, its project handle apart from opening any path ([host modules](host_modules.md#the-process-modules))
 - **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
   is refused (built), so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
   wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
@@ -363,7 +362,7 @@ where the host modules and grants land with their first consumer.
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
       (the release workflow is built, and no release is tagged yet;
-      the first waits for host modules on `fgro`, `process`'s and `fs` first, so `run` reaches past pure computation)
+      the first waits for host modules on `fgro`, the process modules and `fs` first, so `run` reaches past pure computation)
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
@@ -374,7 +373,7 @@ where the host modules and grants land with their first consumer.
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init, with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
-- [ ] the host modules (fs, process, spawn, watch, net), the grants,
+- [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants,
       and the policy file, enforced, with the kernel backstop under every run and its children
       ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design

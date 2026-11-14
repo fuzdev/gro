@@ -12,7 +12,8 @@ import { fs } from './fs.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import { spawn } from './spawn.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { env } from './env.ts';
 import { paths, to_root_path } from './paths.ts';
 import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
 import type { FsSearchResult } from './fs_search.ts';
@@ -132,7 +133,7 @@ export const task: Task<Args> = {
 		}
 
 		// Disallow TODO*.md files in the project root on CI.
-		if (process.env.get('CI') === 'true') {
+		if (env.get('CI') === 'true') {
 			const todo_files: Array<string> = [];
 			for await (const { name } of fs_paths.project.list()) {
 				if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);
@@ -169,7 +170,7 @@ export const task: Task<Args> = {
 
 // a `-- gro test` section, which can name another `dir`, or args forwarded to vitest
 const has_forwarded_test_args = (fs_paths: FsPaths): boolean => {
-	const raw_rest_args = to_raw_rest_args(process.args);
+	const raw_rest_args = to_raw_rest_args(args);
 	return (
 		Object.hasOwn(
 			to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),

@@ -67,11 +67,12 @@ describe('resolve_env_vars', () => {
 const ENV_FILES_MODULE_SPECIFIER = 'file:///gro/env_files.ts';
 const FS_MODULE_SPECIFIER = 'file:///gro/fs.ts';
 const FS_PATHS_MODULE_SPECIFIER = 'file:///gro/fs_paths.ts';
+const ENV_MODULE_SPECIFIER = 'file:///gro/env.ts';
 const specifiers = {
 	env_files_module_specifier: ENV_FILES_MODULE_SPECIFIER,
 	fs_module_specifier: FS_MODULE_SPECIFIER,
 	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER,
-	process_module_specifier: 'file:///gro/process.ts'
+	env_module_specifier: ENV_MODULE_SPECIFIER
 };
 
 describe('render_sveltekit_shim_app_env_vars', () => {
@@ -93,7 +94,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 			dev: true
 		});
 		expect(source).toContain('export const A = __gro_env.A;');
-		expect(source).toContain('...{"dev":true},\n\t\tambient_env: __gro_process.env.get_all()');
+		expect(source).toContain('...{"dev":true},\n\t\tambient_env: __gro_host_env.get_all()');
 		expect(source).not.toContain('export const B');
 	});
 
@@ -106,13 +107,13 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 			env_dir: '/project'
 		});
 		expect(source).toContain(
-			'...{"dev":false,"env_dir":"/project"},\n\t\tambient_env: __gro_process.env.get_all()'
+			'...{"dev":false,"env_dir":"/project"},\n\t\tambient_env: __gro_host_env.get_all()'
 		);
 		expect(source).toContain(`} from ${JSON.stringify(ENV_FILES_MODULE_SPECIFIER)};`);
 	});
 
-	// the rendered module is the root of its env read, its fs reach visible in its imports
-	test('imports the fs host module and builds the `FsPaths` it reads through', () => {
+	// the rendered module is the root of its env read, its fs and env reach visible in its imports
+	test('imports the fs and env host modules and builds the `FsPaths` it reads through', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
 			entry: { id: '/project/src/env.ts', variables: { A: {} } },
@@ -124,6 +125,9 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		);
 		expect(source).toContain(
 			`import {create_fs_paths as __gro_create_fs_paths} from ${JSON.stringify(FS_PATHS_MODULE_SPECIFIER)};`
+		);
+		expect(source).toContain(
+			`import {env as __gro_host_env} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`
 		);
 	});
 

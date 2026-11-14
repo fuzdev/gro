@@ -65,7 +65,7 @@ export interface InvokeTaskOptions {
 	/**
 	 * The CLI args from the first `--` on, from `to_raw_rest_args`, passed to nested tasks.
 	 * The `gro` sections in them forward args to Gro tasks; a task forwarding to an outside
-	 * tool reads that tool's section from `process.args` itself.
+	 * tool reads that tool's section from the `args` host module itself.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**

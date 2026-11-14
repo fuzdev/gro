@@ -5,7 +5,10 @@
 import { join } from 'node:path';
 
 import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
-import { process } from './process.ts';
+import { args } from './args.ts';
+import { env } from './env.ts';
+import { set_exit_code } from './exit.ts';
+import { stderr } from './stderr.ts';
 import { spawn } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
 
@@ -31,12 +34,12 @@ try {
 		node,
 		loader_path,
 		invoke_path,
-		process.args,
-		process.env.get('NODE_ENV')
+		args,
+		env.get('NODE_ENV')
 	);
 	if (spawned.kind !== 'exited' || spawned.code !== 0) {
 		// a signal exits like a shell, `128` plus its number
-		process.set_exit_code(
+		set_exit_code(
 			spawned.kind === 'exited'
 				? spawned.code
 				: spawned.kind === 'signaled'
@@ -50,6 +53,6 @@ try {
 	const hint = is_spawn_error(error, 'not_found')
 		? ' (Gro needs `node` on an absolute PATH entry)'
 		: '';
-	await process.stderr.write(`${error.message}${hint}\n`);
-	process.set_exit_code(1);
+	await stderr.write(`${error.message}${hint}\n`);
+	set_exit_code(1);
 }

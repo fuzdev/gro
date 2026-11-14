@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { install_with_cache_healing } from '#lib/npm_install_helpers.ts';
 import { spawn } from '#lib/spawn.ts';
 import { fs } from '#lib/fs.ts';
-import { create_mock_process_output } from './process_mocks.ts';
+import { create_mock_process_output } from './process_output_mocks.ts';
 
 /*
 

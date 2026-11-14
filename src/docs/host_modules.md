@@ -1,11 +1,13 @@
 # host modules
 
-> the imports that reach the OS, `fs`, `spawn`, `process`, `net`, and `watch`: how to import them, hand them down,
+> the imports that reach the OS, `fs`, `spawn`, `net`, `watch`, and the process modules (`env`, `args`, `exit`,
+> `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`): how to import them, hand them down,
 > and what the Node implementation does and doesn't guarantee
 
-> **status**: `fs`, `spawn`, `process`, `net`, and `watch` exist as the Node implementation in Gro's npm package.
+> **status**: every host module here exists as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
-> and the one built is `process`, carrying `process.args` alone (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package), with `process` designed to split into a module per kind of authority ([on `fgro`](#process-on-fgro));
+> and the one built carries the script's arguments, under the `@fuzdev/gro/process.ts` specifier the npm package no longer has
+> (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package; [on `fgro`](#the-process-modules-on-fgro));
 > everything else on this page is the Node implementation's ([runtime](runtime.md) lists what `fgro` has today).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
@@ -312,23 +314,45 @@ so the pin and environment fixed at `program()` carry across restarts.
 
 The module's TSDoc has each op's contract.
 
-## process
+## The process modules
 
 ```ts
-import {process} from '@fuzdev/gro/process.ts';
+import {env} from '@fuzdev/gro/env.ts';
+import {args} from '@fuzdev/gro/args.ts';
+import {set_exit_code} from '@fuzdev/gro/exit.ts';
+import {stdin} from '@fuzdev/gro/stdin.ts';
+import {stdout} from '@fuzdev/gro/stdout.ts';
 
-const token = process.env.get('SOME_TOKEN'); // `undefined` when it's unset
-const ci = process.env.narrow(['CI']); // a handle limited to `CI`
+const token = env.get('SOME_TOKEN'); // `undefined` when it's unset
+const ci = env.narrow(['CI']); // a handle limited to `CI`
 
-for await (const chunk of process.stdin) await process.stdout.write(chunk); // bytes
-process.set_exit_code(1);
+for await (const chunk of stdin) await stdout.write(chunk); // bytes
+if (args.includes('--fail')) set_exit_code(1);
 ```
 
-The export deliberately shares its name with Node's global, so a module that imports it shadows the global.
-A module's use of the process shows in its imports, as for `fs` and `spawn`,
-and on `fgro` there's no global at all.
+The running process is nine modules, one per kind of authority, each exporting a binding of its name:
 
-- `process.env` is an `Env`. `get(name)` returns the value or `undefined` when it's unset,
+| module               | exports                 | what it carries          | grant on `fgro`          |
+| -------------------- | ----------------------- | ------------------------ | ------------------------ |
+| `env.ts`             | `env`                   | the environment, secrets | `env`, designed          |
+| `args.ts`            | `args`                  | the run's inputs         | `args`, designed         |
+| `exit.ts`            | `exit`, `set_exit_code` | control over the run     | `exit`, designed         |
+| `stdin.ts`           | `stdin`                 | a channel in             | `stdin`, designed        |
+| `stdout.ts`          | `stdout`                | a channel out            | `stdout`, designed       |
+| `stderr.ts`          | `stderr`                | a channel out            | `stderr`, designed       |
+| `cwd.ts`             | `cwd`                   | an observation           | none, designed           |
+| `pid.ts`             | `pid`                   | an observation           | none, designed           |
+| `runtime_version.ts` | `runtime_version`       | an observation           | none, designed           |
+
+Each is its own import, so a module's use of the process shows in its imports, as for `fs` and `spawn`:
+one that writes progress imports `stdout` without holding `stdin` or the environment,
+and on `fgro`, where there's no `process` global, each is to be its own grant, so a package can be accepted for one without the others.
+No module gathers them, since the loader checks a grant per module when the graph links.
+The observations need no grant on `fgro`: a package reads nothing through them it couldn't learn otherwise,
+and they differ on what a reproducible run can allow (`cwd` can be virtualized, `pid` differs every run,
+`runtime_version` keys a cache), so each stays a module of its own.
+
+- `env` is an `Env`. `get(name)` returns the value or `undefined` when it's unset,
   and own names only, so `toString` is unset. `get_all()` returns a frozen null-prototype record of the variables,
   which is what a library edge takes, as `load_env` takes a plain record.
   `narrow(names)` is a handle limited to `names`, and it only shrinks.
@@ -344,59 +368,56 @@ and on `fgro` there's no global at all.
   and restoring a tool's write to `process.env` (as Gro does around `resolveConfig`) still goes through the global.
 - A value can be a secret. The module prints none, and its errors name a variable, never its value.
   What a read value becomes is the caller's concern, so hand a library a `narrow` or a plain record of only what it needs.
-- `process.args` are the arguments after the script, a frozen real array, what a script under `gro run` or plain `node` is given.
+- `args` are the arguments after the script, a frozen real array, what a script under `gro run` or plain `node` is given.
   In the CLI's own process they're the CLI's arguments, the task name included;
   a task reads its parsed args from its context's `task_args`, since a nested `invoke_task` shares this process.
   With `node -e` the first argument is the first, and a script read from stdin as `-` keeps its arguments too.
-- `process.cwd()` is the working directory when the module loaded, checked as for `fs.project`.
-- `process.exit(code?)` exits, and without a `code` uses what `set_exit_code` set, else `0`.
-  `process.set_exit_code(code)` sets the code the process exits with when it ends on its own.
+- `cwd()` is the working directory when the module loaded, checked as for `fs.project`.
+- `exit(code?)` exits, and without a `code` uses what `set_exit_code` set, else `0`.
+  `set_exit_code(code)` sets the code the process exits with when it ends on its own.
   A code is an integer from 0 to 255, anything else a `TypeError`, checked with no value of the caller's run,
   so a thenable or a `Symbol.toPrimitive` isn't called.
   `exit` runs the spawn module's child cleanup, like any exit Node runs,
-  and it drops writes not yet accepted, so await a write before exiting.
-- `process.stdin` is an `AsyncIterable<Uint8Array>`, read once, each chunk a plain `Uint8Array` copy,
+  and it drops writes not yet accepted, so await a write before exiting:
+  the CLI's entry awaits an empty write to `stdout` and `stderr` before it exits on an uncaught error.
+- `stdin` is an `AsyncIterable<Uint8Array>`, read once, each chunk a plain `Uint8Array` copy,
   a second iteration a `TypeError`. Leaving a loop early stops reading, so a child inheriting stdin gets what the read hadn't taken,
   and the process can exit with stdin still open.
-- `process.stdout` and `process.stderr` take `write(data)`, a string as UTF-8 or a `Uint8Array`,
+- `stdout` and `stderr` take `write(data)`, a string as UTF-8 or a `Uint8Array`,
   resolving once it's accepted, so awaiting each write paces a writer against its reader, and writes not awaited queue in memory.
   A broken pipe, a task piped to `head`, resolves `false` instead of throwing, and every later write resolves `false` too.
   Data that's neither a well-formed string nor bytes is a `TypeError`.
-  Any other write failure, like a full disk, rejects with `ProcessError` of kind `io_error`.
+  Any other write failure, like a full disk, rejects with `StdioError` of kind `io_error`.
+  Their type is `ProcessOutput`, declared in `stdout.ts`; `stdin`'s is `ProcessInput`.
 - Each stream has `is_terminal`, read from its descriptor without creating the stream.
-- `process.pid` is for display, as nothing in the module takes a pid.
-  `process.runtime_version` is opaque, like `node/v24.14.0`, for display and for keying a cache by the runtime that made it, compared for equality only.
-- Errors are `ProcessError`, typed by `kind` (`not_granted`, `io_error`), its `target` the variable or the stream.
-  Match one with `is_process_error(error, kind?)`, in `@fuzdev/gro/process_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's designed as a builtin module that grants nothing, resolved beside `process`.
+- `pid` is for display and for naming what only this process writes, like a temporary or lock file;
+  nothing in the host modules takes a pid, so holding one reaches no process.
+  `runtime_version` is opaque, like `node/v24.14.0`, for display and for keying a cache by the runtime that made it, compared for equality only.
+- `env`'s errors are `EnvError` (kind `not_granted`, its `target` the variable), matched by `is_env_error(error, kind?)`
+  in `@fuzdev/gro/env_error.ts`; the streams' are `StdioError` (kind `io_error`, its `target` the stream),
+  matched by `is_stdio_error(error, kind?)` in `@fuzdev/gro/stdio_error.ts`.
+  Both error modules are apart from the host modules, so matching an error grants nothing;
+  on `fgro` each is designed as a builtin module that grants nothing.
+  `args`, `exit`, and the observations throw only `TypeError`.
 
-The module's TSDoc has each op's contract.
+Each module's TSDoc has its contract.
 
-### process on fgro
+### The process modules on fgro
 
-On `fgro`, `@fuzdev/gro/process.ts` is a builtin module carrying `process.args` and nothing else:
+On `fgro`, the one built is the arguments, as the builtin module `@fuzdev/gro/process.ts` exporting `process`,
+a frozen object with no prototype whose one property `args` is a frozen array of strings:
 the script's arguments, every one after the file `fgro run` was given, as written.
-`process` is frozen with no prototype (Node's has a frozen, null-prototype class prototype; neither is thenable), its one property `args`, a frozen array of strings,
-made when a run first imports the module, from intrinsics the runtime copied before any user code ran,
+It's made when a run first imports the module, from intrinsics the runtime copied before any user code ran,
 so code that patched `Object` or the prototypes before the import changes nothing it holds.
-Its type is `Process`'s for the members it carries, checked by a test against this module's declarations.
+Its `args` has the type of the Node module's `args`, checked by a test against that module's declarations.
 
-`fgro run` grants `process` to the project's own modules, and the import is checked when the graph links,
+`fgro run` grants it to the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused it for now,
 naming the package, until `-A` or the policy file's acceptance lifts that (both designed),
 and `fgro eval` grants it to no module ([eval](eval.md));
 an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).
-Its namespace has a `default` export of `undefined`, where Node's module has none.
-
-The one `process` object is designed to split on `fgro`.
-Each kind of authority it carries is to become a builtin module of its own.
-It carries the environment, exiting and the exit code, the standard streams, the script's arguments,
-and observations (`cwd`, `pid`, `runtime_version`), and how those group into modules is open.
-Each is then its own import and its own grant, so inference names each reach by itself,
-a package can be accepted for one without the others, and no object carrying several authorities is handed around.
-They're separate modules, not named exports of one, since the loader checks a grant per module when the graph links.
-The module list and names, which of them need no grant, and how the Node implementation moves to them are open
-([runtime](runtime.md#open-questions)).
+Its namespace has a `default` export of `undefined`, where a Node module has none.
+The other modules in the table are designed as builtin modules of their own, each with the grant it names.
 
 ## net
 
@@ -422,7 +443,7 @@ There's no bare `fetch` export, so a module using the network shows `net` in its
   It builds one `Request` from the input, checks that object's URL, and sends from it,
   so a stateful `toString` can't differ between the check and the send.
 - `net.narrow({hosts})` is a handle limited to `hosts`, and it only shrinks,
-  as [`env.narrow`](#process) limits names.
+  as [`env.narrow`](#the-process-modules) limits names.
   The root handle allows every host, as the root `Env` allows every name.
   An empty list reaches nothing.
 - A host is `hostname`, any port, or `hostname:port`, normalized through `URL`
@@ -535,15 +556,15 @@ The module's TSDoc has the contract.
   Every library module that reaches the filesystem takes an `FsPaths` or a narrow handle as a parameter,
   and only roots import `fs` and build one: the builtin tasks, the CLI's entry (`invoke.ts`),
   genfiles, the default config, and the plugin modules like `gro_plugin_sveltekit_library`.
-  The process host module follows the same rule: those roots and the CLI's bootstrap (`gro.ts`)
-  import `process`, and library code takes what it needs as parameters, a plain record, a `cwd`
-  string, or the CLI args.
-  The one exception is `internal/fs_boundary.ts`, which imports `process` to read `HOME` once, when it loads,
+  The process modules follow the same rule: those roots and the CLI's bootstrap (`gro.ts`)
+  import `env`, `args`, `exit`, the streams, and the observations, and library code takes what it needs as parameters,
+  a plain record, a `cwd` string, the CLI args, or a stream.
+  The one exception is `internal/fs_boundary.ts`, which imports `env` to read `HOME` once, when it loads,
   for its protected-directory set, so `create_fs_paths` needs no parameter for a value no root chooses.
   The CLI's entry passes its own to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
-  importing `fs` and `create_fs_paths` to read the `.env` files and `process` for the ambient env
+  importing `fs` and `create_fs_paths` to read the `.env` files and `env` for the ambient env
   when they run, so a module importing `$app/env/*` shows those reads in its import graph,
   while the loader that renders them never loads the host module on its hooks thread.
   Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
@@ -565,10 +586,11 @@ The module's TSDoc has the contract.
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
   `spawn.ts` is the one module on `node:child_process`.
-  Gro's code reads the process through its host module, except what stays on the global,
-  Node-only like the fs machinery above: `process.on`, `once`, and `kill`, which the module doesn't have,
+  Gro's code reads the process through the process modules, except what stays on the global,
+  Node-only like the fs machinery above: `process.on`, `once`, and `kill`, which no module has,
   so `invoke.ts`'s handlers and `spawn.ts` use them directly, and `spawn.ts`'s live read of the
-  environment for a child; the module implementations (`process.ts`, `internal/cwd.ts`);
+  environment for a child; the module implementations (`env.ts`, `args.ts`, `exit.ts`, `stdin.ts`,
+  `internal/process_output.ts`, `pid.ts`, `runtime_version.ts`, `internal/cwd.ts`);
   and what runs in the loader's hooks or restores a tool's write, `svelte_config.ts`
   (`NODE_ENV`, `MODE`, and the cwd) and `sveltekit_shim_app_env_vars.ts` (the cwd).
   `fgro` has no `process` global, so these move when Gro runs on it.
@@ -580,7 +602,7 @@ The module's TSDoc has the contract.
   | -------------------------------------------------------------------------- | ---------------- |
   | `node:fs`, `node:fs/promises`                                              | fs               |
   | `node:child_process`                                                       | spawn            |
-  | `node:process`                                                             | process          |
+  | `node:process`                                                             | the process modules |
   | `node:net`, `node:http`, `node:https`, `node:dns`, `node:tls`, `node:dgram` | net              |
 
 ## Hardening
@@ -635,13 +657,14 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - `out_bytes`'s `stdout` and `stderr` are plain `Uint8Array`s of their own, copied out of the chunks into memory of their exact length,
   so no `Buffer` or view of memory Node reuses reaches a caller, and they reach it inside a null-prototype record.
 
-### process's invariants
+### The process modules' invariants
 
-- Handles come only from `process` and `Env.narrow`, through a module-private key, and hold their state in private fields,
-  so a method or getter called on any other object throws `TypeError`.
-- `process`, its parts, `Env` handles and `get_all`'s records, and their prototypes are frozen,
+- Handles come only from `env`, `Env.narrow`, `stdin`, `stdout`, and `stderr`, through a key private to their implementation,
+  and hold their state in private fields, so a method or getter called on any other object throws `TypeError`.
+- The handles, `get_all`'s records, and their prototypes are frozen,
   and every prototype is null-prototype, so none of them is thenable even with a polluted `Object.prototype.then`.
   `args` is the exception, a frozen real array, so its prototype is the unfrozen `Array.prototype` and awaiting it adopts a polluted `then`.
+  `exit`, `set_exit_code`, and `cwd` are frozen functions, no constructors, taking no receiver.
 - An environment read goes through a null-prototype snapshot holding only `process.env`'s own names,
   so an inherited or polluted name reads as unset.
 - `narrow` reads its array by index with its length read once, and a name it doesn't allow throws, never `undefined`.
@@ -752,7 +775,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   so importing the module throws when the working directory has been removed.
   The runtime's is the entry's [project root](glossary.md#project-root), and spawn's project root with it,
   so the working directory carries no authority.
-- `process.on`, `once`, and `kill` have no equivalent in the process host module,
+- `process.on`, `once`, and `kill` have no equivalent in the process modules,
   so the CLI's uncaught-error and output-error handlers and the spawn module stay on the `process` global.
 
 ### spawn
@@ -805,21 +828,21 @@ It documents each gap rather than weakening the API to match, and is a review si
   in a removed or non-UTF-8 working directory.
 - Any module can import `node:child_process`, so a narrowed `spawn` bounds only the code that uses it.
 
-### process
+### The process modules
 
 - The global `process` stays, so any module can read `process.env` or call `process.exit`,
   and a narrowed `Env` bounds only the code that uses it.
 - The root `Env` allows every name. The runtime's holds only the granted names, and a name outside them throws `not_granted`.
-- The snapshot is taken when the module loads, so a write to `process.env` made before that shows.
+- The snapshot is taken when `env.ts` loads, so a write to `process.env` made before that shows.
 - `args` under `node -e` and `node -p` depends on the undocumented `process._eval`, since no documented API says the process has no script.
 - `exit` in a Node worker ends the thread rather than the process.
 - On POSIX Node's stdio writes to files and terminals block the event loop until the kernel takes them,
   where the runtime's complete on their own schedule. Writes to pipes are asynchronous.
 - Node's stream `write` is the stream's own, and the streams are created on first use, so code that patched `write`
-  or replaced `process.stdout` by then runs inside a write. The module's other Node functions are copied at load.
+  or replaced `process.stdout` by then runs inside a write. The modules' other Node functions are copied at load.
   `EventEmitter.prototype` and the stream classes aren't, so code that patches them runs inside these ops holding the raw stream.
 - A chunk read from stdin passes through Node's iterator, so a polluted `then` can replace it.
-- `process`, like `fs`, reads the working directory when the module loads, so importing it throws
+- `cwd`, like `fs`, reads the working directory when the module loads, so importing it throws
   in a removed or non-UTF-8 working directory.
 
 ### net
@@ -953,9 +976,9 @@ JS shared with the Node implementation checks shapes and raises early errors, an
 - Check each `pass_env` name against that program's spawn grant, narrowed or not.
   Reading a variable and forwarding it are separate grants, so a credential can reach one child without the script reading it.
 
-### process
+### The process modules
 
-These hold for whichever module each member lands in once `process` splits ([process on `fgro`](#process-on-fgro)).
+These hold for the process modules' builtins on `fgro` ([on `fgro`](#the-process-modules-on-fgro)).
 
 - Hold no ambient environment. A grant names each variable, and `get` for a name outside the grants throws `not_granted`,
   `get_all` holding only the granted names that are set.

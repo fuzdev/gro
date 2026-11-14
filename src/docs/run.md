@@ -28,7 +28,7 @@ a file whose name starts with `-` goes after `--`.
 The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
 where a bare `--allow-env` is a usage error, not a grant of every name.
 The script reads its arguments as `process.args`, from `import {process} from '@fuzdev/gro/process.ts'`,
-a [builtin module](glossary.md#builtin-module) carrying nothing else yet ([process on `fgro`](host_modules.md#process-on-fgro)).
+a [builtin module](glossary.md#builtin-module) carrying nothing else yet ([on `fgro`](host_modules.md#the-process-modules-on-fgro)).
 User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
