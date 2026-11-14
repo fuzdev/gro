@@ -904,10 +904,15 @@ describe('cleanup when the host exits', () => {
 		return program.program('node').out([path], { timeout_ms });
 	};
 
+	// the pid file appears whole, by rename, as a host that sees it signals the child at once,
+	// and a child killed between creating the file and writing its pid would leave it empty
+	const write_pid_then_sleep = (path: string): string =>
+		`echo $$ > '${path}.tmp'\nmv '${path}.tmp' '${path}'\nexec sleep 100`;
+
 	const write_child_scripts = (): { sleeper: string; ready: string } => {
 		const ready = join(sandbox.base, 'child_pid');
 		const sleeper = join(bin, 'sleeper');
-		write_script(sleeper, `echo $$ > '${ready}'\nexec sleep 100`);
+		write_script(sleeper, write_pid_then_sleep(ready));
 		return { sleeper, ready };
 	};
 
@@ -1112,8 +1117,8 @@ describe('cleanup when the host exits', () => {
 	test('two copies of the module each kill their own group, and the signal still ends the host', async () => {
 		const first = join(sandbox.base, 'first_pid');
 		const second = join(sandbox.base, 'second_pid');
-		write_script(join(bin, 'first'), `echo $$ > '${first}'\nexec sleep 100`);
-		write_script(join(bin, 'second'), `echo $$ > '${second}'\nexec sleep 100`);
+		write_script(join(bin, 'first'), write_pid_then_sleep(first));
+		write_script(join(bin, 'second'), write_pid_then_sleep(second));
 		const result = await run_fixture(
 			spawn,
 			'two_copies',
