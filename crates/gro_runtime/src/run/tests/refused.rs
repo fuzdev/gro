@@ -10,6 +10,7 @@ use super::builtins::{HOP, SELF_LINK, granted, run_linked_outcome};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::test_support::TestDir;
+use crate::test_support::never_exits;
 use crate::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RuntimeOptions, STACK_SIZE};
 
 /// Writes `files` and `links` (a path and its target, made a symlink) into
@@ -33,6 +34,7 @@ fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (E
     }
     let options = RuntimeOptions {
         authority: granted(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let entry = dir.join("main.mjs");
@@ -167,6 +169,7 @@ fn a_caught_refusal_by_rule_is_listed_once() {
 fn the_refusals_are_listed_whatever_the_graph_records() {
     let options = RuntimeOptions {
         authority: granted(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (off, off_dir) = run_project("recording_off", &classes(), &SELF_LINK);

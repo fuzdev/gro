@@ -12,7 +12,7 @@ use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Record, Recording};
 use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
 use crate::test_support::TestDir;
-use crate::test_support::run_authority;
+use crate::test_support::{never_exits, run_authority};
 use crate::{Authority, RuntimeOptions, STACK_SIZE};
 
 pub(super) const ARGS: &str = "@fuzdev/gro/args.ts";
@@ -108,6 +108,7 @@ fn run_granted(name: &str, source: &str, args: &[&str]) -> (Result<(), RunError>
     let options = RuntimeOptions {
         authority: granted(),
         args: args.iter().map(ToString::to_string).collect(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     run_files(name, &[("main.mjs", source)], options)
@@ -404,6 +405,7 @@ for (const url of [import.meta.resolve('{ARGS}'), resolve()]) {{
     let options = RuntimeOptions {
         authority: granted(),
         args: vec!["a".to_owned()],
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (result, graph) = run_files("package_dynamic", &files, options.clone());
@@ -502,6 +504,7 @@ if (JSON.stringify(results) !== expected) throw new Error(JSON.stringify(results
     let options = RuntimeOptions {
         authority: granted(),
         args: vec!["a".to_owned()],
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (result, _) = run_files("source_phase", &files, options.clone());
@@ -531,6 +534,7 @@ fn an_import_of_a_builtin_with_attributes_is_refused() {
     let options = RuntimeOptions {
         authority: granted(),
         args: vec!["a".to_owned()],
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let cases = [
@@ -691,6 +695,7 @@ for (const reach of [hop, where]) {
     let options = RuntimeOptions {
         authority: granted(),
         args: vec!["SECRET".to_owned()],
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (result, graph) = run_linked("project_by_name", &files, &SELF_LINK, options.clone());
@@ -797,6 +802,7 @@ for (const [specifier, words] of cases) {
     for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
         let options = RuntimeOptions {
             authority,
+            exit_step: Some(never_exits),
             ..RuntimeOptions::default()
         };
         let (result, graph) = run_files(&format!("reserved_{case}"), &files, options);
@@ -849,6 +855,7 @@ for (const [specifier, words] of cases) {
     ));
     let options = RuntimeOptions {
         authority: granted(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (result, graph) = run_files("reserved_static_split", &files, options);
@@ -922,6 +929,7 @@ for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fu
     for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
         let options = RuntimeOptions {
             authority,
+            exit_step: Some(never_exits),
             ..RuntimeOptions::default()
         };
         let (result, _) = run_files(&format!("respelled_{case}"), &files, options);
@@ -946,6 +954,7 @@ for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fu
         }
         let options = RuntimeOptions {
             authority: granted(),
+            exit_step: Some(never_exits),
             ..RuntimeOptions::default()
         };
         let (result, graph) = run_files(&format!("respelled_static_{case}"), &files, options);

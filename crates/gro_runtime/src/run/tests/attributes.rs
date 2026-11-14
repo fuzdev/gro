@@ -8,6 +8,7 @@
 use super::builtins::{ARGS, HOP, SELF_LINK, granted, run_files, run_linked};
 use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached};
 use crate::resolver::BUILTINS;
+use crate::test_support::never_exits;
 use crate::{RunError, RuntimeOptions};
 
 /// The refusal of an attribute under `key`, of `specifier` imported by the
@@ -147,6 +148,7 @@ fn a_static_import_with_another_key_is_refused_before_it_resolves() {
 fn granted_options() -> RuntimeOptions {
     RuntimeOptions {
         authority: granted(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     }
 }

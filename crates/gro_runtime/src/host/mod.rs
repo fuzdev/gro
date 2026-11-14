@@ -26,14 +26,20 @@ mod grant;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
-use exit::{ExitState, throw_not_a_code, to_exit_code};
+use exit::{ExitState, NOT_A_CODE, to_exit_code};
 #[cfg(test)]
 use grant::Grant;
 use grant::{Granted, require, require_authority};
 
+use crate::loader::Refusals;
 #[cfg(test)]
 use crate::resolver::Capability;
 use crate::{ArgsGrant, ExitGrant};
+
+/// What an exit op throws in a runtime started without the exit host
+/// module's state, which only a runtime made outside a run's start is: a
+/// run that grants `exit` holds it.
+const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started without its state";
 
 /// What the host ops return of the run, put in the runtime's `OpState` with
 /// the run's [`Authority`](crate::Authority) when `fgro run`'s runtime
@@ -78,7 +84,7 @@ pub struct HostOp {
 ///
 /// An op that takes arguments names them after a `;`, the scope first:
 /// `fn name(state, granted: Grant; scope, value) for "specifier"`. Each
-/// argument is the JS value as it was passed, a `v8::Local<v8::Value>`,
+/// argument is the JS value as it was passed, a `v8::Local<'s, v8::Value>`,
 /// never converted on the way in: `#[op2]`'s typed arguments convert, and
 /// a conversion can run the caller's code or truncate, so the body reads
 /// the value natively and throws through the scope. The check still comes
@@ -86,13 +92,17 @@ pub struct HostOp {
 ///
 /// A body is the op's result, given the op state, and an op written with
 /// no arrow returns nothing. A `#[serde]` or `#[string]` after the arrow is
-/// the op's return attribute, and the return type is written as
-/// identifiers (`Vec<String>`), which `#[op2]` reads token by token.
+/// the op's return attribute, and the return type is written as paths
+/// (`Vec<String>`), which `#[op2]` reads token by token. An op that takes
+/// the scope can return a value made in it, as `v8::Local<'s, v8::Value>`,
+/// `'s` the scope's lifetime, which the macro declares. Such an op that
+/// throws returns `undefined` beside the exception, which V8 throws in its
+/// place.
 ///
 /// Slow ops only: whether a fast call's refusal throws on every path is
 /// unmeasured, so an op whose signature a fast call could serve is written
 /// `@nofast fn`, which `#[op2]` otherwise refuses to compile. An op that
-/// takes a value has no such signature, so it's slow as it's written.
+/// takes the scope has no such signature, so it's slow as it's written.
 macro_rules! host_ops {
     (@require $name:ident, $state:ident, $granted:ident: $grant:ty) => {
         let $granted: Granted<$grant> =
@@ -107,17 +117,37 @@ macro_rules! host_ops {
     (@grant) => {
         None
     };
-    // an op that returns nothing
-    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [$($params:tt)*], [], $body:block) => {
+    // no scope, and a result or none
+    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [], [], $body:block) => {
+        host_ops!(@op [$($attr)*] $name, $state, [$($granted)*], [], [()], $body);
+    };
+    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [], [$($out:tt)+], $body:block) => {
         $($attr)*
-        fn $name($state: &OpState $($params)*) -> Result<(), JsErrorBox> {
+        fn $name($state: &OpState) -> Result<$($out)+, JsErrorBox> {
             host_ops!(@require $name, $state $($granted)*);
             Ok($body)
         }
     };
-    (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [$($params:tt)*], [$($out:tt)+], $body:block) => {
+    // the scope and the arguments, and a result, which can be the scope's,
+    // or none
+    (
+        @op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*],
+        [$scope:ident $(, $arg:ident)*], [], $body:block
+    ) => {
+        host_ops!(
+            @op [$($attr)*] $name, $state, [$($granted)*], [$scope $(, $arg)*], [()], $body
+        );
+    };
+    (
+        @op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*],
+        [$scope:ident $(, $arg:ident)*], [$($out:tt)+], $body:block
+    ) => {
         $($attr)*
-        fn $name($state: &OpState $($params)*) -> Result<$($out)+, JsErrorBox> {
+        fn $name<'s>(
+            $state: &OpState,
+            $scope: &v8::PinScope<'s, '_>
+            $(, $arg: v8::Local<'s, v8::Value>)*
+        ) -> Result<$($out)+, JsErrorBox> {
             host_ops!(@require $name, $state $($granted)*);
             Ok($body)
         }
@@ -128,7 +158,11 @@ macro_rules! host_ops {
             $state:ident $(, $granted:ident: $grant:ty)? $(; $scope:ident $(, $arg:ident)*)?
         )
             for $module:literal
-            $(-> $(#[$ret:ident])? $out:ident $(<$($out_arg:ident),+>)?)? $body:block
+            $(
+                -> $(#[$ret:ident])? $($out:ident)::+
+                $(<$($out_lt:lifetime,)? $($($out_arg:ident)::+),+>)?
+            )?
+            $body:block
     )*) => {
         $(
             host_ops!(
@@ -137,8 +171,8 @@ macro_rules! host_ops {
                 $name,
                 $state,
                 [$(, $granted: $grant)?],
-                [$(, $scope: &v8::PinScope<'_, '_> $(, $arg: v8::Local<'_, v8::Value>)*)?],
-                [$($out $(<$($out_arg),+>)?)?],
+                [$($scope $(, $arg)*)?],
+                [$($($out)::+ $(<$($out_lt,)? $($($out_arg)::+),+>)?)?],
                 $body
             );
         )*
@@ -158,6 +192,25 @@ macro_rules! host_ops {
     };
 }
 
+/// Throws `message` as a `TypeError` through `scope`, for a value an op
+/// refuses: the realm's own, made by V8 from its intrinsic, whatever
+/// `globalThis.TypeError` has become.
+pub fn throw_type_error(scope: &v8::PinScope<'_, '_>, message: &str) {
+    if let Some(message) = v8::String::new(scope, message) {
+        let error = v8::Exception::type_error(scope, message);
+        scope.throw_exception(error);
+    }
+}
+
+/// Throws `message` as an `Error` through `scope`, the realm's own, as
+/// [`throw_type_error`] throws a `TypeError`.
+pub fn throw_error(scope: &v8::PinScope<'_, '_>, message: &str) {
+    if let Some(message) = v8::String::new(scope, message) {
+        let error = v8::Exception::error(scope, message);
+        scope.throw_exception(error);
+    }
+}
+
 host_ops! {
     /// The script's arguments, a new array of strings each call.
     fn op_gro_args(state, _granted: ArgsGrant) for "@fuzdev/gro/args.ts"
@@ -169,14 +222,16 @@ host_ops! {
     /// Ends the run now, by the embedder's step, with `code`, or, given
     /// `undefined`, with the code `set_exit_code` set, else 0. Any other
     /// value throws a `TypeError` and ends nothing.
-    fn op_gro_exit(state, granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
-        let exit = state.borrow::<ExitState>();
-        if code.is_undefined() {
-            (granted.grant().end)(&exit.exit(None))
-        }
-        match to_exit_code(code) {
-            Some(code) => (granted.grant().end)(&exit.exit(Some(code))),
-            None => throw_not_a_code(scope),
+    fn op_gro_exit(state, _granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
+        let code = if code.is_undefined() {
+            Some(None)
+        } else {
+            to_exit_code(code).map(Some)
+        };
+        match (code, state.try_borrow::<ExitState>(), state.try_borrow::<Refusals>()) {
+            (None, ..) => throw_type_error(scope, NOT_A_CODE),
+            (Some(code), Some(exit), Some(refusals)) => exit.exit(code, refusals),
+            (Some(_), ..) => throw_error(scope, NO_EXIT_STATE),
         }
     }
 
@@ -185,9 +240,10 @@ host_ops! {
     fn op_gro_set_exit_code(state, _granted: ExitGrant; scope, code)
         for "@fuzdev/gro/exit.ts"
     {
-        match to_exit_code(code) {
-            Some(code) => state.borrow::<ExitState>().set_code(code),
-            None => throw_not_a_code(scope),
+        match (to_exit_code(code), state.try_borrow::<ExitState>()) {
+            (None, _) => throw_type_error(scope, NOT_A_CODE),
+            (Some(code), Some(exit)) => exit.set_code(code),
+            (Some(_), None) => throw_error(scope, NO_EXIT_STATE),
         }
     }
 

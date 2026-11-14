@@ -48,6 +48,10 @@ pub enum StartError {
     /// is printable as is.
     #[error("{0}")]
     Runtime(String),
+    /// The run grants `exit`, and the embedder gave no step to end the
+    /// process by ([`RuntimeOptions::exit_step`]).
+    #[error("the run grants `exit`, and the embedder gave no step to end the process by")]
+    NoExitStep,
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
@@ -203,6 +207,7 @@ fn run_resolved(
             cwd: cwd.to_str().map(ToOwned::to_owned),
             runtime_version: options.runtime_version.clone(),
         },
+        exit_step: options.exit_step,
     };
     let (result, mut runtime) = run_loaded(
         engine,
@@ -314,8 +319,7 @@ fn run_loaded(
     };
     let mut started = None;
     let result = event_loop.block_on(async {
-        let runtime = started
-            .insert(start_runtime(snapshot, console, host, loader).map_err(StartError::Runtime)?);
+        let runtime = started.insert(start_runtime(snapshot, console, host, loader)?);
         let id = runtime
             .load_main_es_module(entry)
             .await

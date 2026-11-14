@@ -141,8 +141,9 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     RuntimeOptions {
         authority: Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
-            exit: Some(ExitGrant { end: exit_now }),
+            exit: Some(ExitGrant {}),
         }),
+        exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
         args: run.args.clone(),
@@ -247,8 +248,14 @@ mod tests {
             runtime_options(&run).authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
-                exit: Some(gro_runtime::ExitGrant { end: exit_now }),
+                exit: Some(gro_runtime::ExitGrant {}),
             })
+        );
+        let cli_step: gro_runtime::ExitStep = exit_now;
+        assert!(
+            runtime_options(&run)
+                .exit_step
+                .is_some_and(|step| std::ptr::fn_addr_eq(step, cli_step))
         );
     }
 }

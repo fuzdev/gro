@@ -5,7 +5,8 @@
 
 use super::super::Ended;
 use super::builtins::{granted as authority, run_linked_outcome};
-use crate::{RunError, RuntimeOptions};
+use crate::test_support::never_exits;
+use crate::{RunError, RuntimeOptions, StartError};
 
 const EXIT: &str = "@fuzdev/gro/exit.ts";
 
@@ -14,6 +15,7 @@ const EXIT: &str = "@fuzdev/gro/exit.ts";
 fn granted() -> RuntimeOptions {
     RuntimeOptions {
         authority: authority(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     }
 }
@@ -61,6 +63,36 @@ fn the_code_set_reaches_the_outcome() {
         ended.result.unwrap();
         assert_eq!(ended.exit_code, Some(expected), "{name}");
     }
+}
+
+/// A run that grants `exit` without the step that ends the process for it
+/// fails before it starts, running nothing; one that grants no `exit` needs
+/// none.
+#[test]
+fn a_run_granting_exit_needs_a_step() {
+    let source = "throw new Error('ran');";
+    let ended = run_linked_outcome(
+        "exit_no_step",
+        &[("main.mjs", source)],
+        &[],
+        RuntimeOptions {
+            exit_step: None,
+            ..granted()
+        },
+    )
+    .0;
+    assert!(
+        matches!(ended.result, Err(RunError::Start(StartError::NoExitStep))),
+        "{ended:?}"
+    );
+    let ended = run_linked_outcome(
+        "exit_ungranted_no_step",
+        &[("main.mjs", "")],
+        &[],
+        RuntimeOptions::default(),
+    )
+    .0;
+    ended.result.unwrap();
 }
 
 /// A run that fails still carries the code its program set, which the

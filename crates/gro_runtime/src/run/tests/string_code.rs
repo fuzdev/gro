@@ -5,6 +5,7 @@
 use super::builtins::{ARGS, granted, run_files};
 use crate::RuntimeOptions;
 use crate::loader::graph::{FailureReason, Reach, Reached};
+use crate::test_support::never_exits;
 
 /// The project's helpers, which compile strings as the package's do.
 const PROJECT_LIB: &str = "export const ind = (source) => (0, eval)(source);
@@ -139,6 +140,7 @@ const FILES: [(&str, &str); 7] = [
 fn an_import_in_code_compiled_from_a_string_is_refused() {
     let options = RuntimeOptions {
         authority: granted(),
+        exit_step: Some(never_exits),
         ..RuntimeOptions::default()
     };
     let (result, graph) = run_files("string_code", &FILES, options);

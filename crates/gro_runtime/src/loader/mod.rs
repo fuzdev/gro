@@ -105,7 +105,6 @@ pub mod strip;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
-#[cfg(test)]
 use std::rc::Rc;
 
 use deno_core::error::ModuleLoaderError;
@@ -124,6 +123,21 @@ use load::load;
 use reads::Reads;
 use refused::RefusedImports;
 use resolve::resolve_into;
+
+/// The run's record of refusals as the runtime's `OpState` holds it, where
+/// any host op reaches it: the loader's, which lists each `import()` it
+/// refuses by rule. `exit`'s op takes it and hands it to the embedder's
+/// step, so a run its program ends reports its refusals as one that ends
+/// on its own does.
+#[derive(Debug, Clone)]
+pub struct Refusals(Rc<Loader>);
+
+impl Refusals {
+    /// The refusals recorded so far, taken: the record starts again.
+    pub fn take(&self) -> RefusedImports {
+        self.0.take_refused()
+    }
+}
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
 /// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
@@ -330,6 +344,12 @@ impl Loader {
     /// starts its list again.
     pub fn take_refused(&self) -> RefusedImports {
         self.refused.take()
+    }
+
+    /// The run's record of refusals, the loader's, as the runtime's
+    /// `OpState` holds it for the host ops.
+    pub fn refusals(self: &Rc<Self>) -> Refusals {
+        Refusals(Rc::clone(self))
     }
 
     /// The graph, taken from the loader.

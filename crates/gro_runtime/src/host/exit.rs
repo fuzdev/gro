@@ -9,9 +9,10 @@
 //! inside a microtask checkpoint and runs the timers that come due; and a
 //! terminated run reports as an `Error` a program could have thrown
 //! itself. So the op ends the process, and since a library doesn't end its
-//! embedder's process on its own, it does so by calling a step the
-//! embedder gave with the grant ([`ExitGrant`](crate::ExitGrant)): no
-//! embedder that didn't grant `exit` is ever exited.
+//! embedder's process on its own, it does so by calling the step the
+//! embedder gave ([`RuntimeOptions::exit_step`](crate::RuntimeOptions::exit_step)),
+//! which a run that grants `exit` can't start without: no embedder that
+//! didn't grant `exit` is ever exited.
 //!
 //! A code is checked here, natively, as the value it is: a number that is
 //! an integer from 0 to 255. Nothing converts it, so no code of the
@@ -19,16 +20,15 @@
 //! a string are each refused as they are), and nothing truncates it.
 
 use std::cell::Cell;
-use std::rc::Rc;
 
 use deno_core::v8;
 
 use crate::RefusedImports;
-use crate::loader::Loader;
+use crate::loader::Refusals;
 
 /// What the `TypeError` for a code that isn't one says, the Node module's
 /// message.
-const NOT_A_CODE: &str = "an exit code is an integer from 0 to 255";
+pub const NOT_A_CODE: &str = "an exit code is an integer from 0 to 255";
 
 /// What a program's `exit` asks of the embedder: to end the process now.
 #[derive(Debug)]
@@ -42,28 +42,30 @@ pub struct Exit {
 }
 
 /// The step that ends the process for a program's `exit`, given by the
-/// embedder with the grant.
+/// embedder ([`RuntimeOptions::exit_step`](crate::RuntimeOptions::exit_step)).
 ///
 /// It's called inside the host op, on the runtime's thread, with the
 /// program's frames still on the stack, so it can't return or unwind: it
 /// ends the process.
 pub type ExitStep = fn(&Exit) -> !;
 
-/// The exit host module's state for a run, in the runtime's `OpState`.
+/// The exit host module's state for a run that grants it, in the runtime's
+/// `OpState`.
 pub struct ExitState {
     /// The code `set_exit_code` last set, for a run that ends on its own
     /// and for an `exit` given none.
     code: Cell<Option<u8>>,
-    /// The run's loader, which holds the `import()`s refused by rule.
-    loader: Rc<Loader>,
+    /// The step `exit` ends the process by.
+    step: ExitStep,
 }
 
 impl ExitState {
-    /// The state of a run over `loader`, no code set.
-    pub const fn new(loader: Rc<Loader>) -> Self {
+    /// The state of a run whose `exit` ends the process by `step`, no code
+    /// set.
+    pub const fn new(step: ExitStep) -> Self {
         Self {
             code: Cell::new(None),
-            loader,
+            step,
         }
     }
 
@@ -77,13 +79,14 @@ impl ExitState {
         self.code.set(Some(code));
     }
 
-    /// What `exit` asks of the embedder, given `code` or none: the code
-    /// given, else the one set, else 0, with the refusals so far.
-    pub fn exit(&self, code: Option<u8>) -> Exit {
-        Exit {
+    /// Ends the process by the embedder's step, given `code` or none: with
+    /// the code given, else the one set, else 0, and the refusals the run
+    /// recorded so far, `refusals`.
+    pub fn exit(&self, code: Option<u8>, refusals: &Refusals) -> ! {
+        (self.step)(&Exit {
             code: code.or_else(|| self.code()).unwrap_or(0),
-            refused: self.loader.take_refused(),
-        }
+            refused: refusals.take(),
+        })
     }
 }
 
@@ -100,14 +103,4 @@ pub fn to_exit_code(value: v8::Local<'_, v8::Value>) -> Option<u8> {
         reason = "an integer from 0 to 255 is exact as an f64"
     )]
     (0..=u8::MAX).find(|code| f64::from(*code) == number)
-}
-
-/// Throws the `TypeError` for a value that is no exit code: the realm's
-/// own, made by V8 from its intrinsic, whatever `globalThis.TypeError` has
-/// become.
-pub fn throw_not_a_code(scope: &v8::PinScope<'_, '_>) {
-    if let Some(message) = v8::String::new(scope, NOT_A_CODE) {
-        let error = v8::Exception::type_error(scope, message);
-        scope.throw_exception(error);
-    }
 }

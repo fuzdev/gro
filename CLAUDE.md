@@ -450,8 +450,10 @@ Invariants that live in the code:
   value passed (`v8::Local<v8::Value>`), never through an `#[op2]`
   conversion, which could run the caller's code or truncate: its body reads
   the value natively, after the check, and throws through the scope an
-  error V8 makes from the realm's intrinsic (`host/exit.rs`), since an op's
-  `Err` is built by a JS callback of `deno_core`'s. A builtin's export that
+  error V8 makes from the realm's intrinsic (`throw_type_error` in
+  `host/mod.rs`), since an op's `Err` is built by a JS callback of
+  `deno_core`'s. An op that takes the scope can return a value made in it
+  (`v8::Local<'s, v8::Value>`), as an error row's does. A builtin's export that
   takes arguments is a shell handing them to such an op whole. The run's `Authority` goes into the loader and
   the runtime's `OpState` per run, never into the snapshot or the extension
   list, and eval's runtime takes none. A test fails on an op of gro's
@@ -533,14 +535,19 @@ Invariants that live in the code:
 - `gro_runtime` ends its embedder's process itself in two places only:
   eval's out-of-memory backstop exits 1, and a confined engine whose random
   source fails aborts (`engine.rs`). A program's `exit` doesn't: its
-  op calls the step the embedder gave with the grant (`ExitGrant`), from
+  op calls the step the embedder gave (`RuntimeOptions::exit_step`), from
   inside the call, since stopping V8 doesn't stop a program at once
-  (`host/exit.rs` has why). `fgro`'s step is `run::exit_now`, which prints
-  the refused `import()`s and reaches `end`; `run::exit_code` is the one
-  place a run's exit code is decided, for a program's code, a failure, and
-  a refusal alike. The exit code a program sets is the run's state in
-  `OpState`, never the implementation's. No in-process test grants a step
-  that returns: a program that exits is run in a child process.
+  (`host/exit.rs` has why); a run that grants `exit` without a step fails
+  before it starts (`StartError::NoExitStep`), so the grants stay plain
+  data, and an embedder that must outlive its program doesn't grant
+  `exit`. `fgro`'s step is `run::exit_now`, which prints the refused
+  `import()`s and reaches `end`; `run::exit_code` is the one place a run's
+  exit code is decided, for a program's code, a failure, and a refusal
+  alike. The exit code a program sets is the run's state in `OpState`,
+  never the implementation's, and so is the run's record of refusals, the
+  loader's, which `OpState` holds for any op (`loader::Refusals`). No
+  in-process test grants a step that returns: a program that exits is run
+  in a child process.
 - A change to the seccomp allowlist reruns the census
   ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
 

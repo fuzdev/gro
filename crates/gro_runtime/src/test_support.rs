@@ -15,12 +15,12 @@ pub fn never_exits(exit: &Exit) -> ! {
     std::process::abort()
 }
 
-/// The authority `fgro run` gives: `args` and `exit` granted, the exit
-/// step [`never_exits`].
+/// The authority `fgro run` gives: `args` and `exit` granted. A run that
+/// holds it is given the exit step [`never_exits`].
 pub fn run_authority() -> Authority {
     Authority::Confined(Grants {
         args: Some(ArgsGrant {}),
-        exit: Some(ExitGrant { end: never_exits }),
+        exit: Some(ExitGrant {}),
     })
 }
 

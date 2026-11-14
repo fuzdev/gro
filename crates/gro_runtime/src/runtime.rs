@@ -8,14 +8,14 @@ use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
-use crate::host::exit::ExitState;
+use crate::host::exit::{ExitState, ExitStep};
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
 use crate::report::{report, report_js};
 use crate::snapshot::StartupSnapshot;
 use crate::stack;
-use crate::{Authority, ConsoleOptions, eval};
+use crate::{Authority, ConsoleOptions, StartError, eval};
 
 /// What kind of runtime to build: `fgro run`'s, or eval's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,35 +89,57 @@ impl Drop for SpentRuntime {
 
 /// What `fgro run`'s host ops read, put in the runtime's `OpState` before
 /// anything runs: the run's authority, which every host op checks first,
-/// and the run's data they return. The default grants nothing.
+/// the run's data they return, and the step `exit` ends the process by.
+/// The default grants nothing.
 #[derive(Debug, Clone, Default)]
 pub struct HostState {
     /// The run's authority.
     pub authority: Authority,
     /// The run's data.
     pub data: HostData,
+    /// The step `exit` ends the process by, which a run that grants `exit`
+    /// must have.
+    pub exit_step: Option<ExitStep>,
 }
 
 /// Starts `fgro run`'s runtime over `loader` from `snapshot` when there is
-/// one, its host ops holding `host`, and runs the bootstrap's per-run steps
-/// with the console as `console` says, returning the report of what failed
-/// when either fails. Must run inside a tokio runtime, which `deno_core`
-/// drives its event loop with.
+/// one, its host ops holding `host` and the loader's record of refusals,
+/// and runs the bootstrap's per-run steps with the console as `console`
+/// says, returning why either failed. Must run inside a tokio runtime,
+/// which `deno_core` drives its event loop with.
+///
+/// # Errors
+///
+/// Returns [`StartError::NoExitStep`] for a run that grants `exit` without
+/// a step to end the process by, and [`StartError::Runtime`] with the
+/// report of what failed when the runtime or its bootstrap fails.
 pub fn start_runtime(
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
     host: HostState,
     loader: Rc<Loader>,
-) -> Result<JsRuntime, String> {
-    let exit = ExitState::new(Rc::clone(&loader));
-    let runtime = new_runtime(snapshot, loader, Mode::Run, None)?;
-    let HostState { authority, data } = host;
+) -> Result<JsRuntime, StartError> {
+    let HostState {
+        authority,
+        data,
+        exit_step,
+    } = host;
+    let exit = match (&authority, exit_step) {
+        (Authority::Confined(grants), _) if grants.exit.is_none() => None,
+        (_, Some(step)) => Some(ExitState::new(step)),
+        (_, None) => return Err(StartError::NoExitStep),
+    };
+    let refusals = loader.refusals();
+    let runtime = new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
     let state = runtime.op_state();
     state.borrow_mut().put(authority);
     state.borrow_mut().put(data);
-    state.borrow_mut().put(exit);
+    state.borrow_mut().put(refusals);
+    if let Some(exit) = exit {
+        state.borrow_mut().put(exit);
+    }
     drop(state);
-    start(runtime, console, Mode::Run)
+    start(runtime, console, Mode::Run).map_err(StartError::Runtime)
 }
 
 /// Starts eval's runtime as [`start_runtime`] starts `fgro run`'s, built as

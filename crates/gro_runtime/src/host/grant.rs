@@ -2,6 +2,8 @@
 //! the one place a [`Granted`] token is made, or, for a grant-free
 //! module's op, [`require_authority`].
 
+use std::marker::PhantomData;
+
 use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
@@ -9,7 +11,7 @@ use crate::resolver::Capability;
 use crate::{ArgsGrant, Authority, ExitGrant, Grants};
 
 /// A host module's grant, as [`Grants`] holds it.
-pub trait Grant: Clone + 'static {
+pub trait Grant: 'static {
     /// The capability it grants.
     const CAPABILITY: Capability;
 
@@ -33,20 +35,12 @@ impl Grant for ExitGrant {
     }
 }
 
-/// Proof that the run holds the grant `G`, carrying its own copy of it, so
-/// an op holds no borrow of the `OpState` while it works. Its field is
-/// private to this module, so only [`require`] makes one.
+/// Proof that the run holds the grant `G`. Its field is private to this
+/// module, so only [`require`] makes one.
 #[derive(Debug)]
 pub struct Granted<G: Grant> {
-    /// The grant, with what it carries for the op.
-    grant: G,
-}
-
-impl<G: Grant> Granted<G> {
-    /// The grant the run holds.
-    pub const fn grant(&self) -> &G {
-        &self.grant
-    }
+    /// The grant proved.
+    grant: PhantomData<G>,
 }
 
 /// A host op called without what it requires.
@@ -85,8 +79,7 @@ pub fn require<G: Grant>(state: &OpState) -> Result<Granted<G>, NotGranted> {
         None => None,
     };
     grant
-        .cloned()
-        .map(|grant| Granted { grant })
+        .map(|_| Granted { grant: PhantomData })
         .ok_or(NotGranted::Grant(G::CAPABILITY))
 }
 

@@ -14,8 +14,8 @@
 //! dropped, the runtime is torn down, and a process about to exit can
 //! forget it instead. A program granted the exit host module can end the
 //! run from inside a call, and since this crate doesn't end its embedder's
-//! process for a program, it does so by the step the embedder gave with
-//! the grant ([`ExitGrant`], [`Exit`]). It ends the process itself in two
+//! process for a program, it does so by the step the embedder gave
+//! ([`RuntimeOptions::exit_step`], [`Exit`]). It ends the process itself in two
 //! places, neither a program's choice: eval's out-of-memory backstop exits
 //! 1 from V8's out-of-memory callback (`eval/limits.rs`), and a confined
 //! engine whose random source fails aborts (`engine.rs`).
@@ -140,6 +140,15 @@ pub struct RuntimeOptions {
     /// `fgro/0.1.0`: data a script reads as `runtime_version`, from the
     /// builtin of that name, which needs no grant.
     pub runtime_version: String,
+    /// The step that ends the process for a program's `exit`, which a run
+    /// that grants `exit` must be given: one that grants it with none
+    /// fails before it starts ([`StartError::NoExitStep`]).
+    ///
+    /// It's called inside the host op, with the program's frames on the
+    /// stack, so it ends the process and never returns (`host/exit.rs` has
+    /// why stopping V8 isn't enough): an embedder that must outlive its
+    /// program doesn't grant `exit`.
+    pub exit_step: Option<ExitStep>,
 }
 
 /// The console's output: which stream each level writes to, and whether each
@@ -217,24 +226,8 @@ impl Grants {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ArgsGrant {}
 
-/// The exit host module's grant, which scopes nothing and carries the
-/// step that ends the process for a program's `exit`.
-///
-/// The runtime doesn't end its embedder's process for a program (it ends
-/// it itself only from eval's out-of-memory backstop, and by an abort when
-/// a confined engine's random source fails), so granting `exit` is handing
-/// the program the step that does.
-#[derive(Debug, Clone, Copy)]
-pub struct ExitGrant {
-    /// The step `exit` ends the process by.
-    pub end: ExitStep,
-}
-
-impl PartialEq for ExitGrant {
-    /// Whether both end the process by the same step.
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::fn_addr_eq(self.end, other.end)
-    }
-}
-
-impl Eq for ExitGrant {}
+/// The exit host module's grant: how the run ends, and the code it ends
+/// with. It scopes nothing; the step that ends the process is the
+/// embedder's, given beside it ([`RuntimeOptions::exit_step`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExitGrant {}
