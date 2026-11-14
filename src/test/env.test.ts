@@ -124,7 +124,9 @@ describe('env', () => {
 		test('a name outside the set throws `not_granted`, it does not read as unset', () => {
 			const error = assert_env_error(() => narrowed.get('GRO_FAKE_C'), 'not_granted');
 			assert.strictEqual(error.target, 'GRO_FAKE_C');
-			assert.notInclude(error.message, 'fake');
+			// the kind and the name, never a value, the detail of a refusal none
+			assert.strictEqual(error.message, 'not_granted: GRO_FAKE_C');
+			assert.strictEqual(error.cause, undefined);
 		});
 
 		test('a name in the set that is unset reads as undefined', () => {
@@ -156,7 +158,8 @@ describe('env', () => {
 
 		test('only shrinks, as a name outside the parent is `not_granted`', () => {
 			narrowed.narrow(['GRO_FAKE_A']);
-			assert_env_error(() => narrowed.narrow(['GRO_FAKE_C']), 'not_granted');
+			const error = assert_env_error(() => narrowed.narrow(['GRO_FAKE_C']), 'not_granted');
+			assert.strictEqual(error.message, 'not_granted: GRO_FAKE_C');
 		});
 
 		test('takes exact names only, a glob or `*` is a TypeError', () => {

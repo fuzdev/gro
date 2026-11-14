@@ -18,6 +18,7 @@ export type EnvErrorKind = 'not_granted';
 
 /**
  * The error `env.ts` throws, typed by `kind`.
+ * Its `message` is `kind: target`, the variable's name and never its value.
  * Match it with `is_env_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */

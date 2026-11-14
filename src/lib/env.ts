@@ -110,7 +110,7 @@ class NodeEnv implements Env {
 		const allowed = this.#allowed;
 		const checked = check_env_name(name, 'an environment name');
 		if (allowed !== null && allowed[checked] !== true) {
-			throw new EnvError('not_granted', checked, `not_granted: ${checked} isn't in this env's set`);
+			throw new EnvError('not_granted', checked);
 		}
 		return vars[checked];
 	}
@@ -129,11 +129,7 @@ class NodeEnv implements Env {
 		for (let i = 0; i < length; i++) {
 			const name = check_narrow_name(names[i]);
 			if (parent_allowed !== null && parent_allowed[name] !== true) {
-				throw new EnvError(
-					'not_granted',
-					name,
-					`not_granted: ${name} isn't in this env's set, and narrow only shrinks`
-				);
+				throw new EnvError('not_granted', name);
 			}
 			allowed[name] = true;
 			const value = parent_vars[name];
