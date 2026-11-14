@@ -112,11 +112,20 @@ pub fn loadable() -> BTreeMap<&'static str, String> {
     loadable
 }
 
-/// Whether `line` is a comment's: a line comment, or inside a block comment
-/// written with a leading `*` on each line, as these scripts write them.
+/// Whether `line` is a comment's and nothing else: a line comment, or a
+/// line of a block comment written with a leading `*` on each line, as
+/// these scripts write them, with no code after the comment's end, which
+/// is read as the code it is.
 fn is_comment(line: &str) -> bool {
     let line = line.trim_start();
-    line.starts_with("//") || line.starts_with("/*") || line.starts_with('*')
+    if line.starts_with("//") {
+        return true;
+    }
+    let in_block = line.starts_with("/*") || line.starts_with('*');
+    in_block
+        && line
+            .rfind("*/")
+            .is_none_or(|end| line[end + 2..].trim().is_empty())
 }
 
 /// Whether `line` holds `word` as a whole identifier.
@@ -315,6 +324,11 @@ fn an_implementation_takes_only_its_ops_and_primordials() {
     let stores = "const { internals } = bootstrap;\ninternals.registry = registry;\n";
     assert_eq!(names_past_the_ops(stores), ["internals"]);
     assert_eq!(names_past_the_ops("const internals_of = 1;\n"), [""; 0]);
+    // a block comment hides what it holds, never the code after it
+    let after = "/* shared */ const { internals } = bootstrap;\n";
+    assert_eq!(names_past_the_ops(after), ["internals"]);
+    let inside = "/**\n * internals, in a comment\n */\nconst made = 1;\n";
+    assert_eq!(names_past_the_ops(inside), [""; 0]);
 }
 
 /// A scope argument is `undefined` or one op called with no argument, the
@@ -364,6 +378,8 @@ const { op_b } = core.ops;
         "const ops = core.ops;",
         "const { ops } = core;",
         "core.ops[name]();",
+        "/* a comment first */ core.ops.op_a();",
+        "*/ core.ops.op_a();",
     ] {
         let read = std::panic::catch_unwind(|| core_ops_reads("x", other).len());
         assert!(read.is_err(), "{other}");

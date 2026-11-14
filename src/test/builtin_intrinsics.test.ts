@@ -8,6 +8,7 @@ import {
 	find_unreviewed_declarations,
 	INTRINSICS_DECLARATIONS_PATH,
 	read_builtin_config,
+	type ReviewedIntrinsics,
 	type ReviewedMember
 } from './builtin_constructs.ts';
 import {
@@ -33,7 +34,8 @@ each thing it refuses is shown to be refused, on an implementation that does it:
   anything but what the bootstrap object gave, a property written, each construct that calls a
   protocol user code can answer (iteration, a string or number made of a value that isn't
   primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged template, `extends`), and what
-  leaves the type check (`any`, a type assertion, a `@ts-` directive, `globalThis`, a `declare`).
+  leaves the type check (`any`, a type assertion, a `@ts-` directive, `globalThis`, a `declare`,
+  a reference to a file the reviewed declarations don't hold).
 
 And what the bootstrap object gives is a reviewed list: `bootstrap.d.ts` declares the ops and
 the primordials an implementation may use, and a test holds its declarations to the list
@@ -73,6 +75,28 @@ const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
 		type: '<T>(value: T) => Readonly<T>',
 		why: "reads no property through a prototype: it redefines the own properties of its argument, a value the implementation or an op made, never one a caller passed, whose proxy's traps it would call."
 	}
+};
+
+/**
+ * What `intrinsics.d.ts` may declare beside interfaces with no member, each reviewed: a
+ * member here is one every implementation may read after user code ran, and a declaration
+ * that isn't an interface is a name every implementation may use.
+ */
+const REVIEWED_INTRINSICS: ReviewedIntrinsics = {
+	members: {
+		ErrorConstructor: [
+			{
+				text: 'new (message?: string): Error;',
+				why: "the one way an implementation makes an error, with a message and no options, which is all `REVIEWED_PRIMORDIALS` reviews of `Error`: it's constructed, and no member of it or of what it makes is read."
+			}
+		]
+	},
+	others: [
+		{
+			text: 'type Readonly<T> = { readonly [K in keyof T]: T[K] };',
+			why: 'a type the compiler asks for by name, and what `ObjectFreeze` is declared to return: a type alone, which names no value.'
+		}
+	]
 };
 
 const rows = read_builtin_rows();
@@ -201,6 +225,13 @@ describe.each(rows)('the $name implementation', (row) => {
 			['for (const key in core) primordials.ObjectFreeze(key);', ['for-in'], true],
 			["'ops' in core;", ['in'], true],
 			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
+			["import('x');", ['any', 'import'], false],
+			['using held = core;\n\tprimordials.ObjectFreeze(held);', ['using'], false],
+			[
+				'(async () => {\n\t\tawait using held = core;\n\t\theld.ops;\n\t});',
+				['async', 'member', 'using'],
+				false
+			],
 			['primordials.ObjectFreeze``;', ['tagged template'], false],
 			['class Failure extends primordials.Error {}\n\tnew Failure();', ['extends'], true],
 			// a string or a number made of a value that isn't primitive
@@ -217,6 +248,18 @@ describe.each(rows)('the $name implementation', (row) => {
 			['(<T>(given: T) => `${given}`);', ['coercion'], true],
 			['((given: string & { brand: true }) => `${given}`);', ['coercion'], true],
 			["((loose: any) => '' + loose);", ['any', 'coercion'], true],
+			// of what a function typed to return nothing returned
+			[
+				'const quiet: () => void = () => core;\n\tprimordials.ObjectFreeze(`${quiet()}`);',
+				['coercion'],
+				true
+			],
+			// of a binding a closure assigns after its type was checked
+			[
+				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext = core;\n\t};\n\tset();\n\tprimordials.ObjectFreeze(`${text}`);",
+				['coercion'],
+				true
+			],
 			// a member of a value the bootstrap object didn't give
 			['({ core }).core;', ['member'], true],
 			["((given: { name: string }) => given.name)({ name: '' });", ['member'], true],
@@ -234,6 +277,22 @@ describe.each(rows)('the $name implementation', (row) => {
 			],
 			["core['ops'];", ['member'], true],
 			['const { ops = 1 } = core;\n\tprimordials.ObjectFreeze(ops);', ['member'], true],
+			// a rest of what the bootstrap object gave, which holds what no declaration names
+			[
+				'const { core: held, ...others } = bootstrap;\n\tprimordials.ObjectFreeze(held);\n\tprimordials.ObjectFreeze(others);',
+				['object rest'],
+				true
+			],
+			[
+				'const {\n\t\tcore: { ...all }\n\t} = bootstrap;\n\tprimordials.ObjectFreeze(all);',
+				['object rest'],
+				true
+			],
+			[
+				"const { ...copy } = { name: '' };\n\tprimordials.ObjectFreeze(copy);",
+				['member', 'object rest'],
+				true
+			],
 			[
 				'class Handle {\n\t\tbrand = 1;\n\t\tread(): number {\n\t\t\treturn this.brand;\n\t\t}\n\t}\n\tnew Handle();',
 				['member'],
@@ -270,6 +329,12 @@ describe.each(rows)('the $name implementation', (row) => {
 			['// @ts-expect-error\n\tcore.nope;', ['@ts- directive'], true],
 			['// @ts-ignore\n\tcore.nope;', ['@ts- directive'], true],
 			['glob\\u0061lThis;', ['globalThis'], true],
+			// a call no signature types gives `any`, which is assigned to anything
+			[
+				"((given: unknown) => {\n\t\tif (typeof given !== 'function') return '';\n\t\tconst text: string = given();\n\t\treturn 'a' + text;\n\t});",
+				['any'],
+				true
+			],
 			[
 				'declare const structuredClone: (value: object) => object;\n\tstructuredClone(core);',
 				['declare'],
@@ -355,6 +420,50 @@ describe.each(rows)('the $name implementation', (row) => {
 		}
 	});
 
+	test("what turns the program's check off, or adds to its declarations, is refused", () => {
+		const called = source.replace(TOP_LEVEL, `${TOP_LEVEL}\tstructuredClone(core);\n`);
+		// a global the program lacks, called with no member read: the walk refuses the call
+		assert.deepEqual(analyze_implementation(row, called).refused, ['any']);
+		assert.notDeepEqual(analyze_implementation(row, called).diagnostics, []);
+		// the compiler reads the directive that turns its check of a file off in any case
+		for (const directive of ['// @ts-nocheck', '// @TS-NOCHECK', '// @Ts-NoCheck']) {
+			const analysis = analyze_implementation(row, `${directive}\n${called}`);
+			assert.deepEqual(analysis.diagnostics, [], directive);
+			assert.deepEqual(analysis.refused, ['@ts- directive', 'any'], directive);
+		}
+		// a file of declarations the reviewed two don't hold, named from the implementation
+		// or from one of them, and a library
+		const elsewhere = `/// <reference path="${join(BUILTIN_DIR, '..', 'internal.d.ts')}" />\n`;
+		assert.deepEqual(analyze_implementation(row, elsewhere + source).refused, [
+			'other file',
+			'reference directive'
+		]);
+		const declarations = readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8');
+		assert.deepEqual(analyze_implementation(row, source, elsewhere + declarations).refused, [
+			'other file'
+		]);
+		assert.deepEqual(
+			analyze_implementation(row, `/// <reference lib="es2024" />\n${source}`).refused,
+			['reference directive']
+		);
+	});
+
+	test('with a promise declared, the walk alone refuses what makes one', () => {
+		// a row whose exports return promises declares the type, and the program then accepts
+		// an `async` function that awaits nothing and types an `import()`
+		const declarations = `${readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8')}interface Promise<T> {}\n`;
+		for (const [use, refused, accepted] of [
+			['(async () => 1);', ['async'], true],
+			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
+			["import('x');", ['import'], false]
+		] satisfies Array<[string, Array<string>, boolean]>) {
+			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+			const analysis = analyze_implementation(row, mutated, declarations);
+			assert.deepEqual(analysis.refused, refused, use);
+			assert.strictEqual(analysis.diagnostics.length === 0, accepted, `${use}: the program`);
+		}
+	});
+
 	test('a member declared optional is refused, of the bootstrap object too', () => {
 		const declarations = readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8');
 		const declared = '\treadonly core: {\n';
@@ -391,8 +500,17 @@ describe('what the bootstrap object gives', () => {
 	const bootstrap = readFileSync(BOOTSTRAP_DECLARATIONS_PATH, 'utf8');
 	const intrinsics = readFileSync(INTRINSICS_DECLARATIONS_PATH, 'utf8');
 
-	const find = (declared = bootstrap, declared_intrinsics = intrinsics): Array<string> =>
-		find_unreviewed_declarations(declared, declared_intrinsics, REVIEWED_PRIMORDIALS);
+	const find = (
+		declared = bootstrap,
+		declared_intrinsics = intrinsics,
+		reviewed_intrinsics = REVIEWED_INTRINSICS
+	): Array<string> =>
+		find_unreviewed_declarations(
+			declared,
+			declared_intrinsics,
+			REVIEWED_PRIMORDIALS,
+			reviewed_intrinsics
+		);
 
 	/**
 	 * `text` with `from` replaced by `to`, `from` being there.
@@ -405,6 +523,44 @@ describe('what the bootstrap object gives', () => {
 	test('is the reviewed ops and primordials, and no more', () => {
 		assert.deepEqual(find(), []);
 		for (const { why } of Object.values(REVIEWED_PRIMORDIALS)) assert.isAbove(why.length, 40);
+	});
+
+	test("the intrinsics' declarations are the reviewed ones, and no more", () => {
+		const { members, others } = REVIEWED_INTRINSICS;
+		for (const { why } of [...Object.values(members).flat(), ...others]) {
+			assert.isAbove(why.length, 40);
+		}
+		// what is declared and not reviewed: a member, and a declaration that isn't an interface
+		assert.deepEqual(find(bootstrap, intrinsics, { members: {}, others }), [
+			'intrinsics.d.ts ErrorConstructor'
+		]);
+		assert.deepEqual(find(bootstrap, intrinsics, { members, others: [] }), [
+			'intrinsics.d.ts: type Readonly<T> = { readonly [K in keyof T]: T[K] };'
+		]);
+		// what is reviewed and not declared: an interface's members, one member of two, and a
+		// declaration
+		const reviewed = { text: 'new (message?: string): Error;', why: '' };
+		assert.deepEqual(
+			find(bootstrap, intrinsics, {
+				members: { ...members, TypeErrorConstructor: [reviewed] },
+				others
+			}),
+			['intrinsics.d.ts TypeErrorConstructor is reviewed and gone']
+		);
+		assert.deepEqual(
+			find(bootstrap, intrinsics, {
+				members: { ErrorConstructor: [reviewed, { text: 'readonly prototype: Error;', why: '' }] },
+				others
+			}),
+			['intrinsics.d.ts ErrorConstructor']
+		);
+		assert.deepEqual(
+			find(bootstrap, intrinsics, {
+				members,
+				others: [...others, { text: 'type Partial<T> = { [K in keyof T]?: T[K] };', why: '' }]
+			}),
+			['intrinsics.d.ts: type Partial<T> = { [K in keyof T]?: T[K] }; is reviewed and gone']
+		);
 	});
 
 	test('an unreviewed declaration is found', () => {
@@ -472,7 +628,13 @@ describe('what the bootstrap object gives', () => {
 					'interface Bootstrap extends ErrorConstructor {'
 				),
 				['bootstrap.d.ts declares more or less than the interface `Bootstrap`']
-			]
+			],
+			// an op that returns anything, and a file named from here
+			[
+				mutate(bootstrap, 'readonly op_gro_pid: () => number;', 'readonly op_gro_pid: () => any;'),
+				['bootstrap.d.ts any']
+			],
+			[`/// <reference path="./other.d.ts" />\n${bootstrap}`, ['bootstrap.d.ts references a file']]
 		] satisfies Array<[string, Array<string>]>) {
 			assert.deepEqual(find(mutated), found);
 		}
@@ -515,7 +677,21 @@ describe('what the bootstrap object gives', () => {
 					'interface Array<T> {\n\tnew (message?: string): Error;\n}'
 				),
 				['intrinsics.d.ts Array']
-			]
+			],
+			// a value, which an implementation could call with no member read, and a type
+			[
+				`${intrinsics}declare function structuredClone<T>(value: T): T;\n`,
+				['intrinsics.d.ts: declare function structuredClone<T>(value: T): T;']
+			],
+			[
+				`${intrinsics}declare const JSON: { stringify(value: object): string };\n`,
+				['intrinsics.d.ts: declare const JSON: { stringify(value: object): string };']
+			],
+			[
+				`${intrinsics}type Loose = any;\n`,
+				['intrinsics.d.ts any', 'intrinsics.d.ts: type Loose = any;']
+			],
+			[`/// <reference lib="es2024" />\n${intrinsics}`, ['intrinsics.d.ts references a file']]
 		] satisfies Array<[string, Array<string>]>) {
 			assert.deepEqual(find(bootstrap, mutated), found);
 		}

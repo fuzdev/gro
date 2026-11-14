@@ -355,25 +355,34 @@ Invariants that live in the code:
     bootstrap object gave (an argument, the scope, a result, `this`; a private
     name excepted), a property written, each construct that calls a protocol
     user code can answer (iteration, a string or number made of a value that
-    isn't primitive, `await`, `instanceof`, `in`, `for`-`in`, a tagged
-    template, `extends`), and what leaves the type check (`any`, a type
-    assertion, `globalThis`).
-  - The same test holds `bootstrap.d.ts` to a reviewed list: the bootstrap
-    object gives `core.ops`, gro's host ops, and the primordials listed there,
-    each with why it's safe after user code ran, and nothing else. So no
-    implementation calls `core.loadExtScript`, which makes every op that has a
-    fast call again the first time a run calls it, for nothing a host op
-    gains, or touches `internals`, an ordinary object, where a read or a write
-    passes through `Object.prototype`: a helper two builtins need is written
-    in each.
+    isn't primitive, `await`, `import()`, `using`, `instanceof`, `in`,
+    `for`-`in`, a tagged template, `extends`), and what leaves the type check
+    or turns it off (`any`, written or what a call no signature types gives, a
+    type assertion, `globalThis`, a `@ts-` directive, a reference to a file
+    the program's tsconfig doesn't list).
+  - The same test holds the two declaration files to reviewed lists.
+    `bootstrap.d.ts`: the bootstrap object gives `core.ops`, gro's host ops,
+    and the primordials listed there, each with why it's safe after user code
+    ran, and nothing else. So no implementation calls `core.loadExtScript`,
+    which makes every op that has a fast call again the first time a run calls
+    it, for nothing a host op gains, or touches `internals`, an ordinary
+    object, where a read or a write passes through `Object.prototype`: a
+    helper two builtins need is written in each. `intrinsics.d.ts`: interfaces
+    with no member, and beside them only the members and the declarations
+    listed there, so it declares no value an implementation could call.
+    Neither file holds an `any` or names another file.
   - The runtime one (`crates/gro_cli/tests/host.rs`) imports every row of the
     table in a realm whose every reachable intrinsic is a trap that reports as
     it's used, and exercises everything the row exports or reaches: each
-    function called with no arguments, with hostile ones (a proxy, an object
-    of getters, a subclassed string and array), and with a hostile receiver,
-    each class constructed, each getter read. A function that declares
-    parameters fails it until the fixture has arguments for it, and a use of a
-    hostile argument until the test lists it, reviewed.
+    function called with no arguments, with hostile ones (a proxy, a proxy of
+    a function, an object of getters, a subclassed string and array), with
+    each argument the fixture gives for it replaced in turn by a hostile one,
+    and with a hostile receiver, each class constructed, each getter read,
+    each setter given a value, and the same for what a call returns or throws.
+    A function reached fails it until the fixture has an entry for it, with
+    the arguments it takes or none, and a use of a hostile argument until the
+    test lists it, reviewed. What a call leaves to run later, a promise's
+    reaction, it doesn't watch.
   - And `bootstrap/web_scripts.rs` holds each implementation's reads of
     `core.ops`, its backing script's scope argument's among them, to the host
     ops of its own row.

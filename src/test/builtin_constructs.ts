@@ -20,21 +20,27 @@ type error. What it can't refuse, the walk does, by one rule and a list:
   those. Anything else an implementation holds is a value user code made or can reach (an
   argument, the scope, a result, `this`, a literal whose prototype is the realm's), where a
   read runs a getter or a proxy's trap, or falls through to `Object.prototype` when the member
-  is absent, so a member declared optional is refused even of the bootstrap object. A private
-  name is the exception: it's read of the object alone, throws on one that lacks it, and
-  `#name in value` asks which, so a class's brand is checked with no member read. No property
-  is written at all, since a write of one an object lacks reaches a setter on its prototype.
+  is absent, so a member declared optional is refused even of the bootstrap object, and so
+  is a rest in a pattern, which takes the members no declaration names with the others. A
+  private name is the exception: it's read of the object alone, throws on one that lacks it,
+  and `#name in value` asks which, so a class's brand is checked with no member read. No
+  property is written at all, since a write of one an object lacks reaches a setter on its
+  prototype.
 - each construct that calls a protocol user code can answer: iteration (`for`-`of`, a spread,
   an array pattern or a destructuring assignment, a generator), a spread of an object that
   isn't a literal (its keys and getters), a string or a number made of a value that isn't
-  primitive (a template, `+`, a comparison, arithmetic, a computed key), `await` and `async`
-  (`then`), `instanceof` (`Symbol.hasInstance`), `in` of a name that isn't private and
+  primitive (a template, `+`, a comparison, arithmetic, a computed key), `await`, `async`,
+  and `import()` (`then`), `using` (`Symbol.dispose`), `instanceof` (`Symbol.hasInstance`), `in` of a name that isn't private and
   `for`-`in` (the prototype chain, a proxy's traps), a tagged template, and `extends` (the
   superclass's prototype).
-- what leaves the type check: `any`, a type assertion but `as const`, a non-null assertion, a
-  `@ts-` directive, `globalThis` (the one global the compiler declares itself), `arguments`,
-  a `declare` (which names a global the program lacks), an overload and a type predicate (each
-  gives a value a type no check made), and a write of the outer level's parameter.
+- what leaves the type check: `any`, written or the result of a call no signature types, a
+  type assertion but `as const`, a non-null assertion, a `@ts-` directive in any case,
+  `globalThis` (the one global the compiler declares itself), `arguments`, a `declare` (which
+  names a global the program lacks), a `/// <reference` and any file the program reads past
+  the ones its tsconfig lists (either declares what the reviewed files don't), an overload and
+  a type predicate (each gives a value a type no check made), and a write of the outer level's
+  parameter. A narrowed type is trusted of a binding nothing assigns after its declaration: a
+  closure can assign any other between the check of its type and its use.
 
 A parameter's declared type is a claim about a caller, which no static check tests: a
 function that makes a string of a parameter declared a string is accepted here, and what it
@@ -103,6 +109,9 @@ export const analyze_implementation = (
 	const source = program.getSourceFile(row.path);
 	assert.ok(source, `${row.path} is in the program`);
 	const refused = new Set(find_refused_constructs(source, program.getTypeChecker()));
+	// a reference directive or an import brings in declarations the reviewed files don't hold
+	const given = new Set(fileNames);
+	if (program.getSourceFiles().some((file) => !given.has(file.fileName))) refused.add('other file');
 	return { diagnostics, refused: Array.from(refused).sort() };
 };
 
@@ -114,7 +123,6 @@ const PRIMITIVE =
 	ts.TypeFlags.ESSymbolLike |
 	ts.TypeFlags.Null |
 	ts.TypeFlags.Undefined |
-	ts.TypeFlags.Void |
 	ts.TypeFlags.Never;
 
 const is_primitive = (type: ts.Type): boolean =>
@@ -173,9 +181,13 @@ const is_public_member = (node: ts.Node): boolean =>
 	ts.isElementAccessExpression(node) ||
 	(ts.isPropertyAccessExpression(node) && !ts.isPrivateIdentifier(node.name));
 
+/** The flags of a declaration list that say which it is: `const`, `let`, `using`. */
+const to_declaration_kind = (list: ts.VariableDeclarationList): ts.NodeFlags =>
+	list.flags & ts.NodeFlags.BlockScoped;
+
 const is_const = (declaration: ts.VariableDeclaration): boolean =>
 	ts.isVariableDeclarationList(declaration.parent) &&
-	(declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+	to_declaration_kind(declaration.parent) === ts.NodeFlags.Const;
 
 /**
  * The outer level of an implementation: the function its one statement is.
@@ -196,11 +208,45 @@ const find_outer_level = (source: ts.SourceFile): ts.FunctionExpression | undefi
  */
 const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker): Array<string> => {
 	const found: Array<string> = [];
-	if (/@ts-(?:ignore|expect-error|nocheck)/.test(source.text)) found.push('@ts- directive');
+	// the compiler reads `@ts-nocheck` in any case
+	if (/@ts-(?:ignore|expect-error|nocheck)/i.test(source.text)) found.push('@ts- directive');
+	if (
+		source.referencedFiles.length > 0 ||
+		source.typeReferenceDirectives.length > 0 ||
+		source.libReferenceDirectives.length > 0
+	) {
+		found.push('reference directive');
+	}
 	const outer = find_outer_level(source);
 	if (outer === undefined) found.push('not one function');
 
-	const primitive = (node: ts.Node): boolean => is_primitive(checker.getTypeAtLocation(node));
+	/**
+	 * The bindings assigned after they're declared. A closure can assign one between a check
+	 * of its type and its use, so what a check narrowed one to is no claim about its value.
+	 */
+	const assigned: Set<ts.Symbol> = new Set();
+	const find_assigned = (node: ts.Node): void => {
+		// an increment leaves a number, whatever it was given, so only an assignment counts
+		if (ts.isBinaryExpression(node) && is_assignment(node.operatorToken.kind)) {
+			const name = skip_parentheses(node.left);
+			const symbol = ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
+			if (symbol !== undefined) assigned.add(symbol);
+		}
+		ts.forEachChild(node, find_assigned);
+	};
+	find_assigned(source);
+
+	/**
+	 * Whether `node` is a primitive by its type: the type where it's read, and, of a binding
+	 * something assigns, its declared type too.
+	 */
+	const primitive = (node: ts.Node): boolean => {
+		if (!is_primitive(checker.getTypeAtLocation(node))) return false;
+		const name = ts.isExpression(node) ? skip_parentheses(node) : node;
+		const symbol = ts.isIdentifier(name) ? checker.getSymbolAtLocation(name) : undefined;
+		if (symbol === undefined || !assigned.has(symbol)) return true;
+		return is_primitive(checker.getTypeOfSymbol(symbol));
+	};
 
 	/**
 	 * Whether the variable `declaration` declares, by an object pattern or by its name, is
@@ -250,6 +296,14 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 
 	const visit = (node: ts.Node): void => {
 		if (node.kind === ts.SyntaxKind.AnyKeyword) found.push('any');
+		// a call no signature types, as of a value narrowed to a function, gives `any`
+		if (
+			(ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+			(checker.getTypeAtLocation(node).flags & ts.TypeFlags.Any) !== 0 &&
+			checker.getResolvedSignature(node)?.declaration === undefined
+		) {
+			found.push('any');
+		}
 		if (ts.isIdentifier(node) && node.text === 'globalThis') found.push('globalThis');
 		if (ts.isIdentifier(node) && node.text === 'arguments') found.push('arguments');
 		if (
@@ -286,6 +340,9 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 				const plain = ts.isIdentifier(name) || ts.isObjectBindingPattern(name);
 				// a default is what an absent member takes, and a computed key is a string made
 				if (element.initializer !== undefined || !plain) found.push('member');
+				// a rest takes every member the object has, declared or not: of the bootstrap
+				// object, the ones `bootstrap.d.ts` leaves out, under a name no check reads
+				if (element.dotDotDotToken !== undefined) found.push('object rest');
 				if (ts.isIdentifier(name) && element.dotDotDotToken === undefined) {
 					const from = checker.getTypeAtLocation(node);
 					const member = checker.getPropertyOfType(from, name.text);
@@ -323,6 +380,11 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 		// iteration
 		if (ts.isForOfStatement(node)) found.push('for-of');
 		if (ts.isSpreadElement(node)) found.push('spread');
+		// a `using` declaration reads its value's disposer, and calls it when the block ends
+		if (ts.isVariableDeclarationList(node)) {
+			const kind = to_declaration_kind(node);
+			if (kind === ts.NodeFlags.Using || kind === ts.NodeFlags.AwaitUsing) found.push('using');
+		}
 		if (ts.isArrayBindingPattern(node)) found.push('array pattern');
 		if (
 			(ts.isFunctionDeclaration(node) ||
@@ -355,6 +417,10 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 
 		// the other protocols
 		if (ts.isAwaitExpression(node)) found.push('await');
+		// `import()` makes a promise, and asks the loader for a module no table row names
+		if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+			found.push('import');
+		}
 		if (
 			ts.isFunctionLike(node) &&
 			ts.canHaveModifiers(node) &&
@@ -381,6 +447,21 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 };
 
 /** A member of the bootstrap object an implementation may be given, as it's reviewed. */
+export interface ReviewedDeclaration {
+	/** The declaration, as `intrinsics.d.ts` writes it. */
+	text: string;
+	/** Why the implementations' program may hold it. */
+	why: string;
+}
+
+/** What `intrinsics.d.ts` may declare beside interfaces with no member, as it's reviewed. */
+export interface ReviewedIntrinsics {
+	/** The members an interface may have, by the interface's name, in the order declared. */
+	members: Record<string, Array<ReviewedDeclaration>>;
+	/** The declarations that aren't interfaces. */
+	others: Array<ReviewedDeclaration>;
+}
+
 export interface ReviewedMember {
 	/** Its declared type, as `bootstrap.d.ts` writes it. */
 	type: string;
@@ -392,16 +473,19 @@ export interface ReviewedMember {
  * What `bootstrap.d.ts` and `intrinsics.d.ts` declare that isn't reviewed, or declare
  * otherwise than reviewed, each named: the bootstrap object's members but `core` and
  * `primordials`, a member of `core` but `ops`, an op that isn't a host op of gro's, a
- * primordial that isn't in `primordials` with that type, a reviewed one that's gone, and a
- * member of an intrinsic's type but the one way an `Error` is made.
+ * primordial that isn't in `primordials` with that type, a reviewed one that's gone, an `any`,
+ * a reference to another file, and in `intrinsics.d.ts` a member of an intrinsic's type and
+ * a declaration that isn't an interface but the reviewed ones, and a reviewed one that's gone.
  * @param bootstrap - the text of `bootstrap.d.ts`
  * @param intrinsics - the text of `intrinsics.d.ts`
  * @param primordials - the reviewed primordials, by name
+ * @param reviewed_intrinsics - what `intrinsics.d.ts` may declare beside memberless interfaces
  */
 export const find_unreviewed_declarations = (
 	bootstrap: string,
 	intrinsics: string,
-	primordials: Record<string, ReviewedMember>
+	primordials: Record<string, ReviewedMember>,
+	reviewed_intrinsics: ReviewedIntrinsics
 ): Array<string> => {
 	const found: Array<string> = [];
 	const parse = (name: string, text: string): ts.SourceFile =>
@@ -436,7 +520,17 @@ export const find_unreviewed_declarations = (
 		return new Map();
 	};
 
+	/** Whether `file` names another file to read, whose declarations nothing here reviews. */
+	const references = (file: ts.SourceFile): boolean =>
+		file.referencedFiles.length > 0 ||
+		file.typeReferenceDirectives.length > 0 ||
+		file.libReferenceDirectives.length > 0;
+	const holds_any = (node: ts.Node): boolean =>
+		node.kind === ts.SyntaxKind.AnyKeyword || ts.forEachChild(node, holds_any) === true;
+
 	const declared = parse('bootstrap.d.ts', bootstrap);
+	if (references(declared)) found.push('bootstrap.d.ts references a file');
+	if (holds_any(declared)) found.push('bootstrap.d.ts any');
 	const interfaces = declared.statements.filter(ts.isInterfaceDeclaration);
 	const [declaration] = interfaces;
 	if (
@@ -471,15 +565,40 @@ export const find_unreviewed_declarations = (
 		if (!declared_primordials.has(name)) found.push(`primordials.${name} is reviewed and gone`);
 	}
 
-	for (const statement of parse('intrinsics.d.ts', intrinsics).statements) {
-		if (!ts.isInterfaceDeclaration(statement)) continue;
+	const declared_intrinsics = parse('intrinsics.d.ts', intrinsics);
+	if (references(declared_intrinsics)) found.push('intrinsics.d.ts references a file');
+	if (holds_any(declared_intrinsics)) found.push('intrinsics.d.ts any');
+	const to_texts = (reviewed: Array<ReviewedDeclaration>): Array<string> =>
+		reviewed.map((declaration) => declaration.text);
+	const others = to_texts(reviewed_intrinsics.others);
+	const declared_others: Array<string> = [];
+	const declared_interfaces: Set<string> = new Set();
+	for (const statement of declared_intrinsics.statements) {
+		if (!ts.isInterfaceDeclaration(statement)) {
+			// a type the compiler asks for that isn't an interface is reviewed by its text;
+			// anything else here is a value or a type an implementation could name
+			const text = to_text(statement);
+			declared_others.push(text);
+			if (!others.includes(text)) found.push(`intrinsics.d.ts: ${text}`);
+			continue;
+		}
 		const name = statement.name.text;
-		const made =
-			name === 'ErrorConstructor' &&
-			statement.members.length === 1 &&
-			to_text(statement.members[0]!) === 'new (message?: string): Error;';
-		if (statement.members.length > 0 && !made) found.push(`intrinsics.d.ts ${name}`);
+		declared_interfaces.add(name);
+		// an interface's members are the reviewed ones of its name, all of them, or none
+		const members = statement.members.map(to_text);
+		const reviewed = to_texts(reviewed_intrinsics.members[name] ?? []);
+		if (members.length !== reviewed.length || members.some((member, i) => member !== reviewed[i])) {
+			found.push(`intrinsics.d.ts ${name}`);
+		}
 		if (statement.heritageClauses !== undefined) found.push(`intrinsics.d.ts ${name} extends`);
+	}
+	for (const other of others) {
+		if (!declared_others.includes(other)) {
+			found.push(`intrinsics.d.ts: ${other} is reviewed and gone`);
+		}
+	}
+	for (const name of Object.keys(reviewed_intrinsics.members)) {
+		if (!declared_interfaces.has(name)) found.push(`intrinsics.d.ts ${name} is reviewed and gone`);
 	}
 	return found;
 };

@@ -11,10 +11,11 @@
 //! user code replaced the intrinsics, so each row of the table is imported
 //! for the first time, and everything it exports or reaches exercised (a
 //! function called, with hostile arguments too, a class constructed, a
-//! getter read), with every intrinsic a program can reach a reporting trap,
-//! and must be what it is in a realm nothing patched and use no trap. A
-//! run reports as it goes, a line of JSON for each thing, so a call that
-//! ended the process would still have left what it used.
+//! getter read, a setter given a value), with every intrinsic a program can
+//! reach a reporting trap, and must be what it is in a realm nothing
+//! patched and use no trap. A run reports as it goes, a line of JSON for
+//! each thing, so a call that ended the process would still have left what
+//! it used.
 //!
 //! And every builtin's first import made to fail (`tests/fixtures/host/forced/`):
 //! an `import()` runs the implementation on its caller's stack, so a
@@ -340,6 +341,15 @@ impl Reports {
             .collect()
     }
 
+    /// The `line` reports, in order, with the path of `project`, the run's
+    /// own, as `{project}`.
+    fn lines(&self, project: &Scratch) -> Vec<String> {
+        let dir = project.0.canonicalize().unwrap();
+        let dir = dir.to_str().unwrap();
+        let lines = self.strings("line").into_iter();
+        lines.map(|line| line.replace(dir, "{project}")).collect()
+    }
+
     /// The run's last report, `done`, which a run that got to its end makes.
     fn done(&self) -> &Value {
         match self.0.last() {
@@ -379,17 +389,22 @@ fn run_whole(project: &Scratch, entry: &str) -> Reports {
 /// Every row of the builtin table, imported for the first time in a realm
 /// whose every reachable intrinsic is a trap, with everything it exports or
 /// reaches exercised there (each function called with no arguments, with
-/// hostile ones, and with a hostile receiver, each class constructed, each
-/// getter read, and the same for what a call returns and what an object or
-/// a prototype the builtin made holds), is what it is in a realm nothing
-/// patched: the same namespace, exports, and outcomes, shown property by
-/// property. And no trap reported a use while the implementations ran, at
-/// their top level, which the import runs, or in a call, and no hostile
-/// argument a use but the reviewed ones. The rows come from the table, so a
-/// new one is imported and exercised here without being listed; a function
-/// that declares parameters fails here until `use.js` has arguments for it,
-/// and one that ends the process fails here for a run with no end, which
-/// that row's test must then expect, with the reports the run left.
+/// hostile ones, with each argument `use.js` gives for it replaced in turn
+/// by a hostile one, and with a hostile receiver, each class constructed,
+/// each getter read, each setter given a value, and the same for what a
+/// call returns or throws and what an object or a prototype the builtin
+/// made holds), is what it is in a realm nothing patched: the same
+/// namespace, exports, and outcomes, shown property by property. And no
+/// trap reported a use while the implementations ran, at their top level,
+/// which the import runs, or in a call, and no hostile argument a use but
+/// the reviewed ones. The rows come from the table, so a new one is
+/// imported and exercised here without being listed; a function it exports
+/// or reaches fails here until `use.js` has an entry for it, with the
+/// arguments it takes or none, and one that ends the process fails here for
+/// a run with no end, which that row's test must then expect, with the
+/// reports the run left. Each run has a project of its own, so what a
+/// builtin's function did to one's files the other doesn't find, and a
+/// path under it is shown as `{project}`.
 #[test]
 fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     for (specifier, export) in PER_PROCESS {
@@ -401,9 +416,10 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
             "{specifier} {export}"
         );
     }
-    let project = patched_project("patched");
-    let plain = run_whole(&project, "plain.js");
-    let patched = run_whole(&project, "patched.js");
+    let plain_dir = patched_project("plain");
+    let patched_dir = patched_project("patched");
+    let plain = run_whole(&plain_dir, "plain.js");
+    let patched = run_whole(&patched_dir, "patched.js");
     assert_eq!(plain.done()["replaced"], 0);
     // the intrinsics' own properties alone are thousands
     let replaced = &patched.done()["replaced"];
@@ -413,12 +429,15 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
         [""; 0],
         "the traps an implementation used"
     );
-    assert_eq!(patched.strings("line"), plain.strings("line"));
+    let lines = plain.lines(&plain_dir);
+    assert_eq!(patched.lines(&patched_dir), lines);
+    // the two projects are two directories, which a row that shows one tells apart
+    assert_ne!(patched.strings("line"), plain.strings("line"));
     for run in [&plain, &patched] {
         assert_eq!(
             run.strings("unexercised"),
             [""; 0],
-            "the functions that declare parameters and `use.js` has no arguments for"
+            "the functions `use.js` has no entry for"
         );
         assert_eq!(
             run.done()["unused"],
@@ -431,7 +450,6 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
             "the uses a builtin's function made of a hostile argument"
         );
     }
-    let lines = plain.strings("line");
     for builtin in BUILTINS {
         let specifier = builtin.specifier;
         let shown = |prefix: String| lines.iter().any(|line| line.starts_with(&prefix));
@@ -454,13 +472,17 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
 /// descriptor, a read past an array's end, a web class's read of its
 /// options, and the lookup of a stack's formatter. And the exerciser
 /// reaches every place a builtin can do one from: a function only when
-/// it's given an argument, a method and a getter of an exported object, a
-/// method of a call's result, and a class's constructor, static method, and
-/// getter, with a method that needs its own instance called on one; it
-/// reports each use made of a hostile argument, of every kind, the
-/// functions that declare parameters and were given no arguments, and the
-/// arguments given for a function it never reached. So a patched run that
-/// reports nothing was watched.
+/// it's given an argument, a method, a getter, and a setter of an exported
+/// object, a method of a call's result and of what a call threw, and a
+/// class's constructor, static method, and getter, with a method that
+/// needs its own instance called on one; it reports each use made of a
+/// hostile argument, of every kind, a callback's call, a fourth argument's,
+/// and one past a check that only a given argument passes among them, the
+/// functions it was given no entry for, and the entry given for a function
+/// it never reached; and it reads no error's stack, which would use the
+/// realm itself. So a patched run that reports nothing was watched. What a
+/// call leaves to run later, a promise's reaction, runs after the traps are
+/// disarmed: nothing here watches it.
 #[test]
 fn the_patched_realm_reports_what_an_implementation_must_not_do() {
     let project = patched_project("control");
@@ -528,6 +550,10 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         ("probe.with_parameter(array): returned", true),
         ("probe.holder.method(): returned", true),
         ("get probe.holder.getter: returned", true),
+        ("set probe.holder.written: returned", true),
+        ("set probe.holder.written = proxy: returned", true),
+        ("probe.throws(): threw", false),
+        ("probe.throws() thrown.method(): returned", true),
         ("probe.returns_holder(): returned", false),
         ("probe.returns_holder().method(): returned", true),
         ("new probe.Handle(): returned", true),
@@ -566,19 +592,54 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         ),
         ("probe.iterates(array): ", "array[Symbol.iterator]"),
         ("probe.reads_option(proxy): ", "proxy.get recursive"),
+        // past a check of the first argument, which only the given one passes
+        (
+            "probe.guarded(arguments 1, proxy at 1): ",
+            "proxy.get recursive",
+        ),
+        // a callback, called
+        ("probe.calls(callable): ", "callable.apply"),
+        // a fourth argument, which a call of three hostile ones wouldn't pass
+        (
+            "probe.fourth(getters): ",
+            "getters.Symbol(Symbol.toPrimitive)",
+        ),
     ] {
         let reported = reported(call);
         let touch = format!("touch {call}{touch}");
         assert!(reported.contains(&touch), "{touch}: {reported:?}");
     }
+    // an error's stack is the engine's accessor, which formats it with the realm: never read
+    assert!(reported("probe.returns_error(): returned").is_empty());
+    assert!(
+        calls.iter().all(|(line, _)| !line.contains(".stack")),
+        "{calls:?}"
+    );
+    // a hostile argument's own report uses no trap: a proxy's trap of one argument has no key
+    let enumerated = reported("probe.enumerates(proxy): ");
+    assert!(
+        enumerated
+            .iter()
+            .any(|use_| use_.ends_with("proxy.ownKeys")),
+        "{enumerated:?}"
+    );
+    assert!(
+        enumerated.iter().all(|use_| use_.starts_with("touch ")),
+        "{enumerated:?}"
+    );
     // the arguments given for a function reach what no other call does, and touch nothing
     assert_eq!(
         reported("probe.coerces(arguments 1): returned string \"given\""),
         &[""; 0]
     );
+    // a function with no entry, whether it declares a parameter or none
     assert_eq!(
         reports.strings("unexercised"),
-        ["probe.with_parameter", "probe.reads_option"]
+        [
+            "probe.with_parameter",
+            "probe.reads_option",
+            "probe.returns_holder"
+        ]
     );
     assert_eq!(
         reports.done()["unused"],

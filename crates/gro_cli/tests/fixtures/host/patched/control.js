@@ -11,6 +11,10 @@ await null;
 
 class Sub extends Array {}
 
+// made before the realm is patched, as an error a builtin's function returns is made by the
+// implementation's own `Error`, with no use of the realm
+const made_error = new Error('made');
+
 /**
  * What a builtin might export, each doing from its own place what an implementation must not:
  * `Object`, read as a global, stands for any use of the realm.
@@ -39,6 +43,28 @@ const probe = {
 	iterates: (/** @type {Iterable<unknown>} */ given) => [...given],
 	// one that reads an option of its argument
 	reads_option: (/** @type {{ recursive?: boolean }} */ options) => options.recursive === true,
+	// one that reads an option only past a check of its first argument, one that calls its
+	// argument when it's a function, and one that makes a string of its fourth
+	guarded: (/** @type {unknown} */ path, /** @type {any} */ options) =>
+		typeof path === 'string' && options !== undefined ? options.recursive === true : false,
+	calls: (/** @type {unknown} */ given) => (typeof given === 'function' ? given() : undefined),
+	fourth: (
+		/** @type {unknown} */ _a,
+		/** @type {unknown} */ _b,
+		/** @type {unknown} */ _c,
+		/** @type {unknown} */ d
+	) => (d === undefined ? '' : `${d}`),
+	// one that asks its argument for its keys, a trap of a proxy that is given no key
+	enumerates: (/** @type {object} */ given) => {
+		for (const key in given) return key;
+		return undefined;
+	},
+	// one that returns an error, whose stack the exerciser must not read for it
+	returns_error: () => made_error,
+	// one that throws an object of its own, whose method uses the realm
+	throws: () => {
+		throw { method: () => Object };
+	},
 	// an object whose method and getter use the realm, and a function whose result's method does
 	holder: {
 		method() {
@@ -47,6 +73,9 @@ const probe = {
 		get getter() {
 			Object;
 			return 1;
+		},
+		set written(/** @type {unknown} */ value) {
+			Object;
 		}
 	},
 	returns_holder: () => ({ method: () => Object }),
@@ -106,6 +135,20 @@ const exerciser = create_exerciser(
 	new Map([
 		['probe.coerces', [['given']]],
 		['probe.iterates', [[['given']]]],
+		['probe.guarded', [['given', undefined]]],
+		['probe.calls', [[undefined]]],
+		['probe.enumerates', [[{}]]],
+		['probe.fourth', [['a', 'b', 'c', undefined]]],
+		// the ones that take nothing: an entry all the same, but for `probe.returns_holder`
+		['probe.returns_error', []],
+		['probe.throws', []],
+		['probe.throws() thrown.method', []],
+		['probe.holder.method', []],
+		['probe.returns_holder().method', []],
+		['probe.Handle', []],
+		['new probe.Handle().read', []],
+		['probe.Handle.prototype.read', []],
+		['probe.Handle.open', []],
 		['probe.never_reached', [[]]]
 	]),
 	4

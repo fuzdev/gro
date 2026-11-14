@@ -1,10 +1,12 @@
 // The exerciser: calls everything a value exports or reaches, as a program holding it could,
 // and reports each call's outcome. A function is called with no arguments, with each list of
-// arguments the caller gives for it, with hostile arguments of every kind, and with a hostile
-// receiver; a class is constructed the same ways; then the functions its results and its own
+// arguments the caller gives for it, with each argument of such a list in turn replaced by a
+// hostile one, with hostile arguments of every kind, and with a hostile receiver; a class is
+// constructed the same ways; then the functions its results, what it threw, and its own
 // properties hold are exercised in turn, and those of each prototype a builtin made, with the
-// value as their receiver, and each getter is read. The traps are armed for the length of a
-// call and no longer.
+// value as their receiver, and each getter is read and each setter given a value. The traps
+// are armed for the length of a call and no longer, so what a call leaves to run later, a
+// promise's reaction, runs unwatched.
 //
 // A hostile argument reports every use made of it during the call it was passed to, a `touch`
 // report: a function that reads, coerces, or iterates what it's given runs the giver's code
@@ -30,6 +32,9 @@ const to_string = String;
 const ProxyConstructor = Proxy;
 const { iterator, toPrimitive } = Symbol;
 const array_values = Array.prototype[Symbol.iterator];
+// the engine's own accessor of every error's `stack`, which formats the stack when it's read:
+// a use of the realm that is the reader's, not the builtin's that made the error
+const error_stack = getOwnPropertyDescriptor(new Error(''), 'stack') ?? {};
 
 /**
  * Each function of `Reflect`, by name: what a proxy's trap of that name does by default.
@@ -75,29 +80,37 @@ class HostileArray extends Array {
 }
 
 /**
+ * A proxy of `target` whose every trap reports, as `kind`, and then does what it would have
+ * without the trap.
+ * @param {string} kind
+ * @param {object} target
+ */
+const to_reporting_proxy = (kind, target) => {
+	/** @type {Record<string, Function>} */
+	const handler = { __proto__: null };
+	for (const [name, forward] of REFLECT) {
+		handler[name] = (/** @type {Array<any>} */ ...args) => {
+			// a trap of one argument has no key, and a read past its end would use the realm
+			const key = args.length > 1 ? args[1] : undefined;
+			const named = typeof key === 'string' || typeof key === 'symbol';
+			touch(`${kind}.${name}${named ? ` ${to_string(key)}` : ''}`);
+			return apply(forward, undefined, args);
+		};
+	}
+	return new ProxyConstructor(target, handler);
+};
+
+/**
  * The hostile arguments, by kind, each made new for a call: a proxy, whose every trap
- * reports; an object whose conversions, `then`, `length`, first index, and iterator are
+ * reports; a proxy of a function, which a check of its type takes for a callback, and whose
+ * call reports; an object whose conversions, `then`, `length`, first index, and iterator are
  * getters that report; a subclassed string, whose conversions report; and a subclassed array,
  * whose iterator reports.
  * @type {Array<[string, () => unknown]>}
  */
 const HOSTILE = [
-	[
-		'proxy',
-		() => {
-			/** @type {Record<string, Function>} */
-			const handler = { __proto__: null };
-			for (const [name, forward] of REFLECT) {
-				handler[name] = (/** @type {Array<any>} */ ...args) => {
-					const key = args[1];
-					const named = typeof key === 'string' || typeof key === 'symbol';
-					touch(`proxy.${name}${named ? ` ${to_string(key)}` : ''}`);
-					return apply(forward, undefined, args);
-				};
-			}
-			return new ProxyConstructor({}, handler);
-		}
-	],
+	['proxy', () => to_reporting_proxy('proxy', {})],
+	['callable', () => to_reporting_proxy('callable', function () {})],
 	[
 		'getters',
 		() => {
@@ -118,14 +131,15 @@ const HOSTILE = [
 	['array', () => HostileArray.of('hostile')]
 ];
 
-/** How many hostile arguments a hostile call passes, more than a function is likely to take. */
+/** How many hostile arguments a hostile call passes at least, and as many as a function declares. */
 const HOSTILE_ARITY = 3;
 
 /**
  * Exercises the exports of builtins, reporting as it goes: a `line` for each call's outcome,
  * a `touch` for each use of a hostile argument, and an `unexercised` for each function or
- * class that declares parameters and has no arguments in `exercises`, which a call without
- * them wouldn't exercise.
+ * class reached that `exercises` has no entry for: how many parameters a function declares
+ * says nothing of the arguments it reads (a default, a rest), so whoever adds one says what
+ * it's called with, an empty list when it takes nothing.
  * @param {Map<string, Array<Array<unknown>>>} exercises - the lists of arguments to call a
  * function or construct a class with, by its path
  * @param {number} depth - how far into a value's properties and its calls' results the
@@ -179,7 +193,7 @@ export const create_exerciser = (exercises, depth) => {
 			: (args) => call(fn, receiver, args);
 		const given = exercises.get(path);
 		if (given === undefined) {
-			if (fn.length > 0) report('unexercised', path);
+			report('unexercised', path);
 		} else {
 			used.add(path);
 		}
@@ -188,11 +202,22 @@ export const create_exerciser = (exercises, depth) => {
 			const args = /** @type {Array<unknown>} */ (lists[i]);
 			const label = i === 0 ? `${shown}()` : `${shown}(arguments ${i})`;
 			const [returned, value] = attempt(label, () => use(args));
-			if (returned) exercise(label, value, undefined, left - 1);
+			// what a call threw is the builtin's too, when it made it
+			exercise(returned ? label : `${label} thrown`, value, undefined, left - 1);
+			// each given argument in turn hostile, the others as given, so a check of one
+			// argument doesn't keep the hostile ones from the code past it
+			for (let at = 0; at < args.length; at++) {
+				for (const [kind, make] of HOSTILE) {
+					const mixed = [];
+					for (let j = 0; j < args.length; j++) mixed[j] = j === at ? make() : args[j];
+					attempt(`${shown}(arguments ${i}, ${kind} at ${at})`, () => use(mixed));
+				}
+			}
 		}
+		const arity = fn.length > HOSTILE_ARITY ? fn.length : HOSTILE_ARITY;
 		for (const [kind, make] of HOSTILE) {
 			const args = [];
-			for (let i = 0; i < HOSTILE_ARITY; i++) args[i] = make();
+			for (let i = 0; i < arity; i++) args[i] = make();
 			attempt(`${shown}(${kind})`, () => use(args));
 		}
 		if (!constructed) {
@@ -231,10 +256,19 @@ export const create_exerciser = (exercises, depth) => {
 				const member = `${path}.${to_string(key)}`;
 				if (hasOwn(descriptor, 'value')) {
 					exercise(member, descriptor.value, value, left - 1);
-				} else if (descriptor.get !== undefined) {
-					const { get } = descriptor;
-					const [returned, got] = attempt(`get ${member}`, () => call(get, value, []));
-					if (returned) exercise(member, got, value, left - 1);
+				} else {
+					const { get, set } = descriptor;
+					if (get !== undefined && get === error_stack.get) continue;
+					if (get !== undefined) {
+						const [returned, got] = attempt(`get ${member}`, () => call(get, value, []));
+						if (returned) exercise(member, got, value, left - 1);
+					}
+					if (set !== undefined) {
+						attempt(`set ${member}`, () => call(set, value, [undefined]));
+						for (const [kind, make] of HOSTILE) {
+							attempt(`set ${member} = ${kind}`, () => call(set, value, [make()]));
+						}
+					}
 				}
 			}
 		}
