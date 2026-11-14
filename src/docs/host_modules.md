@@ -257,6 +257,8 @@ const result = await check.closed;
   Another copy of this module doesn't count as something else: each copy kills its own groups, and the signal then takes its default action.
   A `SIGTERM` of the host is also sent on to each child with an inherited stream, under the same rule, so a chain of hosts passes it all the way down.
   `SIGINT` and `SIGHUP` aren't, since the terminal delivers those to its foreground group.
+  The hooks are in place before a child is launched, so a signal that arrives while it starts reaches it,
+  and a launch that fails keeps them, and the event loop, for two more turns, so a signal that came during it still ends the host.
   Nothing exposes the running children.
 - `.bat` and `.cmd` are refused, by the name and by the pin's real path. A call is argv only, never a shell string.
 - A name or argument must be a string without a NUL byte or a lone surrogate, else a `TypeError`,

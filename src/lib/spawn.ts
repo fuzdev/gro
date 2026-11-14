@@ -203,6 +203,7 @@ const process_raw_listeners = process.rawListeners.bind(process);
 const process_kill = process.kill.bind(process);
 const set_timer = setTimeout;
 const clear_timer = clearTimeout;
+const set_immediate = setImmediate;
 const AbortSignalClass = AbortSignal;
 const Uint8ArrayClass = Uint8Array;
 // uncurried, as a method read from a capture's array or chunk would find a later patch, and
@@ -1469,6 +1470,10 @@ class ChildWatch {
 const running_children = new Set<ChildWatch>();
 let exit_hook_installed = false;
 let running_groups = 0;
+// launches that failed with the hooks taken, each holding them until a signal that reached the
+// host during it has been dispatched
+let held_launches = 0;
+let held_groups = 0;
 
 // `SIGQUIT` is left out on purpose: a listener moves it to the event loop, and a hung host
 // must still dump core, the reason to send it
@@ -1508,8 +1513,8 @@ const on_host_exit = (): void => {
 };
 
 /**
- * Registered for the signals that end the host: `SIGTERM` while any child runs, the others
- * only while a group is running, since a terminal's interrupt never reaches a child in its own
+ * Registered for the signals that end the host: `SIGTERM` while any child runs or launches, the
+ * others only while a group does, since a terminal's interrupt never reaches a child in its own
  * session. Prepended so it counts a `process.once` listener before that listener removes itself.
  * When another listener is on the signal it decides what happens, and the `exit` hook covers
  * the children if that's an exit. Alone but for copies of itself, it kills its groups, sends
@@ -1549,20 +1554,59 @@ const disarm_signal_hooks = (): void => {
 	for (let i = 0; i < HOST_SIGNALS.length; i++) process_off(HOST_SIGNALS[i]!, on_host_signal);
 };
 
-const track_child = (watch: ChildWatch): void => {
+/**
+ * Takes the hooks a child needs before it's launched, since the child can run, and be seen
+ * running, before the launch returns: a signal arriving in between waits for the listener,
+ * which runs once the child is tracked, where with no listener the signal's default action
+ * would end the host and leave the child.
+ */
+const take_hooks = (group: boolean): void => {
 	if (!exit_hook_installed) {
 		exit_hook_installed = true;
 		process_on('exit', on_host_exit);
 	}
+	if (running_children.size + held_launches === 0) {
+		process_prepend_listener('SIGTERM', on_host_signal);
+	}
+	if (group && running_groups + held_groups === 0) arm_group_signal_hooks();
+};
+
+/**
+ * Gives back the hooks a launch took when it tracked no child, two turns of the event loop
+ * later, so a poll has read any signal that reached the host during the launch: Node drops a
+ * signal whose last listener is removed before the loop reads it, which would leave running
+ * a host the signal's default action would have ended. The turns are ref'd, so the host
+ * doesn't exit with the signal unread.
+ */
+const release_hooks = (group: boolean): void => {
+	held_launches++;
+	if (group) held_groups++;
+	set_immediate(() => {
+		set_immediate(() => {
+			held_launches--;
+			if (group) held_groups--;
+			drop_idle_hooks();
+		});
+	});
+};
+
+const track_child = (watch: ChildWatch): void => {
 	running_children.add(watch);
-	if (running_children.size === 1) process_prepend_listener('SIGTERM', on_host_signal);
-	if (watch.group && running_groups++ === 0) arm_group_signal_hooks();
+	if (watch.group) running_groups++;
 };
 
 const untrack_child = (watch: ChildWatch): void => {
 	if (!running_children.delete(watch)) return;
-	if (watch.group && --running_groups === 0) disarm_group_signal_hooks();
-	if (running_children.size === 0) process_off('SIGTERM', on_host_signal);
+	if (watch.group) running_groups--;
+	drop_idle_hooks();
+};
+
+/**
+ * Removes the signal hooks no running child or held launch needs.
+ */
+const drop_idle_hooks = (): void => {
+	if (running_groups + held_groups === 0) disarm_group_signal_hooks();
+	if (running_children.size + held_launches === 0) process_off('SIGTERM', on_host_signal);
 };
 
 /**
@@ -2040,14 +2084,17 @@ const launch_watched = (
 					watch?.stop('aborted');
 				});
 	let child: ChildProcess;
+	take_hooks(group);
 	try {
 		child = launch(name, program, env, argv, call.cwd, stdio, group);
 	} catch (error) {
+		release_hooks(group);
 		dispose_abort_listener(abort_listener);
 		throw error;
 	}
 	watch = new ChildWatch(name, pin, child, group);
 	if (child.pid === undefined) {
+		release_hooks(group);
 		dispose_abort_listener(abort_listener);
 	} else {
 		track_child(watch);

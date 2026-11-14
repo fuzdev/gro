@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { paths } from '#lib/paths.ts';
 import { spawn, type Spawn, type SpawnChild, type SpawnProgram } from '#lib/spawn.ts';
 import { is_spawn_error } from '#lib/spawn_error.ts';
-import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import {
+	create_fs_sandbox,
+	create_removed_dir,
+	remove_fs_sandbox,
+	type FsSandbox
+} from './fs_test_helpers.ts';
 import { assert_rejects_type } from './test_helpers.ts';
 
 // grace periods and child startups on a loaded machine, none of them a sleep the assertions rest on
@@ -1088,6 +1093,141 @@ describe('cleanup when the host exits', () => {
 		await assert_gone(await read_pid_when_ready(ready), 'the end of the chain');
 	});
 
+	// a host whose first launch raises `signal` on the host from inside Node's spawn, after the
+	// child exists (its pid written to `pid_path`) or instead of launching it, so the signal
+	// lands at a fixed point of the launch
+	const run_signaled_launch = async (
+		name: string,
+		signal: string,
+		launch: 'launches' | 'refuses',
+		stdio: 'inherit' | 'pipe',
+		pid_path: string
+	) => {
+		const path = join(sandbox.base, `${name}.ts`);
+		writeFileSync(
+			path,
+			`import node_child_process from 'node:child_process';
+			 import {syncBuiltinESMExports} from 'node:module';
+			 import {writeFileSync} from 'node:fs';
+			 const node_spawn = node_child_process.spawn;
+			 node_child_process.spawn = (...args) => {
+			 	node_child_process.spawn = node_spawn;
+			 	syncBuiltinESMExports();
+			 	if (${JSON.stringify(launch)} === 'refuses') {
+			 		process.kill(process.pid, ${JSON.stringify(signal)});
+			 		throw new Error('refused');
+			 	}
+			 	const child = node_spawn(...args);
+			 	writeFileSync(${JSON.stringify(pid_path)}, child.pid + '\\n');
+			 	process.kill(process.pid, ${JSON.stringify(signal)});
+			 	return child;
+			 };
+			 syncBuiltinESMExports();
+			 const {spawn} = await import(${JSON.stringify(module_url)});
+			 // launches from an I/O callback, where a signal read in the same poll is the latest
+			 await (await import('node:fs/promises')).readFile(${JSON.stringify(path)});
+			 await spawn.program('sleep').start(['100'], {stdio: ${JSON.stringify(stdio)}}).catch(() => {});
+			 await new Promise(() => {});`
+		);
+		const host = await spawn.program('node').start([path], { stdio: 'inherit' });
+		return host.closed;
+	};
+
+	for (const [signal, stdio] of [
+		['SIGTERM', 'inherit'],
+		['SIGTERM', 'pipe'],
+		['SIGINT', 'pipe']
+	] as const) {
+		// ends with no pipe to drain, so its close comes with its exit, in the same group or not
+		const child_stdio = stdio === 'pipe' ? 'ignore' : stdio;
+
+		test(`a \`${signal}\` that arrives while a child with ${stdio} stdio launches reaches it`, async () => {
+			const pid_path = join(sandbox.base, 'launched_pid');
+			const result = await run_signaled_launch(
+				'signal_in_launch',
+				signal,
+				'launches',
+				stdio,
+				pid_path
+			);
+			assert.strictEqual(result.kind === 'signaled' ? result.signal : result.kind, signal);
+			await assert_gone(
+				await read_pid_when_ready(pid_path),
+				'the child launched as the signal came'
+			);
+		});
+
+		test(`a \`${signal}\` that arrives while a launch with ${stdio} stdio fails still ends the host`, async () => {
+			const result = await run_signaled_launch(
+				'signal_in_failed_launch',
+				signal,
+				'refuses',
+				stdio,
+				join(sandbox.base, 'unused_pid')
+			);
+			assert.strictEqual(result.kind === 'signaled' ? result.signal : result.kind, signal);
+		});
+
+		test(`a \`${signal}\` from a failed launch with ${child_stdio} stdio outlives a child ending before it's read`, async () => {
+			const path = join(sandbox.base, 'signal_in_failed_launch_after_end.ts');
+			writeFileSync(
+				path,
+				`import node_child_process from 'node:child_process';
+				 import {syncBuiltinESMExports} from 'node:module';
+				 import {readFileSync} from 'node:fs';
+				 const node_spawn = node_child_process.spawn;
+				 let launches = 0;
+				 node_child_process.spawn = (...args) => {
+				 	if (launches++ === 0) return node_spawn(...args);
+				 	process.kill(process.pid, ${JSON.stringify(signal)});
+				 	throw new Error('refused');
+				 };
+				 syncBuiltinESMExports();
+				 const {spawn} = await import(${JSON.stringify(module_url)});
+				 const child = await spawn.program('sh').start(['-c', 'exit 0'], {stdio: ${JSON.stringify(child_stdio)}});
+				 // blocks the loop until the child has exited, so the poll reads its end before the signal
+				 const exited = () => readFileSync('/proc/' + child.pid + '/stat', 'utf8').split(') ')[1][0] === 'Z';
+				 while (!exited());
+				 await spawn.program('sleep').start(['100'], {stdio: ${JSON.stringify(child_stdio)}}).catch(() => {});
+				 await new Promise(() => {});`
+			);
+			const host = await spawn.program('node').start([path], { stdio: 'inherit' });
+			const result = await host.closed;
+			assert.strictEqual(result.kind === 'signaled' ? result.signal : result.kind, signal);
+		});
+	}
+
+	for (const [signal, stdio] of [
+		['SIGTERM', 'inherit'],
+		['SIGINT', 'ignore']
+	] as const) {
+		test(`a \`${signal}\` from a failed launch with ${stdio} stdio outlives an earlier one's hold`, async () => {
+			const path = join(sandbox.base, 'signal_in_second_failed_launch.ts');
+			writeFileSync(
+				path,
+				`import node_child_process from 'node:child_process';
+				 import {syncBuiltinESMExports} from 'node:module';
+				 let launches = 0;
+				 node_child_process.spawn = () => {
+				 	if (launches++ === 1) process.kill(process.pid, ${JSON.stringify(signal)});
+				 	throw new Error('refused');
+				 };
+				 syncBuiltinESMExports();
+				 const {spawn} = await import(${JSON.stringify(module_url)});
+				 await (await import('node:fs/promises')).readFile(${JSON.stringify(path)});
+				 const program = spawn.program('sleep');
+				 const refused = () => program.start(['100'], {stdio: ${JSON.stringify(stdio)}}).catch(() => {});
+				 // the second launch runs after the last poll before the first gives its hooks back
+				 setImmediate(() => setImmediate(refused));
+				 await refused();
+				 await new Promise(() => {});`
+			);
+			const host = await spawn.program('node').start([path], { stdio: 'inherit' });
+			const result = await host.closed;
+			assert.strictEqual(result.kind === 'signaled' ? result.signal : result.kind, signal);
+		});
+	}
+
 	for (const signal of ['SIGINT', 'SIGHUP']) {
 		test(`a host's \`${signal}\` isn't sent on to an inheriting child`, async () => {
 			const { ready } = write_child_scripts();
@@ -1255,5 +1395,31 @@ describe('cleanup when the host exits', () => {
 		assert.strictEqual(process.listenerCount('SIGINT'), sigint_before);
 		await inheriting.closed;
 		assert.strictEqual(process.listenerCount('SIGTERM'), before);
+	});
+
+	test('a failed launch gives its listeners back, with a launch right after it', async () => {
+		await poll_until(
+			() => process.listenerCount('SIGTERM') === SIGTERM_LISTENERS,
+			'earlier stops to finish'
+		);
+		const sigint_before = process.listenerCount('SIGINT');
+		const program = program_of('quiet', 'exit 0');
+		try {
+			await program.out([], { cwd: create_removed_dir(sandbox) });
+			assert.fail('expected a launch failure');
+		} catch (error) {
+			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
+		}
+		// inside the turns the failed launch holds its listeners for
+		const child = await program.start([], { stdio: 'pipe' });
+		assert.strictEqual(process.listenerCount('SIGTERM'), SIGTERM_LISTENERS + 1);
+		assert.strictEqual(process.listenerCount('SIGINT'), sigint_before + 1);
+		await child.closed;
+		await poll_until(
+			() =>
+				process.listenerCount('SIGTERM') === SIGTERM_LISTENERS &&
+				process.listenerCount('SIGINT') === sigint_before,
+			'the listeners to be given back'
+		);
 	});
 });
