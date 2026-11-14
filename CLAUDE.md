@@ -272,8 +272,8 @@ Crates:
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
-  environment, `RLIMIT_DATA`, the default thread stack, `wait4`, process
-  groups, `_exit`), each behind a safe API; Linux only
+  environment, `RLIMIT_DATA`, the default thread stack, a thread's stack
+  start, `wait4`, process groups, `_exit`), each behind a safe API; Linux only
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`); `v8` is pinned to the exact version
@@ -333,19 +333,27 @@ Invariants that live in the code:
     registry, a table of handles, an exit code), in `OpState`, reached
     through an op. `cwd.ts` is the one script that still decides: it
     throws when its op found no UTF-8 path.
-  - An implementation throws only when its importer left it no stack: an
-    `import()` runs it on the caller's stack, so any importer can cut a first
-    import short at a call of its choosing, the import rejects with
-    `deno_core`'s report, and the next import runs the whole script again
-    (`bootstrap.rs`). So both levels are safe to cut short at any call and to
-    run again. Neither stores anything outside its own bindings: `deno_core`
-    keeps the namespace only once both have returned, so nothing half-made is
+  - An `import()` runs an implementation on the caller's stack, so the
+    loader refuses one of a builtin with less than `BUILTIN_IMPORT_STACK`
+    left above V8's limit, imported already or not (it can't tell when it
+    resolves), after its grant and before anything of it runs
+    (`loader/headroom.rs`, with the measurement behind the amount): no
+    importer can cut a first import short, and no failure of one is reported
+    on a stack too short for the report, which could end the process. It's
+    no refusal by rule: the same import with more stack left runs the whole
+    script. An implementation throws nothing at load: what can fail for a
+    reason of the run's fails in what the module exports, as `cwd` does when
+    called. Both levels stay safe to run again should anything else end one
+    early (nothing does today: an op a level calls throws only for want of
+    stack, and a run never terminates V8): `deno_core` keeps nothing of a
+    failed run and runs the whole script at the next import (`bootstrap.rs`).
+    Neither level stores anything outside its own bindings: `deno_core` keeps
+    the namespace only once both have returned, so nothing half-made is
     published. State every importer shares is the host's, and an op either
-    level calls can be called again. What can fail for a reason of
-    the run's fails in what the module exports, as `cwd` does when called.
-    `crates/gro_cli/tests/host.rs` fails every row's first import that way and
-    holds the next to the whole module; nothing checks that an op a level
-    calls is safe to repeat.
+    level calls can be called again. `crates/gro_cli/tests/host.rs` starts
+    every row's first import a frame apart up from the stack's limit and
+    holds each to the refusal until one makes the whole module; nothing
+    checks that an op a level calls is safe to repeat.
   - An implementation can run after user code has patched the global
     intrinsics, so it names no global and reads no member of an intrinsic, its
     top level included: each intrinsic comes from `primordials`, each op from
@@ -402,7 +410,7 @@ Invariants that live in the code:
     made natively the first time a run needs them, the realm's
     `Error.prototype` taken from an error V8 makes and its `Error` handed
     over by the row's implementation from `primordials`, and held in
-    `OpState` (`ErrorClasses`) once whole, so a first import cut short
+    `OpState` (`ErrorClasses`) once whole, so a first import ended early
     makes it again and every later need finds the one class; the row's op
     makes the namespace. A start makes none and puts the empty holder only.
     The guard reads data properties only, so it runs no code of a caller's.

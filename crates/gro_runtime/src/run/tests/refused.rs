@@ -418,6 +418,74 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
 }
 
+/// A package's module that starts `import()`s near the stack's limit, a
+/// frame apart, and settles them all: above the frames where `deno_core`'s
+/// handler on the import's promise can't be made, whose rejection is the
+/// engine's `RangeError`, and below what the loader requires
+/// (`BUILTIN_IMPORT_STACK`).
+const NEAR_THE_LIMIT: [(&str, &str); 2] = [
+    (
+        "node_modules/pkg/package.json",
+        r#"{"name": "pkg", "type": "module", "exports": {"./near.js": "./near.js"}}"#,
+    ),
+    (
+        "node_modules/pkg/near.js",
+        "export const near = (specifier) => {
+\tconst started = [];
+\tlet from_the_limit = 0;
+\tconst dive = () => {
+\t\ttry {
+\t\t\tdive();
+\t\t} catch (error) {
+\t\t\tif (from_the_limit++ >= 300 && started.length < 50) started.push(import(specifier));
+\t\t\tthrow error;
+\t\t}
+\t};
+\ttry { dive(); } catch {}
+\treturn Promise.allSettled(started);
+};
+",
+    ),
+];
+
+/// A refusal by rule is the one an `import()` short of stack gets, listed
+/// as ever, while an `import()` the loader refuses only for want of stack,
+/// which a retry with more succeeds, is not: a package's imports of `args`
+/// near the stack's limit are refused for the grant and listed once, and
+/// its imports of `pid` there are refused for the stack and leave the run
+/// whole, the program catching both.
+#[test]
+fn a_refusal_by_rule_comes_before_one_for_want_of_stack() {
+    let main = "import { near } from 'pkg/near.js';
+const reasons = async (specifier) =>
+\t(await near(specifier)).map((settled) => settled.status === 'rejected' && settled.reason.message);
+const args = await reasons('@fuzdev/gro/args.ts');
+if (args.length === 0 || !args.every((reason) => reason && reason.includes(\"which package 'pkg' isn't granted\"))) {
+\tthrow new Error(`args: ${args}`);
+}
+const pid = await reasons('@fuzdev/gro/pid.ts');
+const short = ': Maximum call stack size exceeded: an import() of a builtin module needs ';
+if (pid.length === 0 || !pid.every((reason) => reason && reason.includes(short))) {
+\tthrow new Error(`pid: ${pid}`);
+}
+";
+    let files: Vec<(&str, &str)> = NEAR_THE_LIMIT
+        .into_iter()
+        .chain([("main.mjs", main)])
+        .collect();
+    let (outcome, dir) = run_project("short_of_stack", &files, &[]);
+    assert!(outcome.result.is_ok(), "{:?}", outcome.result);
+    let pkg = format!("file://{dir}/node_modules/pkg/near.js");
+    assert_listed(
+        &outcome.refused.listed,
+        &[(
+            format!("cannot import '@fuzdev/gro/args.ts' from {pkg}: "),
+            "which package 'pkg' isn't granted",
+        )],
+    );
+    assert_eq!(outcome.refused.unlisted, 0);
+}
+
 /// Probing for what isn't there, or for a feature that isn't, lists
 /// nothing, and a run with no refusal lists nothing.
 #[test]

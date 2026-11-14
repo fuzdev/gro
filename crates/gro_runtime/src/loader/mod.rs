@@ -38,6 +38,19 @@
 //! it imports nothing, and the URL imports nothing either, its scheme
 //! refused from source.
 //!
+//! An `import()` of a builtin it grants is refused with less stack left
+//! than [`headroom::BUILTIN_IMPORT_STACK`] ([`FailureReason::OutOfStack`]),
+//! whether or not the run imported the builtin already, which `deno_core`
+//! asks the loader before it looks:
+//! `deno_core` runs a builtin's implementation the first time a run imports
+//! it, inside the `import()` call, on its caller's stack (`headroom.rs` has
+//! why, and the measurement behind the amount). The check comes after the
+//! grant, so an `import()` short of stack that a rule refuses is refused by
+//! the rule, and it's no refusal by rule itself: the same import with more
+//! stack left succeeds. Nearest the limit, the import's promise rejects with
+//! the engine's own `RangeError` instead, `deno_core` failing to make its
+//! handler on the promise of the import the loader refused.
+//!
 //! An `import()` in code compiled from a string (an `eval`, a `Function`
 //! constructor, a string passed to a timer) is refused, whatever it names
 //! and whatever its attributes, ahead of every other check of the import
@@ -96,6 +109,7 @@
 
 mod boxed;
 pub mod graph;
+pub mod headroom;
 mod load;
 pub mod reads;
 pub mod refused;
@@ -119,6 +133,7 @@ use crate::confine::BoxRoots;
 use crate::resolver::{DiskTree, Resolution, Roots, SourceTree, find_builtin};
 use boxed::{BoxCheck, Boxed};
 use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Recording};
+use headroom::Headroom;
 use load::load;
 use reads::Reads;
 use refused::RefusedImports;
@@ -158,6 +173,8 @@ pub struct Loader {
     /// The run's authority, which each builtin import is checked against;
     /// unset, no builtin is imported.
     authority: Option<Authority>,
+    /// The stack left where an `import()` of a builtin resolves.
+    headroom: Headroom,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -224,6 +241,7 @@ impl Loader {
             driver: None,
             box_check: BoxCheck::default(),
             authority: None,
+            headroom: Headroom::default(),
         }
     }
 
@@ -391,6 +409,7 @@ impl Loader {
         let resolved = resolve_into(
             &mut self.graph.borrow_mut(),
             self.authority.as_ref(),
+            &self.headroom,
             tree,
             specifier,
             referrer,

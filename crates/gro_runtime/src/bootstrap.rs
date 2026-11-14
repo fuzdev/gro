@@ -46,15 +46,20 @@
 //! scopes anything yet, and a grant-free builtin has none, so each is
 //! called with `undefined`.
 //!
-//! **A first import can be cut short.** `deno_core` builds a facade the
-//! first time an `import()` names it, inside that call, so the backing
-//! script runs on the importer's stack, and an importer that left it almost
-//! none, a package's module included for a grant-free builtin, makes it
-//! overflow at a call of the importer's choosing. `deno_core` rejects that
-//! import with a `TypeError` carrying its own report of what the script
-//! threw, never the error, keeps nothing of the run, and runs the whole
-//! script again at the next import. So both levels of an implementation are
-//! safe to cut short at any call and to run again:
+//! **A first import runs on the importer's stack.** `deno_core` builds a
+//! facade the first time an `import()` names it, inside that call, so the
+//! backing script runs on the importer's stack, and an importer that left it
+//! too little, a package's module included for a grant-free builtin, would
+//! cut it short, with `deno_core`'s report of the failure made on that stack
+//! too. So the loader refuses an `import()` of a builtin with less than
+//! [`BUILTIN_IMPORT_STACK`](crate::loader::headroom::BUILTIN_IMPORT_STACK)
+//! left, before anything of it runs, and an implementation throws nothing at
+//! load: with that much left, nothing ends a script early. Should anything
+//! else ever, `deno_core` rejects that import with a `TypeError` carrying its
+//! own report of what the script threw, never the error, keeps nothing of
+//! the run, and runs the whole script again at the next import. So both
+//! levels of an implementation are kept safe to end at any call and to run
+//! again:
 //!
 //! - Neither stores anything outside its own bindings: no property on the
 //!   bootstrap object or on anything it holds. What the outer level makes
@@ -71,9 +76,10 @@
 //!   what the builtin exports, never by a level.
 //!
 //! A builtin that can fail for a reason of the run's fails in what it
-//! exports, as `cwd` does when called. The tests fail every row's first
-//! import at the stack's limit and hold the next to the whole module;
-//! that an op is safe to repeat, nothing checks.
+//! exports, as `cwd` does when called. The tests start every row's first
+//! import a frame apart up from the stack's limit, hold each to the
+//! loader's refusal until one makes the whole module, and hold every later
+//! import to that module; that an op is safe to repeat, nothing checks.
 //!
 //! The loader resolves an import to a `builtin:` URL only for a bare
 //! specifier in the table and only for an importer granted it
@@ -228,8 +234,8 @@ const WRAP_CLOSE: &str = ");";
 /// object, the inner level it returns called with its grant's scope
 /// ([`scope_argument`]), and wrapped as `deno_core` wraps a lazy script.
 /// `deno_core` keeps what the script returns, the namespace, only once both
-/// calls have returned, so a run cut short in either level keeps nothing of
-/// what the outer level made, and the next import makes it again, whole.
+/// calls have returned, so a run ended early in either level keeps nothing
+/// of what the outer level made, and the next import makes it again, whole.
 /// The comments above the function are emptied line by line
 /// and the strip keeps every other character where it was, so a position
 /// in the script, as a stack frame shows it, is the source's.

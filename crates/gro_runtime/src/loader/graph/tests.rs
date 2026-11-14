@@ -519,6 +519,8 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
             failure: StripFailure::Parse,
             at: None,
         }),
+        // a retry with more stack left succeeds
+        FailureReason::OutOfStack(&BUILTINS[0]),
     ];
     for reason in rules {
         assert!(reason.guards_a_boundary(), "{reason:?}");

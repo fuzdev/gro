@@ -27,7 +27,7 @@
 //! which the class extends, is handed over by the row's implementation from
 //! `primordials`, taken before any program ran. Nothing of the class is in
 //! the snapshot, and a start that needs none makes none. A class is put in
-//! [`ErrorClasses`] only once it's whole, so an implementation cut short
+//! [`ErrorClasses`] only once it's whole, so an implementation ended early
 //! while the class was being made finds none, and makes it again, and one
 //! that ran once finds it, as an instance per origin will.
 

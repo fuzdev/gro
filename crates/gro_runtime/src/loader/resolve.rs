@@ -5,7 +5,8 @@ use deno_core::ModuleSpecifier;
 use url::Url;
 
 use super::Refused;
-use super::graph::{FailureReason, Graph, Reached};
+use super::graph::{FailureReason, Graph, Reach, Reached};
+use super::headroom::{BUILTIN_IMPORT_STACK, Headroom};
 use crate::Authority;
 use crate::resolver::{
     Builtin, Origin, ResolveError, ResolveErrorKind, Resolved, SourceTree, UrlFault,
@@ -17,6 +18,7 @@ use crate::resolver::{
 pub(super) fn resolve_into(
     graph: &mut Graph,
     authority: Option<&Authority>,
+    headroom: &Headroom,
     tree: &impl SourceTree,
     specifier: &str,
     referrer: &str,
@@ -44,7 +46,9 @@ pub(super) fn resolve_into(
     let mut resolution = match resolved.map_err(refused)? {
         Resolved::Module(resolution) => resolution,
         Resolved::Builtin(builtin) => {
-            return resolve_builtin(graph, authority, builtin, specifier, &importer, reached);
+            return resolve_builtin(
+                graph, authority, headroom, builtin, specifier, &importer, reached,
+            );
         }
     };
     // read whether or not the root is admitted
@@ -65,11 +69,16 @@ pub(super) fn resolve_into(
 
 /// The URL of `builtin`, which `specifier` named, imported by `importer`:
 /// for an import, once its grant is checked against `authority` and the
-/// importer's origin, recorded with the edge to it; for
-/// `import.meta.resolve`, unchecked, since it imports nothing.
+/// importer's origin, and for an `import()` the stack left after that
+/// against [`BUILTIN_IMPORT_STACK`] (`headroom`), recorded with the edge to
+/// it; for `import.meta.resolve`, unchecked, since it imports nothing.
+///
+/// The stack is checked after the grant, so a refusal by rule is the one an
+/// `import()` short of stack gets, listed whatever the stack left.
 fn resolve_builtin(
     graph: &mut Graph,
     authority: Option<&Authority>,
+    headroom: &Headroom,
     builtin: &'static Builtin,
     specifier: &str,
     importer: &Url,
@@ -101,6 +110,22 @@ fn resolve_builtin(
             format!("cannot import '{specifier}' from {importer}: {reason}"),
         )
     })?;
+    // `deno_core` runs the builtin's implementation on this stack the first
+    // time a run imports it, inside the `import()` call that reaches here;
+    // a static import's runs from the event loop, as do the imports of a
+    // graph an `import()` loads, which reach here as dynamic with the whole
+    // stack left
+    if reach == Reach::Dynamic && headroom.is_short() {
+        return Err(Refused::new(
+            FailureReason::OutOfStack(builtin),
+            format!(
+                "cannot import '{specifier}' from {importer}: Maximum call stack size \
+                 exceeded: an import() of a builtin module needs {} KiB of stack left, since \
+                 the first runs the module's implementation on the importer's stack",
+                BUILTIN_IMPORT_STACK / 1024
+            ),
+        ));
+    }
     graph.admit_builtin(&url, builtin);
     graph.link(importer, specifier, reach, &url);
     Ok(url)

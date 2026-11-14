@@ -19,10 +19,11 @@
 //! again without that call, to a run that gets to its end, and each call
 //! that ended one is held to the code it exited with.
 //!
-//! And every builtin's first import made to fail (`tests/fixtures/host/forced/`):
-//! an `import()` runs the implementation on its caller's stack, so a
-//! caller that left it none cuts it short, and the import after must find
-//! nothing of that run and make the module whole.
+//! And every builtin's first import started short of stack
+//! (`tests/fixtures/host/forced/`): an `import()` runs the implementation on
+//! its caller's stack, so the loader refuses one with too little left before
+//! anything of it runs, and a later import with enough makes the module
+//! whole.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -845,103 +846,74 @@ fn a_trap_reports_as_it_is_used() {
     assert!(reports.0.iter().all(|(kind, _)| kind != "done"));
 }
 
-/// How many times [`a_first_import_cut_short_is_run_again_whole`] runs its
-/// fixture before a run that V8's stack check ended fails it.
-///
-/// V8 holds JS to a stack limit and lets the native code JS calls run
-/// 40 KiB past it: a collection started further down fails a check of V8's
-/// (`isolate_->IsOnCentralStack()`), which ends the process by a signal. An
-/// `import()` of a builtin nothing has imported runs `deno_core`'s loading
-/// of it, and its report of a failure, on the caller's stack, in native
-/// frames. An unoptimized build's pass the 40 KiB at some of the depths the
-/// fixture starts an import from, and a collection that happens to start
-/// there ends the run, which then says nothing of the import: a debug build
-/// runs the fixture again, this many times at most. How often a debug run
-/// ends so moves with the build and with the length of the project's path,
-/// up to most runs, and such a run mostly ends at its first import, so the
-/// bound is set to fail only a build in which no run gets through. A release
-/// build's frames stay inside the 40 KiB, so it has the one run, and the
-/// check fails it.
-const FORCED_RUNS: usize = if cfg!(debug_assertions) { 64 } else { 1 };
-
-/// Whether a signal ended the run of `output` after V8's check that a
-/// collection starts within its margin past the stack's limit failed
-/// ([`FORCED_RUNS`]).
-fn ended_by_v8_stack_check(output: &std::process::Output) -> bool {
-    output.status.code().is_none()
-        && String::from_utf8_lossy(&output.stderr)
-            .contains("Check failed: isolate_->IsOnCentralStack().")
-}
-
-/// A first import cut short is run again, whole, for every row of the
-/// table: an `import()` of a builtin nothing has imported runs its
-/// implementation on the caller's stack, so a caller at the stack's limit
-/// makes it fail, with the host's report of a `RangeError` naming a frame
-/// of the backing script, as often as it likes; and the import that is left
-/// enough stack makes the module with the row's exports, the same module
-/// every later import gets. So a failed first import leaves nothing a
-/// later one finds: no builtin is lost to the run, for the project or for
-/// a package that never failed one. A debug `deno_core` warns on stderr
-/// that it couldn't read such a failure's stack, once each, and nothing
-/// else is printed there. A run V8's stack check ended is run again
-/// ([`FORCED_RUNS`]).
+/// A first import short of stack is refused and run whole later, for every
+/// row of the table, in a realm nothing patched and in one patched against
+/// the host's report of a failure: an `import()` of a builtin nothing has
+/// imported runs its implementation on the caller's stack, so the loader
+/// refuses one with less stack left than that needs, before anything of it
+/// runs. Swept up from near the stack's limit a frame at a time, every
+/// import before the first that succeeds is refused, by the loader at least
+/// once, with a `TypeError` whose `code` is `ERR_MODULE_NOT_FOUND`, as every
+/// import that fails to resolve gets (nearest the limit, with the engine's
+/// own `RangeError` when
+/// `deno_core` can't make its handler on the refused import's promise), and
+/// none is cut short partway, which would fail with the host's report of
+/// the `RangeError` instead; the import that succeeds makes the module with
+/// the row's exports, the same module every later import gets. Nothing is
+/// printed on stderr, and the run ends with 0, by a refused import as by a
+/// failed one: a refusal for want of stack is no refusal by rule. The sweep
+/// starts the first import with every amount of stack left a frame apart, so
+/// a build whose implementations need more than the loader leaves them
+/// fails here.
 #[test]
-fn a_first_import_cut_short_is_run_again_whole() {
+fn a_first_import_short_of_stack_is_refused_and_run_whole_later() {
     let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
     let modules = format!(
         "export const SPECIFIERS = {};\n",
         serde_json::to_string(&specifiers).unwrap()
     );
-    let forced = std::fs::read_to_string(fixtures().join("forced/forced.js")).unwrap();
+    let read = |file: &str| std::fs::read_to_string(fixtures().join("forced").join(file)).unwrap();
+    let (sweep, forced, hostile) = (read("sweep.js"), read("forced.js"), read("hostile.js"));
     let project = Scratch::new(
         "forced",
         &[
             ("package.json", "{\"type\": \"module\"}\n"),
             ("modules.js", &modules),
+            ("sweep.js", &sweep),
             ("forced.js", &forced),
+            ("hostile.js", &hostile),
         ],
     );
-    let run = || {
-        let mut command = fgro_command(&["run", "forced.js", "a"]);
+    for entry in ["forced.js", "hostile.js"] {
+        let mut command = fgro_command(&["run", entry]);
         command.current_dir(&project.0);
-        spawn(command, b"")
-    };
-    let mut output = run();
-    for _ in 1..FORCED_RUNS {
-        if !ended_by_v8_stack_check(&output) {
-            break;
-        }
-        output = run();
-    }
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    // the status first: a run a signal ended has no code, and its stderr is long
-    assert_eq!(output.status.code(), Some(0), "{}: {stderr}", output.status);
-    let unexpected = stderr
-        .lines()
-        .find(|line| !line.starts_with("warning: Failed to create JsStackFrame from callsite"));
-    assert_eq!(unexpected, None);
-    let rows: Value =
-        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
-    let rows = rows.as_array().unwrap();
-    assert_eq!(rows.len(), BUILTINS.len());
-    for (row, builtin) in rows.iter().zip(BUILTINS) {
-        assert_eq!(row["specifier"], builtin.specifier);
-        let rejections = row["rejections"].as_array().unwrap();
-        assert!(!rejections.is_empty(), "{row}");
-        for rejection in rejections {
-            let rejection = rejection.as_str().unwrap();
+        let output = spawn(command, b"");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        // the status first: a run a signal ended has no code, and says so
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{entry}, {}: {stderr}",
+            output.status
+        );
+        assert_eq!(stderr, "", "{entry}");
+        let rows: Value =
+            serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
+        let rows = rows.as_array().unwrap();
+        assert_eq!(rows.len(), BUILTINS.len(), "{entry}");
+        for (row, builtin) in rows.iter().zip(BUILTINS) {
+            assert_eq!(row["specifier"], builtin.specifier, "{entry}");
+            assert_eq!(row["other"], serde_json::json!([]), "{entry}: {row}");
             assert!(
-                rejection.ends_with("RangeError: Maximum call stack size exceeded"),
-                "{row}"
+                row["refused"]["loader"].as_u64().unwrap() > 0,
+                "{entry}: {row}"
             );
+            let mut exports: Vec<&str> = builtin.exports.to_vec();
+            exports.push("default");
+            exports.sort_unstable();
+            assert_eq!(row["exports"], serde_json::json!(exports), "{entry}: {row}");
+            assert_eq!(row["same"], true, "{entry}: {row}");
         }
-        // some failure names a frame of the backing script, so the import reached it
-        assert_ne!(row["cut_at"], serde_json::json!([]), "{row}");
-        let mut exports: Vec<&str> = builtin.exports.to_vec();
-        exports.push("default");
-        exports.sort_unstable();
-        assert_eq!(row["exports"], serde_json::json!(exports), "{row}");
-        assert_eq!(row["same"], true, "{row}");
     }
 }
