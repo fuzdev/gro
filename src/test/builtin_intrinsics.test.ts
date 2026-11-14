@@ -62,7 +62,7 @@ traps, and call its functions with hostile arguments (`crates/gro_cli/tests/host
 const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
 	Error: {
 		type: 'ErrorConstructor',
-		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown."
+		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. An error row also hands it to its op as it is, which makes it the host's class's prototype natively and reads nothing of it."
 	},
 	ObjectAssign: {
 		type: '<T extends object, U>(target: T, source: U) => T & U',

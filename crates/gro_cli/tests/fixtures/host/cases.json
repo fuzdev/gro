@@ -168,6 +168,53 @@
 		"differs": []
 	},
 	{
+		"name": "env_error",
+		"module": "env_error",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/guards/proxy_of_an_error",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"
+			},
+			{
+				"at": "/guards/kind_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's kind, and calls no getter"
+			},
+			{
+				"at": "/guards/named_through_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name through a proxy on a constructor's chain, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/named_by_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name of a constructor that is a proxy, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/constructor_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's constructor, and calls no getter"
+			},
+			{
+				"at": "/guards/named_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's name, and calls no getter"
+			},
+			{
+				"at": "/guards/ran",
+				"fgro": [],
+				"why": "the guard is native and runs no code of a caller's: no trap, and no getter"
+			}
+		]
+	},
+	{
 		"name": "cwd",
 		"module": "cwd",
 		"args": ["{cwd}"],

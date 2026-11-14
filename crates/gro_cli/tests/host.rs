@@ -243,12 +243,77 @@ const PROTOCOL_NAMES: [&str; 19] = [
 /// array's end or of a hole lands, and a write of one an object lacks.
 const TRAPPED_INDICES: std::ops::Range<u32> = 0..16;
 
-/// The uses of a hostile argument a builtin's function is known to make,
-/// each as the patched realm reports it, `<call>: <use>`: a function that
-/// reads, converts, or iterates what it's given runs the giver's code from
-/// inside the builtin, so each use is listed here once it's been reviewed,
-/// and any other fails the test. No builtin's function touches an argument.
-const ARGUMENT_TOUCHES: [&str; 0] = [];
+/// The uses of a hostile argument a builtin's function may make, each
+/// reviewed, by the function, as the patched realm names its calls, with
+/// each use as it reports one: a function that reads, converts, or
+/// iterates what it's given runs the giver's code from inside the builtin,
+/// so each use is listed here once it's been reviewed, any other fails the
+/// test, and so does one listed that no run made.
+///
+/// Only an error class's constructor makes any: it converts its kind and
+/// its target to strings for the message when it's given none, and the
+/// message when it is, and asks its options for a `cause`, as the Node
+/// class does. What it runs is the caller's conversions and the caller's
+/// options, and a function exported beside it runs none.
+const ARGUMENT_USES: [(&str, &[&str]); 1] = [(
+    "new @fuzdev/gro/env_error.ts EnvError",
+    &[
+        // a kind, a target, or a message converted to a string
+        "proxy.get Symbol(Symbol.toPrimitive)",
+        "proxy.get toString",
+        "proxy.get valueOf",
+        "callable.get Symbol(Symbol.toPrimitive)",
+        "callable.get toString",
+        "callable.get valueOf",
+        "getters.Symbol(Symbol.toPrimitive)",
+        "getters.toString",
+        "getters.valueOf",
+        "string[Symbol.toPrimitive]",
+        "array[Symbol.toPrimitive]",
+        // the options asked for a `cause`
+        "proxy.has cause",
+        "callable.has cause",
+        "getters.cause",
+        "string.cause",
+        "array.cause",
+    ],
+)];
+
+/// Asserts that each of `touches`, as the patched realm reports a use of a
+/// hostile argument, `<call>: <use>`, is a use [`ARGUMENT_USES`] lists for
+/// the function called, and, with `every`, that each one listed was made.
+fn assert_argument_uses(touches: &[&str], every: bool) {
+    let mut made = BTreeSet::new();
+    let mut unreviewed = BTreeSet::new();
+    for touch in touches {
+        let listed = ARGUMENT_USES.iter().find_map(|(function, uses)| {
+            let (_, used) = touch.strip_prefix(function)?.split_once("): ")?;
+            uses.contains(&used).then_some((*function, used))
+        });
+        match listed {
+            Some(listed) => {
+                made.insert(listed);
+            }
+            None => {
+                unreviewed.insert(*touch);
+            }
+        }
+    }
+    assert!(
+        unreviewed.is_empty(),
+        "the uses of a hostile argument no one reviewed: {unreviewed:#?}"
+    );
+    if every {
+        for (function, uses) in ARGUMENT_USES {
+            for used in uses {
+                assert!(
+                    made.contains(&(function, *used)),
+                    "a reviewed use of a hostile argument no call made: {function}: {used}"
+                );
+            }
+        }
+    }
+}
 
 /// The calls that end the process, each as the patched realm names it,
 /// with the code it exits with, in the order they're made: `exit` given
@@ -516,7 +581,7 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     // a run a call ended used nothing before it did: its traps reported as they fired
     for run in plain_cut_short.iter().chain(&patched_cut_short) {
         assert_eq!(run.strings("trap"), [""; 0]);
-        assert_eq!(run.strings("touch"), ARGUMENT_TOUCHES);
+        assert_argument_uses(&run.strings("touch"), false);
         assert_eq!(run.strings("unexercised"), [""; 0]);
     }
     for (call, _) in ENDING_CALLS {
@@ -534,11 +599,8 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
             serde_json::json!([]),
             "the arguments `use.js` has for a function nothing reached"
         );
-        assert_eq!(
-            run.strings("touch"),
-            ARGUMENT_TOUCHES,
-            "the uses a builtin's function made of a hostile argument"
-        );
+        // the uses a builtin's function made of a hostile argument
+        assert_argument_uses(&run.strings("touch"), true);
     }
     for builtin in BUILTINS {
         let specifier = builtin.specifier;

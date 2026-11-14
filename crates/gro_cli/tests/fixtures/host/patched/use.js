@@ -17,6 +17,11 @@ import { count_replaced, disarm, report, restore_realm, show } from './realm.js'
 
 disarm();
 
+/** The env error row's namespace, whose class makes the errors its guard is given. */
+const env_error = /** @type {any} */ (
+	MODULES.find(([specifier]) => specifier === '@fuzdev/gro/env_error.ts')
+)[2];
+
 /**
  * The arguments each function or class a builtin exports or reaches is exercised with, by its
  * path as the reports name it (`<specifier> <export>`, then `.member` or `()` for each step):
@@ -28,6 +33,23 @@ disarm();
 const EXERCISES = new Map([
 	// takes no argument and no receiver
 	['@fuzdev/gro/cwd.ts cwd', []],
+	// a kind and a target, and with them a message and the options of its cause
+	[
+		'@fuzdev/gro/env_error.ts EnvError',
+		[
+			['not_granted', 'HOME'],
+			['not_granted', 'HOME', 'custom', { __proto__: null, cause: 1 }]
+		]
+	],
+	// an error of the class, of its kind and of another, and one that isn't
+	[
+		'@fuzdev/gro/env_error.ts is_env_error',
+		[
+			[new env_error.EnvError('not_granted', 'HOME'), 'not_granted'],
+			[new env_error.EnvError('not_granted', 'HOME'), 'other'],
+			[{ __proto__: null }]
+		]
+	],
 	// a code, which ends the process as a call with none does
 	['@fuzdev/gro/exit.ts exit', [[7]]],
 	// a code, the one a run that ends on its own exits with

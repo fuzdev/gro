@@ -6,11 +6,12 @@
 // A builtin's implementation is a script, one function in two levels, which is in no snapshot:
 // the runtime compiles and calls it the first time a run imports the builtin. The outer level
 // takes deno_core's bootstrap object and runs once a run: it makes what every importer shares,
-// the values that don't depend on a scope, and with them any class, brand, or registry, so
-// those are one object whoever imports the builtin. It returns the inner level, a function of
-// the scope of an importer's grant that makes only the builtin's namespace, in a
-// null-prototype record made in place, since a function of the script's own is one more to
-// compile at every first import.
+// the values that don't depend on a scope and the frozen shells that hand a call to an op, so
+// those are one object whoever imports the builtin. The script reads nothing and decides
+// nothing: whatever has identity or state, a class, a brand, a registry, is the host's,
+// reached through an op. The outer level returns the inner, a function of the scope of an
+// importer's grant that makes only the builtin's namespace, in a null-prototype record made in
+// place, since a function of the script's own is one more to compile at every first import.
 //
 // A first import can be after user code has patched the global intrinsics, so the whole
 // script, both levels and what they export, names no global and reads no property of an
@@ -23,12 +24,12 @@
 // An `import()` runs the script on its caller's stack, so a caller that left it none cuts
 // either level short at any call, and the next import runs both again. So a level stores
 // nothing outside its own bindings, and calls only an op that can be called again: what a
-// builtin shares across importers is the outer level's own or the host's, and a builtin that
-// can fail fails in what it exports, as `cwd.ts` does, since an import whose script threw
-// rejects with the host's report of it, not the error. The inner level reads no grant but
-// the scope it's given, which it hands to an op whole, and keeps no state per importer, so
-// it can be called once per importing origin. The `args` grant scopes nothing, so its scope
-// is `undefined`.
+// builtin shares across importers is a value or a shell of the outer level's, or the host's,
+// and a builtin that can fail fails in what it exports, as `cwd.ts` does, since an import
+// whose script threw rejects with the host's report of it, not the error. The inner level
+// reads no grant but the scope it's given, which it hands to an op whole, and keeps no state
+// per importer, so it can be called once per importing origin. The `args` grant scopes
+// nothing, so its scope is `undefined`.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 

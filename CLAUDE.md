@@ -321,14 +321,17 @@ Invariants that live in the code:
   facade's name and its ops.
   - An implementation is one function in two levels. The outer takes
     `deno_core`'s bootstrap object, runs once a run, and makes what every
-    importer shares: a class, a brand, a registry, the values no scope
-    changes. It returns the inner, which takes the scope of its importer's
-    grant, an argument the backing script's call passes
+    importer shares: the values no scope changes and the frozen shells that
+    hand a call to an op. It returns the inner, which takes the scope of its
+    importer's grant, an argument the backing script's call passes
     (`bootstrap::scope_argument`; `undefined` while no grant has one) and the
     implementation reads no other way, and makes the namespace. The backing
     script calls both at once, so a run has one namespace of a builtin, and
     one per importing origin would be one more call of the inner level over
-    the same classes and state.
+    the same shells. A row's script reads nothing and decides nothing;
+    whatever has identity or state is the host's (a class, a brand, a
+    registry, a table of handles, an exit code), in `OpState`, reached
+    through an op.
   - An implementation throws only when its importer left it no stack: an
     `import()` runs it on the caller's stack, so any importer can cut a first
     import short at a call of its choosing, the import rejects with
@@ -336,9 +339,8 @@ Invariants that live in the code:
     (`bootstrap.rs`). So both levels are safe to cut short at any call and to
     run again. Neither stores anything outside its own bindings: `deno_core`
     keeps the namespace only once both have returned, so nothing half-made is
-    published. State every importer shares is the outer level's own, reached
-    through what the inner level returns, or the host's, in `OpState`, and an
-    op either level calls can be called again. What can fail for a reason of
+    published. State every importer shares is the host's, and an op either
+    level calls can be called again. What can fail for a reason of
     the run's fails in what the module exports, as `cwd` does when called.
     `crates/gro_cli/tests/host.rs` fails every row's first import that way and
     holds the next to the whole module; nothing checks that an op a level
@@ -378,17 +380,31 @@ Invariants that live in the code:
     function called with no arguments, with hostile ones (a proxy, a proxy of
     a function, an object of getters, a subclassed string and array), with
     each argument the fixture gives for it replaced in turn by a hostile one,
-    and with a hostile receiver, each class constructed, each getter read,
-    each setter given a value, and the same for what a call returns or throws.
-    A function reached fails it until the fixture has an entry for it, with
-    the arguments it takes or none, and a use of a hostile argument until the
-    test lists it, reviewed. A call that ends the process, as `exit`'s do,
-    is one the test lists with its code: each call is reported before it's
-    made, and the run is made again without the one it ended in. What a
-    call leaves to run later, a promise's reaction, it doesn't watch.
+    and with a hostile receiver, each class constructed (one the host made
+    among them, told by its `prototype`, which can't be replaced), each
+    getter read, each setter given a value, and the same for what a call
+    returns or throws. A hostile argument answers every read made of it,
+    `cause` included, and what a proxy's trap does by default runs
+    unwatched, since it's the caller's code. A function reached fails it
+    until the fixture has an entry for it, with the arguments it takes or
+    none, and a use of a hostile argument until the test lists it for that
+    function, reviewed: only an error class's constructor makes any, the
+    conversions and the `cause` read the Node class makes. A call that ends
+    the process, as `exit`'s do, is one the test lists with its code: each
+    call is reported before it's made, and the run is made again without the
+    one it ended in. What a call leaves to run later, a promise's reaction,
+    it doesn't watch.
   - And `bootstrap/web_scripts.rs` holds each implementation's reads of
     `core.ops`, its backing script's scope argument's among them, to the host
     ops of its own row.
+  - An error row's class and guard are the host's (`host/error_class.rs`):
+    made natively the first time a run needs them, the realm's
+    `Error.prototype` taken from an error V8 makes and its `Error` handed
+    over by the row's implementation from `primordials`, and held in
+    `OpState` (`ErrorClasses`) once whole, so a first import cut short
+    makes it again and every later need finds the one class; the row's op
+    makes the namespace. A start makes none and puts the empty holder only.
+    The guard reads data properties only, so it runs no code of a caller's.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
@@ -398,14 +414,17 @@ Invariants that live in the code:
     implementation keeps no per-importer state.
   - `src/test/builtin_types.test.ts` holds every row's inferred types to its
     Node module's, reading the rows from the table and each implementation
-    from its file. `crates/gro_cli/tests/host.rs` holds every row's values to
-    what its Node module printed (`tests/fixtures/host/`, whose
+    from its file, a class by its public shape (its constructor's parameters
+    and its instances' members), since a host-made class's type is a claim
+    in `bootstrap.d.ts`, which no class type equals.
+    `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
+    module printed (`tests/fixtures/host/`, whose
     `expected.json` `node oracle.js --write` regenerates under Node and
     `src/test/host_differential.test.ts` checks against Node).
   - The table also reserves specifiers it doesn't serve (each row's `.js`
-    spelling, derived from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`,
-    the modules Gro has none of whose members are modules of their own, each
-    refused naming them, and a respelling of these or of a row's specifier,
+    spelling, derived from the row, `UNBUILT_HOST_MODULES`, the error modules
+    not built among them, `SPLIT_MODULES`, the modules Gro has none of whose
+    members are modules of their own, each refused naming them, and a respelling of these or of a row's specifier,
     read as URL parsing and the path's decoding read an `"exports"` target, in
     `resolver/specifier.rs`), which the resolver refuses ahead of any package
     lookup; a reserved one is data only, never reaching `builtin_rows!`. A
@@ -454,8 +473,9 @@ Invariants that live in the code:
   error V8 makes from the realm's intrinsic (`throw_type_error` in
   `host/mod.rs`), since an op's `Err` is built by a JS callback of
   `deno_core`'s. An op that takes the scope can return a value made in it
-  (`v8::Local<'s, v8::Value>`), as an error row's does. A builtin's export that
-  takes arguments is a shell handing them to such an op whole. The run's `Authority` goes into the loader and
+  (`v8::Local<'s, v8::Value>`), as an error row's does. A builtin's export
+  that takes arguments is a shell handing them to such an op whole. The
+  run's `Authority` goes into the loader and
   the runtime's `OpState` per run, never into the snapshot or the extension
   list, and eval's runtime takes none. A test fails on an op of gro's
   extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`

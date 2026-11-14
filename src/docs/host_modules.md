@@ -34,9 +34,12 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `cwd.ts`             | nothing: the working directory, a value | built, no grant         |
 | `pid.ts`             | nothing: the process's id, a value      | built, no grant         |
 | `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant         |
+| `env_error.ts`       | nothing: `env`'s error class            | built, no grant         |
+| `fs_error.ts`        | nothing: `fs`'s error class             | not yet                 |
+| `spawn_error.ts`     | nothing: `spawn`'s error class          | not yet                 |
+| `net_error.ts`       | nothing: `net`'s error class            | not yet                 |
+| `stdio_error.ts`     | nothing: the streams' error class       | not yet                 |
 
-The error modules (`fs_error.ts`, `spawn_error.ts`, `net_error.ts`, `env_error.ts`, `stdio_error.ts`) reach nothing
-and are designed as builtin modules that need no grant; none is on `fgro` yet.
 A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
 ## fs
@@ -444,6 +447,7 @@ On `fgro`, the process modules [the table](#the-modules) marks built are builtin
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
+`@fuzdev/gro/env_error.ts`, the env module's errors, is one too ([below](#error-classes-on-fgro)).
 A builtin module's implementation is no part of the startup snapshot: it's compiled and run when a run first imports the module,
 so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
 That first import can come after user code has patched the intrinsics, so the whole implementation, not only what it exports,
@@ -454,7 +458,7 @@ Each module's exports have the types of the Node module's, checked by a test aga
 A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
 their shapes, property descriptors, and what throws, but where a case names a difference by design.
 
-`cwd`, `pid`, and `runtime_version` need no grant: any module of a run imports them, a package's included,
+`cwd`, `pid`, `runtime_version`, and `env_error` need no grant: any module of a run imports them, a package's included,
 and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
 
 `runtime_version` carries the commit the binary was built from, as `fgro --version` prints it,
@@ -493,6 +497,24 @@ the realm's own `TypeError` whatever the global of that name has become, and no 
 The code set is the run's state, kept by the host, not the module's.
 Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
 On Node, `exit` also runs the spawn module's child cleanup; `fgro` has no spawn module yet.
+
+#### Error classes on fgro
+
+On `fgro` an error module's class and guard are the runtime's own, made the first time a run needs them, never at a start that doesn't,
+and held by the runtime, so the module exports the class its host module's operations throw.
+An instance is what the Node class's is: an `Error` (`Error.isError`, a stack, `structuredClone` and JSON as an `Error`'s),
+with its own `name`, `kind`, and target, and `cause` when the options give one, whose class and prototype are frozen
+and inherit from the realm's own `Error`, whatever the global of that name has become, and which a class of the program's can extend.
+Its `message` is `kind: target`, as on Node, unless the constructor is given a message, which replaces it on both runtimes;
+the target is what its module's section says (for an `EnvError`, the variable's name, never its value), and the detail of a failure is its `cause`.
+The constructor converts its arguments to strings, and reads its options' `cause`, as the Node class does,
+but a `new.target` that is a proxy (from `Reflect.construct`) has its `prototype` read once more, first, before the arguments are converted,
+and a subclass's constructor frames stay in the instance's stack, where Node leaves them out.
+The guard (`is_env_error`) recognizes an instance of the class, or of a class of the same name, by its prototype chain, as on Node,
+but it runs no code of a caller's: a proxy is no error of the family, nor is a value with a proxy on its prototype chain or on its constructor's,
+where Node runs their traps (and throws for a revoked one),
+and it reads `constructor`, the constructor's `name`, and `kind` only as data properties, so an accessor there is no match, where Node calls the getter.
+The class's and the guard's source text are native code's.
 
 ## net
 
@@ -967,8 +989,9 @@ It documents each gap rather than weakening the API to match, and is a review si
 ## Native requirements
 
 What the runtime's builtin module must do that the Node implementation can't.
-Each handle holds a native resource of its own, and every confinement decision is the native op's:
-the builtin module's JS checks shapes and raises early errors, as the Node implementation's does, and the op trusts nothing it computed.
+Each handle holds a native resource of its own, and every confinement decision is the native op's.
+The builtin module's JS reads nothing and decides nothing: an export that takes arguments is a shell handing them to its op whole, which checks them and raises the errors,
+and whatever has identity or state, a class, a brand, a registry, is the host's.
 
 That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
 where the Node implementation copies what it needs when it loads and can be loaded first.

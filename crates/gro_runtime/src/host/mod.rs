@@ -20,12 +20,14 @@
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! an op past the loader.
 
+pub mod error_class;
 pub mod exit;
 mod grant;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
+use error_class::{ENV_ERROR, ErrorClasses};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 #[cfg(test)]
 use grant::Grant;
@@ -40,6 +42,10 @@ use crate::{ArgsGrant, ExitGrant};
 /// module's state, which only a runtime made outside a run's start is: a
 /// run that grants `exit` holds it.
 const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started without its state";
+
+/// What an error row's op throws in a runtime started without the run's
+/// error classes, which only a runtime made outside a run's start is.
+const NO_ERROR_CLASSES: &str = "this runtime was started without the run's error classes";
 
 /// What the host ops return of the run, put in the runtime's `OpState` with
 /// the run's [`Authority`](crate::Authority) when `fgro run`'s runtime
@@ -202,6 +208,15 @@ pub fn throw_type_error(scope: &v8::PinScope<'_, '_>, message: &str) {
     }
 }
 
+/// Throws `message` as a `RangeError` through `scope`, the realm's own, as
+/// [`throw_type_error`] throws a `TypeError`.
+pub fn throw_range_error(scope: &v8::PinScope<'_, '_>, message: &str) {
+    if let Some(message) = v8::String::new(scope, message) {
+        let error = v8::Exception::range_error(scope, message);
+        scope.throw_exception(error);
+    }
+}
+
 /// Throws `message` as an `Error` through `scope`, the realm's own, as
 /// [`throw_type_error`] throws a `TypeError`.
 pub fn throw_error(scope: &v8::PinScope<'_, '_>, message: &str) {
@@ -245,6 +260,23 @@ host_ops! {
             (Some(code), Some(exit)) => exit.set_code(code),
             (Some(_), None) => throw_error(scope, NO_EXIT_STATE),
         }
+    }
+
+    /// The env error row's namespace, `EnvError` and `is_env_error`: the
+    /// host's, made the first time the run needs them, the class extending
+    /// `error`, the realm's `Error`, which the implementation hands over
+    /// from `primordials`.
+    fn op_gro_env_error(state; scope, error) for "@fuzdev/gro/env_error.ts"
+        -> v8::Local<'s, v8::Value>
+    {
+        let namespace = state.try_borrow::<ErrorClasses>().map_or_else(
+            || {
+                throw_error(scope, NO_ERROR_CLASSES);
+                None
+            },
+            |classes| classes.namespace(scope, &ENV_ERROR, error),
+        );
+        namespace.map_or_else(|| v8::undefined(scope).into(), Into::into)
     }
 
     /// The working directory the run was started in, or `null` when its

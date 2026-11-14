@@ -52,6 +52,9 @@ import type { implementation } from './${name}.subject.ts';
 import type * as node from './${name}.node_declarations.d.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+// a class by its public shape, its constructor's parameters and its instances' members: the
+// host makes a builtin's class, so its type is a claim, which no class type equals
+type Shape<T> = T extends abstract new (...args: infer P) => infer I ? [P, { [K in keyof I]: I[K] }] : T;
 type Inner = ReturnType<typeof implementation>;
 type Namespace = ReturnType<Inner>;
 type Builtin = Omit<Namespace, 'default'>;
@@ -59,7 +62,7 @@ type Node = typeof node;
 
 export const exports: Equal<keyof Namespace, keyof Node | 'default'> = true;
 export const no_default: Equal<Namespace['default'], undefined> = true;
-export const members: Equal<{ [K in keyof Node]: Equal<Builtin[K], Node[K]> }[keyof Node], true> = true;
+export const members: Equal<{ [K in keyof Node]: Equal<Shape<Builtin[K]>, Shape<Node[K]>> }[keyof Node], true> = true;
 export const to_node = (builtin: Builtin): Node => builtin;
 export const to_builtin = (node: Node): Builtin => node;
 export const outer_parameters: Equal<Parameters<typeof implementation>, [bootstrap: Bootstrap]> = true;
@@ -80,7 +83,8 @@ const source_files: Map<string, ts.SourceFile | undefined> = new Map();
 const check_types = (
 	row: BuiltinRow,
 	declarations: string,
-	implementation = read_implementation(row)
+	implementation = read_implementation(row),
+	bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8')
 ): Array<string> => {
 	const config_path = join(JS_DIR, 'tsconfig.json');
 	const config = ts.readConfigFile(config_path, ts.sys.readFile);
@@ -91,7 +95,8 @@ const check_types = (
 	const virtual = new Map([
 		[check_path, to_check(row)],
 		[join(dir, `${row.name}.subject.ts`), to_subject(implementation)],
-		[join(dir, `${row.name}.node_declarations.d.ts`), declarations]
+		[join(dir, `${row.name}.node_declarations.d.ts`), declarations],
+		[join(BUILTIN_DIR, 'bootstrap.d.ts'), bootstrap]
 	]);
 	const host = ts.createCompilerHost(options);
 	const get_source_file = host.getSourceFile.bind(host);
@@ -130,7 +135,7 @@ describe('the builtin table', () => {
 	test("the implementations are the table's rows", () => {
 		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
 		// each kind of export the checks below mutate is among them
-		for (const name of ['args', 'cwd', 'pid', 'runtime_version']) {
+		for (const name of ['args', 'cwd', 'env_error', 'pid', 'runtime_version']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -149,11 +154,17 @@ describe.each(rows)('the $name builtin types', (row) => {
 		// every export of the Node module widened, one at a time
 		const declared = Array.from(declarations.matchAll(/^export declare const (\w+): (.+);$/gm));
 		assert.isAbove(declared.length, 0, 'the declarations to mutate are there');
+		// and every class, each by its constructor's last parameter and by one more member
+		const classes = Array.from(
+			declarations.matchAll(
+				/^export declare class (\w+)[^\n]*\{\n(?:.*\n)*?\s*(constructor\((.*)\);)\n\}$/gm
+			)
+		);
 		// every value the module exports is among them, so none escapes the widening
 		assert.lengthOf(
 			Array.from(declarations.matchAll(/^export declare /gm)),
-			declared.length,
-			'every export the check widens is a const declared on one line'
+			declared.length + classes.length,
+			'every export the check widens is a const declared on one line or a class'
 		);
 		for (const [line, name, type] of declared) {
 			const widened = declarations.replace(
@@ -161,6 +172,16 @@ describe.each(rows)('the $name builtin types', (row) => {
 				`export declare const ${name}: (${type}) | undefined;`
 			);
 			assert.notDeepEqual(check_types(row, widened), [], `${name} widened`);
+		}
+		for (const [, name, constructor, parameters] of classes) {
+			assert.ok(name && constructor && parameters !== undefined, 'the class to mutate is read');
+			const widened = declarations.replace(
+				constructor,
+				`constructor(${parameters}, extra?: number);`
+			);
+			assert.notDeepEqual(check_types(row, widened), [], `${name}'s constructor widened`);
+			const grown = declarations.replace(constructor, `extra: number;\n${constructor}`);
+			assert.notDeepEqual(check_types(row, grown), [], `${name}'s instances grown`);
 		}
 		// an export the builtin doesn't have
 		assert.notDeepEqual(
@@ -172,18 +193,31 @@ describe.each(rows)('the $name builtin types', (row) => {
 	test("a mismatch on the builtin's side fails the check", () => {
 		const declarations = node_declarations(row.name);
 		const source = read_implementation(row);
+		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
+		// the namespace, made by the script, or by the host, as `bootstrap.d.ts` declares its op
 		const made = 'default: undefined }';
-		assert.include(source, made, 'the namespace to mutate is there');
+		const host_made = `readonly op_gro_${row.name}: `;
+		const by_host = !source.includes(made);
+		/**
+		 * The check with the namespace's `default: undefined` as `to`, written as the script's
+		 * literal writes a property, or as the op's declared type does, with `readonly`.
+		 */
+		const check_namespace = (to: string): Array<string> => {
+			if (!by_host) {
+				const property = to.replace(/readonly /g, '');
+				return check_types(row, declarations, source.replace(made, `${property} }`));
+			}
+			const at = bootstrap.indexOf(host_made);
+			assert.isAtLeast(at, 0, 'the op making the namespace is declared');
+			const end = bootstrap.indexOf('readonly default: undefined;', at);
+			assert.isAtLeast(end, 0, 'the namespace to mutate is there');
+			const mutated = `${bootstrap.slice(0, end)}readonly ${to};${bootstrap.slice(end + 28)}`;
+			return check_types(row, declarations, source, mutated);
+		};
 		// an export the Node module doesn't have
-		assert.notDeepEqual(
-			check_types(row, declarations, source.replace(made, `default: undefined, extra: '' }`)),
-			[]
-		);
+		assert.notDeepEqual(check_namespace("default: undefined, readonly extra: ''"), []);
 		// a `default` that isn't `undefined`
-		assert.notDeepEqual(
-			check_types(row, declarations, source.replace(made, 'default: null }')),
-			[]
-		);
+		assert.notDeepEqual(check_namespace('default: null'), []);
 		/**
 		 * Asserts the check fails once `from` in the implementation is `to`.
 		 */
@@ -213,18 +247,28 @@ describe('a retyped export fails its check', () => {
 	};
 
 	/**
-	 * Asserts the check of `name` fails once `from` in the builtin's source or the Node
-	 * module's declarations (`side`) is `to`.
+	 * Asserts the check of `name` fails once `from` in the builtin's source, the declarations
+	 * of its ops (`bootstrap.d.ts`), or the Node module's declarations (`side`) is `to`.
 	 */
-	const assert_mismatch = (name: string, side: 'builtin' | 'node', from: string, to: string) => {
+	const assert_mismatch = (
+		name: string,
+		side: 'builtin' | 'bootstrap' | 'node',
+		from: string,
+		to: string
+	) => {
 		const row = find_row(name);
 		const declarations = node_declarations(name);
 		const source = read_implementation(row);
-		const text = side === 'builtin' ? source : declarations;
+		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
+		const text = side === 'builtin' ? source : side === 'bootstrap' ? bootstrap : declarations;
 		assert.include(text, from, 'the text to mutate is there');
 		const mutated = text.replace(from, to);
 		const diagnostics =
-			side === 'builtin' ? check_types(row, declarations, mutated) : check_types(row, mutated);
+			side === 'builtin'
+				? check_types(row, declarations, mutated)
+				: side === 'bootstrap'
+					? check_types(row, declarations, source, mutated)
+					: check_types(row, mutated);
 		assert.notDeepEqual(diagnostics, [], `${name}: ${from} as ${to}`);
 	};
 
@@ -243,6 +287,47 @@ describe('a retyped export fails its check', () => {
 			'builtin',
 			'const args = ObjectFreeze(op_gro_args());',
 			'const args = op_gro_args();'
+		);
+	});
+
+	test('env_error', () => {
+		// the class's constructor, its instances, and its guard, each claimed by the host
+		const claim =
+			"readonly op_gro_env_error: (error: ErrorConstructor) => {\n\t\t\t\treadonly EnvError: new (\n\t\t\t\t\tkind: 'not_granted',";
+		assert_mismatch('env_error', 'bootstrap', claim, claim.replace("'not_granted',", 'string,'));
+		assert_mismatch(
+			'env_error',
+			'bootstrap',
+			'options?: { cause?: unknown }',
+			'options?: { cause?: string }'
+		);
+		const instance =
+			"readonly kind: 'not_granted';\n\t\t\t\t\treadonly target: string;\n\t\t\t\t};\n\t\t\t\treadonly is_env_error";
+		assert_mismatch(
+			'env_error',
+			'bootstrap',
+			instance,
+			instance.replace('readonly target', 'target')
+		);
+		assert_mismatch(
+			'env_error',
+			'bootstrap',
+			"kind?: 'not_granted'\n\t\t\t\t) => error is {",
+			'kind?: string\n\t\t\t\t) => error is {'
+		);
+		// the realm's `Error` not handed over
+		assert_mismatch('env_error', 'builtin', 'op_gro_env_error(Error)', 'op_gro_env_error()');
+		assert_mismatch(
+			'env_error',
+			'node',
+			'readonly target: string;',
+			'readonly target: string | undefined;'
+		);
+		assert_mismatch(
+			'env_error',
+			'node',
+			'message?: string, options?: ErrorOptions',
+			'message?: string'
 		);
 	});
 

@@ -14,12 +14,13 @@
 //! is the builtin's implementation, `js/builtin/<specifier>`: one function
 //! in two levels ([`to_backing_script`]). The outer level, called with
 //! `deno_core`'s bootstrap object (the ops, `primordials`), makes what
-//! every importer of the builtin shares, its classes, brands, registries,
-//! and the values no scope changes, and returns the inner level, which,
-//! called with the scope of an importer's grant, makes the builtin's
-//! namespace. A backing script calls both at once, so a run has one
-//! namespace of each builtin; a namespace per importing origin is one more
-//! call of the inner level, over the same classes and state. No snapshot
+//! every importer of the builtin shares, the values no scope changes and
+//! the frozen shells that hand a call to an op, and returns the inner
+//! level, which, called with the scope of an importer's grant, makes the
+//! builtin's namespace. A backing script calls both at once, so a run has
+//! one namespace of each builtin; a namespace per importing origin is one
+//! more call of the inner level, over the same shells. Whatever has
+//! identity or state, a class, a brand, a registry, is the host's. No snapshot
 //! holds any of it. `deno_core` compiles and runs a backing script the first
 //! time a run imports its facade, after the start, and the facade's exports
 //! are the own properties of what the script returns, with a `default` of
@@ -57,7 +58,7 @@
 //!
 //! - Neither stores anything outside its own bindings: no property on the
 //!   bootstrap object or on anything it holds. What the outer level makes
-//!   for every importer (a class, a registry) is reached only through the
+//!   for every importer (a value, a shell) is reached only through the
 //!   namespace the inner level returns, which `deno_core` keeps once both
 //!   have returned, so a half-made one is never published and a second run
 //!   starts from nothing.

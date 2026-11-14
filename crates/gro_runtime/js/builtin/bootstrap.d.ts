@@ -15,6 +15,38 @@ interface Bootstrap {
 		readonly ops: {
 			readonly op_gro_args: () => Array<string>;
 			readonly op_gro_cwd: () => string | null;
+			/**
+			 * The env error row's namespace, the host's: the class extending the realm's `Error`,
+			 * which the implementation hands over, and its guard. The types are claims, held to
+			 * the Node module's by the types test.
+			 */
+			readonly op_gro_env_error: (error: ErrorConstructor) => {
+				readonly EnvError: new (
+					kind: 'not_granted',
+					target: string,
+					message?: string,
+					options?: { cause?: unknown }
+				) => {
+					name: string;
+					message: string;
+					stack?: string;
+					cause?: unknown;
+					readonly kind: 'not_granted';
+					readonly target: string;
+				};
+				readonly is_env_error: (
+					error: unknown,
+					kind?: 'not_granted'
+				) => error is {
+					name: string;
+					message: string;
+					stack?: string;
+					cause?: unknown;
+					readonly kind: 'not_granted';
+					readonly target: string;
+				};
+				readonly default: undefined;
+			};
 			readonly op_gro_exit: (code: unknown) => never;
 			readonly op_gro_pid: () => number;
 			readonly op_gro_runtime_version: () => string;

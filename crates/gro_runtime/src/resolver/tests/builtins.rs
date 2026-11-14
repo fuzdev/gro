@@ -46,6 +46,12 @@ fn the_table_is_pinned() {
                 &["exit", "set_exit_code"][..],
             ),
             (
+                "@fuzdev/gro/env_error.ts",
+                "builtin:@fuzdev/gro/env_error.ts",
+                None,
+                &["EnvError", "is_env_error"][..],
+            ),
+            (
                 "@fuzdev/gro/cwd.ts",
                 "builtin:@fuzdev/gro/cwd.ts",
                 None,
@@ -220,23 +226,39 @@ fn the_reserved_specifiers_are_pinned() {
             Some(Reserved::JsSpelling(&BUILTINS[1])),
         ),
         (
-            "@fuzdev/gro/cwd.js",
+            "@fuzdev/gro/env_error.js",
             Some(Reserved::JsSpelling(&BUILTINS[2])),
         ),
         (
-            "@fuzdev/gro/pid.js",
+            "@fuzdev/gro/cwd.js",
             Some(Reserved::JsSpelling(&BUILTINS[3])),
         ),
         (
-            "@fuzdev/gro/runtime_version.js",
+            "@fuzdev/gro/pid.js",
             Some(Reserved::JsSpelling(&BUILTINS[4])),
+        ),
+        (
+            "@fuzdev/gro/runtime_version.js",
+            Some(Reserved::JsSpelling(&BUILTINS[5])),
         ),
         ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
         ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
+        ("@fuzdev/gro/fs_error.ts", unbuilt("@fuzdev/gro/fs_error")),
+        ("@fuzdev/gro/fs_error.js", unbuilt("@fuzdev/gro/fs_error")),
         ("@fuzdev/gro/spawn.ts", unbuilt("@fuzdev/gro/spawn")),
         ("@fuzdev/gro/spawn.js", unbuilt("@fuzdev/gro/spawn")),
+        (
+            "@fuzdev/gro/spawn_error.ts",
+            unbuilt("@fuzdev/gro/spawn_error"),
+        ),
+        (
+            "@fuzdev/gro/spawn_error.js",
+            unbuilt("@fuzdev/gro/spawn_error"),
+        ),
         ("@fuzdev/gro/net.ts", unbuilt("@fuzdev/gro/net")),
         ("@fuzdev/gro/net.js", unbuilt("@fuzdev/gro/net")),
+        ("@fuzdev/gro/net_error.ts", unbuilt("@fuzdev/gro/net_error")),
+        ("@fuzdev/gro/net_error.js", unbuilt("@fuzdev/gro/net_error")),
         ("@fuzdev/gro/watch.ts", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/env.ts", unbuilt("@fuzdev/gro/env")),
@@ -247,6 +269,14 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/stdout.js", unbuilt("@fuzdev/gro/stdout")),
         ("@fuzdev/gro/stderr.ts", unbuilt("@fuzdev/gro/stderr")),
         ("@fuzdev/gro/stderr.js", unbuilt("@fuzdev/gro/stderr")),
+        (
+            "@fuzdev/gro/stdio_error.ts",
+            unbuilt("@fuzdev/gro/stdio_error"),
+        ),
+        (
+            "@fuzdev/gro/stdio_error.js",
+            unbuilt("@fuzdev/gro/stdio_error"),
+        ),
         ("@fuzdev/gro/process.ts", process),
         ("@fuzdev/gro/process.js", process),
         ("@fuzdev/gro/process_error.ts", process_error),
@@ -285,13 +315,11 @@ fn the_reserved_specifiers_are_pinned() {
             builtin.specifier
         );
     }
-    // the grant-free error modules load from the package, and nothing else is reserved
+    // nothing else is reserved: a module of the npm package that isn't a host
+    // module, and a specifier no module of Gro's has, `blake3`'s among them
+    // until its row lands
     for specifier in [
-        "@fuzdev/gro/fs_error.ts",
-        "@fuzdev/gro/env_error.ts",
-        "@fuzdev/gro/env_error.js",
-        "@fuzdev/gro/stdio_error.ts",
-        "@fuzdev/gro/stdio_error.js",
+        "@fuzdev/gro/blake3.ts",
         "@fuzdev/gro/fs_search.ts",
         "@fuzdev/gro/env_files.ts",
         "@fuzdev/gro/task_args.ts",
@@ -345,7 +373,7 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
     );
     files.insert("/p/fs.ts", "");
     files.insert("/p/fs_error.ts", "");
-    files.insert("/p/env_error.ts", "");
+    files.insert("/p/fs_search.ts", "");
     files.insert("/p/process.ts", "");
     files.insert("/p/process_error.ts", "");
     files.insert("/p/node_modules/@fuzdev/gro/fs.ts", "");
@@ -365,12 +393,10 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
         },
     });
     // unreserved, the self-reference resolves the project's own file
-    for name in ["fs_error.ts", "env_error.ts"] {
-        assert!(matches!(
-            resolve_any(&tree, &format!("@fuzdev/gro/{name}"), &main, &roots),
-            Ok(Resolved::Module(resolution)) if resolution.url.as_str() == format!("file:///p/{name}")
-        ));
-    }
+    assert!(matches!(
+        resolve_any(&tree, "@fuzdev/gro/fs_search.ts", &main, &roots),
+        Ok(Resolved::Module(resolution)) if resolution.url.as_str() == "file:///p/fs_search.ts"
+    ));
     let watched = Watched {
         tree,
         calls: RefCell::default(),
@@ -399,6 +425,13 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  with gro",
             ),
             (
+                "@fuzdev/gro/fs_error.ts",
+                Reserved::Unbuilt("@fuzdev/gro/fs_error"),
+                "it names Gro's host module '@fuzdev/gro/fs_error.ts', which isn't on fgro yet, \
+                 and a host module's specifier never resolves to a package. Fix: run this under \
+                 Node with gro",
+            ),
+            (
                 "@fuzdev/gro/process.ts",
                 Reserved::Split(&SPLIT_MODULES[0]),
                 "it names '@fuzdev/gro/process.ts', which isn't one of Gro's modules: its members \
@@ -417,7 +450,8 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                 "it names '@fuzdev/gro/process_error.ts', which isn't one of Gro's modules: its \
                  members are modules of their own, and its specifier never resolves to a \
                  package. Fix: import what you use from '@fuzdev/gro/env_error.ts' or \
-                 '@fuzdev/gro/stdio_error.ts'",
+                 '@fuzdev/gro/stdio_error.ts'; of these, only '@fuzdev/gro/env_error.ts' is on \
+                 fgro yet, so run code that uses the others under Node with gro",
             ),
         ] {
             let error = resolve_any(&watched, specifier, &importer, &roots).unwrap_err();
@@ -460,6 +494,21 @@ fn a_respelled_specifier_is_reserved() {
         ("process_error.ts#x", "process_error.ts", process_error),
         ("process%5ferror.js", "process_error.js", process_error),
         ("%65nv.ts", "env.ts", Reserved::Unbuilt("@fuzdev/gro/env")),
+        (
+            "env_error.ts#x",
+            "env_error.ts",
+            Reserved::Respelled(&BUILTINS[2]),
+        ),
+        (
+            "fs_error.ts?x",
+            "fs_error.ts",
+            Reserved::Unbuilt("@fuzdev/gro/fs_error"),
+        ),
+        (
+            "stdio_error.ts?x",
+            "stdio_error.ts",
+            Reserved::Unbuilt("@fuzdev/gro/stdio_error"),
+        ),
         ("f%73.ts", "fs.ts", fs),
         ("f%73.js", "fs.js", fs),
         ("fs%2ets", "fs.ts", fs),
@@ -490,6 +539,9 @@ fn a_respelled_specifier_is_reserved() {
             ("/p/node_modules/other/process_error.ts", ""),
             ("/p/node_modules/other/process_error.js", ""),
             ("/p/node_modules/other/env.ts", ""),
+            ("/p/node_modules/other/env_error.ts", ""),
+            ("/p/node_modules/other/fs_error.ts", ""),
+            ("/p/node_modules/other/stdio_error.ts", ""),
             ("/p/node_modules/other/fs.ts", ""),
             ("/p/node_modules/other/fs.js", ""),
             ("/p/node_modules/other/watch.ts", ""),
@@ -517,9 +569,6 @@ fn a_respelled_specifier_is_reserved() {
     for specifier in [
         "@fuzdev/gro/fs_paths.ts",
         "@fuzdev/gro/fs.ts.map",
-        "@fuzdev/gro/fs_error.ts?x",
-        "@fuzdev/gro/env_error.ts#x",
-        "@fuzdev/gro/stdio_error.ts?x",
         "@fuzdev/gro/proces%73",
         "@fuzdev/gro/f%7.ts",
         "@fuzdev/gro/f%zzs.ts",

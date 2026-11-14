@@ -644,6 +644,281 @@
 			"before": "exit(3) in a timer"
 		}
 	},
+	"env_error": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"EnvError": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_env_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class": {
+				"type": "function",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"prototype": {
+						"type": "object",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class_name": "EnvError",
+			"class_length": 4,
+			"prototype": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"extends_error": true,
+			"prototype_extends_error": true,
+			"constructor_is_the_class": true,
+			"instance": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"instance_of_the_class": true,
+			"instance_of_error": true,
+			"is_error": true,
+			"tag": "[object Error]",
+			"message": "not_granted: HOME",
+			"name": "EnvError",
+			"kind": "not_granted",
+			"target": "HOME",
+			"string": "EnvError: not_granted: HOME",
+			"has_cause": false,
+			"stack_head": "EnvError: not_granted: HOME",
+			"stack_has_a_frame": true,
+			"caught_is_the_error": true,
+			"custom": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"cause": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"custom_message": "custom",
+			"custom_cause": "why",
+			"null_message": "not_granted: HOME",
+			"empty_message": "",
+			"getter_cause": "got",
+			"no_options_cause": false,
+			"converted_message": "hostile: hostile",
+			"converted_kind_kept": true,
+			"message_past_the_longest_string": "RangeError",
+			"symbol_kind": "TypeError",
+			"symbol_message": "TypeError",
+			"clone": {
+				"tag": "[object Error]",
+				"name": "Error",
+				"message": "not_granted: HOME",
+				"has_kind": false,
+				"is_an_error": true,
+				"is_an_env_error": false
+			},
+			"json": "{\"name\":\"EnvError\",\"kind\":\"not_granted\",\"target\":\"HOME\"}",
+			"call_without_new": "TypeError",
+			"subclass": {
+				"instance_of_sub": true,
+				"instance_of_the_class": true,
+				"extra": 1,
+				"kind": "not_granted",
+				"prototype_is_subs": true,
+				"own": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": false,
+					"own": {
+						"message": {
+							"type": "string",
+							"writable": true,
+							"enumerable": false,
+							"configurable": true
+						},
+						"name": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"kind": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"target": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"extra": {
+							"type": "number",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						}
+					}
+				}
+			},
+			"class_frozen_against_set_prototype": "TypeError",
+			"class_write": "TypeError",
+			"prototype_write": "TypeError",
+			"guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"guard_name": "is_env_error",
+			"guard_length": 2,
+			"guard_new": "TypeError",
+			"guards": {
+				"error": true,
+				"of_its_kind": true,
+				"of_another_kind": false,
+				"subclass": true,
+				"subclass_of_its_kind": true,
+				"lookalike": true,
+				"inherited": true,
+				"inherited_of_its_kind": false,
+				"plain_error": false,
+				"plain_object": false,
+				"null_prototype": false,
+				"null": false,
+				"undefined": false,
+				"string": false,
+				"class": false,
+				"clone": false,
+				"proxy_of_an_error": true,
+				"function_with_the_prototype": false,
+				"named_through_a_proxy": true,
+				"named_by_a_proxy": true,
+				"constructor_by_getter": true,
+				"named_by_getter": true,
+				"ran": [
+					"chain get",
+					"constructor get",
+					"constructor getter",
+					"name getter"
+				],
+				"kind_by_getter": true
+			}
+		}
+	},
 	"cwd": {
 		"code": 0,
 		"output": {

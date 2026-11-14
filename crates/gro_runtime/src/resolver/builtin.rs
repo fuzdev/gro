@@ -79,6 +79,11 @@ macro_rules! builtin_rows {
                 Some($crate::resolver::Capability::Exit),
                 ["exit", "set_exit_code"]
             ),
+            $row!(
+                "@fuzdev/gro/env_error.ts",
+                None,
+                ["EnvError", "is_env_error"]
+            ),
             $row!("@fuzdev/gro/cwd.ts", None, ["cwd"]),
             $row!("@fuzdev/gro/pid.ts", None, ["pid"]),
             $row!("@fuzdev/gro/runtime_version.ts", None, ["runtime_version"]),
@@ -118,17 +123,24 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 }
 
 /// The host modules not built as builtin modules yet, each by its specifier
-/// without the extension, reserved under `.ts` and `.js`. A module joins
-/// the table's rows when it's built, and leaves this list.
+/// without the extension, reserved under `.ts` and `.js`.
+///
+/// The grant-free error modules are among them: their classes will be the
+/// host's, so none resolves to the package's copy before its row lands. A
+/// module joins the table's rows when it's built, and leaves this list.
 pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/fs",
+    "@fuzdev/gro/fs_error",
     "@fuzdev/gro/spawn",
+    "@fuzdev/gro/spawn_error",
     "@fuzdev/gro/net",
+    "@fuzdev/gro/net_error",
     "@fuzdev/gro/watch",
     "@fuzdev/gro/env",
     "@fuzdev/gro/stdin",
     "@fuzdev/gro/stdout",
     "@fuzdev/gro/stderr",
+    "@fuzdev/gro/stdio_error",
 ];
 
 /// A module Gro has none of, whose members are modules of their own.

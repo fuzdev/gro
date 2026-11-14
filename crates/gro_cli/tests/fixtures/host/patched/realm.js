@@ -27,6 +27,8 @@ const print = console.log;
 const error_constructor = Error;
 const function_to_string = Function.prototype.toString;
 const string_starts_with = String.prototype.startsWith;
+const weak_map_get = WeakMap.prototype.get;
+const weak_map_set = WeakMap.prototype.set;
 
 /** The prototypes a host module's values have, by name. */
 const PROTOTYPES = [
@@ -102,11 +104,33 @@ export const call = (fn, receiver, args) => apply(fn, receiver, args);
 export const construct_with = (constructor, args) => construct(constructor, args);
 
 /**
- * Whether `fn` is a class, which only `new` calls.
+ * Whether `fn` is a class, which only `new` calls: one its source declares with `class`, or one
+ * made natively, as the host's error classes are, whose `prototype` can't be replaced, as a
+ * class's can't and a plain function's can.
  * @param {Function} fn
  */
-export const is_class = (fn) =>
-	apply(string_starts_with, apply(function_to_string, fn, []), ['class']);
+export const is_class = (fn) => {
+	if (apply(string_starts_with, apply(function_to_string, fn, []), ['class'])) return true;
+	const prototype = getOwnPropertyDescriptor(fn, 'prototype');
+	return prototype !== undefined && hasOwn(prototype, 'value') && prototype.writable === false;
+};
+
+/**
+ * Runs `fn` with the traps disarmed, and puts them back as they were: for a hostile argument's
+ * own code, the caller's, whose uses of the realm are none of the builtin's.
+ * @template T
+ * @param {() => T} fn
+ * @returns {T}
+ */
+export const unwatched = (fn) => {
+	const was_armed = armed;
+	armed = false;
+	try {
+		return fn();
+	} finally {
+		armed = was_armed;
+	}
+};
 
 /**
  * Every object and function reachable from the global object, by own property, accessor, and
@@ -255,6 +279,22 @@ export const restore_realm = () => {
 	replaced.length = 0;
 };
 
+/** The values `show` names rather than walks, each by its name. */
+const named = new WeakMap();
+
+/**
+ * Has `show` name `value` as `name` rather than walk it: a caller's hostile argument, which a
+ * builtin can hand back inside what it returns, and whose own properties are the caller's.
+ * @template {object} T
+ * @param {T} value
+ * @param {string} name
+ * @returns {T}
+ */
+export const name_value = (value, name) => {
+	apply(weak_map_set, named, [value, name]);
+	return value;
+};
+
 /**
  * What `value` is, as text: a primitive by its type and value, one of the realm's own objects
  * by its path, any other object or function by its prototype, whether it's frozen, and each
@@ -270,6 +310,8 @@ export const show = (value, depth = 3) => {
 		return `${typeof value} ${stringify(value)}`;
 	}
 	if (typeof value !== 'object' && typeof value !== 'function') return typeof value;
+	const given = apply(weak_map_get, named, [value]);
+	if (given !== undefined) return given;
 	const intrinsic = INTRINSICS.get(value);
 	if (intrinsic !== undefined) return `${typeof value}, the realm's ${intrinsic}`;
 	const prototype = getPrototypeOf(value);

@@ -27,11 +27,14 @@ import {
 	disarm,
 	is_class,
 	is_intrinsic,
+	name_value,
 	report,
-	show
+	show,
+	unwatched
 } from './realm.js';
 
-const { apply, defineProperty, getOwnPropertyDescriptor, getPrototypeOf, ownKeys } = Reflect;
+const { apply, defineProperty, getOwnPropertyDescriptor, getPrototypeOf, ownKeys, setPrototypeOf } =
+	Reflect;
 const { hasOwn } = Object;
 const to_string = String;
 const ProxyConstructor = Proxy;
@@ -63,6 +66,10 @@ const touch = (use) => {
 };
 
 class HostileString extends String {
+	get cause() {
+		touch('string.cause');
+		return undefined;
+	}
 	toString() {
 		touch('string.toString');
 		return 'hostile';
@@ -78,9 +85,17 @@ class HostileString extends String {
 }
 
 class HostileArray extends Array {
+	get cause() {
+		touch('array.cause');
+		return undefined;
+	}
 	[iterator]() {
 		touch('array[Symbol.iterator]');
 		return apply(array_values, this, []);
+	}
+	[toPrimitive]() {
+		touch('array[Symbol.toPrimitive]');
+		return 'hostile';
 	}
 }
 
@@ -99,28 +114,49 @@ const to_reporting_proxy = (kind, target) => {
 			const key = args.length > 1 ? args[1] : undefined;
 			const named = typeof key === 'string' || typeof key === 'symbol';
 			touch(`${kind}.${name}${named ? ` ${to_string(key)}` : ''}`);
-			return apply(forward, undefined, args);
+			// what the trap does by default is the caller's code, as the trap is
+			return unwatched(() => apply(forward, undefined, args));
 		};
 	}
 	return new ProxyConstructor(target, handler);
 };
 
+/** A function whose prototype is `null`, so a read it lacks finds nothing of the realm's. */
+const null_prototype_function = () => {
+	const fn = function () {};
+	setPrototypeOf(fn, null);
+	return fn;
+};
+
 /**
  * The hostile arguments, by kind, each made new for a call: a proxy, whose every trap
  * reports; a proxy of a function, which a check of its type takes for a callback, and whose
- * call reports; an object whose conversions, `then`, `length`, first index, and iterator are
- * getters that report; a subclassed string, whose conversions report; and a subclassed array,
- * whose iterator reports.
+ * call reports; an object whose conversions, `then`, `length`, first index, iterator, and
+ * `cause` are getters that report; a subclassed string, whose conversions and `cause` report;
+ * and a subclassed array, whose iterator, conversion, and `cause` report. What a proxy's trap
+ * does by default runs unwatched, it's the caller's code, and a proxy's target has a `null`
+ * prototype, so it finds nothing of the realm's, and every read a builtin makes of one of
+ * these is the argument's to answer, never a trap's on the realm's prototypes. Each is named for `show`, which shows it by its name, never walking
+ * it, when a builtin hands it back inside what it returns.
  * @type {Array<[string, () => unknown]>}
  */
-const HOSTILE = [
-	['proxy', () => to_reporting_proxy('proxy', {})],
-	['callable', () => to_reporting_proxy('callable', function () {})],
+const HOSTILE = /** @type {Array<[string, () => unknown]>} */ ([
+	['proxy', () => to_reporting_proxy('proxy', { __proto__: null })],
+	['callable', () => to_reporting_proxy('callable', null_prototype_function())],
 	[
 		'getters',
 		() => {
 			const hostile = {};
-			for (const key of ['toString', 'valueOf', toPrimitive, 'then', 'length', '0', iterator]) {
+			for (const key of [
+				'toString',
+				'valueOf',
+				toPrimitive,
+				'then',
+				'length',
+				'0',
+				iterator,
+				'cause'
+			]) {
 				defineProperty(hostile, key, {
 					__proto__: null,
 					get() {
@@ -134,7 +170,10 @@ const HOSTILE = [
 	],
 	['string', () => new HostileString('hostile')],
 	['array', () => HostileArray.of('hostile')]
-];
+]).map(([kind, make]) => [
+	kind,
+	() => name_value(/** @type {object} */ (make()), `hostile ${kind}`)
+]);
 
 /** How many hostile arguments a hostile call passes at least, and as many as a function declares. */
 const HOSTILE_ARITY = 3;

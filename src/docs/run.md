@@ -70,7 +70,9 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   `cwd()` is the directory `fgro` was started in, `pid` the process's id, and `runtime_version` the string `fgro/<version>+<commit>`,
   the commit as `--version` prints it, and `fgro/<version>` alone in a build that embeds none ([host modules](host_modules.md#the-process-modules-on-fgro)).
   In a working directory whose path isn't UTF-8, `cwd()` throws when it's called.
-- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, and the rest, either spelling),
+- `@fuzdev/gro/env_error.ts`, a builtin module that needs no grant: `EnvError` and `is_env_error`,
+  the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, `fs_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
   are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,

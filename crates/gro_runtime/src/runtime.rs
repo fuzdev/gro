@@ -8,6 +8,7 @@ use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
+use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
@@ -135,6 +136,7 @@ pub fn start_runtime(
     state.borrow_mut().put(authority);
     state.borrow_mut().put(data);
     state.borrow_mut().put(refusals);
+    state.borrow_mut().put(ErrorClasses::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
     }
@@ -248,6 +250,7 @@ mod tests {
     use crate::bootstrap::web_scripts;
     use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
+    use crate::host::error_class::ErrorClasses;
     use crate::host::{HOST_OPS, HostOp};
     use crate::loader::graph::Recording;
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
@@ -388,13 +391,73 @@ mod tests {
     type Probe = fn(Start) -> Value;
 
     /// What the tests below ask of a runtime from either start, by name.
-    const PROBES: [(&str, Probe); 5] = [
+    const PROBES: [(&str, Probe); 6] = [
         ("op_functions", op_functions),
         ("unregistered_reads", unregistered_reads),
         ("host_ops", host_ops_results),
         ("refused_ops", refused_ops_results),
         ("builtin_imports", builtin_imports),
+        ("error_classes", error_classes),
     ];
+
+    /// What the run's error classes are across calls of an error row's op
+    /// on a runtime started as `start` says, in a run that grants nothing:
+    /// how many classes the start made, before any call, and after the
+    /// calls, whether each call made a namespace of its own over the one
+    /// class and guard, which the host made once, frozen.
+    fn error_classes(start: Start) -> Value {
+        let source = "const op = Deno.core.ops.op_gro_env_error;
+const a = op(Error);
+const b = op(Error);
+JSON.stringify({
+	namespaces: a !== b,
+	class: a.EnvError === b.EnvError,
+	guard: a.is_env_error === b.is_env_error,
+	frozen: Object.isFrozen(a.EnvError) && Object.isFrozen(a.EnvError.prototype),
+	named: a.EnvError.name === 'EnvError' && a.is_env_error.name === 'is_env_error',
+	keys: Reflect.ownKeys(a),
+	prototype: Object.getPrototypeOf(a),
+	error: new a.EnvError('not_granted', 'HOME') instanceof Error,
+})";
+        on_runtime("error_classes", start, Mode::Run, move |runtime| {
+            let state = runtime.op_state();
+            state.borrow_mut().put(Authority::default());
+            state.borrow_mut().put(ErrorClasses::default());
+            let before = state.borrow().borrow::<ErrorClasses>().len();
+            drop(state);
+            let calls = script_json(runtime, source);
+            let after = runtime.op_state().borrow().borrow::<ErrorClasses>().len();
+            json!({"before": before, "calls": calls, "after": after})
+        })
+    }
+
+    /// A run's error class and its guard are made the first time it needs
+    /// them, by the host, once: each call of the row's op is a new namespace
+    /// over the same frozen class and guard, from either start; a start
+    /// makes none.
+    #[test]
+    fn an_error_class_is_made_once_a_run_at_first_need() {
+        for start in STARTS {
+            assert_eq!(
+                probed("error_classes", start),
+                json!({
+                    "before": 0,
+                    "calls": {
+                        "namespaces": true,
+                        "class": true,
+                        "guard": true,
+                        "frozen": true,
+                        "named": true,
+                        "keys": ["EnvError", "is_env_error", "default"],
+                        "prototype": null,
+                        "error": true,
+                    },
+                    "after": 1,
+                }),
+                "{start:?}"
+            );
+        }
+    }
 
     /// The probe eval's engines are asked: what eval refuses.
     const EVAL_ENGINE_PROBE: &str = "refused_ops";
@@ -786,6 +849,11 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                     grant: Some(Capability::Exit),
                 },
                 HostOp {
+                    name: "op_gro_env_error",
+                    module: "@fuzdev/gro/env_error.ts",
+                    grant: None,
+                },
+                HostOp {
                     name: "op_gro_cwd",
                     module: "@fuzdev/gro/cwd.ts",
                     grant: None,
@@ -840,6 +908,7 @@ JSON.stringify(results)",
                 state.borrow_mut().put(authority);
             }
             state.borrow_mut().put(host_data());
+            state.borrow_mut().put(ErrorClasses::default());
             drop(state);
             script_json(runtime, source)
         })
@@ -898,6 +967,9 @@ check(`args ${{JSON.stringify(seen.args)}}`, JSON.stringify(seen.args) === '[\"a
 check(`cwd ${{seen.cwd()}}`, seen.cwd() === '/work');
 check(`pid ${{seen.pid}}`, seen.pid === {});
 check(`runtime_version ${{seen.runtime_version}}`, seen.runtime_version === 'test/1.2.3');
+const error = new seen.EnvError('not_granted', 'HOME');
+check(`EnvError ${{error.message}}`, error.message === 'not_granted: HOME' && error instanceof Error);
+check('is_env_error', seen.is_env_error(error, 'not_granted') && !seen.is_env_error(new Error('HOME')));
 check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op_gro_color);
 ",
             serde_json::to_string(&rows).unwrap(),
@@ -933,6 +1005,7 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                         args: vec!["the start's".to_owned()],
                         ..host_data()
                     });
+                    state.borrow_mut().put(ErrorClasses::default());
                     let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;
                     state.borrow_mut().put(host_data());
                     let id = runtime
