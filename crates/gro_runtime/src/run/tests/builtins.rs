@@ -34,7 +34,7 @@ pub(super) fn run_files(
 /// Runs as [`run_files`] does, `files` replacing the default `package.json`
 /// when they hold one, with each of `links`, a path and its target, made a
 /// symlink.
-fn run_linked(
+pub(super) fn run_linked(
     name: &str,
     files: &[(&str, &str)],
     links: &[(&str, &str)],
@@ -452,14 +452,13 @@ if (JSON.stringify(results) !== expected) throw new Error(JSON.stringify(results
 const SOURCE_REFUSED: &str = "Source phase imports are not supported for synthetic modules: \
                               builtin:@fuzdev/gro/process.ts has no source";
 
-/// A static import of a builtin with import attributes is refused,
-/// whatever they say, before its grant is checked, recorded as a file's
-/// are: a static import, a re-export, and a deferred import fail the run,
-/// recorded as static, and one in a module an `import()` loads rejects it,
-/// recorded as dynamic. An `import()`'s own attributes never reach the
-/// loader, so `import()` of a builtin with attributes imports it.
+/// An import of a builtin with import attributes is refused, whatever
+/// they say, before its grant is checked, recorded as a file's are: a
+/// static import, a re-export, and a deferred import fail the run,
+/// recorded as static, and one in a module an `import()` loads, and an
+/// `import()`'s own, reject it, recorded as dynamic.
 #[test]
-fn a_static_import_of_a_builtin_with_attributes_is_refused() {
+fn an_import_of_a_builtin_with_attributes_is_refused() {
     let refused = [FailureReason::Load(LoadFailure::ImportAttributes)];
     let options = RuntimeOptions {
         authority: granted(),
@@ -479,7 +478,7 @@ fn a_static_import_of_a_builtin_with_attributes_is_refused() {
         ),
         (
             "defer",
-            "import defer * as ns from '@fuzdev/gro/process.ts' with { x: 'y' };\n",
+            "import defer * as ns from '@fuzdev/gro/process.ts' with { type: 'text' };\n",
             options.clone(),
         ),
         // ungranted, the attributes are refused before the grant is checked
@@ -515,8 +514,13 @@ fn a_static_import_of_a_builtin_with_attributes_is_refused() {
 }} catch (error) {{
 \tif (!(error instanceof TypeError) || !error.message.endsWith('a builtin module takes no import attributes')) throw error;
 }}
-// TODO: refused once an `import()`'s attributes reach the loader
-const {{ process }} = await import('{PROCESS}', {{ with: {{ type: 'json' }} }});
+try {{
+\tawait import('{PROCESS}', {{ with: {{ type: 'json' }} }});
+\tthrow new Error('imported with attributes');
+}} catch (error) {{
+\tif (!(error instanceof TypeError) || !error.message.endsWith('a builtin module takes no import attributes')) throw error;
+}}
+const {{ process }} = await import('{PROCESS}');
 if (process.args[0] !== 'a') throw new Error('not imported');
 "
     );
@@ -530,13 +534,14 @@ if (process.args[0] !== 'a') throw new Error('not imported');
     let (result, graph) = run_files("attributes_dynamic", &files, options);
     assert!(result.is_ok(), "{result:?}");
     assert_failures(&graph, "attribute.mjs", Reach::Dynamic, &refused);
+    assert_failures(&graph, "main.mjs", Reach::Dynamic, &refused);
 }
 
 /// The project, exporting `args.js`, which imports `process`, and linked
 /// into its own `node_modules` as `self`; and `pkg`, whose modules import
 /// `args.js` by that name: `hop.js` through `import()` and
 /// `import.meta.resolve`, `hopstatic.js` statically.
-const HOP: [(&str, &str); 5] = [
+pub(super) const HOP: [(&str, &str); 5] = [
     (
         "package.json",
         r#"{"name": "fixture", "type": "module", "exports": {"./args.js": "./args.js"}}"#,
@@ -561,7 +566,7 @@ const HOP: [(&str, &str); 5] = [
 ];
 
 /// [`HOP`]'s link of the project into its own `node_modules`.
-const SELF_LINK: [(&str, &str); 1] = [("node_modules/self", "..")];
+pub(super) const SELF_LINK: [(&str, &str); 1] = [("node_modules/self", "..")];
 
 /// Asserts `graph` recorded the refusal of `pkg`'s import of the project's
 /// `args.js` from `importer`, reached as `reached`.

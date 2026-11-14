@@ -36,11 +36,7 @@
 //! the builtin's synthetic module, never asking the loader to load it.
 //! `import.meta.resolve` returns that URL to any importer, granted or not:
 //! it imports nothing, and the URL imports nothing either, its scheme
-//! refused from source. A static import of a builtin with import attributes
-//! is refused before its grant is checked, recorded as a file's attributes
-//! are ([`LoadFailure::ImportAttributes`]). An `import()`'s attributes never
-//! reach the loader: `deno_core` resolves it with none and serves a builtin
-//! without a load, so `import()` of one with attributes imports it.
+//! refused from source.
 //!
 //! An `import()` in code compiled from a string (an `eval`, a `Function`
 //! constructor, a string passed to a timer) is refused, whatever it names
@@ -51,6 +47,15 @@
 //! would import on that module's grants. Its record names no importer. A
 //! function such code calls that was defined in a module imports as that
 //! module.
+//!
+//! Import attributes are refused, recorded as one failure
+//! ([`LoadFailure::ImportAttributes`]): an attribute under any key but
+//! `type` before anything resolves, as the language orders it, for a file
+//! and a builtin alike; any attribute of a builtin before its grant is
+//! checked; and a file's `type` when it loads, whatever its value, since no
+//! module type past JS loads yet. A static import's attributes and an
+//! `import()`'s alike reach the loader, the latter through gro's patch of
+//! `deno_core`.
 //!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the
@@ -145,6 +150,10 @@ pub struct Rules {
 
 /// Why an import from the driver is refused, the reason in its message.
 const DRIVER_IMPORT_FREE: &str = "a stdin driver is import-free";
+
+/// The one import attribute key supported, as the language names it: an
+/// attribute under any other is refused before anything resolves.
+const SUPPORTED_ATTRIBUTE: &str = "type";
 
 /// The referrer `deno_core` names for the root of a load it starts itself,
 /// as it resolves a side module's own URL, the driver's (an internal of
@@ -339,17 +348,18 @@ impl Loader {
     }
 
     /// Resolves `specifier`, imported by the module at `referrer` as `kind`
-    /// says, with import attributes when `attributes`: the entry's URL as
-    /// it is, already resolved; a refusal of this loader's own rules, of an
+    /// says, with the import attributes `attributes`: the entry's URL as it
+    /// is, already resolved; a refusal of this loader's own rules, of an
     /// `import()` whose calling code `from_string_code` says was compiled
-    /// from a string (asked only for an `import()`), or of a builtin module
-    /// with attributes; else the resolver's answer over the disk.
+    /// from a string (asked only for an `import()`), of an attribute under a
+    /// key the language leaves unsupported, or of a builtin module with
+    /// attributes, in that order; else the resolver's answer over the disk.
     fn resolve_import(
         &self,
         specifier: &str,
         referrer: &str,
         kind: ResolutionKind,
-        attributes: bool,
+        attributes: &HashMap<String, String>,
         from_string_code: impl FnOnce() -> bool,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         let reach = match kind {
@@ -375,7 +385,8 @@ impl Loader {
         if reach == Reach::Dynamic && from_string_code() {
             return Err(self.refuse_string_code(specifier));
         }
-        if attributes {
+        if !attributes.is_empty() {
+            self.refuse_unsupported_attribute(specifier, referrer, reach, attributes)?;
             self.refuse_builtin_attributes(specifier, referrer, reach)?;
         }
         self.resolve_on_disk(specifier, referrer, Reached::Import(reach))
@@ -402,6 +413,42 @@ impl Loader {
             return Err(self.record_refused(specifier, Some(referrer), reached, None, refused));
         }
         Ok(())
+    }
+
+    /// Refuses an import with an attribute under any key but `type`, the one
+    /// key supported, reached as `reach` from `referrer`, recording why as a
+    /// refused attribute ([`LoadFailure::ImportAttributes`]). The language
+    /// refuses such an attribute before the host resolves anything, for a
+    /// file and a builtin module alike; of several, the message names the
+    /// least, so it doesn't follow the map's order.
+    fn refuse_unsupported_attribute(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        reach: Reach,
+        attributes: &HashMap<String, String>,
+    ) -> Result<(), ModuleLoaderError> {
+        let Some(key) = attributes
+            .keys()
+            .filter(|key| key.as_str() != SUPPORTED_ATTRIBUTE)
+            .min()
+        else {
+            return Ok(());
+        };
+        let refused = Refused::new(
+            FailureReason::Load(LoadFailure::ImportAttributes),
+            format!(
+                "cannot import '{specifier}' from {referrer}: the import attribute '{key}' is not \
+                 supported; only '{SUPPORTED_ATTRIBUTE}' is"
+            ),
+        );
+        Err(self.record_refused(
+            specifier,
+            Some(referrer),
+            Reached::Import(reach),
+            None,
+            refused,
+        ))
     }
 
     /// Refuses an `import()` of `specifier` in code compiled from a string,
@@ -526,20 +573,21 @@ impl ModuleLoader for Loader {
         referrer: &str,
         kind: ResolutionKind,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        // `deno_core` resolves an `import()` with a scope, so none is here
-        self.resolve_import(specifier, referrer, kind, false, || false)
+        // `deno_core` resolves an `import()`, and any import with attributes,
+        // with a scope, so neither is here
+        self.resolve_import(specifier, referrer, kind, &HashMap::new(), || false)
     }
 
     /// Resolves as [`ModuleLoader::resolve`] does, refusing an `import()` in
-    /// code compiled from a string and an import of a builtin module with
-    /// import attributes. `deno_core` passes a static import's attributes
-    /// here, and an `import()`'s never: it resolves one with none.
+    /// code compiled from a string, an attribute under any key but `type`,
+    /// and an import of a builtin module with import attributes.
+    /// `deno_core` passes a static import's attributes here, and an
+    /// `import()`'s through gro's patch of it (`vendor/README.md`).
     ///
     /// `deno_core` resolves an `import()`'s own specifier here inside V8's
     /// dynamic-import callback, the function that called `import()` the top
     /// JS frame on the stack, and each import of the modules it loads later,
     /// from the event loop, with no JS frame on the stack.
-    // TODO: refuse an `import()`'s attributes too, once they reach the loader
     fn resolve_with_scope(
         &self,
         scope: &mut v8::PinScope,
@@ -548,13 +596,9 @@ impl ModuleLoader for Loader {
         kind: ResolutionKind,
         import_attributes: &HashMap<String, String>,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-        self.resolve_import(
-            specifier,
-            referrer,
-            kind,
-            !import_attributes.is_empty(),
-            || called_from_string_code(scope),
-        )
+        self.resolve_import(specifier, referrer, kind, import_attributes, || {
+            called_from_string_code(scope)
+        })
     }
 
     /// Resolves as an import does, roots and all, but admits no root and

@@ -1292,6 +1292,8 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
       phase,
       resolver_handle,
       cped_handle,
+      // gro patch: the attributes reach the loader's resolve, which refuses them
+      &assertions,
     ) {
       // Short-circuit if the module is already cached and we know it won't error.
       return Some(promise);

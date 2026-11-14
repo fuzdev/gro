@@ -83,10 +83,10 @@ This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
 `fgro run` grants `process`, and `fgro eval` imports no builtin module, a grant-free one included ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
-A static import of one with any import attribute (`with {type: 'json'}`, `with {x: 'y'}`) is refused before its grant is checked,
-where a file's import is refused only a `type`; an `import()`'s attributes don't reach the loader, so they aren't refused yet.
-As designed, attributes follow the language's rule: `type` is the one key supported, every `type` refused for now,
-and any other key is refused before anything resolves, for a static import and `import()` alike.
+Attributes follow the language's rule: `type` is the one key supported, and an attribute under any other key (`with {x: 'y'}`)
+is refused before anything resolves, for a static import and `import()`, a file and a builtin module alike.
+An import of a builtin module with a `type` (`with {type: 'json'}`) is refused before its grant is checked,
+where a file's is refused when it loads, every `type` for now ([run](run.md#what-loads)).
 A source-phase import of a builtin module (`import source`, `import.source()`) is refused, since a builtin module has no source.
 
 ## Departures from Node

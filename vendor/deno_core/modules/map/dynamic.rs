@@ -52,13 +52,16 @@ impl ModuleMap {
     phase: ModuleImportPhase,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
+    // gro patch: the call's attributes, so the loader can refuse them as it does a static import's
+    import_attributes: &HashMap<String, String>,
   ) -> bool {
     let resolve_response = self.resolve_with_scope(
       scope,
       &specifier,
       &referrer,
       ResolutionKind::DynamicImport,
-      &HashMap::new(),
+      // gro patch: the call's attributes, not none
+      import_attributes,
     );
 
     // Fast path: if the module is already loaded, resolve the import

@@ -1,7 +1,7 @@
 //! Tests for running an entry: the `ext:` and `builtin:` specifiers refused to
 //! user code, then the graph a run records (`graph`), the builtins
-//! (`builtins`), and `import()` in code compiled from a string
-//! (`string_code`).
+//! (`builtins`), import attributes (`attributes`), and `import()` in code
+//! compiled from a string (`string_code`).
 
 use std::path::PathBuf;
 
@@ -11,6 +11,7 @@ use crate::engine::{EngineOptions, init_engine};
 use crate::test_support::TestDir;
 use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
+mod attributes;
 mod builtins;
 mod graph;
 mod string_code;

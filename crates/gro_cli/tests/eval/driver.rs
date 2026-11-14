@@ -182,6 +182,38 @@ fn every_dynamic_import_is_refused() {
     );
 }
 
+/// An `import()` with import attributes is refused as every `import()` is,
+/// before its attributes are read, and listed in `access.dynamic`.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn a_dynamic_import_with_attributes_is_refused_as_every_one_is() {
+    let run = eval(&["dynamic_attributes.js"]);
+    let url = format!("{}/dynamic_attributes.js", fixtures_url());
+    let refusal = |specifier: &str| {
+        json!({
+            "type_error": true,
+            "message": format!(
+                "cannot import '{specifier}' from {url}: import() is refused in eval, whatever \
+                 it names. Fix: import the module with a static import"
+            ),
+        })
+    };
+    run.assert_value(&json!([
+        refusal("./value.js"),
+        refusal("@fuzdev/gro/process.ts")
+    ]));
+    assert_eq!(
+        run.envelope["access"],
+        json!({"dynamic": [
+            {"specifier": "./value.js", "importer": url},
+            {"specifier": "@fuzdev/gro/process.ts", "importer": url},
+        ]})
+    );
+}
+
 /// A usage error prints to stderr with no envelope and exits 2.
 #[test]
 fn usage_errors_print_no_envelope() {

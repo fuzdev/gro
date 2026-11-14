@@ -322,12 +322,13 @@ Invariants that live in the code:
   ahead of any package lookup; a reserved one is data only, never reaching
   `builtin_rows!`. A package's module can't reach a grant through the
   project's: its bare import resolving into the project root is refused
-  (`ResolveErrorKind::PackageImportsProject`). A static import of a builtin
-  with import attributes is refused first, in the loader's
-  `resolve_with_scope`;
-  `deno_core` hands an `import()`'s attributes only to the runtime's
-  attribute callback, whose cost lands on every static import, so they
-  aren't checked.
+  (`ResolveErrorKind::PackageImportsProject`). The loader's
+  `resolve_with_scope` refuses an `import()` in code compiled from a string
+  first, then an attribute under any key but `type` for every specifier,
+  then any attribute on a builtin before its grant; an `import()`'s
+  attributes reach it through the `deno_core` patch (`vendor/README.md`),
+  since the runtime's attribute callback, the unpatched route, runs on every
+  static import.
 - Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
   `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
   tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,

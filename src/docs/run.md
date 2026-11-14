@@ -66,10 +66,15 @@ The snapshot build is reproducible: the same sources, toolchain, and cargo home 
   never loaded from the npm package's Node implementation.
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,
   as is `.mjs` beside `.mts`, and an extensionless specifier gets a hint naming the file it likely meant.
-- Refused with the reason are a file imported with a `type` import attribute
-  (JSON modules among them, until they land; an attribute under any other key is ignored for now, though the language requires its refusal,
-  which is designed: any key but `type` refused before anything resolves)
-  and a static import of a builtin module with any attribute,
+- Import attributes follow the language's rule: `type` is the one key supported,
+  and an attribute under any other key is refused before anything resolves, naming the key,
+  for a static import and `import()`, a file and a builtin module alike, ahead of any refusal the specifier itself would get
+  (an `import()` in code compiled from a string gets that code's refusal first, below).
+  An import of a builtin module with any attribute is refused before its grant is checked,
+  and a file imported with a `type` is refused when it loads, whatever the value (JSON modules among them, until they land).
+  No value makes a file load another way: a file whose name doesn't load as a module, like `x.txt` or `.env`, is refused with `type: 'text'` as without it.
+  Each refusal is a `TypeError`, a static import's included, where the language specifies a `SyntaxError` (Node's is a `TypeError` too).
+- Refused with the reason are
   any other extension (`.cjs`, which is CommonJS; `.json` and `.wasm`, not yet: JSON modules and WASM's ES module integration come later), `.cts`, `.tsx`, declaration files, Svelte modules,
   `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
   The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:

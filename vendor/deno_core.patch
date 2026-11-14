@@ -39,6 +39,28 @@ index cdf8de8..132f2fe 100644
    scope: &mut v8::PinScope<'s, 'i>,
  ) -> v8::Local<'s, v8::Private> {
    let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();
+diff --git a/modules/map/dynamic.rs b/modules/map/dynamic.rs
+index 5bae182..062c57e 100644
+--- a/modules/map/dynamic.rs
++++ b/modules/map/dynamic.rs
+@@ -52,13 +52,16 @@ impl ModuleMap {
+     phase: ModuleImportPhase,
+     resolver_handle: v8::Global<v8::PromiseResolver>,
+     cped_handle: v8::Global<v8::Value>,
++    // gro patch: the call's attributes, so the loader can refuse them as it does a static import's
++    import_attributes: &HashMap<String, String>,
+   ) -> bool {
+     let resolve_response = self.resolve_with_scope(
+       scope,
+       &specifier,
+       &referrer,
+       ResolutionKind::DynamicImport,
+-      &HashMap::new(),
++      // gro patch: the call's attributes, not none
++      import_attributes,
+     );
+ 
+     // Fast path: if the module is already loaded, resolve the import
 diff --git a/modules/module_map_data.rs b/modules/module_map_data.rs
 index a5070ed..ebccba8 100644
 --- a/modules/module_map_data.rs
@@ -101,6 +123,19 @@ index 73f76e0..9a953c6 100644
        let module_id = self
          .module_map_rc
          .build_synthetic_esm_module(
+diff --git a/runtime/bindings.rs b/runtime/bindings.rs
+index 5b3366e..1652f80 100644
+--- a/runtime/bindings.rs
++++ b/runtime/bindings.rs
+@@ -1292,6 +1292,8 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
+       phase,
+       resolver_handle,
+       cped_handle,
++      // gro patch: the attributes reach the loader's resolve, which refuses them
++      &assertions,
+     ) {
+       // Short-circuit if the module is already cached and we know it won't error.
+       return Some(promise);
 diff --git a/runtime/jsrealm.rs b/runtime/jsrealm.rs
 index eb03a44..0eb3325 100644
 --- a/runtime/jsrealm.rs

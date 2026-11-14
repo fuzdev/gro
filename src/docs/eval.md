@@ -167,7 +167,9 @@ Inert: `WeakRef` holds its target, so `deref()` always returns it;
 
 For now, every `import()` in the run is refused before anything is resolved, whatever it names (the loader can't tell a literal specifier from a computed one),
 with a `TypeError` the code can catch; each `import()` in the module's graph is listed in the envelope's `access.dynamic`,
-caught or not (the driver's are refused as imports from the driver, and not listed). `import.meta.resolve` works as in [run](run.md),
+caught or not (the driver's are refused as imports from the driver, and not listed), one with import attributes included, refused before they're read.
+A static import with an attribute under any key but `type` is a `link` naming the key, refused before anything resolves ([run](run.md#what-loads)).
+`import.meta.resolve` works as in [run](run.md),
 and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
 and the refusal names the real path, so evaluated code can tell whether a path exists and where a link points.
 

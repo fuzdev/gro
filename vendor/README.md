@@ -43,8 +43,9 @@ against the extracted `.crate`.
 The patch makes a V8 startup snapshot a function of its inputs: the same
 sources make the same blob, byte for byte, in every process and checkout. It
 also turns off source maps, makes one internal key public for gro's
-prepare-stack-trace callback, and refuses a source-phase import of a
-synthetic module (the sections after the snapshot's).
+prepare-stack-trace callback, refuses a source-phase import of a synthetic
+module, and hands the loader an `import()`'s attributes (the sections after
+the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -129,6 +130,21 @@ module's source and panicked, aborting the process.
   built
 
 Reportable upstream: yes, as a panic reachable from JS.
+
+### An `import()`'s attributes, passed to the loader
+
+`deno_core` parses an `import()`'s attributes, then resolves the call with
+none, so a loader never sees them and can't refuse one: gro refuses every
+attribute under a key but `type`, and any attribute of a builtin module, as
+it does a static import's. A static import's reach the loader already.
+
+- `modules/map/dynamic.rs`, `ModuleMap::load_dynamic_import`: takes the
+  call's attributes and resolves with them
+- `runtime/bindings.rs`, `host_import_module_with_phase_dynamically_callback`:
+  passes the attributes it parsed
+
+Reportable upstream: yes, so a loader sees the attributes of both forms of
+import.
 
 ## Upgrading a vendored crate
 

@@ -56,6 +56,34 @@ fn a_host_module_import_is_a_resolve_naming_the_grant_or_a_link_with_attributes(
     assert_eq!(run.envelope["error"]["importer"], importer);
 }
 
+/// An import attribute under any key but `type` is refused before the
+/// specifier resolves, as a `link` naming the key, a file's and a builtin
+/// module's alike.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a confined eval needs a snapshot build"
+)]
+fn an_attribute_under_another_key_is_a_link_naming_it() {
+    for (fixture, specifier) in [
+        ("import_attribute_key.js", "./value.js"),
+        ("import_process_attribute_key.js", "@fuzdev/gro/process.ts"),
+    ] {
+        let run = eval(&[fixture]);
+        run.assert_failed("link", 1);
+        let importer = format!("{}/{fixture}", fixtures_url());
+        assert_eq!(
+            run.message(),
+            format!(
+                "cannot import '{specifier}' from {importer}: the import attribute 'x' is not \
+                 supported; only 'type' is"
+            )
+        );
+        assert_eq!(run.envelope["error"]["specifier"], specifier);
+        assert_eq!(run.envelope["error"]["importer"], importer);
+    }
+}
+
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
