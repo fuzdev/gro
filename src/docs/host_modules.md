@@ -992,6 +992,7 @@ What the runtime's builtin module must do that the Node implementation can't.
 Each handle holds a native resource of its own, and every confinement decision is the native op's.
 The builtin module's JS reads nothing and decides nothing: an export that takes arguments is a shell handing them to its op whole, which checks them and raises the errors,
 and whatever has identity or state, a class, a brand, a registry, is the host's.
+`cwd.ts` is the one script that still decides: it throws when its op found no UTF-8 path.
 
 That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
 where the Node implementation copies what it needs when it loads and can be loaded first.

@@ -331,7 +331,8 @@ Invariants that live in the code:
     the same shells. A row's script reads nothing and decides nothing;
     whatever has identity or state is the host's (a class, a brand, a
     registry, a table of handles, an exit code), in `OpState`, reached
-    through an op.
+    through an op. `cwd.ts` is the one script that still decides: it
+    throws when its op found no UTF-8 path.
   - An implementation throws only when its importer left it no stack: an
     `import()` runs it on the caller's stack, so any importer can cut a first
     import short at a call of its choosing, the import rejects with
