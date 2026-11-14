@@ -1,0 +1,67 @@
+[
+	{
+		"name": "args",
+		"module": "args",
+		"args": ["a", "b c", "--help", "--", "-A", "", "é"],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "args_none",
+		"module": "args",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "cwd",
+		"module": "cwd",
+		"args": ["{cwd}"],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "pid",
+		"module": "pid",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "runtime_version",
+		"module": "runtime_version",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/runtime",
+				"fgro": "fgro",
+				"why": "runtime_version names the runtime that runs the process, node/<version> on Node and fgro/<version> on fgro"
+			}
+		]
+	}
+]

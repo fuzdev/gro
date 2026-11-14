@@ -278,6 +278,8 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
         "--test",
         "run",
         "--test",
+        "host",
+        "--test",
         "eval",
         "--test",
         "confine",

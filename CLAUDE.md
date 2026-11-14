@@ -323,6 +323,10 @@ Invariants that live in the code:
   at its top level. `src/test/builtin_types.test.ts` holds every row's
   inferred types to its Node module's, reading the rows from the bootstrap
   and the table.
+  `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
+  module printed (`tests/fixtures/host/`, whose `expected.json`
+  `node oracle.js --write` regenerates under Node and
+  `src/test/host_differential.test.ts` checks against Node).
   The table also
   reserves specifiers it doesn't serve (each row's `.js` spelling, derived
   from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`, the modules Gro

@@ -1,0 +1,260 @@
+{
+	"args": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"args": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"args": [
+				"args",
+				"a",
+				"b c",
+				"--help",
+				"--",
+				"-A",
+				"",
+				"é"
+			],
+			"are_the_arguments": true,
+			"shape": {
+				"type": "object",
+				"prototype": "Array.prototype",
+				"frozen": true,
+				"own": {
+					"0": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"1": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"2": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"3": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"4": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"5": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"6": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"7": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"is_array": true,
+			"element_write_throws": "TypeError",
+			"push_throws": "TypeError",
+			"namespace_write_throws": "TypeError"
+		}
+	},
+	"args_none": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"args": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"args": [
+				"args"
+			],
+			"are_the_arguments": true,
+			"shape": {
+				"type": "object",
+				"prototype": "Array.prototype",
+				"frozen": true,
+				"own": {
+					"0": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"is_array": true,
+			"element_write_throws": "TypeError",
+			"push_throws": "TypeError",
+			"namespace_write_throws": "TypeError"
+		}
+	},
+	"cwd": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"cwd": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"shape": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"name": "cwd",
+			"length": 0,
+			"is_the_start_directory": true,
+			"returns": "string",
+			"same_each_call": true,
+			"borrowed_receiver": true,
+			"new_throws": "TypeError",
+			"property_write_throws": "TypeError",
+			"namespace_write_throws": "TypeError"
+		}
+	},
+	"pid": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"pid": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"type": "number",
+			"positive_integer": true,
+			"namespace_write_throws": "TypeError"
+		}
+	},
+	"runtime_version": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"runtime_version": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"type": "string",
+			"name_and_version": true,
+			"runtime": "node",
+			"namespace_write_throws": "TypeError"
+		}
+	}
+}

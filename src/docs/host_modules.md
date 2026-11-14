@@ -419,6 +419,8 @@ and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>
 Each is made when a run first imports its module, from intrinsics the runtime copied before any user code ran,
 so code that patched `Object` or the prototypes before the import changes nothing it holds.
 Each module's exports have the types of the Node module's, checked by a test against that module's declarations for every builtin module.
+A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
+their shapes, property descriptors, and what throws, but where a case names a difference by design.
 
 `cwd`, `pid`, and `runtime_version` need no grant: any module of a run imports them, a package's included,
 and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
