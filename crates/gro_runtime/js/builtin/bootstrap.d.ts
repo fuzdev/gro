@@ -1,8 +1,8 @@
-// What a builtin's implementation is called with: deno_core's bootstrap object, typed as far
-// as the implementations read it. No user code can reach it: it's the parameter of the
-// function deno_core compiles a lazy script as.
+// What the outer level of a builtin's implementation is called with: deno_core's bootstrap
+// object, typed as far as the implementations read it. No user code can reach it: it's the
+// parameter of the function deno_core compiles a lazy script as.
 
-/** deno_core's bootstrap object, the first argument of a builtin's implementation. */
+/** deno_core's bootstrap object, the argument of a builtin's implementation's outer level. */
 interface Bootstrap {
 	readonly core: {
 		/** Every op, each a function of the runtime the script runs in. */

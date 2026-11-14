@@ -310,63 +310,69 @@ Invariants that live in the code:
   resolver's `ResolveErrorKind`, the loader's `FailureReason`), never parsed
   from a message; eval's error kind comes from the step that failed and the
   graph's record.
-- The builtin table (`resolver/builtin.rs`) is the one source of the
-  builtin modules: `&'static` data of gro's own types, each row's specifier,
-  grant, and exports. `builtin_rows!` hands the rows to the bootstrap, which
-  embeds each row's implementation, the script at `js/builtin/<specifier>`,
-  and makes its backing script and synthetic module from it. No snapshot
-  holds an implementation, and gro's extension declares no lazy script:
-  `deno_core` reads a backing script from its residual table the first time
-  a run imports the builtin, and runs it then, so an unimported builtin
-  costs a start its facade's name and its ops. An implementation is one
-  function of `deno_core`'s bootstrap object and the scope of its importer's
-  grant, an argument the backing script's call passes
-  (`bootstrap::scope_argument`; `undefined` while no grant has one) and the
-  implementation reads no other way; it never throws, which nothing checks
-  (`bootstrap.rs` says what `deno_core` does with one that did). It can run
-  after user code has patched the global intrinsics, so it names no global
-  and reads no member of an intrinsic, its top level included: each
-  intrinsic comes from `primordials`, each op from `core.ops`. Three checks
-  hold every row to that: the implementations' own program
-  (`js/builtin/tsconfig.json`, with no library but `intrinsics.d.ts`, which
-  declares no value and no member), where either is a type error;
-  `src/test/builtin_intrinsics.test.ts`, which also refuses the syntax a
-  type check lets through (iteration, `instanceof`, `in`, `globalThis`,
-  `any`, a type assertion); and
-  `crates/gro_cli/tests/host.rs`, which imports every row of the table and
-  calls every function it reaches in a realm whose every reachable intrinsic
-  is a recording trap. A test holds each implementation's reads of
-  `core.ops` to the host ops of its own row (`bootstrap/web_scripts.rs`). The resolver returns a table hit ahead of any
-  package lookup; the loader checks it against the run's `Authority` at link
-  time, for a static import and `import()` alike (`loader/resolve.rs`): with
-  none (eval's) nothing is imported, a grant-free row included, checked
-  before the grant, a package's module is granted none, and a grant-free row
-  (`cwd`, `pid`, `runtime_version`) links for the project and a package
-  alike. A builtin's implementation keeps no per-importer state.
-  `src/test/builtin_types.test.ts` holds every row's
-  inferred types to its Node module's, reading the rows from the table and
-  each implementation from its file.
-  `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
-  module printed (`tests/fixtures/host/`, whose `expected.json`
-  `node oracle.js --write` regenerates under Node and
-  `src/test/host_differential.test.ts` checks against Node).
-  The table also
-  reserves specifiers it doesn't serve (each row's `.js` spelling, derived
-  from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`, the modules Gro
-  has none of whose members are modules of their own, each refused naming
-  them, and a respelling of these or of a row's specifier, read as URL
-  parsing and the path's decoding read an `"exports"` target, in
-  `resolver/specifier.rs`), which the resolver refuses
-  ahead of any package lookup; a reserved one is data only, never reaching
-  `builtin_rows!`. A package's module can't reach a grant through the
-  project's: its bare import resolving into the project root is refused
-  (`ResolveErrorKind::PackageImportsProject`). The loader's
-  `resolve_with_scope` refuses an `import()` in code compiled from a string
-  first, then an attribute under any key but `type` for every specifier,
-  then any attribute on a builtin before its grant; an `import()`'s
-  attributes reach it through the `deno_core` patch (`vendor/README.md`),
-  since the runtime's attribute callback, the unpatched route, runs on every
-  static import.
+- The builtin table (`resolver/builtin.rs`) is the one source of the builtin
+  modules: `&'static` data of gro's own types, each row's specifier, grant,
+  and exports. `builtin_rows!` hands the rows to the bootstrap, which embeds
+  each row's implementation, the script at `js/builtin/<specifier>`, and makes
+  its backing script and synthetic module from it. No snapshot holds an
+  implementation, and gro's extension declares no lazy script: `deno_core`
+  reads a backing script from its residual table the first time a run imports
+  the builtin, and runs it then, so an unimported builtin costs a start its
+  facade's name and its ops.
+  - An implementation is one function in two levels. The outer takes
+    `deno_core`'s bootstrap object, runs once a run, and makes what every
+    importer shares: a class, a brand, a registry, the values no scope
+    changes. It returns the inner, which takes the scope of its importer's
+    grant, an argument the backing script's call passes
+    (`bootstrap::scope_argument`; `undefined` while no grant has one) and the
+    implementation reads no other way, and makes the namespace. The backing
+    script calls both at once, so a run has one namespace of a builtin, and
+    one per importing origin would be one more call of the inner level over
+    the same classes and state.
+  - An implementation never throws, which nothing checks (`bootstrap.rs` says
+    what `deno_core` does with one that did).
+  - An implementation can run after user code has patched the global
+    intrinsics, so it names no global and reads no member of an intrinsic, its
+    top level included: each intrinsic comes from `primordials`, each op from
+    `core.ops`. Three checks hold every row to that: the implementations' own
+    program (`js/builtin/tsconfig.json`, with no library but
+    `intrinsics.d.ts`, which declares no value and no member), where either is
+    a type error; `src/test/builtin_intrinsics.test.ts`, which also refuses
+    the syntax a type check lets through (iteration, `instanceof`, `in`,
+    `globalThis`, `any`, a type assertion); and
+    `crates/gro_cli/tests/host.rs`, which imports every row of the table and
+    calls every function it reaches in a realm whose every reachable intrinsic
+    is a recording trap. A test holds each implementation's reads of
+    `core.ops` to the host ops of its own row (`bootstrap/web_scripts.rs`).
+  - The resolver returns a table hit ahead of any package lookup; the loader
+    checks it against the run's `Authority` at link time, for a static import
+    and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
+    imported, a grant-free row included, checked before the grant, a package's
+    module is granted none, and a grant-free row (`cwd`, `pid`,
+    `runtime_version`) links for the project and a package alike. A builtin's
+    implementation keeps no per-importer state.
+  - `src/test/builtin_types.test.ts` holds every row's inferred types to its
+    Node module's, reading the rows from the table and each implementation
+    from its file. `crates/gro_cli/tests/host.rs` holds every row's values to
+    what its Node module printed (`tests/fixtures/host/`, whose
+    `expected.json` `node oracle.js --write` regenerates under Node and
+    `src/test/host_differential.test.ts` checks against Node).
+  - The table also reserves specifiers it doesn't serve (each row's `.js`
+    spelling, derived from the row, `UNBUILT_HOST_MODULES`, `SPLIT_MODULES`,
+    the modules Gro has none of whose members are modules of their own, each
+    refused naming them, and a respelling of these or of a row's specifier,
+    read as URL parsing and the path's decoding read an `"exports"` target, in
+    `resolver/specifier.rs`), which the resolver refuses ahead of any package
+    lookup; a reserved one is data only, never reaching `builtin_rows!`. A
+    package's module can't reach a grant through the project's: its bare
+    import resolving into the project root is refused
+    (`ResolveErrorKind::PackageImportsProject`). The loader's
+    `resolve_with_scope` refuses an `import()` in code compiled from a string
+    first, then an attribute under any key but `type` for every specifier,
+    then any attribute on a builtin before its grant; an `import()`'s
+    attributes reach it through the `deno_core` patch (`vendor/README.md`),
+    since the runtime's attribute callback, the unpatched route, runs on every
+    static import.
 - Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
   `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
   tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,

@@ -17,12 +17,13 @@ import {
 
 A builtin module of the runtime declares no type of its own: its exports have one declaration,
 the Node host module's (`src/lib/<name>.ts`). Its implementation
-(`crates/gro_runtime/js/builtin/<specifier>`) is a script, one function of the bootstrap object
-and its grant's scope that returns the namespace. This checks, for every row of the runtime's
-builtin table, the namespace that function infers against the Node module's exports, exactly and
-both ways, and its parameters, in a program with the implementation's own declaration of the
-bootstrap object, the ES library, no Node types, and the Node module as its emitted
-declarations, which name no Node type (`host_module_declarations.test.ts`).
+(`crates/gro_runtime/js/builtin/<specifier>`) is a script, one function in two levels: the
+outer takes the bootstrap object and returns the inner, a function of its grant's scope that
+returns the namespace. This checks, for every row of the runtime's builtin table, the namespace
+the inner level infers against the Node module's exports, exactly and both ways, and each
+level's parameters, in a program with the implementation's own declaration of the bootstrap
+object, the ES library, no Node types, and the Node module as its emitted declarations, which
+name no Node type (`host_module_declarations.test.ts`).
 
 The implementation's own program has no library at all (`builtin_intrinsics.test.ts`), so the
 Node module's types couldn't be written there; the function's types are the same in both.
@@ -43,15 +44,16 @@ const to_subject = (implementation: string): string =>
 /**
  * The check, a module beside the implementation: the namespace's exports are the Node module's
  * and `default`, each export exactly the Node module's, the two namespaces assign both ways,
- * and the function takes the bootstrap object and one more argument, its grant's scope, which
- * no row's grant has.
+ * the outer level takes the bootstrap object alone, and the inner level it returns takes one
+ * argument, its grant's scope, which no row's grant has.
  */
 const to_check = ({ name }: BuiltinRow): string => `
 import type { implementation } from './${name}.subject.ts';
 import type * as node from './${name}.node_declarations.d.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-type Namespace = ReturnType<typeof implementation>;
+type Inner = ReturnType<typeof implementation>;
+type Namespace = ReturnType<Inner>;
 type Builtin = Omit<Namespace, 'default'>;
 type Node = typeof node;
 
@@ -60,7 +62,8 @@ export const no_default: Equal<Namespace['default'], undefined> = true;
 export const members: Equal<{ [K in keyof Node]: Equal<Builtin[K], Node[K]> }[keyof Node], true> = true;
 export const to_node = (builtin: Builtin): Node => builtin;
 export const to_builtin = (node: Node): Builtin => node;
-export const parameters: Equal<Parameters<typeof implementation>, [bootstrap: Bootstrap, _scope: undefined]> = true;
+export const outer_parameters: Equal<Parameters<typeof implementation>, [bootstrap: Bootstrap]> = true;
+export const inner_parameters: Equal<Parameters<Inner>, [_scope: undefined]> = true;
 `;
 
 // the files every check reads from disk, parsed once
@@ -181,21 +184,24 @@ describe.each(rows)('the $name builtin types', (row) => {
 			check_types(row, declarations, source.replace(made, 'default: null }')),
 			[]
 		);
-		// an implementation that takes no scope, one that takes another, and one that takes
-		// another bootstrap object
-		const scoped = '(bootstrap: Bootstrap, _scope: undefined) {';
-		assert.include(source, scoped, 'the parameters to mutate are there');
-		for (const parameters of [
-			'(bootstrap: Bootstrap) {',
-			'(bootstrap: Bootstrap, _scope: string) {',
-			'(bootstrap: Bootstrap & { extra: 1 }, _scope: undefined) {'
-		]) {
-			assert.notDeepEqual(
-				check_types(row, declarations, source.replace(scoped, parameters)),
-				[],
-				parameters
-			);
-		}
+		/**
+		 * Asserts the check fails once `from` in the implementation is `to`.
+		 */
+		const assert_level_mismatch = (from: string, to: string): void => {
+			assert.include(source, from, 'the level to mutate is there');
+			assert.notDeepEqual(check_types(row, declarations, source.replace(from, to)), [], to);
+		};
+		// an outer level that takes the scope too, and one that takes another bootstrap object
+		const outer = '(function (bootstrap: Bootstrap) {';
+		assert_level_mismatch(outer, '(function (bootstrap: Bootstrap, _scope: undefined) {');
+		assert_level_mismatch(outer, '(function (bootstrap: Bootstrap & { extra: 1 }) {');
+		// an inner level that takes no scope, one that takes another, and one that takes more
+		const inner = 'return (_scope: undefined) =>';
+		assert_level_mismatch(inner, 'return () =>');
+		assert_level_mismatch(inner, 'return (_scope: string) =>');
+		assert_level_mismatch(inner, 'return (_scope: undefined, _extra: undefined) =>');
+		// one level, the namespace made by the function of the bootstrap object
+		assert_level_mismatch(inner, 'return');
 	});
 });
 
@@ -232,12 +238,17 @@ describe('a retyped export fails its check', () => {
 			'export declare const args: ReadonlyArray<string | number>;'
 		);
 		// the array left mutable
-		assert_mismatch('args', 'builtin', 'args: ObjectFreeze(op_gro_args())', 'args: op_gro_args()');
+		assert_mismatch(
+			'args',
+			'builtin',
+			'const args = ObjectFreeze(op_gro_args());',
+			'const args = op_gro_args();'
+		);
 	});
 
 	test('cwd', () => {
 		// a string where the Node module has a function, and a function of a parameter
-		assert_mismatch('cwd', 'builtin', 'create_record({ cwd,', "create_record({ cwd: '',");
+		assert_mismatch('cwd', 'builtin', '{ cwd, default', "{ cwd: '', default");
 		assert_mismatch(
 			'cwd',
 			'builtin',
@@ -253,7 +264,12 @@ describe('a retyped export fails its check', () => {
 	});
 
 	test('pid', () => {
-		assert_mismatch('pid', 'builtin', 'pid: op_gro_pid()', 'pid: String(op_gro_pid())');
+		assert_mismatch(
+			'pid',
+			'builtin',
+			'const pid = op_gro_pid();',
+			'const pid = String(op_gro_pid());'
+		);
 		assert_mismatch(
 			'pid',
 			'node',
@@ -266,8 +282,8 @@ describe('a retyped export fails its check', () => {
 		assert_mismatch(
 			'runtime_version',
 			'builtin',
-			'runtime_version: op_gro_runtime_version()',
-			'runtime_version: 1'
+			'const runtime_version = op_gro_runtime_version();',
+			'const runtime_version = 1;'
 		);
 		assert_mismatch(
 			'runtime_version',

@@ -10,20 +10,16 @@
 // Node module throws: a builtin's script never throws, since the import of a builtin whose
 // script threw would reject with the host's report of it, not the error.
 //
-// A script the runtime compiles and calls on the builtin's first import, reaching intrinsics
-// only through `primordials` (`args.ts` has the rules). A grant-free module has no grant to
-// scope, so its scope is `undefined`.
+// A script the runtime compiles and calls on the builtin's first import, in two levels,
+// reaching intrinsics only through `primordials` (`args.ts` has the rules). A grant-free
+// module has no grant to scope, so its scope is `undefined`.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
-(function (bootstrap: Bootstrap, _scope: undefined) {
+(function (bootstrap: Bootstrap) {
 	const { core, primordials } = bootstrap;
 	const { op_gro_cwd } = core.ops;
 	const { Error, ObjectAssign, ObjectCreate, ObjectFreeze } = primordials;
-
-	// a null-prototype record, as the Node modules' `create_record` makes
-	const create_record = <T extends object>(fields: T): T =>
-		ObjectAssign(ObjectCreate(null), fields);
 
 	const checked_cwd = op_gro_cwd();
 	const cwd = (): string => {
@@ -35,7 +31,7 @@
 	ObjectFreeze(cwd);
 
 	// `cwd`, a frozen function returning the working directory the run was started in, or
-	// throwing an `Error` when its path isn't UTF-8, and the `default` every builtin has,
-	// `undefined`
-	return create_record({ cwd, default: undefined });
+	// throwing an `Error` when its path isn't UTF-8, one function for every importer, and the
+	// `default` every builtin has, `undefined`
+	return (_scope: undefined) => ObjectAssign(ObjectCreate(null), { cwd, default: undefined });
 });

@@ -11,9 +11,15 @@
 //! **The builtin modules.** Each row of the resolver's builtin table
 //! ([`crate::resolver::BUILTINS`]) is served as a `deno_core` synthetic
 //! module (a facade) named by its `builtin:` URL, over a backing script that
-//! is the builtin's implementation, `js/builtin/<specifier>`: one function,
-//! called with `deno_core`'s bootstrap object (the ops, `primordials`) and
-//! the scope of the importer's grant ([`to_backing_script`]). No snapshot
+//! is the builtin's implementation, `js/builtin/<specifier>`: one function
+//! in two levels ([`to_backing_script`]). The outer level, called with
+//! `deno_core`'s bootstrap object (the ops, `primordials`), makes what
+//! every importer of the builtin shares, its classes, brands, registries,
+//! and the values no scope changes, and returns the inner level, which,
+//! called with the scope of an importer's grant, makes the builtin's
+//! namespace. A backing script calls both at once, so a run has one
+//! namespace of each builtin; a namespace per importing origin is one more
+//! call of the inner level, over the same classes and state. No snapshot
 //! holds any of it. `deno_core` compiles and runs a backing script the first
 //! time a run imports its facade, after the start, and the facade's exports
 //! are the own properties of what the script returns, with a `default` of
@@ -34,21 +40,22 @@
 //! `primordials` and each op from `core.ops`. Its own `tsconfig.json`
 //! type-checks it with no global value and no member of an intrinsic
 //! declared, and the tests run every row under patched intrinsics. The scope
-//! is an argument, which the script's call passes ([`scope_argument`]) and
-//! an implementation reads no other way; no grant scopes anything yet, and
-//! a grant-free builtin has none, so each is called with `undefined`. An
-//! implementation never throws: `deno_core` rejects the import with a
-//! `TypeError` carrying its own report of what the script threw, never the
-//! error, and runs the whole script again at the next import, whatever the
-//! first run had done by then, so a builtin that can fail fails in what it
-//! exports, as `cwd` does when called. The loader resolves an import to a
-//! `builtin:` URL only for a bare specifier in the table and only for an
-//! importer granted it (`import.meta.resolve` returns the URL to any
-//! importer, and the URL itself imports nothing), and refuses one written
-//! in source, so the facade is reached by the table's specifier alone;
-//! `deno_core` dispatches a synthetic module by the raw specifier an import
-//! writes, so a facade's name must be one user code can't resolve, which the
-//! `builtin:` scheme is.
+//! is the inner level's argument, which the script's call passes
+//! ([`scope_argument`]) and an implementation reads no other way; no grant
+//! scopes anything yet, and a grant-free builtin has none, so each is
+//! called with `undefined`. An implementation never throws: `deno_core`
+//! rejects the import with a `TypeError` carrying its own report of what
+//! the script threw, never the error, and runs the whole script again at
+//! the next import, whatever the first run had done by then, so a builtin
+//! that can fail fails in what it exports, as `cwd` does when called.
+//!
+//! The loader resolves an import to a `builtin:` URL only for a bare
+//! specifier in the table and only for an importer granted it
+//! (`import.meta.resolve` returns the URL to any importer, and the URL
+//! itself imports nothing), and refuses one written in source, so the
+//! facade is reached by the table's specifier alone; `deno_core` dispatches
+//! a synthetic module by the raw specifier an import writes, so a facade's
+//! name must be one user code can't resolve, which the `builtin:` scheme is.
 //!
 //! `deno_webidl` and `deno_web`'s own sources aren't embedded: `deno_core` reads them
 //! from their crates' paths on the build machine when they first load. A
@@ -115,7 +122,8 @@ pub struct Implementation {
     /// Its backing script's specifier, which nothing resolves: `deno_core`
     /// names the script by it, and a stack frame shows it.
     pub script: &'static str,
-    /// Its TypeScript source, `js/builtin/<specifier>`: one function.
+    /// Its TypeScript source, `js/builtin/<specifier>`: one function, which
+    /// returns the function of a scope that makes the namespace.
     pub source: &'static str,
     /// The grant its importer needs, as its row has it.
     pub grant: Option<Capability>,
@@ -159,13 +167,13 @@ pub const IMPLEMENTATIONS: &[Implementation] = &builtin_rows!(implementation);
 /// Each builtin's synthetic module, `(name, backing script)`.
 const BUILTIN_MODULES: &[(&str, &str)] = &builtin_rows!(synthetic_module);
 
-/// What a backing script passes its implementation as the scope of the
-/// importer's grant, a JS expression over the script's `__bootstrap`: the
-/// one place a builtin's scope comes from. No grant scopes anything yet, so
-/// every implementation is called with `undefined`. A grant that carries a
-/// scope names here how the host hands it over, a native value the
-/// implementation gives back to each op, so an op decides from the scope it
-/// was called with and never from the run's grants.
+/// What a backing script passes its implementation's inner level as the
+/// scope of the importer's grant, a JS expression over the script's
+/// `__bootstrap`: the one place a builtin's scope comes from. No grant
+/// scopes anything yet, so every inner level is called with `undefined`. A
+/// grant that carries a scope names here how the host hands it over, a
+/// native value the implementation gives back to each op, so an op decides
+/// from the scope it was called with and never from the run's grants.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
         // a grant-free module has no grant to scope, and `args` scopes nothing
@@ -189,9 +197,13 @@ const WRAP_CLOSE: &str = ");";
 
 /// A builtin's backing script, the text `deno_core` compiles as a function
 /// of `__bootstrap` on the builtin's first import: `implementation`'s
-/// source stripped of its types, called with the bootstrap object and its
-/// grant's scope ([`scope_argument`]), and wrapped as `deno_core` wraps a
-/// lazy script. The comments above the function are emptied line by line
+/// source stripped of its types, its outer level called with the bootstrap
+/// object, the inner level it returns called with its grant's scope
+/// ([`scope_argument`]), and wrapped as `deno_core` wraps a lazy script.
+/// `deno_core` keeps what the script returns, the namespace, only once both
+/// calls have returned, so a run cut short in either level keeps nothing of
+/// what the outer level made, and the next import makes it again, whole.
+/// The comments above the function are emptied line by line
 /// and the strip keeps every other character where it was, so a position
 /// in the script, as a stack frame shows it, is the source's.
 ///
@@ -214,15 +226,14 @@ pub fn to_backing_script(implementation: &Implementation) -> Result<String, Stri
         .is_some_and(|line| line.starts_with("(function "))
     {
         return Err(format!(
-            "{script} is not one function, `(function (bootstrap, scope) {{ ... }})`, under \
-             comments"
+            "{script} is not one function, `(function (bootstrap) {{ ... }})`, under comments"
         ));
     }
     let function = function.join("\n");
     // the source is one expression statement
     let function = function.trim_end_matches(|c: char| c.is_whitespace() || c == ';');
     let backing = format!(
-        "{WRAP_OPEN}{}{function}(__bootstrap, {}){WRAP_CLOSE}",
+        "{WRAP_OPEN}{}{function}(__bootstrap)({}){WRAP_CLOSE}",
         "\n".repeat(above),
         scope_argument(implementation.grant)
     );
@@ -742,21 +753,22 @@ mod tests {
     }
 
     /// A backing script is its implementation without its types or the
-    /// statement's end, called once with `__bootstrap` and the scope, each
-    /// comment line above the function emptied, so every line below is
+    /// statement's end, called once with `__bootstrap`, and what that
+    /// returns once with the scope, each comment line above the function
+    /// emptied, so every line below is
     /// where the source has it; an implementation that doesn't strip, isn't
     /// one function under comments, or isn't ASCII makes none.
     #[test]
     fn a_backing_script_calls_its_stripped_implementation() {
         let script = to_backing_script(&probe(
-            "// a comment\n\n// another\n(function (bootstrap: Bootstrap, _scope: undefined) \
-             {\n\treturn bootstrap;\n});\n",
+            "// a comment\n\n// another\n(function (bootstrap: Bootstrap) {\n\treturn (_scope: \
+             undefined) => bootstrap;\n});\n",
         ))
         .unwrap();
         assert_eq!(
             script,
-            "\"use strict\"; return (\n\n\n(function (bootstrap           , _scope           ) \
-             {\n\treturn bootstrap;\n})(__bootstrap, undefined));"
+            "\"use strict\"; return (\n\n\n(function (bootstrap           ) {\n\treturn \
+             (_scope           ) => bootstrap;\n})(__bootstrap)(undefined));"
         );
         let refused = to_backing_script(&probe("(function () {\n\tenum E { A }\n});\n"));
         assert!(refused.unwrap_err().contains("ext:gro/builtin/probe.ts:2:"));

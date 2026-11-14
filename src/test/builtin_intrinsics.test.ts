@@ -109,9 +109,14 @@ const find_unchecked_syntax = (implementation: string): Array<string> => {
 
 const rows = read_builtin_rows();
 
-// what every implementation starts with, and the record it makes, where the mutants go
+// what every implementation starts with, where the mutants go
 const TOP_LEVEL = '\tconst { core, primordials } = bootstrap;\n';
-const IN_A_FUNCTION = 'ObjectAssign(ObjectCreate(null), fields);';
+
+/**
+ * An implementation's start with `use` inside a function of its own, in place of `TOP_LEVEL`.
+ */
+const in_a_function = (use: string): string =>
+	`${TOP_LEVEL}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
 
 describe("the implementations' program", () => {
 	test('has no library but its own declarations', () => {
@@ -148,7 +153,7 @@ describe.each(rows)('the $name implementation', (row) => {
 		const lines = source.split('\n');
 		const first = lines.findIndex((line) => line.trim() !== '' && !line.startsWith('//'));
 		assert.isAbove(first, 0, 'comments come first');
-		assert.strictEqual(lines[first], '(function (bootstrap: Bootstrap, _scope: undefined) {');
+		assert.strictEqual(lines[first], '(function (bootstrap: Bootstrap) {');
 		assert.deepEqual(lines.slice(-2), ['});', '']);
 		assert.notMatch(source, /^\s*(?:import|export)\b/m);
 	});
@@ -164,15 +169,22 @@ describe.each(rows)('the $name implementation', (row) => {
 		]) {
 			assert_refused(TOP_LEVEL, `${TOP_LEVEL}\t${global}\n`);
 		}
-		assert_refused(IN_A_FUNCTION, 'Object.assign(ObjectCreate(null), fields);');
-		assert_refused(IN_A_FUNCTION, 'ObjectAssign(Object.create(null), fields);');
+		// a function that uses only what the implementation was given type-checks, so each
+		// one below is refused for the global it names
+		const allowed = in_a_function('primordials.ObjectAssign(primordials.ObjectCreate(null), core)');
+		assert.deepEqual(check_program(row, source.replace(TOP_LEVEL, allowed)), []);
+		assert_refused(TOP_LEVEL, in_a_function('Object.assign(core, core)'));
+		assert_refused(TOP_LEVEL, in_a_function('primordials.ObjectAssign(Object.create(null), core)'));
 	});
 
 	test('a member of an intrinsic is refused', () => {
 		// a function's method and property, at the top level and in a function
 		assert_refused(TOP_LEVEL, `${TOP_LEVEL}\tprimordials.ObjectCreate.name;\n`);
-		assert_refused(IN_A_FUNCTION, 'ObjectAssign.call(undefined, ObjectCreate(null), fields);');
-		assert_refused(IN_A_FUNCTION, 'ObjectAssign.bind(undefined)(ObjectCreate(null), fields);');
+		assert_refused(
+			TOP_LEVEL,
+			in_a_function('primordials.ObjectAssign.call(undefined, core, core)')
+		);
+		assert_refused(TOP_LEVEL, in_a_function('primordials.ObjectAssign.bind(undefined)'));
 		// an array's, a string's, and an object's
 		for (const member of [
 			'[core].length;',

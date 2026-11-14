@@ -8,22 +8,21 @@
 // read once, when the builtin is first imported, and exported as data. It differs from the
 // Node implementation's (`node/v24.14.0`) by design: it's opaque, compared for equality only.
 //
-// A script the runtime compiles and calls on the builtin's first import, reaching intrinsics
-// only through `primordials` (`args.ts` has the rules). A grant-free module has no grant to
-// scope, so its scope is `undefined`.
+// A script the runtime compiles and calls on the builtin's first import, in two levels,
+// reaching intrinsics only through `primordials` (`args.ts` has the rules). A grant-free
+// module has no grant to scope, so its scope is `undefined`.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
-(function (bootstrap: Bootstrap, _scope: undefined) {
+(function (bootstrap: Bootstrap) {
 	const { core, primordials } = bootstrap;
 	const { op_gro_runtime_version } = core.ops;
 	const { ObjectAssign, ObjectCreate } = primordials;
 
-	// a null-prototype record, as the Node modules' `create_record` makes
-	const create_record = <T extends object>(fields: T): T =>
-		ObjectAssign(ObjectCreate(null), fields);
+	const runtime_version = op_gro_runtime_version();
 
 	// `runtime_version`, the runtime's name and version, and the `default` every builtin has,
 	// `undefined`
-	return create_record({ runtime_version: op_gro_runtime_version(), default: undefined });
+	return (_scope: undefined) =>
+		ObjectAssign(ObjectCreate(null), { runtime_version, default: undefined });
 });
