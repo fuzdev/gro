@@ -46,7 +46,7 @@ errors and exit codes. Where it lives:
   the project's tasks under `src/` to read their summaries
 - Args forwarding - `to_forwarded_argv` (verbatim, never parsed and
   reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
-  own) in `args.ts`; CLI-forwarded args override args passed to
+  own) in `task_args.ts`; CLI-forwarded args override args passed to
   `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
   take the CLI args after the CLI's own path (`process.args`), and a root or
   `invoke_task`'s `raw_rest_args` option passes them
@@ -453,7 +453,7 @@ review.
 
 Core systems (src/lib/):
 
-- CLI and task invocation: `gro.ts`, `invoke.ts`, `args.ts`, `task.ts`,
+- CLI and task invocation: `gro.ts`, `invoke.ts`, `task_args.ts`, `task.ts`,
   `task_registry.ts`, `invoke_task.ts`, `run_task.ts`
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
@@ -496,7 +496,10 @@ Key utilities:
   branch or tag name passes `assert_git_ref_name` so it's never a refspec or pattern,
   and an origin goes after `--end-of-options`, while `git_pull` refuses one beginning with `-`
 - Long-lived children: `spawn_restartable.ts`, restarts over one `SpawnProgram`
-- Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `args.ts`
+- Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `task_args.ts`
+- Env files: `env_files.ts`, the `.env` loader (`load_env`, `load_from_env`, `load_env_file`)
+  that the rendered `$app/env/*` shims, `gro publish`, and `gro_plugin_server` read through;
+  `env_declarations.ts`, the declarations' shapes, which imports no fs
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
 - Build tools: `build_cache.ts`, `build_cache_dependencies.ts`
 

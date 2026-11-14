@@ -9,7 +9,7 @@ describe('to_plugin_context', () => {
 		const plugin_ctx = to_plugin_context(ctx, true, false);
 		expect(plugin_ctx.dev).toBe(true);
 		expect(plugin_ctx.watch).toBe(false);
-		expect(plugin_ctx.args).toBe(ctx.args);
+		expect(plugin_ctx.task_args).toBe(ctx.task_args);
 		expect(plugin_ctx.config).toBe(ctx.config);
 		expect(plugin_ctx.graph).toBe(ctx.graph);
 		expect(plugin_ctx.log).toBe(ctx.log);

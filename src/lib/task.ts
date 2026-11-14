@@ -27,7 +27,7 @@ export interface Task<
 }
 
 export interface TaskContext<TArgs = object> {
-	args: TArgs;
+	task_args: TArgs;
 	config: GroConfig;
 	/**
 	 * Resolved on first access, so tasks that don't touch it

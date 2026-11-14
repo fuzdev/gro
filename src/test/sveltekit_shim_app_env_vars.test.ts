@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
-import { resolve_env_vars } from '#lib/env.ts';
+import { resolve_env_vars } from '#lib/env_files.ts';
 import type { EnvVarDeclarations } from '#lib/env_declarations.ts';
 import { render_sveltekit_shim_app_env_vars } from '#lib/sveltekit_shim_app_env_vars.ts';
 
@@ -64,11 +64,11 @@ describe('resolve_env_vars', () => {
 	});
 });
 
-const ENV_MODULE_SPECIFIER = 'file:///gro/env.ts';
+const ENV_FILES_MODULE_SPECIFIER = 'file:///gro/env_files.ts';
 const FS_MODULE_SPECIFIER = 'file:///gro/fs.ts';
 const FS_PATHS_MODULE_SPECIFIER = 'file:///gro/fs_paths.ts';
 const specifiers = {
-	env_module_specifier: ENV_MODULE_SPECIFIER,
+	env_files_module_specifier: ENV_FILES_MODULE_SPECIFIER,
 	fs_module_specifier: FS_MODULE_SPECIFIER,
 	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER,
 	process_module_specifier: 'file:///gro/process.ts'
@@ -108,7 +108,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		expect(source).toContain(
 			'...{"dev":false,"env_dir":"/project"},\n\t\tambient_env: __gro_process.env.get_all()'
 		);
-		expect(source).toContain(`} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`);
+		expect(source).toContain(`} from ${JSON.stringify(ENV_FILES_MODULE_SPECIFIER)};`);
 	});
 
 	// the rendered module is the root of its env read, its fs reach visible in its imports

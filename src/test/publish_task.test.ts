@@ -37,7 +37,7 @@ vi.mock('#lib/changeset_helpers.ts', async (import_original) => ({
 	changeset_has_pending: vi.fn()
 }));
 
-vi.mock('#lib/env.ts', () => ({ load_from_env: vi.fn() }));
+vi.mock('#lib/env_files.ts', () => ({ load_from_env: vi.fn() }));
 
 vi.mock('#lib/changelog.ts', () => ({
 	update_changelog: vi.fn()
@@ -412,7 +412,7 @@ describe('publish_task version bump', () => {
 
 	describe('the changelog token', () => {
 		const run_with_changelog = async (env_token: string | undefined) => {
-			const { load_from_env } = vi.mocked(await import('#lib/env.ts'));
+			const { load_from_env } = vi.mocked(await import('#lib/env_files.ts'));
 			const { update_changelog } = vi.mocked(await import('#lib/changelog.ts'));
 			load_from_env.mockReset();
 			load_from_env.mockResolvedValue(env_token);

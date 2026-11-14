@@ -1,7 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { paths } from './paths.ts';
@@ -37,8 +37,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run tests with vitest',
 	Args,
-	run: async ({ args, log }): Promise<void> => {
-		const { _: patterns, dir, fail_without_tests, t } = args;
+	run: async ({ task_args, log }): Promise<void> => {
+		const { _: patterns, dir, fail_without_tests, t } = task_args;
 
 		if (!(await project_has_vitest(create_fs_paths(fs), log))) {
 			throw new TaskError('no test runner found, add vitest to devDependencies');

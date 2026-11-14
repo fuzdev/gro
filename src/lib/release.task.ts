@@ -45,8 +45,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'publish and deploy',
 	Args,
-	run: async ({ args, invoke_task }) => {
-		const { dry, check, build, pull, sync, install, gen, force_build } = args;
+	run: async ({ task_args, invoke_task }) => {
+		const { dry, check, build, pull, sync, install, gen, force_build } = task_args;
 
 		const fs_paths = create_fs_paths(fs);
 		const package_json = await package_json_load(fs_paths);

@@ -14,7 +14,7 @@ import {
 	to_implicit_forwarded_argv,
 	to_raw_rest_args,
 	to_task_args
-} from '#lib/args.ts';
+} from '#lib/task_args.ts';
 import { TaskError } from '#lib/task.ts';
 import {
 	to_removed_builtin_prefix_message,

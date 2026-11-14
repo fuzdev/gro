@@ -62,7 +62,7 @@ const dir = paths.root;
 // The loader runs from `src/lib` as `.ts` or from `dist` as `.js`.
 const sibling_ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
 const to_sibling_url = (name: string): string => new URL(name + sibling_ext, import.meta.url).href;
-const env_module_url = to_sibling_url('env');
+const env_files_module_url = to_sibling_url('env_files');
 // imported by the rendered `$app/env/*` shims when they run, never by the hooks
 const fs_module_url = to_sibling_url('fs');
 const process_module_url = to_sibling_url('process');
@@ -136,7 +136,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility,
 			entry,
-			env_module_specifier: env_module_url,
+			env_files_module_specifier: env_files_module_url,
 			fs_module_specifier: fs_module_url,
 			fs_paths_module_specifier: fs_paths_module_url,
 			process_module_specifier: process_module_url,

@@ -89,9 +89,9 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
 	 */
 	entry: SveltekitEnvEntry | null;
 	/**
-	 * How the rendered module imports Gro's `env` module, a file URL.
+	 * How the rendered module imports Gro's `env_files` module, a file URL.
 	 */
-	env_module_specifier: string;
+	env_files_module_specifier: string;
 	/**
 	 * How the rendered module imports Gro's fs host module, a file URL.
 	 */
@@ -110,7 +110,7 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
  * Generates a module shim for SvelteKit's `$app/env/public` and `$app/env/private`.
  * Values resolve when the module runs, validated against the declarations,
  * so unlike SvelteKit's build, static vars aren't inlined - the module reads them
- * from the env files and ambient env, importing the declarations module and Gro's `env` module.
+ * from the env files and ambient env, importing the declarations module and Gro's `env_files` module.
  * The rendered module is the composition root of that read: it imports the fs host module
  * and builds the `FsPaths` the env files are read through, and it imports the process host module
  * for the ambient env, so `$app/env/*` shows its fs and env reach in its imports,
@@ -119,7 +119,7 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
 export const render_sveltekit_shim_app_env_vars = ({
 	visibility,
 	entry,
-	env_module_specifier,
+	env_files_module_specifier,
 	fs_module_specifier,
 	fs_paths_module_specifier,
 	process_module_specifier,
@@ -141,7 +141,7 @@ import {variables as __gro_variables} from ${JSON.stringify(pathToFileURL(entry.
 import {
 	load_env as __gro_load_env,
 	resolve_env_vars as __gro_resolve_env_vars
-} from ${JSON.stringify(env_module_specifier)};
+} from ${JSON.stringify(env_files_module_specifier)};
 import {fs as __gro_fs} from ${JSON.stringify(fs_module_specifier)};
 import {create_fs_paths as __gro_create_fs_paths} from ${JSON.stringify(fs_paths_module_specifier)};
 import {process as __gro_process} from ${JSON.stringify(process_module_specifier)};

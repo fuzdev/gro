@@ -15,7 +15,7 @@ import {
 } from '#lib/internal/task_hints.ts';
 import { create_mock_module_graph } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
-import { to_raw_rest_args } from '#lib/args.ts';
+import { to_raw_rest_args } from '#lib/task_args.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))

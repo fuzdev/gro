@@ -1,6 +1,6 @@
 import type { Plugin } from './plugin.ts';
 import { package_json_load } from './package_json.ts';
-import { to_forwarded_argv, to_forwarded_flag_value, to_raw_rest_args } from './args.ts';
+import { to_forwarded_argv, to_forwarded_flag_value, to_raw_rest_args } from './task_args.ts';
 import { process } from './process.ts';
 import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';

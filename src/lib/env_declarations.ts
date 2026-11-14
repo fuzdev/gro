@@ -1,6 +1,6 @@
 /**
  * The shapes of a project's env var declarations and of loading the env,
- * apart from `env.ts`, which reads the env files, so the loader's hooks,
+ * apart from `env_files.ts`, which reads the env files, so the loader's hooks,
  * which need only these, never load the fs host module.
  *
  * @module

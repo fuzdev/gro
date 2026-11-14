@@ -47,8 +47,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run code generation scripts',
 	Args,
-	run: async ({ args, log, timings, config, invoke_task }): Promise<void> => {
-		const { _: raw_input_paths, root_dirs, check } = args;
+	run: async ({ task_args, log, timings, config, invoke_task }): Promise<void> => {
+		const { _: raw_input_paths, root_dirs, check } = task_args;
 
 		const fs_paths = create_fs_paths(fs);
 		const input_paths = to_input_paths(raw_input_paths, fs_paths.project.path);

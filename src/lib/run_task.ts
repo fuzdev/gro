@@ -102,7 +102,7 @@ export const run_task = async (
 	let output: unknown; // TODO generic
 	try {
 		output = await task.run({
-			args,
+			task_args: args,
 			config,
 			get svelte_config() {
 				return load_default_svelte_config();

@@ -83,7 +83,7 @@ export const task: Task<Args> = {
 	run: async (ctx): Promise<void> => {
 		const {
 			invoke_task,
-			args: {
+			task_args: {
 				_: [message],
 				minor,
 				major,

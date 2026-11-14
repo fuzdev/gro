@@ -346,7 +346,7 @@ and on `fgro` there's no global at all.
   What a read value becomes is the caller's concern, so hand a library a `narrow` or a plain record of only what it needs.
 - `process.args` are the arguments after the script, a frozen real array, what a script under `gro run` or plain `node` is given.
   In the CLI's own process they're the CLI's arguments, the task name included;
-  a task reads its parsed args from its context, since a nested `invoke_task` shares this process.
+  a task reads its parsed args from its context's `task_args`, since a nested `invoke_task` shares this process.
   With `node -e` the first argument is the first, and a script read from stdin as `-` keeps its arguments too.
 - `process.cwd()` is the working directory when the module loaded, checked as for `fs.project`.
 - `process.exit(code?)` exits, and without a `code` uses what `set_exit_code` set, else `0`.

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
 import { update_changelog } from '#lib/changelog.ts';
-import { load_from_env } from '#lib/env.ts';
+import { load_from_env } from '#lib/env_files.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
 

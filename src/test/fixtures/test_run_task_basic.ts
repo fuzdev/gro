@@ -26,7 +26,7 @@ async function runTest() {
 			id: 'foo/testTask',
 			mod: {
 				task: {
-					run: ({ args }) => Promise.resolve(args)
+					run: ({ task_args }) => Promise.resolve(task_args)
 				}
 			}
 		},

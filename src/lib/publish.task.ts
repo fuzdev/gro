@@ -19,7 +19,7 @@ import { package_json_load, package_json_parse_repo_url } from './package_json.t
 import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
 import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
-import { load_from_env } from './env.ts';
+import { load_from_env } from './env_files.ts';
 import { CHANGESET_CLI, changeset_has_pending } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -82,7 +82,7 @@ const to_release_commit_subject = (version: string): string => `publish v${versi
 export const task: Task<Args> = {
 	summary: 'bump version, publish to the configured registry, and git push',
 	Args,
-	run: async ({ args, log, invoke_task, config }): Promise<void> => {
+	run: async ({ task_args, log, invoke_task, config }): Promise<void> => {
 		const {
 			branch,
 			origin,
@@ -97,7 +97,7 @@ export const task: Task<Args> = {
 			force_build,
 			optional,
 			changeset_cli
-		} = args;
+		} = task_args;
 		if (dry) {
 			log.info(st('green', 'dry run!'));
 		}

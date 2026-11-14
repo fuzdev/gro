@@ -121,7 +121,7 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'deploy to a branch',
 	Args,
-	run: async ({ args, log, invoke_task }): Promise<void> => {
+	run: async ({ task_args, log, invoke_task }): Promise<void> => {
 		const {
 			source,
 			target,
@@ -138,7 +138,7 @@ export const task: Task<Args> = {
 			install,
 			force_build,
 			pull
-		} = args;
+		} = task_args;
 
 		const fs_paths = create_fs_paths(fs);
 		// a named unconfined phase, `-A`-equivalent: it signs and pushes with the user's git setup

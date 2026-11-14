@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fs, type FsDir } from '#lib/fs.ts';
 import { is_fs_error } from '#lib/fs_error.ts';
 import { create_fs_paths, type FsPaths } from '#lib/fs_paths.ts';
-import { load_env, load_from_env } from '#lib/env.ts';
+import { load_env, load_from_env } from '#lib/env_files.ts';
 
 const KEY = 'GRO_TEST_LOAD_FROM_ENV_KEY';
 

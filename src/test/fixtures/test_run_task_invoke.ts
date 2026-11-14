@@ -28,10 +28,10 @@ async function runTest() {
 			id: 'foo/testTask',
 			mod: {
 				task: {
-					run: async ({ args, invoke_task }) => {
+					run: async ({ task_args, invoke_task }) => {
 						const task_name: string = 'bar/testTask'; // widened, not a registered task
-						await invoke_task(task_name, args);
-						return args;
+						await invoke_task(task_name, task_args);
+						return task_args;
 					}
 				}
 			}

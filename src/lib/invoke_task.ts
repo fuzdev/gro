@@ -10,7 +10,7 @@ import {
 	RUN_TASK_NAME,
 	to_forwarded_args,
 	type CliTaskArgs
-} from './args.ts';
+} from './task_args.ts';
 import { run_task } from './run_task.ts';
 import {
 	is_builtin_task_name,

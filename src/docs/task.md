@@ -101,8 +101,8 @@ since `--a` would take the path as its value.
 import type {Task} from '@fuzdev/gro';
 
 export const task: Task = {
-	run: async ({log, args}) => {
-		log.info('CLI args', args); // => {_: ['arg1', 'arg2'], arg3: 'example'}
+	run: async ({log, task_args}) => {
+		log.info('CLI args', task_args); // => {_: ['arg1', 'arg2'], arg3: 'example'}
 		await whatever();
 	},
 };
@@ -132,8 +132,8 @@ export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,
-	run: async ({args}) => {
-		args.arg; // `number` that defaults to `2`
+	run: async ({task_args}) => {
+		task_args.arg; // `number` that defaults to `2`
 	},
 };
 ```
@@ -160,7 +160,7 @@ export interface Task<
 import type {TaskContext} from '@fuzdev/gro';
 
 export interface TaskContext<TArgs = object> {
-	args: TArgs;
+	task_args: TArgs;
 	config: GroConfig;
 	svelte_config: Promise<ParsedSvelteConfig>;
 	graph: ModuleGraph;
@@ -196,7 +196,7 @@ runs the builtin `test` whatever tasks the project defines.
 import type {Task} from '@fuzdev/gro';
 
 export const task: Task = {
-	run: async ({args, invoke_task}) => {
+	run: async ({task_args, invoke_task}) => {
 		// runs the builtin `gen`
 		await invoke_task('gen', {check: true});
 
@@ -204,7 +204,7 @@ export const task: Task = {
 		// passing custom args and optionally a different config
 		await invoke_task(
 			'src/lib/other/file.task.ts',
-			{...args, optionally: 'extended'},
+			{...task_args, optionally: 'extended'},
 			{config: optional_config},
 		);
 
@@ -274,9 +274,9 @@ import {Args} from '@fuzdev/gro/test.task.ts';
 // and the args passed through below type-check against the builtin
 export const task: Task<Args> = {
 	Args,
-	run: async ({args, invoke_task}) => {
+	run: async ({task_args, invoke_task}) => {
 		await do_something_first();
-		await invoke_task('test', args); // always the builtin
+		await invoke_task('test', task_args); // always the builtin
 		await email_everyone_with_test_results();
 	},
 };
@@ -298,7 +298,7 @@ rewrite it from scratch, compose several, or whatever each project needs.
 
 ### task `Args`
 
-The **`Args` property** of each `Task` (not the task context **`args` param** described above!)
+The **`Args` property** of each `Task` (not the task context **`task_args` param** described above!)
 is an optional [fuz_schema](https://schema.fuz.dev/) object schema,
 one entry per arg, with `s.object` refusing unknown args.
 Using a schema has some benefits:
@@ -324,11 +324,11 @@ export type Args = s.Infer<typeof Args>;
 
 export const task: Task<Args> = {
 	Args,
-	run: async ({args}) => {
-		args._; // Array<string>
-		args.yepyep; // string
-		args.okcool; // number
-		args.maybee; // boolean | undefined
+	run: async ({task_args}) => {
+		task_args._; // Array<string>
+		task_args.yepyep; // string
+		task_args.okcool; // number
+		task_args.maybee; // boolean | undefined
 	},
 };
 ```

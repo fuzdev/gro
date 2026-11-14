@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, afterEach, assert } from 'vitest';
 
 import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
-import { to_raw_rest_args, to_task_args } from '#lib/args.ts';
+import { to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { SilentError, TaskError } from '#lib/task.ts';
 import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';

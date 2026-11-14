@@ -65,8 +65,8 @@ export const task: Task<Args> = {
 	summary: 'build the project',
 	Args,
 	run: async (ctx): Promise<void> => {
-		const { args, invoke_task, log, config } = ctx;
-		const { sync, gen, install, force_build, allow_dirty } = args;
+		const { task_args, invoke_task, log, config } = ctx;
+		const { sync, gen, install, force_build, allow_dirty } = task_args;
 		const fs_paths = create_fs_paths(fs);
 		// only reads the local repo, so the named set is all it needs
 		const git = to_git_program(spawn, { pass_env: GIT_LOCAL_PASS_ENV });

@@ -2,7 +2,7 @@ import { basename, dirname, resolve } from 'node:path';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { process } from './process.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
@@ -72,7 +72,7 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'upgrade deps',
 	Args,
-	run: async ({ args, log, config }): Promise<void> => {
+	run: async ({ task_args, log, config }): Promise<void> => {
 		const {
 			_,
 			only,
@@ -84,7 +84,7 @@ export const task: Task<Args> = {
 			delete_lockfile,
 			lockfile_path,
 			dry
-		} = args;
+		} = task_args;
 
 		if (_.length && only.length) {
 			throw new TaskError('Cannot call `gro upgrade` with both rest args and --only.');

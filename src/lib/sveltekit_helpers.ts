@@ -3,7 +3,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 
-import { has_forwarded_flag } from './args.ts';
+import { has_forwarded_flag } from './task_args.ts';
 import {
 	find_cli,
 	find_local_cli,

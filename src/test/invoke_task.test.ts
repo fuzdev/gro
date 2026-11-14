@@ -11,7 +11,7 @@ import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import { SilentError, to_builtin_task_id } from '#lib/task.ts';
 import { paths } from '#lib/paths.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
-import { to_task_args, type CliTaskArgs } from '#lib/args.ts';
+import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({

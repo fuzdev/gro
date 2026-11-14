@@ -21,8 +21,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'format source files',
 	Args,
-	run: async ({ args, log, config }) => {
-		const { _: patterns, check } = args;
+	run: async ({ task_args, log, config }) => {
+		const { _: patterns, check } = task_args;
 
 		const result = await format_directory(create_fs_paths(fs), {
 			log,

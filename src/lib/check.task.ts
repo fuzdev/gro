@@ -4,7 +4,7 @@ import { plural } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
 
 import { TaskError, to_task_command, type Task } from './task.ts';
-import { to_forwarded_args_by_command, to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { to_forwarded_args_by_command, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { VITEST_CLI } from './constants.ts';
 import { is_fs_error } from './fs_error.ts';
 import { package_json_sync } from './package_json.ts';
@@ -61,7 +61,7 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'check that everything is ready to commit',
 	Args,
-	run: async ({ args, invoke_task, log, config }) => {
+	run: async ({ task_args, invoke_task, log, config }) => {
 		const {
 			typecheck,
 			test,
@@ -74,7 +74,7 @@ export const task: Task<Args> = {
 			sync,
 			install,
 			workspace
-		} = args;
+		} = task_args;
 		const fs_paths = create_fs_paths(fs);
 
 		// When checking the workspace, which was added for CI, never sync.

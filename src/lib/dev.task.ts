@@ -24,8 +24,8 @@ export const task: Task<Args> = {
 	summary: 'start SvelteKit and other dev plugins',
 	Args,
 	run: async (ctx) => {
-		const { args, invoke_task, log } = ctx;
-		const { watch, sync, install } = args;
+		const { task_args, invoke_task, log } = ctx;
+		const { watch, sync, install } = task_args;
 
 		if (sync || install) {
 			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');

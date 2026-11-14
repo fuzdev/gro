@@ -16,7 +16,7 @@
  *
  * `args` are the arguments after the script, a frozen array, what a script given to `gro run` receives
  * and what a bare `node script.ts` receives. In the CLI's own process they're
- * the CLI's args, the task name included, since a task's parsed args are on its context.
+ * the CLI's args, the task name included, since a task's parsed args are its context's `task_args`.
  *
  * Handles and their prototypes are frozen, null-prototype so none of them is thenable even with a
  * polluted `Object.prototype.then`, and constructing one takes a key only this module holds.

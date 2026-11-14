@@ -42,8 +42,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'execute a file with the loader, like `node` but works for TypeScript',
 	Args,
-	run: async ({ args, log }) => {
-		const { _, ...named_args } = args;
+	run: async ({ task_args, log }) => {
+		const { _, ...named_args } = task_args;
 		const [path, ...positional_argv] = _;
 
 		if (!path) {

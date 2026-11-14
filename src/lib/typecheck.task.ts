@@ -1,7 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { process } from './process.ts';
 import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
 import {
@@ -41,8 +41,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run svelte-check or tsc on the project without emitting any files',
 	Args,
-	run: async ({ args, log, config }): Promise<void> => {
-		const { svelte_check_cli, typescript_cli, path_replacement, cwd } = args;
+	run: async ({ task_args, log, config }): Promise<void> => {
+		const { svelte_check_cli, typescript_cli, path_replacement, cwd } = task_args;
 
 		if (await project_has_sveltekit_app(create_fs_paths(fs), log)) {
 			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });

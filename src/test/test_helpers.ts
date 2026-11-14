@@ -107,7 +107,7 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	config_overrides: Partial<GroConfig> = {},
 	defaults?: TArgs
 ): TaskContext<TArgs> => ({
-	args: (defaults ? { ...defaults, ...args } : args) as TArgs,
+	task_args: (defaults ? { ...defaults, ...args } : args) as TArgs,
 	config: {
 		plugins: () => [],
 		map_package_json: null,

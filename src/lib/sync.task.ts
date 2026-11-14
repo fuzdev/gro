@@ -32,8 +32,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`',
 	Args,
-	run: async ({ args, invoke_task, config, log }): Promise<void> => {
-		const { sveltekit, package_json, gen, install } = args;
+	run: async ({ task_args, invoke_task, config, log }): Promise<void> => {
+		const { sveltekit, package_json, gen, install } = task_args;
 		const fs_paths = create_fs_paths(fs);
 
 		if (install) {

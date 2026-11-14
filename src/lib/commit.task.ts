@@ -22,11 +22,11 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'commit and push to a new branch',
 	Args,
-	run: async ({ args }): Promise<void> => {
+	run: async ({ task_args }): Promise<void> => {
 		const {
 			_: [message],
 			origin
-		} = args;
+		} = task_args;
 
 		// signs and pushes with whatever the user's git is set up with, so the whole environment
 		const git = to_git_program(spawn, { pass_env: 'all' });

@@ -43,8 +43,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'remove build files, and optionally prune git branches',
 	Args,
-	run: async ({ args, log }): Promise<void> => {
-		const { build_dist, sveltekit, nodemodules, git, git_origin } = args;
+	run: async ({ task_args, log }): Promise<void> => {
+		const { build_dist, sveltekit, nodemodules, git, git_origin } = task_args;
 
 		await clean_fs(
 			{ fs_paths: create_fs_paths(fs), log },

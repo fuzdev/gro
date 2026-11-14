@@ -1,7 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './args.ts';
+import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { spawn } from './spawn.ts';
 import { process } from './process.ts';
@@ -20,8 +20,8 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'run eslint',
 	Args,
-	run: async ({ log, args }): Promise<void> => {
-		const { _, eslint_cli } = args;
+	run: async ({ log, task_args }): Promise<void> => {
+		const { _, eslint_cli } = task_args;
 
 		const found_eslint_cli = find_cli(spawn, eslint_cli, { pass_env: 'all' });
 		if (!found_eslint_cli) {
