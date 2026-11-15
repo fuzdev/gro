@@ -248,7 +248,7 @@
 	{
 		"name": "env_root_granted",
 		"module": "env",
-		"refused": ["env refused: not_granted: GRO_B"],
+		"refused": ["error: env refused: not_granted: GRO_B", "error: a refusal fails the run, whether or not the program caught it", "hint: add --allow-env=GRO_B to grant what env refused"],
 		"args": ["root"],
 		"flags": ["--allow-env=GRO_A,GRO_EMPTY,GRO_UNSET"],
 		"env": {"GRO_A": "1", "GRO_B": "two words", "GRO_EMPTY": ""},
@@ -297,7 +297,7 @@
 	{
 		"name": "env_not_granted",
 		"module": "env",
-		"refused": ["env refused: not_granted: GRO_B", "env refused: not_granted: GRO_UNSET", "env refused: not_granted: GRO_EMPTY"],
+		"refused": ["error: env refused: not_granted: GRO_B", "error: env refused: not_granted: GRO_UNSET", "error: env refused: not_granted: GRO_EMPTY", "error: a refusal fails the run, whether or not the program caught it"],
 		"args": ["not_granted"],
 		"flags": ["-A"],
 		"env": {"GRO_A": "1", "GRO_B": "two words", "GRO_EMPTY": ""},

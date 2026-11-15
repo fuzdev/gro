@@ -215,7 +215,7 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
         let stdout = String::from_utf8(output.stdout).unwrap();
         let mut refusals = String::new();
         for line in &case.refused {
-            writeln!(refusals, "error: {line}").unwrap();
+            writeln!(refusals, "{line}").unwrap();
         }
         assert_eq!(stderr, refusals, "{}: {stdout}", case.name);
         let node = &expected[&case.name];

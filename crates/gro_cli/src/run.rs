@@ -10,13 +10,14 @@ use std::ffi::OsString;
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
+use gro_runtime::resolver::Capability;
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, Refusals, RefusedBy,
-    RunOutcome, RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, NeededGrant, Refusals,
+    RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
-use crate::cli::{RunGrant, RunInvocation};
+use crate::cli::{ALLOW_ENV, RunGrant, RunInvocation};
 use crate::color;
 use crate::error::CliError;
 use crate::print::{escape_controls, stderr_line};
@@ -119,10 +120,18 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
 }
 
+/// What follows a run's refusals on stderr, however many and however the
+/// run ended: a refusal fails the run, and a program can't catch its way
+/// out of one.
+const REFUSALS_FAIL: &str = "error: a refusal fails the run, whether or not the program caught it";
+
 /// Prints to stderr each refusal `refused` lists, one line each, naming
 /// what refused it, an `import()` or a host module, and its message, its
 /// control characters escaped, since the program chose the specifier or
-/// the name, then one line counting the refusals it doesn't list.
+/// the name, then one line counting the refusals it doesn't list, then,
+/// when there were any, [`REFUSALS_FAIL`]; then the hint of the flags that
+/// grant what the refused calls needed ([`grant_hint`]), if any does,
+/// which the refusal that is the run's uncaught error, not listed, has too.
 fn report_refused(refused: &Refusals) {
     for refusal in &refused.listed {
         let message = escape_controls(&refusal.message);
@@ -138,6 +147,49 @@ fn report_refused(refused: &Refusals) {
         1 => stderr_line("error: 1 more refusal, not listed"),
         more => stderr_line(format_args!("error: {more} more refusals, not listed")),
     }
+    if !refused.is_empty() {
+        stderr_line(REFUSALS_FAIL);
+    }
+    if let Some(hint) = grant_hint(refused) {
+        stderr_line(hint);
+    }
+}
+
+/// The line naming the flag that grants the refused calls' needed grants
+/// (`refused.needed`), made of that data, never of a listed message:
+/// `hint: add --allow-env=A,B to grant what env refused`, or `... to grant
+/// some of what env refused` when a call needed a grant the line doesn't
+/// name: one past the record's bounds (`more_needed`), or a name that isn't
+/// a [`hint_name`]. `None` when it names none, a refusal by rule or by a
+/// handle the program narrowed needing none, and an unconfined run's root
+/// refusing nothing. `env` is the one module with values a flag grants;
+/// only its calls record a need.
+fn grant_hint(refused: &Refusals) -> Option<String> {
+    let mut names: Vec<&str> = Vec::new();
+    let mut some = refused.more_needed;
+    for NeededGrant { grant, value } in &refused.needed {
+        match grant {
+            Capability::Env if hint_name(value) => names.push(value),
+            Capability::Env | Capability::Args | Capability::Exit => some = true,
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    let what = if some { "some of what" } else { "what" };
+    Some(format!(
+        "hint: add {ALLOW_ENV}={} to grant {what} env refused",
+        names.join(",")
+    ))
+}
+
+/// Whether the hint names `name`: ASCII letters, digits, and `_` only, a
+/// word every shell passes as it's printed, so pasting the hint grants the
+/// names it shows and runs nothing. A program chooses the names it asks
+/// for, and a valid name can hold a space, a comma, a quote, `$(…)`, a
+/// control character, or a lookalike letter.
+fn hint_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Where `fgro run` reads the environment variables it hands the runtime:

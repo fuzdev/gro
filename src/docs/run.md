@@ -190,8 +190,20 @@ After the run's own error, if it has one, stderr lists the first 8 distinct refu
 `error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` for a call, never a value,
 control and bidirectional formatting characters escaped (`\u{1b}`)
 and a message past 2 KiB cut there and marked with its length,
-then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`.
+then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`,
+then closes with `error: a refusal fails the run, whether or not the program caught it`.
 One that is the run's uncaught error (a `TypeError` or an `EnvError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
+Last comes one hint, `hint: add --allow-env=A,B to grant what env refused`, naming each variable the run's own grant lacked,
+distinct, in the order each was first refused, the first 8, its uncaught one's and the counted ones' included:
+a name the root `env` refused, which holds what `--allow-env=` gave the project, so the flag lets the call through, whichever module made it.
+It names only ASCII letters, digits, and `_`, which every shell passes as printed, since the program chose the names and pasting the hint mustn't run anything,
+and reads `some of what env refused` when it can't name them all: past 8 names, a name longer than 2 KiB, or a name of any other character
+(a comma, which separates the flag's names, a glob, a space, a quote, a shell's `$`, a control character, a lookalike letter).
+With no name it can show, there's no hint line, so a run whose first 8 refused names all fall outside these characters prints none.
+There's no hint for a name a narrowed handle refused, which no flag widens, for any refusal under `-A`, whose root reads every variable,
+or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,
+and the project's `import()` of `env` without `--allow-env=` names no variable the flag could list.
+The hint is made from what the run recorded of each refusal, the grant that would have allowed it, never from the listed text.
 A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
 or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)
 doesn't fail the run and isn't listed, so probing for an optional dependency or a feature still exits 0, and neither does `import.meta.resolve`, which imports nothing.

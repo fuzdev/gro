@@ -600,7 +600,9 @@ Invariants that live in the code:
   any op (`loader::RefusalLog`): the `import()`s the loader refuses by
   rule, and each call a host op refuses for a grant its handle lacks,
   recorded by the op as it throws (`env`'s `not_granted`), one record
-  listed, cut, and counted alike, so either fails the run caught or not. No
+  listed, cut, and counted alike, so either fails the run caught or not;
+  an op refusal by `env`'s root also records the grant that would have
+  allowed it (`NeededGrant`), from which `fgro` prints its hint. No
   in-process test grants a step that returns: a program that exits is run
   in a child process.
 - A change to the seccomp allowlist reruns the census

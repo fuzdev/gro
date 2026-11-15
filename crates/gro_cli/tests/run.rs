@@ -44,6 +44,11 @@ struct Run {
     stderr: String,
 }
 
+/// The line `fgro run` prints after the refusals it lists, or counts, on
+/// every path a run ends by.
+const REFUSALS_FAIL: &str =
+    "error: a refusal fails the run, whether or not the program caught it\n";
+
 fn run(file: &str) -> Run {
     let output = fgro(&["run", file]);
     let run = Run {
@@ -254,7 +259,10 @@ fn dynamic_import_of_a_module_with_imports_and_from_string_code() {
         run.stdout,
         format!("static sibling\ntrue {refusal}\ntrue {refusal}\n")
     );
-    assert_eq!(run.stderr, format!("error: import() refused: {refusal}\n"));
+    assert_eq!(
+        run.stderr,
+        format!("error: import() refused: {refusal}\n{REFUSALS_FAIL}")
+    );
 }
 
 /// The line `fgro run` prints for the refused `import()` of `ext:core/ops`
@@ -288,7 +296,7 @@ fn a_caught_refusal_by_rule_fails_the_run_and_is_listed_once() {
              string (eval, a Function constructor, or a string passed to a timer): V8 can share \
              such code between modules that compile the same string, so it has no importer of \
              its own. Fix: call import() in a module and pass what it returns to the compiled \
-             code\n"
+             code\n{REFUSALS_FAIL}"
         )
     );
 }
@@ -347,7 +355,7 @@ fn a_caught_refusal_fails_the_run_however_it_ends() {
                 run.stderr
             );
             assert_eq!(
-                run.stderr.matches(" refused").count(),
+                run.stderr.matches(" refused: ").count(),
                 1,
                 "{name}: {}",
                 run.stderr
@@ -384,12 +392,18 @@ impl Refused {
         }
     }
 
-    /// The line the refusal is listed as, `main` the program's URL.
+    /// The lines a run that made the refusal ends its stderr with, `main`
+    /// the program's URL: the refusal listed, the line saying it fails the
+    /// run, and for the name, which the run's grant lacks, the flag that
+    /// grants it.
     fn line(self, main: &str) -> String {
         match self {
             Self::None => String::new(),
-            Self::Import => ext_refused(main),
-            Self::Env => "error: env refused: not_granted: GRO_NOT_GRANTED\n".to_owned(),
+            Self::Import => format!("{}{REFUSALS_FAIL}", ext_refused(main)),
+            Self::Env => format!(
+                "error: env refused: not_granted: GRO_NOT_GRANTED\n{REFUSALS_FAIL}\
+                 hint: add --allow-env=GRO_NOT_GRANTED to grant what env refused\n"
+            ),
         }
     }
 }
@@ -582,7 +596,7 @@ fn the_exit_code_is_the_program_s_or_the_failure_s_and_a_refusal_fails_a_0() {
                 // the last line, after the run's error and its frames
                 let line = refused.line(&main);
                 assert!(run.stderr.ends_with(&line), "{name}: {}", run.stderr);
-                assert_eq!(run.stderr.matches(" refused").count(), 1, "{name}");
+                assert_eq!(run.stderr.matches(" refused: ").count(), 1, "{name}");
             }
         }
     }
@@ -600,7 +614,7 @@ fn a_refusal_nothing_awaited_is_listed_when_the_program_exits() {
     let run = run_in(&fixtures, "main.js");
     let main = format!("file://{}/main.js", fixtures.0.display());
     assert_eq!(run.code, 1, "{}", run.stderr);
-    assert_eq!(run.stderr, ext_refused(&main));
+    assert_eq!(run.stderr, format!("{}{REFUSALS_FAIL}", ext_refused(&main)));
 }
 
 /// A refusal of the specifier an `import()` names is made as the call is
@@ -615,7 +629,7 @@ fn a_refusal_in_the_job_that_exits_is_listed() {
     let run = run_in(&fixtures, "main.js");
     let main = format!("file://{}/main.js", fixtures.0.display());
     assert_eq!(run.code, 1, "{}", run.stderr);
-    assert_eq!(run.stderr, ext_refused(&main));
+    assert_eq!(run.stderr, format!("{}{REFUSALS_FAIL}", ext_refused(&main)));
 }
 
 /// An `import()` whose graph is still loading when `exit` is called is
@@ -640,7 +654,7 @@ fn an_import_still_loading_at_exit_is_abandoned_unrefused() {
         let listed = if code == 0 {
             String::new()
         } else {
-            ext_refused(&loads)
+            format!("{}{REFUSALS_FAIL}", ext_refused(&loads))
         };
         assert_eq!(run.stderr, listed, "{call}");
     }
@@ -684,7 +698,10 @@ fn a_package_is_refused_exit_and_ends_the_run_only_when_handed_it() {
     let run = run_in(&fixtures, "refused.js");
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(run.stdout, format!("{refusal}\n"));
-    assert_eq!(run.stderr, format!("error: import() refused: {refusal}\n"));
+    assert_eq!(
+        run.stderr,
+        format!("error: import() refused: {refusal}\n{REFUSALS_FAIL}")
+    );
     let run = run_in(&fixtures, "handed.js");
     assert_eq!(run.code, 6, "{}", run.stderr);
     assert_eq!(run.stdout, "before\n");
@@ -755,7 +772,10 @@ fn a_refusal_nothing_awaits_fails_the_run() {
         assert_eq!(run.stdout, stdout, "{name}");
         assert_eq!(
             run.stderr,
-            ext_refused(&format!("file://{}/main.js", fixtures.0.display())),
+            format!(
+                "{}{REFUSALS_FAIL}",
+                ext_refused(&format!("file://{}/main.js", fixtures.0.display()))
+            ),
             "{name}"
         );
     }
@@ -773,7 +793,10 @@ fn a_refusal_nothing_awaits_fails_the_run() {
     assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(
         run.stderr,
-        ext_refused(&format!("file://{}/dep.js", fixtures.0.display()))
+        format!(
+            "{}{REFUSALS_FAIL}",
+            ext_refused(&format!("file://{}/dep.js", fixtures.0.display()))
+        )
     );
 }
 
@@ -943,7 +966,13 @@ fn each_rule_s_refusal_of_a_caught_import_fails_the_run() {
             "{entry}: {}",
             run.stderr
         );
-        assert_eq!(run.stderr.lines().count(), 1, "{entry}: {}", run.stderr);
+        // the refusal, then the line saying it fails the run
+        assert_eq!(run.stderr.lines().count(), 2, "{entry}: {}", run.stderr);
+        assert!(
+            run.stderr.ends_with(REFUSALS_FAIL),
+            "{entry}: {}",
+            run.stderr
+        );
         assert!(run.stderr.contains(reason), "{entry}: {}", run.stderr);
     };
     // nothing there to load, in the same tree
@@ -1033,7 +1062,7 @@ fn a_listed_refusal_escapes_control_characters() {
              compiled from a string (eval, a Function constructor, or a string passed to a \
              timer): V8 can share such code between modules that compile the same string, so it \
              has no importer of its own. Fix: call import() in a module and pass what it returns \
-             to the compiled code\n"
+             to the compiled code\n{REFUSALS_FAIL}"
         )
     );
 }
@@ -1055,7 +1084,10 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
                  on disk (file: URLs) load\n"
             )
         })
-        .chain(["error: 4 more refusals, not listed\n".to_owned()])
+        .chain([
+            "error: 4 more refusals, not listed\n".to_owned(),
+            REFUSALS_FAIL.to_owned(),
+        ])
         .collect();
     assert_eq!(run.stderr, expected);
     // one past the listed
@@ -1069,13 +1101,20 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
     let lines: Vec<&str> = run.stderr.lines().collect();
     assert_eq!(
         lines.len(),
-        gro_runtime::MAX_LISTED_REFUSALS + 1,
+        gro_runtime::MAX_LISTED_REFUSALS + 2,
         "{}",
         run.stderr
     );
-    assert_eq!(lines.last(), Some(&"error: 1 more refusal, not listed"));
+    assert_eq!(
+        lines[lines.len() - 2..],
+        [
+            "error: 1 more refusal, not listed",
+            REFUSALS_FAIL.trim_end()
+        ]
+    );
     // an env name's refusals and an import's share the list and the count,
-    // each listing naming what refused it
+    // each listing naming what refused it, and the hint names every name the
+    // run's grant lacked, the counted ones' too
     let source = format!(
         "import {{ env }} from '@fuzdev/gro/env.ts';\n\
          for (let i = 0; i < {}; i++) {{\n\
@@ -1095,10 +1134,20 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
                  'ext:' is not supported; only files on disk (file: URLs) load\n"
             )
         })
-        .chain([format!(
-            "error: {} more refusals, not listed\n",
-            gro_runtime::MAX_LISTED_REFUSALS
-        )])
+        .chain([
+            format!(
+                "error: {} more refusals, not listed\n",
+                gro_runtime::MAX_LISTED_REFUSALS
+            ),
+            REFUSALS_FAIL.to_owned(),
+            format!(
+                "hint: add --allow-env={} to grant what env refused\n",
+                (0..gro_runtime::MAX_LISTED_REFUSALS)
+                    .map(|i| format!("N{i}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        ])
         .collect();
     assert_eq!(run.stderr, expected);
 }
@@ -1122,7 +1171,7 @@ fn a_long_refusal_is_listed_cut() {
     assert_eq!(
         run.stderr,
         format!(
-            "error: import() refused: {}… ({} bytes)\n",
+            "error: import() refused: {}… ({} bytes)\n{REFUSALS_FAIL}",
             &whole[..gro_runtime::MAX_LISTED_MESSAGE],
             whole.len()
         )
@@ -1143,7 +1192,8 @@ fn an_uncaught_refusal_is_the_error_and_a_caught_one_is_listed() {
             "error: Uncaught (in promise) TypeError: cannot resolve '@fuzdev/gro/args.js' from \
              {url}/import_refused_uncaught.js: it is the .js spelling of the builtin module \
              '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
-             '@fuzdev/gro/args.ts'\n    at async {url}/import_refused_uncaught.js:5:1\n{}",
+             '@fuzdev/gro/args.ts'\n    at async {url}/import_refused_uncaught.js:5:1\n{}\
+             {REFUSALS_FAIL}",
             ext_refused(&format!("{url}/import_refused_uncaught.js"))
         )
     );
@@ -1421,6 +1471,7 @@ fn an_ext_specifier_is_refused_to_import_and_import_meta_resolve() {
                 fixtures.0.display()
             )
         })
+        .chain([REFUSALS_FAIL.trim_end().to_owned()])
         .collect();
     assert_eq!(run.stderr.lines().collect::<Vec<_>>(), listed);
     let expected: String = EXT_SPECIFIERS
@@ -2526,7 +2577,10 @@ fn imports_stay_inside_their_root() {
          \"exports\". Fix: import it by name\n"
     );
     assert_eq!(run.stdout, format!("TypeError: {refusal}"));
-    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
+    assert_eq!(
+        run.stderr,
+        format!("error: import() refused: {refusal}{REFUSALS_FAIL}")
+    );
 }
 
 /// An entry inside `node_modules` runs as the package it is in, so its
@@ -2895,14 +2949,23 @@ fn allow_env_grants_the_named_variables_and_no_others() {
         "GRO_A \"1\"\nGRO_B EnvError not_granted: GRO_B\nGRO_UNSET null\n\
          narrowed EnvError not_granted: GRO_UNSET\n{\"GRO_A\":\"1\"}\n"
     );
-    // the refusals fail the run, though caught, listed by name, no value
+    // the refusals fail the run, though caught, listed by name, no value;
+    // the hint names the one the run's grant lacked, never the one the
+    // program's own narrowing refused, which no flag grants
     assert_eq!(
         run.stderr,
-        "error: env refused: not_granted: GRO_B\nerror: env refused: not_granted: GRO_UNSET\n"
+        format!(
+            "error: env refused: not_granted: GRO_B\nerror: env refused: not_granted: GRO_UNSET\n\
+             {REFUSALS_FAIL}hint: add --allow-env=GRO_B to grant what env refused\n"
+        )
     );
+    // unconfined, the root refuses nothing, so no refusal has a hint
     let run = run_with(&fixtures, &["-A"], "main.js", &vars);
     assert_eq!(run.code, 1, "{}", run.stderr);
-    assert_eq!(run.stderr, "error: env refused: not_granted: GRO_UNSET\n");
+    assert_eq!(
+        run.stderr,
+        format!("error: env refused: not_granted: GRO_UNSET\n{REFUSALS_FAIL}")
+    );
     assert_eq!(
         run.stdout,
         "GRO_A \"1\"\nGRO_B \"secret value\"\nGRO_UNSET null\n\
@@ -2923,17 +2986,32 @@ fn allow_env_grants_the_named_variables_and_no_others() {
     );
 }
 
+/// A program that asks `env` for each of `names`, catching each refusal.
+fn refusing(names: &[&str]) -> String {
+    format!(
+        "import {{env}} from '@fuzdev/gro/env.ts';\n\
+         for (const name of {}) {{\n\ttry {{\n\t\tenv.get(name);\n\t}} catch {{}}\n}}\n",
+        serde_json::to_string(names).unwrap()
+    )
+}
+
 /// A refused environment variable fails the run as a refused `import()`
 /// does, on its paths: listed when it's caught in the job that calls
 /// `exit(0)`, which exits 1; printed once, as the run's error, when it's
 /// uncaught or a rejection nothing handles; its name escaped and cut as an
 /// import's message is; and quiet, exiting 0, for an unset granted name, a
-/// narrowing to a subset, and a name that is no name.
+/// narrowing to a subset, and a name that is no name. Each ends with the
+/// hint of the flag that grants the name, the uncaught one's too, but for
+/// a name too long to keep, or one that isn't ASCII letters, digits, and
+/// `_` (a comma, a glob, a control character, a space, a shell's
+/// metacharacter, a lookalike letter), whose hint says it names only some
+/// of what was refused, or is left out when it names nothing.
 #[test]
 fn a_refused_env_name_fails_the_run_on_the_import_rule_s_paths() {
     let import = "import {env} from '@fuzdev/gro/env.ts';\n";
     let long = "L".repeat(gro_runtime::MAX_LISTED_MESSAGE + 10);
-    let cases: Vec<(&str, String, i32, String)> = vec![
+    let hint_b = "hint: add --allow-env=B to grant what env refused\n";
+    let cases: Vec<(&str, String, i32, String, String)> = vec![
         (
             "same_job_exit",
             format!(
@@ -2942,24 +3020,49 @@ fn a_refused_env_name_fails_the_run_on_the_import_rule_s_paths() {
             ),
             1,
             "error: env refused: not_granted: B\n".to_owned(),
+            format!("{REFUSALS_FAIL}{hint_b}"),
         ),
         (
             "uncaught",
             format!("{import}env.get('B');\n"),
             1,
             "error: Uncaught (in promise) EnvError: not_granted: B\n".to_owned(),
+            hint_b.to_owned(),
         ),
         (
             "unhandled",
             format!("{import}Promise.resolve().then(() => env.get('B'));\n"),
             1,
             "error: Uncaught (in promise) EnvError: not_granted: B\n".to_owned(),
+            hint_b.to_owned(),
         ),
         (
             "escaped",
             format!("{import}try {{\n\tenv.get('B\\u001b[31m\\u202e');\n}} catch {{}}\n"),
             1,
             "error: env refused: not_granted: B\\u{1b}[31m\\u{202e}\n".to_owned(),
+            REFUSALS_FAIL.to_owned(),
+        ),
+        (
+            "unpastable",
+            refusing(&["$(touch x)", "`id`", "X;Y", "A B", "q'u", "F_1"]),
+            1,
+            "error: env refused: not_granted: $(touch x)\nerror: env refused: not_granted: `id`\n\
+             error: env refused: not_granted: X;Y\nerror: env refused: not_granted: A B\n\
+             error: env refused: not_granted: q'u\nerror: env refused: not_granted: F_1\n"
+                .to_owned(),
+            format!("{REFUSALS_FAIL}hint: add --allow-env=F_1 to grant some of what env refused\n"),
+        ),
+        (
+            // no name the hint can show, so no hint line at all
+            "unpastable_only",
+            refusing(&["q\"u", "N\nL", "\u{415}", "~", "\u{1b}[2J"]),
+            1,
+            "error: env refused: not_granted: q\"u\nerror: env refused: not_granted: N\\u{a}L\n\
+             error: env refused: not_granted: \u{415}\nerror: env refused: not_granted: ~\n\
+             error: env refused: not_granted: \\u{1b}[2J\n"
+                .to_owned(),
+            REFUSALS_FAIL.to_owned(),
         ),
         (
             "long",
@@ -2970,6 +3073,39 @@ fn a_refused_env_name_fails_the_run_on_the_import_rule_s_paths() {
                 &long[..gro_runtime::MAX_LISTED_MESSAGE - "not_granted: ".len()],
                 long.len() + "not_granted: ".len()
             ),
+            REFUSALS_FAIL.to_owned(),
+        ),
+        (
+            "long_beside_a_short_one",
+            format!(
+                "{import}for (const name of ['{long}', 'C']) {{\n\ttry {{\n\t\tenv.get(name);\n\t}} catch {{}}\n}}\n"
+            ),
+            1,
+            format!(
+                "error: env refused: not_granted: {}… ({} bytes)\n\
+                 error: env refused: not_granted: C\n",
+                &long[..gro_runtime::MAX_LISTED_MESSAGE - "not_granted: ".len()],
+                long.len() + "not_granted: ".len()
+            ),
+            format!("{REFUSALS_FAIL}hint: add --allow-env=C to grant some of what env refused\n"),
+        ),
+        (
+            "unflaggable",
+            format!(
+                "{import}for (const name of ['B,C', 'D*', 'E']) {{\n\ttry {{\n\t\tenv.get(name);\n\t}} catch {{}}\n}}\n"
+            ),
+            1,
+            "error: env refused: not_granted: B,C\nerror: env refused: not_granted: D*\n\
+             error: env refused: not_granted: E\n"
+                .to_owned(),
+            format!("{REFUSALS_FAIL}hint: add --allow-env=E to grant some of what env refused\n"),
+        ),
+        (
+            "unflaggable_only",
+            format!("{import}try {{\n\tenv.get('B,C');\n}} catch {{}}\n"),
+            1,
+            "error: env refused: not_granted: B,C\n".to_owned(),
+            REFUSALS_FAIL.to_owned(),
         ),
         (
             "quiet",
@@ -2980,16 +3116,25 @@ fn a_refused_env_name_fails_the_run_on_the_import_rule_s_paths() {
             ),
             0,
             String::new(),
+            String::new(),
         ),
     ];
-    for (name, source, code, stderr) in cases {
+    for (name, source, code, stderr, tail) in cases {
         let fixtures = temp_fixtures(&format!("env_refused_{name}"), &[("main.js", &source)]);
         let run = run_with(&fixtures, &["--allow-env=A"], "main.js", &[("B", "secret")]);
         assert_eq!(run.code, code, "{name}: {}", run.stderr);
         assert!(run.stderr.starts_with(&stderr), "{name}: {}", run.stderr);
+        assert!(run.stderr.ends_with(&tail), "{name}: {}", run.stderr);
+        // each refusal printed once, listed or as the run's error
         assert_eq!(
             run.stderr.matches("not_granted").count(),
-            usize::from(code == 1),
+            stderr.matches("not_granted").count(),
+            "{name}: {}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches("hint: ").count(),
+            usize::from(tail.contains("hint: ")),
             "{name}: {}",
             run.stderr
         );
@@ -3031,7 +3176,10 @@ fn a_package_is_refused_env_unless_the_run_is_unconfined() {
         fixtures.0.display()
     );
     assert_eq!(run.stdout, refusal);
-    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
+    assert_eq!(
+        run.stderr,
+        format!("error: import() refused: {refusal}{REFUSALS_FAIL}")
+    );
     let run = run_with(&fixtures, &["-A"], "main.js", &[]);
     assert_eq!(
         (run.code, run.stdout.as_str(), run.stderr.as_str()),
@@ -3078,7 +3226,10 @@ fn a_package_is_refused_args_while_the_project_imports_it() {
         run.stdout,
         format!("[]\ntrue {refusal}builtin:@fuzdev/gro/args.ts\n")
     );
-    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
+    assert_eq!(
+        run.stderr,
+        format!("error: import() refused: {refusal}{REFUSALS_FAIL}")
+    );
 }
 
 /// The script reads the observations with no grant: `cwd()` is the

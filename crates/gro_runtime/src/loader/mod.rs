@@ -136,7 +136,7 @@ use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached
 use headroom::Headroom;
 use load::load;
 use reads::Reads;
-use refused::{Refusals, RefusedBy};
+use refused::{NeededGrant, Refusals, RefusedBy};
 use resolve::resolve_into;
 
 /// The run's record of refusals as the runtime's `OpState` holds it, where
@@ -155,9 +155,10 @@ impl RefusalLog {
     }
 
     /// Records a call a host op refused, `by` naming the op's module and
-    /// the error's class, the error carrying `message`.
-    pub fn record(&self, by: RefusedBy, message: &str) {
-        self.0.refused.borrow_mut().record(by, message);
+    /// the error's class, the error carrying `message`, and `needed` the
+    /// grant of the run's that would have allowed it, if one would have.
+    pub fn record(&self, by: RefusedBy, message: &str, needed: Option<NeededGrant>) {
+        self.0.refused.borrow_mut().record(by, message, needed);
     }
 }
 
@@ -305,7 +306,7 @@ impl Loader {
         if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
             self.refused
                 .borrow_mut()
-                .record(RefusedBy::Import, &message);
+                .record(RefusedBy::Import, &message, None);
         }
         let failure = Failure {
             at,

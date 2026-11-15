@@ -3,9 +3,12 @@
 //! ([`FailureReason::guards_a_boundary`](super::graph::FailureReason::guards_a_boundary)),
 //! and a host op's call refused for a grant its handle doesn't hold (an
 //! environment variable outside an env handle's names). One record holds
-//! both, so both are listed, cut, and counted alike. What a program can
-//! make it keep outside V8's heap is bounded: a few messages, each cut at
-//! a fixed length, and a count.
+//! both, so both are listed, cut, and counted alike. A refused call that a
+//! grant of the run would have allowed also records that grant
+//! ([`NeededGrant`]), as data, never parsed from a message, so a report can
+//! say what to grant. What a program can make it keep outside V8's heap is
+//! bounded: a few messages, each cut at a fixed length, a few grants, and a
+//! count.
 
 use std::borrow::Cow;
 
@@ -52,6 +55,21 @@ impl RefusedBy {
     }
 }
 
+/// The grant that would have allowed a refused call: its host module's
+/// grant, and the value the grant would hold, a variable's name for `env`.
+///
+/// Recorded only where the refusal is the run's own grant's, so granting
+/// the value lets the call through: a call refused by `env`'s root handle,
+/// which holds what `--allow-env=` granted the project, and never one
+/// refused by a handle the program narrowed, which no grant widens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeededGrant {
+    /// The host module's grant, which names it: `env`.
+    pub grant: Capability,
+    /// The value the grant would hold.
+    pub value: String,
+}
+
 /// One refusal, as a run's record lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
@@ -77,6 +95,16 @@ pub struct Refusals {
     /// How many more refusals there were than `listed` lists: each that
     /// isn't listed, a retry of one included.
     pub unlisted: u64,
+    /// The grants that would have allowed the refused calls that one
+    /// would have, distinct, in the order each was first needed: the first
+    /// [`MAX_LISTED_REFUSALS`], each of a value at most
+    /// [`MAX_LISTED_MESSAGE`] bytes long. Kept apart from `listed`, so the
+    /// refusal that is the run's uncaught error, which isn't listed, still
+    /// has its grant here.
+    pub needed: Vec<NeededGrant>,
+    /// Whether a refused call needed a grant `needed` doesn't hold, past
+    /// its bound or longer than a value it keeps.
+    pub more_needed: bool,
 }
 
 impl Refusals {
@@ -95,8 +123,13 @@ impl Refusals {
     }
 
     /// Records a refusal by `by` whose error carries `message`: listed,
-    /// unless it's listed already, while there's room, and counted after.
-    pub(crate) fn record(&mut self, by: RefusedBy, message: &str) {
+    /// unless it's listed already, while there's room, and counted after;
+    /// and `needed`, the grant that would have allowed it, if one would
+    /// have, kept unless it's kept already, while there's room.
+    pub(crate) fn record(&mut self, by: RefusedBy, message: &str, needed: Option<NeededGrant>) {
+        if let Some(needed) = needed {
+            self.need(needed);
+        }
         let message = cut(message);
         if self
             .listed
@@ -112,6 +145,20 @@ impl Refusals {
                 by,
                 message: message.into_owned(),
             });
+        }
+    }
+
+    /// Keeps `needed` among the grants the refused calls needed, unless
+    /// it's kept already, while there's room and it's short enough to
+    /// keep, else marks that there are more.
+    fn need(&mut self, needed: NeededGrant) {
+        if self.needed.contains(&needed) {
+            return;
+        }
+        if self.needed.len() == MAX_LISTED_REFUSALS || needed.value.len() > MAX_LISTED_MESSAGE {
+            self.more_needed = true;
+        } else {
+            self.needed.push(needed);
         }
     }
 
@@ -137,7 +184,7 @@ fn cut(message: &str) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, Refusals, RefusedBy};
+    use super::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusals, RefusedBy};
     use crate::resolver::Capability;
 
     const ENV: RefusedBy = RefusedBy::Grant {
@@ -156,18 +203,18 @@ mod tests {
             .map(|i| format!("cannot resolve 'ext:{i}'"))
             .collect();
         for message in &messages[..MAX_LISTED_REFUSALS] {
-            refused.record(RefusedBy::Import, message);
-            refused.record(RefusedBy::Import, message);
+            refused.record(RefusedBy::Import, message, None);
+            refused.record(RefusedBy::Import, message, None);
         }
         assert!(!refused.is_empty());
         assert_eq!(refused.messages(), messages[..MAX_LISTED_REFUSALS]);
         assert_eq!(refused.unlisted, 0);
         for message in &messages[MAX_LISTED_REFUSALS..] {
-            refused.record(RefusedBy::Import, message);
-            refused.record(RefusedBy::Import, message);
+            refused.record(RefusedBy::Import, message, None);
+            refused.record(RefusedBy::Import, message, None);
         }
         // a listed one retried once the list is full still isn't counted
-        refused.record(RefusedBy::Import, &messages[0]);
+        refused.record(RefusedBy::Import, &messages[0], None);
         assert_eq!(refused.messages(), messages[..MAX_LISTED_REFUSALS]);
         assert_eq!(refused.unlisted, 4);
     }
@@ -180,16 +227,17 @@ mod tests {
     fn a_long_message_is_cut_and_marked_with_its_length() {
         let mut refused = Refusals::default();
         let whole = "a".repeat(MAX_LISTED_MESSAGE);
-        refused.record(RefusedBy::Import, &whole);
+        refused.record(RefusedBy::Import, &whole, None);
         // 'é' is two bytes, so a cut at the bound falls inside the last one
         refused.record(
             RefusedBy::Import,
             &format!("b{}", "é".repeat(MAX_LISTED_MESSAGE / 2)),
+            None,
         );
         let head = "c".repeat(MAX_LISTED_MESSAGE);
-        refused.record(RefusedBy::Import, &format!("{head}x"));
-        refused.record(RefusedBy::Import, &format!("{head}y"));
-        refused.record(RefusedBy::Import, &format!("{head}xy"));
+        refused.record(RefusedBy::Import, &format!("{head}x"), None);
+        refused.record(RefusedBy::Import, &format!("{head}y"), None);
+        refused.record(RefusedBy::Import, &format!("{head}xy"), None);
         assert_eq!(
             refused.messages(),
             [
@@ -213,9 +261,9 @@ mod tests {
         let mut refused = Refusals::default();
         let long = "c".repeat(MAX_LISTED_MESSAGE + 1);
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(RefusedBy::Import, &format!("refused {i}"));
+            refused.record(RefusedBy::Import, &format!("refused {i}"), None);
         }
-        refused.record(RefusedBy::Import, &long);
+        refused.record(RefusedBy::Import, &long, None);
         refused.unlist("TypeError", "refused 1");
         refused.unlist("TypeError", "refused");
         assert_eq!(refused.messages().len(), MAX_LISTED_REFUSALS - 1);
@@ -223,14 +271,14 @@ mod tests {
         assert_eq!(refused.unlisted, 1);
 
         let mut refused = Refusals::default();
-        refused.record(RefusedBy::Import, &long);
+        refused.record(RefusedBy::Import, &long, None);
         refused.unlist("TypeError", &long);
         assert!(refused.is_empty());
 
         // with none listed, the counted ones are still refusals
         let mut refused = Refusals::default();
         for i in 0..=MAX_LISTED_REFUSALS {
-            refused.record(RefusedBy::Import, &format!("refused {i}"));
+            refused.record(RefusedBy::Import, &format!("refused {i}"), None);
         }
         for i in 0..MAX_LISTED_REFUSALS {
             refused.unlist("TypeError", &format!("refused {i}"));
@@ -245,9 +293,9 @@ mod tests {
     #[test]
     fn an_import_s_refusal_and_an_op_s_share_the_record_apart() {
         let mut refused = Refusals::default();
-        refused.record(ENV, "not_granted: HOME");
-        refused.record(RefusedBy::Import, "not_granted: HOME");
-        refused.record(ENV, "not_granted: HOME");
+        refused.record(ENV, "not_granted: HOME", None);
+        refused.record(RefusedBy::Import, "not_granted: HOME", None);
+        refused.record(ENV, "not_granted: HOME", None);
         assert_eq!(
             refused
                 .listed
@@ -257,7 +305,7 @@ mod tests {
             [ENV, RefusedBy::Import]
         );
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(ENV, &format!("not_granted: N{i}"));
+            refused.record(ENV, &format!("not_granted: N{i}"), None);
         }
         assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(refused.unlisted, 2);
@@ -268,5 +316,63 @@ mod tests {
         assert_eq!(refused.messages()[0], "not_granted: N0");
         assert_eq!(ENV.error(), "EnvError");
         assert_eq!(RefusedBy::Import.error(), "TypeError");
+    }
+
+    /// The grant a refused call needed, by its name for `env`.
+    fn needs(value: &str) -> NeededGrant {
+        NeededGrant {
+            grant: Capability::Env,
+            value: value.to_owned(),
+        }
+    }
+
+    /// The grants refused calls needed are kept distinct, in the order each
+    /// was first needed, a retry's and an unlisted refusal's included, up
+    /// to the bound, each value at most the message bound long, and one
+    /// past either marks that there are more; a refusal needing none adds
+    /// none, and unlisting a refusal keeps its grant.
+    #[test]
+    fn the_grants_refused_calls_needed_are_kept_apart_and_bounded() {
+        let mut refused = Refusals::default();
+        refused.record(RefusedBy::Import, "cannot import", None);
+        refused.record(ENV, "not_granted: NARROWED", None);
+        assert!(refused.needed.is_empty());
+        assert!(!refused.more_needed);
+        refused.record(ENV, "not_granted: B", Some(needs("B")));
+        refused.record(ENV, "not_granted: A", Some(needs("A")));
+        refused.record(ENV, "not_granted: B", Some(needs("B")));
+        refused.unlist("EnvError", "not_granted: A");
+        let values = |refused: &Refusals| -> Vec<String> {
+            refused
+                .needed
+                .iter()
+                .map(|needed| needed.value.clone())
+                .collect()
+        };
+        assert_eq!(values(&refused), ["B", "A"]);
+        assert!(!refused.more_needed);
+        // one exactly the bound long is kept, one longer marks more
+        let longest = "L".repeat(MAX_LISTED_MESSAGE);
+        refused.record(ENV, "not_granted: L", Some(needs(&longest)));
+        assert!(!refused.more_needed);
+        refused.record(ENV, "not_granted: M", Some(needs(&format!("{longest}M"))));
+        assert!(refused.more_needed);
+        assert_eq!(refused.needed.len(), 3);
+        let mut refused = Refusals::default();
+        for i in 0..MAX_LISTED_REFUSALS {
+            refused.record(
+                ENV,
+                &format!("not_granted: N{i}"),
+                Some(needs(&format!("N{i}"))),
+            );
+        }
+        assert!(!refused.more_needed);
+        // a kept one again past the bound is no more
+        refused.record(ENV, "not_granted: N0", Some(needs("N0")));
+        assert!(!refused.more_needed);
+        refused.record(ENV, "not_granted: X", Some(needs("X")));
+        assert!(refused.more_needed);
+        assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS);
+        assert_eq!(refused.needed[0].grant, Capability::Env);
     }
 }

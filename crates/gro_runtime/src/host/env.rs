@@ -31,7 +31,7 @@ use super::handle::{self, ENV_HANDLE};
 use super::{HostData, own_data, throw_error, throw_range_error, throw_type_error};
 use crate::loader::RefusalLog;
 use crate::resolver::Capability;
-use crate::{Authority, EnvNameFault, RefusedBy, env_name_fault};
+use crate::{Authority, EnvNameFault, NeededGrant, RefusedBy, env_name_fault};
 
 /// What a method called on anything but an env handle throws.
 const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not another object";
@@ -134,9 +134,10 @@ pub fn get<'s>(
     receiver: v8::Local<'s, v8::Value>,
     name: v8::Local<'s, v8::Value>,
 ) -> Option<v8::Local<'s, v8::Value>> {
-    let Handle { vars, names, .. } = read(scope, receiver)?;
+    let handle = read(scope, receiver)?;
     let name = check_name(scope, name, "an environment name", true)?;
-    check_granted(state, scope, names, name)?;
+    check_granted(state, scope, &handle, name)?;
+    let vars = handle.vars;
     if vars.has_own_property(scope, name.into())? {
         vars.get(scope, name.into())
     } else {
@@ -181,7 +182,7 @@ pub fn narrow<'s>(
         let element = own_data(scope, list.into(), key.into()).ok()?;
         let element = element.unwrap_or_else(|| v8::undefined(scope).into());
         let name = check_name(scope, element, "a `narrow` name", false)?;
-        check_granted(state, scope, parent.names, name)?;
+        check_granted(state, scope, &parent, name)?;
         allowed.create_data_property(scope, name.into(), granted)?;
         if parent.vars.has_own_property(scope, name.into())? {
             let value = parent.vars.get(scope, name.into())?;
@@ -253,18 +254,28 @@ fn make<'s>(
     handle::make(scope, &ENV_HANDLE, prototype, held.into())
 }
 
-/// Throws `EnvError` `not_granted` for `name` when `names`, a handle's
-/// set, lacks it, and records the refusal in the run's [`RefusalLog`],
-/// which fails the run, or, in a runtime with no record, throws an `Error`
-/// saying so; every name is granted when it's `None`. `None` with the
-/// exception pending when it threw.
+/// Throws `EnvError` `not_granted` for `name` when `handle`'s set lacks
+/// it, and records the refusal in the run's [`RefusalLog`], which fails the
+/// run, or, in a runtime with no record, throws an `Error` saying so; every
+/// name is granted when the handle has no set. `None` with the exception
+/// pending when it threw.
+///
+/// A refusal by the root, the handle made from the run's grant, is
+/// recorded with the grant that would have allowed it, the name for
+/// `env`: in a confined run the root holds the names `--allow-env=` gave
+/// the project, so granting the name lets the call through, whichever
+/// module made it, since a module holding the root was handed it by the
+/// project, the one origin the grant reaches. A handle narrowed from
+/// another refuses for the program's own narrowing, which no grant widens,
+/// so its refusal needs none; nor does any in an unconfined run, whose
+/// root holds every name.
 fn check_granted<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
-    names: Option<v8::Local<'s, v8::Object>>,
+    handle: &Handle<'s>,
     name: v8::Local<'s, v8::String>,
 ) -> Option<()> {
-    let Some(names) = names else {
+    let Some(names) = handle.names else {
         return Some(());
     };
     if names.has_own_property(scope, name.into())? {
@@ -283,15 +294,28 @@ fn check_granted<'s>(
     classes.throw(scope, &ENV_ERROR, NOT_GRANTED, name);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
-    let message = format!("{NOT_GRANTED}: {}", name.to_rust_string_lossy(scope));
+    let name = name.to_rust_string_lossy(scope);
+    let message = format!("{NOT_GRANTED}: {name}");
+    let needed = is_root(state, handle.object).then_some(NeededGrant {
+        grant: Capability::Env,
+        value: name,
+    });
     log.record(
         RefusedBy::Grant {
             grant: Capability::Env,
             error: ENV_ERROR.name,
         },
         &message,
+        needed,
     );
     None
+}
+
+/// Whether `object` is the run's root handle, the one made from its grant.
+fn is_root(state: &OpState, object: v8::Local<'_, v8::Object>) -> bool {
+    state
+        .try_borrow::<EnvRoot>()
+        .is_some_and(|root| root.0.borrow().as_ref().is_some_and(|held| *held == object))
 }
 
 /// What a refused name throws in a runtime started without the run's error

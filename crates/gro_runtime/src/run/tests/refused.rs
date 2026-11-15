@@ -14,7 +14,8 @@ use crate::resolver::Capability;
 use crate::test_support::TestDir;
 use crate::test_support::never_exits;
 use crate::{
-    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, Refusal, RefusedBy, RuntimeOptions, STACK_SIZE,
+    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, RefusedBy, RuntimeOptions,
+    STACK_SIZE,
 };
 
 /// Writes `files` and `links` (a path and its target, made a symlink) into
@@ -510,7 +511,10 @@ try { await import('./main.mjs', { with: { type: 'json' } }); } catch {}
 /// or not the program caught it, once however often it's repeated, its
 /// message `not_granted: NAME`; what is no refusal stays quiet: an unset
 /// granted name, a narrowing to a subset, and a name that is no name (a
-/// `TypeError`). One that is the run's uncaught error isn't listed.
+/// `TypeError`). One that is the run's uncaught error isn't listed. Each
+/// name the root refused records the grant that would have allowed it,
+/// the uncaught one's included, and a name a narrowed handle refused
+/// records none.
 #[test]
 fn a_refused_env_name_is_listed_and_an_uncaught_one_is_the_error() {
     let caught = "import { env } from '@fuzdev/gro/env.ts';
@@ -549,6 +553,8 @@ if (refusals.join() !== 'not_granted: B,not_granted: B,not_granted: B,not_grante
         ]
     );
     assert_eq!(outcome.refused.unlisted, 0);
+    assert_eq!(outcome.refused.needed, [needs("B")]);
+    assert!(!outcome.refused.more_needed);
     let uncaught = "import { env } from '@fuzdev/gro/env.ts';
 try {
 \tenv.get('C');
@@ -565,4 +571,13 @@ env.get('B');
     );
     assert_eq!(outcome.refused.messages(), ["not_granted: C"]);
     assert_eq!(outcome.refused.unlisted, 0);
+    assert_eq!(outcome.refused.needed, [needs("C"), needs("B")]);
+}
+
+/// The grant an env name refused by the root needed.
+fn needs(name: &str) -> NeededGrant {
+    NeededGrant {
+        grant: Capability::Env,
+        value: name.to_owned(),
+    }
 }

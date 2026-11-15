@@ -25,7 +25,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   and `set_exit_code(code)` sets the code a run that ends on its own exits with, each code an integer from 0 to 255 passed as it is.
   `fgro run --allow-env=A,B <file>` grants the project's own modules `@fuzdev/gro/env.ts`, whose root `env` reads exactly those variables,
   read once as the run starts, a name outside a handle's set throwing `EnvError` `not_granted`,
-  which fails the run, caught or not, and is listed on stderr by name with the refused `import()`s;
+  which fails the run, caught or not, and is listed on stderr by name with the refused `import()`s,
+  the list closed by a line saying a refusal fails the run and followed by the `--allow-env=` that would grant the names the project's grant lacked;
   a handle is the runtime's, recognized by a mark no program can read or forge.
   `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,
   each grant at its widest, while every refusal but a grant's stands (a host module not built yet, a package's import of the project, and the like).
