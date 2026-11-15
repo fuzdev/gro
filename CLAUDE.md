@@ -283,8 +283,8 @@ Crates:
 - `gro_bench` - the measurement harness, independent of the runtime crates;
   its `lib.rs` lists its modules and suites
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
-  `check-rust`, `check-js`, `vendor-patch`, `bench`; its `main.rs` has the
-  commands and exit codes
+  `check-rust`, `check-js`, `check-reproducible`, `vendor-patch`, `bench`;
+  its `main.rs` has the commands and exit codes
 
 Invariants that live in the code:
 
@@ -682,7 +682,14 @@ each tree is its published crate plus its patch, and
 clean checkout of one commit, the same toolchain, and the same cargo home
 build the same `fgro`, byte for byte, wherever the checkout is: `fgro`
 embeds the commit it was built from, so a dirty tree (a `-dirty` marker) or
-one git can't read (no commit) builds other bytes.
+one git can't read (no commit) builds other bytes. `cargo xtask
+check-reproducible` holds it for the release build, as CI's `reproducible`
+job: the release `fgro` built in the checkout and again in a clone of its
+commit at another path, compared byte for byte. It refuses a dirty tree or
+one outside git, and a rustc wrapper. It can't see another machine,
+toolchain, or cargo home, or what both builds read alike on one machine: a
+directory's listing order on one filesystem, the day's date, a cache they
+share.
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
@@ -710,6 +717,12 @@ it.
   (`unshare -rm`, which needs unprivileged user namespaces). A plain
   `cargo build` makes an `fgro` with no snapshot that runs only from its
   build tree and can't `eval`
+- `cargo xtask check-reproducible [--dir <dir>]` - the release `fgro` built
+  in a clean checkout and again in a clone of its commit under `<dir>`
+  (default `$XDG_CACHE_HOME/gro/reproducible`), from the cleared
+  environment the perf rule's base build uses, then compared byte for byte,
+  a difference failing with the sections that differ and the clone kept;
+  two release builds and the clone's target dir, so `check` leaves it to CI
 
 **Benchmarks.** `gro_bench` times runtimes × workloads in fresh processes,
 interleaved, with an A/A noise row, and appends one JSON line per run to

@@ -99,7 +99,7 @@ pub struct BaseBuild {
 
 /// A command for `program` in `dir` with the cleared environment of
 /// [`BASE_BUILD_ENV`].
-fn clean_command(program: &str, dir: &Path) -> Command {
+pub fn clean_command(program: &str, dir: &Path) -> Command {
     let mut command = Command::new(program);
     command.env_clear().current_dir(dir);
     for key in BASE_BUILD_ENV {
@@ -318,7 +318,7 @@ pub fn build(root: &Path, dir: &Path, sha: &str, _lock: &DirLock) -> Result<Base
 /// clone's, where its `.cargo/config.toml` looks, when the clone lacks it, so
 /// its build reuses the archive (the revision's own `fetch-v8` verifies it,
 /// and downloads only a version the checkout doesn't have).
-fn link_v8_archives(root: &Path, src: &Path) -> io::Result<()> {
+pub fn link_v8_archives(root: &Path, src: &Path) -> io::Result<()> {
     let archives = root.join("target/rusty_v8");
     let Ok(versions) = fs::read_dir(&archives) else {
         return Ok(());

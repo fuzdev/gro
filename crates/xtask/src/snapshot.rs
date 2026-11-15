@@ -106,7 +106,8 @@ const COMMIT_ENV: &str = "GRO_COMMIT";
 pub struct SnapshotBuild {
     /// `<target>/gro_snapshot/<profile>/fgro`.
     pub binary: PathBuf,
-    commit: String,
+    /// The `GRO_COMMIT` it embeds.
+    pub commit: String,
 }
 
 /// The `GRO_COMMIT` value for the checkout at `root`: its `HEAD` SHA, with
@@ -225,7 +226,7 @@ pub fn build(
 }
 
 /// The files `make-snapshot` writes, which stage two embeds.
-const SNAPSHOT_FILES: [&str; 2] = ["snapshot.bin", "residual.rs"];
+pub const SNAPSHOT_FILES: [&str; 2] = ["snapshot.bin", "residual.rs"];
 
 /// Whether `snapshot.bin` and `residual.rs` exist in `dir` and stage one last
 /// ran (the `stamp`) after the plain binary was built.

@@ -67,7 +67,7 @@ use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement};
 use crate::{Bench, REPORT};
 
-mod base;
+pub mod base;
 
 /// The measurement history, relative to the root: one JSON line per run,
 /// append-only, beside the harness that writes it.

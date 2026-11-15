@@ -9,6 +9,10 @@
 //! - `build [--release] [--verify]` builds `fgro` with an embedded startup
 //!   snapshot at `<target>/gro_snapshot/<profile>/fgro` ([`snapshot`])
 //! - `check`, `check-rust`, `check-js`: the repo's gates ([`check`])
+//! - `check-reproducible [--dir <dir>]` builds the release `fgro` again in a
+//!   clone of the checkout's commit at another path and fails unless the two
+//!   are identical, byte for byte ([`reproducible`]); CI runs it as a job of
+//!   its own, and `check` doesn't
 //! - `vendor-patch <name>` regenerates `vendor/<name>.patch` from the
 //!   vendored tree ([`vendor`])
 //! - `bench <suite.json>` and `bench report`: the measurement harness
@@ -20,10 +24,11 @@
 //! a crossed budget, a bench's input, which
 //! `gro_bench::error::BenchError::is_input_error` lists, and a vendored crate
 //! that isn't its published crate plus its patch, or that `vendor/README.md`
-//! doesn't describe); `1` anything else
+//! doesn't describe, and a checkout or environment `check-reproducible` can't
+//! hold to its claim); `1` anything else
 //! (an artifact or linked checkout changing mid-run, a failed read or write,
-//! a failed fetch). A program a step ran exits with its own code. Each
-//! failure ([`error::XtaskError`], whose `exit_code` is the full mapping)
+//! a failed fetch, two builds that differ). A program a step ran exits with
+//! its own code. Each failure ([`error::XtaskError`], whose `exit_code` is the full mapping)
 //! prints once, to stderr; `--help` prints to stdout and exits `0`. A failed
 //! bench run records nothing.
 
@@ -33,6 +38,7 @@ mod cmd;
 mod error;
 #[cfg(test)]
 mod lints;
+mod reproducible;
 mod snapshot;
 mod v8_archive;
 mod vendor;
@@ -76,6 +82,7 @@ enum Subcommand {
     Check(Check),
     CheckRust(CheckRust),
     CheckJs(CheckJs),
+    CheckReproducible(CheckReproducible),
     FetchV8(FetchV8),
     VendorPatch(VendorPatch),
     Build(Build),
@@ -93,6 +100,17 @@ struct CheckRust {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "check-js")]
 struct CheckJs {}
+
+/// build the release fgro again from a clone of the checkout's commit at
+/// another path, and fail unless the two builds are identical
+#[derive(FromArgs)]
+#[argh(subcommand, name = "check-reproducible")]
+struct CheckReproducible {
+    /// where the clone goes and builds (default:
+    /// `$XDG_CACHE_HOME/gro/reproducible`), outside the checkout
+    #[argh(option)]
+    dir: Option<PathBuf>,
+}
 
 /// download the pinned V8 archive if it's missing, and verify its SHA-256
 #[derive(FromArgs)]
@@ -214,6 +232,9 @@ fn main() -> ExitCode {
         Subcommand::Check(Check {}) => check::check(&root),
         Subcommand::CheckRust(CheckRust {}) => check::check_rust(&root),
         Subcommand::CheckJs(CheckJs {}) => check::check_crates_js(&root),
+        Subcommand::CheckReproducible(CheckReproducible { dir }) => {
+            reproducible::check_reproducible(&root, dir)
+        }
         Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root).map(|_| ()),
         Subcommand::VendorPatch(VendorPatch { name }) => vendor::write_patch(&root, &name),
         Subcommand::Build(Build { release, verify }) => {
@@ -273,6 +294,8 @@ mod tests {
         assert!(parse_args(&args(&["fetch-v8"])).is_ok());
         assert!(parse_args(&args(&["check-js"])).is_ok());
         assert!(parse_args(&args(&["check-rust"])).is_ok());
+        assert!(parse_args(&args(&["check-reproducible"])).is_ok());
+        assert!(parse_args(&args(&["check-reproducible", "--dir", "d"])).is_ok());
         for bad in [
             &["nope"][..],
             &["bench"],

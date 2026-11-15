@@ -96,3 +96,41 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           cargo xtask check-rust
+
+  # The claim that a clean checkout of one commit, with the same toolchain and
+  # cargo home, builds the same release fgro, byte for byte, from any path:
+  # the release fgro built in this checkout and again in a clone of its commit
+  # at another path, outside the workspace, compared byte for byte, failing
+  # with the sections that differ. Its own job, beside the others, since it is
+  # two release builds, the clone's always cold. It can't see a build on
+  # another machine, with another toolchain, or with another cargo home, which
+  # the claim excludes, or what both builds read alike on this runner: a
+  # directory's listing order on one filesystem, the day's date, a cache they
+  # share. It refuses a rustc wrapper, and a dirty tree or one outside git,
+  # whose build embeds another commit by design; actions/checkout's tree is
+  # clean.
+  reproducible:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # persist-credentials: false keeps the GITHUB_TOKEN out of .git/config (no
+      # step here pushes via git).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # As the rust job installs it, from rust-toolchain.toml.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+
+      # The registry, which both builds share, and this checkout's target
+      # dependencies; the clone's target dir is outside the workspace and
+      # never cached.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Check that fgro builds reproducibly
+        run: cargo xtask check-reproducible

@@ -65,6 +65,9 @@ pub enum BenchStage {
     /// The vendored crates: a tree that isn't its crate plus its patch, or
     /// an index that doesn't describe it (`vendor: `).
     Vendor,
+    /// `check-reproducible`: a checkout or an environment the check can't
+    /// hold to its claim (`check-reproducible: `).
+    Reproducible,
 }
 
 impl BenchStage {
@@ -75,6 +78,7 @@ impl BenchStage {
             Self::Run => "bench failed: ",
             Self::Report => "bench report: ",
             Self::Vendor => "vendor: ",
+            Self::Reproducible => "check-reproducible: ",
         }
     }
 }
@@ -101,6 +105,15 @@ impl XtaskError {
     pub fn vendor_input(message: impl Into<String>) -> Self {
         Self::Input {
             stage: BenchStage::Vendor,
+            message: message.into(),
+        }
+    }
+
+    /// `check-reproducible`'s checkout or environment refused with
+    /// `message`.
+    pub fn reproducible_input(message: impl Into<String>) -> Self {
+        Self::Input {
+            stage: BenchStage::Reproducible,
             message: message.into(),
         }
     }
