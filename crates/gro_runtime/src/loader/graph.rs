@@ -214,11 +214,6 @@ pub enum FailureReason {
     /// same string and names the first one as the importer, so its site
     /// names none.
     StringCompiledImport,
-    /// An `import()` of a builtin with less stack left than
-    /// [`BUILTIN_IMPORT_STACK`](super::headroom::BUILTIN_IMPORT_STACK), which
-    /// the first one runs the builtin's implementation on: not a rule's, since
-    /// the same import with more stack left succeeds.
-    OutOfStack(&'static Builtin),
 }
 
 impl FailureReason {
@@ -242,7 +237,6 @@ impl FailureReason {
             | Self::DriverImport
             | Self::DynamicImport
             | Self::StringCompiledImport => true,
-            Self::OutOfStack(_) => false,
         }
     }
 }

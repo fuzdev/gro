@@ -60,8 +60,8 @@ fn left<'s>(
 /// The loader reads the stack left from the limit V8 holds JS to: in the
 /// deepest frame a dive reaches, on a thread sized as a run's, what it reads
 /// is within a few frames of nothing, so a stack start read off by a few
-/// KiB, or a stack size other than V8's, fails here, refusing too many
-/// imports or too few.
+/// KiB, or a stack size other than V8's, fails here, deferring too many
+/// first imports or too few.
 #[test]
 fn the_stack_left_is_measured_from_v8_s_limit() {
     init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();

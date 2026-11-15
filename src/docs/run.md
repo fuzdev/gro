@@ -176,8 +176,6 @@ A module that fails to resolve, load, or strip prints its reason without `Uncaug
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
 A dynamic `import()` of such a module rejects with an error the code can catch, a `TypeError` with the `code` `'ERR_MODULE_NOT_FOUND'`,
 an I/O failure reading the resolved file's included.
-An `import()` of a builtin module with too little stack left to run its implementation is refused that way too, without failing the run
-([host modules](host_modules.md)).
 When one of gro's rules about authority or containment refused it (an ungranted builtin module, a builtin module with import attributes,
 a package's import of the project, a reserved specifier, a path leaving its root or reaching into `node_modules`,
 a refused scheme like `ext:` or `data:`, code compiled from a string),

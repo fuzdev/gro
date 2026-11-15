@@ -1,12 +1,12 @@
-// The first import of every builtin, started in each frame from near the stack's limit up, until
-// one succeeds. `import()` of a builtin no module has imported yet runs the builtin's
-// implementation on the caller's stack, so the loader refuses one with less stack left than that
-// needs, before anything of it runs; nearest the limit the import's promise rejects with the
-// engine's own `RangeError` instead, when `deno_core` can't make its handler on the promise of
-// an import the loader refused. For every builtin (`modules.js`, which the test writes from the
-// builtin table), this counts the imports refused either way, keeps any other failure as it
-// reads, and prints the exports of the import that succeeded and whether every later import is
-// that same module.
+// The first import of every builtin, started in each frame from near the stack's limit up, all in
+// one turn. `import()` of a builtin no module has imported yet runs the builtin's implementation
+// on the caller's stack, so with too little stack left the module is built from the event loop
+// instead, and the import settles then; nearest the limit the import's promise rejects with the
+// engine's own `RangeError`, when `deno_core` can't make its handler on the import's promise. For
+// every builtin (`modules.js`, which the test writes from the builtin table), this counts the
+// imports that settled after one started above them did, which were built from the event loop,
+// counts the engine's refusals, keeps any other failure as it reads, and prints the exports of
+// the module and whether every import, and one made later, is that same module.
 
 import { SPECIFIERS } from './modules.js';
 
@@ -22,10 +22,10 @@ const HIGHEST = 4000;
 /**
  * Starts `import(specifier)` in each of the [`HIGHEST`] frames above the [`SKIPPED`] nearest the
  * deepest one the stack allows, the deepest first, so each has a frame's stack more than the one
- * before.
+ * before, and records the order they settle in.
  * @param {string} specifier
- * @returns {Array<Promise<{namespace: any} | {error: unknown}>>} how each import settles, the
- * deepest first
+ * @returns {{settled: Array<Promise<{namespace: any} | {error: unknown}>>, order: Array<number>}}
+ * how each import settles, the deepest first, and each one's place in that list as it settles
  */
 const import_up_from_the_limit = (specifier) => {
 	/** @type {Array<Promise<any>>} */
@@ -46,37 +46,38 @@ const import_up_from_the_limit = (specifier) => {
 	} catch {
 		// the overflow that found the limit
 	}
+	/** @type {Array<number>} */
+	const order = [];
 	// handled before the run's next turn, which would report a rejection still unhandled
-	return started.map((promise) =>
+	const settled = started.map((promise, index) =>
 		promise.then(
-			(namespace) => ({ namespace }),
-			(error) => ({ error })
+			(namespace) => {
+				order.push(index);
+				return { namespace };
+			},
+			(error) => {
+				order.push(index);
+				return { error };
+			}
 		)
 	);
+	return { settled, order };
 };
 
 /**
- * Which refusal `error` is: `loader`, the loader's of an `import()` of `specifier` short of
- * stack, a `TypeError` with the code of every `import()` that fails to resolve or load; `engine`, the engine's
- * `RangeError`; or anything else, as it reads.
- * @param {unknown} error
- * @param {string} specifier
- * @returns {string}
+ * How many of the imports settled after one started above them, as `order` lists them: each one
+ * built from the event loop.
+ * @param {Array<number>} order
+ * @returns {number}
  */
-const to_refusal = (error, specifier) => {
-	const message = error instanceof Error ? error.message : '';
-	if (error instanceof RangeError && message === 'Maximum call stack size exceeded') {
-		return 'engine';
+const count_late = (order) => {
+	let late = 0;
+	let highest = -1;
+	for (const index of order) {
+		if (index < highest) late++;
+		else highest = index;
 	}
-	if (
-		error instanceof TypeError &&
-		/** @type {{code?: unknown}} */ (error).code === 'ERR_MODULE_NOT_FOUND' &&
-		message.startsWith(`cannot import '${specifier}' from `) &&
-		message.includes(': Maximum call stack size exceeded: an import() of a builtin module needs ')
-	) {
-		return 'loader';
-	}
-	return String(error instanceof Error ? `${error.name}: ${message}` : error);
+	return late;
 };
 
 /**
@@ -85,28 +86,33 @@ const to_refusal = (error, specifier) => {
 export const sweep = async () => {
 	const rows = [];
 	for (const specifier of SPECIFIERS) {
-		/** @type {Record<string, number>} */
-		const refused = { loader: 0, engine: 0 };
+		let engine = 0;
 		/** @type {Array<string>} */
 		const other = [];
 		let whole;
 		let same = true;
-		for (const started of import_up_from_the_limit(specifier)) {
-			const settled = await started;
-			if ('namespace' in settled) {
-				if (whole === undefined) whole = settled.namespace;
-				else same &&= settled.namespace === whole;
+		const { settled, order } = import_up_from_the_limit(specifier);
+		for (const each of settled) {
+			const result = await each;
+			if ('namespace' in result) {
+				if (whole === undefined) whole = result.namespace;
+				else same &&= result.namespace === whole;
 				continue;
 			}
-			const refusal = to_refusal(settled.error, specifier);
-			// every import after the first that succeeded finds the module made
-			if (whole === undefined && refusal in refused) refused[refusal]++;
-			else if (!other.includes(refusal)) other.push(refusal);
+			const { error } = result;
+			const message = error instanceof Error ? error.message : '';
+			if (error instanceof RangeError && message === 'Maximum call stack size exceeded') {
+				engine++;
+				continue;
+			}
+			const read = String(error instanceof Error ? `${error.name}: ${message}` : error);
+			if (!other.includes(read)) other.push(read);
 		}
 		const again = await import(specifier);
 		rows.push({
 			specifier,
-			refused,
+			late: count_late(order),
+			engine,
 			other,
 			exports: whole === undefined ? null : Object.keys(whole).sort(),
 			same: same && again === whole

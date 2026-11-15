@@ -21,9 +21,9 @@
 //!
 //! And every builtin's first import started short of stack
 //! (`tests/fixtures/host/forced/`): an `import()` runs the implementation on
-//! its caller's stack, so the loader refuses one with too little left before
-//! anything of it runs, and a later import with enough makes the module
-//! whole.
+//! its caller's stack, so one with too little left has the module built
+//! from the event loop instead, whole, and every import of a builtin, in
+//! whatever order its first ones interleave, gets the one module.
 //!
 //! And every builtin imported, deferred, and imported again: each import
 //! gets the one module.
@@ -890,69 +890,85 @@ fn a_trap_reports_as_it_is_used() {
     assert!(reports.0.iter().all(|(kind, _)| kind != "done"));
 }
 
-/// A first import short of stack is refused and run whole later, for every
-/// row of the table, in a realm nothing patched and in one patched against
-/// the host's report of a failure: an `import()` of a builtin nothing has
-/// imported runs its implementation on the caller's stack, so the loader
-/// refuses one with less stack left than that needs, before anything of it
-/// runs. Swept up from near the stack's limit a frame at a time, every
-/// import before the first that succeeds is refused, by the loader at least
-/// once, with a `TypeError` whose `code` is `ERR_MODULE_NOT_FOUND`, as every
-/// import that fails to resolve gets (nearest the limit, with the engine's
-/// own `RangeError` when
-/// `deno_core` can't make its handler on the refused import's promise), and
-/// none is cut short partway, which would fail with the host's report of
-/// the `RangeError` instead; the import that succeeds makes the module with
-/// the row's exports, the same module every later import gets. Nothing is
-/// printed on stderr, and the run ends with 0, by a refused import as by a
-/// failed one: a refusal for want of stack is no refusal by rule. The sweep
-/// starts the first import with every amount of stack left a frame apart, so
-/// a build whose implementations need more than the loader leaves them
-/// fails here.
-#[test]
-fn a_first_import_short_of_stack_is_refused_and_run_whole_later() {
+/// A project named `name` of the first-import fixtures
+/// (`tests/fixtures/host/forced/`), with `modules.js` listing the table's
+/// specifiers.
+fn forced_project(name: &str) -> Scratch {
     let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
     let modules = format!(
         "export const SPECIFIERS = {};\n",
         serde_json::to_string(&specifiers).unwrap()
     );
     let read = |file: &str| std::fs::read_to_string(fixtures().join("forced").join(file)).unwrap();
-    let (sweep, forced, hostile) = (read("sweep.js"), read("forced.js"), read("hostile.js"));
-    let project = Scratch::new(
-        "forced",
-        &[
-            ("package.json", "{\"type\": \"module\"}\n"),
-            ("modules.js", &modules),
-            ("sweep.js", &sweep),
-            ("forced.js", &forced),
-            ("hostile.js", &hostile),
-        ],
+    let sources = FORCED_FILES.map(read);
+    let mut files = vec![
+        ("package.json", "{\"type\": \"module\"}\n"),
+        ("modules.js", modules.as_str()),
+    ];
+    files.extend(
+        FORCED_FILES
+            .into_iter()
+            .zip(sources.iter().map(String::as_str)),
     );
+    Scratch::new(name, &files)
+}
+
+/// The files of `tests/fixtures/host/forced/`.
+const FORCED_FILES: [&str; 5] = [
+    "sweep.js",
+    "forced.js",
+    "hostile.js",
+    "race.js",
+    "static_env_error.js",
+];
+
+/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`], in an empty
+/// environment: what it printed, parsed as JSON, once it exited `0` with
+/// nothing on stderr.
+fn run_printing(project: &Scratch, entry: &str) -> Value {
+    let mut command = fgro_command(&["run", GRANT_ENV, entry]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    // the status first: a run a signal ended has no code, and says so
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{entry}, {}: {stderr}",
+        output.status
+    );
+    assert_eq!(stderr, "", "{entry}");
+    serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{entry}: {error}: {stdout}"))
+}
+
+/// A first import short of stack runs whole, for every row of the table, in
+/// a realm nothing patched and in one patched against the host's report of
+/// a failure: an `import()` of a builtin nothing has imported runs its
+/// implementation on the caller's stack, so with less stack left than that
+/// needs `deno_core` builds the module from the event loop instead. Swept
+/// up from near the stack's limit a frame at a time, in one turn, every
+/// import gets the module, with the row's exports, the same module a later
+/// import gets, but nearest the limit, where the engine's own `RangeError`
+/// rejects an import whose promise `deno_core` can't make its handler on.
+/// Some settle after imports started above them, which built the module on
+/// the spot, so those were built from the event loop; none is cut short
+/// partway, which would fail with the host's report of the `RangeError`.
+/// Nothing is printed on stderr, and the run ends with 0. The sweep starts
+/// the first import with every amount of stack left a frame apart, so a
+/// build whose implementations need more than the loader leaves them fails
+/// here.
+#[test]
+fn a_first_import_short_of_stack_is_built_from_the_event_loop() {
+    let project = forced_project("forced");
     for entry in ["forced.js", "hostile.js"] {
-        let mut command = fgro_command(&["run", GRANT_ENV, entry]);
-        command.env_clear().current_dir(&project.0);
-        let output = spawn(command, b"");
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        // the status first: a run a signal ended has no code, and says so
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{entry}, {}: {stderr}",
-            output.status
-        );
-        assert_eq!(stderr, "", "{entry}");
-        let rows: Value =
-            serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
+        let rows = run_printing(&project, entry);
         let rows = rows.as_array().unwrap();
         assert_eq!(rows.len(), BUILTINS.len(), "{entry}");
         for (row, builtin) in rows.iter().zip(BUILTINS) {
             assert_eq!(row["specifier"], builtin.specifier, "{entry}");
             assert_eq!(row["other"], serde_json::json!([]), "{entry}: {row}");
-            assert!(
-                row["refused"]["loader"].as_u64().unwrap() > 0,
-                "{entry}: {row}"
-            );
+            assert!(row["late"].as_u64().unwrap() > 0, "{entry}: {row}");
             let mut exports: Vec<&str> = builtin.exports.to_vec();
             exports.push("default");
             exports.sort_unstable();
@@ -960,6 +976,42 @@ fn a_first_import_short_of_stack_is_refused_and_run_whole_later() {
             assert_eq!(row["same"], true, "{entry}: {row}");
         }
     }
+}
+
+/// Every import of a builtin gets the one module, however its first
+/// imports interleave in a turn (`race.js`): ones deep enough in the stack
+/// that the module is built from the event loop and one near the top, which
+/// builds it on the spot, in either order and three times over; deep ones
+/// twice and no shallow one; deep ones and a module importing the builtin
+/// statically, loaded in the same turn; a builtin whose module holds the
+/// run's handle; and source-phase imports, refused deep and shallow alike,
+/// before deep and shallow ones. A host-made class and a handle are the same through
+/// every namespace, and in each case where a shallow import started after
+/// deep ones, some deep ones settled after it, built from the event loop.
+#[test]
+fn every_import_of_a_builtin_in_a_turn_gets_one_module() {
+    let project = forced_project("race");
+    let rows = run_printing(&project, "race.js");
+    let rows = rows.as_array().unwrap();
+    for row in rows {
+        assert_eq!(row["same"], true, "{row}");
+        assert_eq!(row["errors"], serde_json::json!([]), "{row}");
+        if let Some(late) = row["late"].as_u64() {
+            assert!(late > 0, "{row}");
+        }
+    }
+    let case = |name: &str| {
+        rows.iter()
+            .find(|row| row["case"] == name)
+            .unwrap_or_else(|| panic!("{name}: {rows:?}"))
+    };
+    assert_eq!(case("deep, static")["classes"], true);
+    assert_eq!(case("deep, shallow, a handle")["handles"], true);
+    assert_eq!(
+        case("source phase, then deep, shallow")["sources"],
+        serde_json::json!({"imported": 0, "errors": ["ReferenceError"]})
+    );
+    assert_eq!(rows.len(), 7, "{rows:?}");
 }
 
 /// Every import of a builtin gets one module, an `import.defer()` between
@@ -993,15 +1045,7 @@ console.log(JSON.stringify(rows));
             ("main.js", &main),
         ],
     );
-    let mut command = fgro_command(&["run", GRANT_ENV, "main.js"]);
-    command.env_clear().current_dir(&project.0);
-    let output = spawn(command, b"");
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(output.status.code(), Some(0), "{}: {stderr}", output.status);
-    assert_eq!(stderr, "");
-    let rows: Value =
-        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
+    let rows = run_printing(&project, "main.js");
     let rows = rows.as_array().unwrap();
     assert_eq!(rows.len(), BUILTINS.len(), "{rows:?}");
     for (row, builtin) in rows.iter().zip(BUILTINS) {

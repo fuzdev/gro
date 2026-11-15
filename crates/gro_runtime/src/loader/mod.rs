@@ -38,18 +38,15 @@
 //! it imports nothing, and the URL imports nothing either, its scheme
 //! refused from source.
 //!
-//! An `import()` of a builtin it grants is refused with less stack left
-//! than [`headroom::BUILTIN_IMPORT_STACK`] ([`FailureReason::OutOfStack`]),
-//! whether or not the run imported the builtin already, which `deno_core`
-//! asks the loader before it looks:
 //! `deno_core` runs a builtin's implementation the first time a run imports
-//! it, inside the `import()` call, on its caller's stack (`headroom.rs` has
-//! why, and the measurement behind the amount). The check comes after the
-//! grant, so an `import()` short of stack that a rule refuses is refused by
-//! the rule, and it's no refusal by rule itself: the same import with more
-//! stack left succeeds. Nearest the limit, the import's promise rejects with
-//! the engine's own `RangeError` instead, `deno_core` failing to make its
-//! handler on the promise of the import the loader refused.
+//! it, and an `import()`'s inside the call, on its caller's stack. So the
+//! loader answers `deno_core`'s `should_load_synthetic_esm` from the stack
+//! left: a first `import()` of a builtin with less than
+//! [`headroom::BUILTIN_IMPORT_STACK`] left has its module built from the
+//! event loop instead, the implementation run whole there, and settles a
+//! turn later (`headroom.rs` has why, and the measurement behind the
+//! amount). The grant is checked as the import resolves, before
+//! `deno_core` asks, so what a rule refuses doesn't depend on the stack.
 //!
 //! An `import()` in code compiled from a string (an `eval`, a `Function`
 //! constructor, a string passed to a timer) is refused, whatever it names
@@ -182,7 +179,8 @@ pub struct Loader {
     /// The run's authority, which each builtin import is checked against;
     /// unset, no builtin is imported.
     authority: Option<Authority>,
-    /// The stack left where an `import()` of a builtin resolves.
+    /// The stack left where `deno_core` asks whether to build a builtin's
+    /// module there.
     headroom: Headroom,
 }
 
@@ -420,7 +418,6 @@ impl Loader {
         let resolved = resolve_into(
             &mut self.graph.borrow_mut(),
             self.authority.as_ref(),
-            &self.headroom,
             tree,
             specifier,
             referrer,
@@ -695,6 +692,20 @@ impl ModuleLoader for Loader {
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
         self.refuse_from_driver(specifier, referrer, Reached::MetaResolve)?;
         self.resolve_on_disk(specifier, referrer, Reached::MetaResolve)
+    }
+
+    /// Whether `deno_core` builds a builtin's module from the event loop
+    /// rather than here: when less than
+    /// [`BUILTIN_IMPORT_STACK`](headroom::BUILTIN_IMPORT_STACK) is left above
+    /// V8's limit. `deno_core` asks inside an `import()` of a builtin it
+    /// hasn't evaluated, before it would build or evaluate the module on the
+    /// importer's stack, and from the event loop, as a load reaches a builtin
+    /// it hasn't registered or one that is a load's root, an `import.defer()`
+    /// of a built one included, where nearly the whole stack is left and the
+    /// answer is no (a yes there would send the builtin through
+    /// `prepare_load` to [`load`](ModuleLoader::load), which refuses it).
+    fn should_load_synthetic_esm(&self, _specifier: &str) -> bool {
+        self.headroom.is_short()
     }
 
     fn load(

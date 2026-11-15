@@ -51,15 +51,19 @@
 //! backing script runs on the importer's stack, and an importer that left it
 //! too little, a package's module included for a grant-free builtin, would
 //! cut it short, with `deno_core`'s report of the failure made on that stack
-//! too. So the loader refuses an `import()` of a builtin with less than
+//! too. So the first `import()` of a builtin with less than
 //! [`BUILTIN_IMPORT_STACK`](crate::loader::headroom::BUILTIN_IMPORT_STACK)
-//! left, before anything of it runs, and an implementation throws nothing at
-//! load: with that much left, nothing ends a script early. Should anything
-//! else ever, `deno_core` rejects that import with a `TypeError` carrying its
-//! own report of what the script threw, never the error, keeps nothing of
-//! the run, and runs the whole script again at the next import. So both
-//! levels of an implementation are kept safe to end at any call and to run
-//! again:
+//! left has its module built from the event loop, with nearly the whole
+//! stack, and an implementation throws nothing at load: nothing known ends
+//! a script early. That holds by measurement, not by a bound: the amount is
+//! what each build's sweep holds, and off glibc, where the stack start
+//! isn't read, nothing is deferred, so a deep first import can be cut short
+//! there. Should anything end a script early, `deno_core` rejects that
+//! import with a `TypeError` carrying its own report of what the script
+//! threw, never the error, keeps nothing of the run, and runs the whole
+//! script again at the next import. So both levels of an implementation are
+//! kept safe to end at any call and to run again, and a cause found later
+//! costs a rerun, never a half-made module or an effect done twice:
 //!
 //! - Neither stores anything outside its own bindings: no property on the
 //!   bootstrap object or on anything it holds. What the outer level makes
@@ -76,10 +80,11 @@
 //!   what the builtin exports, never by a level.
 //!
 //! A builtin that can fail for a reason of the run's fails in what it
-//! exports, as `cwd` does when called. The tests start every row's first
-//! import a frame apart up from the stack's limit, hold each to the
-//! loader's refusal until one makes the whole module, and hold every later
-//! import to that module; that an op is safe to repeat, nothing checks.
+//! exports, as `cwd` does when called. `deno_core` builds one module of a
+//! builtin however its loads interleave (gro's patch of it). The tests
+//! start every row's first import a frame apart up from the stack's limit
+//! and hold every import to one whole module; that an op is safe to repeat,
+//! nothing checks.
 //!
 //! The loader resolves an import to a `builtin:` URL only for a bare
 //! specifier in the table and only for an importer granted it

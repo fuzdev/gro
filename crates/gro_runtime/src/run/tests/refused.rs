@@ -426,8 +426,8 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
 /// A package's module that starts `import()`s near the stack's limit, a
 /// frame apart, and settles them all: above the frames where `deno_core`'s
 /// handler on the import's promise can't be made, whose rejection is the
-/// engine's `RangeError`, and below what the loader requires
-/// (`BUILTIN_IMPORT_STACK`).
+/// engine's `RangeError`, and below what a builtin's first import needs to
+/// run on the importer's stack (`BUILTIN_IMPORT_STACK`).
 const NEAR_THE_LIMIT: [(&str, &str); 2] = [
     (
         "node_modules/pkg/package.json",
@@ -453,14 +453,13 @@ const NEAR_THE_LIMIT: [(&str, &str); 2] = [
     ),
 ];
 
-/// A refusal by rule is the one an `import()` short of stack gets, listed
-/// as ever, while an `import()` the loader refuses only for want of stack,
-/// which a retry with more succeeds, is not: a package's imports of `args`
-/// near the stack's limit are refused for the grant and listed once, and
-/// its imports of `pid` there are refused for the stack and leave the run
-/// whole, the program catching both.
+/// An `import()` short of stack that a rule refuses is refused and listed,
+/// and one the rules admit imports, its module built from the event loop:
+/// a package's imports of `args` near the stack's limit are refused for the
+/// grant and listed once, and its first imports of `pid` there all get the
+/// module every later import gets.
 #[test]
-fn a_refusal_by_rule_comes_before_one_for_want_of_stack() {
+fn a_refusal_by_rule_holds_short_of_stack() {
     let main = "import { near } from 'pkg/near.js';
 const reasons = async (specifier) =>
 \t(await near(specifier)).map((settled) => settled.status === 'rejected' && settled.reason.message);
@@ -468,10 +467,10 @@ const args = await reasons('@fuzdev/gro/args.ts');
 if (args.length === 0 || !args.every((reason) => reason && reason.includes(\"which package 'pkg' isn't granted\"))) {
 \tthrow new Error(`args: ${args}`);
 }
-const pid = await reasons('@fuzdev/gro/pid.ts');
-const short = ': Maximum call stack size exceeded: an import() of a builtin module needs ';
-if (pid.length === 0 || !pid.every((reason) => reason && reason.includes(short))) {
-\tthrow new Error(`pid: ${pid}`);
+const pid = await near('@fuzdev/gro/pid.ts');
+const module = await import('@fuzdev/gro/pid.ts');
+if (pid.length === 0 || !pid.every((settled) => settled.status === 'fulfilled' && settled.value === module)) {
+\tthrow new Error(`pid: ${pid.map((settled) => settled.status)}`);
 }
 ";
     let files: Vec<(&str, &str)> = NEAR_THE_LIMIT

@@ -1062,13 +1062,11 @@ and every builtin module is imported by a test in a realm whose every reachable 
 where each function it exports or reaches is called with hostile arguments: a proxy, a callback that reports its call, an object of getters, a subclassed string and array.
 It shares no source with the Node implementation: the cases run under both runtimes hold the two to one behavior.
 A builtin module's implementation runs the first time a run imports it, and an `import()` runs it on the caller's stack,
-so an `import()` of a builtin module with less than 64 KiB of stack left is refused before anything of the implementation runs,
-whether or not the run imported the module already, which the loader can't tell when it resolves the import.
-The import rejects with a `TypeError` whose message is `cannot import '<specifier>' from <importer>: Maximum call stack size exceeded: an import() of a builtin module needs 64 KiB of stack left, since the first runs the module's implementation on the importer's stack`
-and whose `code` is `'ERR_MODULE_NOT_FOUND'`, as for every `import()` that fails to resolve or load, so code that falls back when that code says a module is missing reads this refusal as one;
-nearest the stack's limit it rejects with the engine's own `RangeError` instead.
-The refusal isn't one by rule: it doesn't fail the run, and a later import with more stack left runs the implementation whole.
-Nearest the limit, as for any `import()` there, the engine's `RangeError` can also leave a promise the program never saw rejected and unhandled, which fails the run.
+so a first `import()` started with less than 96 KiB of stack left runs the implementation from the event loop instead, with nearly the whole stack,
+and settles from the event loop, after the current turn's microtasks and before a 0 ms timer, where one started shallower settles in the turn;
+every import of the module gets the one module, however the first ones interleave.
+Nearest the stack's limit, as for any `import()` there, the import can reject with the engine's own `RangeError`,
+which can also leave a promise the program never saw rejected and unhandled, failing the run.
 An implementation throws nothing as it loads, so nothing it does then is left half-done, or done twice to any effect:
 what can fail for a reason of the run's fails in what the module exports, as `cwd` does when called.
 

@@ -1,23 +1,23 @@
-//! The stack an `import()` of a builtin needs left: `deno_core` runs a
-//! builtin's implementation the first time a run imports it, inside the
-//! `import()` call, on the importer's stack, and would report a failure of
-//! it there too.
+//! The stack a builtin's first import needs to run its implementation on
+//! the importer's stack: `deno_core` builds a builtin's module the first
+//! time a run imports it, and an `import()`'s inside the call.
 //!
 //! V8 holds JS to a limit `V8_STACK_SIZE` below the thread's stack start and
 //! lets the native code JS calls run 40 KiB past it; a garbage collection
 //! that starts further down ends the process (V8's check that the heap is
 //! collected on the central stack). A first import started near the limit
 //! would cut the implementation short, and `deno_core`'s report of that
-//! failure, native frames that allocate, can run past the 40 KiB. So the
-//! loader refuses an `import()` of a builtin with less than
-//! [`BUILTIN_IMPORT_STACK`] left above the limit, before anything of it
-//! runs: an implementation runs whole or not at all, whatever its importer
-//! left it, and no report of its failure is made on that stack.
+//! failure, native frames that allocate, can run past the 40 KiB. So with
+//! less than [`BUILTIN_IMPORT_STACK`] left above the limit, the loader has
+//! `deno_core` build the module from the event loop, with nearly the whole
+//! stack left, and the `import()` settles then: an implementation runs
+//! whole whatever its importer left it, and no first import of a builtin
+//! is cut short where the limit is read (off glibc nothing is deferred).
 //!
 //! The loader reads the limit as V8 does, from the thread's stack start
-//! ([`gro_sys::stack_start`]), the first time an `import()` of a builtin
-//! asks, and what's left from the address of a frame of its own, which lies
-//! below the `import()` call's.
+//! ([`gro_sys::stack_start`]), the first time `deno_core` asks, and what's
+//! left from the address of a frame of its own, which lies below the
+//! `import()` call's.
 
 use std::cell::OnceCell;
 
@@ -28,38 +28,43 @@ use std::cell::OnceCell;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 const V8_STACK_SIZE: usize = 984 * 1024;
 
-/// The stack, in bytes, an `import()` of a builtin needs left above V8's
-/// limit where the loader resolves it: with less, the import is refused,
-/// whether or not the run imported the builtin already, which the loader
-/// can't tell when it resolves.
+/// The stack, in bytes, the first `import()` of a builtin needs left above
+/// V8's limit to build the module on the importer's stack: with less, the
+/// module is built from the event loop. More than the need costs only that
+/// a first import with less left settles a turn later; less would cut a
+/// first import short.
 ///
-/// What a first import needs, measured from the check's own frame, each row
-/// imported once from far above the limit: V8 compiles an implementation's
-/// outer function lazily, on its first call, and refuses to compile with
-/// less than 40 KiB left (`kStackSpaceRequiredForCompilation`), which would
-/// cut the import short, so the need is the frames down to that compile
-/// plus 40 KiB. In a debug build with full debuginfo the compile's frame
-/// is 8,608 bytes below the check's, a need of 49,568, and the deepest byte
-/// the import writes is 43,664 below the check, in that compile; with the
-/// amount at 48 KiB the sweep named below fails, at 50 KiB it passes. In the
-/// release build the deepest byte is about 35 KiB below the check, and the
-/// sweep fails with the amount at 40,960 bytes and passes at 41,472.
-/// Every row measures the same, the compile being the deepest step, and a
-/// realm a program patched (a `cause` chain on every error class, an
-/// aggregate, `Error.prepareStackTrace`) changes nothing, since no code of
-/// the program runs in a load that succeeds. 64 KiB leaves 14 KiB over the
-/// debug build's need and 23 KiB over the release build's.
-/// The sweep, `gro_cli`'s test
-/// `a_first_import_short_of_stack_is_refused_and_run_whole_later`, starts
+/// What a first import needs, measured from the frame `deno_core` asks
+/// from, each row imported once from far above the limit: V8 compiles an
+/// implementation's outer function lazily, on its first call, and refuses
+/// to compile with less than 40 KiB left
+/// (`kStackSpaceRequiredForCompilation`), which would cut the import short,
+/// so the need is the frames down to that compile plus 40 KiB. With the
+/// amount swept in steps of 1 KiB, the sweep named below fails at 59,392
+/// bytes in a debug build and passes at 60,416, and in the release build
+/// fails at 43,008 and passes at 44,032. Every row measures the same, the
+/// compile being the deepest step, and a realm a program patched (a `cause`
+/// chain on every error class, an aggregate, `Error.prepareStackTrace`)
+/// changes nothing, since no code of the program runs in a load that
+/// succeeds. 96 KiB leaves 37 KiB over the debug build's need and 53 KiB
+/// over the release build's. The sweep, `gro_cli`'s test
+/// `a_first_import_short_of_stack_is_built_from_the_event_loop`, starts
 /// every row's first import a frame apart up from the limit in both builds,
-/// so a build that needs more fails it.
+/// so a build that needs more than this fails it.
 ///
-/// A failed load's report would need more than this: `deno_core` converts
-/// the error natively, following `cause` and an aggregate's errors 32 deep,
-/// which reached 54 KiB below the limit in a release build with such a
-/// realm, and past V8's 40 KiB margin in a debug build. With this much
-/// left, an implementation, which throws nothing at load, doesn't fail.
-pub const BUILTIN_IMPORT_STACK: usize = 64 * 1024;
+/// `deno_core` asks from the event loop too, as a load reaches a builtin,
+/// with over 950 KiB left there in either build, and a yes would send the
+/// builtin to the loader's `load`, which refuses it: the amount stays far
+/// below what the event loop has.
+///
+/// A failed load's report would need more than the first import does:
+/// `deno_core` converts the error natively, following `cause` and an
+/// aggregate's errors 32 deep, which reached 54 KiB below the limit in a
+/// release build with such a realm, and past V8's 40 KiB margin in a debug
+/// build. An implementation throws nothing at load, so none fails with this
+/// much left, and one built from the event loop would be reported with
+/// nearly the whole stack.
+pub const BUILTIN_IMPORT_STACK: usize = 96 * 1024;
 
 /// What's left of the stack above V8's limit, read at the caller.
 #[derive(Debug, Default)]
@@ -94,7 +99,8 @@ fn read_limit() -> Option<usize> {
     gro_sys::stack_start().checked_sub(V8_STACK_SIZE)
 }
 
-/// Off glibc on Linux the stack start isn't read, and no import is refused.
+/// Off glibc on Linux the stack start isn't read, and every module is built
+/// where it's first imported.
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn read_limit() -> Option<usize> {
     None

@@ -332,26 +332,33 @@ Invariants that live in the code:
     whatever has identity or state is the host's (a class, a brand, a
     registry, a table of handles, an exit code), in `OpState`, reached
     through an op.
-  - An `import()` runs an implementation on the caller's stack, so the
-    loader refuses one of a builtin with less than `BUILTIN_IMPORT_STACK`
-    left above V8's limit, imported already or not (it can't tell when it
-    resolves), after its grant and before anything of it runs
-    (`loader/headroom.rs`, with the measurement behind the amount): no
-    importer can cut a first import short, and no failure of one is reported
-    on a stack too short for the report, which could end the process. It's
-    no refusal by rule: the same import with more stack left runs the whole
-    script. An implementation throws nothing at load: what can fail for a
-    reason of the run's fails in what the module exports, as `cwd` does when
-    called. Both levels stay safe to run again should anything else end one
-    early (nothing does today: an op a level calls throws only for want of
-    stack, and a run never terminates V8): `deno_core` keeps nothing of a
-    failed run and runs the whole script at the next import (`bootstrap.rs`).
-    Neither level stores anything outside its own bindings: `deno_core` keeps
-    the namespace only once both have returned, so nothing half-made is
-    published. State every importer shares is the host's, and an op either
-    level calls can be called again. `crates/gro_cli/tests/host.rs` starts
-    every row's first import a frame apart up from the stack's limit and
-    holds each to the refusal until one makes the whole module; nothing
+  - An `import()` runs an implementation on the caller's stack, so a first
+    `import()` of a builtin with less than `BUILTIN_IMPORT_STACK` left above
+    V8's limit has `deno_core` build the module from the event loop instead
+    (the loader's `should_load_synthetic_esm`; `loader/headroom.rs`, with
+    the measurement behind the amount), and the import settles a turn later:
+    no importer can cut a first import short, and no failure of one is
+    reported on a stack too short for the report, which could end the
+    process. `deno_core` builds one module of a builtin however its loads
+    interleave (the `deno_core` patch, `vendor/README.md`), so every import
+    gets the one namespace. An
+    implementation throws nothing at load: what can fail for a reason of the
+    run's fails in what the module exports, as `cwd` does when called.
+    Nothing known ends a level early (a first import has the stack it needs,
+    an op a level calls throws only for want of stack, and a run never
+    terminates V8), and both stay safe to run again all the same: the amount
+    is a measurement each build's sweep holds, not a bound, and where the
+    stack start isn't read (off glibc) nothing is deferred, so a deep first
+    import can be cut short there; `deno_core` answers a failure by keeping
+    nothing of the run and running the whole script at the next import
+    (`bootstrap.rs`), so a cause found later costs a rerun, never a
+    half-made module or an effect done twice. Neither level stores anything
+    outside its own bindings: `deno_core` keeps the namespace only once both
+    have returned, so nothing half-made is published. State every importer
+    shares is the host's, and an op either level calls can be called again.
+    `crates/gro_cli/tests/host.rs` starts every row's first import a frame
+    apart up from the stack's limit, interleaves deep and shallow first
+    imports in a turn, and holds every import to one whole module; nothing
     checks that an op a level calls is safe to repeat.
   - An implementation can run after user code has patched the global
     intrinsics, so it names no global and reads no member of an intrinsic, its
