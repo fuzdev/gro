@@ -134,10 +134,14 @@ jobs:
           rustup show active-toolchain
           cargo --version
 
-      # The registry, which both builds share, and this checkout's target
-      # dependencies; the clone's target dir is outside the workspace and
-      # never cached.
+      # The registry, which both builds share; no target dir is cached, so both
+      # builds compile cold on this image. A cached target would carry objects
+      # a dependency's build script made with another image's C toolchain
+      # (blake3's assembles its SIMD code) into the checkout's fgro and not the
+      # clone's, since rust-cache's key doesn't name the image.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-targets: false
 
       # rust-cache sets CARGO_INCREMENTAL for later steps; the clone builds from
       # a cleared environment, so the check refuses it unless both builds lose it.
