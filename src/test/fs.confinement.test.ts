@@ -606,7 +606,16 @@ describe('names that are not UTF-8', () => {
 		};
 		const error = await assert_fs_error_rejects(list(), 'io_error');
 		assert.include(format_error_detail(error), 'holds an entry named \\xff');
+		// the whole listing is read and decoded first, so no entry comes before the refusal,
+		// though the others here sort before it
+		const iterator = dir.list()[Symbol.asyncIterator]();
+		await assert_fs_error_rejects(iterator.next(), 'io_error');
 		assert.strictEqual(readFileSync(join(sandbox.root, '\uFFFD'), 'utf8'), 'replacement');
+		// of two names that aren't UTF-8, the refusal names the least in byte order, whatever the
+		// directory's own order
+		writeFileSync(to_byte_path(sandbox.root, new Uint8Array([0xfe])), '');
+		const least = await assert_fs_error_rejects(list(), 'io_error');
+		assert.include(format_error_detail(least), 'holds an entry named \\xfe');
 	});
 });
 

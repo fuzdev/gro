@@ -146,6 +146,49 @@ describe('fs_search', () => {
 		assert.deepEqual(unsorted.map((f) => f.path).sort(), ['a.ts', 'b/b.ts', 'b/c/c.md']);
 	});
 
+	test("sorted, files are in `list`'s order taken depth-first; unsorted, one directory's are in `list`'s", async () => {
+		mkdirSync(join(sandbox.root, 'o'));
+		const names = ['b.ts', 'B.ts', '\u{1F600}.ts', '\uE000.ts', 'a.ts'];
+		for (const name of names) writeFileSync(join(sandbox.root, 'o', name), '');
+		const unsorted = await fs_search(dir, { path: 'o', sort: false });
+		// by the names' UTF-8 bytes, as `list` yields them
+		assert.deepEqual(
+			unsorted.map((f) => f.path),
+			['B.ts', 'a.ts', 'b.ts', '\uE000.ts', '\u{1F600}.ts']
+		);
+		const sorted = await fs_search(dir, { path: 'o' });
+		assert.deepEqual(
+			sorted.map((f) => f.path),
+			['B.ts', 'a.ts', 'b.ts', '\uE000.ts', '\u{1F600}.ts']
+		);
+		// by segment, so a directory's files come where `list` puts the directory, though a whole
+		// path's `/` (0x2F) is above the `-` (0x2D) and `.` (0x2E) of a sibling's name
+		mkdirSync(join(sandbox.root, 'p/a'), { recursive: true });
+		writeFileSync(join(sandbox.root, 'p/a/z.ts'), '');
+		writeFileSync(join(sandbox.root, 'p/a-b.ts'), '');
+		writeFileSync(join(sandbox.root, 'p/a.ts'), '');
+		assert.deepEqual(
+			(await fs_search(dir, { path: 'p' })).map((f) => f.path),
+			['a/z.ts', 'a-b.ts', 'a.ts']
+		);
+		// and deeper, each level by its own segment
+		mkdirSync(join(sandbox.root, 'q/x/y'), { recursive: true });
+		for (const file of [
+			'x/y/z.ts',
+			'x/y-z.ts',
+			'x/y.ts',
+			'x-y.ts',
+			'x/y/\u{1F600}.ts',
+			'x/y/\uE000.ts'
+		]) {
+			writeFileSync(join(sandbox.root, 'q', file), '');
+		}
+		assert.deepEqual(
+			(await fs_search(dir, { path: 'q' })).map((f) => f.path),
+			['x/y/z.ts', 'x/y/\uE000.ts', 'x/y/\u{1F600}.ts', 'x/y-z.ts', 'x/y.ts', 'x-y.ts']
+		);
+	});
+
 	test('searches a read-only handle', async () => {
 		const found = await fs_search(dir.readonly(), { path: 'b/c' });
 		assert.deepEqual(

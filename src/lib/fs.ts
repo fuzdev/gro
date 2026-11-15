@@ -70,12 +70,14 @@
 import * as node_fs_promises from 'node:fs/promises';
 import * as node_fs from 'node:fs';
 import type { Dir, Dirent, Stats } from 'node:fs';
+import * as node_buffer from 'node:buffer';
 import * as node_os from 'node:os';
 import * as node_path from 'node:path';
 
 import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
 import { register_fs_handle, type FsHandleResolution } from './internal/fs_handles.ts';
+import { compare_code_points } from './internal/code_points.ts';
 import { create_record } from './internal/records.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -107,6 +109,7 @@ const realpath_sync_native = node_fs.realpathSync.native;
 const { tmpdir } = node_os;
 const { versions } = globalThis.process;
 const { dirname, isAbsolute } = node_path;
+const { compare: compare_bytes } = node_buffer.Buffer;
 
 // TODO: `FsFile` and `dir.open(path)`, a file handle for byte-level reads and writes
 // into caller buffers, the native-first byte path, once a caller needs one
@@ -251,8 +254,11 @@ export interface FsReadDir {
 	 */
 	read_text_if_exists(path: string): Promise<string | null>;
 	/**
-	 * Lists a directory's entries, in no particular order.
-	 * An entry whose name isn't UTF-8 fails the listing with `io_error`,
+	 * Lists a directory's entries sorted by name, comparing the names' UTF-8 bytes,
+	 * which is code point order, never a locale's or UTF-16's,
+	 * so a listing is in one order on every filesystem and runtime.
+	 * The whole directory is read before the first entry is yielded.
+	 * An entry whose name isn't UTF-8 fails the listing with `io_error`, before any entry,
 	 * since no string names it.
 	 * @param path - defaults to the handle's own directory
 	 */
@@ -1070,26 +1076,34 @@ class NodeFsReadDir implements FsReadDir {
 
 	async *list(path = ''): AsyncIterable<DirEntry> {
 		const lexical = to_lexical_path(this.#root, path);
-		let entries: Dir;
+		const listed: Array<DirEntry> = [];
+		// the least name that isn't UTF-8, in byte order, which fails the listing
+		let invalid: Buffer | null = null;
 		try {
 			// names read as bytes, so one that isn't UTF-8 is refused rather than listed as a
 			// lossy name that reaches a different entry, or none (Node's types omit `'buffer'`)
-			entries = await opendir(await confine(this.#root, path, lexical, true), {
+			const entries: Dir = await opendir(await confine(this.#root, path, lexical, true), {
 				encoding: 'buffer' as BufferEncoding
 			});
-		} catch (error) {
-			throw to_fs_error(error, lexical.path);
-		}
-		try {
 			for await (const entry of entries as AsyncIterable<Dirent<Buffer>>) {
-				yield {
-					name: decode_name(entry.name, lexical.path, 'holds an entry named'),
-					kind: to_file_kind(entry)
-				};
+				const bytes = entry.name;
+				let name: string;
+				try {
+					name = utf8_decoder.decode(bytes);
+				} catch {
+					if (invalid === null || compare_bytes(bytes, invalid) < 0) invalid = bytes;
+					continue;
+				}
+				listed.push({ name, kind: to_file_kind(entry) });
 			}
 		} catch (error) {
 			throw to_fs_error(error, lexical.path);
 		}
+		// throws, so a listing holding a name that isn't UTF-8 fails before any entry is yielded
+		if (invalid !== null) decode_name(invalid, lexical.path, 'holds an entry named');
+		// by code point, the order of the names' bytes, which the native op sorts in
+		listed.sort((a, b) => compare_code_points(a.name, b.name));
+		for (let i = 0; i < listed.length; i++) yield listed[i]!;
 	}
 
 	async read_link(path: string): Promise<string> {

@@ -39,7 +39,7 @@ afterEach(() => {
 const collect = async (entries: AsyncIterable<DirEntry>): Promise<Array<DirEntry>> => {
 	const result: Array<DirEntry> = [];
 	for await (const entry of entries) result.push(entry);
-	return result.sort((a, b) => (a.name < b.name ? -1 : 1));
+	return result;
 };
 
 describe('fs', () => {
@@ -212,6 +212,36 @@ describe('stat, exists, list', () => {
 		]);
 		assert.deepEqual(await collect(dir.list('d')), [{ name: 'inner.txt', kind: 'file' }]);
 		assert.deepEqual(await collect(dir.list('link')), [{ name: 'inner.txt', kind: 'file' }]);
+	});
+
+	test("list is sorted by the names' UTF-8 bytes, not by UTF-16 code units or a locale", async () => {
+		// made in an order that's neither, and enough that a directory's own order is unlikely to be it
+		const names = [
+			'\u{1F600}',
+			'b',
+			'\uFFFD',
+			'B',
+			'a',
+			'\uE000',
+			'\u00E9',
+			'a.b',
+			'a-b',
+			'\u{10FFFF}',
+			'_',
+			'1',
+			'\u007F'
+		];
+		for (const name of names) await dir.write(name, '');
+		const listed = (await collect(dir.list())).map(({ name }) => name);
+		const by_bytes = names.toSorted((x, y) => Buffer.compare(Buffer.from(x), Buffer.from(y)));
+		assert.deepEqual(listed, by_bytes);
+		// the three orders differ for these names, so the listing is the first
+		assert.deepEqual(by_bytes.slice(-4), ['\uE000', '\uFFFD', '\u{1F600}', '\u{10FFFF}']);
+		assert.notDeepEqual(listed, names.toSorted());
+		assert.notDeepEqual(
+			listed,
+			names.toSorted((x, y) => x.localeCompare(y))
+		);
 	});
 
 	test('list of a missing directory or a file throws', async () => {

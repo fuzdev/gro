@@ -2,7 +2,7 @@
 '@fuzdev/gro': minor
 ---
 
-feat: hold the host modules' errors to the runtime's contract: every `message` is exactly `kind: target`, the detail in its `cause`, which `format_error_detail` prints, and the error classes take no message
+feat: hold the host modules to the runtime's contract: every error's `message` is exactly `kind: target`, the detail in its `cause`, which `format_error_detail` prints, the error classes take no message, `FsErrorKind` has `not_granted`, and `list` and `fs_search` sort by the names' UTF-8 bytes
 
 **breaking** `FsError`, `SpawnError`, and `NetError` take no message: the constructors are
 `new FsError(kind, path, options?)`, `new SpawnError(kind, program, options?)`, and `new NetError(kind, target, options?)`.
@@ -23,3 +23,17 @@ gro prints it when a task fails, a task or genfile module fails to import, a gen
 followed by its chain of causes, each in parentheses inside the one before, at most `MAX_ERROR_CAUSES`,
 control and bidirectional characters escaped, and never throws, and `format_error_causes(error)` prints the chain alone,
 for after a stack: what a program that shows a host module's failure to a person calls.
+
+**breaking** `FsErrorKind` gains `not_granted`, a reach outside what the run granted, which only the runtime's builtin module throws;
+the Node module checks no grant and never throws it. An exhaustive `switch` over the kinds needs a case for it.
+
+**breaking** `list` yields a directory's entries sorted by name, comparing the names' UTF-8 bytes (code point order),
+where the order was the filesystem's, and it reads the whole directory before yielding the first entry.
+A listing holding a name that isn't UTF-8 fails with `io_error` before any entry, where entries before it could be yielded first.
+Code that sorted a listing itself can drop the sort if byte order is the order it wants;
+JS's default sort compares UTF-16 code units, which puts an astral name before U+E000 to U+FFFF, and `localeCompare` follows a locale.
+
+**breaking** `fs_search` sorts its results by path segment by segment, each compared by code point, its UTF-8 byte order:
+`list`'s order taken depth-first, where it sorted whole paths with `localeCompare`, whose order changed with the process's locale
+(`B.ts` now comes before `a.ts`, and `a/z.ts` before `a-b.ts`).
+Pass `sort: false` and sort the results yourself for another order.

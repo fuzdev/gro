@@ -97,7 +97,9 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 - `dir.path` is the absolute real path, for display and a spawned process's cwd.
   It carries no authority.
 - Errors are `FsError`, typed by `kind` (`not_found`, `already_exists`, `permission_denied`,
-  `not_a_directory`, `is_a_directory`, `not_empty`, `outside_root`, `io_error`).
+  `not_a_directory`, `is_a_directory`, `not_empty`, `outside_root`, `not_granted`, `io_error`).
+  `not_granted` is a reach outside what the run granted, refused at the call whether or not anything is there,
+  so it reveals nothing outside the grants; only the runtime's builtin module throws it, since the Node module checks no grant.
   Match one with `is_fs_error(error, kind?)`, which also recognizes one from another copy of Gro.
   Both live in `@fuzdev/gro/fs_error.ts`, apart from the host module,
   so code that only makes or matches an error imports no capability.
@@ -112,6 +114,11 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   Any other failure still throws, so a permission error is never read as a missing file,
   and a path through a file (`f.txt/x`) is `not_a_directory`, not missing, sync and async alike.
 - `stat_sync`, `exists_sync`, and `read_text_sync` are the sync ops, for hot build paths.
+- `list` yields a directory's entries sorted by name, comparing the names' UTF-8 bytes
+  (code point order, never a locale's, and not JS's default sort, which compares UTF-16 code units and puts an astral name before U+E000 to U+FFFF),
+  so a listing is in one order on every filesystem and both runtimes.
+  It reads the whole directory before yielding the first entry, holding every name in memory.
+  A name that isn't UTF-8 fails the listing with `io_error` before any entry, so where it would sort never shows.
 - A symlink's target is data, and following it is what's confined.
   `dir.symlink(path, target)` stores any target verbatim, relative, absolute, or dangling, never resolving it,
   and `dir.read_link(path)` returns one as stored, never following the link, so reading it reaches nothing.
@@ -139,6 +146,11 @@ The module's TSDoc has each op's contract.
 finding the files beneath a directory through `list`, recursively.
 A symlink is a result like a file, never followed, its `kind` telling them apart,
 and a missing directory finds nothing.
+Its results are sorted by path segment by segment, each compared by code point, the order of its UTF-8 bytes:
+`list`'s order taken depth-first, so a directory's files come where `list` puts the directory (`a/z.ts` before `a-b.ts`),
+and a search lists in one order on every machine whatever its locale; `sort: false` leaves them in the order found:
+each directory's entries in `list`'s order, but sibling directories are searched concurrently,
+so the order across directories isn't fixed.
 Gro's own sweeps, like `gro format`'s, act on regular files only and skip a symlink, as tsv's walk does.
 
 ## spawn
@@ -905,7 +917,8 @@ It documents each gap rather than weakening the API to match, and is a review si
   and the module blocks only the forgeries named above.
 - A handle opened on `/proc` follows its magic links (`/proc/self/fd/1`, `/proc/self/root`),
   which the kernel resolves without a path the walk can check.
-- `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant.
+- `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant,
+  so no op throws `not_granted`, which the runtime's throws for a reach outside the run's grants.
 - Any module can import `node:fs` and the `process` global stays,
   so a narrowed handle bounds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,

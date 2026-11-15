@@ -13,7 +13,9 @@ import { is_error_class_named } from './internal/error_class.ts';
 
 /**
  * Why an fs op failed. `outside_root` is a path that would leave its handle;
- * `io_error` is every failure without a kind of its own.
+ * `not_granted` is a reach outside what the run granted, refused whether or not anything
+ * is there, which only the runtime's builtin module throws, since the Node module checks
+ * no grant; `io_error` is every failure without a kind of its own.
  */
 export type FsErrorKind =
 	| 'not_found'
@@ -23,6 +25,7 @@ export type FsErrorKind =
 	| 'is_a_directory'
 	| 'not_empty'
 	| 'outside_root'
+	| 'not_granted'
 	| 'io_error';
 
 // set in the class's static block, where the private brand is in scope

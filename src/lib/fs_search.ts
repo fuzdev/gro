@@ -10,6 +10,7 @@ import type { FileFilter, PathFilter, ResolvedPath } from '@fuzdev/fuz_util/path
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 
 import type { FileKind, FsReadDir } from './fs.ts';
+import { compare_code_points } from './internal/code_points.ts';
 
 /**
  * A file `fs_search` found: a non-directory entry, with its kind as the listing read it,
@@ -42,8 +43,10 @@ export interface FsSearchOptions {
 	 */
 	file_filter?: FileFilter | Array<FileFilter>;
 	/**
-	 * Whether the results are sorted by `path`, defaults to `true`.
-	 * Without sorting the order is volatile.
+	 * Whether the results are sorted by `path`, segment by segment, each compared by code point,
+	 * the order of its UTF-8 bytes: `list`'s order taken depth-first, so a directory's files come
+	 * where `list` puts the directory (`a/z.ts` before `a-b.ts`), the same on every machine and
+	 * runtime; defaults to `true`. Without sorting the order is volatile.
 	 */
 	sort?: boolean;
 }
@@ -98,8 +101,17 @@ export const fs_search = async (
 	return sort ? found.sort(compare_paths) : found;
 };
 
-const compare_paths = (a: FsSearchResult, b: FsSearchResult): number =>
-	a.path.localeCompare(b.path);
+// segment by segment, each by code point, a path before any path beneath it
+const compare_paths = (a: FsSearchResult, b: FsSearchResult): number => {
+	const x = a.path.split('/');
+	const y = b.path.split('/');
+	const length = x.length < y.length ? x.length : y.length;
+	for (let i = 0; i < length; i++) {
+		const compared = compare_code_points(x[i]!, y[i]!);
+		if (compared !== 0) return compared;
+	}
+	return x.length - y.length;
+};
 
 const to_filters = <T>(filter: T | Array<T> | undefined): Array<T> | undefined =>
 	filter === undefined

@@ -4,6 +4,7 @@ import { relative, resolve } from 'node:path';
 import type { DirEntry, FileInfo, FsDir, FsStatOptions } from '#lib/fs.ts';
 import { FsError } from '#lib/fs_error.ts';
 import type { FsOpenedPath, FsPaths } from '#lib/fs_paths.ts';
+import { compare_code_points } from '#lib/internal/code_points.ts';
 
 /**
  * An `FsDir` whose ops are all `vi.fn` mocks.
@@ -214,7 +215,8 @@ export const mock_tree = (dir: MockFsDir, tree: Record<string, string | MockTree
 				});
 			}
 		}
-		return entries;
+		// in the contract's order, code point order of the names
+		return entries.sort((a, b) => compare_code_points(a.name, b.name));
 	};
 };
 
