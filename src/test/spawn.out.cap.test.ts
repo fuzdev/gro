@@ -41,6 +41,8 @@ describe('the capture cap', () => {
 				const output = await program.out_bytes([], { max_bytes: 1024, stdin: 'inherit' });
 				const elapsed = performance.now() - started;
 				const pid = Number(readFileSync(join(sandbox.base, pid_name), 'utf8').trim());
+				// the kill below would take 0 as this process's own group
+				assert.ok(pid > 1, `read pid ${pid}`);
 				try {
 					assert.strictEqual(output.truncated, true);
 					assert.ok(output.kind === 'signaled' && output.signal === 'SIGKILL');

@@ -888,7 +888,9 @@ describe('calls', () => {
 			assert.strictEqual(output.stdout, '12345');
 		} finally {
 			try {
-				process.kill(Number(readFileSync(pid_path, 'utf8').trim()), 'SIGKILL');
+				const pid = Number(readFileSync(pid_path, 'utf8').trim());
+				// a kill would take 0 as this process's own group
+				if (pid > 1) process.kill(pid, 'SIGKILL');
 			} catch {
 				// the grandchild already ended
 			}
