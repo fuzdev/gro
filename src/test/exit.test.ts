@@ -66,10 +66,11 @@ describe('exit', () => {
 		const ready = join(runner.sandbox.base, 'pid');
 		const sleeper = join(bin, 'sleeper');
 		// the pid file appears whole, by rename: the fixture exits as soon as it sees the file,
-		// and a child killed between creating it and writing its pid would leave it empty
+		// and a child killed between creating it and writing its pid would leave it empty;
+		// the child ignores `SIGTERM`, so only the hook's `SIGKILL` ends it
 		writeFileSync(
 			sleeper,
-			`#!/bin/sh\necho $$ > '${ready}.tmp'\nmv '${ready}.tmp' '${ready}'\nexec sleep 100\n`,
+			`#!/bin/sh\ntrap '' TERM\necho $$ > '${ready}.tmp'\nmv '${ready}.tmp' '${ready}'\nexec sleep 100\n`,
 			{ mode: 0o755 }
 		);
 		const result = run_fixture(

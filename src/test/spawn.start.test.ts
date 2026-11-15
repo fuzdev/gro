@@ -912,14 +912,15 @@ describe('cleanup when the host exits', () => {
 	};
 
 	// the pid file appears whole, by rename, as a host that sees it signals the child at once,
-	// and a child killed between creating the file and writing its pid would leave it empty
-	const write_pid_then_sleep = (path: string): string =>
-		`echo $$ > '${path}.tmp'\nmv '${path}.tmp' '${path}'\nexec sleep 100`;
+	// and a child killed between creating the file and writing its pid would leave it empty;
+	// a child that ignores `SIGTERM` ends only by a `SIGKILL`
+	const write_pid_then_sleep = (path: string, ignores_term = false): string =>
+		`${ignores_term ? "trap '' TERM\n" : ''}echo $$ > '${path}.tmp'\nmv '${path}.tmp' '${path}'\nexec sleep 100`;
 
-	const write_child_scripts = (): { sleeper: string; ready: string } => {
+	const write_child_scripts = (ignores_term = false): { sleeper: string; ready: string } => {
 		const ready = join(sandbox.base, 'child_pid');
 		const sleeper = join(bin, 'sleeper');
-		write_script(sleeper, write_pid_then_sleep(ready));
+		write_script(sleeper, write_pid_then_sleep(ready, ignores_term));
 		return { sleeper, ready };
 	};
 
@@ -938,7 +939,7 @@ describe('cleanup when the host exits', () => {
 	});
 
 	test('an inheriting child is killed by pid when the host hits an uncaught exception', async () => {
-		const { ready } = write_child_scripts();
+		const { ready } = write_child_scripts(true);
 		const result = await run_fixture(
 			spawn,
 			'throw',
