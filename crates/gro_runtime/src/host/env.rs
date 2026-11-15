@@ -29,7 +29,9 @@ use deno_core::{OpState, v8};
 use super::error_class::{ENV_ERROR, ErrorClasses};
 use super::handle::{self, ENV_HANDLE};
 use super::{HostData, own_data, throw_error, throw_range_error, throw_type_error};
-use crate::{Authority, EnvNameFault, env_name_fault};
+use crate::loader::RefusalLog;
+use crate::resolver::Capability;
+use crate::{Authority, EnvNameFault, RefusedBy, env_name_fault};
 
 /// What a method called on anything but an env handle throws.
 const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not another object";
@@ -252,7 +254,9 @@ fn make<'s>(
 }
 
 /// Throws `EnvError` `not_granted` for `name` when `names`, a handle's
-/// set, lacks it; every name is granted when it's `None`. `None` with the
+/// set, lacks it, and records the refusal in the run's [`RefusalLog`],
+/// which fails the run, or, in a runtime with no record, throws an `Error`
+/// saying so; every name is granted when it's `None`. `None` with the
 /// exception pending when it threw.
 fn check_granted<'s>(
     state: &OpState,
@@ -266,12 +270,38 @@ fn check_granted<'s>(
     if names.has_own_property(scope, name.into())? {
         return Some(());
     }
-    match state.try_borrow::<ErrorClasses>() {
-        Some(classes) => classes.throw(scope, &ENV_ERROR, "not_granted", name),
-        None => throw_error(scope, NO_ENV_STATE),
-    }
+    // a run's start puts both before anything runs, so only a runtime made
+    // outside one lacks them, and a refusal there fails, never passes
+    // unrecorded
+    let (Some(classes), Some(log)) = (
+        state.try_borrow::<ErrorClasses>(),
+        state.try_borrow::<RefusalLog>(),
+    ) else {
+        throw_error(scope, NO_REFUSAL_STATE);
+        return None;
+    };
+    classes.throw(scope, &ENV_ERROR, NOT_GRANTED, name);
+    // recorded as it's thrown, so the run fails whatever the program does
+    // with the error; the name, never a value
+    let message = format!("{NOT_GRANTED}: {}", name.to_rust_string_lossy(scope));
+    log.record(
+        RefusedBy::Grant {
+            grant: Capability::Env,
+            error: ENV_ERROR.name,
+        },
+        &message,
+    );
     None
 }
+
+/// What a refused name throws in a runtime started without the run's error
+/// classes or its record of refusals, which only a runtime made outside a
+/// run's start is: a refusal that couldn't fail the run is an error itself.
+const NO_REFUSAL_STATE: &str = "env refused a name, but this runtime was started without the \
+                                run's record of refusals, so the refusal can't fail the run";
+
+/// The kind of the error a name outside a handle's set throws.
+const NOT_GRANTED: &str = "not_granted";
 
 /// `value` as a variable's name, checked as the Node module checks one,
 /// `what` naming it in a refusal's message, a `*` refused unless `glob`.

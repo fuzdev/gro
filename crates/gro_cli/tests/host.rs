@@ -36,6 +36,7 @@
 mod support;
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::resolver::BUILTINS;
@@ -61,8 +62,9 @@ fn read_json(file: &str) -> Value {
 
 /// A case of the table: its name, its host module, the arguments it's run
 /// with, `fgro run`'s flags before the entry, the environment it's run in,
-/// which holds nothing else, and the values that differ by design on
-/// `fgro`.
+/// which holds nothing else, the values that differ by design on `fgro`,
+/// and the lines `fgro` prints for what its rules refused, which fail the
+/// run there, where Node has no such rule.
 struct Case {
     name: String,
     module: String,
@@ -70,6 +72,7 @@ struct Case {
     flags: Vec<String>,
     env: Vec<(String, String)>,
     differs: Vec<Difference>,
+    refused: Vec<String>,
 }
 
 /// A value of a case's output that differs by design.
@@ -109,6 +112,10 @@ fn cases() -> Vec<Case> {
                         .map(|(name, value)| (name.clone(), text(value)))
                         .collect()
                 })
+                .unwrap_or_default(),
+            refused: case["refused"]
+                .as_array()
+                .map(|lines| lines.iter().map(text).collect())
                 .unwrap_or_default(),
             differs: case["differs"]
                 .as_array()
@@ -181,7 +188,8 @@ fn every_builtin_has_a_case_and_every_difference_is_one() {
 /// Each case under `fgro run` with its flags, in an environment holding
 /// the case's and nothing else, exits with the code Node's did, prints
 /// nothing on stderr, and prints what Node's did but for the case's named
-/// differences.
+/// differences; a case whose calls `fgro`'s rules refuse prints the
+/// refusals it names on stderr instead, and turns Node's 0 into 1.
 #[test]
 fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
     let expected = read_json("expected.json");
@@ -205,14 +213,17 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
         let output = spawn(command, b"");
         let stderr = String::from_utf8(output.stderr).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert_eq!(stderr, "", "{}: {stdout}", case.name);
+        let mut refusals = String::new();
+        for line in &case.refused {
+            writeln!(refusals, "error: {line}").unwrap();
+        }
+        assert_eq!(stderr, refusals, "{}: {stdout}", case.name);
         let node = &expected[&case.name];
-        assert_eq!(
-            output.status.code().map(i64::from),
-            node["code"].as_i64(),
-            "{}",
-            case.name
-        );
+        let code = match node["code"].as_i64() {
+            Some(0) if !case.refused.is_empty() => Some(1),
+            code => code,
+        };
+        assert_eq!(output.status.code().map(i64::from), code, "{}", case.name);
         let printed: Value = serde_json::from_str(&stdout)
             .unwrap_or_else(|error| panic!("{}: {error}: {stdout}", case.name));
         let mut held_to = node["output"].clone();

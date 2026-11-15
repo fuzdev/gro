@@ -90,7 +90,7 @@
 //!
 //! An `import()` refused by one of gro's rules
 //! ([`FailureReason::guards_a_boundary`]), or an import in a module it
-//! loads, is listed in the loader's [`RefusedImports`], whatever the graph
+//! loads, is listed in the loader's [`Refusals`], whatever the graph
 //! records and whatever the program does with the rejection, which
 //! [`run_main`](crate::run_main) returns for its caller to fail the run by.
 //! `import.meta.resolve`, which imports nothing, lists none, and neither
@@ -136,21 +136,28 @@ use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached
 use headroom::Headroom;
 use load::load;
 use reads::Reads;
-use refused::RefusedImports;
+use refused::{Refusals, RefusedBy};
 use resolve::resolve_into;
 
 /// The run's record of refusals as the runtime's `OpState` holds it, where
 /// any host op reaches it: the loader's, which lists each `import()` it
-/// refuses by rule. `exit`'s op takes it and hands it to the embedder's
-/// step, so a run its program ends reports its refusals as one that ends
-/// on its own does.
+/// refuses by rule, and each call a host op refuses for a grant, which the
+/// op records as it throws. `exit`'s op takes it and hands it to the
+/// embedder's step, so a run its program ends reports its refusals as one
+/// that ends on its own does.
 #[derive(Debug, Clone)]
-pub struct Refusals(Rc<Loader>);
+pub struct RefusalLog(Rc<Loader>);
 
-impl Refusals {
+impl RefusalLog {
     /// The refusals recorded so far, taken: the record starts again.
-    pub fn take(&self) -> RefusedImports {
+    pub fn take(&self) -> Refusals {
         self.0.take_refused()
+    }
+
+    /// Records a call a host op refused, `by` naming the op's module and
+    /// the error's class, the error carrying `message`.
+    pub fn record(&self, by: RefusedBy, message: &str) {
+        self.0.refused.borrow_mut().record(by, message);
     }
 }
 
@@ -162,8 +169,9 @@ pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
     /// of its record.
     graph: RefCell<Graph>,
-    /// The `import()`s refused by rule so far.
-    refused: RefCell<RefusedImports>,
+    /// What was refused by rule so far: `import()`s, and the host ops'
+    /// calls a [`RefusalLog`] records.
+    refused: RefCell<Refusals>,
     /// [`Rules::refuse_dynamic_import`].
     refuse_dynamic_import: bool,
     /// [`Rules::driver`].
@@ -295,7 +303,9 @@ impl Loader {
     ) -> ModuleLoaderError {
         let Refused { reason, message } = refused;
         if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
-            self.refused.borrow_mut().record(&message);
+            self.refused
+                .borrow_mut()
+                .record(RefusedBy::Import, &message);
         }
         let failure = Failure {
             at,
@@ -358,16 +368,16 @@ impl Loader {
         self.resolve_reached(&tree, specifier, referrer, reached)
     }
 
-    /// The `import()`s refused by rule so far, taken from the loader, which
-    /// starts its list again.
-    pub fn take_refused(&self) -> RefusedImports {
+    /// What was refused by rule so far, taken from the loader, which starts
+    /// its record again.
+    pub fn take_refused(&self) -> Refusals {
         self.refused.take()
     }
 
     /// The run's record of refusals, the loader's, as the runtime's
     /// `OpState` holds it for the host ops.
-    pub fn refusals(self: &Rc<Self>) -> Refusals {
-        Refusals(Rc::clone(self))
+    pub fn refusal_log(self: &Rc<Self>) -> RefusalLog {
+        RefusalLog(Rc::clone(self))
     }
 
     /// The graph, taken from the loader.

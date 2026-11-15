@@ -5,9 +5,10 @@
 //! tokio runtime, and drains the event loop (timers, pending promises). An
 //! uncaught error or an unhandled promise rejection ends the run with a
 //! [`RunError::Uncaught`] carrying the report, stack and source positions
-//! included. A run in which one of gro's rules refused an `import()` has
-//! failed too, whether or not the program caught the refusal: its
-//! [`RunOutcome`] lists them ([`RefusedImports`]).
+//! included. A run in which one of gro's rules refused an `import()`, or a
+//! host op refused a call for a grant its handle lacks, has failed too,
+//! whether or not the program caught the refusal: its [`RunOutcome`] lists
+//! them ([`Refusals`]).
 //!
 //! A run that ends on its own hands its runtime back in the outcome
 //! ([`SpentRuntime`]), with the exit code its program set, if it set one:
@@ -105,7 +106,9 @@ use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
-pub use crate::loader::refused::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RefusedImports};
+pub use crate::loader::refused::{
+    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, Refusal, Refusals, RefusedBy,
+};
 pub use crate::run::{RunError, RunOutcome, StartError, run_main};
 pub use crate::runtime::SpentRuntime;
 

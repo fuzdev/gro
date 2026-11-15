@@ -292,6 +292,7 @@
 	{
 		"name": "env_root_granted",
 		"module": "env",
+		"refused": ["env refused: not_granted: GRO_B"],
 		"args": ["root"],
 		"flags": ["--allow-env=GRO_A,GRO_EMPTY,GRO_UNSET"],
 		"env": {"GRO_A": "1", "GRO_B": "two words", "GRO_EMPTY": ""},
@@ -340,6 +341,7 @@
 	{
 		"name": "env_not_granted",
 		"module": "env",
+		"refused": ["env refused: not_granted: GRO_B", "env refused: not_granted: GRO_UNSET", "env refused: not_granted: GRO_EMPTY"],
 		"args": ["not_granted"],
 		"flags": ["-A"],
 		"env": {"GRO_A": "1", "GRO_B": "two words", "GRO_EMPTY": ""},

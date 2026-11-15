@@ -1,4 +1,5 @@
-//! Tests for the `import()`s that fail a run, refused by rule: listed
+//! Tests for what fails a run, refused by rule, an `import()` or a host
+//! op's call refused for a grant: listed
 //! whether or not the program caught them, each once, the first few, with
 //! the graph recording off as `fgro run`'s is; a missing optional
 //! dependency, an unsupported feature, a static import of the entry's
@@ -9,9 +10,12 @@ use super::super::{Ended, RunError, run_main};
 use super::builtins::{HOP, SELF_LINK, granted, run_linked_outcome};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
+use crate::resolver::Capability;
 use crate::test_support::TestDir;
 use crate::test_support::never_exits;
-use crate::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, RuntimeOptions, STACK_SIZE};
+use crate::{
+    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, Refusal, RefusedBy, RuntimeOptions, STACK_SIZE,
+};
 
 /// Writes `files` and `links` (a path and its target, made a symlink) into
 /// a fresh project named for `name`, runs its `main.mjs` granted `args`
@@ -50,10 +54,10 @@ fn run_project(name: &str, files: &[(&str, &str)], links: &[(&str, &str)]) -> (E
 
 /// Asserts `listed` holds one message per `expected`, in order, each
 /// starting with its first text and containing its second.
-fn assert_listed(listed: &[String], expected: &[(String, &str)]) {
+fn assert_listed(listed: &[&str], expected: &[(String, &str)]) {
     assert_eq!(listed.len(), expected.len(), "{listed:#?}");
     for (message, (start, reason)) in listed.iter().zip(expected) {
-        assert!(message.starts_with(start.as_str()), "{start}: {message}");
+        assert!(message.starts_with(start), "{start}: {message}");
         assert!(message.contains(reason), "{reason}: {message}");
     }
 }
@@ -128,7 +132,7 @@ fn a_caught_refusal_by_rule_is_listed_once() {
     let main = format!("file://{dir}/main.mjs");
     let pkg = format!("file://{dir}/node_modules/pkg/probe.js");
     assert_listed(
-        &outcome.refused.listed,
+        &outcome.refused.messages(),
         &[
             (
                 format!("cannot import '@fuzdev/gro/args.ts' from {pkg}: "),
@@ -180,11 +184,11 @@ fn the_refusals_are_listed_whatever_the_graph_records() {
     assert!(!graph.failures().is_empty());
     let listed: Vec<String> = full
         .refused
-        .listed
+        .messages()
         .iter()
         .map(|message| message.replace(&full_dir, &off_dir))
         .collect();
-    assert_eq!(listed, off.refused.listed);
+    assert_eq!(listed, off.refused.messages());
     assert_eq!(full.refused.unlisted, off.refused.unlisted);
 }
 
@@ -223,7 +227,7 @@ export const probe = async () => {
         "cannot import '@fuzdev/gro/args.ts' from file://{dir}/node_modules/pkg/probe.js: "
     );
     assert_listed(
-        &outcome.refused.listed,
+        &outcome.refused.messages(),
         &[
             (
                 "cannot import '@fuzdev/gro/args.ts' from code compiled from a string".to_owned(),
@@ -266,7 +270,7 @@ fn an_uncaught_refusal_is_the_error_and_not_listed() {
             panic!("{name}: {:?}", outcome.result);
         };
         assert!(report.contains(reason), "{name}: {report}");
-        let listed = &outcome.refused.listed;
+        let listed = &outcome.refused.messages();
         assert_eq!(listed.len(), 1, "{name}: {listed:?}");
         assert!(
             listed[0].starts_with(&format!(
@@ -320,7 +324,7 @@ throw {thrown};
         };
         assert!(report.contains("the scheme 'ext:'"), "{name}: {report}");
         assert_listed(
-            &outcome.refused.listed,
+            &outcome.refused.messages(),
             &[(
                 format!("cannot resolve 'ext:core/ops' from file://{dir}/main.mjs: "),
                 "the scheme 'ext:' is not supported",
@@ -350,7 +354,7 @@ await attempt(() => import('@fuzdev/gro/args.js'));
             )
         })
         .collect();
-    assert_listed(&outcome.refused.listed, &expected);
+    assert_listed(&outcome.refused.messages(), &expected);
     // the distinct ones past the listed, the two retries of one, and the last
     assert_eq!(
         outcome.refused.unlisted,
@@ -375,7 +379,7 @@ for (let i = 0; i < 2; i++) { try { await import(long); } catch {} }
         "a".repeat(1 << 20)
     );
     assert_eq!(
-        outcome.refused.listed,
+        outcome.refused.messages(),
         [format!(
             "{}… ({} bytes)",
             &whole[..MAX_LISTED_MESSAGE],
@@ -403,7 +407,7 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
     let (outcome, dir) = run_project("edge", &[("main.mjs", main), dep], &[]);
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
     assert_listed(
-        &outcome.refused.listed,
+        &outcome.refused.messages(),
         &[(
             format!("cannot resolve '@fuzdev/gro/args.js' from file://{dir}/dep.mjs: "),
             "it is the .js spelling of the builtin module",
@@ -477,7 +481,7 @@ if (pid.length === 0 || !pid.every((reason) => reason && reason.includes(short))
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
     let pkg = format!("file://{dir}/node_modules/pkg/near.js");
     assert_listed(
-        &outcome.refused.listed,
+        &outcome.refused.messages(),
         &[(
             format!("cannot import '@fuzdev/gro/args.ts' from {pkg}: "),
             "which package 'pkg' isn't granted",
@@ -500,4 +504,65 @@ try { await import('./main.mjs', { with: { type: 'json' } }); } catch {}
     let (outcome, _) = run_project("nothing", &[("main.mjs", main)], &[]);
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
+}
+
+/// A host op's call refused for a grant is listed as it's thrown, whether
+/// or not the program caught it, once however often it's repeated, its
+/// message `not_granted: NAME`; what is no refusal stays quiet: an unset
+/// granted name, a narrowing to a subset, and a name that is no name (a
+/// `TypeError`). One that is the run's uncaught error isn't listed.
+#[test]
+fn a_refused_env_name_is_listed_and_an_uncaught_one_is_the_error() {
+    let caught = "import { env } from '@fuzdev/gro/env.ts';
+const refusals = [];
+for (const call of [() => env.get('B'), () => env.narrow(['B']), () => env.get('B'), () => env.narrow(['GRO_TEST_ENV']).get('C')]) {
+\ttry {
+\t\tcall();
+\t} catch (error) {
+\t\trefusals.push(error.message);
+\t}
+}
+if (env.get('GRO_TEST_ENV') !== undefined) throw new Error('set');
+env.narrow(['GRO_TEST_ENV']).narrow([]);
+try {
+\tenv.get(1);
+} catch {}
+if (refusals.join() !== 'not_granted: B,not_granted: B,not_granted: B,not_granted: C') throw new Error(refusals.join());
+";
+    let (outcome, _) = run_project("env_caught", &[("main.mjs", caught)], &[]);
+    assert!(outcome.result.is_ok(), "{:?}", outcome.result);
+    let env = RefusedBy::Grant {
+        grant: Capability::Env,
+        error: "EnvError",
+    };
+    assert_eq!(
+        outcome.refused.listed,
+        [
+            Refusal {
+                by: env,
+                message: "not_granted: B".to_owned(),
+            },
+            Refusal {
+                by: env,
+                message: "not_granted: C".to_owned(),
+            },
+        ]
+    );
+    assert_eq!(outcome.refused.unlisted, 0);
+    let uncaught = "import { env } from '@fuzdev/gro/env.ts';
+try {
+\tenv.get('C');
+} catch {}
+env.get('B');
+";
+    let (outcome, _) = run_project("env_uncaught", &[("main.mjs", uncaught)], &[]);
+    let Err(RunError::Uncaught(report)) = &outcome.result else {
+        panic!("{:?}", outcome.result);
+    };
+    assert!(
+        report.starts_with("Uncaught (in promise) EnvError: not_granted: B"),
+        "{report}"
+    );
+    assert_eq!(outcome.refused.messages(), ["not_granted: C"]);
+    assert_eq!(outcome.refused.unlisted, 0);
 }

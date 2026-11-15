@@ -522,6 +522,8 @@ So, by design, unlike Node: a name list that's a proxy, or an element given thro
 the prototype has no `constructor`, so nothing reached from a handle makes another;
 and its methods are enumerable, as an object literal makes them, where a class's aren't,
 and frozen, as the prototype is, since every holder of a handle shares them, so writing a property on one is a `TypeError` (Node's class methods take one).
+A name refused `not_granted` fails the run, though the program caught the error, and is listed after it by name ([run](run.md#errors-and-exit-codes)),
+so a probe for a variable the run wasn't given can't pass as an unset one.
 
 #### Error classes on fgro
 

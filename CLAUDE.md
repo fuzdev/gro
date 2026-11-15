@@ -591,12 +591,16 @@ Invariants that live in the code:
   (`host/exit.rs` has why); a run that grants `exit` without a step fails
   before it starts (`StartError::NoExitStep`), so the grants stay plain
   data, and an embedder that must outlive its program doesn't grant
-  `exit`. `fgro`'s step is `run::exit_now`, which prints the refused
-  `import()`s and reaches `end`; `run::exit_code` is the one place a run's
-  exit code is decided, for a program's code, a failure, and a refusal
-  alike. The exit code a program sets is the run's state in `OpState`,
-  never the implementation's, and so is the run's record of refusals, the
-  loader's, which `OpState` holds for any op (`loader::Refusals`). No
+  `exit`. `fgro`'s step is `run::exit_now`, which prints what was refused
+  and reaches `end`; `run::exit_code` is the one place a run's exit code
+  is decided, for a program's code, a failure, and a refusal alike. The
+  exit code a program sets is the run's state in `OpState`, never the
+  implementation's, and so is the run's record of refusals
+  (`loader::refused::Refusals`), the loader's, which `OpState` holds for
+  any op (`loader::RefusalLog`): the `import()`s the loader refuses by
+  rule, and each call a host op refuses for a grant its handle lacks,
+  recorded by the op as it throws (`env`'s `not_granted`), one record
+  listed, cut, and counted alike, so either fails the run caught or not. No
   in-process test grants a step that returns: a program that exits is run
   in a child process.
 - A change to the seccomp allowlist reruns the census

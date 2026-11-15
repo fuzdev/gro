@@ -183,11 +183,15 @@ a package's import of the project, a reserved specifier, a path leaving its root
 a refused scheme like `ext:` or `data:`, code compiled from a string),
 the run fails, exiting 1 where it would have exited 0, whether or not the program caught the refusal, so a `try/catch` can't hide a probe for authority,
 and so does a refused import in a module the `import()` loads.
-After the run's own error, if it has one, stderr lists the first 8 distinct refusals in the order they happened,
-`error: import() refused: <its message>`, control and bidirectional formatting characters escaped (`\u{1b}`)
+So does a call a builtin module refused for a grant its handle doesn't hold, caught or not:
+an environment variable outside the names an `env` handle may read, the root's being the ones `--allow-env=` granted,
+which throws `EnvError` `not_granted` and fails the run (an unset granted name, a `narrow` to a subset of the names, and an argument that is no name, a `TypeError`, don't).
+After the run's own error, if it has one, stderr lists the first 8 distinct refusals of either kind in the order they happened,
+`error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` for a call, never a value,
+control and bidirectional formatting characters escaped (`\u{1b}`)
 and a message past 2 KiB cut there and marked with its length,
-then counts the rest, a retry of an unlisted one included: `error: import() refused: N more times, not listed`.
-One that is the run's uncaught error (a `TypeError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
+then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`.
+One that is the run's uncaught error (a `TypeError` or an `EnvError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
 A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
 or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)
 doesn't fail the run and isn't listed, so probing for an optional dependency or a feature still exits 0, and neither does `import.meta.resolve`, which imports nothing.
@@ -210,13 +214,13 @@ Whether a stream is colored is decided once per process, in order:
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
-| 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, caught or not, in a run that would have exited 0 |
+| 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
 | 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, or `-A`, a bare `--allow-env` or a name it can't grant, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.
 `exit` ends the process inside the call: no `finally` block runs, no queued job, no timer, and an error then unwinding isn't reported.
-An `import()` refused by rule turns a `0` into `1` however the run ended, `exit(0)` included, and leaves any other code as it is,
+An `import()` or a call refused by rule turns a `0` into `1` however the run ended, `exit(0)` included, and leaves any other code as it is,
 and its lines are printed before the process ends.
 An `import()` whose graph is still loading when `exit` is called is abandoned where it is:
 a refusal the graph would meet later is never reached, so it neither fails the run nor prints.

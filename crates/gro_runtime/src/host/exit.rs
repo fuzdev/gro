@@ -23,8 +23,8 @@ use std::cell::Cell;
 
 use deno_core::v8;
 
-use crate::RefusedImports;
-use crate::loader::Refusals;
+use crate::Refusals;
+use crate::loader::RefusalLog;
 
 /// What the `TypeError` for a code that isn't one says, the Node module's
 /// message.
@@ -36,9 +36,9 @@ pub struct Exit {
     /// The code to exit with, as the program gave it, or the one it set
     /// with `set_exit_code`, or 0.
     pub code: u8,
-    /// The `import()`s refused by rule so far, which fail the run as they
-    /// do one that ends on its own ([`RunOutcome`](crate::RunOutcome)).
-    pub refused: RefusedImports,
+    /// What was refused by rule so far, which fails the run as it does one
+    /// that ends on its own ([`RunOutcome`](crate::RunOutcome)).
+    pub refused: Refusals,
 }
 
 /// The step that ends the process for a program's `exit`, given by the
@@ -82,7 +82,7 @@ impl ExitState {
     /// Ends the process by the embedder's step, given `code` or none: with
     /// the code given, else the one set, else 0, and the refusals the run
     /// recorded so far, `refusals`.
-    pub fn exit(&self, code: Option<u8>, refusals: &Refusals) -> ! {
+    pub fn exit(&self, code: Option<u8>, refusals: &RefusalLog) -> ! {
         (self.step)(&Exit {
             code: code.or_else(|| self.code()).unwrap_or(0),
             refused: refusals.take(),

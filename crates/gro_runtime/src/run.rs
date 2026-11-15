@@ -1,5 +1,5 @@
 //! Running an entry module to completion: [`run_main`], the errors it
-//! returns, and the `import()`s gro's rules refused during it, which fail
+//! returns, and what gro's rules refused during it, which fails
 //! the run.
 
 use std::path::Path;
@@ -15,7 +15,7 @@ use crate::loader::Loader;
 #[cfg(test)]
 use crate::loader::graph::Graph;
 use crate::loader::graph::Recording;
-use crate::loader::refused::RefusedImports;
+use crate::loader::refused::Refusals;
 use crate::phases::{self, Phase};
 use crate::report::uncaught;
 use crate::resolver::{self, DiskTree, ResolveError};
@@ -55,7 +55,8 @@ pub enum StartError {
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
-/// error, or when one of gro's rules refused an `import()` during it.
+/// error, or when one of gro's rules refused an `import()` or a host op's
+/// call during it.
 ///
 /// A program's `exit` ends the process by the embedder's step instead
 /// ([`Exit`](crate::Exit)), and no outcome follows it.
@@ -67,20 +68,23 @@ pub enum StartError {
 pub struct RunOutcome {
     /// Whether the program ran to completion, or why it didn't.
     pub result: Result<(), RunError>,
-    /// The `import()`s refused by rule, a refused import in a module an
-    /// `import()` loaded among them. Any of them fails the run, whatever
-    /// `result` says and whether or not the program caught the refusal, so
-    /// a `try`/`catch` can't hide a probe for authority. The rules guard
-    /// authority and containment: a builtin the importer isn't granted or
-    /// imports with attributes, a package's import of the project, a
-    /// reserved specifier, a path leaving its root, a refused scheme, an
-    /// `import()` in code compiled from a string, and the like
-    /// (`FailureReason::guards_a_boundary` has the whole rule). One refused
-    /// because nothing is there to load or what it asks for isn't
-    /// supported, as probing for an optional dependency or a feature is,
-    /// isn't among them, and one that is the uncaught error `result`'s
-    /// report shows isn't listed, though past the listed ones it's counted.
-    pub refused: RefusedImports,
+    /// What was refused by rule: the `import()`s, a refused import in a
+    /// module an `import()` loaded among them, and the host ops' calls
+    /// refused for a grant (a name outside an env handle's set). Any of
+    /// them fails the run, whatever `result` says and whether or not the
+    /// program caught the refusal, so a `try`/`catch` can't hide a probe
+    /// for authority. The import rules guard authority and containment: a
+    /// builtin the importer isn't granted or imports with attributes, a
+    /// package's import of the project, a reserved specifier, a path
+    /// leaving its root, a refused scheme, an `import()` in code compiled
+    /// from a string, and the like (`FailureReason::guards_a_boundary` has
+    /// the whole rule). An import refused because nothing is there to load
+    /// or what it asks for isn't supported, as probing for an optional
+    /// dependency or a feature is, isn't among them, nor is a host op's
+    /// refusal of an argument that is no value it takes (a `TypeError`);
+    /// one that is the uncaught error `result`'s report shows isn't listed,
+    /// though past the listed ones it's counted.
+    pub refused: Refusals,
     /// The exit code the program set with `set_exit_code`, if it did: the
     /// code of a run that ended on its own and didn't fail. A run that
     /// failed has failed whatever it set.
@@ -97,7 +101,7 @@ impl RunOutcome {
     fn unstarted(error: RunError) -> Self {
         Self {
             result: Err(error),
-            refused: RefusedImports::default(),
+            refused: Refusals::default(),
             exit_code: None,
             runtime: None,
         }
@@ -152,7 +156,7 @@ struct Ended {
     /// [`RunOutcome::result`].
     result: Result<(), RunError>,
     /// [`RunOutcome::refused`].
-    refused: RefusedImports,
+    refused: Refusals,
     /// [`RunOutcome::exit_code`].
     exit_code: Option<u8>,
 }
@@ -229,54 +233,55 @@ fn run_resolved(
     }
 }
 
-/// Why a run failed, with the message of the `TypeError` it threw, when
-/// it threw one, which is how an uncaught refusal is told from the
-/// refusals the program caught.
+/// Why a run failed, with the class name and message of the JS error it
+/// threw, when it threw one, which is how an uncaught refusal is told from
+/// the refusals the program caught.
 struct Failed {
     /// The run's error.
     error: RunError,
-    /// The message of the uncaught error, when it is a `TypeError`, as
-    /// every refused import's rejection is.
-    type_error: Option<String>,
+    /// The uncaught error's class name and message, when it's a JS error
+    /// with both, as every refusal's is (a refused import's `TypeError`,
+    /// a refused call's `EnvError`).
+    uncaught: Option<(String, String)>,
 }
 
 impl From<StartError> for Box<Failed> {
     fn from(error: StartError) -> Self {
         Self::new(Failed {
             error: error.into(),
-            type_error: None,
+            uncaught: None,
         })
     }
 }
 
-/// The failure of a run that ended in `error`: its report, and its
-/// message when it's a `TypeError`.
+/// The failure of a run that ended in `error`: its report, and its class
+/// name and message when it's a JS error.
 fn uncaught_failure(error: &CoreError) -> Box<Failed> {
-    let type_error = match &*error.0 {
-        CoreErrorKind::Js(js) if js.name.as_deref() == Some("TypeError") => js.message.clone(),
+    let thrown = match &*error.0 {
+        CoreErrorKind::Js(js) => js.name.clone().zip(js.message.clone()),
         _ => None,
     };
     Box::new(Failed {
         error: uncaught(error),
-        type_error,
+        uncaught: thrown,
     })
 }
 
-/// How a run that ended with `result` ended, its loader having refused
-/// `refused` by rule: the result, and the refusals but the one that
-/// is the run's uncaught error, a `TypeError` carrying its message, which
-/// the result's report prints. That is the refusal's own rejection, or an
-/// error the program made with the same class and text, which prints the
-/// same; `deno_core` hands the host the error as a copy, so its identity is
-/// out of reach.
+/// How a run that ended with `result` ended, its loader having recorded
+/// `refused` by rule: the result, and the refusals but the one that is the
+/// run's uncaught error, an error of the class and with the message the
+/// refusal's has, which the result's report prints. That is the refusal's
+/// own error, or one the program made with the same class and text, which
+/// prints the same; `deno_core` hands the host the error as a copy, so its
+/// identity is out of reach.
 fn outcome(
     result: Result<(), Box<Failed>>,
-    mut refused: RefusedImports,
-) -> (Result<(), RunError>, RefusedImports) {
+    mut refused: Refusals,
+) -> (Result<(), RunError>, Refusals) {
     let result = result.map_err(|failed| {
-        let Failed { error, type_error } = *failed;
-        if let Some(message) = type_error {
-            refused.unlist(&message);
+        let Failed { error, uncaught } = *failed;
+        if let Some((class, message)) = uncaught {
+            refused.unlist(&class, &message);
         }
         error
     });

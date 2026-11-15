@@ -1,8 +1,9 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
 //! drains or the program exits, printing its failure, then each `import()`
-//! gro's rules refused, which fail the run too, and leaves the runtime as
-//! it is, since the process exits next. [`exit_code`] is the one place the
-//! run's exit code is decided, however the run ended.
+//! and host op's call gro's rules refused, which fail the run too, and
+//! leaves the runtime as it is, since the process exits next.
+//! [`exit_code`] is the one place the run's exit code is decided, however
+//! the run ended.
 
 use std::ffi::OsString;
 
@@ -10,8 +11,8 @@ use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, RefusedImports, RunOutcome,
-    RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, Refusals, RefusedBy,
+    RunOutcome, RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -40,10 +41,10 @@ enum Ended {
 
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
-/// prints its failure if it failed, then the `import()`s gro's rules
-/// refused, and returns the exit code ([`exit_code`]). A program that
-/// calls `exit` never gets here: [`exit_now`] ends the process from inside
-/// the call.
+/// prints its failure if it failed, then the `import()`s and host ops'
+/// calls gro's rules refused, and returns the exit code ([`exit_code`]). A
+/// program that calls `exit` never gets here: [`exit_now`] ends the process
+/// from inside the call.
 pub fn run_module(run: &RunInvocation) -> u8 {
     let RunOutcome {
         result,
@@ -68,8 +69,8 @@ pub fn run_module(run: &RunInvocation) -> u8 {
 }
 
 /// The step a program's `exit` ends the process by, called inside its host
-/// op: prints the `import()`s gro's rules refused so far, as a run that
-/// ends on its own does, then ends the process with [`exit_code`]'s code,
+/// op: prints what gro's rules refused so far, as a run that ends on its
+/// own does, then ends the process with [`exit_code`]'s code,
 /// by the step every command exits by.
 fn exit_now(exit: &Exit) -> ! {
     report_refused(&exit.refused);
@@ -79,8 +80,9 @@ fn exit_now(exit: &Exit) -> ! {
     ))
 }
 
-/// The exit code of a run that `ended` so, and that `refused` an
-/// `import()` by rule or didn't: the one place the rules meet.
+/// The exit code of a run that `ended` so, and in which gro's rules
+/// `refused` an `import()` or a host op's call, or didn't: the one place
+/// the rules meet.
 ///
 /// - A program's code passes as it is, 0 to 255: the one it gave `exit`, or
 ///   the one it set with `set_exit_code` when it then ran to completion or
@@ -117,22 +119,24 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
 }
 
-/// Prints to stderr each `import()` `refused` lists, one line each, its
-/// message's control characters escaped, since the program chose its
-/// specifier, then one line counting the refusals it doesn't list.
-fn report_refused(refused: &RefusedImports) {
-    for message in &refused.listed {
-        stderr_line(format_args!(
-            "error: import() refused: {}",
-            escape_controls(message)
-        ));
+/// Prints to stderr each refusal `refused` lists, one line each, naming
+/// what refused it, an `import()` or a host module, and its message, its
+/// control characters escaped, since the program chose the specifier or
+/// the name, then one line counting the refusals it doesn't list.
+fn report_refused(refused: &Refusals) {
+    for refusal in &refused.listed {
+        let message = escape_controls(&refusal.message);
+        match refusal.by {
+            RefusedBy::Import => stderr_line(format_args!("error: import() refused: {message}")),
+            RefusedBy::Grant { grant, .. } => {
+                stderr_line(format_args!("error: {grant} refused: {message}"));
+            }
+        }
     }
     match refused.unlisted {
         0 => {}
-        1 => stderr_line("error: import() refused: 1 more time, not listed"),
-        more => stderr_line(format_args!(
-            "error: import() refused: {more} more times, not listed"
-        )),
+        1 => stderr_line("error: 1 more refusal, not listed"),
+        more => stderr_line(format_args!("error: {more} more refusals, not listed")),
     }
 }
 

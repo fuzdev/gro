@@ -135,7 +135,7 @@ pub fn start_runtime(
         Authority::Confined(grants) => grants.env.is_some(),
         Authority::Unconfined => true,
     };
-    let refusals = loader.refusals();
+    let refusals = loader.refusal_log();
     let runtime = new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
     let state = runtime.op_state();
     state.borrow_mut().put(authority);
@@ -264,7 +264,7 @@ mod tests {
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
     use crate::resolver::{BUILTINS, Capability, find_builtin};
     use crate::test_support::TestDir;
-    use crate::{ArgsGrant, Grants};
+    use crate::{ArgsGrant, EnvGrant, Grants};
 
     /// What a test's runtime starts from.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -523,6 +523,47 @@ JSON.stringify({
              table"
         );
         assert_eq!(made, 0);
+    }
+
+    /// A refused env name in a runtime with no record of refusals, which no
+    /// run's start leaves out, throws an `Error` saying the refusal can't
+    /// fail the run, never an `EnvError` that would pass unrecorded; a
+    /// granted name still reads.
+    #[test]
+    fn a_refusal_with_no_record_to_land_in_fails_loudly() {
+        let results = on_new_runtime("no_refusal_log", Mode::Run, |runtime| {
+            let state = runtime.op_state();
+            state.borrow_mut().put(Authority::Confined(Grants {
+                env: Some(EnvGrant {
+                    names: ["A".to_owned()].into(),
+                }),
+                ..Grants::default()
+            }));
+            state.borrow_mut().put(host_data());
+            state.borrow_mut().put(ErrorClasses::default());
+            state.borrow_mut().put(EnvRoot::default());
+            drop(state);
+            script_json(
+                runtime,
+                "const ops = Deno.core.ops;
+const env = ops.op_gro_env_root(Object.freeze({ __proto__: null }), Error);
+let thrown;
+try {
+	ops.op_gro_env_get(env, 'B');
+} catch (error) {
+	thrown = `${error.constructor.name}: ${error.message}`;
+}
+JSON.stringify({ thrown, read: ops.op_gro_env_get(env, 'A') })",
+            )
+        });
+        assert_eq!(
+            results,
+            json!({
+                "thrown": "Error: env refused a name, but this runtime was started without the \
+                           run's record of refusals, so the refusal can't fail the run",
+                "read": "1",
+            })
+        );
     }
 
     /// The probe eval's engines are asked: what eval refuses.
@@ -1082,6 +1123,7 @@ check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op
                 let authority = crate::test_support::run_authority();
                 let loader = Loader::new(&entry, roots, Recording::Off);
                 let loader = Rc::new(loader.with_authority(authority.clone()));
+                let refusals = loader.refusal_log();
                 let tokio = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -1104,6 +1146,7 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                     });
                     state.borrow_mut().put(ErrorClasses::default());
                     state.borrow_mut().put(EnvRoot::default());
+                    state.borrow_mut().put(refusals);
                     let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;
                     state.borrow_mut().put(host_data());
                     let id = runtime

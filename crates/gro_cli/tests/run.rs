@@ -328,41 +328,84 @@ fn a_caught_refusal_fails_the_run_however_it_ends() {
             "error: Uncaught Error: late\n    at <main>:6:8\n",
         ),
     ] {
-        let source = format!("try {{\n\tawait import('ext:core/ops');\n}} catch {{}}\n{rest}");
-        let fixtures = temp_fixtures(&format!("refused_then_{name}"), &[("main.js", &source)]);
-        let run = run_in(&fixtures, "main.js");
-        assert_eq!(run.code, 1, "{name}: {}", run.stderr);
-        assert_eq!(run.stdout, stdout, "{name}");
-        let main = format!("file://{}/main.js", fixtures.0.display());
-        let error = error.replace("<main>", &main);
-        assert!(run.stderr.starts_with(&error), "{name}: {}", run.stderr);
-        // after the error and its frames, the last line
-        assert!(
-            run.stderr.ends_with(&ext_refused(&main)),
-            "{name}: {}",
-            run.stderr
-        );
-        assert_eq!(
-            run.stderr.matches("import() refused").count(),
-            1,
-            "{name}: {}",
-            run.stderr
-        );
+        for refused in [Refused::Import, Refused::Env] {
+            let source = format!("{}{rest}", refused.prelude());
+            let fixtures = temp_fixtures(
+                &format!("refused_then_{name}_{refused:?}"),
+                &[("main.js", &source)],
+            );
+            let run = run_with(&fixtures, &[REFUSED_ENV_GRANT], "main.js", &[]);
+            assert_eq!(run.code, 1, "{name}: {}", run.stderr);
+            assert_eq!(run.stdout, stdout, "{name}");
+            let main = format!("file://{}/main.js", fixtures.0.display());
+            let error = error.replace("<main>", &main);
+            assert!(run.stderr.starts_with(&error), "{name}: {}", run.stderr);
+            // after the error and its frames, the last line
+            assert!(
+                run.stderr.ends_with(&refused.line(&main)),
+                "{name}: {}",
+                run.stderr
+            );
+            assert_eq!(
+                run.stderr.matches(" refused").count(),
+                1,
+                "{name}: {}",
+                run.stderr
+            );
+        }
+    }
+}
+
+/// What a test's program refused by rule before it went on: nothing, an
+/// `import()`, or an environment variable outside its grant
+/// ([`REFUSED_ENV_GRANT`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refused {
+    None,
+    Import,
+    Env,
+}
+
+/// The grant the programs of [`Refused`] run with, which lacks the name
+/// [`Refused::Env`]'s asks for.
+const REFUSED_ENV_GRANT: &str = "--allow-env=GRO_GRANTED";
+
+impl Refused {
+    /// The statements that make the refusal, caught, at the program's top
+    /// level, three lines of each kind.
+    const fn prelude(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Import => "try {\n\tawait import('ext:core/ops');\n} catch {}\n",
+            Self::Env => {
+                "try {\n\t(await import('@fuzdev/gro/env.ts')).env.get('GRO_NOT_GRANTED');\n\
+                 } catch {}\n"
+            }
+        }
+    }
+
+    /// The line the refusal is listed as, `main` the program's URL.
+    fn line(self, main: &str) -> String {
+        match self {
+            Self::None => String::new(),
+            Self::Import => ext_refused(main),
+            Self::Env => "error: env refused: not_granted: GRO_NOT_GRANTED\n".to_owned(),
+        }
     }
 }
 
 /// The exit-code table, row by row, each way a run ends, with and without
-/// an `import()` refused by rule before it: a program's code passes as it
-/// is, given to `exit` or set and then left to the run's own end; a run
-/// that fails exits 1 whatever its program set; and a refusal turns a 0
-/// into 1 on every path, `exit(0)` included, leaving any other code as it
-/// is, its line printed last, before the process ends. `exit` ends the
+/// an `import()` or an environment variable refused by rule before it: a
+/// program's code passes as it is, given to `exit` or set and then left to
+/// the run's own end; a run that fails exits 1 whatever its program set;
+/// and a refusal of either kind turns a 0 into 1 on every path, `exit(0)`
+/// included, leaving any other code as it is, its line printed last, before
+/// the process ends. `exit` ends the
 /// run inside the call: nothing after it prints, no `finally` runs, and no
 /// error then unwinding is reported.
 #[test]
 fn the_exit_code_is_the_program_s_or_the_failure_s_and_a_refusal_fails_a_0() {
     const IMPORT: &str = "import {exit, set_exit_code} from '@fuzdev/gro/exit.ts';\n";
-    const REFUSED: &str = "try {\n\tawait import('ext:core/ops');\n} catch {}\n";
     // the program after its imports, the code it exits with, the code it
     // exits with when it was refused an `import()`, its stdout, and the
     // start of its stderr, `<main>` standing for the entry's URL
@@ -516,32 +559,30 @@ fn the_exit_code_is_the_program_s_or_the_failure_s_and_a_refusal_fails_a_0() {
             "",
         ),
     ] {
-        for (refused, expected) in [(false, code), (true, refused_code)] {
-            let source = format!("{IMPORT}{}{program}", if refused { REFUSED } else { "" });
-            let name = format!("exit_table_{name}_{refused}");
+        for (refused, expected) in [
+            (Refused::None, code),
+            (Refused::Import, refused_code),
+            (Refused::Env, refused_code),
+        ] {
+            let source = format!("{IMPORT}{}{program}", refused.prelude());
+            let name = format!("exit_table_{name}_{refused:?}");
             let fixtures = temp_fixtures(&name, &[("main.js", &source)]);
-            let run = run_in(&fixtures, "main.js");
+            let run = run_with(&fixtures, &[REFUSED_ENV_GRANT], "main.js", &[]);
             assert_eq!(run.code, expected, "{name}: {}", run.stderr);
             assert_eq!(run.stdout, stdout, "{name}");
             let main = format!("file://{}/main.js", fixtures.0.display());
             let error = error.replace("<main>", &main);
             assert!(run.stderr.starts_with(&error), "{name}: {}", run.stderr);
-            if refused {
-                // the last line, after the run's error and its frames
-                assert!(
-                    run.stderr.ends_with(&ext_refused(&main)),
-                    "{name}: {}",
-                    run.stderr
-                );
-                assert_eq!(run.stderr.matches("import() refused").count(), 1, "{name}");
-            } else if error.is_empty() {
-                assert_eq!(run.stderr, "", "{name}");
+            if refused == Refused::None {
+                if error.is_empty() {
+                    assert_eq!(run.stderr, "", "{name}");
+                }
+                assert!(!run.stderr.contains(" refused"), "{name}: {}", run.stderr);
             } else {
-                assert!(
-                    !run.stderr.contains("import() refused"),
-                    "{name}: {}",
-                    run.stderr
-                );
+                // the last line, after the run's error and its frames
+                let line = refused.line(&main);
+                assert!(run.stderr.ends_with(&line), "{name}: {}", run.stderr);
+                assert_eq!(run.stderr.matches(" refused").count(), 1, "{name}");
             }
         }
     }
@@ -1014,7 +1055,7 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
                  on disk (file: URLs) load\n"
             )
         })
-        .chain(["error: import() refused: 4 more times, not listed\n".to_owned()])
+        .chain(["error: 4 more refusals, not listed\n".to_owned()])
         .collect();
     assert_eq!(run.stderr, expected);
     // one past the listed
@@ -1032,10 +1073,34 @@ fn refusals_past_the_listed_ones_are_counted_in_one_line() {
         "{}",
         run.stderr
     );
-    assert_eq!(
-        lines.last(),
-        Some(&"error: import() refused: 1 more time, not listed")
+    assert_eq!(lines.last(), Some(&"error: 1 more refusal, not listed"));
+    // an env name's refusals and an import's share the list and the count,
+    // each listing naming what refused it
+    let source = format!(
+        "import {{ env }} from '@fuzdev/gro/env.ts';\n\
+         for (let i = 0; i < {}; i++) {{\n\
+         \ttry {{\n\t\tenv.get(`N${{i}}`);\n\t}} catch {{}}\n\
+         \ttry {{\n\t\tawait import(`ext:${{i}}`);\n\t}} catch {{}}\n}}\n",
+        gro_runtime::MAX_LISTED_REFUSALS
     );
+    let fixtures = temp_fixtures("refused_both", &[("main.js", &source)]);
+    let run = run_with(&fixtures, &["--allow-env=A"], "main.js", &[]);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let main = format!("file://{}/main.js", fixtures.0.display());
+    let expected: String = (0..gro_runtime::MAX_LISTED_REFUSALS / 2)
+        .map(|i| {
+            format!(
+                "error: env refused: not_granted: N{i}\n\
+                 error: import() refused: cannot resolve 'ext:{i}' from {main}: the scheme \
+                 'ext:' is not supported; only files on disk (file: URLs) load\n"
+            )
+        })
+        .chain([format!(
+            "error: {} more refusals, not listed\n",
+            gro_runtime::MAX_LISTED_REFUSALS
+        )])
+        .collect();
+    assert_eq!(run.stderr, expected);
 }
 
 /// A long refusal is listed cut, marked with its message's whole length,
@@ -2797,8 +2862,9 @@ fn the_script_reads_its_arguments_from_args() {
 /// root reads exactly the names granted, an unset one as `undefined`, from
 /// the environment `fgro` started with; a name outside them throws
 /// `EnvError` `not_granted`, naming it and no value, and so does one
-/// outside a narrowed handle's set. Without the flag the import is refused
-/// when the graph links. `-A` reads every variable.
+/// outside a narrowed handle's set, each refusal failing the run though
+/// the program caught it. Without the flag the import is refused when the
+/// graph links. `-A` reads every variable.
 #[test]
 fn allow_env_grants_the_named_variables_and_no_others() {
     let fixtures = temp_fixtures(
@@ -2823,15 +2889,20 @@ fn allow_env_grants_the_named_variables_and_no_others() {
         "main.js",
         &vars,
     );
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
     assert_eq!(
         run.stdout,
         "GRO_A \"1\"\nGRO_B EnvError not_granted: GRO_B\nGRO_UNSET null\n\
          narrowed EnvError not_granted: GRO_UNSET\n{\"GRO_A\":\"1\"}\n"
     );
-    assert_eq!(run.stderr, "");
+    // the refusals fail the run, though caught, listed by name, no value
+    assert_eq!(
+        run.stderr,
+        "error: env refused: not_granted: GRO_B\nerror: env refused: not_granted: GRO_UNSET\n"
+    );
     let run = run_with(&fixtures, &["-A"], "main.js", &vars);
-    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stderr, "error: env refused: not_granted: GRO_UNSET\n");
     assert_eq!(
         run.stdout,
         "GRO_A \"1\"\nGRO_B \"secret value\"\nGRO_UNSET null\n\
@@ -2850,6 +2921,80 @@ fn allow_env_grants_the_named_variables_and_no_others() {
         "{}",
         run.stderr
     );
+}
+
+/// A refused environment variable fails the run as a refused `import()`
+/// does, on its paths: listed when it's caught in the job that calls
+/// `exit(0)`, which exits 1; printed once, as the run's error, when it's
+/// uncaught or a rejection nothing handles; its name escaped and cut as an
+/// import's message is; and quiet, exiting 0, for an unset granted name, a
+/// narrowing to a subset, and a name that is no name.
+#[test]
+fn a_refused_env_name_fails_the_run_on_the_import_rule_s_paths() {
+    let import = "import {env} from '@fuzdev/gro/env.ts';\n";
+    let long = "L".repeat(gro_runtime::MAX_LISTED_MESSAGE + 10);
+    let cases: Vec<(&str, String, i32, String)> = vec![
+        (
+            "same_job_exit",
+            format!(
+                "{import}import {{exit}} from '@fuzdev/gro/exit.ts';\n\
+                 try {{\n\tenv.get('B');\n}} catch {{}}\nexit(0);\n"
+            ),
+            1,
+            "error: env refused: not_granted: B\n".to_owned(),
+        ),
+        (
+            "uncaught",
+            format!("{import}env.get('B');\n"),
+            1,
+            "error: Uncaught (in promise) EnvError: not_granted: B\n".to_owned(),
+        ),
+        (
+            "unhandled",
+            format!("{import}Promise.resolve().then(() => env.get('B'));\n"),
+            1,
+            "error: Uncaught (in promise) EnvError: not_granted: B\n".to_owned(),
+        ),
+        (
+            "escaped",
+            format!("{import}try {{\n\tenv.get('B\\u001b[31m\\u202e');\n}} catch {{}}\n"),
+            1,
+            "error: env refused: not_granted: B\\u{1b}[31m\\u{202e}\n".to_owned(),
+        ),
+        (
+            "long",
+            format!("{import}try {{\n\tenv.get('{long}');\n}} catch {{}}\n"),
+            1,
+            format!(
+                "error: env refused: not_granted: {}… ({} bytes)\n",
+                &long[..gro_runtime::MAX_LISTED_MESSAGE - "not_granted: ".len()],
+                long.len() + "not_granted: ".len()
+            ),
+        ),
+        (
+            "quiet",
+            format!(
+                "{import}if (env.get('A') !== undefined) throw new Error('set');\n\
+                 env.narrow(['A']).narrow([]);\n\
+                 try {{\n\tenv.get('B=1');\n}} catch {{}}\n"
+            ),
+            0,
+            String::new(),
+        ),
+    ];
+    for (name, source, code, stderr) in cases {
+        let fixtures = temp_fixtures(&format!("env_refused_{name}"), &[("main.js", &source)]);
+        let run = run_with(&fixtures, &["--allow-env=A"], "main.js", &[("B", "secret")]);
+        assert_eq!(run.code, code, "{name}: {}", run.stderr);
+        assert!(run.stderr.starts_with(&stderr), "{name}: {}", run.stderr);
+        assert_eq!(
+            run.stderr.matches("not_granted").count(),
+            usize::from(code == 1),
+            "{name}: {}",
+            run.stderr
+        );
+        assert!(!run.stderr.contains("secret"), "{name}: {}", run.stderr);
+    }
 }
 
 /// A package's module is refused `env` though the project is granted it,

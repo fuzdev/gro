@@ -220,10 +220,10 @@ so authority is visible at every use site.
 There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` (today a plain one; the hint naming the import is designed).
 The net grant is inferred from the graph like a filesystem one, and the hosts it reaches are declared.
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
-and the scoped checks inside a grant (a path outside a root, a host not accepted) are the host's, at the call,
-and designed to be reported so a `try/catch` can't hide them (today a caught one is silent).
+and the scoped checks inside a grant (a variable outside a handle's names, a path outside a root, a host not accepted) are the host's, at the call.
 An `import()` refused by rule, an ungranted host module's among them, fails an `fgro run` even when caught, and is listed after it
-([run](run.md#errors-and-exit-codes)); the host ops' scoped refusals are designed to be reported beside it once ops can refuse.
+([run](run.md#errors-and-exit-codes)), and so does a host op's `not_granted`, built for `env`, listed beside it, so a `try/catch` can't hide either;
+the other scoped checks are designed to do the same as their modules land.
 
 Where the import happens matters: at the [composition root](glossary.md#composition-root),
 the task or entry module where authority enters, with library code taking capabilities as parameters

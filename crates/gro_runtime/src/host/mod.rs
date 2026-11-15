@@ -35,7 +35,7 @@ use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::Grant;
 use grant::{Granted, require, require_authority};
 
-use crate::loader::Refusals;
+use crate::loader::RefusalLog;
 #[cfg(test)]
 use crate::resolver::Capability;
 use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant};
@@ -290,7 +290,7 @@ host_ops! {
         } else {
             to_exit_code(code).map(Some)
         };
-        match (code, state.try_borrow::<ExitState>(), state.try_borrow::<Refusals>()) {
+        match (code, state.try_borrow::<ExitState>(), state.try_borrow::<RefusalLog>()) {
             (None, ..) => throw_type_error(scope, NOT_A_CODE),
             (Some(code), Some(exit), Some(refusals)) => exit.exit(code, refusals),
             (Some(_), ..) => throw_error(scope, NO_EXIT_STATE),

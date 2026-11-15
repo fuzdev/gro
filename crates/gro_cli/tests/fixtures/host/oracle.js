@@ -9,7 +9,8 @@
 // in this directory with the case's arguments, a `{cwd}` among them replaced by that
 // directory, and an environment holding the case's `env` and nothing else, never the
 // developer's. It prints one line of JSON and nothing on stderr. Its `flags` are `fgro run`'s,
-// the grants it runs with, which Node doesn't take.
+// the grants it runs with, and its `refused` the lines `fgro` prints for what its rules refuse,
+// neither of which Node has.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
