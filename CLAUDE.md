@@ -273,7 +273,9 @@ Crates:
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA`, the default thread stack, a thread's stack
-  start, `wait4`, process groups, `_exit`), each behind a safe API; Linux only
+  start, `wait4`, process groups, `_exit`, and the filesystem calls confined
+  beneath a directory descriptor by `openat2`, in `beneath`), each behind a
+  safe API; Linux only
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`); `v8` is pinned to the exact version

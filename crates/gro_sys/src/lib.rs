@@ -31,6 +31,10 @@
 //!   `SIGTERM` ends it, since a child in a group of its own doesn't get the
 //!   terminal's signals.
 //! - [`exit_now`] ends the process by `_exit`, running none of its teardown.
+//! - [`beneath`] makes the filesystem calls confined beneath a directory
+//!   descriptor, each path resolved by one `openat2` with `RESOLVE_BENEATH`:
+//!   opening, `stat`, listing a directory, and making, removing, and
+//!   renaming an entry.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -45,6 +49,9 @@
 use std::ffi::OsString;
 #[cfg(target_os = "linux")]
 use std::io;
+
+#[cfg(target_os = "linux")]
+pub mod beneath;
 
 /// The lowest descriptor [`close_inherited_fds`] closes, the one above
 /// stderr.
