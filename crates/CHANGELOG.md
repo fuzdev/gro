@@ -23,6 +23,9 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   and `fgro eval` imports no builtin module.
   `@fuzdev/gro/exit.ts` is granted the same way: `exit(code?)` ends the process inside the call, with no `finally` and no queued job run,
   and `set_exit_code(code)` sets the code a run that ends on its own exits with, each code an integer from 0 to 255 passed as it is.
+  `fgro run --allow-env=A,B <file>` grants the project's own modules `@fuzdev/gro/env.ts`, whose root `env` reads exactly those variables,
+  read once as the run starts, a name outside a handle's set throwing `EnvError` `not_granted`;
+  a handle is the runtime's, recognized by a mark no program can read or forge.
   `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,
   each grant at its widest, while every refusal but a grant's stands (a host module not built yet, a package's import of the project, and the like).
   Three more builtin modules need no grant, so a package's modules import them as the project's do:
@@ -33,7 +36,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   the first time a run needs them, and match the Node module's class but that the guard runs no code of a caller's.
   Each has the exports and types of its Node module in the npm package.
   A builtin module's implementation is compiled and run when a run first imports it, so a run that imports none pays for none.
-  The `.js` spelling `@fuzdev/gro/args.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `@fuzdev/gro/env.ts`, the error modules but `env_error.ts`, and the rest),
+  The `.js` spelling `@fuzdev/gro/args.js`, and the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, the error modules but `env_error.ts`, and the rest),
   are refused, as is a respelling of these or of `@fuzdev/gro/args.ts` (`@fuzdev/gro/f%73.ts`, `@fuzdev/gro/arg%73.ts`), never loaded from the npm package.
   So are `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro doesn't have, either spelling,
   the refusal naming the modules to import instead.

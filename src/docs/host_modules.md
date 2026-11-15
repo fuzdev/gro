@@ -25,7 +25,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `spawn.ts`           | programs, as child processes            | not yet                 |
 | `net.ts`             | the network, by host                    | not yet                 |
 | `watch.ts`           | changes under a directory handle        | not yet                 |
-| `env.ts`             | the environment                         | not yet                 |
+| `env.ts`             | the environment                         | built, the `env` grant  |
 | `args.ts`            | the script's arguments                  | built, the `args` grant |
 | `exit.ts`            | how the run ends                        | built, the `exit` grant |
 | `stdin.ts`           | standard input                          | not yet                 |
@@ -444,6 +444,7 @@ Each module's TSDoc has its contract.
 On `fgro`, the process modules [the table](#the-modules) marks built are builtin modules, each exporting what its Node module does:
 `@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
 `@fuzdev/gro/exit.ts`, whose `exit` ends the run and whose `set_exit_code` sets the code a run that ends on its own exits with ([below](#exit-on-fgro));
+`@fuzdev/gro/env.ts`, whose `env` reads the variables `--allow-env=` grants ([below](#env-on-fgro));
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
@@ -498,6 +499,29 @@ the realm's own `TypeError` whatever the global of that name has become, and no 
 The code set is the run's state, kept by the host, not the module's.
 Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
 On Node, `exit` also runs the spawn module's child cleanup; `fgro` has no spawn module yet.
+
+#### env on fgro
+
+`env` needs the `env` grant, which `fgro run --allow-env=A,B` gives the project's own modules, for exactly those variables,
+and `-A` gives every module, for every variable ([run](run.md#usage)); a package is refused it otherwise, as for `args`.
+`fgro` reads the granted variables once, as the run starts, so `env` is the environment then, fixed.
+The root `env` reads only the granted names, where Node's reads every variable: an unset one is `undefined`,
+and any other name throws `EnvError` `not_granted`, as a name outside a narrowed handle's set does on both runtimes,
+the error's message `not_granted: NAME`, never a value.
+`get_all()` is the handle's frozen null-prototype record of the variables it may read that are set, the same object each call, in the order `fgro` read them.
+`narrow(names)` checks each name in order, a name outside the receiver's set throwing `not_granted` at `narrow`, as on Node, before any `get`.
+
+A handle is the runtime's: an object it makes of the module's prototype, a frozen null-prototype record of one function per method,
+holding what the handle may read under a key no program can name, list, or read, then frozen.
+A method checks it was called on a handle the runtime made, so an object of the same prototype, a copy, a proxy of a handle,
+and any other receiver is a `TypeError`, and `narrow` makes a handle of the receiver's prototype.
+Each method reads its arguments as the values they are, converting nothing and running no code of a caller's:
+a name is a string, checked as on Node (non-empty, well-formed, no NUL, no `=`, no `*` for `narrow`), with Node's messages,
+and `narrow`'s names an array, each element read as its own data.
+So, by design, unlike Node: a name list that's a proxy, or an element given through a getter, is a `TypeError`;
+the prototype has no `constructor`, so nothing reached from a handle makes another;
+and its methods are enumerable, as an object literal makes them, where a class's aren't,
+and frozen, as the prototype is, since every holder of a handle shares them, so writing a property on one is a `TypeError` (Node's class methods take one).
 
 #### Error classes on fgro
 

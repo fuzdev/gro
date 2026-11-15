@@ -1,0 +1,336 @@
+//! The native half of the env host module: its handles, what each may
+//! read, and every check of a call.
+//!
+//! An env handle is a handle of [`ENV_HANDLE`]'s kind (`handle.rs`),
+//! whose state is a record of the variables it may read: their values, a
+//! frozen null-prototype record of the ones set, which `get_all` returns,
+//! and its names, the set it may ask for, or none for every name, which
+//! only an unconfined run's root has. Neither record is ever any other
+//! object's, and no JS but `get_all`'s caller holds the first, so a read
+//! of either runs no code of a caller's. Every op decides from the handle
+//! it's handed, never from the run's grants: the root is the one handle
+//! made from them, by the op the implementation's inner level calls once
+//! an importing origin, and every other is narrowed from a handle.
+//!
+//! A name is checked as the Node module checks it, in the same order and
+//! with the same messages: a string, not empty, no NUL, well-formed
+//! Unicode, no `=`, and, for `narrow`, no `*`. A name outside a handle's
+//! set throws `EnvError` `not_granted`, whose message names the variable
+//! and never a value; an unset name in it reads as `undefined`. An
+//! argument is read as the value it is: a name is a string, never
+//! converted, and `narrow`'s names an array whose elements are its own
+//! data, so an accessor or a proxy reads as no name, where the Node module
+//! would run it.
+
+use std::cell::RefCell;
+
+use deno_core::{OpState, v8};
+
+use super::error_class::{ENV_ERROR, ErrorClasses};
+use super::handle::{self, ENV_HANDLE};
+use super::{HostData, own_data, throw_error, throw_range_error, throw_type_error};
+use crate::{Authority, EnvNameFault, env_name_fault};
+
+/// What a method called on anything but an env handle throws.
+const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not another object";
+
+/// What `narrow` throws for names that aren't an array.
+const NOT_AN_ARRAY: &str = "env.narrow takes an array of names";
+
+/// What the root's op throws in a runtime started without the env host
+/// module's state, which only a runtime made outside a run's start is.
+const NO_ENV_STATE: &str = "env is granted, but this runtime was started without its state";
+
+/// What the root's op throws when the implementation hands it no
+/// prototype to make the handle of.
+const NOT_A_PROTOTYPE: &str = "an env handle's prototype is an object";
+
+/// The env host module's state for a run that grants it, in the runtime's
+/// `OpState`: the root handle, once it's made.
+///
+/// The root is made whole, then held, so an implementation run again,
+/// after one ended early, finds it, and every importing origin the run's
+/// grant reaches shares it: the project's in a confined run, and every
+/// origin in an unconfined one.
+#[derive(Default)]
+pub struct EnvRoot(RefCell<Option<v8::Global<v8::Object>>>);
+
+/// The root handle: the one `state` holds, or a new one made of
+/// `prototype` from the run's grant, the names it holds and the values
+/// the embedder read of them, and held. The realm's `Error` the
+/// implementation hands over as `error` is held for the run first, so an
+/// op can throw `EnvError` whichever row was imported first. `None` with
+/// an exception pending when a step failed.
+pub fn root<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    prototype: v8::Local<'s, v8::Value>,
+    error: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    let (Some(classes), Some(root)) = (
+        state.try_borrow::<ErrorClasses>(),
+        state.try_borrow::<EnvRoot>(),
+    ) else {
+        throw_error(scope, NO_ENV_STATE);
+        return None;
+    };
+    classes.hold_error(scope, error)?;
+    if let Some(held) = &*root.0.borrow() {
+        return Some(v8::Local::new(scope, held));
+    }
+    let Some(prototype) = v8::Local::<v8::Object>::try_from(prototype)
+        .ok()
+        .filter(|prototype| !prototype.is_proxy())
+    else {
+        throw_type_error(scope, NOT_A_PROTOTYPE);
+        return None;
+    };
+    handle::freeze_shells(scope, prototype)?;
+    // the op's check passed, so the run grants `env`
+    let granted = match state.try_borrow::<Authority>() {
+        Some(Authority::Unconfined) => None,
+        Some(Authority::Confined(grants)) => Some(grants.env.as_ref().map(|env| &env.names)),
+        None => Some(None),
+    };
+    let granted = match granted {
+        None => None,
+        Some(Some(names)) => Some(names),
+        Some(None) => {
+            throw_error(scope, NO_ENV_STATE);
+            return None;
+        }
+    };
+    let names = match granted {
+        None => None,
+        Some(granted) => {
+            let names = record(scope);
+            let granted_name: v8::Local<v8::Value> = v8::Boolean::new(scope, true).into();
+            for name in granted {
+                names.create_data_property(scope, string(scope, name)?.into(), granted_name)?;
+            }
+            Some(names)
+        }
+    };
+    let vars = record(scope);
+    for (name, value) in state.borrow::<HostData>().env.iter() {
+        if granted.is_none_or(|granted| granted.contains(name)) {
+            let value = string(scope, value)?;
+            vars.create_data_property(scope, string(scope, name)?.into(), value.into())?;
+        }
+    }
+    let made = make(scope, prototype, vars, names)?;
+    *root.0.borrow_mut() = Some(v8::Global::new(scope, made));
+    Some(made)
+}
+
+/// `env.get(name)` called on `receiver`: the value of the variable `name`,
+/// or `undefined` when it's unset. `None` with the exception pending when
+/// it throws.
+pub fn get<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    name: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let Handle { vars, names, .. } = read(scope, receiver)?;
+    let name = check_name(scope, name, "an environment name", true)?;
+    check_granted(state, scope, names, name)?;
+    if vars.has_own_property(scope, name.into())? {
+        vars.get(scope, name.into())
+    } else {
+        Some(v8::undefined(scope).into())
+    }
+}
+
+/// `env.get_all()` called on `receiver`: every variable the handle may read
+/// that's set, the frozen null-prototype record it holds, the same one
+/// each call. `None` with the exception pending when it throws.
+pub fn get_all<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    Some(read(scope, receiver)?.vars.into())
+}
+
+/// `env.narrow(names)` called on `receiver`: a new handle of the receiver's
+/// prototype that may read exactly `names`, each checked in order, and each
+/// one the receiver may read, or `not_granted` is thrown for the first that
+/// isn't. A name given twice is one name. `None` with the exception
+/// pending when it throws.
+pub fn narrow<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    names: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let parent = read(scope, receiver)?;
+    let Some(list) = v8::Local::<v8::Array>::try_from(names)
+        .ok()
+        .filter(|_| !names.is_proxy())
+    else {
+        throw_type_error(scope, NOT_AN_ARRAY);
+        return None;
+    };
+    let vars = record(scope);
+    let allowed = record(scope);
+    let granted: v8::Local<v8::Value> = v8::Boolean::new(scope, true).into();
+    for index in 0..list.length() {
+        let key = string(scope, &index.to_string())?;
+        let element = own_data(scope, list.into(), key.into()).ok()?;
+        let element = element.unwrap_or_else(|| v8::undefined(scope).into());
+        let name = check_name(scope, element, "a `narrow` name", false)?;
+        check_granted(state, scope, parent.names, name)?;
+        allowed.create_data_property(scope, name.into(), granted)?;
+        if parent.vars.has_own_property(scope, name.into())? {
+            let value = parent.vars.get(scope, name.into())?;
+            vars.create_data_property(scope, name.into(), value)?;
+        }
+    }
+    let prototype = handle::prototype_of(scope, parent.object)?;
+    make(scope, prototype, vars, Some(allowed)).map(Into::into)
+}
+
+/// An env handle, as an op reads the one it's handed.
+struct Handle<'s> {
+    /// The handle.
+    object: v8::Local<'s, v8::Object>,
+    /// The variables it may read that are set, by name.
+    vars: v8::Local<'s, v8::Object>,
+    /// The names it may read, each `true`, or `None` for every name.
+    names: Option<v8::Local<'s, v8::Object>>,
+}
+
+/// The handle `receiver` is, or `None` with a `TypeError` thrown when it's
+/// no env handle.
+fn read<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+) -> Option<Handle<'s>> {
+    let Some((handle, held)) = handle::read(scope, &ENV_HANDLE, receiver) else {
+        throw_type_error(scope, NOT_A_HANDLE);
+        return None;
+    };
+    // the host's own record, which no JS holds
+    let held = v8::Local::<v8::Object>::try_from(held).ok()?;
+    let vars = held.get(scope, string(scope, VARS)?.into())?;
+    let names = held.get(scope, string(scope, NAMES)?.into())?;
+    Some(Handle {
+        object: handle,
+        vars: v8::Local::<v8::Object>::try_from(vars).ok()?,
+        names: v8::Local::<v8::Object>::try_from(names).ok(),
+    })
+}
+
+/// The key of a handle's state that holds its values.
+const VARS: &str = "vars";
+
+/// The key of a handle's state that holds its names, `null` for every
+/// name.
+const NAMES: &str = "names";
+
+/// Makes a handle of `prototype` that may read the names of `names`, every
+/// name when `None`, whose set values are `vars`; both records frozen.
+fn make<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    prototype: v8::Local<'s, v8::Object>,
+    vars: v8::Local<'s, v8::Object>,
+    names: Option<v8::Local<'s, v8::Object>>,
+) -> Option<v8::Local<'s, v8::Object>> {
+    vars.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
+    let names: v8::Local<v8::Value> = match names {
+        Some(names) => {
+            names.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
+            names.into()
+        }
+        None => v8::null(scope).into(),
+    };
+    let keys = [string(scope, VARS)?.into(), string(scope, NAMES)?.into()];
+    let null = v8::null(scope).into();
+    let held = v8::Object::with_prototype_and_properties(scope, null, &keys, &[vars.into(), names]);
+    held.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
+    handle::make(scope, &ENV_HANDLE, prototype, held.into())
+}
+
+/// Throws `EnvError` `not_granted` for `name` when `names`, a handle's
+/// set, lacks it; every name is granted when it's `None`. `None` with the
+/// exception pending when it threw.
+fn check_granted<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    names: Option<v8::Local<'s, v8::Object>>,
+    name: v8::Local<'s, v8::String>,
+) -> Option<()> {
+    let Some(names) = names else {
+        return Some(());
+    };
+    if names.has_own_property(scope, name.into())? {
+        return Some(());
+    }
+    match state.try_borrow::<ErrorClasses>() {
+        Some(classes) => classes.throw(scope, &ENV_ERROR, "not_granted", name),
+        None => throw_error(scope, NO_ENV_STATE),
+    }
+    None
+}
+
+/// `value` as a variable's name, checked as the Node module checks one,
+/// `what` naming it in a refusal's message, a `*` refused unless `glob`.
+/// `None` with a `TypeError` thrown when it's no name: one that holds a
+/// `=` isn't echoed, since what follows it can be a value.
+fn check_name<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    value: v8::Local<'s, v8::Value>,
+    what: &str,
+    glob: bool,
+) -> Option<v8::Local<'s, v8::String>> {
+    let Ok(name) = v8::Local::<v8::String>::try_from(value) else {
+        throw_type_error(scope, &format!("{what} must be a string"));
+        return None;
+    };
+    let mut units = vec![0; name.length()];
+    name.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
+    let fault = if units.is_empty() {
+        Some("is empty")
+    } else if units.contains(&0) {
+        Some("holds a NUL byte")
+    } else {
+        None
+    };
+    let text = match (fault, String::from_utf16(&units)) {
+        (Some(fault), _) => {
+            throw_type_error(scope, &format!("{what} {fault}"));
+            return None;
+        }
+        (None, Err(_)) => {
+            throw_type_error(scope, &format!("{what} isn't well-formed Unicode"));
+            return None;
+        }
+        (None, Ok(text)) => text,
+    };
+    let message = match env_name_fault(&text, glob) {
+        None => return Some(name),
+        Some(EnvNameFault::Empty) => format!("{what} is empty"),
+        Some(EnvNameFault::Nul) => format!("{what} holds a NUL byte"),
+        Some(EnvNameFault::Equals) => format!("{what} holds a `=`"),
+        Some(EnvNameFault::Glob) => format!("a `narrow` name is exact, never a glob: {text}"),
+    };
+    throw_type_error(scope, &message);
+    None
+}
+
+/// A new, empty null-prototype record.
+fn record<'s>(scope: &v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object> {
+    let null = v8::null(scope).into();
+    v8::Object::with_prototype_and_properties(scope, null, &[], &[])
+}
+
+/// `text` as a JS string, or `None` with a `RangeError` thrown, as the
+/// language throws one, when it's longer than V8's longest string, for
+/// which V8 throws nothing.
+fn string<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::String>> {
+    let string = v8::String::new(scope, text);
+    if string.is_none() {
+        throw_range_error(scope, "Invalid string length");
+    }
+    string
+}

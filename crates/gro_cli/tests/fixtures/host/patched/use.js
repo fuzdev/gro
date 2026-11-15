@@ -50,6 +50,15 @@ const EXERCISES = new Map([
 			[{ __proto__: null }]
 		]
 	],
+	// a name the run grants that's set, and one that's unset; with a hostile array in its place,
+	// `narrow` is given the one name `hostile`, which the run grants too, as each handle here has
+	['@fuzdev/gro/env.ts env.get', [['GRO_PATCHED_SET'], ['GRO_PATCHED_UNSET']]],
+	['@fuzdev/gro/env.ts env.get_all', []],
+	['@fuzdev/gro/env.ts env.narrow', [[['GRO_PATCHED_SET', 'GRO_PATCHED_UNSET', 'hostile']]]],
+	// the same of the handle that call narrowed to
+	['@fuzdev/gro/env.ts env.narrow(arguments 1).get', [['GRO_PATCHED_SET'], ['hostile']]],
+	['@fuzdev/gro/env.ts env.narrow(arguments 1).get_all', []],
+	['@fuzdev/gro/env.ts env.narrow(arguments 1).narrow', [[['hostile', 'GRO_PATCHED_SET']]]],
 	// a code, which ends the process as a call with none does
 	['@fuzdev/gro/exit.ts exit', [[7]]],
 	// a code, the one a run that ends on its own exits with

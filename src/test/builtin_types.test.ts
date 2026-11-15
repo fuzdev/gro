@@ -135,7 +135,7 @@ describe('the builtin table', () => {
 	test("the implementations are the table's rows", () => {
 		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
 		// each kind of export the checks below mutate is among them
-		for (const name of ['args', 'cwd', 'env_error', 'pid', 'runtime_version']) {
+		for (const name of ['args', 'cwd', 'env', 'env_error', 'pid', 'runtime_version']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -328,6 +328,41 @@ describe('a retyped export fails its check', () => {
 			'node',
 			'message?: string, options?: ErrorOptions',
 			'message?: string'
+		);
+	});
+
+	test('env', () => {
+		// each method of the handle, claimed by the script, its parameters and results
+		assert_mismatch(
+			'env',
+			'builtin',
+			'\t\tget(name: string): string | undefined;\n',
+			'\t\tget(name: string): string;\n'
+		);
+		assert_mismatch(
+			'env',
+			'builtin',
+			'\t\tget_all(): Readonly<{ [name: string]: string }>;\n',
+			'\t\tget_all(): { [name: string]: string };\n'
+		);
+		assert_mismatch(
+			'env',
+			'builtin',
+			'\t\tnarrow(names: ReadonlyArray<string>): EnvHandle;\n',
+			'\t\tnarrow(names: Array<string>): EnvHandle;\n'
+		);
+		// the root not of the handle's type
+		assert_mismatch(
+			'env',
+			'bootstrap',
+			'<T extends object>(prototype: T, error: ErrorConstructor) => T;',
+			'<T extends object>(prototype: T, error: ErrorConstructor) => object;'
+		);
+		assert_mismatch(
+			'env',
+			'node',
+			'narrow(names: ReadonlyArray<string>): Env;',
+			'narrow(names: ReadonlyArray<string>): object;'
 		);
 	});
 

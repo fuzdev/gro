@@ -206,6 +206,7 @@ fn run_resolved(
             args: options.args.clone(),
             cwd: cwd.to_str().map(ToOwned::to_owned),
             runtime_version: options.runtime_version.clone(),
+            env: options.env.clone(),
         },
         exit_step: options.exit_step,
     };

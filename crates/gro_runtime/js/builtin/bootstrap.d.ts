@@ -47,6 +47,17 @@ interface Bootstrap {
 				};
 				readonly default: undefined;
 			};
+			/**
+			 * The env host module's root handle, made of the prototype the implementation gives,
+			 * so of its type, the realm's `Error` handed over for the class the host throws.
+			 */
+			readonly op_gro_env_root: <T extends object>(prototype: T, error: ErrorConstructor) => T;
+			/** `get`, the receiver handed over: a value, or `undefined` when it's unset. */
+			readonly op_gro_env_get: (handle: unknown, name: unknown) => string | undefined;
+			/** `get_all`, the receiver handed over: the handle's frozen null-prototype record. */
+			readonly op_gro_env_get_all: (handle: unknown) => Readonly<{ [name: string]: string }>;
+			/** `narrow`, the receiver handed over: a handle of the receiver's prototype, its type. */
+			readonly op_gro_env_narrow: <T>(handle: T, names: unknown) => T;
 			readonly op_gro_exit: (code: unknown) => never;
 			readonly op_gro_pid: () => number;
 			readonly op_gro_runtime_version: () => string;

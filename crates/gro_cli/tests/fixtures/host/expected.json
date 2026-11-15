@@ -919,6 +919,606 @@
 			}
 		}
 	},
+	"env_shape": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"env": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"env": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"get": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"get_all": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"narrow": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"prototype_prototype": null,
+			"methods": [
+				{
+					"name": "get",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": false,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							}
+						}
+					},
+					"length": 1,
+					"name_of": "get"
+				},
+				{
+					"name": "get_all",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": false,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							}
+						}
+					},
+					"length": 0,
+					"name_of": "get_all"
+				},
+				{
+					"name": "narrow",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": false,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": true
+							}
+						}
+					},
+					"length": 1,
+					"name_of": "narrow"
+				}
+			],
+			"narrowed": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"one_prototype": true,
+			"narrowed_is_another": true,
+			"json": "{}",
+			"to_string": "TypeError",
+			"thenable": false,
+			"own_keys": [],
+			"new_get": "TypeError",
+			"property_write": "TypeError",
+			"method_write": "TypeError",
+			"shell_write": null,
+			"namespace_write": "TypeError",
+			"still_reads": "1"
+		}
+	},
+	"env_read": {
+		"code": 0,
+		"output": {
+			"a": "1",
+			"b": "two words",
+			"empty": "",
+			"all": {
+				"keys": [
+					"GRO_A",
+					"GRO_B",
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"all_values": {
+				"GRO_A": "1",
+				"GRO_B": "two words",
+				"GRO_EMPTY": ""
+			},
+			"all_same_each_call": true,
+			"all_write": "TypeError"
+		}
+	},
+	"env_root_granted": {
+		"code": 0,
+		"output": {
+			"read": {
+				"GRO_A": {
+					"value": "1"
+				},
+				"GRO_B": {
+					"value": "two words"
+				},
+				"GRO_EMPTY": {
+					"value": ""
+				},
+				"GRO_UNSET": {
+					"value": null
+				}
+			},
+			"all": {
+				"keys": [
+					"GRO_A",
+					"GRO_B",
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"all_values": {
+				"GRO_A": "1",
+				"GRO_B": "two words",
+				"GRO_EMPTY": ""
+			}
+		}
+	},
+	"env_narrow": {
+		"code": 0,
+		"output": {
+			"a": "1",
+			"empty_value": "",
+			"all": {
+				"keys": [
+					"GRO_A",
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"all_values": {
+				"GRO_A": "1",
+				"GRO_EMPTY": ""
+			},
+			"narrower": "",
+			"narrower_all": {
+				"keys": [
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"empty_all": {
+				"keys": [],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"frozen": true,
+			"from_a_frozen_list": "1",
+			"from_a_subclassed_array": "1"
+		}
+	},
+	"env_narrow_granted": {
+		"code": 0,
+		"output": {
+			"a": "1",
+			"empty_value": "",
+			"all": {
+				"keys": [
+					"GRO_A",
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"all_values": {
+				"GRO_A": "1",
+				"GRO_EMPTY": ""
+			},
+			"narrower": "",
+			"narrower_all": {
+				"keys": [
+					"GRO_EMPTY"
+				],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"empty_all": {
+				"keys": [],
+				"frozen": true,
+				"null_prototype": true
+			},
+			"frozen": true,
+			"from_a_frozen_list": "1",
+			"from_a_subclassed_array": "1"
+		}
+	},
+	"env_not_granted": {
+		"code": 0,
+		"output": {
+			"get": {
+				"class": "EnvError",
+				"message": "not_granted: GRO_B",
+				"name": "EnvError",
+				"kind": "not_granted",
+				"target": "GRO_B",
+				"is_error": true,
+				"string": "EnvError: not_granted: GRO_B"
+			},
+			"get_unset": {
+				"class": "EnvError",
+				"message": "not_granted: GRO_UNSET",
+				"name": "EnvError",
+				"kind": "not_granted",
+				"target": "GRO_UNSET",
+				"is_error": true,
+				"string": "EnvError: not_granted: GRO_UNSET"
+			},
+			"narrow": {
+				"class": "EnvError",
+				"message": "not_granted: GRO_B",
+				"name": "EnvError",
+				"kind": "not_granted",
+				"target": "GRO_B",
+				"is_error": true,
+				"string": "EnvError: not_granted: GRO_B"
+			},
+			"narrower": {
+				"class": "EnvError",
+				"message": "not_granted: GRO_EMPTY",
+				"name": "EnvError",
+				"kind": "not_granted",
+				"target": "GRO_EMPTY",
+				"is_error": true,
+				"string": "EnvError: not_granted: GRO_EMPTY"
+			},
+			"first_fault": [
+				"EnvError",
+				"not_granted: GRO_B"
+			],
+			"first_type_fault": [
+				"TypeError",
+				"a `narrow` name must be a string"
+			]
+		}
+	},
+	"env_invalid": {
+		"code": 0,
+		"output": {
+			"get": [
+				[
+					"a number",
+					[
+						"TypeError",
+						"an environment name must be a string"
+					]
+				],
+				[
+					"undefined",
+					[
+						"TypeError",
+						"an environment name must be a string"
+					]
+				],
+				[
+					"null",
+					[
+						"TypeError",
+						"an environment name must be a string"
+					]
+				],
+				[
+					"a boxed string",
+					[
+						"TypeError",
+						"an environment name must be a string"
+					]
+				],
+				[
+					"a symbol",
+					[
+						"TypeError",
+						"an environment name must be a string"
+					]
+				],
+				[
+					"empty",
+					[
+						"TypeError",
+						"an environment name is empty"
+					]
+				],
+				[
+					"a NUL",
+					[
+						"TypeError",
+						"an environment name holds a NUL byte"
+					]
+				],
+				[
+					"a lone surrogate",
+					[
+						"TypeError",
+						"an environment name isn't well-formed Unicode"
+					]
+				],
+				[
+					"a =",
+					[
+						"TypeError",
+						"an environment name holds a `=`"
+					]
+				],
+				[
+					"a = first",
+					[
+						"TypeError",
+						"an environment name holds a `=`"
+					]
+				]
+			],
+			"narrow": [
+				[
+					"a string",
+					[
+						"TypeError",
+						"env.narrow takes an array of names"
+					]
+				],
+				[
+					"undefined",
+					[
+						"TypeError",
+						"env.narrow takes an array of names"
+					]
+				],
+				[
+					"an array-like",
+					[
+						"TypeError",
+						"env.narrow takes an array of names"
+					]
+				],
+				[
+					"a set",
+					[
+						"TypeError",
+						"env.narrow takes an array of names"
+					]
+				],
+				[
+					"a hole",
+					[
+						"TypeError",
+						"a `narrow` name must be a string"
+					]
+				],
+				[
+					"a glob",
+					[
+						"TypeError",
+						"a `narrow` name is exact, never a glob: GRO_*"
+					]
+				],
+				[
+					"a number",
+					[
+						"TypeError",
+						"a `narrow` name must be a string"
+					]
+				],
+				[
+					"empty",
+					[
+						"TypeError",
+						"a `narrow` name is empty"
+					]
+				],
+				[
+					"a =",
+					[
+						"TypeError",
+						"a `narrow` name holds a `=`"
+					]
+				],
+				[
+					"a NUL",
+					[
+						"TypeError",
+						"a `narrow` name holds a NUL byte"
+					]
+				],
+				[
+					"a lone surrogate",
+					[
+						"TypeError",
+						"a `narrow` name isn't well-formed Unicode"
+					]
+				]
+			]
+		}
+	},
+	"env_receiver": {
+		"code": 0,
+		"output": [
+			[
+				"undefined",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			],
+			[
+				"an object",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			],
+			[
+				"a look-alike",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			],
+			[
+				"a frozen look-alike",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			],
+			[
+				"a proxy",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			],
+			[
+				"the prototype",
+				[
+					[
+						"get",
+						"TypeError"
+					],
+					[
+						"get_all",
+						"TypeError"
+					],
+					[
+						"narrow",
+						"TypeError"
+					]
+				]
+			]
+		]
+	},
+	"env_given_through_code": {
+		"code": 0,
+		"output": {
+			"getter": null,
+			"proxy": null
+		}
+	},
 	"cwd": {
 		"code": 0,
 		"output": {

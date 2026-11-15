@@ -20,9 +20,11 @@
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! an op past the loader.
 
+pub mod env;
 pub mod error_class;
 pub mod exit;
 mod grant;
+mod handle;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
@@ -36,7 +38,7 @@ use grant::{Granted, require, require_authority};
 use crate::loader::Refusals;
 #[cfg(test)]
 use crate::resolver::Capability;
-use crate::{ArgsGrant, ExitGrant};
+use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant};
 
 /// What an exit op throws in a runtime started without the exit host
 /// module's state, which only a runtime made outside a run's start is: a
@@ -63,6 +65,9 @@ pub struct HostData {
     /// The runtime's name and version, as the `runtime_version` host module
     /// exports it.
     pub runtime_version: String,
+    /// The environment variables the embedder read for the env host
+    /// module's root handle, of which it holds the names the run grants.
+    pub env: EnvVars,
 }
 
 /// A host op, as `HOST_OPS` lists it.
@@ -229,6 +234,45 @@ pub fn throw_error(scope: &v8::PinScope<'_, '_>, message: &str) {
     }
 }
 
+/// `text` as a property name.
+fn name<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::Name>> {
+    v8::String::new(scope, text).map(Into::into)
+}
+
+/// A read that threw, its exception pending.
+struct Thrown;
+
+/// The value of `object`'s own data property `key`, `None` when it has
+/// none, or an accessor, whose getter isn't run, or is a proxy.
+fn own_data<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    object: v8::Local<'s, v8::Object>,
+    key: v8::Local<'s, v8::Name>,
+) -> Result<Option<v8::Local<'s, v8::Value>>, Thrown> {
+    if object.is_proxy() {
+        return Ok(None);
+    }
+    let descriptor = object
+        .get_own_property_descriptor(scope, key)
+        .ok_or(Thrown)?;
+    // a descriptor V8 made is an ordinary object with its fields as its own
+    // data properties, so reading the one present reads nothing else
+    let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor) else {
+        return Ok(None);
+    };
+    let value_key = name(scope, "value").ok_or(Thrown)?;
+    if !descriptor
+        .has_own_property(scope, value_key)
+        .ok_or(Thrown)?
+    {
+        return Ok(None);
+    }
+    descriptor
+        .get(scope, value_key.into())
+        .map(Some)
+        .ok_or(Thrown)
+}
+
 host_ops! {
     /// The script's arguments, a new array of strings each call.
     fn op_gro_args(state, _granted: ArgsGrant) for "@fuzdev/gro/args.ts"
@@ -280,6 +324,42 @@ host_ops! {
             |classes| classes.namespace(scope, &ENV_ERROR, error),
         );
         namespace.map_or_else(|| v8::undefined(scope).into(), Into::into)
+    }
+
+    /// The env host module's root handle, made of `prototype`, the record
+    /// of shells the implementation's outer level made, the first time an
+    /// importing origin asks, and held, so a later ask, a rerun of a
+    /// first import ended early among them, gets the same one; the realm's
+    /// `Error`, which the implementation hands over as `error`, held for
+    /// the run first ([`env::root`]).
+    fn op_gro_env_root(state, _granted: EnvGrant; scope, prototype, error)
+        for "@fuzdev/gro/env.ts" -> v8::Local<'s, v8::Value>
+    {
+        env::root(state, scope, prototype, error)
+            .map_or_else(|| v8::undefined(scope).into(), Into::into)
+    }
+
+    /// `env.get(name)`, its receiver handed over as `handle` ([`env::get`]).
+    fn op_gro_env_get(state, _granted: EnvGrant; scope, handle, name)
+        for "@fuzdev/gro/env.ts" -> v8::Local<'s, v8::Value>
+    {
+        env::get(state, scope, handle, name).unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `env.get_all()`, its receiver handed over as `handle`
+    /// ([`env::get_all`]).
+    fn op_gro_env_get_all(state, _granted: EnvGrant; scope, handle)
+        for "@fuzdev/gro/env.ts" -> v8::Local<'s, v8::Value>
+    {
+        env::get_all(scope, handle).unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `env.narrow(names)`, its receiver handed over as `handle`
+    /// ([`env::narrow`]).
+    fn op_gro_env_narrow(state, _granted: EnvGrant; scope, handle, names)
+        for "@fuzdev/gro/env.ts" -> v8::Local<'s, v8::Value>
+    {
+        env::narrow(state, scope, handle, names).unwrap_or_else(|| v8::undefined(scope).into())
     }
 
     /// The working directory the run was started in, or, when its path

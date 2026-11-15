@@ -60,11 +60,15 @@ fn read_json(file: &str) -> Value {
 }
 
 /// A case of the table: its name, its host module, the arguments it's run
-/// with, and the values that differ by design on `fgro`.
+/// with, `fgro run`'s flags before the entry, the environment it's run in,
+/// which holds nothing else, and the values that differ by design on
+/// `fgro`.
 struct Case {
     name: String,
     module: String,
     args: Vec<String>,
+    flags: Vec<String>,
+    env: Vec<(String, String)>,
     differs: Vec<Difference>,
 }
 
@@ -94,6 +98,18 @@ fn cases() -> Vec<Case> {
                 .iter()
                 .map(text)
                 .collect(),
+            flags: case["flags"]
+                .as_array()
+                .map(|flags| flags.iter().map(text).collect())
+                .unwrap_or_default(),
+            env: case["env"]
+                .as_object()
+                .map(|env| {
+                    env.iter()
+                        .map(|(name, value)| (name.clone(), text(value)))
+                        .collect()
+                })
+                .unwrap_or_default(),
             differs: case["differs"]
                 .as_array()
                 .expect("an array of differences")
@@ -162,7 +178,8 @@ fn every_builtin_has_a_case_and_every_difference_is_one() {
     }
 }
 
-/// Each case under `fgro run` exits with the code Node's did, prints
+/// Each case under `fgro run` with its flags, in an environment holding
+/// the case's and nothing else, exits with the code Node's did, prints
 /// nothing on stderr, and prints what Node's did but for the case's named
 /// differences.
 #[test]
@@ -170,7 +187,9 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
     let expected = read_json("expected.json");
     let started_in = fixtures().canonicalize().unwrap();
     for case in cases() {
-        let mut args = vec!["run", "on_fgro.js", case.module.as_str()];
+        let mut args = vec!["run"];
+        args.extend(case.flags.iter().map(String::as_str));
+        args.extend(["on_fgro.js", case.module.as_str()]);
         args.extend(case.args.iter().map(|arg| {
             if arg == "{cwd}" {
                 started_in.to_str().unwrap()
@@ -179,7 +198,10 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
             }
         }));
         let mut command = fgro_command(&args);
-        command.current_dir(&started_in);
+        command
+            .env_clear()
+            .envs(case.env.iter().map(|(name, value)| (name, value)))
+            .current_dir(&started_in);
         let output = spawn(command, b"");
         let stderr = String::from_utf8(output.stderr).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
@@ -470,11 +492,20 @@ impl Reports {
     }
 }
 
-/// `fgro run` of `entry` in `project`, given two arguments: its exit code,
-/// what it reported, and its stderr.
+/// The grant that lets a test import every row, `env` among them, with
+/// the variables [`run_entry`] sets and one named `hostile`, as a hostile
+/// array's one name is.
+const GRANT_ENV: &str = "--allow-env=GRO_PATCHED_SET,GRO_PATCHED_UNSET,hostile";
+
+/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`], given two
+/// arguments, in an environment holding only `GRO_PATCHED_SET`: its exit
+/// code, what it reported, and its stderr.
 fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
-    let mut command = fgro_command(&["run", entry, "a", "b c"]);
-    command.current_dir(&project.0);
+    let mut command = fgro_command(&["run", GRANT_ENV, entry, "a", "b c"]);
+    command
+        .env_clear()
+        .env("GRO_PATCHED_SET", "set")
+        .current_dir(&project.0);
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
     let reports = stdout
@@ -885,8 +916,8 @@ fn a_first_import_short_of_stack_is_refused_and_run_whole_later() {
         ],
     );
     for entry in ["forced.js", "hostile.js"] {
-        let mut command = fgro_command(&["run", entry]);
-        command.current_dir(&project.0);
+        let mut command = fgro_command(&["run", GRANT_ENV, entry]);
+        command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
         let stderr = String::from_utf8(output.stderr).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();

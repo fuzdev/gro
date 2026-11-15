@@ -2793,6 +2793,107 @@ fn the_script_reads_its_arguments_from_args() {
     }
 }
 
+/// `--allow-env=` gives the project's modules `@fuzdev/gro/env.ts`, whose
+/// root reads exactly the names granted, an unset one as `undefined`, from
+/// the environment `fgro` started with; a name outside them throws
+/// `EnvError` `not_granted`, naming it and no value, and so does one
+/// outside a narrowed handle's set. Without the flag the import is refused
+/// when the graph links. `-A` reads every variable.
+#[test]
+fn allow_env_grants_the_named_variables_and_no_others() {
+    let fixtures = temp_fixtures(
+        "env_granted",
+        &[(
+            "main.js",
+            "import { env } from '@fuzdev/gro/env.ts';\n\
+                 const read = (handle, name) => {\n\
+                 \ttry {\n\t\treturn JSON.stringify(handle.get(name) ?? null);\n\
+                 \t} catch (error) {\n\
+                 \t\treturn `${error.constructor.name} ${error.message}`;\n\t}\n};\n\
+                 for (const name of ['GRO_A', 'GRO_B', 'GRO_UNSET']) console.log(name, read(env, name));\n\
+                 const narrowed = env.narrow(['GRO_A']);\n\
+                 console.log('narrowed', read(narrowed, 'GRO_UNSET'));\n\
+                 console.log(JSON.stringify(env.get_all()));\n",
+        )],
+    );
+    let vars = [("GRO_A", "1"), ("GRO_B", "secret value"), ("OTHER", "x")];
+    let run = run_with(
+        &fixtures,
+        &["--allow-env=GRO_A,GRO_UNSET"],
+        "main.js",
+        &vars,
+    );
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "GRO_A \"1\"\nGRO_B EnvError not_granted: GRO_B\nGRO_UNSET null\n\
+         narrowed EnvError not_granted: GRO_UNSET\n{\"GRO_A\":\"1\"}\n"
+    );
+    assert_eq!(run.stderr, "");
+    let run = run_with(&fixtures, &["-A"], "main.js", &vars);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "GRO_A \"1\"\nGRO_B \"secret value\"\nGRO_UNSET null\n\
+         narrowed EnvError not_granted: GRO_UNSET\n\
+         {\"GRO_A\":\"1\",\"GRO_B\":\"secret value\",\"OTHER\":\"x\"}\n"
+    );
+    let run = run_with(&fixtures, &[], "main.js", &vars);
+    assert_eq!(run.code, 1);
+    assert_eq!(run.stdout, "");
+    assert!(
+        run.stderr
+            .contains("cannot import '@fuzdev/gro/env.ts' from file://")
+            && run
+                .stderr
+                .contains("it needs the grant 'env', which this run doesn't grant"),
+        "{}",
+        run.stderr
+    );
+}
+
+/// A package's module is refused `env` though the project is granted it,
+/// and imports it unconfined, `-A`.
+#[test]
+fn a_package_is_refused_env_unless_the_run_is_unconfined() {
+    let fixtures = temp_fixtures(
+        "env_package",
+        &[
+            ("package.json", r#"{"name": "app", "type": "module"}"#),
+            (
+                "node_modules/dep/package.json",
+                r#"{"name": "dep", "type": "module", "exports": "./index.js"}"#,
+            ),
+            (
+                "node_modules/dep/index.js",
+                "export const load = () => import('@fuzdev/gro/env.ts');\n",
+            ),
+            (
+                "main.js",
+                "import { env } from '@fuzdev/gro/env.ts';\n\
+                 import { load } from 'dep';\n\
+                 const loaded = await load().catch((error) => error.message);\n\
+                 console.log(typeof loaded === 'string' ? loaded : loaded.env === env);\n",
+            ),
+        ],
+    );
+    let run = run_with(&fixtures, &["--allow-env=GRO_A"], "main.js", &[]);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let refusal = format!(
+        "cannot import '@fuzdev/gro/env.ts' from file://{}/node_modules/dep/index.js: it needs \
+         the grant 'env', which package 'dep' isn't granted: only the project's own modules \
+         are granted host modules\n",
+        fixtures.0.display()
+    );
+    assert_eq!(run.stdout, refusal);
+    assert_eq!(run.stderr, format!("error: import() refused: {refusal}"));
+    let run = run_with(&fixtures, &["-A"], "main.js", &[]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "true\n", "")
+    );
+}
+
 /// A package's module is refused `args`, the message naming the package,
 /// while the project imports it in the same run, which the refusal fails
 /// though the project caught it.

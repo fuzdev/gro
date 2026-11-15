@@ -52,6 +52,12 @@ fn the_table_is_pinned() {
                 &["EnvError", "is_env_error"][..],
             ),
             (
+                "@fuzdev/gro/env.ts",
+                "builtin:@fuzdev/gro/env.ts",
+                Some(Capability::Env),
+                &["env"][..],
+            ),
+            (
                 "@fuzdev/gro/cwd.ts",
                 "builtin:@fuzdev/gro/cwd.ts",
                 None,
@@ -230,16 +236,20 @@ fn the_reserved_specifiers_are_pinned() {
             Some(Reserved::JsSpelling(&BUILTINS[2])),
         ),
         (
-            "@fuzdev/gro/cwd.js",
+            "@fuzdev/gro/env.js",
             Some(Reserved::JsSpelling(&BUILTINS[3])),
         ),
         (
-            "@fuzdev/gro/pid.js",
+            "@fuzdev/gro/cwd.js",
             Some(Reserved::JsSpelling(&BUILTINS[4])),
         ),
         (
-            "@fuzdev/gro/runtime_version.js",
+            "@fuzdev/gro/pid.js",
             Some(Reserved::JsSpelling(&BUILTINS[5])),
+        ),
+        (
+            "@fuzdev/gro/runtime_version.js",
+            Some(Reserved::JsSpelling(&BUILTINS[6])),
         ),
         ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
         ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
@@ -261,8 +271,7 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/net_error.js", unbuilt("@fuzdev/gro/net_error")),
         ("@fuzdev/gro/watch.ts", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
-        ("@fuzdev/gro/env.ts", unbuilt("@fuzdev/gro/env")),
-        ("@fuzdev/gro/env.js", unbuilt("@fuzdev/gro/env")),
+        ("@fuzdev/gro/env.ts", None),
         ("@fuzdev/gro/stdin.ts", unbuilt("@fuzdev/gro/stdin")),
         ("@fuzdev/gro/stdin.js", unbuilt("@fuzdev/gro/stdin")),
         ("@fuzdev/gro/stdout.ts", unbuilt("@fuzdev/gro/stdout")),
@@ -439,10 +448,10 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  import what you use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', \
                  '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', \
                  '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or \
-                 '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/args.ts', \
-                 '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
-                 '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run code that uses the \
-                 others under Node with gro",
+                 '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/env.ts', \
+                 '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', \
+                 '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on fgro yet, so \
+                 run code that uses the others under Node with gro",
             ),
             (
                 "@fuzdev/gro/process_error.js",
@@ -493,7 +502,7 @@ fn a_respelled_specifier_is_reserved() {
         ("process.js?.ts", "process.js", process),
         ("process_error.ts#x", "process_error.ts", process_error),
         ("process%5ferror.js", "process_error.js", process_error),
-        ("%65nv.ts", "env.ts", Reserved::Unbuilt("@fuzdev/gro/env")),
+        ("%65nv.ts", "env.ts", Reserved::Respelled(&BUILTINS[3])),
         (
             "env_error.ts#x",
             "env_error.ts",

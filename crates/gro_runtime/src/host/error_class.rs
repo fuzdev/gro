@@ -48,7 +48,7 @@ use std::cell::RefCell;
 
 use deno_core::v8;
 
-use super::{throw_error, throw_range_error, throw_type_error};
+use super::{Thrown, name, own_data, throw_error, throw_range_error, throw_type_error};
 
 /// A family of host-module errors, as its class and its guard are named.
 #[derive(Debug, PartialEq, Eq)]
@@ -73,6 +73,11 @@ pub const ENV_ERROR: ErrorFamily = ErrorFamily {
 /// functions find their own by name in, one for each error row of the
 /// builtin table, as a test holds it.
 const FAMILIES: [&ErrorFamily; 1] = [&ENV_ERROR];
+
+/// What an op that throws a family's error throws when the run holds no
+/// realm `Error` to make the class from.
+const NO_REALM_ERROR: &str = "the host holds no realm Error to make an error class from: \
+                              no row whose ops throw one handed it over";
 
 /// What a family's class's native function throws when its family isn't
 /// one of [`FAMILIES`], naming it.
@@ -188,6 +193,41 @@ impl ErrorClasses {
         Some((class, guard))
     }
 
+    /// Throws a new error of `family` through `scope`, of `kind`, about
+    /// `target`: what `new Class(kind, target)` makes, its message `kind:
+    /// target`, made by the family's class, which is made now if the run
+    /// has none, extending the realm's `Error` the run holds. Runs no code
+    /// of a caller's: both are strings, and the class's own `prototype` is
+    /// a data property no program can change. With no `Error` held, which
+    /// no op reached through a row that hands it over meets, it throws an
+    /// `Error` saying so instead.
+    pub fn throw<'s>(
+        &self,
+        scope: &v8::PinScope<'s, '_>,
+        family: &'static ErrorFamily,
+        kind: &str,
+        target: v8::Local<'s, v8::String>,
+    ) {
+        let Some(error) = self
+            .error
+            .borrow()
+            .as_ref()
+            .map(|error| v8::Local::new(scope, error))
+        else {
+            throw_error(scope, NO_REALM_ERROR);
+            return;
+        };
+        let Some((class, _)) = self.get_or_make(scope, family, error) else {
+            return;
+        };
+        let Some(kind) = v8::String::new(scope, kind) else {
+            return;
+        };
+        if let Some(instance) = class.new_instance(scope, &[kind.into(), target.into()]) {
+            scope.throw_exception(instance.into());
+        }
+    }
+
     /// The namespace of `family`'s error row: a new null-prototype record
     /// of its class, its guard, and the `default` every builtin has,
     /// `undefined`, the class and guard made now if the run has none,
@@ -213,11 +253,6 @@ impl ErrorClasses {
             scope, null, &names, &values,
         ))
     }
-}
-
-/// `text` as a property name.
-fn name<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::Name>> {
-    v8::String::new(scope, text).map(Into::into)
 }
 
 /// The realm's `Error.prototype`, the prototype of an error V8 makes,
@@ -384,9 +419,6 @@ fn guard<'s>(
     }
 }
 
-/// A read that threw, its exception pending.
-struct Thrown;
-
 /// Whether `value` is an error of `family`, of `kind` unless it's
 /// `undefined`, as [`guard`] answers, reading only data properties.
 fn is_of_family(
@@ -427,37 +459,6 @@ fn is_of_family(
         next = prototype.get_prototype(scope);
     }
     Ok(false)
-}
-
-/// The value of `object`'s own data property `key`, `None` when it has
-/// none, or an accessor, whose getter isn't run, or is a proxy.
-fn own_data<'s>(
-    scope: &v8::PinScope<'s, '_>,
-    object: v8::Local<'s, v8::Object>,
-    key: v8::Local<'s, v8::Name>,
-) -> Result<Option<v8::Local<'s, v8::Value>>, Thrown> {
-    if object.is_proxy() {
-        return Ok(None);
-    }
-    let descriptor = object
-        .get_own_property_descriptor(scope, key)
-        .ok_or(Thrown)?;
-    // a descriptor V8 made is an ordinary object with its fields as its own
-    // data properties, so reading the one present reads nothing else
-    let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor) else {
-        return Ok(None);
-    };
-    let value_key = name(scope, "value").ok_or(Thrown)?;
-    if !descriptor
-        .has_own_property(scope, value_key)
-        .ok_or(Thrown)?
-    {
-        return Ok(None);
-    }
-    descriptor
-        .get(scope, value_key.into())
-        .map(Some)
-        .ok_or(Thrown)
 }
 
 /// The value of `object`'s data property `key`, its own or the nearest

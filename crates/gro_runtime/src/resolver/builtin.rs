@@ -87,6 +87,11 @@ macro_rules! builtin_rows {
                 None,
                 ["EnvError", "is_env_error"]
             ),
+            $row!(
+                "@fuzdev/gro/env.ts",
+                Some($crate::resolver::Capability::Env),
+                ["env"]
+            ),
             $row!("@fuzdev/gro/cwd.ts", None, ["cwd"]),
             $row!("@fuzdev/gro/pid.ts", None, ["pid"]),
             $row!("@fuzdev/gro/runtime_version.ts", None, ["runtime_version"]),
@@ -139,7 +144,6 @@ pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/net",
     "@fuzdev/gro/net_error",
     "@fuzdev/gro/watch",
-    "@fuzdev/gro/env",
     "@fuzdev/gro/stdin",
     "@fuzdev/gro/stdout",
     "@fuzdev/gro/stderr",

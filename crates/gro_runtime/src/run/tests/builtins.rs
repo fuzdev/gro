@@ -826,7 +826,7 @@ const cases = [
 \t['@fuzdev/gro/args.js', \"Fix: import '@fuzdev/gro/args.ts'\"],
 \t['@fuzdev/gro/fs.ts', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
 \t['@fuzdev/gro/fs.js', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
-\t['@fuzdev/gro/env.ts', \"Gro's host module '@fuzdev/gro/env.ts', which isn't on fgro yet\"],
+\t['@fuzdev/gro/env.js', \"Fix: import '@fuzdev/gro/env.ts'\"],
 \t['@fuzdev/gro/process.ts', \"'@fuzdev/gro/process.ts', which isn't one of Gro's modules\"],
 \t['@fuzdev/gro/process.js', \"Fix: import what you use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts',\"],
 \t['@fuzdev/gro/process_error.ts', \"from '@fuzdev/gro/env_error.ts' or '@fuzdev/gro/stdio_error.ts'\"],
@@ -921,9 +921,9 @@ for (const [specifier, words] of cases) {
              use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
              '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', \
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or '@fuzdev/gro/runtime_version.ts'; of \
-             these, only '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', \
-             '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on fgro yet, so run \
-             code that uses the others under Node with gro",
+             these, only '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
+             '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are \
+             on fgro yet, so run code that uses the others under Node with gro",
             graph.roots().project().dir.display()
         )),
         "{report}"

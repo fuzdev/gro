@@ -8,6 +8,7 @@ use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
+use crate::host::env::EnvRoot;
 use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
 use crate::loader::Loader;
@@ -130,6 +131,10 @@ pub fn start_runtime(
         (_, Some(step)) => Some(ExitState::new(step)),
         (_, None) => return Err(StartError::NoExitStep),
     };
+    let grants_env = match &authority {
+        Authority::Confined(grants) => grants.env.is_some(),
+        Authority::Unconfined => true,
+    };
     let refusals = loader.refusals();
     let runtime = new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
     let state = runtime.op_state();
@@ -139,6 +144,9 @@ pub fn start_runtime(
     state.borrow_mut().put(ErrorClasses::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
+    }
+    if grants_env {
+        state.borrow_mut().put(EnvRoot::default());
     }
     drop(state);
     start(runtime, console, Mode::Run).map_err(StartError::Runtime)
@@ -912,6 +920,26 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                     grant: None,
                 },
                 HostOp {
+                    name: "op_gro_env_root",
+                    module: "@fuzdev/gro/env.ts",
+                    grant: Some(Capability::Env),
+                },
+                HostOp {
+                    name: "op_gro_env_get",
+                    module: "@fuzdev/gro/env.ts",
+                    grant: Some(Capability::Env),
+                },
+                HostOp {
+                    name: "op_gro_env_get_all",
+                    module: "@fuzdev/gro/env.ts",
+                    grant: Some(Capability::Env),
+                },
+                HostOp {
+                    name: "op_gro_env_narrow",
+                    module: "@fuzdev/gro/env.ts",
+                    grant: Some(Capability::Env),
+                },
+                HostOp {
                     name: "op_gro_cwd",
                     module: "@fuzdev/gro/cwd.ts",
                     grant: None,
@@ -936,6 +964,10 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
             args: vec!["a".to_owned()],
             cwd: Some("/work".to_owned()),
             runtime_version: "test/1.2.3".to_owned(),
+            env: [("A", "1"), ("B", "2")]
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -1028,6 +1060,13 @@ check(`runtime_version ${{seen.runtime_version}}`, seen.runtime_version === 'tes
 const error = new seen.EnvError('not_granted', 'HOME');
 check(`EnvError ${{error.message}}`, error.message === 'not_granted: HOME' && error instanceof Error);
 check('is_env_error', seen.is_env_error(error, 'not_granted') && !seen.is_env_error(new Error('HOME')));
+check('env', seen.env.get('GRO_TEST_ENV') === undefined && Reflect.ownKeys(seen.env.get_all()).length === 0);
+try {{
+	seen.env.get('A');
+	throw new Error('read A');
+}} catch (refused) {{
+	check(`env refused ${{refused}}`, seen.is_env_error(refused, 'not_granted') && refused.message === 'not_granted: A');
+}}
 check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op_gro_color);
 ",
             serde_json::to_string(&rows).unwrap(),
@@ -1064,6 +1103,7 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                         ..host_data()
                     });
                     state.borrow_mut().put(ErrorClasses::default());
+                    state.borrow_mut().put(EnvRoot::default());
                     let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;
                     state.borrow_mut().put(host_data());
                     let id = runtime

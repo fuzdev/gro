@@ -7,7 +7,9 @@
 //
 // A case is a scenario in `cases/` named for its host module, run in a fresh process started
 // in this directory with the case's arguments, a `{cwd}` among them replaced by that
-// directory. It prints one line of JSON and nothing on stderr.
+// directory, and an environment holding the case's `env` and nothing else, never the
+// developer's. It prints one line of JSON and nothing on stderr. Its `flags` are `fgro run`'s,
+// the grants it runs with, which Node doesn't take.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -16,18 +18,18 @@ import { join } from 'node:path';
 const dir = realpathSync(import.meta.dirname);
 const expected_path = join(dir, 'expected.json');
 
-/** @type {Array<{name: string, module: string, args: Array<string>}>} */
+/** @type {Array<{name: string, module: string, args: Array<string>, env?: Record<string, string>}>} */
 const cases = JSON.parse(readFileSync(join(dir, 'cases.json'), 'utf8'));
 
 /**
  * Runs `test_case` under Node, returning its exit code and what it printed, parsed.
- * @param {{name: string, module: string, args: Array<string>}} test_case
+ * @param {{name: string, module: string, args: Array<string>, env?: Record<string, string>}} test_case
  */
 const run = (test_case) => {
 	const args = test_case.args.map((arg) => (arg === '{cwd}' ? dir : arg));
 	const result = spawnSync(process.execPath, ['on_node.js', test_case.module, ...args], {
 		cwd: dir,
-		env: {},
+		env: { ...test_case.env },
 		encoding: 'utf8'
 	});
 	if (result.error || result.signal !== null || result.stderr !== '') {

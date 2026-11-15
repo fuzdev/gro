@@ -408,11 +408,27 @@ Invariants that live in the code:
   - An error row's class and guard are the host's (`host/error_class.rs`):
     made natively the first time a run needs them, the realm's
     `Error.prototype` taken from an error V8 makes and its `Error` handed
-    over by the row's implementation from `primordials`, and held in
-    `OpState` (`ErrorClasses`) once whole, so a first import ended early
-    makes it again and every later need finds the one class; the row's op
-    makes the namespace. A start makes none and puts the empty holder only.
-    The guard reads data properties only, so it runs no code of a caller's.
+    over from `primordials` by the first implementation of a row whose ops
+    throw a family's error or make its namespace, checked and held for the
+    run, and the class held in `OpState` (`ErrorClasses`) once whole, so a
+    first import ended early makes it again and every later need finds the
+    one class; the row's op makes the namespace, and any op throws an
+    instance with one call (`ErrorClasses::throw`). A family missing from
+    `FAMILIES` throws when its class would be made. A start makes none and
+    puts the empty holder only. The guard reads data properties only, so it
+    runs no code of a caller's.
+  - A handle is the host's (`host/handle.rs`): an object the host makes of
+    the prototype a row's implementation gave (a frozen null-prototype
+    record of shells, each handing its receiver and arguments to an op of
+    the row, whole, and each frozen by the host when it makes the first
+    handle, since every holder shares them), its state under a private
+    symbol of its kind, the brand, then frozen. An op reads the handle it's handed natively and
+    refuses anything without the brand (a look-alike, a proxy, another
+    row's handle) and decides from the handle's state, never from the run's
+    grants, which only gate that the run holds the row at all. `env`'s root
+    handle is made from the run's grant by an op the inner level calls,
+    get-or-make, and held in `OpState` (`env::EnvRoot`), which a start puts
+    only for a run that grants `env`.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
@@ -484,9 +500,10 @@ Invariants that live in the code:
   `host/mod.rs`), since an op's `Err` is built by a JS callback of
   `deno_core`'s. An op that takes the scope can return a value made in it
   (`v8::Local<'s, v8::Value>`), as an error row's does. A builtin's export
-  that takes arguments is a shell handing them to such an op whole. The
-  run's `Authority` goes into the loader and
-  the runtime's `OpState` per run, never into the snapshot or the extension
+  that takes arguments is a shell handing them to such an op whole, a
+  method's receiver as its first argument (`op_gro_env_get(this, name)`).
+  The run's `Authority` goes into the loader and the runtime's `OpState`
+  per run, never into the snapshot or the extension
   list, and eval's runtime takes none. A test fails on an op of gro's
   extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`
   nor a host op (or that's on an object), another on a host op that runs

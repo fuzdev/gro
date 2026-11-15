@@ -133,8 +133,9 @@ const null_prototype_function = () => {
  * reports; a proxy of a function, which a check of its type takes for a callback, and whose
  * call reports; an object whose conversions, `then`, `length`, first index, iterator, and
  * `cause` are getters that report; a subclassed string, whose conversions and `cause` report;
- * and a subclassed array, whose iterator, conversion, and `cause` report. What a proxy's trap
- * does by default runs unwatched, it's the caller's code, and a proxy's target has a `null`
+ * a subclassed array, whose iterator, conversion, and `cause` report; and one of those whose
+ * first element is a getter that reports, which a read of the array's elements runs. What a
+ * proxy's trap does by default runs unwatched, it's the caller's code, and a proxy's target has a `null`
  * prototype, so it finds nothing of the realm's, and every read a builtin makes of one of
  * these is the argument's to answer, never a trap's on the realm's prototypes. Each is named for `show`, which shows it by its name, never walking
  * it, when a builtin hands it back inside what it returns.
@@ -169,7 +170,21 @@ const HOSTILE = /** @type {Array<[string, () => unknown]>} */ ([
 		}
 	],
 	['string', () => new HostileString('hostile')],
-	['array', () => HostileArray.of('hostile')]
+	['array', () => HostileArray.of('hostile')],
+	[
+		'indexed',
+		() => {
+			const hostile = HostileArray.of('hostile');
+			defineProperty(hostile, '0', {
+				__proto__: null,
+				get() {
+					touch('indexed.0');
+					return 'hostile';
+				}
+			});
+			return hostile;
+		}
+	]
 ]).map(([kind, make]) => [
 	kind,
 	() => name_value(/** @type {object} */ (make()), `hostile ${kind}`)
