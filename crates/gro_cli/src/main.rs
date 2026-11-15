@@ -85,7 +85,7 @@ fn main() {
 /// It takes only a code and reaches no runtime. Console output is written
 /// and flushed as it's printed, so nothing is buffered here today; a later
 /// host module that buffers stdout or stderr must have it written before
-/// the runtime is handed back and before `exit`'s op calls the embedder's
+/// the runtime is handed back and before `exit` calls the embedder's
 /// step, or keep the buffer where this can reach it.
 fn end(code: u8) -> ! {
     phases::finish();

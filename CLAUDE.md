@@ -642,12 +642,12 @@ Invariants that live in the code:
   code and reaches no runtime. Console output is written and flushed as
   it's printed, so nothing is buffered there today; a later host module
   that buffers stdout or stderr must have it written before the runtime is
-  handed back and before `exit`'s op calls the embedder's step, or keep
+  handed back and before `exit` calls the embedder's step, or keep
   the buffer where `end` can reach it.
 - `gro_runtime` ends its embedder's process itself in two places only:
   eval's out-of-memory backstop exits 1, and a confined engine whose random
   source fails aborts (`engine.rs`). A program's `exit` doesn't: its
-  op calls the step the embedder gave (`RuntimeOptions::exit_step`), from
+  function calls the step the embedder gave (`RuntimeOptions::exit_step`), from
   inside the call, since stopping V8 doesn't stop a program at once
   (`host/exit.rs` has why); a run that grants `exit` without a step fails
   before it starts (`StartError::NoExitStep`), so the grants stay plain

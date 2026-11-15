@@ -135,7 +135,16 @@ describe('the builtin table', () => {
 	test("the implementations are the table's rows", () => {
 		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
 		// each kind of export the checks below mutate is among them
-		for (const name of ['args', 'blake3', 'cwd', 'env', 'env_error', 'pid', 'runtime_version']) {
+		for (const name of [
+			'args',
+			'blake3',
+			'cwd',
+			'env',
+			'env_error',
+			'exit',
+			'pid',
+			'runtime_version'
+		]) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -419,6 +428,22 @@ describe('a retyped export fails its check', () => {
 			'node',
 			'export declare const cwd: () => string;',
 			'export declare const cwd: () => string | undefined;'
+		);
+	});
+
+	test('exit', () => {
+		// each function claimed by the host: a code required, and a result
+		assert_mismatch(
+			'exit',
+			'bootstrap',
+			'readonly exit: (code?: number) => never;',
+			'readonly exit: (code: number) => never;'
+		);
+		assert_mismatch(
+			'exit',
+			'bootstrap',
+			'readonly set_exit_code: (code: number) => void;',
+			'readonly set_exit_code: (code: number) => number;'
 		);
 	});
 

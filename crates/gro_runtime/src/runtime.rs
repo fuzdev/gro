@@ -960,12 +960,6 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         assert_eq!(
             HOST_OPS,
             [
-                row("op_gro_exit", "@fuzdev/gro/exit.ts", Some(Capability::Exit)),
-                row(
-                    "op_gro_set_exit_code",
-                    "@fuzdev/gro/exit.ts",
-                    Some(Capability::Exit)
-                ),
                 row("op_gro_env_error", "@fuzdev/gro/env_error.ts", None),
                 row(
                     "op_gro_env_root",
@@ -1458,9 +1452,31 @@ globalThis.namespaces = {};";
         }
     }
 
-    /// The form's check from either start: every native member, called in
-    /// a runtime that holds no authority, throws `not_granted` naming itself
-    /// before its body runs, whatever it's passed; and a member that needs
+    /// What `member`, a `what` (a host function or a host value), throws in
+    /// a runtime that holds no authority: `not_granted` naming it, and its
+    /// grant when it needs one.
+    fn member_refusal(member: &NativeMember, what: &str) -> String {
+        let label = format!("{} of {}", member.name, member.module);
+        member.grant.map_or_else(
+            || {
+                format!(
+                    "Error: not_granted: {label} is a {what}, and this runtime holds no \
+                     authority, so it runs none"
+                )
+            },
+            |grant| {
+                format!(
+                    "Error: not_granted: {label} needs the grant '{grant}', which this runtime \
+                     doesn't hold"
+                )
+            },
+        )
+    }
+
+    /// The form's check from either start: every native function, called
+    /// in a runtime that holds no authority, throws `not_granted` naming
+    /// itself, and its grant when it needs one, before its body runs,
+    /// whatever it's passed; and a member that needs
     /// a grant (the probe table's) throws it, naming the grant, in a run that
     /// grants nothing and in a runtime with no authority, and runs in a run
     /// that grants it. A body that skips its check returns or throws what it
@@ -1480,10 +1496,7 @@ globalThis.namespaces = {};";
                 let label = format!("{} of {}", member.name, member.module);
                 assert_eq!(
                     refused[&label],
-                    format!(
-                        "Error: not_granted: {label} is a host function, and this runtime holds \
-                         no authority, so it runs none"
-                    ),
+                    member_refusal(member, "host function"),
                     "{start:?}"
                 );
             }
@@ -1541,20 +1554,7 @@ globalThis.namespaces = {};";
             assert_eq!(refused.len(), values.len(), "{start:?}");
             for member in values {
                 let label = format!("{} of {}", member.name, member.module);
-                let thrown = member.grant.map_or_else(
-                    || {
-                        format!(
-                            "Error: not_granted: {label} is a host value, and this runtime holds \
-                             no authority, so it runs none"
-                        )
-                    },
-                    |grant| {
-                        format!(
-                            "Error: not_granted: {label} needs the grant '{grant}', which this \
-                             runtime doesn't hold"
-                        )
-                    },
-                );
+                let thrown = member_refusal(member, "host value");
                 assert_eq!(refused[&label], json!([false, thrown]), "{start:?}");
             }
             // a value of a row that needs a grant is made where it's granted
@@ -1753,7 +1753,7 @@ JSON.stringify(results)",
 
     /// Every host op's result in a runtime that holds no authority, in each
     /// mode, in a run that grants nothing, and in one that grants the
-    /// script's arguments alone. No run here grants `exit`, whose op would
+    /// script's arguments alone. No run here grants `exit`, whose function would
     /// end this process.
     fn host_ops_results(start: Start) -> Value {
         let granted = Authority::Confined(Grants {

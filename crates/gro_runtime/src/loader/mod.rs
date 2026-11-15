@@ -139,7 +139,7 @@ use resolve::resolve_into;
 /// The run's record of refusals as the runtime's `OpState` holds it, where
 /// any host op reaches it: the loader's, which lists each `import()` it
 /// refuses by rule, and each call a host op refuses for a grant, which the
-/// op records as it throws. `exit`'s op takes it and hands it to the
+/// op records as it throws. `exit` takes it and hands it to the
 /// embedder's step, so a run its program ends reports its refusals as one
 /// that ends on its own does.
 #[derive(Debug, Clone)]

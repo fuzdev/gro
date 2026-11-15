@@ -50,8 +50,8 @@ use crate::loader::RefusalLog;
 use crate::resolver::Capability;
 use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant};
 
-/// What an exit op throws in a runtime started without the exit host
-/// module's state, which only a runtime made outside a run's start is: a
+/// What `exit`'s functions throw in a runtime started without the exit
+/// host module's state, which only a runtime made outside a run's start is: a
 /// run that grants `exit` holds it.
 const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started without its state";
 
@@ -323,34 +323,6 @@ fn own_data<'s>(
 }
 
 host_ops! {
-    /// Ends the run now, by the embedder's step, with `code`, or, given
-    /// `undefined`, with the code `set_exit_code` set, else 0. Any other
-    /// value throws a `TypeError` and ends nothing.
-    fn op_gro_exit(state, _granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
-        let code = if code.is_undefined() {
-            Some(None)
-        } else {
-            to_exit_code(code).map(Some)
-        };
-        match (code, state.try_borrow::<ExitState>(), state.try_borrow::<RefusalLog>()) {
-            (None, ..) => throw_type_error(scope, NOT_A_CODE),
-            (Some(code), Some(exit), Some(refusals)) => exit.exit(code, refusals),
-            (Some(_), ..) => throw_error(scope, NO_EXIT_STATE),
-        }
-    }
-
-    /// Sets the code the run exits with when it ends on its own, or
-    /// throws a `TypeError` for a value that is no code.
-    fn op_gro_set_exit_code(state, _granted: ExitGrant; scope, code)
-        for "@fuzdev/gro/exit.ts"
-    {
-        match (to_exit_code(code), state.try_borrow::<ExitState>()) {
-            (None, _) => throw_type_error(scope, NOT_A_CODE),
-            (Some(code), Some(exit)) => exit.set_code(code),
-            (Some(_), None) => throw_error(scope, NO_EXIT_STATE),
-        }
-    }
-
     /// The env error row's namespace, `EnvError` and `is_env_error`: the
     /// host's, made the first time the run needs them, the class extending
     /// the realm's `Error`, which the implementation hands over from
@@ -442,6 +414,35 @@ native_members! {
             return None;
         };
         string(scope, cwd).map(Into::into)
+    }
+
+    /// `exit(code?)`: ends the run now, by the embedder's step, with
+    /// `code`, or, given `undefined`, with the code `set_exit_code` set,
+    /// else 0. Any other value throws a `TypeError` and ends nothing.
+    fn exit(state, _granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
+        let code = if code.is_undefined() {
+            Some(None)
+        } else {
+            to_exit_code(code).map(Some)
+        };
+        match (code, state.try_borrow::<ExitState>(), state.try_borrow::<RefusalLog>()) {
+            (None, ..) => throw_type_error(scope, NOT_A_CODE),
+            (Some(code), Some(exit), Some(refusals)) => exit.exit(code, refusals),
+            (Some(_), ..) => throw_error(scope, NO_EXIT_STATE),
+        }
+        None
+    }
+
+    /// `set_exit_code(code)`: sets the code the run exits with when it
+    /// ends on its own, or throws a `TypeError` for a value that is no
+    /// code.
+    fn set_exit_code(state, _granted: ExitGrant; scope, code) for "@fuzdev/gro/exit.ts" {
+        match (to_exit_code(code), state.try_borrow::<ExitState>()) {
+            (None, _) => throw_type_error(scope, NOT_A_CODE),
+            (Some(code), Some(exit)) => exit.set_code(code),
+            (Some(_), None) => throw_error(scope, NO_EXIT_STATE),
+        }
+        None
     }
 
     /// `pid`, the process's id, asked of the OS when the run first imports

@@ -67,6 +67,7 @@ interface Bootstrap {
 					| '@fuzdev/gro/args.ts'
 					| '@fuzdev/gro/blake3.ts'
 					| '@fuzdev/gro/cwd.ts'
+					| '@fuzdev/gro/exit.ts'
 					| '@fuzdev/gro/pid.ts'
 					| '@fuzdev/gro/runtime_version.ts'
 			>(
@@ -97,6 +98,11 @@ interface Bootstrap {
 					readonly cwd: () => string;
 					readonly default: undefined;
 				};
+				readonly '@fuzdev/gro/exit.ts': {
+					readonly exit: (code?: number) => never;
+					readonly set_exit_code: (code: number) => void;
+					readonly default: undefined;
+				};
 				readonly '@fuzdev/gro/pid.ts': {
 					readonly pid: number;
 					readonly default: undefined;
@@ -106,8 +112,6 @@ interface Bootstrap {
 					readonly default: undefined;
 				};
 			}[Row];
-			readonly op_gro_exit: (code: unknown) => never;
-			readonly op_gro_set_exit_code: (code: unknown) => void;
 		};
 	};
 	/** The intrinsics, each taken by name when the runtime is made, before any user code runs. */

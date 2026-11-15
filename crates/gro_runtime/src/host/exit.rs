@@ -8,7 +8,7 @@
 //! that job, but `deno_core`'s event loop goes on after a termination
 //! inside a microtask checkpoint and runs the timers that come due; and a
 //! terminated run reports as an `Error` a program could have thrown
-//! itself. So the op ends the process, and since a library doesn't end its
+//! itself. So `exit` ends the process, and since a library doesn't end its
 //! embedder's process on its own, it does so by calling the step the
 //! embedder gave ([`RuntimeOptions::exit_step`](crate::RuntimeOptions::exit_step)),
 //! which a run that grants `exit` can't start without: no embedder that
@@ -44,7 +44,7 @@ pub struct Exit {
 /// The step that ends the process for a program's `exit`, given by the
 /// embedder ([`RuntimeOptions::exit_step`](crate::RuntimeOptions::exit_step)).
 ///
-/// It's called inside the host op, on the runtime's thread, with the
+/// It's called inside `exit`, on the runtime's thread, with the
 /// program's frames still on the stack, so it can't return or unwind: it
 /// ends the process.
 pub type ExitStep = fn(&Exit) -> !;
