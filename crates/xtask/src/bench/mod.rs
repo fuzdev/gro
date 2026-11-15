@@ -426,7 +426,7 @@ fn measurement_build(
     fgro_names: &BTreeSet<String>,
     suite: &mut Suite,
 ) -> StepResult {
-    let built = snapshot::build(root, &release.target_dir, true, measurement)
+    let built = snapshot::build(root, &release.target_dir, true, measurement, &[])
         .map_err(XtaskError::in_bench_build)?
         .binary;
     if measurement == Measurement::Prices {
@@ -525,7 +525,7 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<Option<Rel
         return Ok(None);
     }
     let target_dir = fetch_v8(root)?;
-    let built = snapshot::build(root, &target_dir, true, Measurement::None)
+    let built = snapshot::build(root, &target_dir, true, Measurement::None, &[])
         .map_err(XtaskError::in_bench_build)?
         .binary;
     let built = built.canonicalize().map_err(|error| {

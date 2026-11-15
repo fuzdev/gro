@@ -136,7 +136,7 @@ pub fn check_rust(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
-    let build = snapshot::build(root, &target_dir, false, Measurement::None)?;
+    let build = snapshot::build(root, &target_dir, false, Measurement::None, &[])?;
     snapshot::verify(root, false, &build)
 }
 

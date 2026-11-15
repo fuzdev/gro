@@ -240,7 +240,7 @@ fn main() -> ExitCode {
         Subcommand::VendorPatch(VendorPatch { name }) => vendor::write_patch(&root, &name),
         Subcommand::Build(Build { release, verify }) => {
             check::fetch_v8(&root).and_then(|target_dir| {
-                let build = snapshot::build(&root, &target_dir, release, Measurement::None)?;
+                let build = snapshot::build(&root, &target_dir, release, Measurement::None, &[])?;
                 if verify {
                     snapshot::verify(&root, release, &build)?;
                 }

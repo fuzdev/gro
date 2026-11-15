@@ -137,7 +137,8 @@ fn commit_value(state: &GitState) -> String {
     }
 }
 
-/// Builds the snapshot `fgro`.
+/// Builds the snapshot `fgro`, each cargo it runs with `cargo_env` added to
+/// its environment.
 ///
 /// Its paths come from `target_dir`, cargo's target directory, which
 /// `CARGO_TARGET_DIR` or `build.target-dir` may move off the checkout.
@@ -146,6 +147,7 @@ pub fn build(
     target_dir: &Path,
     release: bool,
     measurement: Measurement,
+    cargo_env: &[(&str, &str)],
 ) -> Result<SnapshotBuild, XtaskError> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
@@ -154,7 +156,7 @@ pub fn build(
 
     let mut stage_one = vec!["build", "--locked", "-p", "gro_cli"];
     stage_one.extend(profile_args);
-    run(root, &[], "cargo", &stage_one)?;
+    run(root, cargo_env, "cargo", &stage_one)?;
     // before stage one runs V8 code, and after the build that wrote the copy
     crate::check::verify_linked_step(target_dir, profile)?;
     let plain = target_dir.join(profile).join("fgro");
@@ -192,12 +194,12 @@ pub fn build(
     stage_two.extend(profile_args);
     // read last, so it names the tree this build compiles
     let commit = commit(root);
-    run(
-        root,
-        &[("GRO_SNAPSHOT_DIR", &dir_arg), (COMMIT_ENV, &commit)],
-        "cargo",
-        &stage_two,
-    )?;
+    let mut stage_two_env = vec![
+        ("GRO_SNAPSHOT_DIR", dir_arg.as_str()),
+        (COMMIT_ENV, &commit),
+    ];
+    stage_two_env.extend(cargo_env);
+    run(root, &stage_two_env, "cargo", &stage_two)?;
     let built = target_dir.join(profile).join("fgro");
     let linked = if let Some(feature) = measurement.feature() {
         let dir = target_dir
@@ -537,7 +539,7 @@ fn registry_source(residual: &Path) -> Option<PathBuf> {
 }
 
 /// Cargo's home: `CARGO_HOME`, else `~/.cargo`.
-pub fn cargo_home() -> PathBuf {
+fn cargo_home() -> PathBuf {
     std::env::var_os("CARGO_HOME").map_or_else(
         || {
             std::env::var_os("HOME")

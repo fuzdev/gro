@@ -6,9 +6,10 @@
 //! of one commit, with the same toolchain and cargo home, builds the same
 //! release `fgro` from any path. So the checkout must be clean (the build
 //! embeds its commit, and a dirty tree's `-dirty` alone would differ), and
-//! the caller's environment may not set a variable that configures how cargo
-//! compiles, which the clone's cleared environment would drop
-//! ([`crate::bench::base::codegen_overrides`]; `RUSTFLAGS` passes to both).
+//! the check's own environment may not set a variable that configures how
+//! cargo compiles, which the clone's cleared environment would drop
+//! ([`crate::bench::base::codegen_overrides`]; `RUSTFLAGS` passes to both),
+//! or a rustc wrapper ([`refuse_environment`]).
 //!
 //! 1. The checkout's own `build --release`, into its target directory.
 //! 2. A fresh clone at `<dir>/src` (by default
@@ -32,9 +33,16 @@
 //!    snapshot files that differ, and each binary's `--version`; the clone
 //!    is kept for inspection. A pass removes the clone.
 //!
-//! It refuses a rustc wrapper ([`rustc_wrapper`]): one in cargo's home
-//! applies to both builds, and a compiler cache could serve the second from
-//! the first's compile. And it refuses a cargo config only the clone's
+//! Both builds, and every cargo that compiles for them (the clone's xtask's
+//! included), run with [`BUILD_ENV`]: no rustc wrapper a cargo config's
+//! `build` table sets, so no compiler cache serves the second build from the
+//! first's compile, and `PATH`'s `rustc`, whatever a config's `build.rustc`
+//! names, so the compiler both builds run is the one whose `--version` the
+//! check compares. A cargo config's `[env]` with `force = true` gets past
+//! it into what cargo starts, the clone's xtask among them and so its
+//! builds. So the check refuses a rustc wrapper in its own environment,
+//! where a config the checkout's cargo reads puts one as the caller would
+//! ([`refuse_environment`]). And it refuses a cargo config only the clone's
 //! build would read, in `<dir>` or above it and not above the checkout
 //! ([`refuse_clone_configs`]): its forced `[env]` could set a wrapper for
 //! the clone's build alone, and its `rustflags` join the tree's, where a
@@ -78,12 +86,6 @@ pub fn check_reproducible(
     env: &[(OsString, OsString)],
 ) -> StepResult {
     refuse_environment(env)?;
-    if let Some(wrapper) = rustc_wrapper(root) {
-        return Err(XtaskError::reproducible_input(format!(
-            "{wrapper} sets a rustc wrapper, which could hand the clone's build what the \
-             checkout's compiled, as a shared compiler cache does; unset it for the check"
-        )));
-    }
     let state = GitState::read(root, &root.join(crate::bench::HISTORY)).map_err(|error| {
         XtaskError::reproducible_input(format!(
             "the build embeds the checkout's commit, and git can't read it: {error}"
@@ -100,7 +102,7 @@ pub fn check_reproducible(
     let (dir, _lock) = take(root, &dir)?;
 
     let target_dir = crate::check::fetch_v8(root)?;
-    let first = snapshot::build(root, &target_dir, true, Measurement::None)?;
+    let first = snapshot::build(root, &target_dir, true, Measurement::None, &BUILD_ENV)?;
     if first.commit != state.sha {
         return Err(XtaskError::Failed(format!(
             "the checkout moved during its build: it embeds `{}`, not `{}`",
@@ -110,14 +112,17 @@ pub fn check_reproducible(
 
     let src = clone(root, &dir, &state.sha, env)?;
     println!(
-        "\n[xtask] cargo xtask build --release (in {}, at {}, environment cleared but {})",
+        "\n[xtask] cargo xtask build --release (in {}, at {}, environment cleared but {}, with {})",
         src.display(),
         state.sha,
-        BASE_BUILD_ENV.join(", ")
+        BASE_BUILD_ENV.join(", "),
+        BUILD_ENV
+            .iter()
+            .map(|(key, value)| format!("{key}='{value}'"))
+            .collect::<Vec<_>>()
+            .join(" ")
     );
-    let status = clean_command("cargo", &src)
-        .args(["xtask", "build", "--release"])
-        .env("CARGO_TARGET_DIR", src.join("target"))
+    let status = clone_build(&src)
         .status()
         .map_err(|source| XtaskError::Spawn {
             display: "cargo xtask build --release".to_owned(),
@@ -149,9 +154,17 @@ pub fn check_reproducible(
     remove_clone(&dir)
 }
 
+/// The variables that name a rustc wrapper; an empty one turns its kind off.
+const WRAPPER_VARS: [&str; 2] = ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"];
+
 /// Refuses `env`, the check's own environment, when it sets a variable that
 /// configures how cargo compiles ([`codegen_overrides`]), which the clone's
-/// cleared environment would drop.
+/// cleared environment would drop, or a rustc wrapper ([`WRAPPER_VARS`]).
+/// A wrapper there is the caller's or a cargo config's `[env]`'s, the two
+/// alike to a process cargo starts; a config's with `force = true` would
+/// set it for the clone's xtask too, past the empty value [`BUILD_ENV`]
+/// gives it, and a compiler cache it runs could serve the clone's build
+/// from the checkout's compile.
 fn refuse_environment(env: &[(OsString, OsString)]) -> StepResult {
     let overrides = codegen_overrides(
         env.iter()
@@ -164,6 +177,19 @@ fn refuse_environment(env: &[(OsString, OsString)]) -> StepResult {
             overrides.join(", ")
         )));
     }
+    let wrappers: Vec<&str> = WRAPPER_VARS
+        .into_iter()
+        .filter(|name| var(env, name).is_some_and(|value| !value.is_empty()))
+        .collect();
+    if !wrappers.is_empty() {
+        return Err(XtaskError::reproducible_input(format!(
+            "the check's environment sets a rustc wrapper ({}), which could hand the clone's \
+             build what the checkout's compiled, as a compiler cache does; it comes from the \
+             caller's environment or a cargo config's [env], where `force = true` can set it for \
+             the clone's build too: unset it, or remove the config's entry, for the check",
+            wrappers.join(" and ")
+        )));
+    }
     Ok(())
 }
 
@@ -174,49 +200,33 @@ fn var<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsString> 
         .map(|(_, value)| value)
 }
 
-/// The keys that set a rustc wrapper in a cargo config file, under `[build]`.
-const WRAPPER_KEYS: [&str; 2] = ["rustc-wrapper", "rustc-workspace-wrapper"];
-
-/// The environment variables that set a rustc wrapper.
-const WRAPPER_VARS: [&str; 4] = [
-    "RUSTC_WRAPPER",
-    "RUSTC_WORKSPACE_WRAPPER",
-    "CARGO_BUILD_RUSTC_WRAPPER",
-    "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+/// What both builds run with, the checkout's cargo and the clone's alike,
+/// which a cargo the clone's xtask starts inherits: an empty `RUSTC_WRAPPER`
+/// and `RUSTC_WORKSPACE_WRAPPER`, each turning off the wrapper of its kind
+/// that a cargo config's `build` table sets, in whatever form, so no
+/// compiler cache can serve the clone's build from the checkout's compile;
+/// and `RUSTC=rustc`, which overrides a config's `build.rustc`, so both
+/// builds run `PATH`'s `rustc` (under rustup, the toolchain the tree pins),
+/// the compiler whose `--version` the check compares. A cargo config's
+/// `[env]` with `force = true` sets a variable past these for what cargo
+/// starts, the clone's xtask among them, so a wrapper or a `RUSTC` in the
+/// check's own environment, the caller's or a config's, is refused
+/// ([`refuse_environment`]) rather than trusted to be replaced.
+const BUILD_ENV: [(&str, &str); 3] = [
+    ("RUSTC_WRAPPER", ""),
+    ("RUSTC_WORKSPACE_WRAPPER", ""),
+    ("RUSTC", "rustc"),
 ];
 
-/// Where a rustc wrapper is set for the checkout's build: a variable of
-/// [`WRAPPER_VARS`] that isn't empty, or a cargo config file, in the
-/// checkout or above it or in cargo's home, with a line setting a key of
-/// [`WRAPPER_KEYS`]. A wrapper in cargo's home applies to the clone's build
-/// too, and a cache it runs can serve both from one compile. A line read
-/// as a key is a match, so a key under another table refuses too: loud
-/// rather than missed.
-fn rustc_wrapper(root: &Path) -> Option<String> {
-    if let Some(var) = WRAPPER_VARS
-        .into_iter()
-        .find(|var| std::env::var_os(var).is_some_and(|value| !value.is_empty()))
-    {
-        return Some(format!("the environment's {var}"));
-    }
-    root.ancestors()
-        .map(|dir| dir.join(".cargo"))
-        .chain([snapshot::cargo_home()])
-        .flat_map(|dir| [dir.join("config.toml"), dir.join("config")])
-        .find(|file| fs::read_to_string(file).is_ok_and(|text| sets_a_wrapper(&text)))
-        .map(|file| file.display().to_string())
-}
-
-/// Whether a line of `config`, a cargo config file's text, sets a key of
-/// [`WRAPPER_KEYS`], bare (under `[build]`) or dotted (`build.`), quoted or
-/// not.
-fn sets_a_wrapper(config: &str) -> bool {
-    config.lines().any(|line| {
-        line.split_once('=').is_some_and(|(key, _)| {
-            let key = key.trim().trim_start_matches("build.").trim_matches('"');
-            WRAPPER_KEYS.contains(&key)
-        })
-    })
+/// The clone's `cargo xtask build --release` in `src`: from the cleared
+/// environment, with [`BUILD_ENV`], into the clone's own target directory.
+fn clone_build(src: &Path) -> Command {
+    let mut command = clean_command("cargo", src);
+    command
+        .args(["xtask", "build", "--release"])
+        .envs(BUILD_ENV)
+        .env("CARGO_TARGET_DIR", src.join("target"));
+    command
 }
 
 /// The directory the clone goes in: `given`, or the cache's from `env`
@@ -419,9 +429,9 @@ const CARGO_CONFIGS: [&str; 2] = ["config.toml", "config"];
 /// parent of it that isn't a parent of the checkout at `root`, since cargo
 /// reads the config of every directory above the one it runs in. Such a
 /// config changes the clone's build alone: its `[env]` with `force = true`
-/// can set a rustc wrapper for it, and its `rustflags` join the tree's,
-/// where a `--remap-path-prefix` could write the checkout's path in place
-/// of the clone's and hide the very difference the check looks for.
+/// can set a rustc wrapper past [`BUILD_ENV`], and its `rustflags` join the
+/// tree's, where a `--remap-path-prefix` could write the checkout's path in
+/// place of the clone's and hide the very difference the check looks for.
 /// The config of cargo's home, as `env` names it ([`cargo_home`]), is left
 /// alone: cargo reads it for every build, the checkout's too, and once,
 /// though it's above the clone.
@@ -1246,15 +1256,132 @@ mod tests {
         assert_eq!(beside.unwrap(), dir_real);
     }
 
+    /// With [`BUILD_ENV`], cargo runs neither kind of rustc wrapper nor the
+    /// compiler a config file names, though the config sets each in the
+    /// forms a line scan misses (an inline table, a quoted key); without it,
+    /// it runs them. Each is a script that fails, so running any fails the
+    /// build. The crate has no dependency, so nothing is fetched.
     #[test]
-    fn a_rustc_wrapper_in_a_config_file_is_found() {
-        assert!(sets_a_wrapper("[build]\nrustc-wrapper = \"sccache\"\n"));
-        assert!(sets_a_wrapper("build.rustc-workspace-wrapper = \"w\"\n"));
-        assert!(sets_a_wrapper("[build]\n\"rustc-wrapper\" = \"sccache\"\n"));
-        assert!(!sets_a_wrapper(
-            "[build]\n# rustc-wrapper = \"sccache\"\njobs = 4\n"
+    fn the_build_env_turns_off_what_a_cargo_config_sets() {
+        let dir = std::env::temp_dir().join(format!(
+            "xtask_reproducible_build_env_{}",
+            std::process::id()
         ));
-        assert!(!sets_a_wrapper("[env]\nRUSTC_WRAPPER_NOTE = \"x\"\n"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join(".cargo")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"probe\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[workspace]\n",
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let script = dir.join("refuse.sh");
+        fs::write(&script, "#!/bin/sh\nexit 1\n").unwrap();
+        fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let script = script.display();
+        fs::write(
+            dir.join(".cargo/config.toml"),
+            format!(
+                "build = {{ rustc-wrapper = \"{script}\", 'rustc-workspace-wrapper' = \"{script}\", \
+                 \"rustc\" = \"{script}\" }}\n"
+            ),
+        )
+        .unwrap();
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let build = |env: &[(&str, &str)]| {
+            Command::new(&cargo)
+                .args(["build", "--offline", "--quiet"])
+                .current_dir(&dir)
+                .env_remove("RUSTC")
+                .env_remove("RUSTC_WRAPPER")
+                .env_remove("RUSTC_WORKSPACE_WRAPPER")
+                .envs(env.iter().copied())
+                .env("CARGO_TARGET_DIR", dir.join("target"))
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        let configured = build(&[]);
+        let turned_off = build(&BUILD_ENV);
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(!configured, "the config's wrapper and compiler ran");
+        assert!(turned_off);
+    }
+
+    #[test]
+    fn the_clone_s_build_takes_the_build_env() {
+        let src = Path::new("/nonexistent/src");
+        let command = clone_build(src);
+        let envs: Vec<(String, Option<String>)> = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for (key, value) in BUILD_ENV {
+            assert!(
+                envs.contains(&(key.to_owned(), Some(value.to_owned()))),
+                "{key} in {envs:?}"
+            );
+        }
+        assert!(envs.contains(&(
+            "CARGO_TARGET_DIR".to_owned(),
+            Some("/nonexistent/src/target".to_owned())
+        )));
+    }
+
+    /// A rustc wrapper in the check's own environment is refused before
+    /// anything is built or written, the `--dir` (one that climbs, refused
+    /// next) never read; an empty one, which turns a wrapper off, isn't.
+    /// The caller's and one a cargo config's `[env]` sets look alike there.
+    #[test]
+    fn a_rustc_wrapper_in_the_environment_is_refused_first() {
+        let root = crate::root();
+        let dir = std::env::temp_dir().join("xtask_reproducible_missing/../wrapped");
+        let check = |vars: &[(&str, &str)]| {
+            let env: Vec<(OsString, OsString)> = vars
+                .iter()
+                .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+                .collect();
+            check_reproducible(&root, Some(dir.clone()), &env).unwrap_err()
+        };
+        for (vars, named) in [
+            (
+                &[
+                    ("RUSTC_WRAPPER", "sccache"),
+                    ("RUSTC_WORKSPACE_WRAPPER", ""),
+                ][..],
+                "rustc wrapper (RUSTC_WRAPPER)",
+            ),
+            (
+                &[("RUSTC_WORKSPACE_WRAPPER", "/bin/false")],
+                "rustc wrapper (RUSTC_WORKSPACE_WRAPPER)",
+            ),
+            (
+                &[
+                    ("RUSTC_WRAPPER", "sccache"),
+                    ("RUSTC_WORKSPACE_WRAPPER", "sccache"),
+                ],
+                "rustc wrapper (RUSTC_WRAPPER and RUSTC_WORKSPACE_WRAPPER)",
+            ),
+        ] {
+            let refused = check(vars);
+            assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+            let message = refused.to_string();
+            assert!(
+                message.contains(named)
+                    && message.contains("a cargo config's [env], where `force = true`")
+                    && message.contains("unset it, or remove the config's entry"),
+                "{message}"
+            );
+        }
+        let empty = check(&[("RUSTC_WRAPPER", ""), ("RUSTC_WORKSPACE_WRAPPER", "")]);
+        assert!(!empty.to_string().contains("rustc wrapper"), "{empty}");
     }
 
     /// A `--dir` that doesn't exist yet, reached through a symlink into the
