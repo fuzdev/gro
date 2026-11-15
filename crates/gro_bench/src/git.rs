@@ -13,15 +13,28 @@ use crate::error::BenchError;
 use crate::record::{CheckoutState, GitState};
 
 impl GitState {
-    /// Reads the state of the checkout at `root`. The history file, when it's
-    /// inside the checkout, doesn't count as a change: every run appends to
-    /// it. A `history` that climbs out with `..` can't be named to git as an
-    /// exclusion, so it gets none (callers pass a normalized path).
+    /// Reads the state of the checkout at `root`, which must be its top
+    /// level: a tree inside another checkout, as a copy exported into another
+    /// repo, would read that repo's commit, so it's refused as outside git.
+    /// The history file, when it's inside the checkout, doesn't count as a
+    /// change: every run appends to it. A `history` that climbs out with `..`
+    /// can't be named to git as an exclusion, so it gets none (callers pass a
+    /// normalized path).
     ///
     /// # Errors
     ///
-    /// Fails when `git` can't run or fails, as outside a checkout.
+    /// Fails with [`BenchError::NotCheckoutRoot`] when `root` is inside a
+    /// checkout but isn't its top level, and otherwise when `git` can't run
+    /// or fails, as outside a checkout.
     pub fn read(root: &Path, history: &Path) -> Result<Self, BenchError> {
+        if let Some(top_level) = checkout_root(root)
+            && root.canonicalize().ok().as_ref() != Some(&top_level)
+        {
+            return Err(BenchError::NotCheckoutRoot {
+                root: root.to_owned(),
+                top_level,
+            });
+        }
         let sha = git(root, &["rev-parse", "HEAD"])?.trim().to_owned();
         // untracked files listed whatever `status.showUntrackedFiles` says
         let mut status_args = vec![
@@ -484,6 +497,38 @@ mod tests {
             matches!(&other, Err(BenchError::CorporaDirty { collection, .. }) if collection == "ab"),
             "{other:?}"
         );
+    }
+
+    /// A tree inside a checkout that isn't its top level, as one exported
+    /// into another repo, reads no commit, whatever the repo's state; the
+    /// top level reads its own, through a symlink too.
+    #[test]
+    fn only_the_top_level_of_a_checkout_reads_its_commit() {
+        let (base, root) = git_checkout("gro_bench_git_top_level");
+        let export = root.join("vendor/export");
+        fs::create_dir_all(&export).unwrap();
+        fs::write(export.join("Cargo.toml"), "").unwrap();
+        git(&root, &["add", "."]).unwrap();
+        commit(&root, &[], "export");
+        let history = export.join("history.jsonl");
+        let inside = GitState::read(&export, &history);
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+        let through_link = GitState::read(&link, &link.join("history.jsonl"));
+        let top = GitState::read(&root, &root.join("history.jsonl"));
+        let top_level = root.canonicalize().unwrap();
+        fs::remove_dir_all(&base).unwrap();
+        assert!(
+            matches!(
+                &inside,
+                Err(error @ BenchError::NotCheckoutRoot { top_level: found, .. })
+                    if *found == top_level && error.is_input_error()
+            ),
+            "{inside:?}"
+        );
+        let top = top.unwrap();
+        assert!(!top.dirty);
+        assert_eq!(through_link.unwrap(), top);
     }
 
     #[test]

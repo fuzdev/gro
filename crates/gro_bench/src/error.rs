@@ -63,6 +63,15 @@ pub enum BenchError {
     /// A process (a sample, a version probe, `git`) exited unsuccessfully.
     #[error("`{command}` failed ({status})")]
     CommandFailed { command: String, status: ExitStatus },
+    /// A tree read as a checkout is inside another git checkout but isn't
+    /// its top level, as a tree exported into another repo is, so that
+    /// repo's commit isn't the tree's.
+    #[error(
+        "{} isn't the top level of a git checkout: git reads it as part of {}, whose commit isn't its own",
+        root.display(),
+        top_level.display()
+    )]
+    NotCheckoutRoot { root: PathBuf, top_level: PathBuf },
     /// A process ran past the suite's deadline, so its process group was
     /// killed and it was reaped.
     #[error(
@@ -273,6 +282,7 @@ impl BenchError {
             | Self::ProgramNotFound { .. }
             | Self::ProgramIsScript { .. }
             | Self::CommandFailed { .. }
+            | Self::NotCheckoutRoot { .. }
             | Self::TimedOut { .. }
             | Self::WorkDirLocked { .. }
             | Self::NoVersion { .. }

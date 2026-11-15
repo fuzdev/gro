@@ -115,7 +115,9 @@ pub struct SnapshotBuild {
 /// included, the default bench history excepted ([`GitState::read`], the
 /// state a bench record carries when `--history` isn't given). Empty,
 /// which `fgro --version` prints as `unknown`, when git can't say, with a
-/// warning: a source tree outside a checkout still builds.
+/// warning: a source tree outside a checkout still builds, and so does one
+/// inside a checkout it isn't the top level of, as a copy exported into
+/// another repo, which embeds no commit rather than that repo's.
 fn commit(root: &Path) -> String {
     match GitState::read(root, &root.join(crate::bench::HISTORY)) {
         Ok(state) => commit_value(&state),
