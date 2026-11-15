@@ -10,7 +10,7 @@ import type { FileFilter, PathFilter, ResolvedPath } from '@fuzdev/fuz_util/path
 import { ensure_end, strip_end } from '@fuzdev/fuz_util/string.ts';
 
 import type { FileKind, FsReadDir } from './fs.ts';
-import { compare_code_points } from './internal/code_points.ts';
+import { compare_paths_by_segment } from './internal/code_points.ts';
 
 /**
  * A file `fs_search` found: a non-directory entry, with its kind as the listing read it,
@@ -98,19 +98,7 @@ export const fs_search = async (
 	};
 	await search(null);
 
-	return sort ? found.sort(compare_paths) : found;
-};
-
-// segment by segment, each by code point, a path before any path beneath it
-const compare_paths = (a: FsSearchResult, b: FsSearchResult): number => {
-	const x = a.path.split('/');
-	const y = b.path.split('/');
-	const length = x.length < y.length ? x.length : y.length;
-	for (let i = 0; i < length; i++) {
-		const compared = compare_code_points(x[i]!, y[i]!);
-		if (compared !== 0) return compared;
-	}
-	return x.length - y.length;
+	return sort ? found.sort((a, b) => compare_paths_by_segment(a.path, b.path)) : found;
 };
 
 const to_filters = <T>(filter: T | Array<T> | undefined): Array<T> | undefined =>
