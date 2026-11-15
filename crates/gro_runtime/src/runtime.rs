@@ -263,7 +263,7 @@ mod tests {
     use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::error_class::ErrorClasses;
-    use crate::host::native::{self, NativeMember, NativeNamespaces, Place};
+    use crate::host::native::{self, Member, NativeMember, NativeNamespaces, Place, Prototypes};
     use crate::host::{HOST_OPS, HostOp, NATIVE_MEMBERS, Serves};
     use crate::loader::graph::Recording;
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
@@ -927,9 +927,9 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
     /// grant-free row's, so an op of a module that needs a grant can't be
     /// declared grant-free; the op that serves every row with native
     /// members requires none itself, and checks the row's once it knows it
-    /// (`host::native`'s tests); and each grant a host op requires is a
-    /// row's, and a table with a grant-free row has a grant-free op, so
-    /// neither list grows a kind the other lacks.
+    /// (`host::native`'s tests); and each grant a host op or a native
+    /// member requires is a row's, and every row's grant, none among them,
+    /// is required by one, so neither list grows a kind the other lacks.
     #[test]
     fn the_host_ops_grants_are_the_builtin_table_s() {
         for op in HOST_OPS {
@@ -942,7 +942,9 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                 Serves::Native => assert_eq!(op.grant, None, "{}", op.name),
             }
         }
-        let mut ops: Vec<Option<Capability>> = HOST_OPS.iter().map(|op| op.grant).collect();
+        let members = NATIVE_MEMBERS.iter().map(|member| member.grant);
+        let mut ops: Vec<Option<Capability>> =
+            HOST_OPS.iter().map(|op| op.grant).chain(members).collect();
         let mut rows: Vec<Option<Capability>> =
             BUILTINS.iter().map(|builtin| builtin.grant).collect();
         for grants in [&mut ops, &mut rows] {
@@ -958,7 +960,6 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         assert_eq!(
             HOST_OPS,
             [
-                row("op_gro_args", "@fuzdev/gro/args.ts", Some(Capability::Args)),
                 row("op_gro_exit", "@fuzdev/gro/exit.ts", Some(Capability::Exit)),
                 row(
                     "op_gro_set_exit_code",
@@ -986,18 +987,11 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                     "@fuzdev/gro/env.ts",
                     Some(Capability::Env)
                 ),
-                row("op_gro_cwd", "@fuzdev/gro/cwd.ts", None),
                 HostOp {
                     name: "op_gro_namespace",
                     serves: Serves::Native,
                     grant: None,
                 },
-                row("op_gro_pid", "@fuzdev/gro/pid.ts", None),
-                row(
-                    "op_gro_runtime_version",
-                    "@fuzdev/gro/runtime_version.ts",
-                    None
-                ),
             ]
         );
     }
@@ -1035,9 +1029,10 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
     /// call threw, as `Class: message`, or `null`; `shape`, a value's type,
     /// whether it's frozen, its prototype, and its own keys; `function`,
     /// a function's shape, name, `length`, whether its source text is native
-    /// code's, and the class of what `new` of it threw; and
-    /// `functions`, the function shape of each of a record's functions,
-    /// each kept in `members` under its member's label for the refusals.
+    /// code's, and the class of what `new` of it threw; `functions`, the
+    /// function shape of each of a record's functions the table names, each
+    /// kept in `members` under its member's label for the refusals; and
+    /// `namespaces`, where the probe keeps each row's.
     const NATIVE_HELPERS: &str = "globalThis.thrown = (call) => {
 	try {
 		call();
@@ -1070,15 +1065,27 @@ globalThis.function_shape = (fn) => ({
 	})(),
 });
 globalThis.members = [];
-globalThis.functions = (record, module) => {
+globalThis.functions = (record, module, names) => {
 	const found = {};
-	for (const key of Object.keys(record)) {
-		if (typeof record[key] !== 'function') continue;
+	for (const key of names) {
 		members.push([`${key} of ${module}`, record[key]]);
 		found[key] = function_shape(record[key]);
 	}
 	return found;
-};";
+};
+globalThis.namespaces = {};";
+
+    /// The names of the native functions `module` puts at `place`, in the
+    /// table's order, as JSON.
+    fn function_names(module: &str, place: Place) -> String {
+        let names: Vec<&str> = NATIVE_MEMBERS
+            .iter()
+            .filter(|member| member.module == module && member.place == place)
+            .filter(|member| matches!(member.member, Member::Function { .. }))
+            .map(|member| member.name)
+            .collect();
+        serde_json::to_string(&names).unwrap()
+    }
 
     /// The rows with native members, each once, in the table's order.
     fn native_rows() -> Vec<&'static str> {
@@ -1104,6 +1111,21 @@ globalThis.functions = (record, module) => {
         }
         kinds
     }
+
+    /// What the probe reads of the values the rows' namespaces hold, made
+    /// in a run that grants each row, with [`host_data`]: each as JSON,
+    /// with whether the arguments' array is frozen, and what `cwd` returns.
+    const NATIVE_VALUES: &str = "{
+	const ns = (row) => namespaces[`@fuzdev/gro/${row}.ts`];
+	JSON.stringify({
+		args: ns('args').args,
+		args_shape: shape(ns('args').args),
+		args_array: Array.isArray(ns('args').args),
+		cwd: ns('cwd').cwd(),
+		pid: ns('pid').pid,
+		runtime_version: ns('runtime_version').runtime_version,
+	});
+}";
 
     /// What the native rows' namespaces are on a runtime started as
     /// `start` says, in a run that grants nothing: what the namespace op
@@ -1171,7 +1193,7 @@ globalThis.functions = (record, module) => {
                     call("undefined", "Error"),
                 ),
                 (
-                    backing_script("@fuzdev/gro/pid.ts"),
+                    backing_script("@fuzdev/gro/env_error.ts"),
                     call("undefined", "Error"),
                 ),
                 (blake3, call("null", "Error")),
@@ -1193,16 +1215,23 @@ globalThis.functions = (record, module) => {
                 .borrow::<NativeNamespaces>()
                 .len();
             let mut namespaces = serde_json::Map::new();
+            // every row's namespace is made in a run that grants each row
+            runtime
+                .op_state()
+                .borrow_mut()
+                .put(crate::test_support::run_authority());
             for row in native_rows() {
+                let names = function_names(row, Place::Export);
                 let source = format!(
                     "{{
 	const ops = Deno.core.ops;
 	const namespace = ops.op_gro_namespace(undefined, Error);
+	namespaces['{row}'] = namespace;
 	JSON.stringify({{
 		same: namespace === ops.op_gro_namespace(undefined, Error),
 		record: shape(namespace),
 		default: namespace.default === undefined,
-		functions: functions(namespace, '{row}'),
+		functions: functions(namespace, '{row}', {names}),
 	}});
 }}"
                 );
@@ -1211,6 +1240,8 @@ globalThis.functions = (record, module) => {
             }
             let namespaces = Value::Object(namespaces);
             let after = held(runtime);
+            let values = script_json(runtime, NATIVE_VALUES);
+            runtime.op_state().borrow_mut().put(Authority::default());
             {
                 let state = runtime.op_state();
                 let state = state.borrow();
@@ -1235,7 +1266,7 @@ globalThis.functions = (record, module) => {
                 "{
 	const result = {};
 	for (const [brand, prototype] of Object.entries(prototypes)) {
-		result[brand] = { record: shape(prototype), functions: functions(prototype, brand.split('#')[0]) };
+		result[brand] = { record: shape(prototype), functions: functions(prototype, brand.split('#')[0], Object.keys(prototype)) };
 	}
 	JSON.stringify(result);
 }",
@@ -1265,34 +1296,101 @@ globalThis.functions = (record, module) => {
                 "JSON.stringify(Object.fromEntries(members.map(([label, fn]) => [label, thrown(() => fn())])))",
             );
             let hashers_after = hashers(runtime);
+            // each value made with no authority: whether it was, and what
+            // its maker threw
+            let mut value_refusals = serde_json::Map::new();
+            {
+                let state = runtime.op_state();
+                let state = state.borrow();
+                deno_core::scope!(scope, runtime);
+                v8::tc_scope!(let tc, scope);
+                for member in NATIVE_MEMBERS {
+                    let Member::Value(make) = member.member else {
+                        continue;
+                    };
+                    let made = make(&state, tc, &Prototypes::none()).is_some();
+                    let thrown = tc.exception().map(|thrown| thrown.to_rust_string_lossy(tc));
+                    tc.reset();
+                    let label = format!("{} of {}", member.name, member.module);
+                    value_refusals.insert(label, json!([made, thrown]));
+                }
+            }
             let probe_ran = native::probe::RAN.load(std::sync::atomic::Ordering::Relaxed);
+            // the probe table's value made in a run that grants nothing, one
+            // that grants `args`, and a runtime with no authority: what it
+            // gave or threw; then its namespace, made in a run that grants
+            // `args`, whole, and with its value failing
+            let granted_args = Authority::Confined(Grants {
+                args: Some(ArgsGrant {}),
+                ..Grants::default()
+            });
+            let mut value_probe = Vec::new();
+            for authority in [Some(Authority::default()), Some(granted_args.clone()), None] {
+                match authority {
+                    Some(authority) => runtime.op_state().borrow_mut().put(authority),
+                    None => drop(runtime.op_state().borrow_mut().try_take::<Authority>()),
+                }
+                let state = runtime.op_state();
+                let state = state.borrow();
+                deno_core::scope!(scope, runtime);
+                v8::tc_scope!(let tc, scope);
+                let made =
+                    native::probe::value(&state, tc).map(|made| made.to_rust_string_lossy(tc));
+                let thrown = tc.exception().map(|thrown| thrown.to_rust_string_lossy(tc));
+                tc.reset();
+                value_probe.push(json!([made, thrown]));
+            }
+            let value_made = native::probe::MADE.load(std::sync::atomic::Ordering::Relaxed);
+            runtime.op_state().borrow_mut().put(granted_args);
+            let mut namespace_probe = Vec::new();
+            for fail in [false, true] {
+                native::probe::FAIL.store(fail, std::sync::atomic::Ordering::Relaxed);
+                let state = runtime.op_state();
+                let state = state.borrow();
+                deno_core::scope!(scope, runtime);
+                v8::tc_scope!(let tc, scope);
+                let made = native::probe::namespace_made(&state, tc);
+                let thrown = tc.exception().map(|thrown| thrown.to_rust_string_lossy(tc));
+                tc.reset();
+                namespace_probe.push(json!([made, thrown]));
+            }
+            native::probe::FAIL.store(false, std::sync::atomic::Ordering::Relaxed);
             json!({
                 "namespaces": namespaces,
+                "values": values,
                 "prototypes": prototypes,
                 "rows_refused": rows_refused,
                 "held": [before, errors_held, after],
                 "probe": [probe_empty, probe_granted, probe_none],
                 "refused": refused,
                 "refused_effects": [hashers_before, hashers_after, probe_ran],
+                "value_refusals": value_refusals,
+                "value_probe": [value_probe, value_made, namespace_probe],
+                "pid": std::process::id(),
             })
         })
     }
 
-    /// The function shape the probe reads of `member`'s function: frozen,
-    /// of the realm's `Function.prototype`, with its own `length` and `name`
-    /// only, so no `prototype`, its name and `length` the table's, its
-    /// source text native code's, and not a constructor.
-    fn native_function_shape(member: &NativeMember) -> Value {
-        json!({
+    /// The function shape the probe reads of `member`'s function, by its
+    /// name, `None` for a value: frozen, of the realm's
+    /// `Function.prototype`, with its own `length` and `name` only, so no
+    /// `prototype`, its name and `length` the table's, its source text
+    /// native code's, and not a constructor.
+    fn native_function_shape(member: &NativeMember) -> Option<(String, Value)> {
+        let Member::Function { length, .. } = member.member else {
+            return None;
+        };
+        let shape = json!({
             "type": "function",
             "frozen": true,
             "prototype": "Function.prototype",
             "keys": ["length", "name"],
             "name": member.name,
-            "length": member.length,
+            "length": length,
             "native_source": true,
             "constructed": "TypeError",
-        })
+        });
+        Some((member.name.to_owned(), shape))
     }
 
     /// The native members from either start: each row's namespace is made
@@ -1317,7 +1415,7 @@ globalThis.functions = (record, module) => {
                 keys.push("default");
                 let functions: serde_json::Map<String, Value> = exports
                     .iter()
-                    .map(|member| (member.name.to_owned(), native_function_shape(member)))
+                    .filter_map(|member| native_function_shape(member))
                     .collect();
                 assert_eq!(
                     results["namespaces"][row],
@@ -1340,7 +1438,7 @@ globalThis.functions = (record, module) => {
                 let keys: Vec<&str> = methods.iter().map(|member| member.name).collect();
                 let functions: serde_json::Map<String, Value> = methods
                     .iter()
-                    .map(|member| (member.name.to_owned(), native_function_shape(member)))
+                    .filter_map(|member| native_function_shape(member))
                     .collect();
                 assert_eq!(
                     results["prototypes"][kind.brand],
@@ -1374,8 +1472,11 @@ globalThis.functions = (record, module) => {
         for start in STARTS {
             let results = probed("native_members", start);
             let refused = results["refused"].as_object().unwrap();
-            assert_eq!(refused.len(), NATIVE_MEMBERS.len(), "{start:?}");
-            for member in NATIVE_MEMBERS {
+            let functions = NATIVE_MEMBERS
+                .iter()
+                .filter(|member| matches!(member.member, Member::Function { .. }));
+            assert_eq!(refused.len(), functions.clone().count(), "{start:?}");
+            for member in functions {
                 let label = format!("{} of {}", member.name, member.module);
                 assert_eq!(
                     refused[&label],
@@ -1400,6 +1501,76 @@ globalThis.functions = (record, module) => {
             // no refused call's body ran: no hasher was made, and the
             // probe's body ran once, in the run that grants it
             assert_eq!(results["refused_effects"], json!([0, 0, 1]), "{start:?}");
+        }
+    }
+
+    /// A row's values, from either start: each made once with its
+    /// namespace in a run that grants its row, of the run's data (the
+    /// arguments a frozen array of strings, the runtime's name and version,
+    /// the process's id), with `cwd` returning the run's directory; and each
+    /// value's maker, run in a runtime that holds no authority, throws
+    /// `not_granted` naming the value and makes nothing, a granted row's
+    /// naming its grant.
+    #[test]
+    fn a_native_row_s_values_are_the_run_s() {
+        for start in STARTS {
+            let results = probed("native_members", start);
+            assert_eq!(
+                results["values"],
+                json!({
+                    "args": ["a"],
+                    "args_shape": {
+                        "type": "object",
+                        "frozen": true,
+                        "prototype": "other",
+                        "keys": ["0", "length"],
+                    },
+                    "args_array": true,
+                    "cwd": "/work",
+                    "pid": results["pid"],
+                    "runtime_version": "test/1.2.3",
+                }),
+                "{start:?}"
+            );
+            let values: Vec<&NativeMember> = NATIVE_MEMBERS
+                .iter()
+                .filter(|member| matches!(member.member, Member::Value(_)))
+                .collect();
+            assert!(!values.is_empty());
+            let refused = results["value_refusals"].as_object().unwrap();
+            assert_eq!(refused.len(), values.len(), "{start:?}");
+            for member in values {
+                let label = format!("{} of {}", member.name, member.module);
+                let thrown = member.grant.map_or_else(
+                    || {
+                        format!(
+                            "Error: not_granted: {label} is a host value, and this runtime holds \
+                             no authority, so it runs none"
+                        )
+                    },
+                    |grant| {
+                        format!(
+                            "Error: not_granted: {label} needs the grant '{grant}', which this \
+                             runtime doesn't hold"
+                        )
+                    },
+                );
+                assert_eq!(refused[&label], json!([false, thrown]), "{start:?}");
+            }
+            // a value of a row that needs a grant is made where it's granted
+            // alone, its maker's body running past the check only there, and
+            // a namespace one of whose values failed is never made
+            let refused = "Error: not_granted: probe_value of @fuzdev/gro/args.ts needs the \
+                           grant 'args', which this runtime doesn't hold";
+            assert_eq!(
+                results["value_probe"],
+                json!([
+                    [[null, refused], ["made", null], [null, refused]],
+                    1,
+                    [[true, null], [false, "Error: the probe value failed"]],
+                ]),
+                "{start:?}"
+            );
         }
     }
 
@@ -1428,8 +1599,8 @@ globalThis.functions = (record, module) => {
                     not_a_row,
                     "Error: not_granted: op_gro_namespace needs the grant 'args', which this \
                      runtime doesn't hold",
-                    "Error: @fuzdev/gro/pid.ts has no native members, so the host makes no \
-                     namespace of it",
+                    "Error: @fuzdev/gro/env_error.ts has no native members, so the host makes \
+                     no namespace of it",
                     not_a_scope,
                     not_a_scope,
                     not_an_error,
@@ -1582,8 +1753,8 @@ JSON.stringify(results)",
 
     /// Every host op's result in a runtime that holds no authority, in each
     /// mode, in a run that grants nothing, and in one that grants the
-    /// script's arguments alone, with the id of the process that called
-    /// them. No run here grants `exit`, whose op would end this process.
+    /// script's arguments alone. No run here grants `exit`, whose op would
+    /// end this process.
     fn host_ops_results(start: Start) -> Value {
         let granted = Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
@@ -1594,7 +1765,6 @@ JSON.stringify(results)",
             "none_run": call_host_ops("host_none_run", start, Mode::Run, None),
             "empty_run": call_host_ops("host_empty_run", start, Mode::Run, Some(Authority::default())),
             "granted_run": call_host_ops("host_granted_run", start, Mode::Run, Some(granted)),
-            "pid": std::process::id(),
         })
     }
 
@@ -1783,27 +1953,16 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
         }
     }
 
-    /// Granted, the args op returns the script's arguments, so the
-    /// refusals above are the grant's doing; and a grant-free module's op
-    /// runs in a run whatever it grants, nothing included, returning the
-    /// run's data, so its refusals above are the missing authority's. From
+    /// A grant-free module's op runs in a run whatever it grants, nothing
+    /// included, so its refusals above are the missing authority's. From
     /// either start: an op reads the `OpState` of the runtime that calls
     /// it, and the snapshot was made by a process that held none of this.
     #[test]
-    fn a_granted_host_op_runs_and_a_grant_free_one_in_every_run() {
+    fn a_grant_free_host_op_runs_in_every_run() {
         for start in STARTS {
             let results = probed("host_ops", start);
-            assert_eq!(
-                results["granted_run"]["op_gro_args"], r#"["a"]"#,
-                "{start:?}"
-            );
             for case in ["granted_run", "empty_run"] {
                 let results = &results[case];
-                assert_eq!(results["op_gro_cwd"], r#""/work""#, "{case} {start:?}");
-                assert_eq!(
-                    results["op_gro_runtime_version"], r#""test/1.2.3""#,
-                    "{case} {start:?}"
-                );
                 let free = HOST_OPS.iter().filter(|op| op.grant.is_none());
                 for op in free {
                     let result = results[op.name].as_str().unwrap_or_default();
@@ -1813,13 +1972,6 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                         op.name
                     );
                 }
-            }
-            for case in ["granted_run", "empty_run"] {
-                assert_eq!(
-                    results[case]["op_gro_pid"],
-                    results["pid"].to_string(),
-                    "{case} {start:?}"
-                );
             }
         }
     }

@@ -1,14 +1,18 @@
 //! Native members: a builtin's exports, and the methods of its handles, as
-//! functions the host makes, natively, the first time a run imports the
-//! builtin, so neither a start nor a call pays for a script's shell or an
-//! op of its own.
+//! functions and values the host makes, natively, the first time a run
+//! imports the builtin, so neither a start nor a call pays for a script's
+//! shell or an op of its own.
 //!
 //! Every native member is declared through `native_members!`, which lists
 //! it in [`NATIVE_MEMBERS`](super::NATIVE_MEMBERS), the one table the host
 //! makes members from, with its builtin, its name, where it goes (the
-//! namespace, or the prototype of a kind of handle), its `length`, which is
-//! how many arguments it declares, and the grant it requires. The callback
-//! the macro writes checks that grant first, as a host op does (`grant.rs`):
+//! namespace, or the prototype of a kind of handle), what it is, and the
+//! grant it requires. A member is a function, of a `length`, which is how
+//! many arguments it declares, or a value, made once with the namespace:
+//! the data a row exports, a handle the host makes of a prototype it made
+//! with the namespace (`env`'s root), or a class the host makes
+//! (`error_class.rs`). The callback the macro writes for a function checks
+//! the grant first, as a host op does (`grant.rs`):
 //! [`require`](super::grant::require) of the grant it names, or, for a
 //! grant-free module's member,
 //! [`require_authority`](super::grant::require_authority), throwing
@@ -18,7 +22,8 @@
 //! no code of a caller's, as a host op's does; and throws what the body
 //! throws, the host's error classes and the realm's `TypeError` and
 //! `RangeError` among them, through the scope. A member's body is the
-//! member's result, `None` when it has none or when it threw.
+//! member's result, `None` when it has none or when it threw. A value's
+//! maker makes the same check first, behind the namespace op's of the row.
 //!
 //! A row's script reaches its namespace through one op, `op_gro_namespace`,
 //! which serves every row with native members. The op takes the row from
@@ -26,8 +31,8 @@
 //! the row's specifier from the table, never from an argument, so no row's
 //! script can ask for another's ([`calling_row`]). It checks the row's
 //! grant ([`require_grant`]), takes the scope of the importer's grant
-//! (`undefined` while no native row has one) and the realm's `Error`, which
-//! the run holds for the error classes, and returns the namespace the run
+//! (`undefined` while no row has one) and the realm's `Error`, which the
+//! run holds for the error classes, and returns the namespace the run
 //! holds, or makes it and holds it ([`NativeNamespaces`]). Making
 //! one makes each kind of handle's prototype, a null-prototype record of its
 //! methods, and then the namespace, a null-prototype record of its exports
@@ -35,9 +40,10 @@
 //! frozen, named, of its `length`, and not a constructor, and each record is
 //! frozen. Nothing is held until the namespace is whole, so a first import
 //! ended early holds nothing and the next makes it all again, and one that
-//! ran once finds the same functions, as an instance per origin will. A
+//! ran once finds the same members, as an instance per origin will. A
 //! factory makes its handles of the prototype the run holds
-//! ([`prototype`]).
+//! ([`prototype`]), and a value of the prototype being made with it
+//! ([`Prototypes`]).
 //!
 //! Nothing at compile time makes a native function come from the table:
 //! the tests are the check. One fails on a native function or callback
@@ -50,6 +56,32 @@
 //! namespace whose exports or a prototype whose methods aren't the table's,
 //! or a function or record that isn't frozen; and the table is pinned in
 //! `tests/native_members.txt`.
+//!
+//! What the form doesn't have yet, each for a row to come (`fs`), and how
+//! each would be declared: a kind of handle whose prototype extends
+//! another's (`FsDir` over `FsReadDir`), a `parent` on [`HandleKind`] whose
+//! prototype [`make`] makes first and gives the child's record as its
+//! prototype, a method's receiver check accepting the kinds below it; a
+//! member keyed by a well-known symbol (`Symbol.asyncDispose`), a key
+//! written in place of the name, `fn [async_dispose](..)`, the record
+//! keyed by the symbol V8 gives; and a `length` short of the arguments a
+//! member reads (a defaulted parameter, `temp_dir(prefix = 'gro-')`),
+//! written `fn temp_dir(state; scope, prefix?)`, the arguments after the
+//! first marked `?` left out of the `length`.//!
+//! And what `fs` needs that the next slices settle, none designed here: a
+//! root record whose functions are its own properties beside a value
+//! (`fs.open_dir` beside `fs.project`), a place for a record's members
+//! beside the namespace and a kind's prototype; an async form, whose
+//! callback makes a promise and rejects it with what the check or the body
+//! threw, the refusal included; own data on a handle (an `FsDir`'s `path`),
+//! which [`make`](super::handle::make) doesn't take; a brand on an error
+//! instance, which the class's constructor sets, for a guard of the
+//! family's own instances (`is_own_fs_error`); a listing whose work waits
+//! for its first `next()`, as an async generator's does; the table of
+//! native state behind a handle (`blake3.rs`'s hashers, with the weak
+//! reference that drops an entry) lifted into `handle.rs` for every kind;
+//! and types for handles whose methods return each other, more than the one
+//! `Handle` type argument the namespace op's declaration carries.
 
 use std::cell::RefCell;
 
@@ -95,24 +127,61 @@ pub enum Place {
     Method(&'static HandleKind),
 }
 
+/// The prototypes a row's namespace is being made with, each kind's, for a
+/// value made with it to make a handle of: what [`prototype`] gives once the
+/// namespace is held.
+pub struct Prototypes<'s>(Vec<(&'static HandleKind, v8::Local<'s, v8::Object>)>);
+
+impl Prototypes<'_> {
+    /// None, for a test that makes a value with no namespace.
+    #[cfg(test)]
+    pub const fn none() -> Self {
+        Self(Vec::new())
+    }
+}
+
+/// What makes a value member: the callback `native_members!` wrote, given
+/// the runtime's state, the scope, and the prototypes the row's namespace
+/// is being made with, whose first step is the check. `None` with an
+/// exception pending when a step failed.
+pub type Maker = for<'s> fn(
+    &OpState,
+    &v8::PinScope<'s, '_>,
+    &Prototypes<'s>,
+) -> Option<v8::Local<'s, v8::Value>>;
+
+/// What the host makes of a native member.
+#[derive(Debug, Clone, Copy)]
+pub enum Member {
+    /// A function of its callback, of a `length`.
+    Function {
+        /// The function's `length`: how many arguments it declares.
+        length: usize,
+        /// Its callback, as V8 calls it: the one `native_members!` wrote,
+        /// whose first step is the check.
+        callback: fn() -> v8::FunctionCallback,
+    },
+    /// A value, made once with the namespace: the data a row exports (the
+    /// script's arguments, the process's id), a handle the host makes (a
+    /// root), or a class the host makes (`error_class.rs`).
+    Value(Maker),
+}
+
 /// A native member, as [`NATIVE_MEMBERS`](super::NATIVE_MEMBERS) lists it.
 #[derive(Debug, Clone, Copy)]
 pub struct NativeMember {
     /// The builtin it's a member of, by its specifier in the builtin table.
     pub module: &'static str,
-    /// Its name, the export's or the method's, and the function's `name`.
+    /// Its name, the export's or the method's, and a function's `name`.
     pub name: &'static str,
     /// Where it goes.
     pub place: Place,
-    /// The function's `length`: how many arguments it declares.
-    pub length: usize,
+    /// What the host makes of it.
+    pub member: Member,
     /// The grant it requires, or none for a grant-free module's member: the
-    /// one its callback checks, listed for the tests.
+    /// one its callback or its maker checks, listed for the tests.
     #[cfg(test)]
     pub grant: Option<Capability>,
-    /// Its callback, as V8 calls it: the one `native_members!` wrote, whose
-    /// first step is the check.
-    pub callback: fn() -> v8::FunctionCallback,
 }
 
 /// The arguments a member declares, as the values passed: `undefined` past
@@ -130,9 +199,10 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 }
 
 /// Declares native members, each a function the host makes of the
-/// callback written here, whose first step is the check of what it names,
-/// refusing before its body runs, and lists them in `NATIVE_MEMBERS`, the
-/// table the host makes them from.
+/// callback written here, or a value it makes with the namespace, whose
+/// first step is the check of what it names, refusing before its body
+/// runs, and lists them in `NATIVE_MEMBERS`, the table the host makes them
+/// from.
 ///
 /// A member written `fn name(state, granted: Grant; scope, args...) for
 /// "specifier"` requires that grant ([`require`](super::grant::require)),
@@ -146,21 +216,32 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 /// `&mut v8::PinScope<'s, '_>`. The body's value is the member's result,
 /// an `Option<v8::Local<'s, v8::Value>>`, `None` leaving it `undefined`,
 /// which is what a member with no result and one that threw return.
+///
+/// A member written `value name(state[, granted: Grant]; scope[,
+/// prototypes]) for "specifier"` is an export the host makes once, with the
+/// namespace, after the same check: its body is the value, an
+/// `Option<v8::Local<'s, v8::Value>>`, `None` only when it threw. The scope
+/// is `&v8::PinScope<'s, '_>`, and `prototypes`, when it's named, the
+/// [`Prototypes`] the namespace is being made with, for a value that is a
+/// handle of one of them.
 macro_rules! native_members {
-    (@require $what:expr, $state:ident, $scope:ident, $granted:ident: $grant:ty) => {
+    (
+        @require $what:expr, $kind:literal, $state:ident, $scope:ident,
+        $granted:ident: $grant:ty
+    ) => {
         let $granted: $crate::host::grant::Granted<$grant> =
             match $crate::host::grant::require::<$grant>($state) {
                 Ok(granted) => granted,
                 Err(refused) => {
-                    $crate::host::throw_error($scope, &refused.message(&$what, "host function"));
-                    return;
+                    $crate::host::throw_error($scope, &refused.message(&$what, $kind));
+                    return None;
                 }
             };
     };
-    (@require $what:expr, $state:ident, $scope:ident) => {
+    (@require $what:expr, $kind:literal, $state:ident, $scope:ident) => {
         if let Err(refused) = $crate::host::grant::require_authority($state) {
-            $crate::host::throw_error($scope, &refused.message(&$what, "host function"));
-            return;
+            $crate::host::throw_error($scope, &refused.message(&$what, $kind));
+            return None;
         }
     };
     (@grant $grant:ty) => {
@@ -179,9 +260,80 @@ macro_rules! native_members {
     (@receiver $args:ident $receiver:ident) => {
         let $receiver = deno_core::v8::Local::<deno_core::v8::Value>::from($args.this());
     };
+    (@prototypes) => {
+        _
+    };
+    (@prototypes $prototypes:ident) => {
+        $prototypes
+    };
+    (
+        @member fn [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
+        [$($kind:ident($receiver:ident))?], $body:block
+    ) => {
+        $crate::host::native::Member::Function {
+            length: <[&str]>::len(&[$(stringify!($arg)),*]),
+            callback: || {
+                $(#[doc = $doc])*
+                fn callback<'s>(
+                    $scope: &mut deno_core::v8::PinScope<'s, '_>,
+                    args: deno_core::v8::FunctionCallbackArguments<'s>,
+                    mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
+                ) {
+                    let state = $crate::host::native::op_state($scope);
+                    let Ok(state) = state.try_borrow() else {
+                        $crate::host::throw_error($scope, $crate::host::native::STATE_BUSY);
+                        return;
+                    };
+                    let value = (|| -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
+                        let $state: &deno_core::OpState = &state;
+                        native_members!(
+                            @require
+                            format!("{} of {}", stringify!($name), $module),
+                            "host function",
+                            $state,
+                            $scope
+                            $(, $granted: $grant)?
+                        );
+                        native_members!(@receiver args $($receiver)?);
+                        let [$($arg),*] = $crate::host::native::arguments(&args);
+                        $body
+                    })();
+                    if let Some(value) = value {
+                        result.set(value);
+                    }
+                }
+                deno_core::v8::MapFnTo::map_fn_to(callback)
+            },
+        }
+    };
+    (
+        @member value [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($prototypes:ident)?], [], $body:block
+    ) => {
+        $crate::host::native::Member::Value({
+            $(#[doc = $doc])*
+            fn make<'s>(
+                $state: &deno_core::OpState,
+                $scope: &deno_core::v8::PinScope<'s, '_>,
+                native_members!(@prototypes $($prototypes)?): &$crate::host::native::Prototypes<'s>,
+            ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
+                native_members!(
+                    @require
+                    format!("{} of {}", stringify!($name), $module),
+                    "host value",
+                    $state,
+                    $scope
+                    $(, $granted: $grant)?
+                );
+                $body
+            }
+            make
+        })
+    };
     ($(
         $(#[doc = $doc:literal])*
-        fn $name:ident(
+        $what:ident $name:ident(
             $state:ident $(, $granted:ident: $grant:ty)?;
             $scope:ident $(, $arg:ident)*
         )
@@ -196,38 +348,13 @@ macro_rules! native_members {
                 module: $module,
                 name: stringify!($name),
                 place: native_members!(@place $($kind)?),
-                length: <[&str]>::len(&[$(stringify!($arg)),*]),
+                member: native_members!(
+                    @member $what [$($doc)*] $name, $module, $state,
+                    [$($granted: $grant)?], $scope, [$($arg)*],
+                    [$($kind($receiver))?], $body
+                ),
                 #[cfg(test)]
                 grant: native_members!(@grant $($grant)?),
-                callback: || {
-                    $(#[doc = $doc])*
-                    fn callback<'s>(
-                        $scope: &mut deno_core::v8::PinScope<'s, '_>,
-                        args: deno_core::v8::FunctionCallbackArguments<'s>,
-                        mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
-                    ) {
-                        let state = $crate::host::native::op_state($scope);
-                        let Ok(state) = state.try_borrow() else {
-                            $crate::host::throw_error($scope, $crate::host::native::STATE_BUSY);
-                            return;
-                        };
-                        let $state: &deno_core::OpState = &state;
-                        native_members!(
-                            @require
-                            format!("{} of {}", stringify!($name), $module),
-                            $state,
-                            $scope
-                            $(, $granted: $grant)?
-                        );
-                        native_members!(@receiver args $($receiver)?);
-                        let [$($arg),*] = $crate::host::native::arguments(&args);
-                        let value: Option<deno_core::v8::Local<'s, deno_core::v8::Value>> = $body;
-                        if let Some(value) = value {
-                            result.set(value);
-                        }
-                    }
-                    deno_core::v8::MapFnTo::map_fn_to(callback)
-                },
             }
         ),*];
     };
@@ -316,7 +443,7 @@ pub fn namespace<'s>(
     if held.is_some() {
         return held;
     }
-    let made = make(scope, module, super::NATIVE_MEMBERS)?;
+    let made = make(state, scope, module, super::NATIVE_MEMBERS)?;
     let namespace = v8::Local::new(scope, &made.namespace);
     namespaces.made.borrow_mut().push(made);
     Some(namespace)
@@ -357,9 +484,10 @@ pub fn prototype<'s>(
 
 /// `module`'s namespace and its handles' prototypes, made of `members`'
 /// rows for it: each kind's prototype first, in the order the members name
-/// the kinds, then the namespace. `None` with an exception pending when V8
-/// failed.
+/// the kinds, then the namespace, its values made with those prototypes.
+/// `None` with an exception pending when a step failed.
 fn make(
+    state: &OpState,
     scope: &v8::PinScope<'_, '_>,
     module: &'static str,
     members: &[NativeMember],
@@ -376,37 +504,49 @@ fn make(
             kinds.push(kind);
         }
     }
-    let mut prototypes = Vec::with_capacity(kinds.len());
+    let mut prototypes = Prototypes(Vec::with_capacity(kinds.len()));
     for kind in kinds {
         let methods = members
             .iter()
             .filter(|member| member.place == Place::Method(kind));
-        let prototype = record(scope, methods, None)?;
-        prototypes.push((kind, v8::Global::new(scope, prototype)));
+        let prototype = record(state, scope, methods, &prototypes, None)?;
+        prototypes.0.push((kind, prototype));
     }
     let exports = members
         .iter()
         .filter(|member| member.place == Place::Export);
-    let namespace = record(scope, exports, Some("default"))?;
+    let namespace = record(state, scope, exports, &prototypes, Some("default"))?;
     Some(Made {
         module,
         namespace: v8::Global::new(scope, namespace),
-        prototypes,
+        prototypes: prototypes
+            .0
+            .into_iter()
+            .map(|(kind, prototype)| (kind, v8::Global::new(scope, prototype)))
+            .collect(),
     })
 }
 
-/// A frozen null-prototype record of a function made of each of `members`,
-/// under its name, and `undefined` under `undefined_at` when given.
+/// A frozen null-prototype record of each of `members`, under its name, a
+/// function or the value its maker makes with `prototypes`, and
+/// `undefined` under `undefined_at` when given.
 fn record<'s, 'm>(
+    state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     members: impl Iterator<Item = &'m &'m NativeMember>,
+    prototypes: &Prototypes<'s>,
     undefined_at: Option<&str>,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let mut names: Vec<v8::Local<'s, v8::Name>> = Vec::new();
     let mut values: Vec<v8::Local<'s, v8::Value>> = Vec::new();
     for member in members {
         names.push(name(scope, member.name)?);
-        values.push(function(scope, member)?.into());
+        values.push(match member.member {
+            Member::Function { length, callback } => {
+                function(scope, member.name, length, callback)?.into()
+            }
+            Member::Value(make) => make(state, scope, prototypes)?,
+        });
     }
     if let Some(key) = undefined_at {
         names.push(name(scope, key)?);
@@ -418,39 +558,68 @@ fn record<'s, 'm>(
     Some(record)
 }
 
-/// The function of `member`: its callback, named, of its `length`, not a
-/// constructor, so it has no `prototype`, and frozen. `None` with an
+/// The function of a member named `name`: `callback`, named, of `length`,
+/// not a constructor, so it has no `prototype`, and frozen. `None` with an
 /// exception pending when V8 failed.
 fn function<'s>(
     scope: &v8::PinScope<'s, '_>,
-    member: &NativeMember,
+    name: &str,
+    length: usize,
+    callback: fn() -> v8::FunctionCallback,
 ) -> Option<v8::Local<'s, v8::Function>> {
-    let function = v8::Function::builder_raw((member.callback)())
-        .length(i32::try_from(member.length).unwrap_or(i32::MAX))
+    let function = v8::Function::builder_raw(callback())
+        .length(i32::try_from(length).unwrap_or(i32::MAX))
         .constructor_behavior(v8::ConstructorBehavior::Throw)
         .build(scope)?;
-    function.set_name(v8::String::new(scope, member.name)?);
+    function.set_name(v8::String::new(scope, name)?);
     function.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
     Some(function)
 }
 
-/// A member of a row that needs a grant, for the tests of the form's
-/// check: no row with native members needs one yet.
+/// A function and a value of a row that needs a grant, for the tests of
+/// the form's check and of a namespace made whole or not at all.
 #[cfg(test)]
 pub mod probe {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use deno_core::v8;
+    use deno_core::{OpState, v8};
 
     use crate::ArgsGrant;
+    use crate::host::throw_error;
 
     /// How many times the probe's body ran, past its check, so a test
     /// sees a body that ran before a refusal.
     pub static RAN: AtomicUsize = AtomicUsize::new(0);
 
+    /// How many times the probe value's maker ran, past its check.
+    pub static MADE: AtomicUsize = AtomicUsize::new(0);
+
+    /// Whether the probe value's maker fails, past its check.
+    pub static FAIL: AtomicBool = AtomicBool::new(false);
+
+    /// The probe value, as the host makes a namespace's value.
+    pub fn value<'s>(
+        state: &OpState,
+        scope: &v8::PinScope<'s, '_>,
+    ) -> Option<v8::Local<'s, v8::Value>> {
+        let super::Member::Value(make) = NATIVE_MEMBERS[1].member else {
+            return None;
+        };
+        make(state, scope, &super::Prototypes::none())
+    }
+
+    /// The probe table's namespace, made as the namespace op makes a
+    /// row's, whether it was made: not when a value's maker failed.
+    pub fn namespace_made(state: &OpState, scope: &v8::PinScope<'_, '_>) -> bool {
+        super::make(state, scope, NATIVE_MEMBERS[0].module, NATIVE_MEMBERS).is_some()
+    }
+
     /// The probe's function, as the host makes a member's.
     pub fn function<'s>(scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Function>> {
-        super::function(scope, &NATIVE_MEMBERS[0])
+        let super::Member::Function { length, callback } = NATIVE_MEMBERS[0].member else {
+            return None;
+        };
+        super::function(scope, NATIVE_MEMBERS[0].name, length, callback)
     }
 
     native_members! {
@@ -460,6 +629,17 @@ pub mod probe {
             RAN.fetch_add(1, Ordering::Relaxed);
             v8::String::new(scope, "ran").map(Into::into)
         }
+
+        /// `"made"`, once the check passed, or an `Error` thrown when
+        /// [`FAIL`] is set.
+        value probe_value(state, _granted: ArgsGrant; scope) for "@fuzdev/gro/args.ts" {
+            MADE.fetch_add(1, Ordering::Relaxed);
+            if FAIL.load(Ordering::Relaxed) {
+                throw_error(scope, "the probe value failed");
+                return None;
+            }
+            v8::String::new(scope, "made").map(Into::into)
+        }
     }
 }
 
@@ -467,7 +647,7 @@ pub mod probe {
 mod tests {
     use std::path::Path;
 
-    use super::{NativeMember, Place};
+    use super::{Member, NativeMember, Place};
     use crate::host::NATIVE_MEMBERS;
     use crate::resolver::{BUILTINS, find_builtin};
 
@@ -477,18 +657,19 @@ mod tests {
             Place::Export => "export".to_owned(),
             Place::Method(kind) => format!("method of {}", kind.brand),
         };
+        let made = match member.member {
+            Member::Function { length, .. } => format!("length {length}"),
+            Member::Value(_) => "value".to_owned(),
+        };
         let grant = member
             .grant
             .map_or_else(|| "grant-free".to_owned(), |grant| format!("grant {grant}"));
-        format!(
-            "{} {} {place} length {} {grant}",
-            member.module, member.name, member.length
-        )
+        format!("{} {} {place} {made} {grant}", member.module, member.name)
     }
 
     /// Every native member, pinned in `tests/native_members.txt` in the
     /// table's order, as `tests/op_names.txt` pins the ops: its builtin,
-    /// name, place, `length`, and grant, so a member added, removed, or
+    /// name, place, a function's `length` or `value`, and grant, so a member added, removed, or
     /// changed fails here and gets a look. To accept a change deliberately,
     /// write the list the assertion prints over the file, one member a line.
     #[test]

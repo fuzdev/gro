@@ -13,8 +13,6 @@ interface Bootstrap {
 	readonly core: {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
-			readonly op_gro_args: () => Array<string>;
-			readonly op_gro_cwd: () => string;
 			/**
 			 * The env error row's namespace, the host's: the class extending the realm's `Error`,
 			 * which the implementation hands over, and its guard. The types are claims, held to
@@ -59,15 +57,26 @@ interface Bootstrap {
 			readonly op_gro_env_narrow: <T>(handle: T, names: unknown) => T;
 			/**
 			 * The namespace of the row whose script calls it, the host's: each member a native
-			 * function the host makes the first time the run asks, and holds. The host knows the row
+			 * function or a value the host makes the first time the run asks, and holds. The host knows the row
 			 * by the calling script; the type argument names it for the types alone, which are
 			 * claims, held to the Node module's by the types test. The script hands over its scope
 			 * and the realm's `Error`.
 			 */
-			readonly op_gro_namespace: <Row extends '@fuzdev/gro/blake3.ts'>(
+			readonly op_gro_namespace: <
+				Row extends
+					| '@fuzdev/gro/args.ts'
+					| '@fuzdev/gro/blake3.ts'
+					| '@fuzdev/gro/cwd.ts'
+					| '@fuzdev/gro/pid.ts'
+					| '@fuzdev/gro/runtime_version.ts'
+			>(
 				scope: undefined,
 				error: ErrorConstructor
 			) => {
+				readonly '@fuzdev/gro/args.ts': {
+					readonly args: ReadonlyArray<string>;
+					readonly default: undefined;
+				};
 				readonly '@fuzdev/gro/blake3.ts': {
 					readonly hash: (data: Uint8Array) => Uint8Array;
 					readonly create_hasher: () => {
@@ -84,10 +93,20 @@ interface Bootstrap {
 					};
 					readonly default: undefined;
 				};
+				readonly '@fuzdev/gro/cwd.ts': {
+					readonly cwd: () => string;
+					readonly default: undefined;
+				};
+				readonly '@fuzdev/gro/pid.ts': {
+					readonly pid: number;
+					readonly default: undefined;
+				};
+				readonly '@fuzdev/gro/runtime_version.ts': {
+					readonly runtime_version: string;
+					readonly default: undefined;
+				};
 			}[Row];
 			readonly op_gro_exit: (code: unknown) => never;
-			readonly op_gro_pid: () => number;
-			readonly op_gro_runtime_version: () => string;
 			readonly op_gro_set_exit_code: (code: unknown) => void;
 		};
 	};

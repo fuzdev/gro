@@ -1,7 +1,11 @@
 // The args builtin, `@fuzdev/gro/args.ts` on the runtime: the args host module's runtime
 // implementation, the script's arguments. The Node implementation, `src/lib/args.ts`, is the
-// oracle, and its `args` is the one declaration of the type: this script declares none, and a
-// test in `src/test` checks the namespace's inferred type against it.
+// oracle, and its `args` is the one declaration of the type: `bootstrap.d.ts` declares what the
+// op returns, and a test in `src/test` checks the namespace's inferred type against it.
+//
+// The namespace is the host's: `args` is a frozen array of strings the host makes the first time
+// the run asks for the namespace and holds, one array for every importer (`blake3.ts` has how
+// the host makes a namespace).
 //
 // A builtin's implementation is a script, one function in two levels, which is in no snapshot:
 // the runtime compiles and calls it the first time a run imports the builtin. The outer level
@@ -17,7 +21,7 @@
 // script, both levels and what they export, names no global and reads no property of an
 // intrinsic: every intrinsic it uses is one of `primordials`, taken when the runtime was
 // made, each host op comes from `core.ops`, and what it hands to user code is made natively,
-// as the op's array is, or a frozen function of its own. `tsconfig.json` beside `@fuzdev`
+// as the namespace op's members are, or a frozen function of its own. `tsconfig.json` beside `@fuzdev`
 // type-checks it with no global value and no member of an intrinsic type declared
 // (`intrinsics.d.ts`), so either is an error.
 //
@@ -35,12 +39,9 @@
 
 (function (bootstrap: Bootstrap) {
 	const { core, primordials } = bootstrap;
-	const { op_gro_args } = core.ops;
-	const { ObjectAssign, ObjectCreate, ObjectFreeze } = primordials;
+	const { op_gro_namespace } = core.ops;
+	const { Error } = primordials;
 
-	// the script's arguments as a frozen array of strings, one array for every importer
-	const args = ObjectFreeze(op_gro_args());
-
-	// `args`, and the `default` every builtin has, `undefined`
-	return (_scope: undefined) => ObjectAssign(ObjectCreate(null), { args, default: undefined });
+	// `args`, the host's, and the `default` every builtin has, `undefined`
+	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/args.ts'>(_scope, Error);
 });

@@ -28,7 +28,7 @@ use deno_core::{OpState, v8};
 
 use super::error_class::{ENV_ERROR, ErrorClasses};
 use super::handle::{self, ENV_HANDLE};
-use super::{HostData, own_data, throw_error, throw_range_error, throw_type_error};
+use super::{HostData, own_data, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
 use crate::resolver::Capability;
 use crate::{Authority, EnvNameFault, NeededGrant, RefusedBy, env_name_fault};
@@ -376,15 +376,4 @@ fn check_name<'s>(
 fn record<'s>(scope: &v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Object> {
     let null = v8::null(scope).into();
     v8::Object::with_prototype_and_properties(scope, null, &[], &[])
-}
-
-/// `text` as a JS string, or `None` with a `RangeError` thrown, as the
-/// language throws one, when it's longer than V8's longest string, for
-/// which V8 throws nothing.
-fn string<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::String>> {
-    let string = v8::String::new(scope, text);
-    if string.is_none() {
-        throw_range_error(scope, "Invalid string length");
-    }
-    string
 }

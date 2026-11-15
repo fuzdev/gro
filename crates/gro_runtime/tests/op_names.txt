@@ -174,7 +174,6 @@ op_gro_color
 op_gro_console_stderr
 op_gro_deny
 op_gro_refused
-op_gro_args
 op_gro_exit
 op_gro_set_exit_code
 op_gro_env_error
@@ -182,7 +181,4 @@ op_gro_env_root
 op_gro_env_get
 op_gro_env_get_all
 op_gro_env_narrow
-op_gro_cwd
 op_gro_namespace
-op_gro_pid
-op_gro_runtime_version

@@ -628,7 +628,7 @@ Invariants that live in the code:
   its own name and version, and the variables `--allow-env=` grants (every
   variable under `-A`), which `gro_cli/src/run.rs` reads once as the run
   starts (`env_vars`, through its `Environment` seam) and hands in as
-  `RuntimeOptions::env`. The `pid` op asks the OS for the process's id
+  `RuntimeOptions::env`. The host asks the OS for the process's id, `pid`,
   when a run first imports the module. The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.

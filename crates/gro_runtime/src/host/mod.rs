@@ -272,6 +272,17 @@ pub fn throw_error(scope: &v8::PinScope<'_, '_>, message: &str) {
     }
 }
 
+/// `text` as a JS string, or `None` with a `RangeError` thrown, as the
+/// language throws one, when it's longer than V8's longest string, for
+/// which V8 throws nothing.
+fn string<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::String>> {
+    let string = v8::String::new(scope, text);
+    if string.is_none() {
+        throw_range_error(scope, "Invalid string length");
+    }
+    string
+}
+
 /// `text` as a property name.
 fn name<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::Name>> {
     v8::String::new(scope, text).map(Into::into)
@@ -312,13 +323,6 @@ fn own_data<'s>(
 }
 
 host_ops! {
-    /// The script's arguments, a new array of strings each call.
-    fn op_gro_args(state, _granted: ArgsGrant) for "@fuzdev/gro/args.ts"
-        -> #[serde] Vec<String>
-    {
-        state.borrow::<HostData>().args.clone()
-    }
-
     /// Ends the run now, by the embedder's step, with `code`, or, given
     /// `undefined`, with the code `set_exit_code` set, else 0. Any other
     /// value throws a `TypeError` and ends nothing.
@@ -400,24 +404,6 @@ host_ops! {
         env::narrow(state, scope, handle, names).unwrap_or_else(|| v8::undefined(scope).into())
     }
 
-    /// The working directory the run was started in, or, when its path
-    /// isn't UTF-8, which a JS string can't hold, an `Error` thrown saying
-    /// so.
-    fn op_gro_cwd(state; scope) for "@fuzdev/gro/cwd.ts" -> v8::Local<'s, v8::Value> {
-        let cwd = state
-            .borrow::<HostData>()
-            .cwd
-            .as_deref()
-            .and_then(|cwd| v8::String::new(scope, cwd));
-        cwd.map_or_else(
-            || {
-                throw_error(scope, CWD_NOT_UTF8);
-                v8::undefined(scope).into()
-            },
-            Into::into,
-        )
-    }
-
     /// The namespace of the row whose backing script calls it: the host's,
     /// its members native functions made the first time the run asks and
     /// held, so every later ask, a rerun of a first import ended early
@@ -431,18 +417,44 @@ host_ops! {
             .map_or_else(|| v8::undefined(scope).into(), Into::into)
     }
 
-    /// The process's id, asked of the OS when called.
-    @nofast fn op_gro_pid(state) for "@fuzdev/gro/pid.ts" -> u32 {
-        std::process::id()
-    }
-
-    /// The runtime's name and version.
-    fn op_gro_runtime_version(state) for "@fuzdev/gro/runtime_version.ts" -> #[string] String {
-        state.borrow::<HostData>().runtime_version.clone()
-    }
 }
 
 native_members! {
+    /// `args`, the script's arguments: a frozen array of strings, one for
+    /// every importer.
+    value args(state, _granted: ArgsGrant; scope) for "@fuzdev/gro/args.ts" {
+        let mut elements = Vec::new();
+        for arg in &state.borrow::<HostData>().args {
+            elements.push(string(scope, arg)?.into());
+        }
+        let args = v8::Array::new_with_elements(scope, &elements);
+        args.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
+        Some(args.into())
+    }
+
+    /// `cwd()`, the working directory the run was started in, or, when its
+    /// path isn't UTF-8, which a JS string can't hold, an `Error` thrown
+    /// saying so.
+    fn cwd(state; scope) for "@fuzdev/gro/cwd.ts" {
+        let cwd = state.borrow::<HostData>().cwd.as_deref();
+        let Some(cwd) = cwd else {
+            throw_error(scope, CWD_NOT_UTF8);
+            return None;
+        };
+        string(scope, cwd).map(Into::into)
+    }
+
+    /// `pid`, the process's id, asked of the OS when the run first imports
+    /// the module.
+    value pid(state; scope) for "@fuzdev/gro/pid.ts" {
+        Some(v8::Integer::new_from_unsigned(scope, std::process::id()).into())
+    }
+
+    /// `runtime_version`, the runtime's name and version.
+    value runtime_version(state; scope) for "@fuzdev/gro/runtime_version.ts" {
+        string(scope, &state.borrow::<HostData>().runtime_version).map(Into::into)
+    }
+
     /// `hash(data)`, the BLAKE3 digest of `data` ([`blake3::hash`]).
     fn hash(state; scope, data) for "@fuzdev/gro/blake3.ts" {
         blake3::hash(scope, data)

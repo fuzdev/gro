@@ -13,7 +13,7 @@ use super::super::RunError;
 use super::builtins::{run_files, run_files_from};
 use crate::loader::graph::{Reach, Record};
 use crate::resolver::find_builtin;
-use crate::{Authority, RuntimeOptions, bootstrap};
+use crate::{Authority, RuntimeOptions};
 
 const CWD: &str = "@fuzdev/gro/cwd.ts";
 const PID: &str = "@fuzdev/gro/pid.ts";
@@ -212,27 +212,15 @@ check('called', called === expected_cwd);
     assert!(result.is_ok(), "{result:?}");
 }
 
-/// A builtin's frames show nothing of its functions: with
-/// `Error.prepareStackTrace` set, the call sites of an error a builtin's
-/// function threw, `cwd` in a directory whose path isn't UTF-8, whose op
-/// throws it, name the builtin's script, at the line its shell calls the
-/// op on, and each of those
-/// gives `undefined` for `getFunction()` and `getThis()`, so no call site
-/// hands out a function that closes over the ops or the object its script
-/// was called with.
+/// A builtin's function leaves no frame: with `Error.prepareStackTrace`
+/// set, the call sites of an error a builtin's function threw, `cwd` in a
+/// directory whose path isn't UTF-8, start at the caller's call, at its
+/// line, and none names a builtin's script, since the host made the
+/// function natively; and none gives a function or a receiver, so no call
+/// site hands out what the caller didn't hold.
 #[test]
-fn a_builtin_s_call_sites_give_no_function_and_no_receiver() {
+fn a_builtin_s_function_leaves_no_frame() {
     let cwd = Path::new(OsStr::from_bytes(b"/not_utf8_\xff"));
-    let script = format!("ext:gro/builtin/{CWD}");
-    let implementation = bootstrap::IMPLEMENTATIONS
-        .iter()
-        .find(|implementation| implementation.script == script)
-        .unwrap();
-    let throws = implementation
-        .source
-        .lines()
-        .position(|line| line.contains("op_gro_cwd()"));
-    let line = throws.unwrap() + 1;
     let main = format!(
         "import {{ cwd }} from '{CWD}';
 let sites;
@@ -248,11 +236,10 @@ try {{
 }}
 delete Error.prepareStackTrace;
 if (stack !== 'prepared') throw new Error(`the stack wasn't prepared: ${{stack}}`);
-const builtin = sites.filter((site) => String(site.getFileName()).startsWith('ext:gro/builtin/'));
-if (builtin.length === 0) throw new Error(`no frame of the builtin: ${{sites.map((site) => site.getFileName())}}`);
-for (const site of builtin) {{
-\tif (site.getFileName() !== '{script}') throw new Error(`named ${{site.getFileName()}}`);
-\tif (site.getLineNumber() !== {line}) throw new Error(`at line ${{site.getLineNumber()}}, not {line}`);
+const names = sites.map((site) => String(site.getFileName()));
+if (names.some((name) => name.startsWith('ext:'))) throw new Error(`a frame of the host's: ${{names}}`);
+if (!names[0].endsWith('/main.mjs') || sites[0].getLineNumber() !== 9) throw new Error(`the first frame is ${{names[0]}}:${{sites[0].getLineNumber()}}`);
+for (const site of sites) {{
 \tif (site.getFunction() !== undefined || site.getThis() !== undefined) throw new Error('a call site gave a function or a receiver');
 }}
 "

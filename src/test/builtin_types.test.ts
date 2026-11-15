@@ -286,12 +286,12 @@ describe('a retyped export fails its check', () => {
 			declared,
 			'export declare const args: ReadonlyArray<string | number>;'
 		);
-		// the array left mutable
+		// the array claimed mutable
 		assert_mismatch(
 			'args',
-			'builtin',
-			'const args = ObjectFreeze(op_gro_args());',
-			'const args = op_gro_args();'
+			'bootstrap',
+			'readonly args: ReadonlyArray<string>;',
+			'readonly args: Array<string>;'
 		);
 	});
 
@@ -407,12 +407,12 @@ describe('a retyped export fails its check', () => {
 
 	test('cwd', () => {
 		// a string where the Node module has a function, and a function of a parameter
-		assert_mismatch('cwd', 'builtin', '{ cwd, default', "{ cwd: '', default");
+		assert_mismatch('cwd', 'bootstrap', 'readonly cwd: () => string;', 'readonly cwd: string;');
 		assert_mismatch(
 			'cwd',
-			'builtin',
-			'const cwd = (): string =>',
-			'const cwd = (_a: string): string =>'
+			'bootstrap',
+			'readonly cwd: () => string;',
+			'readonly cwd: (_a: string) => string;'
 		);
 		assert_mismatch(
 			'cwd',
@@ -423,12 +423,7 @@ describe('a retyped export fails its check', () => {
 	});
 
 	test('pid', () => {
-		assert_mismatch(
-			'pid',
-			'builtin',
-			'const pid = op_gro_pid();',
-			'const pid = String(op_gro_pid());'
-		);
+		assert_mismatch('pid', 'bootstrap', 'readonly pid: number;', 'readonly pid: string;');
 		assert_mismatch(
 			'pid',
 			'node',
@@ -440,9 +435,9 @@ describe('a retyped export fails its check', () => {
 	test('runtime_version', () => {
 		assert_mismatch(
 			'runtime_version',
-			'builtin',
-			'const runtime_version = op_gro_runtime_version();',
-			'const runtime_version = 1;'
+			'bootstrap',
+			'readonly runtime_version: string;',
+			'readonly runtime_version: number;'
 		);
 		assert_mismatch(
 			'runtime_version',

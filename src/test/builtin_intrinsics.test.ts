@@ -648,10 +648,7 @@ describe('what the bootstrap object gives', () => {
 				['bootstrap.d.ts declares more or less than the interface `Bootstrap`']
 			],
 			// an op that returns anything, and a file named from here
-			[
-				mutate(bootstrap, 'readonly op_gro_pid: () => number;', 'readonly op_gro_pid: () => any;'),
-				['bootstrap.d.ts any']
-			],
+			[mutate(bootstrap, 'readonly pid: number;', 'readonly pid: any;'), ['bootstrap.d.ts any']],
 			[`/// <reference path="./other.d.ts" />\n${bootstrap}`, ['bootstrap.d.ts references a file']]
 		] satisfies Array<[string, Array<string>]>) {
 			assert.deepEqual(find(mutated), found);
