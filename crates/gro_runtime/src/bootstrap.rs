@@ -201,16 +201,19 @@ const BUILTIN_MODULES: &[(&str, &str)] = &builtin_rows!(synthetic_module);
 
 /// What a backing script passes its implementation's inner level as the
 /// scope of the importer's grant, a JS expression over the script's
-/// `__bootstrap`: the one place a builtin's scope comes from. No grant
-/// scopes anything yet, so every inner level is called with `undefined`. A
-/// grant that carries a scope names here how the host hands it over, a
-/// native value the implementation gives back to each op, so an op decides
-/// from the scope it was called with and never from the run's grants.
+/// `__bootstrap`: the one place a builtin's scope comes from. Every inner
+/// level is called with `undefined` today. A grant-free module has no grant
+/// to scope, and neither `args` nor `exit` scopes anything. `env` does, but
+/// one origin holds it, the project, every module of a confined run's that
+/// may import it (an unconfined run's are given every grant whole), so its
+/// inner level asks the host for the root handle of the run's grant, which
+/// carries its scope natively, and every op decides from the handle it's
+/// handed, never from the run's grants. An instance per origin hands the
+/// origin's scope here, a native value the host gives back to the op that
+/// makes the origin's root.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
-        // a grant-free module has no grant to scope, and neither `args`
-        // nor `exit` scopes anything
-        None | Some(Capability::Args | Capability::Exit) => "undefined",
+        None | Some(Capability::Args | Capability::Exit | Capability::Env) => "undefined",
     }
 }
 

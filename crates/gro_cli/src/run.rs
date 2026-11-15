@@ -4,15 +4,18 @@
 //! it is, since the process exits next. [`exit_code`] is the one place the
 //! run's exit code is decided, however the run ended.
 
+use std::ffi::OsString;
+
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::{
-    ArgsGrant, Authority, Exit, ExitGrant, Grants, RefusedImports, RunOutcome, RuntimeOptions,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, RefusedImports, RunOutcome,
+    RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
-use crate::cli::RunInvocation;
+use crate::cli::{RunGrant, RunInvocation};
 use crate::color;
 use crate::error::CliError;
 use crate::print::{escape_controls, stderr_line};
@@ -108,7 +111,7 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
 fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
-    let options = runtime_options(run);
+    let options = runtime_options(run, &ProcessEnvironment);
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
@@ -133,16 +136,37 @@ fn report_refused(refused: &RefusedImports) {
     }
 }
 
-/// The options `run`'s runtime starts with: the project's own modules
-/// granted the args host module and the exit host module, whose step is
-/// [`exit_now`], the script's arguments, and the runtime's name and
+/// Where `fgro run` reads the environment variables it hands the runtime:
+/// the process's environment ([`ProcessEnvironment`]), or a test's.
+trait Environment {
+    /// The value of the variable `name`, if it's set.
+    fn var(&self, name: &str) -> Option<OsString>;
+    /// Every variable, in the order the environment holds them.
+    fn vars(&self) -> Vec<(OsString, OsString)>;
+}
+
+/// The process's own environment.
+struct ProcessEnvironment;
+
+impl Environment for ProcessEnvironment {
+    fn var(&self, name: &str) -> Option<OsString> {
+        std::env::var_os(name)
+    }
+
+    fn vars(&self) -> Vec<(OsString, OsString)> {
+        std::env::vars_os().collect()
+    }
+}
+
+/// The options `run`'s runtime starts with: the authority its flags grant
+/// ([`authority`]) and the environment variables that authority reaches,
+/// read from `environment` now, once ([`env_vars`]); the exit step
+/// [`exit_now`]; the script's arguments; and the runtime's name and
 /// version.
-fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
+fn runtime_options(run: &RunInvocation, environment: &impl Environment) -> RuntimeOptions {
     RuntimeOptions {
-        authority: Authority::Confined(Grants {
-            args: Some(ArgsGrant {}),
-            exit: Some(ExitGrant {}),
-        }),
+        authority: authority(&run.grant),
+        env: env_vars(&run.grant, environment),
         exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
@@ -151,10 +175,112 @@ fn runtime_options(run: &RunInvocation) -> RuntimeOptions {
     }
 }
 
+/// The authority `grant` gives: unconfined for `-A`; else the project's
+/// own modules granted the args host module, the exit host module, and,
+/// when `--allow-env=` named any variable, the env host module with those
+/// names.
+fn authority(grant: &RunGrant) -> Authority {
+    match grant {
+        RunGrant::All => Authority::Unconfined,
+        RunGrant::Named { env } => Authority::Confined(Grants {
+            args: Some(ArgsGrant {}),
+            exit: Some(ExitGrant {}),
+            env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
+        }),
+    }
+}
+
+/// The environment variables `grant` reaches, read from `environment`:
+/// each name `--allow-env=` granted that's set, asked for by name and no
+/// other read, or, under `-A`, every variable whose name the env host
+/// module could ask for (UTF-8, as a JS string is, and neither empty nor
+/// holding a `=`). A value that isn't UTF-8 is decoded with U+FFFD in place
+/// of each invalid sequence, as Node reads one.
+fn env_vars(grant: &RunGrant, environment: &impl Environment) -> EnvVars {
+    let read = |(name, value): (String, OsString)| (name, value.to_string_lossy().into_owned());
+    match grant {
+        RunGrant::Named { env } => env
+            .iter()
+            .filter_map(|name| Some((name.clone(), environment.var(name)?)))
+            .map(read)
+            .collect(),
+        RunGrant::All => environment
+            .vars()
+            .into_iter()
+            .filter_map(|(name, value)| {
+                let name = name.into_string().ok()?;
+                env_name_fault(&name, true)
+                    .is_none()
+                    .then_some((name, value))
+            })
+            .map(read)
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{EXIT_FAILURE, Ended, RUNTIME_VERSION, exit_code, exit_now, runtime_options};
-    use crate::cli::{Invocation, Task, parse};
+    use std::cell::{Cell, RefCell};
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt as _;
+
+    use super::{
+        EXIT_FAILURE, Ended, Environment, RUNTIME_VERSION, exit_code, exit_now, runtime_options,
+    };
+    use crate::cli::{Invocation, RunInvocation, Task, parse};
+
+    /// An environment of a test's own, never the process's, which records
+    /// what was read of it.
+    #[derive(Default)]
+    struct TestEnvironment {
+        /// Its variables, in order.
+        vars: Vec<(OsString, OsString)>,
+        /// Each name asked for by [`Environment::var`].
+        asked: RefCell<Vec<String>>,
+        /// Whether [`Environment::vars`] was called.
+        listed: Cell<bool>,
+    }
+
+    impl TestEnvironment {
+        fn of(vars: &[(&[u8], &[u8])]) -> Self {
+            Self {
+                vars: vars
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            OsString::from_vec(name.to_vec()),
+                            OsString::from_vec(value.to_vec()),
+                        )
+                    })
+                    .collect(),
+                ..Self::default()
+            }
+        }
+    }
+
+    impl Environment for TestEnvironment {
+        fn var(&self, name: &str) -> Option<OsString> {
+            self.asked.borrow_mut().push(name.to_owned());
+            self.vars
+                .iter()
+                .find(|(var, _)| var.as_encoded_bytes() == name.as_bytes())
+                .map(|(_, value)| value.clone())
+        }
+
+        fn vars(&self) -> Vec<(OsString, OsString)> {
+            self.listed.set(true);
+            self.vars.clone()
+        }
+    }
+
+    /// The run `args` (after `run`) ask for.
+    fn invocation(args: &[&str]) -> RunInvocation {
+        let args = [&["run"][..], args].concat();
+        let Ok(Invocation::Sized(Task::Run(run))) = parse(&args) else {
+            panic!("{args:?} runs a file");
+        };
+        run
+    }
 
     /// A program's code passes as it is, however the run ended: the one
     /// it gave `exit`, and the one it set when it ran to completion; with
@@ -221,11 +347,18 @@ mod tests {
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&args) else {
             panic!("{args:?} runs a.js");
         };
-        assert_eq!(runtime_options(&run).args, script_args);
+        assert_eq!(
+            runtime_options(&run, &TestEnvironment::default()).args,
+            script_args
+        );
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
-        assert!(runtime_options(&run).args.is_empty());
+        assert!(
+            runtime_options(&run, &TestEnvironment::default())
+                .args
+                .is_empty()
+        );
     }
 
     /// The runtime is named as the build names itself.
@@ -234,28 +367,110 @@ mod tests {
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
-        assert_eq!(runtime_options(&run).runtime_version, RUNTIME_VERSION);
+        assert_eq!(
+            runtime_options(&run, &TestEnvironment::default()).runtime_version,
+            RUNTIME_VERSION
+        );
     }
 
     /// `run` grants the args host module and the exit host module, whose
-    /// step is the CLI's, and nothing else.
+    /// step is the CLI's, and nothing else, reading no environment
+    /// variable.
     #[test]
     fn the_run_grants_args_and_exit() {
-        let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
-            panic!("runs a.js");
-        };
+        let run = invocation(&["a.js"]);
+        let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
+        let options = runtime_options(&run, &environment);
         assert_eq!(
-            runtime_options(&run).authority,
+            options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
                 exit: Some(gro_runtime::ExitGrant {}),
+                env: None,
             })
         );
+        assert_eq!(options.env, gro_runtime::EnvVars::default());
+        assert!(environment.asked.borrow().is_empty());
+        assert!(!environment.listed.get());
         let cli_step: gro_runtime::ExitStep = exit_now;
         assert!(
-            runtime_options(&run)
+            options
                 .exit_step
                 .is_some_and(|step| std::ptr::fn_addr_eq(step, cli_step))
         );
+    }
+
+    /// `--allow-env=` grants the env host module exactly the names its
+    /// options list, together, and the run reads only those of the
+    /// environment, each by name, a value that isn't UTF-8 decoded with
+    /// U+FFFD, and an unset one left out.
+    #[test]
+    fn allow_env_grants_and_reads_exactly_its_names() {
+        let run = invocation(&[
+            "--allow-env=B,A",
+            "--allow-env=C,A",
+            "a.js",
+            "--allow-env=D",
+        ]);
+        let environment =
+            TestEnvironment::of(&[(b"A", b"1"), (b"B", b"b\xff"), (b"D", b"4"), (b"E", b"5")]);
+        let options = runtime_options(&run, &environment);
+        assert_eq!(
+            options.authority,
+            gro_runtime::Authority::Confined(gro_runtime::Grants {
+                args: Some(gro_runtime::ArgsGrant {}),
+                exit: Some(gro_runtime::ExitGrant {}),
+                env: Some(gro_runtime::EnvGrant {
+                    names: ["A", "B", "C"].map(ToOwned::to_owned).into(),
+                }),
+            })
+        );
+        assert_eq!(*environment.asked.borrow(), ["A", "B", "C"]);
+        assert!(!environment.listed.get());
+        let read: Vec<(&str, &str)> = options.env.iter().collect();
+        assert_eq!(read, [("A", "1"), ("B", "b\u{fffd}")]);
+        assert_eq!(options.args, ["--allow-env=D"]);
+    }
+
+    /// `-A` runs unconfined, its `--allow-env=` names checked and adding
+    /// nothing, and the run reads every variable whose name the env host
+    /// module could ask for, in order: a name that isn't UTF-8, an empty
+    /// one, and one holding a `=` are left out, and a `*` is a name like
+    /// any other.
+    #[test]
+    fn allow_all_runs_unconfined_and_reads_every_variable() {
+        for args in [&["-A", "a.js"][..], &["--allow-env=A", "-A", "-A", "a.js"]] {
+            let run = invocation(args);
+            let environment = TestEnvironment::of(&[
+                (b"B", b"2"),
+                (b"N\xff", b"x"),
+                (b"", b"empty"),
+                (b"K=V", b"x"),
+                (b"A*", b"glob"),
+                (b"A", b"1"),
+                (b"B", b"again"),
+            ]);
+            let options = runtime_options(&run, &environment);
+            assert_eq!(
+                options.authority,
+                gro_runtime::Authority::Unconfined,
+                "{args:?}"
+            );
+            assert!(environment.asked.borrow().is_empty());
+            assert!(environment.listed.get());
+            let read: Vec<(&str, &str)> = options.env.iter().collect();
+            assert_eq!(read, [("B", "2"), ("A*", "glob"), ("A", "1")], "{args:?}");
+        }
+    }
+
+    /// The variables' `Debug` names them and prints no value.
+    #[test]
+    fn the_variables_debug_prints_no_value() {
+        let run = invocation(&["--allow-env=TOKEN", "a.js"]);
+        let environment = TestEnvironment::of(&[(b"TOKEN", b"secret-value")]);
+        let options = runtime_options(&run, &environment);
+        let printed = format!("{options:?}");
+        assert!(printed.contains("TOKEN"), "{printed}");
+        assert!(!printed.contains("secret-value"), "{printed}");
     }
 }

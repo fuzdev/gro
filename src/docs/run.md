@@ -12,6 +12,8 @@
 
 ```bash
 fgro run <file> [args...]   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
+fgro run --allow-env=HOME,NO_COLOR <file>   # the env host module, with these two variables
+fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
 
@@ -23,10 +25,31 @@ The last part is `no snapshot` for a build without a startup snapshot.
 
 `run` reads its own options up to the entry file, the first argument that is neither `help` nor starts with `-`,
 and every argument after the file is the script's, passed as written, `--` and `--help` included.
-Its only option is `--help` (or `help`, as for every command), and any other before the file is a usage error;
+Its options are `--help` (or `help`, as for every command) and the grant flags, in Deno's spelling,
+and any other before the file is a usage error, `--allow-all` among them (`-A` is the one spelling).
+A usage error that names an argument, an unknown option or one that isn't UTF-8, prints it only up to its first `=`, marked `=…`, with control and bidirectional formatting characters escaped,
+so what follows a `=`, which could be a value, never reaches the terminal, and neither does a raw control character
+(a name `--allow-env=` can't grant is echoed only for a `*`, escaped, and never when it holds a `=`).
+Arguments the command-line parser refuses before `run` reads its own, an unknown flag of `fgro` or of `eval` among them, print as
+`error: invalid arguments to fgro eval: <the arguments>` (or `to fgro:`) and `Run fgro eval --help for more information.`,
+the first 16 arguments each printed by that rule and cut past 80 characters, then a count of the rest, and no other text, so the message doesn't say which argument was wrong;
 a file whose name starts with `-` goes after `--`.
-The grant flags are designed to go before the file too, in Deno's spelling, `--allow-env=A,B` and `-A` (`--allow-all`),
-where a bare `--allow-env` is a usage error, not a grant of every name.
+A run grants the project's own modules `args` and `exit`, and these widen it, for that run only:
+
+- `--allow-env=A,B` grants `@fuzdev/gro/env.ts` to the project's modules, its root handle reading exactly those variables.
+  It's repeatable, the names of every one joined, and each name is exact and case-sensitive,
+  held to the rule the module's `narrow` holds a name to: not empty, no NUL byte, no `=`, and no `*`, which names no glob.
+  A bare `--allow-env`, an empty list, an empty name (`--allow-env=A,`), and a name breaking the rule are usage errors,
+  a bare one never Deno's grant of every name.
+  `fgro` reads the granted variables once, as the run starts, and the runtime reads none;
+  a value that isn't UTF-8 is read with U+FFFD in place of each invalid sequence, as Node reads one.
+- `-A` runs unconfined, the one flag that grants beyond what it names: every builtin module to every module of the run, a package's included,
+  and every grant at its widest, so `env`'s root handle reads every variable `fgro` started with
+  (each whose name is UTF-8 and holds no `=`, each value read as `--allow-env=` reads one).
+  Names given beside it are still checked, and add nothing.
+  It lifts no rule but a grant: a host module not built yet, a reserved specifier, a package's import of the project,
+  and an `import()` in code compiled from a string stay refused, and it adds no global.
+  A module built later, like `fs`, is granted whole by it too.
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
@@ -188,7 +211,7 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, or `-A`, a bare `--allow-env` or a name it can't grant, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

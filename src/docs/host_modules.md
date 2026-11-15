@@ -473,7 +473,8 @@ is `fgro/<version>` alone, which every such build of that version shares, so it 
 
 `args` needs the `args` grant and `exit` the `exit` grant, both of which `fgro run` gives the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused each for now,
-naming the package, until `-A` or the policy file's acceptance lifts that (both designed).
+naming the package, until `-A` lifts that, which grants every module of the run each builtin module ([run](run.md#usage)),
+or the policy file's acceptance does (designed).
 So a dependency can't end the run on its own, though one the project hands `exit` to can call it, as with any handle.
 `fgro eval` imports no builtin module, the grant-free ones included ([eval](eval.md)),
 and an `import()` in code compiled from a string is refused, whatever it names ([run](run.md#what-loads)).

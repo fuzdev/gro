@@ -35,6 +35,8 @@ pub enum Capability {
     Args,
     /// The exit host module's: how the run ends, and the code it ends with.
     Exit,
+    /// The env host module's: the environment variables it names.
+    Env,
 }
 
 impl fmt::Display for Capability {
@@ -42,6 +44,7 @@ impl fmt::Display for Capability {
         f.write_str(match self {
             Self::Args => "args",
             Self::Exit => "exit",
+            Self::Env => "env",
         })
     }
 }

@@ -42,10 +42,21 @@ pub fn escape_controls(text: &str) -> Cow<'_, str> {
     Cow::Owned(escaped)
 }
 
+/// `argument`, a command-line argument a usage error names, as it's safe
+/// to print: up to its first `=`, what follows marked cut with `…`, since
+/// it can be a value (`--allow-env=TOKEN=…`), its control and bidirectional
+/// formatting characters escaped ([`escape_controls`]).
+pub fn echo_argument(argument: &str) -> String {
+    match argument.split_once('=') {
+        Some((head, _)) => format!("{}=…", escape_controls(head)),
+        None => escape_controls(argument).into_owned(),
+    }
+}
+
 /// Whether [`escape_controls`] escapes `c`: a C0 or C1 control or DEL, or a
 /// character of Unicode's `Bidi_Control` property (the marks, embeddings,
 /// overrides, and isolates).
-const fn is_escaped(c: char) -> bool {
+pub const fn is_escaped(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
@@ -57,7 +68,19 @@ const fn is_escaped(c: char) -> bool {
 mod tests {
     use std::borrow::Cow;
 
-    use super::escape_controls;
+    use super::{echo_argument, escape_controls};
+
+    /// An argument a usage error names prints up to its first `=`, escaped,
+    /// and whole, escaped, when it holds none.
+    #[test]
+    fn an_echoed_argument_stops_at_its_first_equals_sign() {
+        assert_eq!(echo_argument("--x"), "--x");
+        assert_eq!(echo_argument("--allow_env=TOKEN=hunter2"), "--allow_env=…");
+        assert_eq!(echo_argument("-A=\u{1b}[2J"), "-A=…");
+        assert_eq!(echo_argument("=v"), "=…");
+        assert_eq!(echo_argument("-\u{1b}[2J\u{202e}"), "-\\u{1b}[2J\\u{202e}");
+        assert_eq!(echo_argument("--\u{1b}x=\u{1b}secret"), "--\\u{1b}x=…");
+    }
 
     /// Controls and bidirectional formatting characters are escaped, and
     /// text with none is borrowed as it is.

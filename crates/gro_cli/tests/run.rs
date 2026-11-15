@@ -648,6 +648,12 @@ fn a_package_is_refused_exit_and_ends_the_run_only_when_handed_it() {
     assert_eq!(run.code, 6, "{}", run.stderr);
     assert_eq!(run.stdout, "before\n");
     assert_eq!(run.stderr, "");
+    // unconfined, the package imports it as the project does
+    let run = run_with(&fixtures, &["-A"], "refused.js", &[]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "", "")
+    );
 }
 
 /// What a program printed before `exit` is whole, to a pipe and to a
@@ -1384,6 +1390,23 @@ fn temp_fixtures(name: &str, files: &[(&str, &str)]) -> Scratch {
 fn run_in(fixtures: &Scratch, file: &str) -> Run {
     let mut command = fgro_command(&["run", file]);
     command.current_dir(&fixtures.0);
+    run_command(command)
+}
+
+/// Runs `file` in `fixtures` with `flags` before it, in an environment
+/// that holds `env` and nothing else, so no test reads the one it was
+/// started in.
+fn run_with(fixtures: &Scratch, flags: &[&str], file: &str, env: &[(&str, &str)]) -> Run {
+    let mut command = fgro_command(&[&["run"][..], flags, &[file]].concat());
+    command
+        .env_clear()
+        .envs(env.iter().copied())
+        .current_dir(&fixtures.0);
+    run_command(command)
+}
+
+/// What `command`, a run, exited with and printed.
+fn run_command(command: Command) -> Run {
     let output = spawn(command, b"");
     Run {
         code: output
@@ -2681,20 +2704,54 @@ fn a_closed_stdout_fails_the_write_without_a_panic() {
 }
 
 /// A usage error runs nothing: an option before an entry that exists is
-/// refused, not skipped.
+/// refused, not skipped. An argument it names is printed up to its first
+/// `=`, escaped, so a value after one never reaches the terminal, nor do
+/// its raw control characters.
 #[test]
 fn usage_errors_exit_2() {
+    use std::os::unix::ffi::OsStrExt as _;
     for args in [
         &[][..],
         &["run"],
         &["run", "--"],
         &["--unknown"],
         &["run", "--x", "console.js"],
+        &["run", "--allow-env", "console.js"],
+        &["run", "--allow-env=", "console.js"],
+        &["run", "--allow-env=A,", "console.js"],
+        &["run", "--allow-env=A*", "console.js"],
+        &["run", "-A", "--allow-env=TOKEN=hunter2", "console.js"],
+        &["run", "--allow-all", "console.js"],
+        &["run", "-A"],
+        &["run", "--allow_env=TOKEN=hunter2", "console.js"],
+        &["run", "-A=hunter2", "console.js"],
+        &["--allow-env=TOKEN=hunter2", "run", "console.js"],
     ] {
         let output = fgro(args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert!(output.stdout.is_empty(), "{args:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        // what follows a `=` in a name can be a value, and is never echoed
+        assert!(!stderr.contains("hunter2"), "{args:?}: {stderr}");
     }
+    // an argument that isn't UTF-8 is named up to its first `=`, escaped
+    let mut command = fgro_command(&["run"]);
+    command.arg(std::ffi::OsStr::from_bytes(
+        b"--allow-env=TOKEN=hunter2\x1b[2J\xff",
+    ));
+    command.arg("console.js").current_dir(fixtures());
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: an argument is not valid UTF-8: --allow-env=…\n"
+    );
+    let output = fgro(&["run", "--allow-env", "console.js"]);
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: --allow-env takes the names it grants, as --allow-env=A,B\n\
+         Run fgro run --help for more information.\n"
+    );
 }
 
 /// Every argument after the file is the script's, fgro's own spellings

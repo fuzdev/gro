@@ -31,7 +31,7 @@ These terms carry this doc, and the [glossary](glossary.md) defines them and the
 ## Secure by default
 
 Code starts with nothing and gets only what it's granted.
-Confinement is the default, with no flag to turn it on; `-A` (`--allow-all`, the [escape hatch](glossary.md#escape-hatch)) turns it off.
+Confinement is the default, with no flag to turn it on; `-A` (the [escape hatch](glossary.md#escape-hatch), Deno's `--allow-all`, which `fgro` spells only `-A`) turns it off.
 Widening is a visible act, reviewed like a lockfile change.
 A run gets:
 
@@ -98,7 +98,7 @@ A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 A net grant names hosts, or is a blanket grant.
 A hermetic run also gets no storage and no by-name channels, since persistence and cross-run channels break replay.
-Only `-A` (`--allow-all`, as in Deno) and the named unconfined phases below run unconfined.
+Only `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`) and the named unconfined phases below run unconfined.
 Every spawn grant is shown in the diff as bounded by the kernel backstop alone,
 since for most programs the arguments are code (`git -c core.sshCommand=…`, `node -e`) and a handle on the binary bounds the binary, not what it does;
 a shell, or a child given the whole environment, is shown as `-A`.

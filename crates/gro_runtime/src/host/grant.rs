@@ -8,7 +8,7 @@ use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
 use crate::resolver::Capability;
-use crate::{ArgsGrant, Authority, ExitGrant, Grants};
+use crate::{ArgsGrant, Authority, EnvGrant, ExitGrant, Grants};
 
 /// A host module's grant, as [`Grants`] holds it.
 pub trait Grant: 'static {
@@ -32,6 +32,14 @@ impl Grant for ExitGrant {
 
     fn of(grants: &Grants) -> Option<&Self> {
         grants.exit.as_ref()
+    }
+}
+
+impl Grant for EnvGrant {
+    const CAPABILITY: Capability = Capability::Env;
+
+    fn of(grants: &Grants) -> Option<&Self> {
+        grants.env.as_ref()
     }
 }
 
@@ -70,17 +78,23 @@ impl NotGranted {
     }
 }
 
-/// The grant `G` the runtime's [`Authority`] holds, or
-/// [`NotGranted::Grant`] when it holds none: no authority in `state` at all
-/// (eval's runtime), or one that doesn't grant `G`.
+/// Proof that the runtime's [`Authority`] holds the grant `G`, or
+/// [`NotGranted::Grant`] when it doesn't: no authority in `state` at all
+/// (eval's runtime), or a confined one that doesn't grant `G`. An
+/// unconfined run holds every grant. The proof carries none of the grant's
+/// data: an op that decides by a scope decides by the one it's handed (a
+/// handle's), never by the run's.
 pub fn require<G: Grant>(state: &OpState) -> Result<Granted<G>, NotGranted> {
-    let grant = match state.try_borrow::<Authority>() {
-        Some(Authority::Confined(grants)) => G::of(grants),
-        None => None,
+    let granted = match state.try_borrow::<Authority>() {
+        Some(Authority::Confined(grants)) => G::of(grants).is_some(),
+        Some(Authority::Unconfined) => true,
+        None => false,
     };
-    grant
-        .map(|_| Granted { grant: PhantomData })
-        .ok_or(NotGranted::Grant(G::CAPABILITY))
+    if granted {
+        Ok(Granted { grant: PhantomData })
+    } else {
+        Err(NotGranted::Grant(G::CAPABILITY))
+    }
 }
 
 /// What a grant-free module's op requires: that the runtime holds an
@@ -89,7 +103,7 @@ pub fn require<G: Grant>(state: &OpState) -> Result<Granted<G>, NotGranted> {
 /// needs none.
 pub fn require_authority(state: &OpState) -> Result<(), NotGranted> {
     match state.try_borrow::<Authority>() {
-        Some(Authority::Confined(_)) => Ok(()),
+        Some(Authority::Confined(_) | Authority::Unconfined) => Ok(()),
         None => Err(NotGranted::Authority),
     }
 }

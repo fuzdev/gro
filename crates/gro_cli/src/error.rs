@@ -10,8 +10,8 @@ use gro_runtime::prices::PricesError;
 use gro_runtime::snapshot::SnapshotError;
 use thiserror::Error;
 
-use crate::cli::MAKE_SNAPSHOT;
-use crate::print::stderr_line;
+use crate::cli::{EnvFlagFault, MAKE_SNAPSHOT};
+use crate::print::{echo_argument, stderr_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// Why `fgro` failed, outside eval's envelope.
@@ -20,27 +20,49 @@ pub enum CliError {
     /// A priced build's switches name a default there is none of.
     #[error(transparent)]
     Prices(#[from] PricesError),
-    /// An argument isn't UTF-8.
-    #[error("an argument is not valid UTF-8: {}", .0.to_string_lossy())]
+    /// An argument isn't UTF-8, named up to its first `=`, escaped
+    /// ([`echo_argument`]), its invalid sequences as U+FFFD.
+    #[error("an argument is not valid UTF-8: {}", echo_argument(&.0.to_string_lossy()))]
     NotUtf8(OsString),
-    /// argh refused the arguments, its usage text as it wrote it.
-    #[error("{}", .0.trim_end())]
-    Parse(String),
+    /// argh refused the arguments: the command they were given to, and the
+    /// arguments as given, each as [`echo_argument`] prints it, bounded in
+    /// number and length (`cli::invalid_arguments`). argh's own text isn't
+    /// printed: it can carry any part of an argument.
+    #[error(
+        "invalid arguments to {command}: {arguments}\nRun {command} --help for more information."
+    )]
+    InvalidArguments {
+        /// The command, `fgro` or `fgro eval`.
+        command: &'static str,
+        /// The arguments, as printed.
+        arguments: String,
+    },
     /// `--version` came with a subcommand.
     #[error("--version takes no subcommand")]
     VersionWithCommand,
     /// Neither `--version` nor a subcommand was given.
     #[error("a subcommand is required\nRun fgro --help for more information.")]
     NoCommand,
-    /// `run` with an option before the file that it doesn't take.
+    /// `run` with an option before the file that it doesn't take, named up
+    /// to its first `=`, escaped ([`echo_argument`]).
     #[error(
-        "unknown option {0:?} before the file: the script's arguments go after it\n\
-         Run fgro run --help for more information."
+        "unknown option \"{}\" before the file: the script's arguments go after it\n\
+         Run fgro run --help for more information.",
+        echo_argument(.0)
     )]
     RunOption(String),
     /// `run` without a file.
     #[error("a file to run is required\nRun fgro run --help for more information.")]
     RunNoFile,
+    /// `run --allow-env` with no names, which grants none.
+    #[error(
+        "--allow-env takes the names it grants, as --allow-env=A,B\n\
+         Run fgro run --help for more information."
+    )]
+    AllowEnvBare,
+    /// `run --allow-env=` listing a name no variable can have.
+    #[error("{0}\nRun fgro run --help for more information.")]
+    AllowEnvName(EnvFlagFault),
     /// `eval --timeout 0`.
     #[error("--timeout takes a number of milliseconds of at least 1")]
     TimeoutZero,
@@ -93,11 +115,13 @@ impl CliError {
         match self {
             Self::Prices(_)
             | Self::NotUtf8(_)
-            | Self::Parse(_)
+            | Self::InvalidArguments { .. }
             | Self::VersionWithCommand
             | Self::NoCommand
             | Self::RunOption(_)
             | Self::RunNoFile
+            | Self::AllowEnvBare
+            | Self::AllowEnvName(_)
             | Self::TimeoutZero
             | Self::DriverWithExport
             | Self::DriverPath(_)
@@ -113,13 +137,10 @@ impl CliError {
         }
     }
 
-    /// Whether the message prints as it is, with no `error:` label: argh's
-    /// usage text and `make-snapshot`'s usage line, which carry their own.
+    /// Whether the message prints as it is, with no `error:` label:
+    /// `make-snapshot`'s usage line, which carries its own.
     const fn is_unlabeled(&self) -> bool {
-        matches!(
-            self,
-            Self::Parse(_) | Self::SnapshotUsage | Self::SnapshotFlag
-        )
+        matches!(self, Self::SnapshotUsage | Self::SnapshotFlag)
     }
 
     /// Prints the error to stderr, labeled `error:` unless

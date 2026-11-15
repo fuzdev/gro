@@ -103,7 +103,8 @@ the value, or an error with its kind, which a caller branches on.
 
 ## escape hatch
 
-`-A` (`--allow-all`), which makes a run [unconfined](#unconfined).
+`-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
+built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable.
 It's the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 

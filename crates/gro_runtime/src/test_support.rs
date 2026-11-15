@@ -21,6 +21,7 @@ pub fn run_authority() -> Authority {
     Authority::Confined(Grants {
         args: Some(ArgsGrant {}),
         exit: Some(ExitGrant {}),
+        env: None,
     })
 }
 

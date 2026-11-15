@@ -199,6 +199,8 @@ mod tests {
         assert_eq!(code(&["run", "--"]), EXIT_USAGE);
         assert_eq!(code(&["run", "--x", "a.js"]), EXIT_USAGE);
         assert_eq!(code(&["run", "-", "a.js"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "--allow-env", "a.js"]), EXIT_USAGE);
+        assert_eq!(code(&["run", "--allow-env=A=1", "a.js"]), EXIT_USAGE);
         assert_eq!(code(&["--version", "run", "a.js"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot", "a", "b"]), EXIT_USAGE);
@@ -236,10 +238,45 @@ mod tests {
             )
         );
         assert_eq!(
-            message(&["run", "--allow-env=A", "a.js"]),
+            message(&["run", "--allow-read=.", "a.js"]),
             (
-                "unknown option \"--allow-env=A\" before the file: the script's arguments go \
+                "unknown option \"--allow-read=…\" before the file: the script's arguments go \
                  after it\nRun fgro run --help for more information."
+                    .to_owned(),
+                EXIT_USAGE
+            )
+        );
+        // an argument a usage error names is cut at its first `=`, which can
+        // start a value, and escaped, whether `run` or argh refused it
+        for args in [
+            &["run", "--allow_env=TOKEN=hunter2", "a.js"][..],
+            &["run", "-A=hunter2", "a.js"],
+            &["run", "-\u{1b}[2J=hunter2", "a.js"],
+            &["--allow-env=TOKEN=hunter2", "run", "a.js"],
+            &["--\u{1b}[2J=hunter2", "run", "a.js"],
+            &["eval", "a.js", "--x=hunter2"],
+            // an argument that's part of another, which argh refuses
+            &["eval", "--export", "=", "a.js", "TOKEN=hunter2"],
+            &["eval", "--export", "x=", "a.js", "x=\u{1b}[2Jhunter2"],
+            // one whose text is what the other prints as
+            &["eval", "--export", "x=…", "a.js", "x=hunter2"],
+        ] {
+            let (text, code) = message(args);
+            assert_eq!(code, EXIT_USAGE, "{args:?}");
+            assert!(!text.contains("hunter2"), "{args:?}: {text}");
+            assert!(!text.contains('\u{1b}'), "{args:?}: {text}");
+            assert!(text.contains("=…"), "{args:?}: {text}");
+        }
+        assert_eq!(
+            message(&["run", "-\u{1b}[2J", "a.js"]).0,
+            "unknown option \"-\\u{1b}[2J\" before the file: the script's arguments go after \
+             it\nRun fgro run --help for more information."
+        );
+        assert_eq!(
+            message(&["run", "--allow-env", "a.js"]),
+            (
+                "--allow-env takes the names it grants, as --allow-env=A,B\nRun fgro run --help \
+                 for more information."
                     .to_owned(),
                 EXIT_USAGE
             )
@@ -284,6 +321,17 @@ mod tests {
             assert!(matches!(error, CliError::NotUtf8(_)), "{error}");
             assert_eq!(error.exit_code(), EXIT_USAGE);
         }
+        // named up to its first `=`, escaped, so a value that follows isn't printed
+        let error = utf8_args(args(&[b"--allow-env=TOKEN=hunter2\xff"])).expect_err("refused");
+        assert_eq!(
+            error.to_string(),
+            "an argument is not valid UTF-8: --allow-env=…"
+        );
+        let error = utf8_args(args(&[b"\x1b[2J\xff"])).expect_err("refused");
+        assert_eq!(
+            error.to_string(),
+            "an argument is not valid UTF-8: \\u{1b}[2J\u{fffd}"
+        );
         assert_eq!(
             utf8_args(args(&[b"", b"--", "\u{e9}".as_bytes()])).ok(),
             Some(

@@ -99,6 +99,8 @@ mod stack;
 #[cfg(test)]
 mod test_support;
 
+use std::collections::BTreeSet;
+
 use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
@@ -140,6 +142,12 @@ pub struct RuntimeOptions {
     /// `fgro/0.1.0`: data a script reads as `runtime_version`, from the
     /// builtin of that name, which needs no grant.
     pub runtime_version: String,
+    /// The environment variables the env host module reads, as the
+    /// embedder read them once, before the run: data, not authority. A
+    /// script reads only the names its handle holds, the root handle's
+    /// being the names the `env` grant gives ([`EnvGrant`]), or every name
+    /// in an unconfined run, so an embedder passes no more than those.
+    pub env: EnvVars,
     /// The step that ends the process for a program's `exit`, which a run
     /// that grants `exit` must be given: one that grants it with none
     /// fails before it starts ([`StartError::NoExitStep`]).
@@ -179,7 +187,7 @@ pub enum ConsoleRouting {
 }
 
 /// The authority a run's code holds: which builtin modules its modules may
-/// import, and so which host ops can run.
+/// import, and so which host ops can run, and what each grant reaches.
 ///
 /// Grants are per run: they go into the loader and the runtime's `OpState`
 /// when it starts, never into the snapshot or the extension list. Eval's
@@ -190,8 +198,15 @@ pub enum Authority {
     /// The grants given, to the project's own modules only: a module of an
     /// installed or linked package is refused every builtin that needs a
     /// grant, and imports a grant-free one as the project does.
-    // TODO: the unconfined run joins as a variant of its own, with its flag
     Confined(Grants),
+    /// Every grant at its widest, to every module of the run, a package's
+    /// included: each builtin module the runtime serves, whatever it needs,
+    /// and each scoped grant whole (every environment variable). What the
+    /// resolver and the loader refuse by rule apart from a grant stays
+    /// refused: a host module not built yet, a reserved specifier, a
+    /// package's import of the project, an `import()` in code compiled
+    /// from a string. It adds no global.
+    Unconfined,
 }
 
 impl Default for Authority {
@@ -209,6 +224,8 @@ pub struct Grants {
     pub args: Option<ArgsGrant>,
     /// The exit host module's.
     pub exit: Option<ExitGrant>,
+    /// The env host module's.
+    pub env: Option<EnvGrant>,
 }
 
 impl Grants {
@@ -217,6 +234,7 @@ impl Grants {
         match capability {
             Capability::Args => self.args.is_some(),
             Capability::Exit => self.exit.is_some(),
+            Capability::Env => self.env.is_some(),
         }
     }
 }
@@ -231,3 +249,89 @@ pub struct ArgsGrant {}
 /// embedder's, given beside it ([`RuntimeOptions::exit_step`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExitGrant {}
+
+/// The env host module's grant: the environment variables its root handle
+/// may read.
+///
+/// Each is an exact name. A name granted that the environment lacks reads
+/// as unset; one outside the set is refused, as every handle narrowed from
+/// the root refuses a name outside its own.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnvGrant {
+    /// The names granted.
+    pub names: BTreeSet<String>,
+}
+
+/// Why a string can't name an environment variable, as the env host
+/// module refuses it.
+///
+/// It's the rule a name a program asks for is held to, and, with a glob
+/// refused, the names `narrow` takes and the names an embedder grants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvNameFault {
+    /// The name is empty.
+    Empty,
+    /// The name holds a NUL byte.
+    Nul,
+    /// The name holds a `=`, which ends a variable's name.
+    Equals,
+    /// The name holds a `*`, which a reader could take for a glob, where
+    /// every name is exact.
+    Glob,
+}
+
+/// Why `name` can't name an environment variable, if it can't.
+///
+/// Checked in the order the env host module checks: empty, a NUL byte, a
+/// `=`, and, unless `glob` allows it, a `*`. A Rust string is well-formed,
+/// which a JS string the module checks first must be too.
+pub fn env_name_fault(name: &str, glob: bool) -> Option<EnvNameFault> {
+    if name.is_empty() {
+        Some(EnvNameFault::Empty)
+    } else if name.contains('\0') {
+        Some(EnvNameFault::Nul)
+    } else if name.contains('=') {
+        Some(EnvNameFault::Equals)
+    } else if !glob && name.contains('*') {
+        Some(EnvNameFault::Glob)
+    } else {
+        None
+    }
+}
+
+/// Environment variables, as an embedder read them: each name once, the
+/// first value read for it kept, in the order read.
+///
+/// A value can be a secret, so its `Debug` names the variables and never
+/// prints a value.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct EnvVars(Vec<(String, String)>);
+
+impl EnvVars {
+    /// Each variable, `(name, value)`, in the order read.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.0
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+}
+
+impl FromIterator<(String, String)> for EnvVars {
+    /// The variables `vars` gives, a name given again ignored.
+    fn from_iter<I: IntoIterator<Item = (String, String)>>(vars: I) -> Self {
+        let mut seen = BTreeSet::new();
+        Self(
+            vars.into_iter()
+                .filter(|(name, _)| seen.insert(name.clone()))
+                .collect(),
+        )
+    }
+}
+
+impl std::fmt::Debug for EnvVars {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set()
+            .entries(self.0.iter().map(|(name, _)| name))
+            .finish()
+    }
+}

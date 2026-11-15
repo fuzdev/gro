@@ -163,5 +163,6 @@ fn check_grant(
                 Err(format!("{needs}, which this run doesn't grant"))
             }
         }
+        (Authority::Unconfined, _) => Ok(()),
     }
 }

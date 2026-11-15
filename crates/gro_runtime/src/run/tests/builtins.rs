@@ -462,6 +462,57 @@ for (const url of [import.meta.resolve('{ARGS}'), resolve()]) {{
     assert!(!graph.records().contains_key(&url));
 }
 
+/// An unconfined run gives every grant to every module: a package imports
+/// `args` statically and by `import()`, the same namespace the project's
+/// import has, with nothing refused; what is refused apart from a grant
+/// stays refused: a host module not built, a `.js` spelling, and an
+/// `import()` in code compiled from a string.
+#[test]
+fn an_unconfined_run_grants_a_package_what_the_project_has() {
+    let main = format!(
+        "import {{ args }} from '{ARGS}';
+import {{ load }} from 'dep';
+import from_package from 'dep/static.js';
+const loaded = await load();
+if (from_package !== args || loaded.args !== args || args[0] !== 'a') throw new Error('not one namespace');
+for (const specifier of ['@fuzdev/gro/fs.ts', '@fuzdev/gro/args.js']) {{
+	try {{
+		await import(specifier);
+		throw new Error(`imported ${{specifier}}`);
+	}} catch (error) {{
+		if (!(error instanceof TypeError) || !error.message.includes(specifier)) throw error;
+	}}
+}}
+try {{
+	await (0, eval)(\"import('{ARGS}')\");
+	throw new Error('imported from code compiled from a string');
+}} catch (error) {{
+	if (!(error instanceof TypeError) || !error.message.includes('code compiled from a string')) throw error;
+}}
+"
+    );
+    let mut files = DEP.to_vec();
+    files.push(("main.mjs", &main));
+    let options = RuntimeOptions {
+        authority: Authority::Unconfined,
+        args: vec!["a".to_owned()],
+        exit_step: Some(never_exits),
+        ..RuntimeOptions::default()
+    };
+    let (outcome, graph) = run_linked_outcome("package_unconfined", &files, &[], options);
+    assert!(outcome.result.is_ok(), "{:?}", outcome.result);
+    assert_eq!(outcome.refused.listed.len(), 3, "{:?}", outcome.refused);
+    assert!(
+        !graph
+            .failures()
+            .values()
+            .flatten()
+            .any(|failure| matches!(failure.reason, FailureReason::NotGranted { .. })),
+        "{:?}",
+        graph.failures()
+    );
+}
+
 /// A source-phase import has no source to give of a builtin, a synthetic
 /// module: `import.source` of one rejects with a `ReferenceError`, before
 /// the builtin is imported and after, as one of a file does with

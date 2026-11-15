@@ -416,9 +416,11 @@ Invariants that live in the code:
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
-    imported, a grant-free row included, checked before the grant, a package's
-    module is granted none, and a grant-free row links for the project and
-    a package alike. A builtin's
+    imported, a grant-free row included, checked before the grant; a
+    confined run's (`Authority::Confined`) package module is granted none,
+    and a grant-free row links for the project and a package alike; an
+    unconfined run (`Authority::Unconfined`, `fgro run -A`) grants every
+    module every row, and lifts no refusal but a grant's. A builtin's
     implementation keeps no per-importer state.
   - `src/test/builtin_types.test.ts` holds every row's inferred types to its
     Node module's, reading the rows from the table and each implementation
@@ -545,8 +547,11 @@ Invariants that live in the code:
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in, as it passes the working directory and
-  its own name and version (the `pid` op asks the OS for the process's id
-  when a run first imports the module). The `phases` and `prices` features (on
+  its own name and version, and the variables `--allow-env=` grants (every
+  variable under `-A`), which `gro_cli/src/run.rs` reads once as the run
+  starts (`env_vars`, through its `Environment` seam) and hands in as
+  `RuntimeOptions::env`. The `pid` op asks the OS for the process's id
+  when a run first imports the module. The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
 - A run's or an eval's runtime is handed back when it's over
