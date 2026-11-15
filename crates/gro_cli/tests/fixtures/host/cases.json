@@ -231,50 +231,6 @@
 				"why": "a handle's prototype is the implementation's frozen null-prototype record of shells, made as an object literal makes one: its methods are enumerable, and it has no constructor, so nothing reached from a handle makes another"
 			},
 			{
-				"at": "/methods/0/shape",
-				"fgro": {
-					"type": "function",
-					"prototype": "Function.prototype",
-					"frozen": true,
-					"own": {
-						"length": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
-						"name": {"type": "string", "writable": false, "enumerable": false, "configurable": false}
-					}
-				},
-				"why": "the host freezes a handle's shells, which every holder of a handle shares, so none carries a value from one holder to another, where Node's class methods are extensible"
-			},
-			{
-				"at": "/methods/1/shape",
-				"fgro": {
-					"type": "function",
-					"prototype": "Function.prototype",
-					"frozen": true,
-					"own": {
-						"length": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
-						"name": {"type": "string", "writable": false, "enumerable": false, "configurable": false}
-					}
-				},
-				"why": "the host freezes a handle's shells, which every holder of a handle shares, so none carries a value from one holder to another, where Node's class methods are extensible"
-			},
-			{
-				"at": "/methods/2/shape",
-				"fgro": {
-					"type": "function",
-					"prototype": "Function.prototype",
-					"frozen": true,
-					"own": {
-						"length": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
-						"name": {"type": "string", "writable": false, "enumerable": false, "configurable": false}
-					}
-				},
-				"why": "the host freezes a handle's shells, which every holder of a handle shares, so none carries a value from one holder to another, where Node's class methods are extensible"
-			},
-			{
-				"at": "/shell_write",
-				"fgro": "TypeError",
-				"why": "the host freezes a handle's shells, which every holder of a handle shares, so none carries a value from one holder to another, where Node's class methods are extensible"
-			},
-			{
 				"at": "/namespace/own/default",
 				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
 				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"

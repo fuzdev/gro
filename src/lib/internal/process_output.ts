@@ -13,6 +13,7 @@ import * as node_tty from 'node:tty';
 import * as node_util from 'node:util';
 
 import { StdioError } from '../stdio_error.ts';
+import { freeze_methods } from './records.ts';
 import type { ProcessOutput } from '../stdout.ts';
 
 const host_process = globalThis.process;
@@ -106,7 +107,7 @@ class NodeProcessOutput implements ProcessOutput {
 }
 
 setPrototypeOf(NodeProcessOutput.prototype, null);
-freeze(NodeProcessOutput.prototype);
+freeze_methods(NodeProcessOutput.prototype);
 freeze(NodeProcessOutput);
 
 /**

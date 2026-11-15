@@ -158,6 +158,29 @@ describe('stdin handle hardening', () => {
 		assert.deepEqual(result, { forged: false, frozen: true });
 	});
 
+	test("its and its iterator's methods are frozen, so a write to one throws", () => {
+		const result = run_fixture_json(
+			`const frozen = [];
+			 for (const value of [stdin, stdin[Symbol.asyncIterator]()]) {
+				for (let o = value; o !== null; o = Object.getPrototypeOf(o)) {
+					for (const key of Reflect.ownKeys(o)) {
+						const { value: fn } = Object.getOwnPropertyDescriptor(o, key);
+						if (typeof fn !== 'function') continue;
+						let threw = false;
+						try { fn.stash = 'x'; } catch (e) { threw = e instanceof TypeError; }
+						frozen.push(Object.isFrozen(fn) && threw);
+					}
+				}
+			 }
+			 console.log(JSON.stringify(frozen));`
+		);
+		assert.ok(Array.isArray(result) && result.length >= 4, String(result));
+		assert.ok(
+			result.every((frozen) => frozen === true),
+			String(result)
+		);
+	});
+
 	test('`stdin.constructor` refuses without the key', () => {
 		const result = run_fixture_json(
 			`let refused = false;

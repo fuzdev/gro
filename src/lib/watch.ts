@@ -89,7 +89,7 @@ import type { FSWatcher } from 'chokidar';
 import type { FsReadDir } from './fs.ts';
 import { FsError } from './fs_error.ts';
 import { to_fs_handle_resolve } from './internal/fs_handles.ts';
-import { create_record, read_own } from './internal/records.ts';
+import { create_record, freeze_methods, read_own } from './internal/records.ts';
 
 // a listener that `stopImmediatePropagation` can't reach, which a plain `addEventListener` isn't
 const { addAbortListener } = node_events as unknown as {
@@ -434,7 +434,7 @@ class NodeWatcher implements Watcher {
 // frozen, null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value
 for (const watcher_class of [WatchIterator, NodeWatcher]) {
 	setPrototypeOf(watcher_class.prototype, null);
-	freeze(watcher_class.prototype);
+	freeze_methods(watcher_class.prototype);
 	freeze(watcher_class);
 }
 
@@ -605,4 +605,4 @@ const watch_dir = async (dir: FsReadDir, raw_options?: WatchDirOptions): Promise
  * The watch host module's root. Import it where authority enters (a task, a script,
  * an entry module), with the fs handle it watches.
  */
-export const watch: Watch = freeze(create_record<Watch>({ dir: watch_dir }));
+export const watch: Watch = freeze_methods(create_record<Watch>({ dir: watch_dir }));

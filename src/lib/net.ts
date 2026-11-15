@@ -54,7 +54,7 @@
 
 import * as node_buffer from 'node:buffer';
 
-import { create_record, read_own } from './internal/records.ts';
+import { create_record, freeze_methods, read_own } from './internal/records.ts';
 import { NetError } from './net_error.ts';
 
 const {
@@ -423,7 +423,7 @@ class NodeNet implements Net {
 
 // frozen, null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value
 setPrototypeOf(NodeNet.prototype, null);
-freeze(NodeNet.prototype);
+freeze_methods(NodeNet.prototype);
 freeze(NodeNet);
 
 /**

@@ -545,8 +545,8 @@ a name is a string, checked as on Node (non-empty, well-formed, no NUL, no `=`, 
 and `narrow`'s names an array, each element read as its own data.
 So, by design, unlike Node: a name list that's a proxy, or an element given through a getter, is a `TypeError`;
 the prototype has no `constructor`, so nothing reached from a handle makes another;
-and its methods are enumerable, as an object literal makes them, where a class's aren't,
-and frozen, as the prototype is, since every holder of a handle shares them, so writing a property on one is a `TypeError` (Node's class methods take one).
+and its methods are enumerable, as an object literal makes them, where a class's aren't.
+Its methods are frozen, as the prototype is, on both runtimes, since every holder of a handle shares them, so writing a property on one is a `TypeError`.
 A name refused `not_granted` fails the run, though the program caught the error, and is listed after it by name ([run](run.md#errors-and-exit-codes)),
 so a probe for a variable the run wasn't given can't pass as an unset one.
 
@@ -764,7 +764,9 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
   Each constructor checks a key only the module holds, so a handle's `constructor` makes nothing.
 - A handle's state lives in private fields, and every op reads it from there,
   so an op called on a borrowed receiver, any object but a handle, throws `TypeError`.
-- Handles, their prototypes, `fs`, and `FsError` with its prototype are frozen.
+- Handles, their prototypes and the methods on them, `fs` and its functions, and `FsError` with its prototype are frozen,
+  so no holder of a handle leaves a value on a method another holder calls,
+  and so is `list`'s own `prototype`, from which every listing's iterator inherits.
   Handles, `fs`, an `FsPaths`, and the opened paths it returns are null-prototype,
   so none of them is thenable, even with a polluted `Object.prototype.then`.
 - `remove` and `rename` refuse the handle's own directory.
@@ -786,10 +788,10 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 - Handles come only from `spawn` and other handles, through a module-private key,
   and hold their pin, the path they run at, `argv[0]`, and environment in private fields,
   so a method called on any other object throws `TypeError` and changing `path` changes nothing that runs.
-- Handles, their prototypes, `spawn`, results, and `SpawnError` with its prototype are frozen.
+- Handles, their prototypes and the methods on them, `spawn`, results, and `SpawnError` with its prototype are frozen.
 - Handles, `spawn`, and a `spawn_restartable` are null-prototype, and a result is a null-prototype record,
   so a polluted `Object.prototype.then` isn't consulted when one is awaited.
-- A `SpawnChild`, its stdin, its output iterables, and their iterators are frozen,
+- A `SpawnChild`, its stdin, its output iterables, and their iterators are frozen, with the methods on their prototypes,
   and hold their stream and child in private fields, so a reader can't reach the stream underneath.
   Their prototypes are frozen and null-prototype, so none of them is thenable, even with a polluted `Object.prototype.then`.
   Iterator results are null-prototype records and chunks plain `Uint8Array`s, never a `Buffer`,
@@ -810,7 +812,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 
 - Handles come only from `env`, `Env.narrow`, `stdin`, `stdout`, and `stderr`, through a key private to their implementation,
   and hold their state in private fields, so a method or getter called on any other object throws `TypeError`.
-- The handles, `get_all`'s records, and their prototypes are frozen,
+- The handles, `get_all`'s records, their prototypes, and the methods on them are frozen,
   and every prototype is null-prototype, so none of them is thenable even with a polluted `Object.prototype.then`.
   `args` is the exception, a frozen real array, so its prototype is the unfrozen `Array.prototype` and awaiting it adopts a polluted `then`.
   `exit`, `set_exit_code`, and `cwd` are frozen functions, no constructors, taking no receiver.
@@ -824,7 +826,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 
 - Handles come only from `net` and `narrow`, through a module-private key, and hold their hosts in private fields,
   so `narrow` called on any other object throws `TypeError`. `fetch` is a closure, so a receiver can't reach or replace a handle's hosts.
-- `net`, a narrowed handle, its `fetch`, and their prototypes are frozen, and the prototypes are null-prototype.
+- `net`, a narrowed handle, its `fetch`, their prototypes, and the methods on them are frozen, and the prototypes are null-prototype.
 - One `Request` is built per call, its URL read back from that `Request`, so no caller `toString` runs between the check and the send.
 - Every redirect's target is checked before it's sent to, in the one loop `fetch` goes through unless the caller chose `manual` or `error`.
 - `narrow` reads `hosts` by own property and by index with its length read once, and a host it doesn't allow throws `not_granted`.
@@ -836,7 +838,7 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 
 - Watchers come only from `watch.dir`, through a module-private key, and hold their state in private fields,
   so a method called on any other object throws `TypeError`.
-- `watch`, watchers, their iterators, and their prototypes are frozen, and the prototypes are null-prototype.
+- `watch` and its `dir`, watchers, their iterators, their prototypes, and the methods on them are frozen, and the prototypes are null-prototype.
 - Events and iterator results are frozen null-prototype records, so a polluted `Object.prototype.then` isn't consulted on the way to the reader.
 - The handle is checked against the handles this copy of `fs` made, read once, for its `path`,
   and its directory listed through the handle before anything watches it.

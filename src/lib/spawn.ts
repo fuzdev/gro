@@ -168,7 +168,7 @@ import {
 	type FsHandleResolution,
 	type FsHandleResolve
 } from './internal/fs_handles.ts';
-import { create_record, read_own, to_chunk_result } from './internal/records.ts';
+import { create_record, freeze_methods, read_own, to_chunk_result } from './internal/records.ts';
 import { SpawnError } from './spawn_error.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
@@ -2312,7 +2312,7 @@ for (const handle_class of [
 	NodeSpawnOutputIterator
 ]) {
 	setPrototypeOf(handle_class.prototype, null);
-	freeze(handle_class.prototype);
+	freeze_methods(handle_class.prototype);
 	freeze(handle_class);
 }
 

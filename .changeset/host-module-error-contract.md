@@ -2,7 +2,7 @@
 '@fuzdev/gro': minor
 ---
 
-feat: hold the host modules to the runtime's contract: every error's `message` is exactly `kind: target`, the detail in its `cause`, which `format_error_detail` prints, the error classes take no message, `FsErrorKind` has `not_granted`, and `list` and `fs_search` sort by the names' UTF-8 bytes
+feat: hold the host modules to the runtime's contract: every error's `message` is exactly `kind: target`, the detail in its `cause`, which `format_error_detail` prints, the error classes take no message, `FsErrorKind` has `not_granted`, `list` and `fs_search` sort by the names' UTF-8 bytes, and the handles' methods are frozen
 
 **breaking** `FsError`, `SpawnError`, and `NetError` take no message: the constructors are
 `new FsError(kind, path, options?)`, `new SpawnError(kind, program, options?)`, and `new NetError(kind, target, options?)`.
@@ -37,3 +37,9 @@ JS's default sort compares UTF-16 code units, which puts an astral name before U
 `list`'s order taken depth-first, where it sorted whole paths with `localeCompare`, whose order changed with the process's locale
 (`B.ts` now comes before `a.ts`, and `a/z.ts` before `a-b.ts`).
 Pass `sort: false` and sort the results yourself for another order.
+
+**breaking** the methods of every `fs`, `spawn`, `net`, and `watch` handle, the functions of the `fs` and `watch` roots,
+and those of a spawned child's streams and iterators are frozen, as their prototypes already were,
+and so is a generator method's own `prototype` (`list`'s, which every listing inherits from),
+so writing a property on one (`fs.project.read.cache = …`) is a `TypeError` in strict code, where it was stored on the function every holder shares.
+Keep such a value beside the handle instead.

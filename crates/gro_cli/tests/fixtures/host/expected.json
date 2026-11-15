@@ -995,19 +995,19 @@
 					"shape": {
 						"type": "function",
 						"prototype": "Function.prototype",
-						"frozen": false,
+						"frozen": true,
 						"own": {
 							"length": {
 								"type": "number",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							},
 							"name": {
 								"type": "string",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							}
 						}
 					},
@@ -1019,19 +1019,19 @@
 					"shape": {
 						"type": "function",
 						"prototype": "Function.prototype",
-						"frozen": false,
+						"frozen": true,
 						"own": {
 							"length": {
 								"type": "number",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							},
 							"name": {
 								"type": "string",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							}
 						}
 					},
@@ -1043,19 +1043,19 @@
 					"shape": {
 						"type": "function",
 						"prototype": "Function.prototype",
-						"frozen": false,
+						"frozen": true,
 						"own": {
 							"length": {
 								"type": "number",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							},
 							"name": {
 								"type": "string",
 								"writable": false,
 								"enumerable": false,
-								"configurable": true
+								"configurable": false
 							}
 						}
 					},
@@ -1078,7 +1078,7 @@
 			"new_get": "TypeError",
 			"property_write": "TypeError",
 			"method_write": "TypeError",
-			"shell_write": null,
+			"shell_write": "TypeError",
 			"namespace_write": "TypeError",
 			"still_reads": "1"
 		}

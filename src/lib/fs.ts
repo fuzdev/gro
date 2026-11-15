@@ -78,7 +78,7 @@ import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
 import { register_fs_handle, type FsHandleResolution } from './internal/fs_handles.ts';
 import { compare_code_points } from './internal/code_points.ts';
-import { create_record } from './internal/records.ts';
+import { create_record, freeze_methods } from './internal/records.ts';
 
 // copied at load rather than imported by name, since a named import of a builtin is a live
 // binding that `syncBuiltinESMExports` rebinds to whatever a caller assigned to the export
@@ -1386,11 +1386,11 @@ class NodeFsTempDir extends NodeFsDir implements AsyncDisposable {
 }
 
 // null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value,
-// the subclasses through this base, and frozen, so one holder of a handle can't patch the ops
-// another holder calls
+// the subclasses through this base, and frozen with their methods, so one holder of a handle
+// can't patch the ops another holder calls or leave a value on one
 Object.setPrototypeOf(NodeFsReadDir.prototype, null);
 for (const handle_class of [NodeFsReadDir, NodeFsDir, NodeFsTempDir]) {
-	Object.freeze(handle_class.prototype);
+	freeze_methods(handle_class.prototype);
 	Object.freeze(handle_class);
 }
 
@@ -1404,8 +1404,9 @@ const create_dir = (real_path: string): FsDir =>
  * The fs host module's root handle. Import it where authority enters
  * (a task, a script, an entry module) and hand narrower handles down.
  */
-export const fs: Fs = Object.freeze(
-	// frozen and null-prototype, as the handles are, so awaiting `fs` adopts no polluted `then`
+export const fs: Fs = freeze_methods(
+	// frozen with its functions and null-prototype, as the handles are, so awaiting `fs` adopts no
+	// polluted `then`
 	create_record<Fs>({
 		project: create_dir(to_checked_cwd()),
 		open_dir: async (path: string): Promise<FsDir> => {

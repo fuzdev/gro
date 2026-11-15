@@ -29,7 +29,7 @@
 
 import { EnvError } from './env_error.ts';
 import { check_env_name } from './internal/env_name.ts';
-import { create_record } from './internal/records.ts';
+import { create_record, freeze_methods } from './internal/records.ts';
 
 const host_env = globalThis.process.env;
 const { isArray } = Array;
@@ -143,7 +143,7 @@ class NodeEnv implements Env {
 
 // frozen, null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value
 setPrototypeOf(NodeEnv.prototype, null);
-freeze(NodeEnv.prototype);
+freeze_methods(NodeEnv.prototype);
 freeze(NodeEnv);
 
 /**

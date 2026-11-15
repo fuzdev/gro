@@ -19,7 +19,7 @@
 import * as node_tty from 'node:tty';
 import * as node_util from 'node:util';
 
-import { to_chunk_result } from './internal/records.ts';
+import { freeze_methods, to_chunk_result } from './internal/records.ts';
 import { StdioError } from './stdio_error.ts';
 
 const host_process = globalThis.process;
@@ -119,7 +119,7 @@ class NodeProcessInputIterator implements AsyncIterator<Uint8Array> {
 // frozen, null-prototype, so a polluted `Object.prototype.then` can't make `await` adopt a forged value
 for (const handle_class of [NodeProcessInput, NodeProcessInputIterator]) {
 	setPrototypeOf(handle_class.prototype, null);
-	freeze(handle_class.prototype);
+	freeze_methods(handle_class.prototype);
 	freeze(handle_class);
 }
 

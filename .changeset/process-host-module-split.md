@@ -25,6 +25,8 @@ feat: split the process host module into nine modules, one per kind of authority
 | `is_process_error(error, kind?)` | `is_env_error(error, kind?)` or `is_stdio_error(error, kind?)` |
 | `ProcessErrorKind` | `EnvErrorKind` or `StdioErrorKind` |
 
+The methods of `env`'s and the streams' handles are frozen, with their prototypes, so writing a property on one is a `TypeError`.
+
 A module that imported `{process}` from Gro now reads Node's global under that name, so remove every `process.` use of the old import, not only the import line. `exit`, `set_exit_code`, and `cwd` are frozen functions that take no receiver, where the old methods threw on one other than `process`. Only `cwd.ts` checks the working directory when it loads, so importing another of these modules no longer throws in a removed working directory.
 
 **breaking** `render_sveltekit_shim_app_env_vars` in `@fuzdev/gro/sveltekit_shim_app_env_vars.ts` takes `env_module_specifier` as the env host module's URL, where it took `process_module_specifier`; the env files module's URL, which `env_module_specifier` named before, is `env_files_module_specifier`.
