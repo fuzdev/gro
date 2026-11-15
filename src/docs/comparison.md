@@ -83,14 +83,15 @@ Most of Gro's permission model follows from the first of these:
   (a computed `import()` of one is refused at the call, which code can catch, and the refusal fails an `fgro run` even then),
   and there's no global `fetch` to reach around it.
   What's left for the call is the scoped check inside a grant
-  (a path outside the root, a host not accepted), and the host is designed to report those too.
+  (a path outside the root, a host not accepted), and the host reports those too:
+  built for `env`'s `not_granted`, which fails an `fgro run` even when caught, designed for the rest.
 - **Day to day.** A Deno run carries its flags on every invocation
   (`--allow-net=…`, `--allow-read=…`), bakes them into a task,
   loads a named permission set from `deno.json` (`-P`, since 2.5), or takes `-A`.
   A Gro run in a project carries nothing: the grants come from the import graph,
   and the policy file changes only when the graph newly imports authority,
   which is lockfile cadence, not run cadence.
-  Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only.
+  Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only (`--allow-env=` and `-A` built so far).
 - **Inference.** Every entry point is an import, the network included,
   so the policy file can be generated from the code and reviewed, and the loader enforces what the walk proposes;
   no equivalent exists over `Deno.*` calls, which any expression can reach,
@@ -110,7 +111,8 @@ The import boundary holds against code that overreaches, not a dependency built 
 which can patch a shared prototype in the same realm
 (the runtime's [threat model](authority.md#threat-model) says where the bound is then).
 And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
-while the grants by import are designed, not built.
+the link-time grant check by origin is built for the builtin modules, with `--allow-env=` and `-A`,
+and inference, attribution by import chain, the other grant flags, and the policy file are designed.
 
 ### What Deno could adopt, and Gro turns on
 
@@ -122,7 +124,7 @@ Gro's cells start with the words [By axis](#by-axis) defines.
 |                   | Deno                                                                     | Gro                                                                                                                                                                                                                        |
 | ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prompts           | asks on a terminal, unless `--no-prompt`                                 | designed: never asks and has no dynamic decision authority: the source proposes, the diff is accepted in review, the pending run says so, and no hint suggests `-A`; built: `fgro` has no prompt |
-| denials           | a thrown error the code can catch                                        | built for `import()`: a refused one fails an `fgro run` even when caught; designed for the rest: reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run |
+| denials           | a thrown error the code can catch                                        | built for `import()` and for `env`'s `not_granted`: either fails an `fgro run` even when caught; designed for the rest: reported by the host, so a `try/catch` can't hide one; under the project's check and CI a denial fails the run |
 | permission file   | a hand-written permission set in `deno.json` (`-P`)                      | designed: the policy file, committed beside the lockfile and diffed in review, a widening failing the check until accepted; inferred from the imports, which Deno can't do (above) |
 | children          | `--allow-run` spawns outside the sandbox (it refuses the dynamic loader's variables under a scoped run grant) | designed: a coarsening of the grant set becomes kernel rules for every child (hierarchies and ports, not hosts), with the project read-only and only the declared write roots writable: an argv, never a shell string, executables resolved when granted, a cleared environment plus a small base set and an allowlist; a program's arguments are still code, so every spawn grant is shown as backstop-only |
 | kernel            | the op checks stand alone                                                | built for `fgro eval`, designed for every run: Landlock and seccomp under the op checks, so an op-check bug or an engine escape still lands in a box ([backstop](backstop.md)) |
@@ -251,11 +253,11 @@ Gro's cells for a feature start with one of these words:
 |                                 | Node                                               | Deno                                                                | Bun     | Gro                                                                                         |
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
-| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch |
+| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch; built: `--allow-env=` and `-A` |
 | unit of a grant                 | the process, or a worker given its own flags in `execArgv` | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
 | a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the import chain, for every grant                                              |
 | how a grant is declared         | flags, or a `node.config.json` read under a flag | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
-| where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | designed: at link time for an ungranted module; scoped denials reported by the host         |
+| where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | built: at link time for an ungranted builtin module, and `env`'s scoped denial reported by the host; designed: the rest of the scoped denials |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |
 | network scoping                 | `--allow-net`, experimental, all hosts or none | by host and port                                                    | —       | designed: by host; a blanket grant accepted, never inferred                                 |
 | child processes                 | `--allow-child-process`; a `node` child inherits the flags, any other executable is unconfined | `--allow-run` with an executable allowlist, outside the sandbox     | ambient | designed: under the invocation's kernel rules (Linux), the project read-only and the declared write roots writable                                       |

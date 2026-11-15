@@ -53,7 +53,8 @@ A run grants the project's own modules `args` and `exit`, and these widen it, fo
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
-User code can't read stdin or the environment (there is no `process` global, `Deno`, or `Bun`), and no module gives it the filesystem, the network, or a process.
+User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
+no module gives it the filesystem, the network, or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
@@ -94,11 +95,15 @@ The binary embeds the commit, so a dirty tree or one outside git builds other by
   `cwd()` is the directory `fgro` was started in, `pid` the process's id, and `runtime_version` the string `fgro/<version>+<commit>`,
   the commit as `--version` prints it, and `fgro/<version>` alone in a build that embeds none ([host modules](host_modules.md#the-process-modules-on-fgro)).
   In a working directory whose path isn't UTF-8, `cwd()` throws when it's called.
+- `@fuzdev/gro/env.ts`, a builtin module granted to the project's own modules only by `--allow-env=` (and to every module by `-A`):
+  `env`, the root handle, reading only the variables the run was granted, and `env.narrow(names)`, a handle of a subset of its receiver's names;
+  a name outside a handle's set throws `EnvError` `not_granted`, which fails the run caught or not
+  ([host modules](host_modules.md#env-on-fgro)).
 - `@fuzdev/gro/env_error.ts`, a builtin module that needs no grant: `EnvError` and `is_env_error`,
   the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
-- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `env`, `stdout`, `fs_error`, and the rest, either spelling),
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `stdin`, `stdout`, `fs_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
   are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,

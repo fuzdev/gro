@@ -402,7 +402,8 @@ The grants are the design; [the modules](#the-modules) marks which of these are 
 
 Each is its own import, so a module's use of the process shows in its imports, as for `fs` and `spawn`:
 one that writes progress imports `stdout` without holding `stdin` or the environment,
-and on `fgro`, where there's no `process` global, each is to be its own grant, so a package can be accepted for one without the others.
+and on `fgro`, where there's no `process` global, each is its own grant (built for `env`, `args`, and `exit`, designed for the streams),
+so a package can be accepted for one without the others.
 No module gathers them, since the loader checks a grant per module when the graph links.
 The observations need no grant on `fgro`: each is a value that reaches nothing, and what a package learns from one is little
 (the directory the run was started in, where its own `import.meta.url` is already its absolute path, the process's id, and the runtime's version),
@@ -460,7 +461,7 @@ None of that is built: under `fgro run` each is the real value.
   in `@fuzdev/gro/env_error.ts`; the streams' are `StdioError` (kind `io_error`, its `target` the stream),
   matched by `is_stdio_error(error, kind?)` in `@fuzdev/gro/stdio_error.ts`.
   Both error modules are apart from the host modules, so matching an error grants nothing;
-  on `fgro` each is designed as a builtin module that grants nothing.
+  on `fgro` each is a builtin module that grants nothing, `env_error.ts` built and `stdio_error.ts` designed.
   `args`, `exit`, and the observations throw only `TypeError`.
 
 Each module's TSDoc has its contract.
@@ -1207,7 +1208,7 @@ These hold for the process modules' builtins on `fgro` ([on `fgro`](#the-process
   so `create_fs_paths` grants no environment read to whatever imports it.
 - Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
   A script's exit code passes to the process verbatim, so `1` and `2` are shared with `fgro`'s own failures,
-  but for a `0` in a run that was refused an `import()` by rule, which exits 1 ([run](run.md#errors-and-exit-codes)).
+  but for a `0` in a run that was refused an `import()` or a host function's call by rule, which exits 1 ([run](run.md#errors-and-exit-codes)).
 - Answer `is_terminal` by `isatty` on the descriptor, and report a broken pipe as `false` from `write` rather than a signal,
   ignoring `SIGPIPE`.
 - Return `stdin` chunks as owned buffers, never a view of memory the runtime reuses.

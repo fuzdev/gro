@@ -27,8 +27,9 @@ an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
-It's an in-progress design, and of the confinement only `fgro eval`'s kernel box is built so far.
-The experimental build runs modules with no API to the OS (no fs, network, env, or spawn), though `fgro run`'s process itself isn't sandboxed yet - see
+It's an in-progress design, and of the confinement `fgro eval`'s kernel box and `fgro run`'s link-time grant check are built so far.
+The experimental build runs modules with little API to the OS (no fs, network, or spawn, and the environment only as `--allow-env=` or `-A` grants it),
+though `fgro run`'s process itself isn't sandboxed yet - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 

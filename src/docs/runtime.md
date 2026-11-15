@@ -13,7 +13,7 @@
 >   ([eval](eval.md))
 >
 > Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
-> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags, the policy file,
+> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags but `--allow-env=` and `-A`, the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and those builtin modules,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
@@ -118,7 +118,8 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   for the whole invocation and every child, so an op-check bug, an engine escape, or a spawned tool still lands in a box;
   children get the project read-only and only the declared write roots writable ([backstop](backstop.md)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
-  (scoped checks inside a grant fail at the call, designed to be reported so a `try/catch` can't hide them),
+  (scoped checks inside a grant fail at the call and are reported, failing the run, so a `try/catch` can't hide them:
+  built for `env`, designed for the modules to come),
   and the fix is a diff and a fixed command, never a question mid-run.
 - **The bound against a hostile dependency** is the invocation's whole grant set and the kernel box, not the realm:
   one realm shares its prototypes, so attribution catches overreach and the box bounds the deliberate
@@ -126,7 +127,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the builtin modules' link-time grant check is built with the modules [host modules](host_modules.md#the-modules) marks built its only host APIs,
-and the rest of the host modules, the grant flags, the policy file, the seal, and the box for `run` are designed.
+`--allow-env=` and `-A` are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
 
@@ -193,7 +194,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
   [typescript](typescript.md) has the rules, the refused list, and the file types.
-- **No ambient authority** (the link-time check built, the grant flags and the seal designed). The grant set is a constructor argument of the runtime,
+- **No ambient authority** (the link-time check, `--allow-env=`, and `-A` built; the other grant flags and the seal designed). The grant set is a constructor argument of the runtime,
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
   so an ungranted module fails at link time, not at the first call.
@@ -204,7 +205,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Built so far for `fgro eval` alone, as a fixed box with no grants to enforce yet
   ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds, why not namespaces, and the box designed for runs and children).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
-  tsv is linked in already; it and blake3 will be exposed as built-in modules with no boundary to cross.
+  blake3 is exposed as a builtin module (`@fuzdev/gro/blake3.ts`), and tsv, linked in already, will be exposed the same way, with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
   FFI (calling a native library from JS) is planned as a grant, denied by default,
   with the library loaded in its own confined process, out of reach of the runtime's memory and grants.
@@ -307,7 +308,6 @@ The design's open questions live with the layer they belong to:
 - the kernel layer's, in [backstop](backstop.md#open): name resolution for children, a code cache for unconfined runs,
   children that need `/proc`, hard links, browser tests, and the platforms
 - **where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime))
-- **whether `fs` splits** as the process modules are split, its project handle apart from opening any path ([host modules](host_modules.md#the-process-modules))
 - **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
   is refused (built), so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
   wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
@@ -377,7 +377,8 @@ where the host modules and grants land with their first consumer.
 - [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init
       (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
-- [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants,
+- [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
+      (built so far: the link-time check, `args`, `exit`, `env`, `--allow-env=`, and `-A`),
       and the policy file, enforced, with the kernel backstop under every run and its children
       ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design

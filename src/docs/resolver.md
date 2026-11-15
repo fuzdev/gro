@@ -68,8 +68,7 @@ Gro has neither, since their members are modules of their own, and the refusal n
 So is a respelling of any of these or of a builtin module's specifier, one whose subpath a package's `"exports"` would turn into the same path
 (percent-encoding as in `@fuzdev/gro/arg%73.ts`, a query or fragment as in `@fuzdev/gro/fs.js?.ts`, a tab or line break):
 the resolver reads its subpath as URL parsing and the path's decoding do, whatever patterns the installed package has.
-Any other spelling, like `@fuzdev/gro/args`, is a package specifier like any other,
-as are the error modules `env_error.ts` and `stdio_error.ts`, which grant nothing and load from the package.
+Any other spelling, like `@fuzdev/gro/args`, is a package specifier like any other.
 A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/args.ts`),
 with no file, root, or origin, and it imports nothing.
 That scheme is refused like every other but `file:`, so only the table's specifier reaches a builtin module.
@@ -80,14 +79,15 @@ the run must hold the module's grant, when it needs one, and for now only the pr
 so a module of an installed or linked package is refused, the message naming the grant and the package,
 while a module that needs none (`cwd.ts`, `pid.ts`, `runtime_version.ts`, `env_error.ts`, `blake3.ts`) is imported by the project's modules and a package's alike
 (an `import()` in code compiled from a string has no importer of its own and is refused, [run](run.md#what-loads));
-`-A` and an acceptance in the policy file are designed to lift that.
+`-A` lifts that for one run, and an acceptance in the policy file is designed to.
 A module of an installed or linked package can't import the project's own modules by name either, so it can't borrow a grant through one
 (a bare specifier is the only way across, since relative and absolute ones stay in their root):
 it's refused naming the package and the module, by a static import, `import()`, and `import.meta.resolve` alike.
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants `args` and `exit`, and `fgro eval` imports no builtin module, a grant-free one included,
+`fgro run` grants the project's modules `args` and `exit`, and `env` with the variables `--allow-env=` names ([run](run.md#usage)),
+and `fgro eval` imports no builtin module, a grant-free one included,
 refused with a message that names no grant ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
 Attributes follow the language's rule: `type` is the one key supported, and an attribute under any other key (`with {x: 'y'}`)
