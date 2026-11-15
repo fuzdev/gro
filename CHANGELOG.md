@@ -1,5 +1,120 @@
 # @fuzdev/gro
 
+## 0.237.0
+
+### Minor Changes
+
+- feat: add the blake3 host module, `@fuzdev/gro/blake3.ts`: BLAKE3 over a `Uint8Array`, `hash` and the hashers `create_hasher`, `create_keyed_hasher`, and `create_derive_key_hasher` make, over `@fuzdev/blake3-wasm` on Node and the native `blake3` crate on `fgro`, where it needs no grant ([c38537c](https://github.com/fuzdev/gro/commit/c38537c))
+- feat: add `fs.real_path`, an absolute path's real path with every symlink followed, on the fs root beside `open_dir` ([561725a](https://github.com/fuzdev/gro/commit/561725a))
+  
+  `FsPaths` resolves symlinks through the `Fs` it's built from, `fs.real_path` and a handle's `read_link`,
+  never `node:fs` directly, so a hand-written `Fs` passed to `create_fs_paths` needs a `real_path`.
+  
+  **breaking** an `FsPaths` path holding a NUL byte or a lone surrogate is a `TypeError`, as for every fs op,
+  where a NUL byte was an `io_error` and a lone surrogate could resolve as the U+FFFD name it encodes to.
+- feat: hold the host modules to the runtime's contract: every error's `message` is exactly `kind: target`, the detail in its `cause`, which `format_error_detail` prints, the error classes take no message, `FsErrorKind` has `not_granted`, `list` and `fs_search` sort by the names' UTF-8 bytes, and the handles' methods are frozen ([01cc208](https://github.com/fuzdev/gro/commit/01cc208))
+  
+  **breaking** `FsError`, `SpawnError`, and `NetError` take no message: the constructors are
+  `new FsError(kind, path, options?)`, `new SpawnError(kind, program, options?)`, and `new NetError(kind, target, options?)`.
+  Drop the third argument where one was passed, putting any detail in `{cause}`; an options object passed fourth moves to third.
+  
+  **breaking** an error's `message` is exactly `kind: target`, like `not_found: /p/a.txt` or `not_granted: example.com:443`,
+  where it carried the OS's text or the module's explanation after it.
+  That detail is the `cause`, by one rule: where the module has an explanation of its own (`../x climbs above /p`,
+  `tool at /p/tool can't be read`), the `cause` is a plain `Error` holding it, whose own `cause` is the error the failure came from,
+  if any; where the module has nothing to add, the `cause` is that error, unchanged (an fs op's Node error, a stream's error);
+  and an error with nothing more to say than its kind and target, like `env`'s `not_granted` or a walk's `not_found`, has no `cause`.
+  So spawn's `launch_failed` reason, a stat's error, and the `FsError` a `program_in` lookup met are now its cause's `cause`, where they were its `cause`.
+  Code that matched or printed `message` for the detail prints the chain instead, with `format_error_detail` below;
+  gro prints it when a task fails, a task or genfile module fails to import, a genfile fails, a deploy's build fails, an error goes uncaught, a program can't be started, a path can't be read, and in its warnings, after the stack where it prints one.
+  `watch`'s errors are `FsError`s, so the same holds for them.
+  
+  `format_error_detail(error)` in the new grant-free module `@fuzdev/gro/error_detail.ts` prints an error's message
+  followed by its chain of causes, each in parentheses inside the one before, at most `MAX_ERROR_CAUSES`,
+  control and bidirectional characters escaped, and never throws, and `format_error_causes(error)` prints the chain alone,
+  for after a stack: what a program that shows a host module's failure to a person calls.
+  
+  **breaking** `FsErrorKind` gains `not_granted`, a reach outside what the run granted, which only the runtime's builtin module throws;
+  the Node module checks no grant and never throws it. An exhaustive `switch` over the kinds needs a case for it.
+  
+  **breaking** `list` yields a directory's entries sorted by name, comparing the names' UTF-8 bytes (code point order),
+  where the order was the filesystem's, and it reads the whole directory before yielding the first entry.
+  A listing holding a name that isn't UTF-8 fails with `io_error` before any entry, where entries before it could be yielded first.
+  Code that sorted a listing itself can drop the sort if byte order is the order it wants;
+  JS's default sort compares UTF-16 code units, which puts an astral name before U+E000 to U+FFFF, and `localeCompare` follows a locale.
+  
+  **breaking** `fs_search` sorts its results by path segment by segment, each compared by code point, its UTF-8 byte order:
+  `list`'s order taken depth-first, where it sorted whole paths with `localeCompare`, whose order changed with the process's locale
+  (`B.ts` now comes before `a.ts`, and `a/z.ts` before `a-b.ts`).
+  Pass `sort: false` and sort the results yourself for another order.
+  
+  **breaking** the methods of every `fs`, `spawn`, `net`, and `watch` handle, the functions of the `fs` and `watch` roots,
+  and those of a spawned child's streams and iterators are frozen, as their prototypes already were,
+  and so is a generator method's own `prototype` (`list`'s, which every listing inherits from),
+  so writing a property on one (`fs.project.read.cache = …`) is a `TypeError` in strict code, where it was stored on the function every holder shares.
+  Keep such a value beside the handle instead.
+- fix: fs and spawn handles, their roots, `FsPaths` and its opened paths, and `spawn_restartable`'s result are null-prototype, so awaiting one adopts no polluted `Object.prototype.then` ([618f0a6](https://github.com/fuzdev/gro/commit/618f0a6))
+  
+  **breaking** these objects no longer inherit from `Object.prototype`, so coercing one to a string
+  (`${handle}`, `String(handle)`) is a `TypeError` where it gave `[object Object]`, `handle instanceof Object`
+  is false, and `hasOwnProperty` and `toString` are gone from them. An opened path no longer strictly equals a
+  plain object literal with the same fields.
+- feat: split the process host module into nine modules, one per kind of authority, each exporting a binding of its name: `env`, `args`, `exit` (`exit`, `set_exit_code`), `stdin`, `stdout`, `stderr`, `cwd`, `pid`, and `runtime_version`, with the errors in `env_error.ts` and `stdio_error.ts` ([8d8d194](https://github.com/fuzdev/gro/commit/8d8d194))
+  
+  **breaking** `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts` are removed. Import each member from its own module:
+  
+  | was | now |
+  | --- | --- |
+  | `process.env` (`Env`) | `env` from `@fuzdev/gro/env.ts` (`Env` too) |
+  | `process.args` | `args` from `@fuzdev/gro/args.ts` |
+  | `process.exit(code?)` | `exit(code?)` from `@fuzdev/gro/exit.ts` |
+  | `process.set_exit_code(code)` | `set_exit_code(code)` from `@fuzdev/gro/exit.ts` |
+  | `process.stdin` (`ProcessInput`) | `stdin` from `@fuzdev/gro/stdin.ts` (`ProcessInput` too) |
+  | `process.stdout` (`ProcessOutput`) | `stdout` from `@fuzdev/gro/stdout.ts` (`ProcessOutput` too) |
+  | `process.stderr` | `stderr` from `@fuzdev/gro/stderr.ts` |
+  | `process.cwd()` | `cwd()` from `@fuzdev/gro/cwd.ts` |
+  | `process.pid` | `pid` from `@fuzdev/gro/pid.ts` |
+  | `process.runtime_version` | `runtime_version` from `@fuzdev/gro/runtime_version.ts` |
+  | `Process` | none: take the narrowest thing a function uses, a stream, a record, a string, or a function |
+  | `ProcessError` `not_granted`, from `env` | `EnvError` from `@fuzdev/gro/env_error.ts`, whose message is exactly `not_granted: NAME`, the variable's name with no detail after it |
+  | `ProcessError` `io_error`, from a stream | `StdioError` from `@fuzdev/gro/stdio_error.ts`, whose message is exactly `io_error: STREAM`, the stream's error its `cause` (print the chain with `format_error_detail`) |
+  | `new ProcessError(kind, target, message?, options?)` | `new EnvError(kind, target, options?)` or `new StdioError(kind, target, options?)`, which take no message: the message is always `kind: target` |
+  | `is_process_error(error, kind?)` | `is_env_error(error, kind?)` or `is_stdio_error(error, kind?)` |
+  | `ProcessErrorKind` | `EnvErrorKind` or `StdioErrorKind` |
+  
+  The methods of `env`'s and the streams' handles are frozen, with their prototypes, so writing a property on one is a `TypeError`.
+  
+  A module that imported `{process}` from Gro now reads Node's global under that name, so remove every `process.` use of the old import, not only the import line. `exit`, `set_exit_code`, and `cwd` are frozen functions that take no receiver, where the old methods threw on one other than `process`. Only `cwd.ts` checks the working directory when it loads, so importing another of these modules no longer throws in a removed working directory.
+  
+  **breaking** `render_sveltekit_shim_app_env_vars` in `@fuzdev/gro/sveltekit_shim_app_env_vars.ts` takes `env_module_specifier` as the env host module's URL, where it took `process_module_specifier`; the env files module's URL, which `env_module_specifier` named before, is `env_files_module_specifier`.
+- fix: a spawn call's `cwd` must be an fs handle from this copy of Gro, checked as `program_in` checks its `dir` ([ca32e89](https://github.com/fuzdev/gro/commit/ca32e89))
+  
+  **breaking** a forged object with an absolute `path`, or a handle from another copy of Gro's `fs`, passed as
+  `cwd` to `run`, `out`, `out_bytes`, or `start` is a `TypeError`, where before the child started in the
+  directory its `path` named.
+- feat: rename the `args.ts` module to `task_args.ts` and the `env.ts` module to `env_files.ts`, freeing the names for host modules ([344af2b](https://github.com/fuzdev/gro/commit/344af2b))
+  
+  **breaking** import `@fuzdev/gro/task_args.ts` where you imported `@fuzdev/gro/args.ts` (`CliTaskArgs`, `to_task_args`, `to_raw_rest_args`, the forwarded-argv functions), and `@fuzdev/gro/env_files.ts` where you imported `@fuzdev/gro/env.ts` (`load_env`, `load_from_env`, `load_env_file`, `to_default_env_files`, `resolve_env_vars`). The exports keep their names.
+  
+  **breaking** `render_sveltekit_shim_app_env_vars` in `@fuzdev/gro/sveltekit_shim_app_env_vars.ts` takes `env_files_module_specifier` where it took `env_module_specifier`.
+- feat: rename `TaskContext.args` to `task_args`, so a task's parsed args never shadow an imported `args` ([344af2b](https://github.com/fuzdev/gro/commit/344af2b))
+  
+  **breaking** every task's `run` reads `task_args` where it read `args`, like `run: async ({task_args, log}) => {...}`, and so does any `PluginContext` consumer and any code that builds a `TaskContext`. The task's `Args` schema export and `Task<TArgs>` are unchanged.
+- fix: `watch.dir`'s `dir` must be an fs handle from this copy of Gro, checked as a spawn call's `cwd` is ([6d45406](https://github.com/fuzdev/gro/commit/6d45406))
+  
+  **breaking** a forged object with an absolute `path` and a `list`, or a handle from another copy of Gro's
+  `fs`, passed to `watch.dir` is a `TypeError` naming `dir`, where before the watch was on the directory its
+  `path` named.
+
+### Patch Changes
+
+- fix: a task that throws a host module's error (`FsError`, `SpawnError`, `NetError`, `EnvError`, `StdioError`) is reported as failing, with its stack, and no longer as an unexpected error with the hint to reinstall and run `gro clean` ([69e0954](https://github.com/fuzdev/gro/commit/69e0954))
+- fix: Gro runs when its install path holds URL or JS string syntax, like `#`, `%20`, or `"`, since `spawn_with_loader_args` encodes its `data:` URL and registers the loader by its file URL ([771755a](https://github.com/fuzdev/gro/commit/771755a))
+- fix: the module graph never reads a file whose path from the watched directory passes through a `node_modules` directory, so a `#` mapping to a package like `"#dep": "dep"` no longer resolves the package's own imports or logs an error for a missing optional peer ([d183557](https://github.com/fuzdev/gro/commit/d183557))
+- fix: a `.css`, `.svg`, or `?raw` import through Gro's loader is exactly the file's text, never evaluated, so a `${…}` in the file no longer runs as JavaScript or fails the import, and its line endings are kept ([03992aa](https://github.com/fuzdev/gro/commit/03992aa))
+- fix: `set_mode` takes `-0` as `0`, which aborted the process on Node 24, whose `chmod` binding asserts an int32 mode ([2ca6c8c](https://github.com/fuzdev/gro/commit/2ca6c8c))
+- fix: `spawn` listens for the host's signals before it launches a child, so a signal that reaches the host while a child starts is handled as it is once the child runs (a `SIGTERM` sent on to an inheriting child, the group of a group-leading one killed), where the signal ended the host and left the child running; a launch that fails keeps the listeners and the event loop for two more turns, so a signal that came during it still ends the host ([3ca6e81](https://github.com/fuzdev/gro/commit/3ca6e81))
+
 ## 0.236.0
 
 ### Minor Changes
