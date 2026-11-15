@@ -690,7 +690,8 @@ builds other bytes. `cargo xtask check-reproducible` holds it for the
 release build: the release `fgro` built in the checkout and again in a
 clone of its commit at another path, both with rustc wrappers turned off and
 `PATH`'s `rustc`, compared byte for byte. It refuses a dirty tree, one
-outside git, a rustc wrapper in its own environment (the caller's, or one a
+outside git, a variable cargo reads as a compile setting
+(`CARGO_INCREMENTAL` and the like), a rustc wrapper in its own environment (the caller's, or one a
 cargo config's `[env]` sets), or a cargo config only the clone's build
 would read (in the clone's directory or above it, not above the checkout,
 and not cargo home's). CI's `reproducible` job runs it on the release's

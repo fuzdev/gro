@@ -440,8 +440,9 @@ const CARGO_CONFIGS: [&str; 2] = ["config.toml", "config"];
 /// tree's, where a `--remap-path-prefix` could write the checkout's path in
 /// place of the clone's and hide the very difference the check looks for.
 /// The config of cargo's home, as `env` names it ([`cargo_home`]), is left
-/// alone: cargo reads it for every build, the checkout's too, and once,
-/// though it's above the clone.
+/// alone: cargo reads it for every build, the checkout's too, and only once
+/// where it's above the clone as well, though there it outranks a config
+/// above both trees, which outranks it in the checkout's build.
 fn refuse_clone_configs(root: &Path, dir: &Path, env: &[(OsString, OsString)]) -> StepResult {
     let home = cargo_home(env).and_then(|home| home.canonicalize().ok());
     let found: Vec<String> = dir
@@ -1095,7 +1096,9 @@ mod tests {
         let (taken, _held) = take(&root, &base.join("taken")).unwrap();
         fs::create_dir_all(taken.join("src")).unwrap();
         fs::write(taken.join("src/clone"), "x").unwrap();
-        let removed = remove_clone(&taken).is_ok() && !taken.join("src").exists();
+        let removed = remove_clone(&taken).is_ok()
+            && !taken.join("src").exists()
+            && taken.join(MARKER).is_file();
         let kept = (
             moved.join("dir/src/keep").is_file(),
             replaced.join("src/keep").is_file(),
@@ -1155,6 +1158,10 @@ mod tests {
         config(&base.join("above"), "config.toml");
         let above = work_dir(&root, Some(base.join("above/dir")), &[]).unwrap_err();
         let made = base.join("above/dir").exists();
+        // a --dir whose own path passes no config, through a symlink to below one
+        fs::create_dir_all(base.join("above/deep")).unwrap();
+        std::os::unix::fs::symlink(base.join("above/deep"), base.join("linked")).unwrap();
+        let linked = work_dir(&root, Some(base.join("linked/dir")), &[]).unwrap_err();
         let (inside, _held) = take(&root, &base.join("inside")).unwrap();
         fs::create_dir_all(inside.join("src")).unwrap();
         fs::write(inside.join("src/keep"), "x").unwrap();
@@ -1188,6 +1195,7 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
         for (refused, config) in [
             (above, "above/.cargo/config.toml"),
+            (linked, "above/.cargo/config.toml"),
             (in_dir, "inside/.cargo/config"),
             (elsewhere, "home/.cargo/config.toml"),
         ] {

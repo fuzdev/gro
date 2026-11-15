@@ -113,7 +113,7 @@ jobs:
   # they share. It turns rustc wrappers off for both builds, and refuses a
   # rustc wrapper in its own environment, a cargo config only the clone's
   # build would read (in the clone's directory or above it, not above the
-  # checkout), and a dirty tree (an untracked file git doesn't ignore as well
+  # checkout, and not cargo home's), and a dirty tree (an untracked file git doesn't ignore as well
   # as a changed one) or one outside git, whose build embeds another commit
   # by design; actions/checkout's tree is clean.
   reproducible:
