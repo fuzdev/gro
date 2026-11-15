@@ -63,8 +63,8 @@ and a top-level `await` on a promise that never settles ends the run as an error
 Linux x86_64 only.
 A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
 while a plain `cargo build` runs only from its build tree.
-The snapshot build is reproducible: a clean checkout of one commit, with the same toolchain and cargo home (whose registry paths the binary names), builds the same `fgro`, byte for byte, from any path.
-The binary embeds the commit, so a dirty tree or one outside git builds other bytes.
+The snapshot build is reproducible: a clean checkout of one commit, with the same toolchain (Rust's, and the system's C compiler and C library) and cargo home (whose registry paths the binary names), builds the same `fgro`, byte for byte, from any path.
+The binary embeds the commit, so a dirty tree (a changed file, or an untracked one git doesn't ignore) builds other bytes, and so does one git can't read as its own checkout (outside git, or a copy inside another repo), which embeds none.
 
 ## What loads
 

@@ -680,16 +680,26 @@ re-vendors it per the README; edit vendored code only as a marked
 each tree is its published crate plus its patch, and
 `cargo xtask vendor-patch <name>` regenerates a patch. With the patch, a
 clean checkout of one commit, the same toolchain, and the same cargo home
-build the same `fgro`, byte for byte, wherever the checkout is: `fgro`
-embeds the commit it was built from, so a dirty tree (a `-dirty` marker) or
-one git can't read (no commit) builds other bytes. `cargo xtask
-check-reproducible` holds it for the release build, as CI's `reproducible`
-job: the release `fgro` built in the checkout and again in a clone of its
-commit at another path, compared byte for byte. It refuses a dirty tree or
-one outside git, and a rustc wrapper. It can't see another machine,
-toolchain, or cargo home, or what both builds read alike on one machine: a
-directory's listing order on one filesystem, the day's date, a cache they
-share.
+build the same `fgro`, byte for byte, wherever the checkout is. The
+toolchain is the system's as well as Rust's: the C compiler and C library
+reach the binary (its startup objects, the C a build script compiles), so on
+CI it's the runner's image. `fgro` embeds the commit it was built from, so a
+dirty tree (a changed file, or an untracked one git doesn't ignore: a
+`-dirty` marker) or one git can't read as its own top level (no commit)
+builds other bytes. `cargo xtask check-reproducible` holds it for the
+release build: the release `fgro` built in the checkout and again in a
+clone of its commit at another path, both with rustc wrappers turned off and
+`PATH`'s `rustc`, compared byte for byte. It refuses a dirty tree, one
+outside git, a rustc wrapper in its own environment (the caller's, or one a
+cargo config's `[env]` sets), or a cargo config only the clone's build
+would read (in the clone's directory or above it, not above the checkout,
+and not cargo home's). CI's `reproducible` job runs it on the release's
+image, so it proves the release build path-independent there, but not a
+release's own bytes, which build under another cargo home. It can't see
+another machine, toolchain, or cargo home, a cargo config only the
+checkout's build reads (above it, not above the clone), or what both builds
+read alike on one machine: a directory's listing order on one filesystem,
+the day's date, a cache they share.
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
@@ -722,7 +732,11 @@ it.
   (default `$XDG_CACHE_HOME/gro/reproducible`), from the cleared
   environment the perf rule's base build uses, then compared byte for byte,
   a difference failing with the sections that differ and the clone kept;
-  two release builds and the clone's target dir, so `check` leaves it to CI
+  two release builds and the clone's target dir, so `check` leaves it to CI.
+  `<dir>` is apart from the checkout, without `..`, and the check's own:
+  missing, empty, marked `.check-reproducible` by an earlier run, or
+  holding only the lock an earlier one left; it refuses any other rather
+  than replace its `src`
 
 **Benchmarks.** `gro_bench` times runtimes × workloads in fresh processes,
 interleaved, with an A/A noise row, and appends one JSON line per run to

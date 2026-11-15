@@ -4,12 +4,16 @@
 //!
 //! The claim it holds is the one the checkout's docs make: a clean checkout
 //! of one commit, with the same toolchain and cargo home, builds the same
-//! release `fgro` from any path. So the checkout must be clean (the build
-//! embeds its commit, and a dirty tree's `-dirty` alone would differ), and
-//! the check's own environment may not set a variable that configures how
-//! cargo compiles, which the clone's cleared environment would drop
-//! ([`crate::bench::base::codegen_overrides`]; `RUSTFLAGS` passes to both),
-//! or a rustc wrapper ([`refuse_environment`]).
+//! release `fgro` from any path. The toolchain is the system's as well as
+//! Rust's: the C compiler and C library reach the binary, through its
+//! startup objects and the C a dependency's build script compiles, so on CI
+//! it's the runner's image. The checkout must be clean, since the build
+//! embeds its commit and a dirty tree's `-dirty` alone would differ: an
+//! untracked file git doesn't ignore makes it dirty, as a changed one does
+//! ([`GitState::read`]). And the check's own environment may not set a
+//! variable that configures how cargo compiles, which the clone's cleared
+//! environment would drop ([`crate::bench::base::codegen_overrides`];
+//! `RUSTFLAGS` passes to both), or a rustc wrapper ([`refuse_environment`]).
 //!
 //! 1. The checkout's own `build --release`, into its target directory.
 //! 2. A fresh clone at `<dir>/src` (by default
@@ -49,17 +53,20 @@
 //! `--remap-path-prefix` could write the checkout's path in place of the
 //! clone's and hide the very difference the check looks for.
 //!
-//! What it can't see: a build on another machine, with another toolchain,
-//! or with another cargo home (whose registry paths the binary names), which
-//! the claim excludes; a dirty tree or one outside git, which embeds another
-//! commit by design and which the check refuses rather than builds; the
-//! debug build, since it holds the release one; a cargo config only the
-//! checkout's build reads, above the checkout and not above `<dir>`, where a
-//! caller keeps one over a directory of checkouts, whose flags could make
-//! the two builds differ, or alike where they'd differ; and what both
-//! builds read alike on one machine, inside the checkout or out: a
-//! directory's listing order on one filesystem, the day's date, a cache they
-//! share.
+//! What it can't see: a build on another machine, with another toolchain
+//! (Rust's, or the system's C compiler and library), or with another cargo
+//! home (whose registry paths the binary names), which the claim excludes,
+//! so a pass on one image says nothing of another's, and a pass where cargo's
+//! home isn't the release's says nothing of a release's own bytes; a dirty
+//! tree, one outside git, or one inside a checkout it isn't the top level
+//! of, which embeds another commit or none by design and which the check
+//! refuses rather than builds; the debug build, since it holds the release
+//! one; a cargo config only the checkout's build reads, above the checkout
+//! and not above `<dir>`, where a caller keeps one over a directory of
+//! checkouts, whose flags could make the two builds differ, or alike where
+//! they'd differ; and what both builds read alike on one machine, inside
+//! the checkout or out: a directory's listing order on one filesystem, the
+//! day's date, a cache they share.
 
 use std::ffi::OsString;
 use std::fs;
