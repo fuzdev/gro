@@ -378,5 +378,49 @@
 				"why": "runtime_version names the runtime that runs the process, node/<version> on Node and fgro/<version> on fgro, with +<commit> after it in a build that has one"
 			}
 		]
+	},
+	{
+		"name": "blake3_shape",
+		"module": "blake3",
+		"args": ["shape"],
+		"differs": [
+			{
+				"at": "/prototype/own",
+				"fgro": {
+					"update": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"finalize": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
+				},
+				"why": "a hasher's prototype is the implementation's frozen null-prototype record of shells, made as an object literal makes one: its methods are enumerable, and it has no constructor, so nothing reached from a hasher makes another"
+			},
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "blake3_vectors",
+		"module": "blake3",
+		"args": ["vectors"],
+		"differs": []
+	},
+	{
+		"name": "blake3_incremental",
+		"module": "blake3",
+		"args": ["incremental"],
+		"differs": []
+	},
+	{
+		"name": "blake3_inputs",
+		"module": "blake3",
+		"args": ["inputs"],
+		"differs": []
+	},
+	{
+		"name": "blake3_receiver",
+		"module": "blake3",
+		"args": ["receiver"],
+		"differs": []
 	}
 ]

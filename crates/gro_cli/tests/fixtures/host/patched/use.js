@@ -62,7 +62,18 @@ const EXERCISES = new Map([
 	// a code, which ends the process as a call with none does
 	['@fuzdev/gro/exit.ts exit', [[7]]],
 	// a code, the one a run that ends on its own exits with
-	['@fuzdev/gro/exit.ts set_exit_code', [[0]]]
+	['@fuzdev/gro/exit.ts set_exit_code', [[0]]],
+	// bytes, a key of 32 bytes, and a context, and the same of each hasher those calls made
+	['@fuzdev/gro/blake3.ts hash', [[new Uint8Array([1, 2, 3])]]],
+	['@fuzdev/gro/blake3.ts create_hasher', []],
+	['@fuzdev/gro/blake3.ts create_keyed_hasher', [[new Uint8Array(32)]]],
+	['@fuzdev/gro/blake3.ts create_derive_key_hasher', [['context']]],
+	['@fuzdev/gro/blake3.ts create_hasher().update', [[new Uint8Array([1])]]],
+	['@fuzdev/gro/blake3.ts create_hasher().finalize', []],
+	['@fuzdev/gro/blake3.ts create_keyed_hasher(arguments 1).update', [[new Uint8Array([1])]]],
+	['@fuzdev/gro/blake3.ts create_keyed_hasher(arguments 1).finalize', []],
+	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).update', [[new Uint8Array([1])]]],
+	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).finalize', []]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */

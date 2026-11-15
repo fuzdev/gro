@@ -75,6 +75,17 @@ fn the_table_is_pinned() {
                 None,
                 &["runtime_version"][..],
             ),
+            (
+                "@fuzdev/gro/blake3.ts",
+                "builtin:@fuzdev/gro/blake3.ts",
+                None,
+                &[
+                    "hash",
+                    "create_hasher",
+                    "create_keyed_hasher",
+                    "create_derive_key_hasher"
+                ][..],
+            ),
         ]
     );
 }
@@ -251,6 +262,10 @@ fn the_reserved_specifiers_are_pinned() {
             "@fuzdev/gro/runtime_version.js",
             Some(Reserved::JsSpelling(&BUILTINS[6])),
         ),
+        (
+            "@fuzdev/gro/blake3.js",
+            Some(Reserved::JsSpelling(&BUILTINS[7])),
+        ),
         ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
         ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
         ("@fuzdev/gro/fs_error.ts", unbuilt("@fuzdev/gro/fs_error")),
@@ -325,10 +340,8 @@ fn the_reserved_specifiers_are_pinned() {
         );
     }
     // nothing else is reserved: a module of the npm package that isn't a host
-    // module, and a specifier no module of Gro's has, `blake3`'s among them
-    // until its row lands
+    // module, and a specifier no module of Gro's has
     for specifier in [
-        "@fuzdev/gro/blake3.ts",
         "@fuzdev/gro/fs_search.ts",
         "@fuzdev/gro/env_files.ts",
         "@fuzdev/gro/task_args.ts",

@@ -14,6 +14,24 @@ interface Bootstrap {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
 			readonly op_gro_args: () => Array<string>;
+			/** `hash`: the digest, a new array of 32 bytes. */
+			readonly op_gro_blake3_hash: (data: unknown) => Uint8Array;
+			/**
+			 * A hasher's factory: a hasher the host makes of the prototype the implementation gives,
+			 * so of its type, holding the host's own state.
+			 */
+			readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => T;
+			/** A keyed hasher's factory, as `op_gro_blake3_hasher`, of the key it's given. */
+			readonly op_gro_blake3_keyed_hasher: <T extends object>(prototype: T, key: unknown) => T;
+			/** A derive-key hasher's factory, as `op_gro_blake3_hasher`, of the context it's given. */
+			readonly op_gro_blake3_derive_key_hasher: <T extends object>(
+				prototype: T,
+				context: unknown
+			) => T;
+			/** `update`, the receiver handed over. */
+			readonly op_gro_blake3_update: (hasher: unknown, data: unknown) => void;
+			/** `finalize`, the receiver handed over: the digest, a new array of 32 bytes. */
+			readonly op_gro_blake3_finalize: (hasher: unknown) => Uint8Array;
 			readonly op_gro_cwd: () => string;
 			/**
 			 * The env error row's namespace, the host's: the class extending the realm's `Error`,

@@ -18,7 +18,10 @@
 //! handle takes the prototype its parent has.
 //!
 //! The state is a value of the row's choosing, which no JS ever holds:
-//! `env`'s is a record of the names a handle may read and their values.
+//! `env`'s is a record of the names a handle may read and their values,
+//! and `blake3`'s hasher's is a number naming its native state, a Rust
+//! value in a table of the run's `OpState`, which a weak reference to the
+//! handle drops when the handle is collected (`blake3.rs`).
 //! A handle of another row's kind is no handle of this one's, and a row
 //! that must recognize another's handle (`spawn` taking an `fs` directory)
 //! reads it with that row's kind.
@@ -40,6 +43,11 @@ pub struct HandleKind {
 /// The env host module's handles.
 pub const ENV_HANDLE: HandleKind = HandleKind {
     brand: "@fuzdev/gro/env.ts#handle",
+};
+
+/// The blake3 host module's hashers.
+pub const BLAKE3_HASHER: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/blake3.ts#hasher",
 };
 
 /// The brand of `kind`: the same private symbol every time, which V8 keeps

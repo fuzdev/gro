@@ -1,8 +1,8 @@
 # host modules
 
 > the imports that reach the OS, `fs`, `spawn`, `net`, `watch`, and the process modules (`env`, `args`, `exit`,
-> `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`): how to import them, hand them down,
-> and what the Node implementation does and doesn't guarantee
+> `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`), and `blake3`, which reaches nothing:
+> how to import them, hand them down, and what the Node implementation does and doesn't guarantee
 
 > **status**: every host module here exists as the Node implementation in Gro's npm package.
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
@@ -34,6 +34,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `cwd.ts`             | nothing: the working directory, a value | built, no grant         |
 | `pid.ts`             | nothing: the process's id, a value      | built, no grant         |
 | `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant         |
+| `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant         |
 | `env_error.ts`       | nothing: `env`'s error class            | built, no grant         |
 | `fs_error.ts`        | nothing: `fs`'s error class             | not yet                 |
 | `spawn_error.ts`     | nothing: `spawn`'s error class          | not yet                 |
@@ -672,6 +673,38 @@ for await (const event of watcher) {
 
 The module's TSDoc has the contract.
 
+## blake3
+
+```ts
+import {create_hasher, hash} from '@fuzdev/gro/blake3.ts';
+
+const digest = hash(bytes); // 32 bytes, a new Uint8Array
+
+const hasher = create_hasher(); // constant memory, however long the stream
+for await (const chunk of stream) hasher.update(chunk);
+const streamed = hasher.finalize();
+```
+
+- `hash(data)` is BLAKE3's digest of `data`, 32 bytes. `create_hasher()` makes a hasher for the same digest over input given in parts,
+  `create_keyed_hasher(key)` one for the keyed hash, a MAC, of a 32-byte key,
+  and `create_derive_key_hasher(context)` one for key derivation in a context string, the derived key being the digest of the key material.
+  A hasher's `update(data)` adds to its input and `finalize()` returns the digest of the input so far, leaving the hasher as it was.
+- Bytes are a `Uint8Array`, its subclasses included; anything else is a `TypeError`, a proxy of one, an array of numbers,
+  another view, and a string among them, so nothing a caller passes is converted or iterated: encode a string first.
+  A view is read as it is when the call runs: one of a detached buffer is a `TypeError`, as `@fuzdev/blake3-wasm` throws for one,
+  and a fixed-length view a resize left out of its buffer's bounds is empty, where that package throws.
+  A context is a string, encoded as UTF-8 with each lone surrogate replaced by U+FFFD, as `TextEncoder` encodes it,
+  and a key that isn't 32 bytes is a `RangeError`.
+- A hasher holds BLAKE3's state, not its input, and lives as long as it can be reached, with no call to end it.
+  It's frozen, null-prototype, and its methods throw a `TypeError` called on any other object.
+- The module reaches nothing, so it needs no grant, and on `fgro` the project's modules and every package's import it alike.
+  `@fuzdev/blake3-wasm` maps its API onto it through its `gro` export condition, so code hashing through that package,
+  fuz_util's `hash_blake3` among it, runs unchanged on `fgro`.
+
+On `fgro` the module is the native `blake3` crate's, and a hasher's state is the host's, dropped once the hasher is collected
+and counted toward V8's external memory while it lives, so collections keep pace with it.
+Its digests are the Node module's, held to the official test vectors' inputs by the differential cases.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -1019,6 +1052,12 @@ It documents each gap rather than weakening the API to match, and is a review si
   so a polluted `Object.prototype` can change the connection, including its destination, through options like `socketPath` and `lookup`.
   That is part of this module being advisory, as any holder of a handle can already call the global `fetch` or `node:net`, and no list of polluted keys could be complete.
   Every send names `redirect` and the dispatcher, so an ordinary option or a `Request` can't reroute or follow.
+
+### blake3
+
+- The module is over `@fuzdev/blake3-wasm`, so a hasher's state is in the WASM module's memory,
+  released when the hasher is collected, by the package's `FinalizationRegistry`, and each input is copied into that memory to be hashed,
+  where the builtin module reads it in place.
 
 ### watch
 

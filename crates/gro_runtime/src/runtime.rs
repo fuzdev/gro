@@ -8,6 +8,7 @@ use gro_v8::ArrayBufferRecord;
 
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
+use crate::host::blake3::Blake3State;
 use crate::host::env::EnvRoot;
 use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
@@ -142,6 +143,7 @@ pub fn start_runtime(
     state.borrow_mut().put(data);
     state.borrow_mut().put(refusals);
     state.borrow_mut().put(ErrorClasses::default());
+    state.borrow_mut().put(Blake3State::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
     }
@@ -986,6 +988,36 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                     grant: None,
                 },
                 HostOp {
+                    name: "op_gro_blake3_hash",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_blake3_hasher",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_blake3_keyed_hasher",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_blake3_derive_key_hasher",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_blake3_update",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
+                    name: "op_gro_blake3_finalize",
+                    module: "@fuzdev/gro/blake3.ts",
+                    grant: None,
+                },
+                HostOp {
                     name: "op_gro_pid",
                     module: "@fuzdev/gro/pid.ts",
                     grant: None,
@@ -997,6 +1029,108 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                 },
             ]
         );
+    }
+
+    /// A hasher's native state lives as long as its handle can be reached:
+    /// a collection drops the state of each hasher no longer reachable, and
+    /// keeps a reachable one's, which still hashes; and V8 counts each live
+    /// hasher's native state as external memory, and stops when it's
+    /// dropped.
+    #[test]
+    fn a_hashers_native_state_is_dropped_once_its_handle_is_collected() {
+        let (made, collected, digest, external) =
+            on_runtime("blake3_collected", Start::Source, Mode::Run, |runtime| {
+                let state = runtime.op_state();
+                state.borrow_mut().put(Authority::default());
+                state.borrow_mut().put(Blake3State::default());
+                drop(state);
+                // the external memory V8 counts, read as a change of nothing
+                let external = |runtime: &mut JsRuntime| {
+                    runtime
+                        .v8_isolate()
+                        .adjust_amount_of_external_allocated_memory(0)
+                };
+                // what was garbage before the hashers is collected first
+                runtime.v8_isolate().low_memory_notification();
+                let before = external(runtime);
+                runtime
+                    .execute_script(
+                        "<test>",
+                        "const { op_gro_blake3_hasher } = Deno.core.ops;
+const prototype = Object.freeze({ __proto__: null });
+globalThis.kept = op_gro_blake3_hasher(prototype);
+for (let i = 0; i < 100; i++) op_gro_blake3_hasher(prototype);",
+                    )
+                    .unwrap();
+                let len = |runtime: &mut JsRuntime| {
+                    runtime
+                        .op_state()
+                        .borrow()
+                        .borrow::<Blake3State>()
+                        .hashers_len()
+                };
+                let made = len(runtime);
+                let made_external = external(runtime) - before;
+                runtime.v8_isolate().low_memory_notification();
+                let collected = len(runtime);
+                let collected_external = external(runtime) - before;
+                let digest = script_json(
+                    runtime,
+                    "const { op_gro_blake3_finalize, op_gro_blake3_update } = Deno.core.ops;
+op_gro_blake3_update(globalThis.kept, new Uint8Array([1]));
+JSON.stringify(op_gro_blake3_finalize(globalThis.kept).length)",
+                );
+                (made, collected, digest, (made_external, collected_external))
+            });
+        assert_eq!(made, 101);
+        assert_eq!(collected, 1);
+        assert_eq!(digest, 32);
+        let size = i64::try_from(size_of::<blake3::Hasher>()).unwrap();
+        assert_eq!(external, (101 * size, size));
+    }
+
+    /// A hasher's number is never one another had: a live hasher keeps its
+    /// own state across a collection of others and the making of more,
+    /// which a number reused once its hasher was collected would hand to a
+    /// new hasher, its entry overwriting the live one's.
+    #[test]
+    fn a_live_hasher_keeps_its_state_across_collections() {
+        let kept = on_runtime("blake3_ids", Start::Source, Mode::Run, |runtime| {
+            let state = runtime.op_state();
+            state.borrow_mut().put(Authority::default());
+            state.borrow_mut().put(Blake3State::default());
+            drop(state);
+            runtime
+                .execute_script(
+                    "<test>",
+                    "const { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update } = Deno.core.ops;
+globalThis.blake3 = { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update };
+globalThis.prototype = Object.freeze({ __proto__: null });
+globalThis.live = [];
+for (let i = 0; i < 4; i++) op_gro_blake3_hasher(prototype);
+for (let i = 0; i < 3; i++) {
+\tconst hasher = op_gro_blake3_hasher(prototype);
+\top_gro_blake3_update(hasher, new Uint8Array([i + 1]));
+\tlive.push(hasher);
+}
+globalThis.before = live.map((hasher) => op_gro_blake3_finalize(hasher).join());",
+                )
+                .unwrap();
+            runtime.v8_isolate().low_memory_notification();
+            script_json(
+                runtime,
+                "{
+\tconst { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update } = globalThis.blake3;
+\tfor (let i = 0; i < 8; i++) {
+\t\tconst hasher = op_gro_blake3_hasher(prototype);
+\t\top_gro_blake3_update(hasher, new Uint8Array([200, i]));
+\t\tlive.push(hasher);
+\t}
+\tJSON.stringify(live.slice(0, 3).map((hasher) => op_gro_blake3_finalize(hasher).join()).join() === before.join());
+}",
+            )
+        });
+        assert_eq!(kept, true);
     }
 
     /// The run's data the host ops are called with below.
@@ -1108,6 +1242,13 @@ try {{
 }} catch (refused) {{
 	check(`env refused ${{refused}}`, seen.is_env_error(refused, 'not_granted') && refused.message === 'not_granted: A');
 }}
+const hex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+const empty = hex(seen.hash(new Uint8Array()));
+check(`hash ${{empty}}`, empty === 'af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262');
+const hasher = seen.create_hasher();
+hasher.update(new Uint8Array([1, 2]));
+hasher.update(new Uint8Array([3]));
+check('a hasher', hex(hasher.finalize()) === hex(seen.hash(new Uint8Array([1, 2, 3]))));
 check('an op was made again', globalThis.core_ops.op_gro_color === globalThis.op_gro_color);
 ",
             serde_json::to_string(&rows).unwrap(),
@@ -1146,6 +1287,7 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                     });
                     state.borrow_mut().put(ErrorClasses::default());
                     state.borrow_mut().put(EnvRoot::default());
+                    state.borrow_mut().put(Blake3State::default());
                     state.borrow_mut().put(refusals);
                     let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;
                     state.borrow_mut().put(host_data());

@@ -20,6 +20,7 @@
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! an op past the loader.
 
+pub mod blake3;
 pub mod env;
 pub mod error_class;
 pub mod exit;
@@ -102,7 +103,10 @@ pub struct HostOp {
 /// never converted on the way in: `#[op2]`'s typed arguments convert, and
 /// a conversion can run the caller's code or truncate, so the body reads
 /// the value natively and throws through the scope. The check still comes
-/// first, before the body sees an argument.
+/// first, before the body sees an argument. An op that makes a handle
+/// whose state is native takes the scope mutably, written `&mut scope`:
+/// the weak reference that drops the state once the handle is collected
+/// is made of the isolate, mutably (`blake3.rs`).
 ///
 /// A body is the op's result, given the op state, and an op written with
 /// no arrow returns nothing. A `#[serde]` or `#[string]` after the arrow is
@@ -116,7 +120,8 @@ pub struct HostOp {
 /// Slow ops only: whether a fast call's refusal throws on every path is
 /// unmeasured, so an op whose signature a fast call could serve is written
 /// `@nofast fn`, which `#[op2]` otherwise refuses to compile. An op that
-/// takes the scope has no such signature, so it's slow as it's written.
+/// takes the scope has no such signature, so it's slow as it's written,
+/// unless it takes it mutably and returns nothing.
 macro_rules! host_ops {
     (@require $name:ident, $state:ident, $granted:ident: $grant:ty) => {
         let $granted: Granted<$grant> =
@@ -146,20 +151,21 @@ macro_rules! host_ops {
     // or none
     (
         @op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*],
-        [$scope:ident $(, $arg:ident)*], [], $body:block
+        [$($mutable:ident)? | $scope:ident $(, $arg:ident)*], [], $body:block
     ) => {
         host_ops!(
-            @op [$($attr)*] $name, $state, [$($granted)*], [$scope $(, $arg)*], [()], $body
+            @op [$($attr)*] $name, $state, [$($granted)*],
+            [$($mutable)? | $scope $(, $arg)*], [()], $body
         );
     };
     (
         @op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*],
-        [$scope:ident $(, $arg:ident)*], [$($out:tt)+], $body:block
+        [$($mutable:ident)? | $scope:ident $(, $arg:ident)*], [$($out:tt)+], $body:block
     ) => {
         $($attr)*
         fn $name<'s>(
             $state: &OpState,
-            $scope: &v8::PinScope<'s, '_>
+            $scope: &$($mutable)? v8::PinScope<'s, '_>
             $(, $arg: v8::Local<'s, v8::Value>)*
         ) -> Result<$($out)+, JsErrorBox> {
             host_ops!(@require $name, $state $($granted)*);
@@ -169,7 +175,8 @@ macro_rules! host_ops {
     ($(
         $(#[doc = $doc:literal])*
         $(@$slow:ident)? fn $name:ident(
-            $state:ident $(, $granted:ident: $grant:ty)? $(; $scope:ident $(, $arg:ident)*)?
+            $state:ident $(, $granted:ident: $grant:ty)?
+            $(; $(& $mutable:ident)? $scope:ident $(, $arg:ident)*)?
         )
             for $module:literal
             $(
@@ -185,7 +192,7 @@ macro_rules! host_ops {
                 $name,
                 $state,
                 [$(, $granted: $grant)?],
-                [$($scope $(, $arg)*)?],
+                [$($($mutable)? | $scope $(, $arg)*)?],
                 [$($($out)::+ $(<$($out_lt,)? $($($out_arg)::+),+>)?)?],
                 $body
             );
@@ -378,6 +385,54 @@ host_ops! {
             },
             Into::into,
         )
+    }
+
+    /// `hash(data)`, the BLAKE3 digest of `data` ([`blake3::hash`]).
+    fn op_gro_blake3_hash(state; scope, data) for "@fuzdev/gro/blake3.ts"
+        -> v8::Local<'s, v8::Value>
+    {
+        blake3::hash(scope, data).unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `create_hasher()`, a new hasher made of `prototype`, the record of
+    /// shells the implementation's outer level made ([`blake3::hasher`]).
+    fn op_gro_blake3_hasher(state; &mut scope, prototype) for "@fuzdev/gro/blake3.ts"
+        -> v8::Local<'s, v8::Value>
+    {
+        blake3::hasher(state, scope, prototype, blake3::Mode::Plain)
+            .unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `create_keyed_hasher(key)`, a new hasher keyed by `key`, made of
+    /// `prototype` ([`blake3::hasher`]).
+    fn op_gro_blake3_keyed_hasher(state; &mut scope, prototype, key) for "@fuzdev/gro/blake3.ts"
+        -> v8::Local<'s, v8::Value>
+    {
+        blake3::hasher(state, scope, prototype, blake3::Mode::Keyed(key))
+            .unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `create_derive_key_hasher(context)`, a new hasher deriving a key in
+    /// `context`, made of `prototype` ([`blake3::hasher`]).
+    fn op_gro_blake3_derive_key_hasher(state; &mut scope, prototype, context)
+        for "@fuzdev/gro/blake3.ts" -> v8::Local<'s, v8::Value>
+    {
+        blake3::hasher(state, scope, prototype, blake3::Mode::DeriveKey(context))
+            .unwrap_or_else(|| v8::undefined(scope).into())
+    }
+
+    /// `hasher.update(data)`, its receiver handed over as `handle`
+    /// ([`blake3::update`]).
+    fn op_gro_blake3_update(state; scope, handle, data) for "@fuzdev/gro/blake3.ts" {
+        blake3::update(state, scope, handle, data);
+    }
+
+    /// `hasher.finalize()`, its receiver handed over as `handle`
+    /// ([`blake3::finalize`]).
+    fn op_gro_blake3_finalize(state; scope, handle) for "@fuzdev/gro/blake3.ts"
+        -> v8::Local<'s, v8::Value>
+    {
+        blake3::finalize(state, scope, handle).unwrap_or_else(|| v8::undefined(scope).into())
     }
 
     /// The process's id, asked of the OS when called.

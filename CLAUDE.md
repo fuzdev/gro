@@ -437,7 +437,13 @@ Invariants that live in the code:
     grants, which only gate that the run holds the row at all. `env`'s root
     handle is made from the run's grant by an op the inner level calls,
     get-or-make, and held in `OpState` (`env::EnvRoot`), which a start puts
-    only for a run that grants `env`.
+    only for a run that grants `env`. A handle whose state is native Rust
+    holds a number under its brand, naming its state in a table in
+    `OpState` (`host/blake3.rs`'s hashers, `Blake3State`, which every run's
+    start puts, empty), beside a weak reference to the handle whose
+    finalizer drops the state once the handle is collected; the op that
+    makes one takes the scope mutably (`&mut scope` in `host_ops!`), since
+    the weak reference is made of the isolate.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
@@ -636,9 +642,11 @@ index of every patch and the upgrade procedure, so a `deno_core` upgrade
 re-vendors it per the README; edit vendored code only as a marked
 `// gro patch:` ([vendor/CLAUDE.md](vendor/CLAUDE.md)). `check-rust` proves
 each tree is its published crate plus its patch, and
-`cargo xtask vendor-patch <name>` regenerates a patch. With the patch, the
-same sources, toolchain, and cargo home build the same `fgro`, byte for byte,
-from any checkout.
+`cargo xtask vendor-patch <name>` regenerates a patch. With the patch, a
+clean checkout of one commit, the same toolchain, and the same cargo home
+build the same `fgro`, byte for byte, wherever the checkout is: `fgro`
+embeds the commit it was built from, so a dirty tree (a `-dirty` marker) or
+one git can't read (no commit) builds other bytes.
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
@@ -747,6 +755,9 @@ Key utilities:
   `SpawnError` and `is_spawn_error`, grant-free ([docs](src/docs/host_modules.md#spawn))
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
   `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
+- Hashing: `blake3.ts`, the blake3 host module, BLAKE3 over bytes, `hash` and hashers from
+  `create_hasher`, `create_keyed_hasher`, `create_derive_key_hasher`, over `@fuzdev/blake3-wasm`
+  on Node and the native crate on `fgro`, grant-free ([docs](src/docs/host_modules.md#blake3))
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
 - Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal, max_pending})` resolving, once the watch is in place, to a `Watcher`, an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;

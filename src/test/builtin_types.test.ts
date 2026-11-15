@@ -135,7 +135,7 @@ describe('the builtin table', () => {
 	test("the implementations are the table's rows", () => {
 		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
 		// each kind of export the checks below mutate is among them
-		for (const name of ['args', 'cwd', 'env', 'env_error', 'pid', 'runtime_version']) {
+		for (const name of ['args', 'blake3', 'cwd', 'env', 'env_error', 'pid', 'runtime_version']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -195,9 +195,9 @@ describe.each(rows)('the $name builtin types', (row) => {
 		const source = read_implementation(row);
 		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
 		// the namespace, made by the script, or by the host, as `bootstrap.d.ts` declares its op
-		const made = 'default: undefined }';
+		const made = /default: undefined\s*\}/;
 		const host_made = `readonly op_gro_${row.name}: `;
-		const by_host = !source.includes(made);
+		const by_host = !made.test(source);
 		/**
 		 * The check with the namespace's `default: undefined` as `to`, written as the script's
 		 * literal writes a property, or as the op's declared type does, with `readonly`.
@@ -371,6 +371,43 @@ describe('a retyped export fails its check', () => {
 			'narrow(names: ReadonlyArray<string>): Env;',
 			'narrow(names: ReadonlyArray<string>): object;'
 		);
+	});
+
+	test('blake3', () => {
+		// each method of the hasher, claimed by the script, its parameters and results
+		assert_mismatch(
+			'blake3',
+			'builtin',
+			'\t\tupdate(data: Uint8Array): void;\n',
+			'\t\tupdate(data: Uint8Array | string): void;\n'
+		);
+		assert_mismatch(
+			'blake3',
+			'builtin',
+			'\t\tfinalize(): Uint8Array;\n',
+			'\t\tfinalize(): Uint8Array | undefined;\n'
+		);
+		// a function's parameters and results
+		assert_mismatch(
+			'blake3',
+			'builtin',
+			'const create_derive_key_hasher = (context: string): HasherHandle =>',
+			'const create_derive_key_hasher = (context: unknown): HasherHandle =>'
+		);
+		// a hasher not of the hasher's type
+		assert_mismatch(
+			'blake3',
+			'bootstrap',
+			'readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => T;',
+			'readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => object;'
+		);
+		assert_mismatch(
+			'blake3',
+			'bootstrap',
+			'readonly op_gro_blake3_hash: (data: unknown) => Uint8Array;',
+			'readonly op_gro_blake3_hash: (data: unknown) => ArrayBuffer;'
+		);
+		assert_mismatch('blake3', 'node', 'finalize(): Uint8Array;', 'finalize(): ArrayBuffer;');
 	});
 
 	test('cwd', () => {

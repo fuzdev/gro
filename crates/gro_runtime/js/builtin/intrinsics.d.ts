@@ -28,6 +28,7 @@ interface Number {}
 interface Object {}
 interface RegExp {}
 interface String {}
+interface Uint8Array {}
 
 interface ReadonlyArray<T> {}
 type Readonly<T> = { readonly [K in keyof T]: T[K] };

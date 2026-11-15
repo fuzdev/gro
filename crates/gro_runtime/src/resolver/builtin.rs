@@ -95,6 +95,16 @@ macro_rules! builtin_rows {
             $row!("@fuzdev/gro/cwd.ts", None, ["cwd"]),
             $row!("@fuzdev/gro/pid.ts", None, ["pid"]),
             $row!("@fuzdev/gro/runtime_version.ts", None, ["runtime_version"]),
+            $row!(
+                "@fuzdev/gro/blake3.ts",
+                None,
+                [
+                    "hash",
+                    "create_hasher",
+                    "create_keyed_hasher",
+                    "create_derive_key_hasher"
+                ]
+            ),
         ]
     };
 }
