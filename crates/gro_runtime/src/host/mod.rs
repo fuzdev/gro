@@ -43,6 +43,9 @@ use crate::{ArgsGrant, ExitGrant};
 /// run that grants `exit` holds it.
 const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started without its state";
 
+/// What `cwd` throws when the working directory's path isn't UTF-8.
+const CWD_NOT_UTF8: &str = "the working directory's path isn't UTF-8, so Gro can't name it";
+
 /// What an error row's op throws in a runtime started without the run's
 /// error classes, which only a runtime made outside a run's start is.
 const NO_ERROR_CLASSES: &str = "this runtime was started without the run's error classes";
@@ -264,8 +267,8 @@ host_ops! {
 
     /// The env error row's namespace, `EnvError` and `is_env_error`: the
     /// host's, made the first time the run needs them, the class extending
-    /// `error`, the realm's `Error`, which the implementation hands over
-    /// from `primordials`.
+    /// the realm's `Error`, which the implementation hands over from
+    /// `primordials` as `error`, held unless the run holds it already.
     fn op_gro_env_error(state; scope, error) for "@fuzdev/gro/env_error.ts"
         -> v8::Local<'s, v8::Value>
     {
@@ -279,10 +282,22 @@ host_ops! {
         namespace.map_or_else(|| v8::undefined(scope).into(), Into::into)
     }
 
-    /// The working directory the run was started in, or `null` when its
-    /// path isn't UTF-8.
-    fn op_gro_cwd(state) for "@fuzdev/gro/cwd.ts" -> #[string] Option<String> {
-        state.borrow::<HostData>().cwd.clone()
+    /// The working directory the run was started in, or, when its path
+    /// isn't UTF-8, which a JS string can't hold, an `Error` thrown saying
+    /// so.
+    fn op_gro_cwd(state; scope) for "@fuzdev/gro/cwd.ts" -> v8::Local<'s, v8::Value> {
+        let cwd = state
+            .borrow::<HostData>()
+            .cwd
+            .as_deref()
+            .and_then(|cwd| v8::String::new(scope, cwd));
+        cwd.map_or_else(
+            || {
+                throw_error(scope, CWD_NOT_UTF8);
+                v8::undefined(scope).into()
+            },
+            Into::into,
+        )
     }
 
     /// The process's id, asked of the OS when called.

@@ -214,8 +214,9 @@ check('called', called === expected_cwd);
 
 /// A builtin's frames show nothing of its functions: with
 /// `Error.prepareStackTrace` set, the call sites of an error a builtin's
-/// function threw, `cwd` in a directory whose path isn't UTF-8, name the
-/// builtin's script, at the line its source throws on, and each of those
+/// function threw, `cwd` in a directory whose path isn't UTF-8, whose op
+/// throws it, name the builtin's script, at the line its shell calls the
+/// op on, and each of those
 /// gives `undefined` for `getFunction()` and `getThis()`, so no call site
 /// hands out a function that closes over the ops or the object its script
 /// was called with.
@@ -230,7 +231,7 @@ fn a_builtin_s_call_sites_give_no_function_and_no_receiver() {
     let throws = implementation
         .source
         .lines()
-        .position(|line| line.contains("throw new Error("));
+        .position(|line| line.contains("op_gro_cwd()"));
     let line = throws.unwrap() + 1;
     let main = format!(
         "import {{ cwd }} from '{CWD}';

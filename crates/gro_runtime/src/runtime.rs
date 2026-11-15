@@ -403,13 +403,34 @@ mod tests {
     /// What the run's error classes are across calls of an error row's op
     /// on a runtime started as `start` says, in a run that grants nothing:
     /// how many classes the start made, before any call, and after the
-    /// calls, whether each call made a namespace of its own over the one
-    /// class and guard, which the host made once, frozen.
+    /// calls, what each value handed over as the realm's `Error` before any
+    /// was held threw, whether each call made a namespace of its own over
+    /// the one class and guard, which the host made once, frozen, extending
+    /// the `Error` first held, which a later value doesn't replace.
     fn error_classes(start: Start) -> Value {
         let source = "const op = Deno.core.ops.op_gro_env_error;
+const not_errors = [
+	undefined,
+	{},
+	function NotError() {},
+	TypeError,
+	new Proxy(Error, {}),
+	Object.setPrototypeOf(function Fake() {}, Error),
+];
+const refused = not_errors.map((value) => {
+	try {
+		op(value);
+		return 'returned';
+	} catch (error) {
+		return `${error.constructor.name}: ${error.message}`;
+	}
+});
 const a = op(Error);
 const b = op(Error);
+const c = op(TypeError);
 JSON.stringify({
+	refused,
+	held: c.EnvError === a.EnvError && Object.getPrototypeOf(a.EnvError) === Error,
 	namespaces: a !== b,
 	class: a.EnvError === b.EnvError,
 	guard: a.is_env_error === b.is_env_error,
@@ -443,6 +464,8 @@ JSON.stringify({
                 json!({
                     "before": 0,
                     "calls": {
+                        "refused": vec!["TypeError: an error class extends the realm's Error"; 6],
+                        "held": true,
                         "namespaces": true,
                         "class": true,
                         "guard": true,
@@ -457,6 +480,41 @@ JSON.stringify({
                 "{start:?}"
             );
         }
+    }
+
+    /// A family missing from the host's table is never made a class of:
+    /// asked for its row's namespace, the host throws an `Error` naming it
+    /// and holds no class, where its class's constructor would otherwise
+    /// return a plain object and its guard `undefined`.
+    #[test]
+    fn a_family_the_host_s_table_lacks_throws_when_its_class_is_made() {
+        use crate::host::error_class::ErrorFamily;
+
+        static MISSING: ErrorFamily = ErrorFamily {
+            name: "MissingError",
+            guard: "is_missing_error",
+            target: "target",
+        };
+        let (message, made) = on_new_runtime("missing_family", Mode::Run, |runtime| {
+            let classes = ErrorClasses::default();
+            deno_core::scope!(scope, runtime);
+            let global = scope.get_current_context().global(scope);
+            let key = v8::String::new(scope, "Error").unwrap();
+            let error = global.get(scope, key.into()).unwrap();
+            v8::tc_scope!(let tc, scope);
+            assert!(classes.namespace(tc, &MISSING, error).is_none());
+            let thrown = tc.exception().unwrap();
+            let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
+            let message = v8::String::new(tc, "message").unwrap();
+            let message = thrown.get(tc, message.into()).unwrap();
+            (message.to_rust_string_lossy(tc), classes.len())
+        });
+        assert_eq!(
+            message,
+            "the host has no error family MissingError: a family's class is one of the host's \
+             table"
+        );
+        assert_eq!(made, 0);
     }
 
     /// The probe eval's engines are asked: what eval refuses.

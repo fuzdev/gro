@@ -14,7 +14,7 @@ interface Bootstrap {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
 			readonly op_gro_args: () => Array<string>;
-			readonly op_gro_cwd: () => string | null;
+			readonly op_gro_cwd: () => string;
 			/**
 			 * The env error row's namespace, the host's: the class extending the realm's `Error`,
 			 * which the implementation hands over, and its guard. The types are claims, held to
