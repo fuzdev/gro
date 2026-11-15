@@ -18,6 +18,8 @@
 //!    the one commit at depth 1 from the checkout, so the clone holds that
 //!    commit and no other history, checked out detached. The checkout's V8
 //!    archives are linked into its `target/rusty_v8/`, so nothing downloads.
+//!    The directory is one the check owns ([`take`]): it removes an earlier
+//!    clone only from a directory it marked as its own.
 //! 3. The clone's `cargo xtask build --release`, from the cleared environment
 //!    the perf rule's base build uses ([`crate::bench::base::BASE_BUILD_ENV`]),
 //!    so the clone's own toolchain pin decides, into the clone's own target
@@ -32,22 +34,32 @@
 //!
 //! It refuses a rustc wrapper ([`rustc_wrapper`]): one in cargo's home
 //! applies to both builds, and a compiler cache could serve the second from
-//! the first's compile.
+//! the first's compile. And it refuses a cargo config only the clone's
+//! build would read, in `<dir>` or above it and not above the checkout
+//! ([`refuse_clone_configs`]): its forced `[env]` could set a wrapper for
+//! the clone's build alone, and its `rustflags` join the tree's, where a
+//! `--remap-path-prefix` could write the checkout's path in place of the
+//! clone's and hide the very difference the check looks for.
 //!
 //! What it can't see: a build on another machine, with another toolchain,
 //! or with another cargo home (whose registry paths the binary names), which
 //! the claim excludes; a dirty tree or one outside git, which embeds another
 //! commit by design and which the check refuses rather than builds; the
-//! debug build, since it holds the release one; and what both builds read
-//! alike on one machine, inside the checkout or out: a directory's listing
-//! order on one filesystem, the day's date, a cache they share.
+//! debug build, since it holds the release one; a cargo config only the
+//! checkout's build reads, above the checkout and not above `<dir>`, where a
+//! caller keeps one over a directory of checkouts, whose flags could make
+//! the two builds differ, or alike where they'd differ; and what both
+//! builds read alike on one machine, inside the checkout or out: a
+//! directory's listing order on one filesystem, the day's date, a cache they
+//! share.
 
+use std::ffi::OsString;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-use gro_bench::lock::{DirLock, LockError, LockIoError, try_lock_dir};
+use gro_bench::lock::{DirLock, LOCK_FILE, LockError, LockIoError, try_lock_dir};
 use gro_bench::record::GitState;
 
 use crate::bench::base::{
@@ -58,17 +70,14 @@ use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement, SNAPSHOT_FILES};
 
 /// Checks that the release `fgro` builds byte for byte from a second clone
-/// of the checkout's commit, cloned and built under `dir`.
-pub fn check_reproducible(root: &Path, dir: Option<PathBuf>) -> StepResult {
-    let overrides =
-        codegen_overrides(std::env::vars_os().filter_map(|(name, _)| name.into_string().ok()));
-    if !overrides.is_empty() {
-        return Err(XtaskError::reproducible_input(format!(
-            "the clone builds from a cleared environment, so the checkout's build would take {} \
-             and the clone's wouldn't; unset them for the check",
-            overrides.join(", ")
-        )));
-    }
+/// of the checkout's commit, cloned and built under `dir`; `env` is the
+/// check's own environment.
+pub fn check_reproducible(
+    root: &Path,
+    dir: Option<PathBuf>,
+    env: &[(OsString, OsString)],
+) -> StepResult {
+    refuse_environment(env)?;
     if let Some(wrapper) = rustc_wrapper(root) {
         return Err(XtaskError::reproducible_input(format!(
             "{wrapper} sets a rustc wrapper, which could hand the clone's build what the \
@@ -87,8 +96,8 @@ pub fn check_reproducible(root: &Path, dir: Option<PathBuf>) -> StepResult {
             state.sha, state.sha
         )));
     }
-    let dir = work_dir(root, dir)?;
-    let _lock = lock(&dir)?;
+    let dir = work_dir(root, dir, env)?;
+    let (dir, _lock) = take(root, &dir)?;
 
     let target_dir = crate::check::fetch_v8(root)?;
     let first = snapshot::build(root, &target_dir, true, Measurement::None)?;
@@ -99,8 +108,7 @@ pub fn check_reproducible(root: &Path, dir: Option<PathBuf>) -> StepResult {
         )));
     }
 
-    let src = dir.join("src");
-    clone(root, &src, &state.sha)?;
+    let src = clone(root, &dir, &state.sha, env)?;
     println!(
         "\n[xtask] cargo xtask build --release (in {}, at {}, environment cleared but {})",
         src.display(),
@@ -138,8 +146,32 @@ pub fn check_reproducible(root: &Path, dir: Option<PathBuf>) -> StepResult {
 
     compare(&first.binary, &second, &src)?;
     // kept on a failure, for inspection; a pass needs nothing of it
-    fs::remove_dir_all(&src)
-        .map_err(|error| XtaskError::Failed(format!("failed to remove {}: {error}", src.display())))
+    remove_clone(&dir)
+}
+
+/// Refuses `env`, the check's own environment, when it sets a variable that
+/// configures how cargo compiles ([`codegen_overrides`]), which the clone's
+/// cleared environment would drop.
+fn refuse_environment(env: &[(OsString, OsString)]) -> StepResult {
+    let overrides = codegen_overrides(
+        env.iter()
+            .filter_map(|(name, _)| name.to_str().map(str::to_owned)),
+    );
+    if !overrides.is_empty() {
+        return Err(XtaskError::reproducible_input(format!(
+            "the clone builds from a cleared environment, so the checkout's build would take {} \
+             and the clone's wouldn't; unset them for the check",
+            overrides.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+/// The value of the variable `name` in `env`, when it's set.
+fn var<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsString> {
+    env.iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value)
 }
 
 /// The keys that set a rustc wrapper in a cargo config file, under `[build]`.
@@ -187,33 +219,65 @@ fn sets_a_wrapper(config: &str) -> bool {
     })
 }
 
-/// The directory the clone goes in: `given`, or the cache's; refused when it
-/// and the checkout hold one another, since the clone's cargo would read the
-/// checkout's config, or the two paths would be one.
-fn work_dir(root: &Path, given: Option<PathBuf>) -> Result<PathBuf, XtaskError> {
+/// The directory the clone goes in: `given`, or the cache's from `env`
+/// (`XDG_CACHE_HOME`, else `HOME`'s `.cache`, each taken only when
+/// absolute), absolute; refused when it climbs with `..`, which the kernel
+/// resolves only once a directory below it exists, so no reading of the
+/// path before then can say where it ends, or when it and the checkout hold
+/// one another ([`kept_apart`]), read through the symlinks of the part that
+/// exists, or when a cargo config only the clone's build would read is in
+/// it or above it ([`refuse_clone_configs`]).
+fn work_dir(
+    root: &Path,
+    given: Option<PathBuf>,
+    env: &[(OsString, OsString)],
+) -> Result<PathBuf, XtaskError> {
     let dir = if let Some(dir) = given {
         std::path::absolute(&dir).map_err(|error| {
             XtaskError::reproducible_input(format!("invalid --dir {}: {error}", dir.display()))
         })?
     } else {
-        let cache = std::env::var_os("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        let absolute = |name| {
+            var(env, name)
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+        };
+        let cache = absolute("XDG_CACHE_HOME")
+            .or_else(|| absolute("HOME").map(|home| home.join(".cache")))
             .ok_or_else(|| {
-                XtaskError::reproducible_input("neither XDG_CACHE_HOME nor HOME is set; pass --dir")
+                XtaskError::reproducible_input(
+                    "neither XDG_CACHE_HOME nor HOME is set to an absolute path; pass --dir",
+                )
             })?;
         cache.join("gro").join("reproducible")
     };
+    if dir
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(XtaskError::reproducible_input(format!(
+            "the clone's directory {} climbs with `..`; name it without",
+            dir.display()
+        )));
+    }
     let real = real_path(&dir);
-    if real.starts_with(root) || root.starts_with(&real) {
+    kept_apart(root, &dir, &real)?;
+    refuse_clone_configs(root, &real, env)?;
+    Ok(dir)
+}
+
+/// Refuses `real`, the real path of `dir`, when it and the checkout at
+/// `root` hold one another: the clone's cargo would read the checkout's
+/// config, or the two paths would be one.
+fn kept_apart(root: &Path, dir: &Path, real: &Path) -> StepResult {
+    if real.starts_with(root) || root.starts_with(real) {
         return Err(XtaskError::reproducible_input(format!(
             "the clone's directory {} and the checkout {} must not hold one another",
             dir.display(),
             root.display()
         )));
     }
-    Ok(dir)
+    Ok(())
 }
 
 /// `path` with the part that exists replaced by its real path, so a symlink
@@ -226,6 +290,179 @@ fn real_path(path: &Path) -> PathBuf {
             Some(real.join(rest))
         })
         .unwrap_or_else(|| path.to_owned())
+}
+
+/// The file that marks a directory as this check's own, the one kind whose
+/// `src` it removes.
+const MARKER: &str = ".check-reproducible";
+
+/// What [`MARKER`] holds, for whoever finds it.
+const MARKER_TEXT: &str = "This directory is `cargo xtask check-reproducible`'s: each run replaces \
+                           its src/ with a fresh clone.\n";
+
+/// Takes `dir` as the check's own, returning its real path and its lock:
+/// refused unless [`owned`] says it may be, before the lock is taken (whose
+/// file it would otherwise write over) and again once it's held; then its
+/// real path is read again, now that every part of it exists, so a symlink
+/// made in a missing part since [`work_dir`] read it can't move it into the
+/// checkout ([`real_dir`]); then marked ([`MARKER`]).
+fn take(root: &Path, dir: &Path) -> Result<(PathBuf, DirLock), XtaskError> {
+    owned(dir)?;
+    let held = lock(dir)?;
+    let real = real_dir(root, dir)?;
+    owned(&real)?;
+    let marker = real.join(MARKER);
+    fs::write(&marker, MARKER_TEXT).map_err(|error| {
+        XtaskError::Failed(format!("failed to write {}: {error}", marker.display()))
+    })?;
+    Ok((real, held))
+}
+
+/// The real path of `dir`, which exists, refused by [`kept_apart`].
+fn real_dir(root: &Path, dir: &Path) -> Result<PathBuf, XtaskError> {
+    let real = dir.canonicalize().map_err(|error| {
+        XtaskError::Failed(format!("failed to resolve {}: {error}", dir.display()))
+    })?;
+    kept_apart(root, dir, &real)?;
+    Ok(real)
+}
+
+/// Refuses `dir` unless the check may take it as its own: it's missing or
+/// empty, it holds the [`MARKER`] an earlier run wrote, or it holds nothing
+/// but a lock file as [`try_lock_dir`] leaves one (a process id, or
+/// nothing), which holds nothing to lose. Anything else is
+/// another's, or an earlier run's clone with no marker, and is left alone:
+/// the refusal names the directory to remove when it's the check's.
+fn owned(dir: &Path) -> StepResult {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotADirectory => {
+            return Err(XtaskError::reproducible_input(format!(
+                "the clone's directory {} isn't a directory",
+                dir.display()
+            )));
+        }
+        Err(error) => {
+            return Err(XtaskError::Failed(format!(
+                "failed to read {}: {error}",
+                dir.display()
+            )));
+        }
+    };
+    if fs::symlink_metadata(dir.join(MARKER)).is_ok_and(|meta| meta.is_file()) {
+        return Ok(());
+    }
+    let mut others = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            XtaskError::Failed(format!("failed to read {}: {error}", dir.display()))
+        })?;
+        if !(entry.file_name() == LOCK_FILE && is_left_lock(&entry.path())) {
+            others.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    if others.is_empty() {
+        return Ok(());
+    }
+    others.sort();
+    Err(XtaskError::reproducible_input(format!(
+        "{} holds files the check didn't make ({}) and no {MARKER}, so it isn't the check's to \
+         clone into; pass another --dir, or remove the directory if an earlier \
+         check-reproducible made it",
+        dir.display(),
+        others.join(", ")
+    )))
+}
+
+/// Whether `path` is a lock file as [`try_lock_dir`] leaves it: a regular
+/// file holding a process id, or nothing.
+fn is_left_lock(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= 32)
+        && fs::read_to_string(path)
+            .is_ok_and(|text| text.trim().bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Refuses `dir`, the real path [`take`] returned, when it no longer is
+/// one: its real path is read again, so a symlink swapped in for one of its
+/// parents can't redirect a removal in it, and [`owned`] must still hold,
+/// so a directory moved into its place is another's to keep.
+fn still_taken(dir: &Path) -> StepResult {
+    let real = dir.canonicalize().map_err(|error| {
+        XtaskError::Failed(format!("failed to resolve {}: {error}", dir.display()))
+    })?;
+    if real != dir {
+        return Err(XtaskError::reproducible_input(format!(
+            "the clone's directory {} resolves to {} since the check took it, so nothing in it \
+             is removed; see what changed a parent of it, and check again",
+            dir.display(),
+            real.display()
+        )));
+    }
+    owned(dir)
+}
+
+/// Removes the clone of a pass, `<dir>/src`, once [`still_taken`] holds of
+/// `dir` again, since the clone's build ran after [`clone`] read it.
+fn remove_clone(dir: &Path) -> StepResult {
+    still_taken(dir)?;
+    let src = dir.join("src");
+    fs::remove_dir_all(&src)
+        .map_err(|error| XtaskError::Failed(format!("failed to remove {}: {error}", src.display())))
+}
+
+/// The files cargo reads its config from in a directory's `.cargo`.
+const CARGO_CONFIGS: [&str; 2] = ["config.toml", "config"];
+
+/// Refuses a cargo config the clone's build would read and the checkout's
+/// wouldn't: one in `dir`, the real path of the clone's directory, or in a
+/// parent of it that isn't a parent of the checkout at `root`, since cargo
+/// reads the config of every directory above the one it runs in. Such a
+/// config changes the clone's build alone: its `[env]` with `force = true`
+/// can set a rustc wrapper for it, and its `rustflags` join the tree's,
+/// where a `--remap-path-prefix` could write the checkout's path in place
+/// of the clone's and hide the very difference the check looks for.
+/// The config of cargo's home, as `env` names it ([`cargo_home`]), is left
+/// alone: cargo reads it for every build, the checkout's too, and once,
+/// though it's above the clone.
+fn refuse_clone_configs(root: &Path, dir: &Path, env: &[(OsString, OsString)]) -> StepResult {
+    let home = cargo_home(env).and_then(|home| home.canonicalize().ok());
+    let found: Vec<String> = dir
+        .ancestors()
+        .filter(|parent| !root.starts_with(parent))
+        .map(|parent| parent.join(".cargo"))
+        .filter(|configs| home.is_none() || configs.canonicalize().ok() != home)
+        .flat_map(|configs| CARGO_CONFIGS.map(|config| configs.join(config)))
+        .filter(|config| fs::symlink_metadata(config).is_ok())
+        .map(|config| config.display().to_string())
+        .collect();
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(XtaskError::reproducible_input(format!(
+        "the clone's build would read a cargo config the checkout's wouldn't ({}), which could \
+         change the clone's build alone (a flag, or a wrapper its [env] forces); pass a --dir \
+         with no such config in it or above it, or remove the config",
+        found.join(" and ")
+    )))
+}
+
+/// Cargo's home as `env` names it: a non-empty `CARGO_HOME`, else `HOME`'s
+/// `.cargo`, each taken only when absolute (cargo reads a relative
+/// `CARGO_HOME` from the directory it runs in, which the two builds don't
+/// share).
+fn cargo_home(env: &[(OsString, OsString)]) -> Option<PathBuf> {
+    let absolute = |value: &OsString| Some(PathBuf::from(value)).filter(|path| path.is_absolute());
+    var(env, "CARGO_HOME")
+        .filter(|value| !value.is_empty())
+        .map_or_else(
+            || {
+                var(env, "HOME")
+                    .and_then(absolute)
+                    .map(|home| home.join(".cargo"))
+            },
+            absolute,
+        )
 }
 
 /// Takes `<dir>/lock` without waiting, so two checks can't clone into one
@@ -244,10 +481,25 @@ fn lock(dir: &Path) -> Result<DirLock, XtaskError> {
     })
 }
 
-/// Makes `src` a fresh clone holding the one commit `sha` of the checkout at
-/// `root`, checked out detached, with the checkout's V8 archives linked in.
-fn clone(root: &Path, src: &Path, sha: &str) -> StepResult {
-    match fs::remove_dir_all(src) {
+/// Makes `<dir>/src` a fresh clone holding the one commit `sha` of the
+/// checkout at `root`, checked out detached, with the checkout's V8
+/// archives linked in, replacing an earlier one, and returns its path.
+/// `dir` is the real path [`take`] returned, and the checkout's build ran
+/// since, so it's read again first ([`still_taken`]), and the cargo configs
+/// in it and above it with it ([`refuse_clone_configs`], `env` the check's
+/// own environment). What remains is the moment between that read and the
+/// removal's opening `src`, and only for someone who can write a parent of
+/// `dir`.
+fn clone(
+    root: &Path,
+    dir: &Path,
+    sha: &str,
+    env: &[(OsString, OsString)],
+) -> Result<PathBuf, XtaskError> {
+    still_taken(dir)?;
+    refuse_clone_configs(root, dir, env)?;
+    let src = dir.join("src");
+    match fs::remove_dir_all(&src) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => {
             return Err(XtaskError::Failed(format!(
                 "failed to remove the earlier clone {}: {error}",
@@ -256,30 +508,31 @@ fn clone(root: &Path, src: &Path, sha: &str) -> StepResult {
         }
         _ => {}
     }
-    fs::create_dir_all(src).map_err(|error| {
+    fs::create_dir_all(&src).map_err(|error| {
         XtaskError::Failed(format!("failed to create {}: {error}", src.display()))
     })?;
     let root_arg = root.display().to_string();
-    run(src, &[], "git", &["init", "--quiet"])?;
+    run(&src, &[], "git", &["init", "--quiet"])?;
     // a fetch from a path honors --depth, and git serves a commit by its id
     run(
-        src,
+        &src,
         &[],
         "git",
         &["fetch", "--quiet", "--depth", "1", &root_arg, sha],
     )?;
     run(
-        src,
+        &src,
         &[],
         "git",
         &["checkout", "--quiet", "--detach", "FETCH_HEAD"],
     )?;
-    link_v8_archives(root, src).map_err(|error| {
+    link_v8_archives(root, &src).map_err(|error| {
         XtaskError::Failed(format!(
             "failed to link the V8 archives into {}: {error}",
             src.display()
         ))
-    })
+    })?;
+    Ok(src)
 }
 
 /// Compares the binary `first` with `second`, and the snapshot files beside
@@ -606,16 +859,391 @@ mod tests {
     #[test]
     fn the_clone_s_directory_is_kept_apart_from_the_checkout() {
         let root = crate::root();
-        let inside = work_dir(&root, Some(root.join("target/reproducible"))).unwrap_err();
+        let inside = work_dir(&root, Some(root.join("target/reproducible")), &[]).unwrap_err();
         assert_eq!(inside.exit_code(), crate::EXIT_INPUT);
         assert!(
             inside.to_string().starts_with("check-reproducible: "),
             "{inside}"
         );
         let above = root.parent().unwrap().to_owned();
-        assert!(work_dir(&root, Some(above)).is_err());
+        assert!(work_dir(&root, Some(above), &[]).is_err());
         let apart = std::env::temp_dir().join("gro_reproducible_apart");
-        assert_eq!(work_dir(&root, Some(apart.clone())).unwrap(), apart);
+        assert_eq!(work_dir(&root, Some(apart.clone()), &[]).unwrap(), apart);
+    }
+
+    /// A `--dir` that climbs with `..` is refused, though it reads as apart:
+    /// the kernel resolves a missing part's `..` only once the part is made,
+    /// so `<parent>/missing/../<checkout>` reads as beside the checkout and
+    /// would be made as the checkout.
+    #[test]
+    fn a_dir_that_climbs_is_refused() {
+        let root = crate::root();
+        let into = root
+            .parent()
+            .unwrap()
+            .join("xtask_reproducible_missing/..")
+            .join(root.file_name().unwrap());
+        let apart = std::env::temp_dir().join("xtask_reproducible_missing/../apart");
+        for dir in [into, apart] {
+            let refused = work_dir(&root, Some(dir), &[]).unwrap_err();
+            assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+            assert!(
+                refused.to_string().contains("climbs with `..`"),
+                "{refused}"
+            );
+        }
+    }
+
+    /// The check takes a directory that's missing, marked, or holding only
+    /// the lock an earlier run left, and refuses any other, writing nothing
+    /// in it: not its `src`, and not a lock file of another's.
+    #[test]
+    fn only_a_directory_the_check_owns_is_taken() {
+        let root = crate::root();
+        let base =
+            std::env::temp_dir().join(format!("xtask_reproducible_owned_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let foreign = base.join("foreign");
+        fs::create_dir_all(foreign.join("src")).unwrap();
+        fs::write(foreign.join("src/keep"), "x").unwrap();
+        fs::write(foreign.join(LOCK_FILE), "keep me").unwrap();
+        let refused = take(&root, &foreign).map(|_| ()).unwrap_err();
+        // a lock file that isn't one a run left
+        let stranger = base.join("stranger");
+        fs::create_dir_all(&stranger).unwrap();
+        fs::write(stranger.join(LOCK_FILE), "not a process id").unwrap();
+        let stranger_refused = take(&root, &stranger).is_err();
+        // a lock as a run leaves it
+        let left = base.join("left");
+        fs::create_dir_all(&left).unwrap();
+        fs::write(left.join(LOCK_FILE), "1234\n").unwrap();
+        let adopted = take(&root, &left).map(|(dir, _)| dir).unwrap();
+        let left_real = left.canonicalize().unwrap();
+        let marked = fs::read_to_string(left.join(MARKER)).unwrap();
+        // a marked directory with an earlier run's clone kept in it
+        fs::create_dir_all(left.join("src/target")).unwrap();
+        let again = take(&root, &left).is_ok();
+        // a directory named through a symlink is taken as its real path
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&left, &link).unwrap();
+        let through_link = take(&root, &link).map(|(dir, _)| dir).unwrap();
+        let fresh = take(&root, &base.join("fresh/dir")).is_ok();
+        let fresh_marked = base.join("fresh/dir").join(MARKER).is_file();
+        let file = base.join("file");
+        fs::write(&file, "").unwrap();
+        let not_a_dir = take(&root, &file).map(|_| ()).unwrap_err();
+        let kept = (
+            foreign.join("src/keep").is_file(),
+            fs::read_to_string(foreign.join(LOCK_FILE)).unwrap(),
+            foreign.join(MARKER).exists(),
+        );
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+        let message = refused.to_string();
+        assert!(
+            message.contains("(lock, src) and no .check-reproducible")
+                && message
+                    .contains("remove the directory if an earlier check-reproducible made it"),
+            "{message}"
+        );
+        assert_eq!(kept, (true, "keep me".to_owned(), false));
+        assert!(stranger_refused);
+        assert_eq!(adopted, left_real);
+        assert_eq!(marked, MARKER_TEXT);
+        assert!(again);
+        assert_eq!(through_link, left_real);
+        assert!(fresh && fresh_marked);
+        assert_eq!(not_a_dir.exit_code(), crate::EXIT_INPUT);
+        assert!(
+            not_a_dir.to_string().contains("isn't a directory"),
+            "{not_a_dir}"
+        );
+    }
+
+    /// A symlink is neither the lock an earlier run left nor the marker,
+    /// whatever it points at: a `lock` linked to a file holding a process
+    /// id would have the check's lock write through it, and a marker linked
+    /// to a file holding the marker's text would hand it a directory it
+    /// didn't make. Each is refused and its target left as it was.
+    #[test]
+    fn a_symlink_is_neither_a_left_lock_nor_the_marker() {
+        let root = crate::root();
+        let base =
+            std::env::temp_dir().join(format!("xtask_reproducible_links_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let pid_file = base.join("pid");
+        fs::write(&pid_file, "42\n").unwrap();
+        let linked_lock = base.join("linked_lock");
+        fs::create_dir_all(&linked_lock).unwrap();
+        std::os::unix::fs::symlink(&pid_file, linked_lock.join(LOCK_FILE)).unwrap();
+        let lock_refused = take(&root, &linked_lock).map(|_| ()).unwrap_err();
+        let marker_file = base.join("marker");
+        fs::write(&marker_file, MARKER_TEXT).unwrap();
+        let linked_marker = base.join("linked_marker");
+        fs::create_dir_all(linked_marker.join("src")).unwrap();
+        fs::write(linked_marker.join("src/keep"), "x").unwrap();
+        std::os::unix::fs::symlink(&marker_file, linked_marker.join(MARKER)).unwrap();
+        let marker_refused = take(&root, &linked_marker).map(|_| ()).unwrap_err();
+        let kept = (
+            fs::read_to_string(&pid_file).unwrap(),
+            linked_marker.join("src/keep").is_file(),
+            linked_lock.join(MARKER).exists(),
+        );
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(lock_refused.exit_code(), crate::EXIT_INPUT);
+        assert!(
+            lock_refused.to_string().contains("(lock)"),
+            "{lock_refused}"
+        );
+        assert_eq!(marker_refused.exit_code(), crate::EXIT_INPUT);
+        assert!(
+            marker_refused
+                .to_string()
+                .contains("(.check-reproducible, src)"),
+            "{marker_refused}"
+        );
+        assert_eq!(kept, ("42\n".to_owned(), true, false));
+    }
+
+    /// The clone reads the taken directory again before it removes an
+    /// earlier `src`: a parent swapped for a symlink since [`take`], or a
+    /// directory of another's moved into its place, is refused, its `src`
+    /// left as it was.
+    #[test]
+    fn the_clone_reads_its_directory_again_before_it_removes_anything() {
+        let root = crate::root();
+        let base =
+            std::env::temp_dir().join(format!("xtask_reproducible_again_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        // a commit no checkout holds, so a clone that went on would fail
+        let sha = "0".repeat(40);
+        let (swapped, _held) = take(&root, &base.join("parent/dir")).unwrap();
+        fs::create_dir_all(swapped.join("src")).unwrap();
+        fs::write(swapped.join("src/keep"), "x").unwrap();
+        let parent = swapped.parent().unwrap().to_owned();
+        let moved = parent.with_file_name("moved");
+        fs::rename(&parent, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &parent).unwrap();
+        let through_swap = clone(&root, &swapped, &sha, &[]).map(|_| ()).unwrap_err();
+        let (replaced, _held) = take(&root, &base.join("replaced")).unwrap();
+        fs::remove_file(replaced.join(MARKER)).unwrap();
+        fs::create_dir_all(replaced.join("src")).unwrap();
+        fs::write(replaced.join("src/keep"), "x").unwrap();
+        let unmarked = clone(&root, &replaced, &sha, &[]).map(|_| ()).unwrap_err();
+        let kept = (
+            moved.join("dir/src/keep").is_file(),
+            replaced.join("src/keep").is_file(),
+        );
+        fs::remove_dir_all(&base).unwrap();
+        assert_eq!(through_swap.exit_code(), crate::EXIT_INPUT);
+        assert!(
+            through_swap
+                .to_string()
+                .contains("so nothing in it is removed"),
+            "{through_swap}"
+        );
+        assert_eq!(unmarked.exit_code(), crate::EXIT_INPUT);
+        assert!(
+            unmarked
+                .to_string()
+                .contains("(src) and no .check-reproducible"),
+            "{unmarked}"
+        );
+        assert_eq!(kept, (true, true));
+    }
+
+    /// A pass removes its clone only from a directory still taken: a parent
+    /// swapped for a symlink since [`take`], or a directory of another's
+    /// moved into its place, is refused, its `src` left as it was.
+    #[test]
+    fn a_passed_clone_is_removed_only_from_a_directory_still_taken() {
+        let root = crate::root();
+        let base =
+            std::env::temp_dir().join(format!("xtask_reproducible_remove_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (swapped, _held) = take(&root, &base.join("parent/dir")).unwrap();
+        fs::create_dir_all(swapped.join("src")).unwrap();
+        fs::write(swapped.join("src/keep"), "x").unwrap();
+        let parent = swapped.parent().unwrap().to_owned();
+        let moved = parent.with_file_name("moved");
+        fs::rename(&parent, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &parent).unwrap();
+        let through_swap = remove_clone(&swapped).unwrap_err();
+        let (replaced, _held) = take(&root, &base.join("replaced")).unwrap();
+        fs::remove_file(replaced.join(MARKER)).unwrap();
+        fs::create_dir_all(replaced.join("src")).unwrap();
+        fs::write(replaced.join("src/keep"), "x").unwrap();
+        let unmarked = remove_clone(&replaced).unwrap_err();
+        let (taken, _held) = take(&root, &base.join("taken")).unwrap();
+        fs::create_dir_all(taken.join("src")).unwrap();
+        fs::write(taken.join("src/clone"), "x").unwrap();
+        let removed = remove_clone(&taken).is_ok() && !taken.join("src").exists();
+        let kept = (
+            moved.join("dir/src/keep").is_file(),
+            replaced.join("src/keep").is_file(),
+        );
+        fs::remove_dir_all(&base).unwrap();
+        assert!(
+            through_swap
+                .to_string()
+                .contains("so nothing in it is removed"),
+            "{through_swap}"
+        );
+        assert!(
+            unmarked
+                .to_string()
+                .contains("(src) and no .check-reproducible"),
+            "{unmarked}"
+        );
+        assert_eq!(kept, (true, true));
+        assert!(removed);
+    }
+
+    /// A variable that configures how cargo compiles is refused first too,
+    /// `RUSTC` among them, before the `--dir` is read.
+    #[test]
+    fn a_codegen_override_in_the_environment_is_refused_first() {
+        let root = crate::root();
+        let dir = std::env::temp_dir().join("xtask_reproducible_missing/../overridden");
+        let env = [(OsString::from("RUSTC"), OsString::from("rustc"))];
+        let refused = check_reproducible(&root, Some(dir), &env).unwrap_err();
+        assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+        let message = refused.to_string();
+        assert!(
+            message.contains("would take RUSTC and the clone's wouldn't"),
+            "{message}"
+        );
+    }
+
+    /// A cargo config only the clone's build would read, above the clone's
+    /// directory or in it, is refused: by [`work_dir`], before anything is
+    /// made, and by [`clone`], before anything is removed. One above the
+    /// checkout too, or cargo's home's, which both builds read, isn't.
+    #[test]
+    fn a_cargo_config_only_the_clone_reads_is_refused() {
+        let root = crate::root();
+        let base =
+            std::env::temp_dir().join(format!("xtask_reproducible_config_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let env = |vars: &[(&str, &Path)]| -> Vec<(OsString, OsString)> {
+            vars.iter()
+                .map(|(name, value)| (OsString::from(name), value.as_os_str().to_owned()))
+                .collect()
+        };
+        let config = |dir: &Path, name: &str| {
+            fs::create_dir_all(dir.join(".cargo")).unwrap();
+            fs::write(dir.join(".cargo").join(name), "").unwrap();
+        };
+        config(&base.join("above"), "config.toml");
+        let above = work_dir(&root, Some(base.join("above/dir")), &[]).unwrap_err();
+        let made = base.join("above/dir").exists();
+        let (inside, _held) = take(&root, &base.join("inside")).unwrap();
+        fs::create_dir_all(inside.join("src")).unwrap();
+        fs::write(inside.join("src/keep"), "x").unwrap();
+        config(&inside, "config");
+        let in_dir = clone(&root, &inside, &"0".repeat(40), &[])
+            .map(|_| ())
+            .unwrap_err();
+        let kept = inside.join("src/keep").is_file();
+        // above the checkout as well as the clone's directory
+        config(&base.join("shared"), "config.toml");
+        let shared =
+            refuse_clone_configs(&base.join("shared/checkout"), &base.join("shared/dir"), &[]);
+        // cargo's home, named by CARGO_HOME, through a symlink, or by HOME,
+        // an empty CARGO_HOME as cargo reads it
+        let home = base.join("home");
+        config(&home, "config.toml");
+        std::os::unix::fs::symlink(home.join(".cargo"), base.join("linked_home")).unwrap();
+        let homes = [
+            env(&[("CARGO_HOME", &home.join(".cargo"))]),
+            env(&[("CARGO_HOME", &base.join("linked_home"))]),
+            env(&[("HOME", &home)]),
+            env(&[("CARGO_HOME", Path::new("")), ("HOME", &home)]),
+        ]
+        .map(|env| work_dir(&root, Some(home.join("dir")), &env).is_ok());
+        let elsewhere = work_dir(
+            &root,
+            Some(home.join("dir")),
+            &env(&[("CARGO_HOME", &base.join("other")), ("HOME", &home)]),
+        )
+        .unwrap_err();
+        fs::remove_dir_all(&base).unwrap();
+        for (refused, config) in [
+            (above, "above/.cargo/config.toml"),
+            (in_dir, "inside/.cargo/config"),
+            (elsewhere, "home/.cargo/config.toml"),
+        ] {
+            assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+            let message = refused.to_string();
+            assert!(
+                message.contains(&format!("{config})"))
+                    && message.contains(
+                        "the clone's build would read a cargo config the checkout's wouldn't"
+                    ),
+                "{message}"
+            );
+        }
+        assert!(!made);
+        assert!(kept);
+        assert!(shared.is_ok());
+        assert_eq!(homes, [true; 4]);
+    }
+
+    /// With no `--dir`, the directory is the cache's, from `XDG_CACHE_HOME`
+    /// or `HOME`, each taken only when absolute: a relative one would put
+    /// the clone wherever the check runs.
+    #[test]
+    fn the_default_dir_takes_only_an_absolute_cache() {
+        let root = crate::root();
+        let env = |vars: &[(&str, &str)]| -> Vec<(OsString, OsString)> {
+            vars.iter()
+                .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+                .collect()
+        };
+        let default = |vars: &[(&str, &str)]| work_dir(&root, None, &env(vars));
+        assert_eq!(
+            default(&[("XDG_CACHE_HOME", "/cache"), ("HOME", "/home/someone")]).unwrap(),
+            Path::new("/cache/gro/reproducible")
+        );
+        assert_eq!(
+            default(&[("XDG_CACHE_HOME", "cache"), ("HOME", "/home/someone")]).unwrap(),
+            Path::new("/home/someone/.cache/gro/reproducible")
+        );
+        for vars in [
+            &[("XDG_CACHE_HOME", "cache"), ("HOME", "home")][..],
+            &[("HOME", "")],
+            &[],
+        ] {
+            let refused = default(vars).unwrap_err();
+            assert_eq!(refused.exit_code(), crate::EXIT_INPUT);
+            assert!(
+                refused.to_string().contains("set to an absolute path"),
+                "{refused}"
+            );
+        }
+    }
+
+    /// Once the directory exists, its real path is read whole, through a
+    /// symlink into the checkout.
+    #[test]
+    fn the_taken_directory_is_read_again_through_its_symlinks() {
+        let root = crate::root();
+        let dir =
+            std::env::temp_dir().join(format!("xtask_reproducible_real_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(root.join("crates"), dir.join("link")).unwrap();
+        let through = real_dir(&root, &dir.join("link"));
+        let beside = real_dir(&root, &dir);
+        let dir_real = dir.canonicalize().unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let refused = through.unwrap_err();
+        assert!(
+            refused.to_string().contains("must not hold one another"),
+            "{refused}"
+        );
+        assert_eq!(beside.unwrap(), dir_real);
     }
 
     #[test]
@@ -639,8 +1267,8 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         std::os::unix::fs::symlink(&root, dir.join("link")).unwrap();
-        let through = work_dir(&root, Some(dir.join("link/target/not_yet")));
-        let beside = work_dir(&root, Some(dir.join("not_yet/either")));
+        let through = work_dir(&root, Some(dir.join("link/target/not_yet")), &[]);
+        let beside = work_dir(&root, Some(dir.join("not_yet/either")), &[]);
         fs::remove_dir_all(&dir).unwrap();
         let refused = through.unwrap_err();
         assert!(

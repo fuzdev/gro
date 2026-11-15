@@ -233,7 +233,8 @@ fn main() -> ExitCode {
         Subcommand::CheckRust(CheckRust {}) => check::check_rust(&root),
         Subcommand::CheckJs(CheckJs {}) => check::check_crates_js(&root),
         Subcommand::CheckReproducible(CheckReproducible { dir }) => {
-            reproducible::check_reproducible(&root, dir)
+            let env: Vec<_> = std::env::vars_os().collect();
+            reproducible::check_reproducible(&root, dir, &env)
         }
         Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root).map(|_| ()),
         Subcommand::VendorPatch(VendorPatch { name }) => vendor::write_patch(&root, &name),
