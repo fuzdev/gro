@@ -373,13 +373,10 @@ describe('a retyped export fails its check', () => {
 			'\t\tnarrow(names: ReadonlyArray<string>): EnvHandle;\n',
 			'\t\tnarrow(names: Array<string>): EnvHandle;\n'
 		);
-		// the root not of the handle's type
-		assert_mismatch(
-			'env',
-			'bootstrap',
-			'<T extends object>(prototype: T, error: ErrorConstructor) => T;',
-			'<T extends object>(prototype: T, error: ErrorConstructor) => object;'
-		);
+		// the root not of the handle's type, by the host's claim or the script's type argument
+		assert_mismatch('env', 'bootstrap', 'readonly env: Handle;', 'readonly env: object;');
+		const call = "op_gro_namespace<'@fuzdev/gro/env.ts', EnvHandle>(_scope, Error)";
+		assert_mismatch('env', 'builtin', call, call.replace(', EnvHandle', ''));
 		assert_mismatch(
 			'env',
 			'node',

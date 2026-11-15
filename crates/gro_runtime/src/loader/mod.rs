@@ -137,9 +137,9 @@ use refused::{NeededGrant, Refusals, RefusedBy};
 use resolve::resolve_into;
 
 /// The run's record of refusals as the runtime's `OpState` holds it, where
-/// any host op reaches it: the loader's, which lists each `import()` it
-/// refuses by rule, and each call a host op refuses for a grant, which the
-/// op records as it throws. `exit` takes it and hands it to the
+/// any native member reaches it: the loader's, which lists each `import()`
+/// it refuses by rule, and each call a native member refuses for a grant,
+/// which the member records as it throws. `exit` takes it and hands it to the
 /// embedder's step, so a run its program ends reports its refusals as one
 /// that ends on its own does.
 #[derive(Debug, Clone)]
@@ -151,7 +151,7 @@ impl RefusalLog {
         self.0.take_refused()
     }
 
-    /// Records a call a host op refused, `by` naming the op's module and
+    /// Records a call a native member refused, `by` naming its module and
     /// the error's class, the error carrying `message`, and `needed` the
     /// grant of the run's that would have allowed it, if one would have.
     pub fn record(&self, by: RefusedBy, message: &str, needed: Option<NeededGrant>) {
@@ -167,8 +167,8 @@ pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
     /// of its record.
     graph: RefCell<Graph>,
-    /// What was refused by rule so far: `import()`s, and the host ops'
-    /// calls a [`RefusalLog`] records.
+    /// What was refused by rule so far: `import()`s, and the native
+    /// members' calls a [`RefusalLog`] records.
     refused: RefCell<Refusals>,
     /// [`Rules::refuse_dynamic_import`].
     refuse_dynamic_import: bool,
@@ -374,7 +374,7 @@ impl Loader {
     }
 
     /// The run's record of refusals, the loader's, as the runtime's
-    /// `OpState` holds it for the host ops.
+    /// `OpState` holds it for the native members.
     pub fn refusal_log(self: &Rc<Self>) -> RefusalLog {
         RefusalLog(Rc::clone(self))
     }

@@ -6,7 +6,7 @@
 //! uncaught error or an unhandled promise rejection ends the run with a
 //! [`RunError::Uncaught`] carrying the report, stack and source positions
 //! included. A run in which one of gro's rules refused an `import()`, or a
-//! host op refused a call for a grant its handle lacks, has failed too,
+//! host function refused a call for a grant its handle lacks, has failed too,
 //! whether or not the program caught the refusal: its [`RunOutcome`] lists
 //! them ([`Refusals`]).
 //!
@@ -38,9 +38,10 @@
 //!   (the host modules the runtime implements, each a synthetic module over
 //!   a TypeScript script no snapshot holds, run when a run first imports
 //!   it), and removes `Deno` and `__bootstrap` from the global object
-//! - `host`: the host ops, the native half of the builtins, each declared
+//! - `host`: the native half of the builtins, their members, each declared
 //!   through the one choke point that checks the run's [`Grants`] first, or,
-//!   for a grant-free builtin's, that the runtime holds an [`Authority`]
+//!   for a grant-free builtin's, that the runtime holds an [`Authority`],
+//!   and the one host op a row's script asks for its namespace by
 //! - `stack`: an error's stack, with V8's detailed capture for uncaught
 //!   exceptions off, and its `.stack` text formatted as `deno_core` formats
 //!   it by a cheaper callback, with no source map applied (the vendored
@@ -155,7 +156,7 @@ pub struct RuntimeOptions {
     /// that grants `exit` must be given: one that grants it with none
     /// fails before it starts ([`StartError::NoExitStep`]).
     ///
-    /// It's called inside the host op, with the program's frames on the
+    /// It's called inside `exit`, with the program's frames on the
     /// stack, so it ends the process and never returns (`host/exit.rs` has
     /// why stopping V8 isn't enough): an embedder that must outlive its
     /// program doesn't grant `exit`.
@@ -190,7 +191,8 @@ pub enum ConsoleRouting {
 }
 
 /// The authority a run's code holds: which builtin modules its modules may
-/// import, and so which host ops can run, and what each grant reaches.
+/// import, and so which native members can run, and what each grant
+/// reaches.
 ///
 /// Grants are per run: they go into the loader and the runtime's `OpState`
 /// when it starts, never into the snapshot or the extension list. Eval's

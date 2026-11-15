@@ -1087,10 +1087,11 @@ It documents each gap rather than weakening the API to match, and is a review si
 ## Native requirements
 
 What the runtime's builtin module must do that the Node implementation can't.
-Each handle holds a native resource of its own, and every confinement decision is the native op's.
-The builtin module's JS reads nothing and decides nothing: an export that takes arguments is a function the host makes natively,
-which checks them and raises the errors, as `blake3`'s are, or a shell handing them to an op whole, which does,
+Each handle holds a native resource of its own, and every confinement decision is the host's.
+The builtin module's JS reads nothing and decides nothing: each export is a function or a value the host makes natively,
+a function checking its arguments and raising the errors, as each builtin's are,
 and whatever has identity or state, a class, a brand, a registry, is the host's.
+So a function's source text is native code's, and a throw's stack starts at the caller, with no frame of the module's.
 
 That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
 where the Node implementation copies what it needs when it loads and can be loaded first.
@@ -1098,7 +1099,7 @@ So a builtin module's implementation reaches intrinsics only through the runtime
 and uses none whose work reads a prototype user code can patch:
 it names no global, calls no method and reads no property of an array, string, function, or promise,
 reads no member of a value a caller passed it, makes no string of one, and iterates none,
-and what it hands to user code is made natively, a frozen function of its own, or a null-prototype record.
+and what it hands to user code is made natively: a frozen function, a frozen array, a number or a string, a class, or a frozen null-prototype record.
 It's type-checked with no global value and no member of an intrinsic declared, so either is an error;
 a walk of its syntax refuses a member of anything the runtime didn't hand it and each construct that calls a protocol user code can answer;
 and every builtin module is imported by a test in a realm whose every reachable intrinsic reports its use,

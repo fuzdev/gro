@@ -401,8 +401,8 @@ const find_refused_constructs = (source: ts.SourceFile, checker: ts.TypeChecker)
 		) {
 			found.push('object spread');
 		}
-		// an accessor in an object literal runs when the literal is read: a getter handed to
-		// `ObjectAssign` is called by it as the level runs, and a namespace's accessor when the
+		// an accessor in an object literal runs when the literal is read: a getter handed to a
+		// primordial that copies properties is called by it as the level runs, and a namespace's accessor when the
 		// facade reads its exports
 		if (
 			(ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) &&

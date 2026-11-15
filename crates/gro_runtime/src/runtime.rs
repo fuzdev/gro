@@ -9,7 +9,6 @@ use gro_v8::ArrayBufferRecord;
 use crate::bootstrap::{self, Determinism, Ops};
 use crate::host::HostData;
 use crate::host::blake3::Blake3State;
-use crate::host::env::EnvRoot;
 use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
 use crate::host::native::NativeNamespaces;
@@ -91,10 +90,10 @@ impl Drop for SpentRuntime {
     }
 }
 
-/// What `fgro run`'s host ops read, put in the runtime's `OpState` before
-/// anything runs: the run's authority, which every host op checks first,
-/// the run's data they return, and the step `exit` ends the process by.
-/// The default grants nothing.
+/// What `fgro run`'s native members read, put in the runtime's `OpState`
+/// before anything runs: the run's authority, which every native member
+/// and the host op check first, the run's data the members make, and the
+/// step `exit` ends the process by. The default grants nothing.
 #[derive(Debug, Clone, Default)]
 pub struct HostState {
     /// The run's authority.
@@ -107,7 +106,7 @@ pub struct HostState {
 }
 
 /// Starts `fgro run`'s runtime over `loader` from `snapshot` when there is
-/// one, its host ops holding `host` and the loader's record of refusals,
+/// one, its native members holding `host` and the loader's record of refusals,
 /// and runs the bootstrap's per-run steps with the console as `console`
 /// says, returning why either failed. Must run inside a tokio runtime,
 /// which `deno_core` drives its event loop with.
@@ -133,10 +132,6 @@ pub fn start_runtime(
         (_, Some(step)) => Some(ExitState::new(step)),
         (_, None) => return Err(StartError::NoExitStep),
     };
-    let grants_env = match &authority {
-        Authority::Confined(grants) => grants.env.is_some(),
-        Authority::Unconfined => true,
-    };
     let refusals = loader.refusal_log();
     let runtime = new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
     let state = runtime.op_state();
@@ -149,9 +144,6 @@ pub fn start_runtime(
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
     }
-    if grants_env {
-        state.borrow_mut().put(EnvRoot::default());
-    }
     drop(state);
     start(runtime, console, Mode::Run).map_err(StartError::Runtime)
 }
@@ -159,8 +151,8 @@ pub fn start_runtime(
 /// Starts eval's runtime as [`start_runtime`] starts `fgro run`'s, built as
 /// [`Mode::Eval`] says, its array buffers allocated by an allocator that
 /// records whether its latest allocation failed, returned with the
-/// runtime. It takes no authority: eval's host ops find none, so every one
-/// refuses.
+/// runtime. It takes no authority: eval's host op and any native member
+/// find none, so each refuses.
 pub fn start_eval_runtime(
     snapshot: Option<StartupSnapshot>,
     console: ConsoleOptions,
@@ -264,10 +256,10 @@ mod tests {
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::error_class::ErrorClasses;
     use crate::host::native::{self, Member, NativeMember, NativeNamespaces, Place, Prototypes};
-    use crate::host::{HOST_OPS, HostOp, NATIVE_MEMBERS, Serves};
+    use crate::host::{HOST_OPS, NATIVE_MEMBERS};
     use crate::loader::graph::Recording;
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
-    use crate::resolver::{BUILTINS, Capability, find_builtin};
+    use crate::resolver::BUILTINS;
     use crate::test_support::TestDir;
     use crate::{ArgsGrant, EnvGrant, Grants};
 
@@ -546,19 +538,20 @@ JSON.stringify({
             }));
             state.borrow_mut().put(host_data());
             state.borrow_mut().put(ErrorClasses::default());
-            state.borrow_mut().put(EnvRoot::default());
+            state.borrow_mut().put(NativeNamespaces::default());
             drop(state);
-            script_json(
+            named_script_json(
                 runtime,
-                "const ops = Deno.core.ops;
-const env = ops.op_gro_env_root(Object.freeze({ __proto__: null }), Error);
+                backing_script("@fuzdev/gro/env.ts"),
+                "const { env } = Deno.core.ops.op_gro_namespace(undefined, Error);
 let thrown;
 try {
-	ops.op_gro_env_get(env, 'B');
+	env.get('B');
 } catch (error) {
 	thrown = `${error.constructor.name}: ${error.message}`;
 }
-JSON.stringify({ thrown, read: ops.op_gro_env_get(env, 'A') })",
+JSON.stringify({ thrown, read: env.get('A') })"
+                    .to_owned(),
             )
         });
         assert_eq!(
@@ -691,7 +684,7 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                 .iter()
                 .chain(&bootstrap::UNGATED_OPS)
                 .copied()
-                .chain(HOST_OPS.iter().map(|op| op.name));
+                .chain(HOST_OPS.iter().copied());
             for name in compared {
                 assert!(
                     names.iter().any(|export| export == name),
@@ -901,7 +894,7 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         let mut declared: Vec<&str> = bootstrap::UNGATED_OPS
             .iter()
             .copied()
-            .chain(HOST_OPS.iter().map(|op| op.name))
+            .chain(HOST_OPS.iter().copied())
             .collect();
         declared.sort_unstable();
         assert_eq!(registered, declared);
@@ -919,73 +912,6 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         for name in declared {
             assert!(names.iter().any(|registered| registered == name), "{name}");
         }
-    }
-
-    /// The host ops' grants are the table's: each host op that serves a
-    /// row names it and requires exactly that row's grant, none for a
-    /// grant-free row's, so an op of a module that needs a grant can't be
-    /// declared grant-free; the op that serves every row with native
-    /// members requires none itself, and checks the row's once it knows it
-    /// (`host::native`'s tests); and each grant a host op or a native
-    /// member requires is a row's, and every row's grant, none among them,
-    /// is required by one, so neither list grows a kind the other lacks.
-    #[test]
-    fn the_host_ops_grants_are_the_builtin_table_s() {
-        for op in HOST_OPS {
-            match op.serves {
-                Serves::Row(module) => {
-                    let row = find_builtin(module)
-                        .unwrap_or_else(|| panic!("{}: {module} is no row of the table", op.name));
-                    assert_eq!(op.grant, row.grant, "{}", op.name);
-                }
-                Serves::Native => assert_eq!(op.grant, None, "{}", op.name),
-            }
-        }
-        let members = NATIVE_MEMBERS.iter().map(|member| member.grant);
-        let mut ops: Vec<Option<Capability>> =
-            HOST_OPS.iter().map(|op| op.grant).chain(members).collect();
-        let mut rows: Vec<Option<Capability>> =
-            BUILTINS.iter().map(|builtin| builtin.grant).collect();
-        for grants in [&mut ops, &mut rows] {
-            grants.sort_unstable_by_key(|grant| grant.map(|grant| grant.to_string()));
-            grants.dedup();
-        }
-        assert_eq!(ops, rows);
-        let row = |name, module, grant| HostOp {
-            name,
-            serves: Serves::Row(module),
-            grant,
-        };
-        assert_eq!(
-            HOST_OPS,
-            [
-                row(
-                    "op_gro_env_root",
-                    "@fuzdev/gro/env.ts",
-                    Some(Capability::Env)
-                ),
-                row(
-                    "op_gro_env_get",
-                    "@fuzdev/gro/env.ts",
-                    Some(Capability::Env)
-                ),
-                row(
-                    "op_gro_env_get_all",
-                    "@fuzdev/gro/env.ts",
-                    Some(Capability::Env)
-                ),
-                row(
-                    "op_gro_env_narrow",
-                    "@fuzdev/gro/env.ts",
-                    Some(Capability::Env)
-                ),
-                HostOp {
-                    name: "op_gro_namespace",
-                    serves: Serves::Native,
-                    grant: None,
-                },
-            ]
-        );
     }
 
     /// Puts what the blake3 row's namespace and hashers need in `runtime`'s
@@ -1116,6 +1042,8 @@ globalThis.namespaces = {};";
 		cwd: ns('cwd').cwd(),
 		pid: ns('pid').pid,
 		runtime_version: ns('runtime_version').runtime_version,
+		env: shape(ns('env').env),
+		env_reads: [ns('env').env.get('GRO_TEST_ENV'), Reflect.ownKeys(ns('env').env.get_all())],
 	});
 }";
 
@@ -1259,6 +1187,10 @@ globalThis.namespaces = {};";
 	JSON.stringify(result);
 }",
             );
+            let root_of_held = script_json(
+                runtime,
+                "JSON.stringify(Object.getPrototypeOf(namespaces['@fuzdev/gro/env.ts'].env) === prototypes['@fuzdev/gro/env.ts#handle'])",
+            );
             let probe = "JSON.stringify(thrown(() => { globalThis.probed = probe(); }) ?? probed)";
             let probe_empty = script_json(runtime, probe);
             runtime
@@ -1346,6 +1278,7 @@ globalThis.namespaces = {};";
             json!({
                 "namespaces": namespaces,
                 "values": values,
+                "root_of_held": root_of_held,
                 "prototypes": prototypes,
                 "rows_refused": rows_refused,
                 "held": [before, errors_held, after],
@@ -1536,6 +1469,8 @@ globalThis.namespaces = {};";
                     "cwd": "/work",
                     "pid": results["pid"],
                     "runtime_version": "test/1.2.3",
+                    "env": {"type": "object", "frozen": true, "prototype": "other", "keys": []},
+                    "env_reads": [null, []],
                 }),
                 "{start:?}"
             );
@@ -1544,6 +1479,8 @@ globalThis.namespaces = {};";
                 .filter(|member| matches!(member.member, Member::Value(_)))
                 .collect();
             assert!(!values.is_empty());
+            // the root is a handle of the prototype the host made, and holds
+            assert_eq!(results["root_of_held"], true, "{start:?}");
             let refused = results["value_refusals"].as_object().unwrap();
             assert_eq!(refused.len(), values.len(), "{start:?}");
             for member in values {
@@ -1579,7 +1516,7 @@ globalThis.namespaces = {};";
     #[test]
     fn the_namespace_op_knows_the_row_by_its_script() {
         let not_a_row = "TypeError: a namespace is asked for by a builtin's own script";
-        let not_a_scope = "TypeError: a row with native members takes no scope";
+        let not_a_scope = "TypeError: no row takes a scope yet";
         let not_an_error = "TypeError: an error class extends the realm's Error";
         for start in STARTS {
             assert_eq!(
@@ -1696,7 +1633,7 @@ globalThis.before = live.map((hasher) => hasher.finalize().join());",
         assert_eq!(kept, true);
     }
 
-    /// The run's data the host ops are called with below.
+    /// The run's data the native members are made with below.
     fn host_data() -> HostData {
         HostData {
             args: vec!["a".to_owned()],
@@ -1717,7 +1654,7 @@ globalThis.before = live.map((hasher) => hasher.finalize().join());",
     /// takes one takes it as the value passed, converting nothing
     /// (`host_ops!`), so its check comes first here too.
     fn call_host_ops(name: &str, start: Start, mode: Mode, authority: Option<Authority>) -> Value {
-        let names: Vec<&str> = HOST_OPS.iter().map(|op| op.name).collect();
+        let names: Vec<&str> = HOST_OPS.to_vec();
         let source = format!(
             "const results = {{}};
 for (const name of {}) {{
@@ -1848,7 +1785,6 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                         ..host_data()
                     });
                     state.borrow_mut().put(ErrorClasses::default());
-                    state.borrow_mut().put(EnvRoot::default());
                     state.borrow_mut().put(NativeNamespaces::default());
                     state.borrow_mut().put(Blake3State::default());
                     state.borrow_mut().put(refusals);
@@ -1894,73 +1830,34 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
         assert!(stripped.unwrap() >= BUILTINS.len() as u64, "{stripped:?}");
     }
 
-    /// What the host op `op` throws in a runtime that holds no authority.
-    fn refusal_without_authority(op: &HostOp) -> String {
-        let name = op.name;
-        op.grant.map_or_else(
-            || {
-                format!(
-                    "Error: not_granted: {name} is a host op, and this runtime holds no \
-                     authority, so it runs none"
-                )
-            },
-            |grant| {
-                format!(
-                    "Error: not_granted: {name} needs the grant '{grant}', which this runtime \
-                     doesn't hold"
-                )
-            },
-        )
-    }
-
-    /// The choke point by behavior: every host op, a grant-free module's
-    /// included, called by a runtime that holds no authority (eval's), in
-    /// either mode and from either start, throws `not_granted` naming
-    /// itself before its body runs; and each that requires a grant throws
-    /// it, naming the grant, in a run that grants nothing. A body that
-    /// skips its check returns its data here instead.
+    /// The choke point by behavior: every host op, called by a runtime that
+    /// holds no authority (eval's), in either mode and from either start,
+    /// throws `not_granted` naming itself before its body runs; and runs in
+    /// a run whatever it grants, nothing included, so its refusals are the
+    /// missing authority's: the namespace op, called by a script that is no
+    /// row's, gets past its check to refuse the caller. From either start:
+    /// an op reads the `OpState` of the runtime that calls it, and the
+    /// snapshot was made by a process that held none of this.
     #[test]
-    fn every_host_op_refuses_without_its_grant() {
+    fn every_host_op_refuses_without_an_authority() {
         for start in STARTS {
             let results = probed("host_ops", start);
-            for case in ["none_eval", "none_run"] {
-                for op in HOST_OPS {
+            for op in HOST_OPS {
+                for case in ["none_eval", "none_run"] {
                     assert_eq!(
-                        results[case][op.name].as_str().unwrap_or_default(),
-                        refusal_without_authority(op),
+                        results[case][op].as_str().unwrap_or_default(),
+                        format!(
+                            "Error: not_granted: {op} is a host op, and this runtime holds no \
+                             authority, so it runs none"
+                        ),
                         "{case} {start:?}"
                     );
                 }
-            }
-            let granted: Vec<&HostOp> = HOST_OPS.iter().filter(|op| op.grant.is_some()).collect();
-            assert!(!granted.is_empty());
-            for op in granted {
-                assert_eq!(
-                    results["empty_run"][op.name].as_str().unwrap_or_default(),
-                    refusal_without_authority(op),
-                    "{start:?}"
-                );
-            }
-        }
-    }
-
-    /// A grant-free module's op runs in a run whatever it grants, nothing
-    /// included, so its refusals above are the missing authority's. From
-    /// either start: an op reads the `OpState` of the runtime that calls
-    /// it, and the snapshot was made by a process that held none of this.
-    #[test]
-    fn a_grant_free_host_op_runs_in_every_run() {
-        for start in STARTS {
-            let results = probed("host_ops", start);
-            for case in ["granted_run", "empty_run"] {
-                let results = &results[case];
-                let free = HOST_OPS.iter().filter(|op| op.grant.is_none());
-                for op in free {
-                    let result = results[op.name].as_str().unwrap_or_default();
-                    assert!(
-                        !result.starts_with("Error"),
-                        "{case} {start:?}: {}: {result}",
-                        op.name
+                for case in ["granted_run", "empty_run"] {
+                    assert_eq!(
+                        results[case][op].as_str().unwrap_or_default(),
+                        "TypeError: a namespace is asked for by a builtin's own script",
+                        "{case} {start:?}"
                     );
                 }
             }

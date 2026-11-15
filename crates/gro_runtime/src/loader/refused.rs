@@ -1,7 +1,7 @@
 //! What a run refused by one of gro's rules, which fails the run whether
 //! or not the program caught it: an `import()` the loader refused
 //! ([`FailureReason::guards_a_boundary`](super::graph::FailureReason::guards_a_boundary)),
-//! and a host op's call refused for a grant its handle doesn't hold (an
+//! and a host function's call refused for a grant its handle doesn't hold (an
 //! environment variable outside an env handle's names). One record holds
 //! both, so both are listed, cut, and counted alike. A refused call that a
 //! grant of the run would have allowed also records that grant
@@ -34,7 +34,7 @@ pub const MAX_LISTED_MESSAGE: usize = 2048;
 pub enum RefusedBy {
     /// The loader refused an `import()`, which rejected with a `TypeError`.
     Import,
-    /// A host op of the module `grant` names refused a call for a target
+    /// A host function of the module `grant` names refused a call for a target
     /// outside the handle it was called on, throwing `not_granted` of the
     /// error class named `error` (`EnvError`).
     Grant {

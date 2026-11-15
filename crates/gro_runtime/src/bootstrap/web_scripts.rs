@@ -14,11 +14,12 @@
 //! A builtin's implementation is a script the runtime can load too, and
 //! reads its ops the same way, so its reads are held with the web scripts'
 //! ([`loadable_reads`]): each is registered, a web op among them kept, and
-//! each op it reads is a host op of its own module. Its backing script
-//! reads one more, when its grant has a scope: the op its scope argument
-//! calls ([`scope_op_read`]), which no implementation's source shows, so it
-//! counts among the implementation's reads. And an implementation takes
-//! nothing of the bootstrap object but its ops and `primordials`
+//! each op it reads is a host op, the namespace op that serves every row.
+//! Its backing script reads one more, when its grant has a scope: the op
+//! its scope argument calls ([`scope_op_read`]), which no implementation's
+//! source shows, so it counts among the implementation's reads. And an
+//! implementation takes nothing of the bootstrap object but its ops and
+//! `primordials`
 //! ([`names_past_the_ops`]).
 
 use std::collections::BTreeMap;
@@ -276,36 +277,21 @@ fn the_walk_follows_the_scripts_a_script_names() {
     assert!(loadable.len() < declared_scripts().len());
 }
 
-/// A builtin's implementation reads its ops as a web script does, and
-/// reads only its own module's host ops, its scope argument's op among
-/// them: every host op declared for its row, and the op that serves every
-/// row with native members when it has any, and no other op, another
-/// row's or one of `deno_core`'s or `deno_web`'s. So no builtin calls an
-/// op a grant it doesn't need guards, a grant-free one none that needs a
-/// grant, and none an op that compiles code or imports a module. An
-/// implementation that comes to need a web op names it here.
+/// Each implementation reads only the host ops, its scope argument's op
+/// among them, and no other op, one of `deno_core`'s or `deno_web`'s: the
+/// namespace op, which serves every row and knows the row by its calling
+/// script, so no builtin calls an op that compiles code or imports a
+/// module. An implementation that comes to need a web op names it here.
 #[test]
-fn an_implementation_reads_the_host_ops_of_its_own_module() {
-    use crate::host::{HOST_OPS, NATIVE_MEMBERS, Serves};
+fn an_implementation_reads_only_the_host_ops() {
+    use crate::host::HOST_OPS;
 
     for implementation in IMPLEMENTATIONS {
-        let module = implementation
-            .script
-            .strip_prefix("ext:gro/builtin/")
-            .unwrap();
         let mut reads = implementation_reads(implementation);
         reads.sort_unstable();
-        let native = NATIVE_MEMBERS.iter().any(|member| member.module == module);
-        let mut own: Vec<&str> = HOST_OPS
-            .iter()
-            .filter(|op| match op.serves {
-                Serves::Row(row) => row == module,
-                Serves::Native => native,
-            })
-            .map(|op| op.name)
-            .collect();
+        let mut own = HOST_OPS.to_vec();
         own.sort_unstable();
-        assert_eq!(reads, own, "{module}");
+        assert_eq!(reads, own, "{}", implementation.script);
     }
 }
 

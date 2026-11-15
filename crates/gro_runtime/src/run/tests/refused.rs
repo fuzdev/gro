@@ -506,7 +506,7 @@ try { await import('./main.mjs', { with: { type: 'json' } }); } catch {}
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
 }
 
-/// A host op's call refused for a grant is listed as it's thrown, whether
+/// A host function's call refused for a grant is listed as it's thrown, whether
 /// or not the program caught it, once however often it's repeated, its
 /// message `not_granted: NAME`; what is no refusal stays quiet: an unset
 /// granted name, a narrowing to a subset, and a name that is no name (a

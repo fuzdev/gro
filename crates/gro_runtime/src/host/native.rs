@@ -26,7 +26,7 @@
 //! maker makes the same check first, behind the namespace op's of the row.
 //!
 //! A row's script reaches its namespace through one op, `op_gro_namespace`,
-//! which serves every row with native members. The op takes the row from
+//! which serves every row. The op takes the row from
 //! the script that calls it, the backing script `deno_core` compiled under
 //! the row's specifier from the table, never from an argument, so no row's
 //! script can ask for another's ([`calling_row`]). It checks the row's
@@ -67,7 +67,8 @@
 //! keyed by the symbol V8 gives; and a `length` short of the arguments a
 //! member reads (a defaulted parameter, `temp_dir(prefix = 'gro-')`),
 //! written `fn temp_dir(state; scope, prefix?)`, the arguments after the
-//! first marked `?` left out of the `length`.//!
+//! first marked `?` left out of the `length`.
+//!
 //! And what `fs` needs that the next slices settle, none designed here: a
 //! root record whose functions are its own properties beside a value
 //! (`fs.open_dir` beside `fs.project`), a place for a record's members
@@ -104,17 +105,20 @@ pub const STATE_BUSY: &str = "the host's state is in use, so a native member can
 /// script.
 const NOT_A_ROW: &str = "a namespace is asked for by a builtin's own script";
 
-/// What the namespace op throws for a scope that isn't `undefined`: no row
-/// with native members has one yet.
-const NOT_A_SCOPE: &str = "a row with native members takes no scope";
+/// What the namespace op throws for a scope that isn't `undefined`: no
+/// row takes one yet.
+const NOT_A_SCOPE: &str = "no row takes a scope yet";
 
 /// What the namespace op throws in a runtime started without the holder
 /// of the namespaces, which only a runtime made outside a run's start is.
 const NO_NAMESPACES: &str = "this runtime was started without the native namespaces' holder";
 
-/// What the namespace op throws for a row with no native members.
-fn no_members(specifier: &str) -> String {
-    format!("{specifier} has no native members, so the host makes no namespace of it")
+/// What a value of a row throws when the row makes no handles of `kind`.
+fn no_prototype(kind: &HandleKind) -> String {
+    format!(
+        "the host made no prototype of {} with this namespace",
+        kind.brand
+    )
 }
 
 /// Where a native member goes.
@@ -132,11 +136,26 @@ pub enum Place {
 /// namespace is held.
 pub struct Prototypes<'s>(Vec<(&'static HandleKind, v8::Local<'s, v8::Object>)>);
 
-impl Prototypes<'_> {
+impl<'s> Prototypes<'s> {
     /// None, for a test that makes a value with no namespace.
     #[cfg(test)]
     pub const fn none() -> Self {
         Self(Vec::new())
+    }
+
+    /// The prototype of handles of `kind`, or `None` with an `Error` thrown
+    /// when the row makes none, which a value of a row whose methods go on
+    /// `kind` never meets.
+    pub fn of(
+        &self,
+        scope: &v8::PinScope<'s, '_>,
+        kind: &HandleKind,
+    ) -> Option<v8::Local<'s, v8::Object>> {
+        let found = self.0.iter().find(|(held, _)| *held == kind);
+        if found.is_none() {
+            throw_error(scope, &no_prototype(kind));
+        }
+        found.map(|(_, prototype)| *prototype)
     }
 }
 
@@ -390,13 +409,13 @@ impl NativeNamespaces {
 /// The namespace of the row whose backing script asks: the one the run
 /// holds, or one made now, then held, once the row's grant is checked and
 /// what the script hands over is: `importer_scope`, the scope of its
-/// importer's grant, which no row with native members has yet, so it's
+/// importer's grant, which no row has yet, so it's
 /// `undefined`; and `error`, the realm's `Error`, which the run holds
 /// ([`ErrorClasses::hold_error`]) for the error classes a row throws.
 /// `None` with an exception pending when a step failed: a `TypeError` for
 /// a caller that is no row's backing script, `not_granted` for a row whose
-/// grant the run doesn't hold, an `Error` for a row with no native
-/// members, and a `TypeError` for a scope or an `Error` that isn't one.
+/// grant the run doesn't hold, and a `TypeError` for a scope or an `Error`
+/// that isn't one.
 pub fn namespace<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
@@ -412,13 +431,6 @@ pub fn namespace<'s>(
         return None;
     }
     let module = builtin.specifier;
-    if !super::NATIVE_MEMBERS
-        .iter()
-        .any(|member| member.module == module)
-    {
-        throw_error(scope, &no_members(module));
-        return None;
-    }
     // TODO a row whose grant has a scope (`env`, `fs`) keys its namespace by
     // it, the host holding the functions once and a record per scope
     if !importer_scope.is_undefined() {
@@ -480,6 +492,32 @@ pub fn prototype<'s>(
         .flat_map(|made| &made.prototypes)
         .find(|(held, _)| *held == kind)
         .map(|(_, prototype)| v8::Local::new(scope, prototype))
+}
+
+/// Whether `value` is the export `name` of `module`'s namespace as the run
+/// holds it, `false` when the run holds no namespace of it: read natively
+/// from the host's own frozen record, running no code of a caller's. The
+/// export is compared, never returned, so no host code reaches a row's
+/// value, a root handle among them, past the namespace op's check of the
+/// row's grant.
+pub fn is_held_export(
+    state: &OpState,
+    scope: &v8::PinScope<'_, '_>,
+    module: &str,
+    name: &str,
+    value: v8::Local<'_, v8::Value>,
+) -> bool {
+    let Some(namespaces) = state.try_borrow::<NativeNamespaces>() else {
+        return false;
+    };
+    let made = namespaces.made.borrow();
+    let Some(made) = made.iter().find(|made| made.module == module) else {
+        return false;
+    };
+    let namespace = v8::Local::new(scope, &made.namespace);
+    super::name(scope, name)
+        .and_then(|key| namespace.get(scope, key.into()))
+        .is_some_and(|export| export.strict_equals(value))
 }
 
 /// `module`'s namespace and its handles' prototypes, made of `members`'
@@ -692,8 +730,9 @@ mod tests {
     /// Each native member is its row's: a row of the table, requiring
     /// exactly the row's grant, so a member of a module that needs a grant
     /// can't be declared grant-free, or one of a grant-free module's need
-    /// one; a row's exports are its row's named exports, each once; each
-    /// method goes on a kind of handle of its own row's, once a kind.
+    /// one; every row's exports are its named exports, each once, so no row
+    /// is left without its namespace; each method goes on a kind of handle
+    /// of its own row's, once a kind.
     #[test]
     fn the_native_members_are_their_rows() {
         for member in NATIVE_MEMBERS {
@@ -726,9 +765,6 @@ mod tests {
                 .filter(|member| member.module == row.specifier && member.place == Place::Export)
                 .map(|member| member.name)
                 .collect();
-            if exports.is_empty() {
-                continue;
-            }
             let mut named = row.exports.to_vec();
             exports.sort_unstable();
             named.sort_unstable();

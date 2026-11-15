@@ -13,21 +13,19 @@
 //! module (a facade) named by its `builtin:` URL, over a backing script that
 //! is the builtin's implementation, `js/builtin/<specifier>`: one function
 //! in two levels ([`to_backing_script`]). The outer level, called with
-//! `deno_core`'s bootstrap object (the ops, `primordials`), makes what
-//! every importer of the builtin shares, the values no scope changes and
-//! the frozen shells that hand a call to an op, or, for a row with native
-//! members (`host/native.rs`), nothing, and returns the inner level, which,
-//! called with the scope of an importer's grant, makes the builtin's
-//! namespace, or asks the host for it. A backing script calls both at once,
-//! so a run has one namespace of each builtin; a namespace per importing
-//! origin is one more call of the inner level, over the same shells (for a
-//! native row, the host keys its namespace). Whatever has identity or
-//! state, a class, a brand, a registry, is the host's, its functions too
-//! for a native row. No snapshot holds any of it. `deno_core` compiles and runs a backing script the first
-//! time a run imports its facade, after the start, and the facade's exports
-//! are the own properties of what the script returns, with a `default` of
-//! `undefined`. Until then a builtin costs a run its facade's name and its
-//! ops, and an eval, which imports none, never more.
+//! `deno_core`'s bootstrap object (the ops, `primordials`), takes the one
+//! op and the realm's `Error`, and returns the inner level, which, called
+//! with the scope of an importer's grant, asks the host for the builtin's
+//! namespace, whose members are native (`host/native.rs`). A backing
+//! script calls both at once, so a run has one namespace of each builtin;
+//! a namespace per importing origin is one the host keys by the origin's
+//! scope. Whatever has identity or state, a member, a class, a brand, a
+//! registry, is the host's. No snapshot holds any of it. `deno_core`
+//! compiles and runs a backing script the first time a run imports its
+//! facade, after the start, and the facade's exports are the own properties
+//! of what the script returns, with a `default` of `undefined`. Until then
+//! a builtin costs a run its facade's name, and an eval, which imports
+//! none, never more.
 //!
 //! The scripts reach `deno_core` as its table of residual lazy scripts,
 //! their types stripped and each wrapped as the function body `deno_core`
@@ -68,15 +66,16 @@
 //! costs a rerun, never a half-made module or an effect done twice:
 //!
 //! - Neither stores anything outside its own bindings: no property on the
-//!   bootstrap object or on anything it holds. What the outer level makes
-//!   for every importer (a value, a shell) is reached only through the
-//!   namespace the inner level returns, which `deno_core` keeps once both
-//!   have returned, so a half-made one is never published and a second run
-//!   starts from nothing.
+//!   bootstrap object or on anything it holds. The namespace the inner
+//!   level returns is the host's, held only once it's whole, and
+//!   `deno_core` keeps the module once both levels have returned, so a
+//!   half-made one is never published and a second run starts from
+//!   nothing.
 //! - State that is the run's and outlives a script, an ordered writer, a
 //!   table of handles, an exit code, is the host's, in `OpState`, made by
-//!   the host whole: a script reaches it through ops, and what one builtin
-//!   must recognize of another's (a handle) it asks an op.
+//!   the host whole: a script reaches it through the namespace op, and what
+//!   one builtin must recognize of another's (a handle) its members read
+//!   natively.
 //! - An op either level calls is one that can be called again: a read, or
 //!   a get-or-make. An op with an effect that mustn't repeat is called by
 //!   what the builtin exports, never by a level.
@@ -212,12 +211,13 @@ const BUILTIN_MODULES: &[(&str, &str)] = &builtin_rows!(synthetic_module);
 /// level is called with `undefined` today. A grant-free module has no grant
 /// to scope, and neither `args` nor `exit` scopes anything. `env` does, but
 /// one origin holds it, the project, every module of a confined run's that
-/// may import it (an unconfined run's are given every grant whole), so its
-/// inner level asks the host for the root handle of the run's grant, which
-/// carries its scope natively, and every op decides from the handle it's
-/// handed, never from the run's grants. An instance per origin hands the
-/// origin's scope here, a native value the host gives back to the op that
-/// makes the origin's root.
+/// may import it (an unconfined run's are given every grant whole), so the
+/// host makes its root handle from the run's grant, which carries its
+/// scope natively, and every method decides from the handle it's called
+/// on, never from the run's grants. An instance per origin hands the
+/// origin's scope here, a native value the host gives back to the
+/// namespace op, which keys the origin's namespace by it and makes the
+/// origin's root from it.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
         None | Some(Capability::Args | Capability::Exit | Capability::Env) => "undefined",
@@ -364,9 +364,9 @@ fn op_gro_deny(state: &OpState) -> bool {
 
 /// The ops of gro's extension that make no check: the console's and
 /// eval's, which read only the run's own settings or refuse. Every other op
-/// the extension registers, whatever its name, is a host op, a grant-free
-/// module's included, declared through the choke point (`crate::host`); a
-/// test fails on one that is neither.
+/// the extension registers, whatever its name, is a host op, declared
+/// through the choke point (`crate::host`); a test fails on one that is
+/// neither.
 #[cfg(test)]
 pub const UNGATED_OPS: [&str; 4] = [
     "op_gro_color",

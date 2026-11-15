@@ -7,10 +7,11 @@
 //! and its names, the set it may ask for, or none for every name, which
 //! only an unconfined run's root has. Neither record is ever any other
 //! object's, and no JS but `get_all`'s caller holds the first, so a read
-//! of either runs no code of a caller's. Every op decides from the handle
-//! it's handed, never from the run's grants: the root is the one handle
-//! made from them, by the op the implementation's inner level calls once
-//! an importing origin, and every other is narrowed from a handle.
+//! of either runs no code of a caller's. Every method decides from the
+//! handle it's called on, never from the run's grants: the root is the one
+//! handle made from them, a value of the row's namespace made with it
+//! (`native.rs`), and every other is narrowed from a handle. The methods
+//! are native members, on the prototype the host makes with the namespace.
 //!
 //! A name is checked as the Node module checks it, in the same order and
 //! with the same messages: a string, not empty, no NUL, well-formed
@@ -22,16 +23,14 @@
 //! data, so an accessor or a proxy reads as no name, where the Node module
 //! would run it.
 
-use std::cell::RefCell;
-
 use deno_core::{OpState, v8};
 
 use super::error_class::{ENV_ERROR, ErrorClasses};
 use super::handle::{self, ENV_HANDLE};
-use super::{HostData, own_data, string, throw_error, throw_type_error};
+use super::{HostData, native, own_data, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
 use crate::resolver::Capability;
-use crate::{Authority, EnvNameFault, NeededGrant, RefusedBy, env_name_fault};
+use crate::{Authority, EnvNameFault, Grants, NeededGrant, RefusedBy, env_name_fault};
 
 /// What a method called on anything but an env handle throws.
 const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not another object";
@@ -39,66 +38,30 @@ const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not anoth
 /// What `narrow` throws for names that aren't an array.
 const NOT_AN_ARRAY: &str = "env.narrow takes an array of names";
 
-/// What the root's op throws in a runtime started without the env host
-/// module's state, which only a runtime made outside a run's start is.
-const NO_ENV_STATE: &str = "env is granted, but this runtime was started without its state";
+/// What making the root throws in a runtime whose authority doesn't grant
+/// `env`, which the root's check refused already.
+const NOT_GRANTED_ENV: &str = "env's root is made only in a run that grants env";
 
-/// What the root's op throws when the implementation hands it no
-/// prototype to make the handle of.
-const NOT_A_PROTOTYPE: &str = "an env handle's prototype is an object";
+/// The env namespace's specifier, which holds the root as its `env`.
+const MODULE: &str = "@fuzdev/gro/env.ts";
 
-/// The env host module's state for a run that grants it, in the runtime's
-/// `OpState`: the root handle, once it's made.
-///
-/// The root is made whole, then held, so an implementation run again,
-/// after one ended early, finds it, and every importing origin the run's
+/// The root handle, made of `prototype`, the env handles' prototype the
+/// host is making the namespace with, from the run's grant: the names it
+/// holds, every name in an unconfined run, and the values the embedder read
+/// of them. The namespace holds it, so every importing origin the run's
 /// grant reaches shares it: the project's in a confined run, and every
-/// origin in an unconfined one.
-#[derive(Default)]
-pub struct EnvRoot(RefCell<Option<v8::Global<v8::Object>>>);
-
-/// The root handle: the one `state` holds, or a new one made of
-/// `prototype` from the run's grant, the names it holds and the values
-/// the embedder read of them, and held. The realm's `Error` the
-/// implementation hands over as `error` is held for the run first, so an
-/// op can throw `EnvError` whichever row was imported first. `None` with
-/// an exception pending when a step failed.
+/// origin in an unconfined one. `None` with an exception pending when a
+/// step failed.
 pub fn root<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
-    prototype: v8::Local<'s, v8::Value>,
-    error: v8::Local<'s, v8::Value>,
+    prototype: v8::Local<'s, v8::Object>,
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let (Some(classes), Some(root)) = (
-        state.try_borrow::<ErrorClasses>(),
-        state.try_borrow::<EnvRoot>(),
-    ) else {
-        throw_error(scope, NO_ENV_STATE);
-        return None;
-    };
-    classes.hold_error(scope, error)?;
-    if let Some(held) = &*root.0.borrow() {
-        return Some(v8::Local::new(scope, held));
-    }
-    let Some(prototype) = v8::Local::<v8::Object>::try_from(prototype)
-        .ok()
-        .filter(|prototype| !prototype.is_proxy())
-    else {
-        throw_type_error(scope, NOT_A_PROTOTYPE);
-        return None;
-    };
-    handle::freeze_shells(scope, prototype)?;
-    // the op's check passed, so the run grants `env`
     let granted = match state.try_borrow::<Authority>() {
         Some(Authority::Unconfined) => None,
-        Some(Authority::Confined(grants)) => Some(grants.env.as_ref().map(|env| &env.names)),
-        None => Some(None),
-    };
-    let granted = match granted {
-        None => None,
-        Some(Some(names)) => Some(names),
-        Some(None) => {
-            throw_error(scope, NO_ENV_STATE);
+        Some(Authority::Confined(Grants { env: Some(env), .. })) => Some(&env.names),
+        _ => {
+            throw_error(scope, NOT_GRANTED_ENV);
             return None;
         }
     };
@@ -120,9 +83,7 @@ pub fn root<'s>(
             vars.create_data_property(scope, string(scope, name)?.into(), value.into())?;
         }
     }
-    let made = make(scope, prototype, vars, names)?;
-    *root.0.borrow_mut() = Some(v8::Global::new(scope, made));
-    Some(made)
+    make(scope, prototype, vars, names)
 }
 
 /// `env.get(name)` called on `receiver`: the value of the variable `name`,
@@ -291,14 +252,17 @@ fn check_granted<'s>(
         throw_error(scope, NO_REFUSAL_STATE);
         return None;
     };
+    // read before the throw, as no call into V8 is made with an exception
+    // pending
+    let root = is_root(state, scope, handle.object);
+    let text = name.to_rust_string_lossy(scope);
     classes.throw(scope, &ENV_ERROR, NOT_GRANTED, name);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
-    let name = name.to_rust_string_lossy(scope);
-    let message = format!("{NOT_GRANTED}: {name}");
-    let needed = is_root(state, handle.object).then_some(NeededGrant {
+    let message = format!("{NOT_GRANTED}: {text}");
+    let needed = root.then_some(NeededGrant {
         grant: Capability::Env,
-        value: name,
+        value: text,
     });
     log.record(
         RefusedBy::Grant {
@@ -311,11 +275,14 @@ fn check_granted<'s>(
     None
 }
 
-/// Whether `object` is the run's root handle, the one made from its grant.
-fn is_root(state: &OpState, object: v8::Local<'_, v8::Object>) -> bool {
-    state
-        .try_borrow::<EnvRoot>()
-        .is_some_and(|root| root.0.borrow().as_ref().is_some_and(|held| *held == object))
+/// Whether `object` is the run's root handle, the one made from its grant,
+/// which the namespace the run holds holds as its `env`.
+fn is_root(
+    state: &OpState,
+    scope: &v8::PinScope<'_, '_>,
+    object: v8::Local<'_, v8::Object>,
+) -> bool {
+    native::is_held_export(state, scope, MODULE, "env", object.into())
 }
 
 /// What a refused name throws in a runtime started without the run's error

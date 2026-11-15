@@ -1,22 +1,19 @@
-//! Handles: the objects a host module's ops act through, made by the host
-//! and branded by it, so an op recognizes one it's handed and refuses
-//! anything else.
+//! Handles: the objects a host module's methods act through, made by the
+//! host and branded by it, so a method recognizes one it's called on and
+//! refuses anything else.
 //!
-//! A handle is an ordinary object the host makes of a prototype: the frozen
+//! A handle is an ordinary object the host makes of a prototype, the frozen
 //! null-prototype record of native methods the host made with the row's
-//! namespace (`native.rs`), or one the row's implementation gave (a frozen
-//! null-prototype record of shells, each handing its receiver and arguments
-//! to an op of the row, whole, each of which the host freezes, since every
-//! holder shares them), with the handle's state under a private symbol of
-//! its kind, the brand, and then frozen. A private symbol made through
+//! namespace (`native.rs`), with the handle's state under a private symbol
+//! of its kind, the brand, and then frozen. A private symbol made through
 //! V8's API is a key no JS can name, enumerate, or read: `Reflect.ownKeys`
 //! doesn't list it, a proxy's traps never see it, and no program can make
 //! one. So a look-alike, an object of the same prototype, a copy of a
 //! handle's own properties, and a proxy of a handle all lack the brand, and
-//! an op refuses each: it checks the value it's handed is an object, not a
-//! proxy, that holds its kind's brand, and reads the state from there,
-//! natively, running no code of a caller's; a native method checks its
-//! receiver the same way. A handle's prototype is fixed (it's frozen), so a
+//! a method refuses each: it checks its receiver is an object, not a proxy,
+//! that holds its kind's brand, and reads the state from there, natively,
+//! running no code of a caller's, as a member handed another row's handle
+//! would check it. A handle's prototype is fixed (it's frozen), so a
 //! child handle takes the prototype its parent has.
 //!
 //! The state is a value of the row's choosing, which no JS ever holds:
@@ -30,10 +27,8 @@
 
 use deno_core::v8;
 
-use super::own_data;
-
 /// A kind of handle: the name its brand, a private symbol, is made for.
-/// Each row's own, so no row's op takes another's handle for one of its
+/// Each row's own, so no row's member takes another's handle for one of its
 /// own.
 #[derive(Debug, PartialEq, Eq)]
 pub struct HandleKind {
@@ -78,36 +73,7 @@ pub fn make<'s>(
     Some(handle)
 }
 
-/// Freezes each function `prototype` holds as its own data, the shells a
-/// row's implementation made, which every holder of a handle of it shares,
-/// so none is a place one holder can leave a value for another. Reads
-/// nothing a caller can answer: the prototype is the implementation's own
-/// record, never a proxy. `None` when V8 failed, an exception pending.
-pub fn freeze_shells<'s>(
-    scope: &v8::PinScope<'s, '_>,
-    prototype: v8::Local<'s, v8::Object>,
-) -> Option<()> {
-    let args = v8::GetPropertyNamesArgs {
-        mode: v8::KeyCollectionMode::OwnOnly,
-        property_filter: v8::PropertyFilter::SKIP_SYMBOLS,
-        index_filter: v8::IndexFilter::SkipIndices,
-        key_conversion: v8::KeyConversionMode::ConvertToString,
-    };
-    let names = prototype.get_own_property_names(scope, args)?;
-    for index in 0..names.length() {
-        let name = names.get_index(scope, index)?;
-        let Ok(name) = v8::Local::<v8::Name>::try_from(name) else {
-            continue;
-        };
-        let shell = own_data(scope, prototype, name).ok()?;
-        if let Some(Ok(shell)) = shell.map(v8::Local::<v8::Function>::try_from) {
-            shell.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
-        }
-    }
-    Some(())
-}
-
-/// A handle of `kind`, as an op is handed it: the object `value` is and
+/// A handle of `kind`, as a member is handed it: the object `value` is and
 /// the state its brand holds, or `None` when `value` is anything else (not
 /// an object, a proxy, or an object without the brand). Reads nothing a
 /// caller can answer.

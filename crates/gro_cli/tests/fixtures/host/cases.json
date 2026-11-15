@@ -243,7 +243,7 @@
 					"get_all": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
 					"narrow": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
 				},
-				"why": "a handle's prototype is the implementation's frozen null-prototype record of shells, made as an object literal makes one: its methods are enumerable, and it has no constructor, so nothing reached from a handle makes another"
+				"why": "a handle's prototype is the host's frozen null-prototype record of native methods, each an enumerable property as an object literal's is, and it has no constructor, so nothing reached from a handle makes another"
 			},
 			{
 				"at": "/namespace/own/default",
@@ -405,7 +405,7 @@
 					"update": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
 					"finalize": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
 				},
-				"why": "a hasher's prototype is the implementation's frozen null-prototype record of shells, made as an object literal makes one: its methods are enumerable, and it has no constructor, so nothing reached from a hasher makes another"
+				"why": "a hasher's prototype is the host's frozen null-prototype record of native methods, each an enumerable property as an object literal's is, and it has no constructor, so nothing reached from a hasher makes another"
 			},
 			{
 				"at": "/namespace/own/default",

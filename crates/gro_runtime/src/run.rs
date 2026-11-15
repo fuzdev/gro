@@ -55,8 +55,8 @@ pub enum StartError {
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
-/// error, or when one of gro's rules refused an `import()` or a host op's
-/// call during it.
+/// error, or when one of gro's rules refused an `import()` or a host
+/// function's call during it.
 ///
 /// A program's `exit` ends the process by the embedder's step instead
 /// ([`Exit`](crate::Exit)), and no outcome follows it.
@@ -69,8 +69,8 @@ pub struct RunOutcome {
     /// Whether the program ran to completion, or why it didn't.
     pub result: Result<(), RunError>,
     /// What was refused by rule: the `import()`s, a refused import in a
-    /// module an `import()` loaded among them, and the host ops' calls
-    /// refused for a grant (a name outside an env handle's set). Any of
+    /// module an `import()` loaded among them, and the host functions'
+    /// calls refused for a grant (a name outside an env handle's set). Any of
     /// them fails the run, whatever `result` says and whether or not the
     /// program caught the refusal, so a `try`/`catch` can't hide a probe
     /// for authority. The import rules guard authority and containment: a
@@ -80,8 +80,8 @@ pub struct RunOutcome {
     /// from a string, and the like (`FailureReason::guards_a_boundary` has
     /// the whole rule). An import refused because nothing is there to load
     /// or what it asks for isn't supported, as probing for an optional
-    /// dependency or a feature is, isn't among them, nor is a host op's
-    /// refusal of an argument that is no value it takes (a `TypeError`);
+    /// dependency or a feature is, isn't among them, nor is a host
+    /// function's refusal of an argument that is no value it takes (a `TypeError`);
     /// one that is the uncaught error `result`'s report shows isn't listed,
     /// though past the listed ones it's counted.
     pub refused: Refusals,
@@ -305,7 +305,7 @@ fn resolve_main(
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime
 /// started from `snapshot` when there is one, its console as `console` says,
-/// its host ops holding `host`, returning the result with the runtime, once
+/// its native members holding `host`, returning the result with the runtime, once
 /// one was made. `_engine` is the proof the engine was set up before V8
 /// initializes.
 fn run_loaded(

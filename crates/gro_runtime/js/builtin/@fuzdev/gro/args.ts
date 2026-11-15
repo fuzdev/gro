@@ -9,31 +9,27 @@
 //
 // A builtin's implementation is a script, one function in two levels, which is in no snapshot:
 // the runtime compiles and calls it the first time a run imports the builtin. The outer level
-// takes deno_core's bootstrap object and runs once a run: it makes what every importer shares,
-// the values that don't depend on a scope and the frozen shells that hand a call to an op, so
-// those are one object whoever imports the builtin. The script reads nothing and decides
-// nothing: whatever has identity or state, a class, a brand, a registry, is the host's,
-// reached through an op. The outer level returns the inner, a function of the scope of an
-// importer's grant that makes only the builtin's namespace, in a null-prototype record made in
-// place, since a function of the script's own is one more to compile at every first import.
+// takes deno_core's bootstrap object and runs once a run: it takes the one op, the namespace
+// op, from `core.ops`, and the realm's `Error` from `primordials`, taken when the runtime was
+// made, before any user code ran. The outer level returns the inner, a function of the scope
+// of an importer's grant that asks the host for the builtin's namespace, handing over the
+// scope and `Error`. The script reads nothing and decides nothing: the namespace, each
+// function and value it holds, and whatever has identity or state, a class, a brand, a
+// registry, are the host's, made natively.
 //
 // A first import can be after user code has patched the global intrinsics, so the whole
-// script, both levels and what they export, names no global and reads no property of an
-// intrinsic: every intrinsic it uses is one of `primordials`, taken when the runtime was
-// made, each host op comes from `core.ops`, and what it hands to user code is made natively,
-// as the namespace op's members are, or a frozen function of its own. `tsconfig.json` beside `@fuzdev`
-// type-checks it with no global value and no member of an intrinsic type declared
+// script names no global and reads no property of an intrinsic. `tsconfig.json` beside
+// `@fuzdev` type-checks it with no global value and no member of an intrinsic type declared
 // (`intrinsics.d.ts`), so either is an error.
 //
 // An `import()` runs the script on its caller's stack, so a caller that left it none cuts
 // either level short at any call, and the next import runs both again. So a level stores
-// nothing outside its own bindings, and calls only an op that can be called again: what a
-// builtin shares across importers is a value or a shell of the outer level's, or the host's,
-// and a builtin that can fail fails in what it exports, as `cwd.ts` does, since an import
-// whose script threw rejects with the host's report of it, not the error. The inner level
-// reads no grant but the scope it's given, which it hands to an op whole, and keeps no state
-// per importer, so it can be called once per importing origin. The `args` grant scopes
-// nothing, so its scope is `undefined`.
+// nothing outside its own bindings, and calls only an op that can be called again, as the
+// namespace op, a get-or-make, can; and a builtin that can fail fails in what it exports, as
+// `cwd` does, since an import whose script threw rejects with the host's report of it, not the
+// error. The inner level reads no grant but the scope it's given, which it hands to the host
+// whole, and keeps no state per importer. The `args` grant scopes nothing, so its scope is
+// `undefined`.
 //
 // This file must stay 7-bit ASCII: the build fails otherwise.
 

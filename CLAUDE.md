@@ -320,42 +320,41 @@ Invariants that live in the code:
   implementation, and gro's extension declares no lazy script: `deno_core`
   reads a backing script from its residual table the first time a run imports
   the builtin, and runs it then, so an unimported builtin costs a start its
-  facade's name and its ops.
+  facade's name.
   - An implementation is one function in two levels. The outer takes
-    `deno_core`'s bootstrap object, runs once a run, and makes what every
-    importer shares: the values no scope changes and the frozen shells that
-    hand a call to an op, or nothing, for a row whose members are native
-    (below). It returns the inner, which takes the scope of its
+    `deno_core`'s bootstrap object, runs once a run, and takes what the
+    inner needs: the one op, `op_gro_namespace`, and the realm's `Error`
+    from `primordials`. It returns the inner, which takes the scope of its
     importer's grant, an argument the backing script's call passes
-    (`bootstrap::scope_argument`; `undefined` while no grant has one) and the
-    implementation reads no other way, and makes the namespace. The backing
-    script calls both at once, so a run has one namespace of a builtin, and
-    one per importing origin would be one more call of the inner level over
-    the same shells (for a row with native members, the host keys its
-    namespace, below). A row's script reads nothing and decides nothing;
-    whatever has identity or state is the host's (a class, a brand, a
-    registry, a table of handles, an exit code), in `OpState`, reached
-    through an op.
-  - A row's members can be native (`host/native.rs`; `blake3`'s are): each
-    export, and each method of a kind of handle the row makes, a function
+    (`bootstrap::scope_argument`; `undefined` while no grant has one) and
+    the implementation reads no other way, and asks the host for the
+    namespace. The backing script calls both at once. A row's script reads
+    nothing and decides nothing; the namespace and whatever has identity or
+    state are the host's (a member, a class, a brand, a table of handles,
+    an exit code), in `OpState`.
+  - Every row's members are native (`host/native.rs`): each export, and
+    each method of a kind of handle the row makes, a function or a value
     the host makes from `NATIVE_MEMBERS`, the table `native_members!`
-    declares, the first time a run asks for the row's namespace. The row's
-    inner level calls one op, `op_gro_namespace`, handing over its scope
-    (`undefined`: no native row is scoped yet) and the realm's `Error` from
-    `primordials`, which the run holds (`ErrorClasses::hold_error`). The op
-    serves every such row and knows the row by the script that calls it,
-    the backing script `deno_core` compiled under the row's name from the
+    declares, the first time a run asks for the row's namespace. The inner
+    level calls `op_gro_namespace`, handing over its scope and the realm's
+    `Error`, which the run holds (`ErrorClasses::hold_error`). The op
+    serves every row and knows the row by the script that calls it, the
+    backing script `deno_core` compiled under the row's name from the
     table, never by an argument, so no row's script can ask for another's;
     it returns the namespace the run holds, or makes it and holds it
     (`NativeNamespaces`, which every run's start puts, empty), one per row
-    while no native row is scoped: a frozen null-prototype record of the
-    exports and `default`,
-    each function frozen, named, of the `length` its declared arguments
-    give, and no constructor, each kind's prototype a frozen null-prototype
-    record of its methods. Nothing is held until the namespace is whole. So
-    a start pays one op for every such row, not one per member, and a first
-    import no shell's compile. A factory makes its handles of the prototype
-    the run holds (`native::prototype`).
+    while no row is scoped (an instance per origin keys it by the scope as
+    well, the functions and prototypes made once a row): a frozen
+    null-prototype record of the exports and `default`, each function
+    frozen, named, of the `length` its declared arguments give, and no
+    constructor, each value made once with it (the arguments' frozen
+    array, the process's id, the runtime's version, `env`'s root handle,
+    `EnvError`), each kind's prototype a frozen null-prototype record of
+    its methods. Nothing is held until the namespace is whole. So a start
+    pays one op for every row, and a first import no shell's compile. A
+    factory makes its handles of the prototype the run holds
+    (`native::prototype`), a value of the one the namespace is being made
+    with (`native::Prototypes`).
   - An `import()` runs an implementation on the caller's stack, so a first
     `import()` of a builtin with less than `BUILTIN_IMPORT_STACK` left above
     V8's limit has `deno_core` build the module from the event loop instead
@@ -434,9 +433,8 @@ Invariants that live in the code:
     one it ended in. What a call leaves to run later, a promise's reaction,
     it doesn't watch.
   - And `bootstrap/web_scripts.rs` holds each implementation's reads of
-    `core.ops`, its backing script's scope argument's among them, to the host
-    ops of its own row, and `op_gro_namespace` for a row with native
-    members.
+    `core.ops`, its backing script's scope argument's among them, to the
+    host op, `op_gro_namespace`.
   - An error row's class and guard are the host's: the class
     (`host/error_class.rs`) made natively the first time a run needs it,
     the realm's `Error.prototype` taken from an error V8 makes and its
@@ -452,23 +450,21 @@ Invariants that live in the code:
     runs no code of a caller's.
   - A handle is the host's (`host/handle.rs`): an object the host makes of
     a prototype, the record of native methods the host made with the row's
-    namespace, or one a row's implementation gave (a frozen null-prototype
-    record of shells, each handing its receiver and arguments to an op of
-    the row, whole, and each frozen by the host when it makes the first
-    handle, since every holder shares them), its state under a private
-    symbol of its kind, the brand, then frozen. An op reads the handle it's handed natively and
+    namespace, its state under a private symbol of its kind, the brand,
+    then frozen. A method reads the handle it's called on natively and
     refuses anything without the brand (a look-alike, a proxy, another
     row's handle) and decides from the handle's state, never from the run's
     grants, which only gate that the run holds the row at all. `env`'s root
-    handle is made from the run's grant by an op the inner level calls,
-    get-or-make, and held in `OpState` (`env::EnvRoot`), which a start puts
-    only for a run that grants `env`. A handle whose state is native Rust
-    holds a number under its brand, naming its state in a table in
-    `OpState` (`host/blake3.rs`'s hashers, `Blake3State`, which every run's
-    start puts, empty), beside a weak reference to the handle whose
-    finalizer drops the state once the handle is collected; what makes one
-    takes the scope mutably, as a native member's callback is given it,
-    since the weak reference is made of the isolate.
+    handle is a value of its namespace, made from the run's grant with it,
+    and the one handle whose refusal hints at a grant: a method knows it
+    by comparing it with the export the run's namespace holds, which the
+    host never hands out (`native::is_held_export`). A handle whose
+    state is native Rust holds a number under its brand, naming its state
+    in a table in `OpState` (`host/blake3.rs`'s hashers, `Blake3State`,
+    which every run's start puts, empty), beside a weak reference to the
+    handle whose finalizer drops the state once the handle is collected;
+    what makes one takes the scope mutably, as a native member's callback
+    is given it, since the weak reference is made of the isolate.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
@@ -527,36 +523,24 @@ Invariants that live in the code:
   module's name must be one the resolver refuses from source. `gro_runtime`'s
   tests import every `ext:` and `builtin:` specifier the build knows and
   expect the refusal, and pin the kept synthetic names to the table's URLs.
-- One grant choke point: every host op is declared through
-  `host::host_ops!`, whose first step is a check in `host/grant.rs`: for an
-  op that names a grant, `require`, the one place a `Granted` token is made;
-  for a grant-free module's op, which names none, `require_authority`, which
-  refuses only a runtime that holds no `Authority` at all, so the op runs in
-  every run and in no eval. An op that takes arguments takes each as the JS
-  value passed (`v8::Local<v8::Value>`), never through an `#[op2]`
-  conversion, which could run the caller's code or truncate: its body reads
-  the value natively, after the check, and throws through the scope an
-  error V8 makes from the realm's intrinsic (`throw_type_error` in
-  `host/mod.rs`), since an op's `Err` is built by a JS callback of
-  `deno_core`'s. An op that takes the scope can return a value made in it
-  (`v8::Local<'s, v8::Value>`), as an error row's does. In a row whose
-  members aren't native, an export that takes arguments is a shell handing
-  them to such an op whole, a method's receiver as its first argument
-  (`op_gro_env_get(this, name)`).
-  The run's `Authority` goes into the loader and the runtime's `OpState`
-  per run, never into the snapshot or the extension
-  list, and eval's runtime takes none. A test fails on an op of gro's
-  extension, whatever its name, that's neither on `bootstrap::UNGATED_OPS`
-  nor a host op (or that's on an object), another on a host op that runs
-  with no authority, or without the grant it names, and another on a host
-  op that requires anything but what the row of the module it serves does
-  (each names it in `host_ops!`). Nothing at compile time
-  makes a host op use the macro: the first test is the check, so a
-  grant-free module's op joins `host_ops!`, never the ungated list.
-  `op_gro_namespace` is written `for native`: it serves every row with
-  native members, names no grant itself, and checks the row's once it
-  knows the row from its calling script (`grant::require_grant`), before
-  anything is made.
+- One grant choke point: the one host op, `op_gro_namespace`, is declared
+  through `host::host_ops!`, whose first step is `require_authority` in
+  `host/grant.rs`, which refuses only a runtime that holds no `Authority`
+  at all, so the op runs in every run and in no eval; it checks the row's
+  grant once it knows the row from its calling script
+  (`grant::require_grant`), before anything is made. It takes each
+  argument as the JS value passed (`v8::Local<v8::Value>`), never through
+  an `#[op2]` conversion, which could run the caller's code or truncate:
+  its body reads the value natively, after the check, and throws through
+  the scope an error V8 makes from the realm's intrinsic
+  (`throw_type_error` in `host/mod.rs`), since an op's `Err` is built by a
+  JS callback of `deno_core`'s. The run's `Authority` goes into the
+  loader and the runtime's `OpState` per run, never into the snapshot or
+  the extension list, and eval's runtime takes none. A test fails on an
+  op of gro's extension, whatever its name, that's neither on
+  `bootstrap::UNGATED_OPS` nor a host op (or that's on an object), and
+  another on a host op that runs with no authority. Nothing at compile
+  time makes a host op use the macro: the first test is the check.
 - The same choke point for native members (`host/native.rs`): each is
   declared through `native_members!`, a function or a value made with the
   namespace, whose callback's or maker's first step is the check,
@@ -604,7 +588,7 @@ Invariants that live in the code:
   it (`process_tests::make_startup_snapshot`), and a second starts every
   runtime of its own from it (`runtime::tests::snapshot_child`), since a
   process's isolates share one read-only heap. They hold the op functions,
-  eval's refusals, and the host ops' checks to what a start from source
+  eval's refusals, and the host op's check to what a start from source
   gives, and eval's refusals on each of eval's engines, jitless and with
   the JIT, each engine a child's. `cargo xtask build --verify` runs them
   built with the build's profile, with one more
@@ -665,10 +649,10 @@ Invariants that live in the code:
   implementation's, and so is the run's record of refusals
   (`loader::refused::Refusals`), the loader's, which `OpState` holds for
   any op (`loader::RefusalLog`): the `import()`s the loader refuses by
-  rule, and each call a host op refuses for a grant its handle lacks,
-  recorded by the op as it throws (`env`'s `not_granted`), one record
-  listed, cut, and counted alike, so either fails the run caught or not;
-  an op refusal by `env`'s root also records the grant that would have
+  rule, and each call a native member refuses for a grant its handle
+  lacks, recorded by the member as it throws (`env`'s `not_granted`), one
+  record listed, cut, and counted alike, so either fails the run caught or
+  not; a refusal by `env`'s root also records the grant that would have
   allowed it (`NeededGrant`), from which `fgro` prints its hint. No
   in-process test grants a step that returns: a program that exits is run
   in a child process.

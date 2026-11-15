@@ -1,6 +1,6 @@
 //! `fgro run`: starts the engine and runs one module until its event loop
 //! drains or the program exits, printing its failure, then each `import()`
-//! and host op's call gro's rules refused, which fail the run too, and
+//! and host function's call gro's rules refused, which fail the run too, and
 //! leaves the runtime as it is, since the process exits next.
 //! [`exit_code`] is the one place the run's exit code is decided, however
 //! the run ended.
@@ -42,8 +42,8 @@ enum Ended {
 
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
-/// prints its failure if it failed, then the `import()`s and host ops'
-/// calls gro's rules refused, and returns the exit code ([`exit_code`]). A
+/// prints its failure if it failed, then the `import()`s and host
+/// functions' calls gro's rules refused, and returns the exit code ([`exit_code`]). A
 /// program that calls `exit` never gets here: [`exit_now`] ends the process
 /// from inside the call.
 pub fn run_module(run: &RunInvocation) -> u8 {
@@ -82,7 +82,7 @@ fn exit_now(exit: &Exit) -> ! {
 }
 
 /// The exit code of a run that `ended` so, and in which gro's rules
-/// `refused` an `import()` or a host op's call, or didn't: the one place
+/// `refused` an `import()` or a host function's call, or didn't: the one place
 /// the rules meet.
 ///
 /// - A program's code passes as it is, 0 to 255: the one it gave `exit`, or

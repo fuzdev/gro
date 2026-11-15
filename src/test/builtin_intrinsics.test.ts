@@ -62,19 +62,7 @@ traps, and call its functions with hostile arguments (`crates/gro_cli/tests/host
 const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
 	Error: {
 		type: 'ErrorConstructor',
-		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. An error row also hands it to its op as it is, which makes it the host's class's prototype natively and reads nothing of it."
-	},
-	ObjectAssign: {
-		type: '<T extends object, U>(target: T, source: U) => T & U',
-		why: "defines nothing: it reads each own enumerable property of the source and sets it on the target, so the source is a literal of the implementation's own, with no getter, and the target has a null prototype, where no setter is inherited."
-	},
-	ObjectCreate: {
-		type: '(prototype: null) => object',
-		why: 'declared for a null prototype alone, with no descriptors, so what it makes inherits nothing and nothing is read to make it.'
-	},
-	ObjectFreeze: {
-		type: '<T>(value: T) => Readonly<T>',
-		why: "reads no property through a prototype: it redefines the own properties of its argument, a value the implementation or an op made, never one a caller passed, whose proxy's traps it would call."
+		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. Every row also hands it to the namespace op as it is, which makes it the host's classes' prototype natively and reads nothing of it."
 	}
 };
 
@@ -95,7 +83,7 @@ const REVIEWED_INTRINSICS: ReviewedIntrinsics = {
 	others: [
 		{
 			text: 'type Readonly<T> = { readonly [K in keyof T]: T[K] };',
-			why: 'a type the compiler asks for by name, and what `ObjectFreeze` is declared to return: a type alone, which names no value.'
+			why: 'a type the compiler asks for by name, and what `bootstrap.d.ts` declares a handle method to return: a type alone, which names no value.'
 		}
 	]
 };
@@ -105,11 +93,15 @@ const rows = read_builtin_rows();
 // what every implementation starts with, where the mutants go
 const TOP_LEVEL = '\tconst { core, primordials } = bootstrap;\n';
 
+// what a mutant hands a value to so the value is used: a function of its own, typed for any
+// value, which reads nothing of it
+const KEEP = '\tconst keep = <T>(value: T): T => value;\n\tkeep;\n';
+
 /**
  * An implementation's start with `use` inside a function of its own, in place of `TOP_LEVEL`.
  */
 const in_a_function = (use: string): string =>
-	`${TOP_LEVEL}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
+	`${TOP_LEVEL}${KEEP}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
 
 /**
  * The diagnostics of the implementations' program, with `implementation` in place of the
@@ -167,24 +159,21 @@ describe.each(rows)('the $name implementation', (row) => {
 			'console;',
 			'undefined_name;'
 		]) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}\t${global}\n`);
+			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${global}\n`);
 		}
 		// a function that uses only what the implementation was given type-checks, so each
 		// one below is refused for the global it names
-		const allowed = in_a_function('primordials.ObjectAssign(primordials.ObjectCreate(null), core)');
+		const allowed = in_a_function("keep(new primordials.Error('made'))");
 		assert.deepEqual(check_program(row, source.replace(TOP_LEVEL, allowed)), []);
 		assert_refused(TOP_LEVEL, in_a_function('Object.assign(core, core)'));
-		assert_refused(TOP_LEVEL, in_a_function('primordials.ObjectAssign(Object.create(null), core)'));
+		assert_refused(TOP_LEVEL, in_a_function('keep(Object.create(null))'));
 	});
 
 	test('a member of an intrinsic is refused', () => {
 		// a function's method and property, at the top level and in a function
-		assert_refused(TOP_LEVEL, `${TOP_LEVEL}\tprimordials.ObjectCreate.name;\n`);
-		assert_refused(
-			TOP_LEVEL,
-			in_a_function('primordials.ObjectAssign.call(undefined, core, core)')
-		);
-		assert_refused(TOP_LEVEL, in_a_function('primordials.ObjectAssign.bind(undefined)'));
+		assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\tprimordials.Error.name;\n`);
+		assert_refused(TOP_LEVEL, in_a_function("primordials.Error.call(undefined, 'made')"));
+		assert_refused(TOP_LEVEL, in_a_function('primordials.Error.bind(undefined)'));
 		// an array's, a string's, and an object's
 		for (const member of [
 			'[core].length;',
@@ -194,13 +183,13 @@ describe.each(rows)('the $name implementation', (row) => {
 			'({ core }).toString();',
 			'({ core }).constructor;'
 		]) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}\t${member}\n`);
+			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${member}\n`);
 		}
 	});
 
 	test('a promise and `this` are refused', () => {
 		for (const use of ['(async () => 1)();', "import('x');", 'this;']) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
 		}
 	});
 
@@ -210,51 +199,39 @@ describe.each(rows)('the $name implementation', (row) => {
 		// alone refuses it
 		for (const [use, refused, accepted] of [
 			// iteration
-			['for (const item of [core]) primordials.ObjectFreeze(item);', ['for-of'], true],
-			['primordials.ObjectCreate(...[null]);', ['spread'], true],
+			['for (const item of [core]) keep(item);', ['for-of'], true],
+			['keep(...[null]);', ['spread'], true],
 			['[...[core]];', ['spread'], true],
-			['const [first] = [core];\n\tprimordials.ObjectFreeze(first);', ['array pattern'], true],
-			[
-				'let first;\n\t[first] = [core];\n\tprimordials.ObjectFreeze(first);',
-				['destructuring assignment'],
-				true
-			],
+			['const [first] = [core];\n\tkeep(first);', ['array pattern'], true],
+			['let first;\n\t[first] = [core];\n\tkeep(first);', ['destructuring assignment'], true],
 			['(function* () {\n\t\tyield 1;\n\t});', ['generator'], false],
 			['({ ...core });', ['object spread'], true],
 			// an accessor in a literal, which reading the literal calls
-			[
-				'primordials.ObjectAssign(primordials.ObjectCreate(null), {\n\t\tget ops() {\n\t\t\treturn 1;\n\t\t}\n\t});',
-				['accessor'],
-				true
-			],
-			[
-				'primordials.ObjectAssign(primordials.ObjectCreate(null), {\n\t\tset ops(_value: number) {}\n\t});',
-				['accessor'],
-				true
-			],
+			['keep({\n\t\tget ops() {\n\t\t\treturn 1;\n\t\t}\n\t});', ['accessor'], true],
+			['keep({\n\t\tset ops(_value: number) {}\n\t});', ['accessor'], true],
 			// the other protocols
 			['core instanceof primordials.Error;', ['instanceof'], true],
-			['for (const key in core) primordials.ObjectFreeze(key);', ['for-in'], true],
+			['for (const key in core) keep(key);', ['for-in'], true],
 			["'ops' in core;", ['in'], true],
 			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
 			["import('x');", ['any', 'import'], false],
 			["import.defer('x');", ['import'], false],
-			['using held = core;\n\tprimordials.ObjectFreeze(held);', ['using'], false],
+			['using held = core;\n\tkeep(held);', ['using'], false],
 			[
 				'(async () => {\n\t\tawait using held = core;\n\t\theld.ops;\n\t});',
 				['async', 'member', 'using'],
 				false
 			],
-			['primordials.ObjectFreeze``;', ['tagged template'], false],
+			['keep``;', ['tagged template'], false],
 			['class Failure extends primordials.Error {}\n\tnew Failure();', ['extends'], true],
 			// a string or a number made of a value that isn't primitive
 			['`${core}`;', ['coercion'], true],
 			["'' + core;", ['coercion'], true],
-			["let text = '';\n\ttext += core;\n\tprimordials.ObjectFreeze(text);", ['coercion'], true],
+			["let text = '';\n\ttext += core;\n\tkeep(text);", ['coercion'], true],
 			['core == bootstrap.core;', ['coercion'], true],
 			['core < bootstrap.core;', ['coercion'], true],
 			['+core;', ['coercion'], true],
-			['({ [primordials.ObjectCreate(null)]: 1 });', ['coercion'], false],
+			['({ [keep({ __proto__: null })]: 1 });', ['coercion'], false],
 			// of a value whose type says nothing, or not enough, of what it is
 			['((given: unknown) => `${given}`);', ['coercion'], true],
 			['((given: string | object) => `${given}`);', ['coercion'], true],
@@ -262,19 +239,15 @@ describe.each(rows)('the $name implementation', (row) => {
 			['((given: string & { brand: true }) => `${given}`);', ['coercion'], true],
 			["((loose: any) => '' + loose);", ['any', 'coercion'], true],
 			// of what a function typed to return nothing returned
-			[
-				'const quiet: () => void = () => core;\n\tprimordials.ObjectFreeze(`${quiet()}`);',
-				['coercion'],
-				true
-			],
+			['const quiet: () => void = () => core;\n\tkeep(`${quiet()}`);', ['coercion'], true],
 			// of a binding a closure assigns after its type was checked
 			[
-				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext = core;\n\t};\n\tset();\n\tprimordials.ObjectFreeze(`${text}`);",
+				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext = core;\n\t};\n\tset();\n\tkeep(`${text}`);",
 				['coercion'],
 				true
 			],
 			[
-				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext ||= core;\n\t};\n\tset();\n\tprimordials.ObjectFreeze(`${text}`);",
+				"let text: string | object = '';\n\tconst set = (): void => {\n\t\ttext ||= core;\n\t};\n\tset();\n\tkeep(`${text}`);",
 				['coercion'],
 				true
 			],
@@ -282,35 +255,23 @@ describe.each(rows)('the $name implementation', (row) => {
 			['({ core }).core;', ['member'], true],
 			["((given: { name: string }) => given.name)({ name: '' });", ['member'], true],
 			["(({ name }: { name: string }) => name)({ name: '' });", ['member'], true],
-			["const { name } = { name: '' };\n\tprimordials.ObjectFreeze(name);", ['member'], true],
+			["const { name } = { name: '' };\n\tkeep(name);", ['member'], true],
 			["const made = { name: '' };\n\tmade.name;", ['member'], true],
 			['let ops = core;\n\tops = core;\n\tops.ops;', ['member'], true],
 			['core?.ops;', ['member'], true],
 			['for (const item of [core]) item.ops;', ['for-of', 'member'], true],
 			['const [first] = core;\n\tfirst.ops;', ['array pattern', 'member'], false],
-			[
-				"const key = 'ops';\n\tconst { [key]: ops } = core;\n\tprimordials.ObjectFreeze(ops);",
-				['member'],
-				true
-			],
+			["const key = 'ops';\n\tconst { [key]: ops } = core;\n\tkeep(ops);", ['member'], true],
 			["core['ops'];", ['member'], true],
-			['const { ops = 1 } = core;\n\tprimordials.ObjectFreeze(ops);', ['member'], true],
+			['const { ops = 1 } = core;\n\tkeep(ops);', ['member'], true],
 			// a rest of what the bootstrap object gave, which holds what no declaration names
 			[
-				'const { core: held, ...others } = bootstrap;\n\tprimordials.ObjectFreeze(held);\n\tprimordials.ObjectFreeze(others);',
+				'const { core: held, ...others } = bootstrap;\n\tkeep(held);\n\tkeep(others);',
 				['object rest'],
 				true
 			],
-			[
-				'const {\n\t\tcore: { ...all }\n\t} = bootstrap;\n\tprimordials.ObjectFreeze(all);',
-				['object rest'],
-				true
-			],
-			[
-				"const { ...copy } = { name: '' };\n\tprimordials.ObjectFreeze(copy);",
-				['member', 'object rest'],
-				true
-			],
+			['const {\n\t\tcore: { ...all }\n\t} = bootstrap;\n\tkeep(all);', ['object rest'], true],
+			["const { ...copy } = { name: '' };\n\tkeep(copy);", ['member', 'object rest'], true],
 			[
 				'class Handle {\n\t\tbrand = 1;\n\t\tread(): number {\n\t\t\treturn this.brand;\n\t\t}\n\t}\n\tnew Handle();',
 				['member'],
@@ -326,7 +287,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			['const made = { count: 0 };\n\t++made.count;', ['member', 'property write'], true],
 			['const made = { count: 0 };\n\tmade.count += 1;', ['member', 'property write'], true],
 			[
-				'let held;\n\t({ core: held } = bootstrap);\n\tprimordials.ObjectFreeze(held);',
+				'let held;\n\t({ core: held } = bootstrap);\n\tkeep(held);',
 				['destructuring assignment'],
 				true
 			],
@@ -337,7 +298,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			['(function () {\n\t\treturn arguments;\n\t});', ['arguments'], true],
 			['(core as { ops: object }).ops;', ['member', 'type assertion'], true],
 			[
-				'(primordials.ObjectCreate(null) as unknown as { slice(): string }).slice();',
+				'(keep({ __proto__: null }) as unknown as { slice(): string }).slice();',
 				['member', 'type assertion'],
 				true
 			],
@@ -377,7 +338,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			// what it doesn't refuse: a member of what the bootstrap object gave, by a pattern
 			// or a name, a private name, a spread of a literal, and a string made of primitives
 			['bootstrap.core.ops;', [], true],
-			['const { ops } = core;\n\tprimordials.ObjectFreeze(ops);', [], true],
+			['const { ops } = core;\n\tkeep(ops);', [], true],
 			['const given = core;\n\tgiven.ops;', [], true],
 			[
 				'class Handle {\n\t\t#brand = 1;\n\t\tread(): number {\n\t\t\treturn this.#brand;\n\t\t}\n\t}\n\tnew Handle();',
@@ -385,12 +346,12 @@ describe.each(rows)('the $name implementation', (row) => {
 				true
 			],
 			[
-				'class Handle {\n\t\t#brand = 1;\n\t\tstatic is(value: object): boolean {\n\t\t\treturn #brand in value;\n\t\t}\n\t}\n\tprimordials.ObjectFreeze(Handle);',
+				'class Handle {\n\t\t#brand = 1;\n\t\tstatic is(value: object): boolean {\n\t\t\treturn #brand in value;\n\t\t}\n\t}\n\tkeep(Handle);',
 				[],
 				true
 			],
 			['({ ...{ core } });', [], true],
-			["primordials.ObjectFreeze('made' as const);", [], true],
+			["keep('made' as const);", [], true],
 			["`${1}${''}`;", [], true],
 			['`${true}${1n}${null}${undefined}`;', [], true],
 			["((given: unknown) => (typeof given === 'string' ? `${given}` : ''));", [], true],
@@ -404,7 +365,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			],
 			["1 + 1 < 3 === ('' + 1 === '1');", [], true]
 		] satisfies Array<[string, Array<string>, boolean]>) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
 			assert.notStrictEqual(mutated, source);
 			const analysis = analyze_implementation(row, mutated);
 			assert.deepEqual(analysis.refused, refused, use);
@@ -414,7 +375,8 @@ describe.each(rows)('the $name implementation', (row) => {
 
 	test('each operator that makes a string or a number of a value that is not one is refused', () => {
 		const refused = (use: string): Array<string> =>
-			analyze_implementation(row, source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`)).refused;
+			analyze_implementation(row, source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`))
+				.refused;
 		const binary = ['+', '-', '*', '**', '/', '%', '<<', '>>', '>>>', '&', '|', '^'];
 		for (const operator of [...binary, '==', '!=', '<', '<=', '>', '>=']) {
 			// either operand
@@ -422,7 +384,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			assert.deepEqual(refused(`1 ${operator} core;`), ['coercion'], `1 ${operator} core`);
 		}
 		for (const operator of binary) {
-			const use = `let made = 1;\n\tmade ${operator}= core;\n\tprimordials.ObjectFreeze(made);`;
+			const use = `let made = 1;\n\tmade ${operator}= core;\n\tkeep(made);`;
 			assert.deepEqual(refused(use), ['coercion'], `${operator}=`);
 		}
 		for (const operator of ['+', '-', '~', '++', '--']) {
@@ -433,7 +395,7 @@ describe.each(rows)('the $name implementation', (row) => {
 		}
 		// and none of them of numbers
 		for (const operator of binary) {
-			const use = `let made = 1;\n\tmade ${operator}= 2 ${operator} 3;\n\tprimordials.ObjectFreeze(-made);`;
+			const use = `let made = 1;\n\tmade ${operator}= 2 ${operator} 3;\n\tkeep(-made);`;
 			assert.deepEqual(refused(use), [], use);
 		}
 	});
@@ -475,7 +437,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
 			["import('x');", ['import'], false]
 		] satisfies Array<[string, Array<string>, boolean]>) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
 			const analysis = analyze_implementation(row, mutated, declarations);
 			assert.deepEqual(analysis.refused, refused, use);
 			assert.strictEqual(analysis.diagnostics.length === 0, accepted, `${use}: the program`);
@@ -487,11 +449,8 @@ describe.each(rows)('the $name implementation', (row) => {
 		const declared = '\treadonly core: {\n';
 		assert.include(declarations, declared, 'the declaration to mutate is there');
 		// read as a member, and bound by a pattern
-		for (const use of [
-			'bootstrap.maybe;',
-			'const { maybe } = bootstrap;\n\tprimordials.ObjectFreeze(maybe);'
-		]) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}\t${use}\n`);
+		for (const use of ['bootstrap.maybe;', 'const { maybe } = bootstrap;\n\tkeep(maybe);']) {
+			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
 			for (const [member, refused] of [
 				['readonly maybe: object;', []],
 				['readonly maybe?: object;', ['member']]
@@ -616,8 +575,8 @@ describe('what the bootstrap object gives', () => {
 				['primordials.ArrayPrototypeMap']
 			],
 			[
-				mutate(bootstrap, '(prototype: null) => object', '(prototype: object | null) => object'),
-				['primordials.ObjectCreate: (prototype: object | null) => object']
+				mutate(bootstrap, 'readonly Error: ErrorConstructor;', 'readonly Error: object;'),
+				['primordials.Error: object']
 			],
 			// an optional member, and a method
 			[
@@ -627,8 +586,8 @@ describe('what the bootstrap object gives', () => {
 			[mutate(bootstrap, core, `\tload(): object;\n${core}`), ['Bootstrap: load(): object;']],
 			// a reviewed primordial that's no longer declared
 			[
-				mutate(bootstrap, '\t\treadonly ObjectFreeze: <T>(value: T) => Readonly<T>;\n', ''),
-				['primordials.ObjectFreeze is reviewed and gone']
+				mutate(bootstrap, '\t\treadonly Error: ErrorConstructor;\n', ''),
+				['primordials.Error is reviewed and gone']
 			],
 			// a second declaration, another name, and members taken from another interface
 			[

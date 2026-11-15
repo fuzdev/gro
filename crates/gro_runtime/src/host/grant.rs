@@ -101,7 +101,8 @@ fn require_capability(state: &OpState, capability: Capability) -> Result<(), Not
 /// What a row whose grant is `grant` requires, named at run time: that
 /// grant, as [`require`] checks it, or, for a grant-free row, an authority
 /// ([`require_authority`]). For the op that serves every row with native
-/// members, which learns the row from its argument; it makes no token.
+/// members, which learns the row from the script that calls it; it makes
+/// no token.
 pub fn require_grant(state: &OpState, grant: Option<Capability>) -> Result<(), NotGranted> {
     grant.map_or_else(
         || require_authority(state),

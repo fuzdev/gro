@@ -177,7 +177,7 @@ Eval imports no builtin module for now, a grant-free one included, so a host mod
 a `resolve` naming the grant it needs when it has one, as `@fuzdev/gro/args.ts` does, and saying only that eval imports no builtin module
 when it has none, as for `@fuzdev/gro/cwd.ts`, `pid.ts`, and `runtime_version.ts`, which would each tell an eval a fact of the machine
 ([resolver](resolver.md#builtin-modules)), or, with an import attribute, a `link`.
-The ops behind a builtin module refuse in an eval too, whatever reached them.
+The host functions behind a builtin module refuse in an eval too, whatever reached them.
 A specifier the builtin table reserves (`@fuzdev/gro/args.js`, a host module not built yet, `@fuzdev/gro/process.ts`, a respelling of any of these or of a builtin module's) is a `resolve` before that, as in [run](run.md).
 
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.

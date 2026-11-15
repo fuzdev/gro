@@ -14,32 +14,24 @@ interface Bootstrap {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
 			/**
-			 * The env host module's root handle, made of the prototype the implementation gives,
-			 * so of its type, the realm's `Error` handed over for the class the host throws.
-			 */
-			readonly op_gro_env_root: <T extends object>(prototype: T, error: ErrorConstructor) => T;
-			/** `get`, the receiver handed over: a value, or `undefined` when it's unset. */
-			readonly op_gro_env_get: (handle: unknown, name: unknown) => string | undefined;
-			/** `get_all`, the receiver handed over: the handle's frozen null-prototype record. */
-			readonly op_gro_env_get_all: (handle: unknown) => Readonly<{ [name: string]: string }>;
-			/** `narrow`, the receiver handed over: a handle of the receiver's prototype, its type. */
-			readonly op_gro_env_narrow: <T>(handle: T, names: unknown) => T;
-			/**
 			 * The namespace of the row whose script calls it, the host's: each member a native
 			 * function or a value the host makes the first time the run asks, and holds. The host knows the row
-			 * by the calling script; the type argument names it for the types alone, which are
-			 * claims, held to the Node module's by the types test. The script hands over its scope
-			 * and the realm's `Error`.
+			 * by the calling script; the type arguments name it, and the type of the handle its
+			 * namespace holds, which only the row's script can name, since a handle's methods
+			 * return its own type, for the types alone, which are claims, held to the Node module's
+			 * by the types test. The script hands over its scope and the realm's `Error`.
 			 */
 			readonly op_gro_namespace: <
 				Row extends
 					| '@fuzdev/gro/args.ts'
 					| '@fuzdev/gro/blake3.ts'
 					| '@fuzdev/gro/cwd.ts'
+					| '@fuzdev/gro/env.ts'
 					| '@fuzdev/gro/env_error.ts'
 					| '@fuzdev/gro/exit.ts'
 					| '@fuzdev/gro/pid.ts'
-					| '@fuzdev/gro/runtime_version.ts'
+					| '@fuzdev/gro/runtime_version.ts',
+				Handle = never
 			>(
 				scope: undefined,
 				error: ErrorConstructor
@@ -66,6 +58,10 @@ interface Bootstrap {
 				};
 				readonly '@fuzdev/gro/cwd.ts': {
 					readonly cwd: () => string;
+					readonly default: undefined;
+				};
+				readonly '@fuzdev/gro/env.ts': {
+					readonly env: Handle;
 					readonly default: undefined;
 				};
 				readonly '@fuzdev/gro/env_error.ts': {
@@ -113,8 +109,5 @@ interface Bootstrap {
 	/** The intrinsics, each taken by name when the runtime is made, before any user code runs. */
 	readonly primordials: {
 		readonly Error: ErrorConstructor;
-		readonly ObjectAssign: <T extends object, U>(target: T, source: U) => T & U;
-		readonly ObjectCreate: (prototype: null) => object;
-		readonly ObjectFreeze: <T>(value: T) => Readonly<T>;
 	};
 }
