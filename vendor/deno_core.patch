@@ -61,6 +61,21 @@ index 5bae182..062c57e 100644
      );
  
      // Fast path: if the module is already loaded, resolve the import
+diff --git a/modules/map/ext_script.rs b/modules/map/ext_script.rs
+index 735f037..1a9b51d 100644
+--- a/modules/map/ext_script.rs
++++ b/modules/map/ext_script.rs
+@@ -465,6 +465,10 @@ impl ModuleMap {
+     scope: &mut v8::PinScope,
+     specifier: &str,
+   ) -> Result<ModuleId, CoreError> {
++    // gro patch: the module already registered under the specifier, so every import of it gets one module
++    if let Some(module_id) = self.get_id(specifier, RequestedModuleType::None) {
++      return Ok(module_id);
++    }
+     let backing_specifier = {
+       let data = self.data.borrow();
+       let modules = data.synthetic_esm_modules.borrow();
 diff --git a/modules/module_map_data.rs b/modules/module_map_data.rs
 index a5070ed..ebccba8 100644
 --- a/modules/module_map_data.rs

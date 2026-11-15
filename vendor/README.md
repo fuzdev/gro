@@ -44,8 +44,9 @@ The patch makes a V8 startup snapshot a function of its inputs: the same
 sources make the same blob, byte for byte, in every process and checkout. It
 also turns off source maps, makes one internal key public for gro's
 prepare-stack-trace callback, refuses a source-phase import of a synthetic
-module, hands the loader an `import()`'s attributes, and gives each op's
-function addresses (the sections after the snapshot's).
+module, hands the loader an `import()`'s attributes, builds one module per
+synthetic module's specifier, and gives each op's function addresses (the
+sections after the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -145,6 +146,37 @@ it does a static import's. A static import's reach the loader already.
 
 Reportable upstream: yes, so a loader sees the attributes of both forms of
 import.
+
+### One module per synthetic module's specifier
+
+A load registers a synthetic module it reaches by building one from the
+backing script's exports (`load_ext_script` runs the script once and keeps
+its result), whether or not a module of that specifier was built already,
+and the new one replaced the old under its name. Only an evaluation-phase
+`import()` of a module already built is answered from the module map, so
+an `import.defer()` of a synthetic module always built another: after
+`import(x)`, `import.defer(x)`, `import(x)`, the last import got another
+namespace than the first, of the same values. A load whose module another
+load built after it began, which a loader that answers in a later turn
+allows, built another the same way.
+
+- `modules/map/ext_script.rs`, `ModuleMap::build_synthetic_esm_module`:
+  returns the module already registered under the specifier, if there is
+  one, before building one
+
+Its other callers looked the module up first already
+(`lazy_load_synthetic_esm_module`, the `import()` fast path, and
+`try_resolve_synthetic_esm`, from V8's resolve callback), so only a load's
+registration (`RecursiveModuleLoad::register_and_recurse_impl`) changes. A
+build that fails registers nothing, so the next import runs the backing
+script again, as before.
+
+`gro_cli`'s `an_import_defer_between_imports_of_a_builtin_gets_its_one_module`
+holds it. An upgrade whose `deno_core` looks the specifier up before
+building drops this hunk and keeps the test.
+
+Reportable upstream: yes, as one module per specifier, which the fast path
+and the resolve callback keep already.
 
 ### The op functions' addresses
 

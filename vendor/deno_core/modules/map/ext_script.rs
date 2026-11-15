@@ -465,6 +465,10 @@ impl ModuleMap {
     scope: &mut v8::PinScope,
     specifier: &str,
   ) -> Result<ModuleId, CoreError> {
+    // gro patch: the module already registered under the specifier, so every import of it gets one module
+    if let Some(module_id) = self.get_id(specifier, RequestedModuleType::None) {
+      return Ok(module_id);
+    }
     let backing_specifier = {
       let data = self.data.borrow();
       let modules = data.synthetic_esm_modules.borrow();

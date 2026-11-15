@@ -24,6 +24,9 @@
 //! its caller's stack, so the loader refuses one with too little left before
 //! anything of it runs, and a later import with enough makes the module
 //! whole.
+//!
+//! And every builtin imported, deferred, and imported again: each import
+//! gets the one module.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -956,5 +959,54 @@ fn a_first_import_short_of_stack_is_refused_and_run_whole_later() {
             assert_eq!(row["exports"], serde_json::json!(exports), "{entry}: {row}");
             assert_eq!(row["same"], true, "{entry}: {row}");
         }
+    }
+}
+
+/// Every import of a builtin gets one module, an `import.defer()` between
+/// them included: for every row of the table, `import()`, then
+/// `import.defer()`, then `import()` again, each awaited, and the last
+/// import gets the first one's namespace, and the deferred one the same
+/// values. `deno_core` answers only an evaluation-phase `import()` of a
+/// module it built already from its map, so the deferred import loads the
+/// builtin again, and that load builds no second module of it (`deno_core`
+/// patched, `vendor/README.md`), which the next import would have got.
+#[test]
+fn an_import_defer_between_imports_of_a_builtin_gets_its_one_module() {
+    let specifiers: Vec<&str> = BUILTINS.iter().map(|builtin| builtin.specifier).collect();
+    let main = format!(
+        "const rows = [];
+for (const specifier of {}) {{
+\tconst first = await import(specifier);
+\tconst deferred = await import.defer(specifier);
+\tconst later = await import(specifier);
+\tconst values = Object.keys(first).every((key) => deferred[key] === first[key]);
+\trows.push({{ specifier, same: later === first, values }});
+}}
+console.log(JSON.stringify(rows));
+",
+        serde_json::to_string(&specifiers).unwrap()
+    );
+    let project = Scratch::new(
+        "deferred",
+        &[
+            ("package.json", "{\"type\": \"module\"}\n"),
+            ("main.js", &main),
+        ],
+    );
+    let mut command = fgro_command(&["run", GRANT_ENV, "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}: {stderr}", output.status);
+    assert_eq!(stderr, "");
+    let rows: Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout}"));
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), BUILTINS.len(), "{rows:?}");
+    for (row, builtin) in rows.iter().zip(BUILTINS) {
+        assert_eq!(row["specifier"], builtin.specifier, "{row}");
+        assert_eq!(row["same"], true, "{row}");
+        assert_eq!(row["values"], true, "{row}");
     }
 }
