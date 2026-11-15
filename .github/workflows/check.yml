@@ -132,5 +132,7 @@ jobs:
       # never cached.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # rust-cache sets CARGO_INCREMENTAL for later steps; the clone builds from
+      # a cleared environment, so the check refuses it unless both builds lose it.
       - name: Check that fgro builds reproducibly
-        run: cargo xtask check-reproducible
+        run: env -u CARGO_INCREMENTAL cargo xtask check-reproducible
