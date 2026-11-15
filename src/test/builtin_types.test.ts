@@ -307,7 +307,7 @@ describe('a retyped export fails its check', () => {
 	test('env_error', () => {
 		// the class's constructor, its instances, and its guard, each claimed by the host
 		const claim =
-			"readonly op_gro_env_error: (error: ErrorConstructor) => {\n\t\t\t\treadonly EnvError: new (\n\t\t\t\t\tkind: 'not_granted',";
+			"readonly '@fuzdev/gro/env_error.ts': {\n\t\t\t\t\treadonly EnvError: new (\n\t\t\t\t\t\tkind: 'not_granted',";
 		assert_mismatch('env_error', 'bootstrap', claim, claim.replace("'not_granted',", 'string,'));
 		assert_mismatch(
 			'env_error',
@@ -319,11 +319,11 @@ describe('a retyped export fails its check', () => {
 		assert_mismatch(
 			'env_error',
 			'bootstrap',
-			'target: string,\n\t\t\t\t\toptions?: { cause?: unknown }',
-			'target: string,\n\t\t\t\t\tmessage?: string,\n\t\t\t\t\toptions?: { cause?: unknown }'
+			'target: string,\n\t\t\t\t\t\toptions?: { cause?: unknown }',
+			'target: string,\n\t\t\t\t\t\tmessage?: string,\n\t\t\t\t\t\toptions?: { cause?: unknown }'
 		);
 		const instance =
-			"readonly kind: 'not_granted';\n\t\t\t\t\treadonly target: string;\n\t\t\t\t};\n\t\t\t\treadonly is_env_error";
+			"readonly kind: 'not_granted';\n\t\t\t\t\t\treadonly target: string;\n\t\t\t\t\t};\n\t\t\t\t\treadonly is_env_error";
 		assert_mismatch(
 			'env_error',
 			'bootstrap',
@@ -333,11 +333,12 @@ describe('a retyped export fails its check', () => {
 		assert_mismatch(
 			'env_error',
 			'bootstrap',
-			"kind?: 'not_granted'\n\t\t\t\t) => error is {",
-			'kind?: string\n\t\t\t\t) => error is {'
+			"kind?: 'not_granted'\n\t\t\t\t\t) => error is {",
+			'kind?: string\n\t\t\t\t\t) => error is {'
 		);
 		// the realm's `Error` not handed over
-		assert_mismatch('env_error', 'builtin', 'op_gro_env_error(Error)', 'op_gro_env_error()');
+		const call = "op_gro_namespace<'@fuzdev/gro/env_error.ts'>(_scope, Error)";
+		assert_mismatch('env_error', 'builtin', call, call.replace(', Error', ''));
 		assert_mismatch(
 			'env_error',
 			'node',

@@ -569,6 +569,7 @@ but it runs no code of a caller's: a proxy is no error of the family, nor is a v
 where Node runs their traps (and throws for a revoked one),
 and it reads `constructor`, the constructor's `name`, and `kind` only as data properties, so an accessor there is no match, where Node calls the getter.
 The class's and the guard's source text are native code's.
+The guard is frozen, as every function of a builtin is, its `length` and `name` not configurable, where Node's isn't.
 
 ## net
 

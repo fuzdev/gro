@@ -1,16 +1,17 @@
 //! The host's error classes: one per family of the host modules' errors,
 //! made natively, once a run, the first time anything needs it, and held
-//! by the host, so the family's error row exports it and any op can throw
-//! it.
+//! by the host, so the family's error row exports it and any native member
+//! can throw it.
 //!
 //! A class is what the Node module's class is to a program: a frozen
 //! function whose instances are real errors (`Error.isError`, a stack,
 //! `structuredClone` and JSON as an `Error`'s), each with its own `name`,
 //! `kind`, and target, and `cause` when the options give one, whose
 //! prototype is frozen and inherits from the realm's `Error.prototype`,
-//! and which a class of the program's can extend. Its guard recognizes an
-//! instance of it, or of a class of the same name, by its prototype chain,
-//! as the Node module's guard does.
+//! and which a class of the program's can extend. Its guard, a native
+//! member of the error row (`native.rs`), recognizes an instance of it, or
+//! of a class of the same name, by its prototype chain, as the Node
+//! module's guard does ([`is_of_family`]).
 //!
 //! Neither runs code of a caller's but where the Node class does: the
 //! constructor converts the kind and the target to strings for its
@@ -23,18 +24,23 @@
 //! on the way, for no match, where the Node guard runs the proxy's traps
 //! and the getter.
 //!
+//! The constructor checks no grant, where every native member checks its
+//! row's: it reads none of the run's state and reaches nothing a grant
+//! guards, as the Node class doesn't, and a runtime with no authority,
+//! eval's, never makes a class, since its start puts no [`ErrorClasses`]
+//! and the namespace op refuses it before reading them.
+//!
 //! Where it comes from: the realm's `Error.prototype` is the prototype of
 //! an error V8 makes, which no program can replace, and the realm's `Error`,
 //! which the class extends, is handed over from `primordials`, taken before
-//! any program ran, by the implementation of a row whose namespace or root
-//! the host makes (the error row's, and a row whose ops throw a family's
-//! errors): the host has no native way to it that a program can't have
+//! any program ran, by the implementation of every row whose namespace the
+//! host makes: the host has no native way to it that a program can't have
 //! replaced, and taking it at every start would cost every start. The first
 //! handed over is held for the run ([`ErrorClasses::hold_error`]), once it's
 //! checked to be a function whose own `prototype` is the realm's
-//! `Error.prototype`, so an op that throws a family's error finds it,
-//! whichever row's import came first, and an op is reached only through a
-//! row whose import handed it over. Nothing of the class is in the snapshot,
+//! `Error.prototype`, so a member that throws a family's error finds it,
+//! whichever row's import came first, and a member is reached only through
+//! a row whose import handed it over. Nothing of the class is in the snapshot,
 //! and a start that needs none makes none. A class is put in
 //! [`ErrorClasses`] only once it's whole, so an implementation ended early
 //! while the class was being made finds none, and makes it again, and one
@@ -51,22 +57,19 @@ use deno_core::v8;
 
 use super::{Thrown, name, own_data, throw_error, throw_range_error, throw_type_error};
 
-/// A family of host-module errors, as its class and its guard are named.
+/// A family of host-module errors, as its class is named.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ErrorFamily {
     /// The class's name, `EnvError`.
     pub name: &'static str,
-    /// The guard's name, `is_env_error`.
-    pub guard: &'static str,
     /// The own property naming what the error is about: `target`, the
     /// variable's name for an `EnvError`.
     pub target: &'static str,
 }
 
-/// The env host module's errors: `EnvError`, `is_env_error`.
+/// The env host module's errors: `EnvError`.
 pub const ENV_ERROR: ErrorFamily = ErrorFamily {
     name: "EnvError",
-    guard: "is_env_error",
     target: "target",
 };
 
@@ -75,10 +78,10 @@ pub const ENV_ERROR: ErrorFamily = ErrorFamily {
 /// builtin table, as a test holds it.
 const FAMILIES: [&ErrorFamily; 1] = [&ENV_ERROR];
 
-/// What an op that throws a family's error throws when the run holds no
-/// realm `Error` to make the class from.
+/// What a member that needs a family's class throws when the run holds
+/// no realm `Error` to make the class from.
 const NO_REALM_ERROR: &str = "the host holds no realm Error to make an error class from: \
-                              no row whose ops throw one handed it over";
+                              no row's import handed it over";
 
 /// What a family's class's native function throws when its family isn't
 /// one of [`FAMILIES`], naming it.
@@ -86,8 +89,8 @@ fn missing_family(name: &str) -> String {
     format!("the host has no error family {name}: a family's class is one of the host's table")
 }
 
-/// What a class's functions are called with as their data: the family's
-/// name, by which they find it in [`FAMILIES`].
+/// What a class's constructor is called with as its data: the family's
+/// name, by which it finds it in [`FAMILIES`].
 fn family_of(
     data: v8::Local<'_, v8::Value>,
     scope: &v8::PinScope<'_, '_>,
@@ -97,14 +100,12 @@ fn family_of(
     FAMILIES.into_iter().find(|family| family.name == name)
 }
 
-/// A family's class and guard, made.
+/// A family's class, made.
 struct Made {
     /// The family.
     family: &'static ErrorFamily,
     /// The class.
     class: v8::Global<v8::Function>,
-    /// The guard.
-    guard: v8::Global<v8::Function>,
 }
 
 /// The error classes made in a run, and the realm's `Error` they extend,
@@ -159,56 +160,19 @@ impl ErrorClasses {
         Some(function)
     }
 
-    /// The class and guard of `family`, if the run made them.
-    fn find<'s>(
-        &self,
-        scope: &v8::PinScope<'s, '_>,
-        family: &ErrorFamily,
-    ) -> Option<(v8::Local<'s, v8::Function>, v8::Local<'s, v8::Function>)> {
-        let made = self.made.borrow();
-        let made = made.iter().find(|made| made.family == family)?;
-        Some((
-            v8::Local::new(scope, &made.class),
-            v8::Local::new(scope, &made.guard),
-        ))
-    }
-
-    /// The class and guard of `family`: the run's, made now if it has
-    /// none, extending `error`, the realm's `Error`. `None` when making
-    /// them threw, the exception pending.
-    fn get_or_make<'s>(
+    /// The class of `family`: the run's, made now if it has none,
+    /// extending the realm's `Error` the run holds. `None` when making it
+    /// threw, the exception pending, an `Error` saying so among them when
+    /// the run holds no `Error`, which no member reached through a row's
+    /// import meets.
+    pub fn class<'s>(
         &self,
         scope: &v8::PinScope<'s, '_>,
         family: &'static ErrorFamily,
-        error: v8::Local<'s, v8::Function>,
-    ) -> Option<(v8::Local<'s, v8::Function>, v8::Local<'s, v8::Function>)> {
-        if let Some(made) = self.find(scope, family) {
-            return Some(made);
+    ) -> Option<v8::Local<'s, v8::Function>> {
+        if let Some(made) = self.made.borrow().iter().find(|made| made.family == family) {
+            return Some(v8::Local::new(scope, &made.class));
         }
-        let (class, guard) = make(scope, family, error)?;
-        self.made.borrow_mut().push(Made {
-            family,
-            class: v8::Global::new(scope, class),
-            guard: v8::Global::new(scope, guard),
-        });
-        Some((class, guard))
-    }
-
-    /// Throws a new error of `family` through `scope`, of `kind`, about
-    /// `target`: what `new Class(kind, target)` makes, its message `kind:
-    /// target`, made by the family's class, which is made now if the run
-    /// has none, extending the realm's `Error` the run holds. Runs no code
-    /// of a caller's: both are strings, and the class's own `prototype` is
-    /// a data property no program can change. With no `Error` held, which
-    /// no op reached through a row that hands it over meets, it throws an
-    /// `Error` saying so instead.
-    pub fn throw<'s>(
-        &self,
-        scope: &v8::PinScope<'s, '_>,
-        family: &'static ErrorFamily,
-        kind: &str,
-        target: v8::Local<'s, v8::String>,
-    ) {
         let Some(error) = self
             .error
             .borrow()
@@ -216,9 +180,31 @@ impl ErrorClasses {
             .map(|error| v8::Local::new(scope, error))
         else {
             throw_error(scope, NO_REALM_ERROR);
-            return;
+            return None;
         };
-        let Some((class, _)) = self.get_or_make(scope, family, error) else {
+        let class = make(scope, family, error)?;
+        self.made.borrow_mut().push(Made {
+            family,
+            class: v8::Global::new(scope, class),
+        });
+        Some(class)
+    }
+
+    /// Throws a new error of `family` through `scope`, of `kind`, about
+    /// `target`: what `new Class(kind, target)` makes, its message `kind:
+    /// target`, made by the family's class, which is made now if the run
+    /// has none, extending the realm's `Error` the run holds. Runs no code
+    /// of a caller's: both are strings, and the class's own `prototype` is
+    /// a data property no program can change. With no `Error` held, it
+    /// throws an `Error` saying so instead ([`Self::class`]).
+    pub fn throw<'s>(
+        &self,
+        scope: &v8::PinScope<'s, '_>,
+        family: &'static ErrorFamily,
+        kind: &str,
+        target: v8::Local<'s, v8::String>,
+    ) {
+        let Some(class) = self.class(scope, family) else {
             return;
         };
         let Some(kind) = v8::String::new(scope, kind) else {
@@ -227,32 +213,6 @@ impl ErrorClasses {
         if let Some(instance) = class.new_instance(scope, &[kind.into(), target.into()]) {
             scope.throw_exception(instance.into());
         }
-    }
-
-    /// The namespace of `family`'s error row: a new null-prototype record
-    /// of its class, its guard, and the `default` every builtin has,
-    /// `undefined`, the class and guard made now if the run has none,
-    /// extending the realm's `Error`, which the row's implementation hands
-    /// over as `error` ([`Self::hold_error`]). `None` when making them
-    /// threw, the exception pending.
-    pub fn namespace<'s>(
-        &self,
-        scope: &v8::PinScope<'s, '_>,
-        family: &'static ErrorFamily,
-        error: v8::Local<'s, v8::Value>,
-    ) -> Option<v8::Local<'s, v8::Object>> {
-        let error = self.hold_error(scope, error)?;
-        let (class, guard) = self.get_or_make(scope, family, error)?;
-        let names = [
-            name(scope, family.name)?,
-            name(scope, family.guard)?,
-            name(scope, "default")?,
-        ];
-        let values = [class.into(), guard.into(), v8::undefined(scope).into()];
-        let null = v8::null(scope).into();
-        Some(v8::Object::with_prototype_and_properties(
-            scope, null, &names, &values,
-        ))
     }
 }
 
@@ -264,15 +224,14 @@ fn error_prototype<'s>(scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8:
     made.get_prototype(scope)
 }
 
-/// Makes `family`'s class, extending `error`, the realm's `Error`, and its
-/// guard. `None` when it threw, the exception pending: an `Error` when
-/// `family` isn't one of [`FAMILIES`], whose class's functions couldn't find
-/// it.
+/// Makes `family`'s class, extending `error`, the realm's `Error`. `None`
+/// when it threw, the exception pending: an `Error` when `family` isn't one
+/// of [`FAMILIES`], whose class's constructor couldn't find it.
 fn make<'s>(
     scope: &v8::PinScope<'s, '_>,
     family: &'static ErrorFamily,
     error: v8::Local<'s, v8::Function>,
-) -> Option<(v8::Local<'s, v8::Function>, v8::Local<'s, v8::Function>)> {
+) -> Option<v8::Local<'s, v8::Function>> {
     if !FAMILIES.contains(&family) {
         throw_error(scope, &missing_family(family.name));
         return None;
@@ -290,13 +249,7 @@ fn make<'s>(
     class.set_prototype(scope, error.into())?;
     prototype.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
     class.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
-    let guard = v8::Function::builder(guard)
-        .data(data)
-        .length(2)
-        .constructor_behavior(v8::ConstructorBehavior::Throw)
-        .build(scope)?;
-    guard.set_name(v8::String::new(scope, family.guard)?);
-    Some((class, guard))
+    Some(class)
 }
 
 /// A class's constructor, `new Class(kind, target, options?)`, as the Node
@@ -387,33 +340,11 @@ fn concat<'s>(
     joined
 }
 
-/// A class's guard, `is_error(error, kind?)`: whether `error` is an
-/// instance of a class of the family's name, by its prototype chain, and,
-/// given a `kind`, of that kind.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "the signature V8 calls a function's callback with"
-)]
-fn guard<'s>(
-    scope: &mut v8::PinScope<'s, '_>,
-    args: v8::FunctionCallbackArguments<'s>,
-    mut rv: v8::ReturnValue<'s, v8::Value>,
-) {
-    let Some(family) = family_of(args.data(), scope) else {
-        throw_error(
-            scope,
-            &missing_family(&args.data().to_rust_string_lossy(scope)),
-        );
-        return;
-    };
-    if let Ok(found) = is_of_family(scope, family, args.get(0), args.get(1)) {
-        rv.set_bool(found);
-    }
-}
-
 /// Whether `value` is an error of `family`, of `kind` unless it's
-/// `undefined`, as [`guard`] answers, reading only data properties.
-fn is_of_family(
+/// `undefined`, as its guard answers (`is_env_error(error, kind?)`), by
+/// its prototype chain, reading only data properties: a proxy, or an
+/// accessor on the way, is no match, and none is run.
+pub(super) fn is_of_family(
     scope: &v8::PinScope<'_, '_>,
     family: &ErrorFamily,
     value: v8::Local<'_, v8::Value>,
@@ -482,21 +413,17 @@ mod tests {
     use super::FAMILIES;
     use crate::resolver::BUILTINS;
 
-    /// Every error row's class and guard are a family of [`FAMILIES`], in
-    /// the table's order, and every family is a row's: the class of a
-    /// family missing from it would construct a plain object, and its
-    /// guard return `undefined`.
+    /// Every error row's class is a family of [`FAMILIES`], in the table's
+    /// order, its first export, and every family is a row's: the class of a
+    /// family missing from it would construct a plain object.
     #[test]
     fn the_families_are_the_error_rows() {
-        let rows: Vec<&[&str]> = BUILTINS
+        let rows: Vec<&str> = BUILTINS
             .iter()
             .filter(|row| row.specifier.ends_with("_error.ts"))
-            .map(|row| row.exports)
+            .map(|row| row.exports[0])
             .collect();
-        let families: Vec<[&str; 2]> = FAMILIES
-            .iter()
-            .map(|family| [family.name, family.guard])
-            .collect();
+        let families: Vec<&str> = FAMILIES.iter().map(|family| family.name).collect();
         assert!(!rows.is_empty(), "the table has an error row");
         assert_eq!(families, rows);
     }

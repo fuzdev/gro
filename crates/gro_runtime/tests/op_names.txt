@@ -174,7 +174,6 @@ op_gro_color
 op_gro_console_stderr
 op_gro_deny
 op_gro_refused
-op_gro_env_error
 op_gro_env_root
 op_gro_env_get
 op_gro_env_get_all

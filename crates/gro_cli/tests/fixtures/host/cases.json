@@ -178,6 +178,21 @@
 				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
 			},
 			{
+				"at": "/guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			},
+			{
 				"at": "/guards/proxy_of_an_error",
 				"fgro": false,
 				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"

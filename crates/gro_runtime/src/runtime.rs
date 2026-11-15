@@ -414,15 +414,16 @@ mod tests {
         ("native_members", native_members),
     ];
 
-    /// What the run's error classes are across calls of an error row's op
-    /// on a runtime started as `start` says, in a run that grants nothing:
-    /// how many classes the start made, before any call, and after the
-    /// calls, what each value handed over as the realm's `Error` before any
-    /// was held threw, whether each call made a namespace of its own over
-    /// the one class and guard, which the host made once, frozen, extending
-    /// the `Error` first held, which a later value doesn't replace.
+    /// What the run's error classes are across calls of the namespace op by
+    /// the error row's script on a runtime started as `start` says, in a run
+    /// that grants nothing: how many classes the start made, before any
+    /// call, and after the calls, what each value handed over as the realm's
+    /// `Error` before any was held threw, whether each call got the one
+    /// namespace, of the class the host made once, frozen, extending the
+    /// `Error` first held, which a later value doesn't replace, and of the
+    /// guard.
     fn error_classes(start: Start) -> Value {
-        let source = "const op = Deno.core.ops.op_gro_env_error;
+        let source = "const op = (error) => Deno.core.ops.op_gro_namespace(undefined, error);
 const not_errors = [
 	undefined,
 	{},
@@ -445,10 +446,8 @@ const c = op(TypeError);
 JSON.stringify({
 	refused,
 	held: c.EnvError === a.EnvError && Object.getPrototypeOf(a.EnvError) === Error,
-	namespaces: a !== b,
-	class: a.EnvError === b.EnvError,
-	guard: a.is_env_error === b.is_env_error,
-	frozen: Object.isFrozen(a.EnvError) && Object.isFrozen(a.EnvError.prototype),
+	namespaces: a === b && b === c,
+	frozen: Object.isFrozen(a.EnvError) && Object.isFrozen(a.EnvError.prototype) && Object.isFrozen(a.is_env_error),
 	named: a.EnvError.name === 'EnvError' && a.is_env_error.name === 'is_env_error',
 	keys: Reflect.ownKeys(a),
 	prototype: Object.getPrototypeOf(a),
@@ -458,18 +457,20 @@ JSON.stringify({
             let state = runtime.op_state();
             state.borrow_mut().put(Authority::default());
             state.borrow_mut().put(ErrorClasses::default());
+            state.borrow_mut().put(NativeNamespaces::default());
             let before = state.borrow().borrow::<ErrorClasses>().len();
             drop(state);
-            let calls = script_json(runtime, source);
+            let row = backing_script("@fuzdev/gro/env_error.ts");
+            let calls = named_script_json(runtime, row, source.to_owned());
             let after = runtime.op_state().borrow().borrow::<ErrorClasses>().len();
             json!({"before": before, "calls": calls, "after": after})
         })
     }
 
-    /// A run's error class and its guard are made the first time it needs
-    /// them, by the host, once: each call of the row's op is a new namespace
-    /// over the same frozen class and guard, from either start; a start
-    /// makes none.
+    /// A run's error class is made the first time it needs it, by the
+    /// host, once: each call of the namespace op by the row's script gets
+    /// the one namespace of the frozen class and the guard, from either
+    /// start; a start makes none.
     #[test]
     fn an_error_class_is_made_once_a_run_at_first_need() {
         for start in STARTS {
@@ -481,8 +482,6 @@ JSON.stringify({
                         "refused": vec!["TypeError: an error class extends the realm's Error"; 6],
                         "held": true,
                         "namespaces": true,
-                        "class": true,
-                        "guard": true,
                         "frozen": true,
                         "named": true,
                         "keys": ["EnvError", "is_env_error", "default"],
@@ -497,16 +496,15 @@ JSON.stringify({
     }
 
     /// A family missing from the host's table is never made a class of:
-    /// asked for its row's namespace, the host throws an `Error` naming it
-    /// and holds no class, where its class's constructor would otherwise
-    /// return a plain object and its guard `undefined`.
+    /// asked for its class, the host throws an `Error` naming it and holds
+    /// no class, where its class's constructor would otherwise return a
+    /// plain object.
     #[test]
     fn a_family_the_host_s_table_lacks_throws_when_its_class_is_made() {
         use crate::host::error_class::ErrorFamily;
 
         static MISSING: ErrorFamily = ErrorFamily {
             name: "MissingError",
-            guard: "is_missing_error",
             target: "target",
         };
         let (message, made) = on_new_runtime("missing_family", Mode::Run, |runtime| {
@@ -516,7 +514,8 @@ JSON.stringify({
             let key = v8::String::new(scope, "Error").unwrap();
             let error = global.get(scope, key.into()).unwrap();
             v8::tc_scope!(let tc, scope);
-            assert!(classes.namespace(tc, &MISSING, error).is_none());
+            assert!(classes.hold_error(tc, error).is_some());
+            assert!(classes.class(tc, &MISSING).is_none());
             let thrown = tc.exception().unwrap();
             let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
             let message = v8::String::new(tc, "message").unwrap();
@@ -960,7 +959,6 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         assert_eq!(
             HOST_OPS,
             [
-                row("op_gro_env_error", "@fuzdev/gro/env_error.ts", None),
                 row(
                     "op_gro_env_root",
                     "@fuzdev/gro/env.ts",
@@ -1122,12 +1120,12 @@ globalThis.namespaces = {};";
 }";
 
     /// What the native rows' namespaces are on a runtime started as
-    /// `start` says, in a run that grants nothing: what the namespace op
-    /// threw, first, called by a script that is no row's (one that names a
+    /// `start` says: what the namespace op threw in a run that grants
+    /// nothing, first, called by a script that is no row's (one that names a
     /// row's script in a `sourceURL` among them), by the script of a row
-    /// whose grant the run lacks and of a row with no native members, and by
-    /// a row's script with a scope or an `Error` it refuses, and whether a
-    /// trap ran; what each row's namespace op answered its own script,
+    /// whose grant the run lacks, and by a row's script with a scope or an
+    /// `Error` it refuses, and whether a trap ran; in a run that grants
+    /// every row, what each row's namespace op answered its own script,
     /// twice, and the shapes of its record and its functions; the shapes of
     /// each kind's prototype the host made with it and its methods; how many
     /// namespaces the run held before, after the refusals, and after; what a member
@@ -1184,10 +1182,6 @@ globalThis.namespaces = {};";
                 ("ext:gro/builtin/nope.ts", call("undefined", "Error")),
                 (
                     backing_script("@fuzdev/gro/args.ts"),
-                    call("undefined", "Error"),
-                ),
-                (
-                    backing_script("@fuzdev/gro/env_error.ts"),
                     call("undefined", "Error"),
                 ),
                 (blake3, call("null", "Error")),
@@ -1579,8 +1573,7 @@ globalThis.namespaces = {};";
     /// that is no row's backing script is a `TypeError`, one that names a
     /// row's script in a `sourceURL` and one of a name no row has among
     /// them; a row whose grant the run lacks is refused naming the grant,
-    /// before anything is made; a row with no native members is an `Error`;
-    /// and a scope that isn't `undefined` or an `Error` that isn't the
+    /// before anything is made; and a scope that isn't `undefined` or an `Error` that isn't the
     /// realm's is a `TypeError`, read with no conversion: no trap runs, and
     /// nothing is held.
     #[test]
@@ -1599,8 +1592,6 @@ globalThis.namespaces = {};";
                     not_a_row,
                     "Error: not_granted: op_gro_namespace needs the grant 'args', which this \
                      runtime doesn't hold",
-                    "Error: @fuzdev/gro/env_error.ts has no native members, so the host makes \
-                     no namespace of it",
                     not_a_scope,
                     not_a_scope,
                     not_an_error,

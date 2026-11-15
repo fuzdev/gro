@@ -14,37 +14,6 @@ interface Bootstrap {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
 			/**
-			 * The env error row's namespace, the host's: the class extending the realm's `Error`,
-			 * which the implementation hands over, and its guard. The types are claims, held to
-			 * the Node module's by the types test.
-			 */
-			readonly op_gro_env_error: (error: ErrorConstructor) => {
-				readonly EnvError: new (
-					kind: 'not_granted',
-					target: string,
-					options?: { cause?: unknown }
-				) => {
-					name: string;
-					message: string;
-					stack?: string;
-					cause?: unknown;
-					readonly kind: 'not_granted';
-					readonly target: string;
-				};
-				readonly is_env_error: (
-					error: unknown,
-					kind?: 'not_granted'
-				) => error is {
-					name: string;
-					message: string;
-					stack?: string;
-					cause?: unknown;
-					readonly kind: 'not_granted';
-					readonly target: string;
-				};
-				readonly default: undefined;
-			};
-			/**
 			 * The env host module's root handle, made of the prototype the implementation gives,
 			 * so of its type, the realm's `Error` handed over for the class the host throws.
 			 */
@@ -67,6 +36,7 @@ interface Bootstrap {
 					| '@fuzdev/gro/args.ts'
 					| '@fuzdev/gro/blake3.ts'
 					| '@fuzdev/gro/cwd.ts'
+					| '@fuzdev/gro/env_error.ts'
 					| '@fuzdev/gro/exit.ts'
 					| '@fuzdev/gro/pid.ts'
 					| '@fuzdev/gro/runtime_version.ts'
@@ -96,6 +66,32 @@ interface Bootstrap {
 				};
 				readonly '@fuzdev/gro/cwd.ts': {
 					readonly cwd: () => string;
+					readonly default: undefined;
+				};
+				readonly '@fuzdev/gro/env_error.ts': {
+					readonly EnvError: new (
+						kind: 'not_granted',
+						target: string,
+						options?: { cause?: unknown }
+					) => {
+						name: string;
+						message: string;
+						stack?: string;
+						cause?: unknown;
+						readonly kind: 'not_granted';
+						readonly target: string;
+					};
+					readonly is_env_error: (
+						error: unknown,
+						kind?: 'not_granted'
+					) => error is {
+						name: string;
+						message: string;
+						stack?: string;
+						cause?: unknown;
+						readonly kind: 'not_granted';
+						readonly target: string;
+					};
 					readonly default: undefined;
 				};
 				readonly '@fuzdev/gro/exit.ts': {

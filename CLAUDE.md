@@ -437,14 +437,15 @@ Invariants that live in the code:
     `core.ops`, its backing script's scope argument's among them, to the host
     ops of its own row, and `op_gro_namespace` for a row with native
     members.
-  - An error row's class and guard are the host's (`host/error_class.rs`):
-    made natively the first time a run needs them, the realm's
-    `Error.prototype` taken from an error V8 makes and its `Error` handed
-    over from `primordials` by the first implementation of a row whose ops
-    throw a family's error or make its namespace, checked and held for the
-    run, and the class held in `OpState` (`ErrorClasses`) once whole, so a
-    first import ended early makes it again and every later need finds the
-    one class; the row's op makes the namespace, and any op throws an
+  - An error row's class and guard are the host's: the class
+    (`host/error_class.rs`) made natively the first time a run needs it,
+    the realm's `Error.prototype` taken from an error V8 makes and its
+    `Error` handed over from `primordials` by the first implementation of a
+    row whose namespace the host makes, checked and held for the run, and
+    the class held in `OpState` (`ErrorClasses`) once whole, so a first
+    import ended early makes it again and every later need finds the one
+    class; the row's namespace holds it as a native value, and its guard as
+    a native function (`host/native.rs`), and any member throws an
     instance with one call (`ErrorClasses::throw`). A family missing from
     `FAMILIES` throws when its class would be made. A start makes none and
     puts the empty holder only. The guard reads data properties only, so it
@@ -557,22 +558,27 @@ Invariants that live in the code:
   knows the row from its calling script (`grant::require_grant`), before
   anything is made.
 - The same choke point for native members (`host/native.rs`): each is
-  declared through `native_members!`, whose callback's first step is the
-  check, `require` of the grant it names or `require_authority`, throwing
-  `not_granted` through the scope, and which then hands the body its
-  receiver and each argument as the JS value passed, never converted. The
-  host makes every native function but an error family's class and guard
-  (`error_class.rs`) from the table the macro writes. Tests fail on a
+  declared through `native_members!`, a function or a value made with the
+  namespace, whose callback's or maker's first step is the check,
+  `require` of the grant it names or `require_authority`, throwing
+  `not_granted` through the scope, and which then hands a function's body
+  its receiver and each argument as the JS value passed, never converted.
+  The host makes every native function but an error family's class
+  (`error_class.rs`, whose constructor checks nothing: it reads no state
+  of the run and reaches nothing a grant guards, and no runtime without
+  an authority makes one) from the table the macro writes. Tests fail on a
   native function or callback made in the code of the crates linked into
   `fgro` anywhere but `native.rs` and `error_class.rs` (a source scan, by
   the `CallbackArguments` type every native callback names and each API
   that makes one), on a member that runs with no authority, or whose body
-  ran before its refusal, on a member of a granted row (a probe table's)
+  ran before its refusal, on a value made with no authority or without its
+  grant, on a member of a granted row (a probe table's)
   that runs without its grant, on a member whose grant isn't its row's, on
   the namespace op answering a script that isn't the row's, and on a
   namespace or prototype whose records or functions aren't the table's, or
   aren't frozen; `tests/native_members.txt` pins the table (module, name,
-  place, `length`, grant) as `op_names.txt` pins the ops.
+  place, a function's `length` or a value, grant) as `op_names.txt` pins
+  the ops.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime
   registers. Of the ops and classes `deno_web` declares, the runtime
   registers those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the

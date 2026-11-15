@@ -58,8 +58,9 @@ const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started witho
 /// What `cwd` throws when the working directory's path isn't UTF-8.
 const CWD_NOT_UTF8: &str = "the working directory's path isn't UTF-8, so Gro can't name it";
 
-/// What an error row's op throws in a runtime started without the run's
-/// error classes, which only a runtime made outside a run's start is.
+/// What the namespace op and `EnvError` throw in a runtime started without
+/// the run's error classes, which only a runtime made outside a run's start
+/// is.
 const NO_ERROR_CLASSES: &str = "this runtime was started without the run's error classes";
 
 /// What the host ops return of the run, put in the runtime's `OpState` with
@@ -323,23 +324,6 @@ fn own_data<'s>(
 }
 
 host_ops! {
-    /// The env error row's namespace, `EnvError` and `is_env_error`: the
-    /// host's, made the first time the run needs them, the class extending
-    /// the realm's `Error`, which the implementation hands over from
-    /// `primordials` as `error`, held unless the run holds it already.
-    fn op_gro_env_error(state; scope, error) for "@fuzdev/gro/env_error.ts"
-        -> v8::Local<'s, v8::Value>
-    {
-        let namespace = state.try_borrow::<ErrorClasses>().map_or_else(
-            || {
-                throw_error(scope, NO_ERROR_CLASSES);
-                None
-            },
-            |classes| classes.namespace(scope, &ENV_ERROR, error),
-        );
-        namespace.map_or_else(|| v8::undefined(scope).into(), Into::into)
-    }
-
     /// The env host module's root handle, made of `prototype`, the record
     /// of shells the implementation's outer level made, the first time an
     /// importing origin asks, and held, so a later ask, a rerun of a
@@ -443,6 +427,24 @@ native_members! {
             (Some(_), None) => throw_error(scope, NO_EXIT_STATE),
         }
         None
+    }
+
+    /// `EnvError`, the env host module's error class, the host's
+    /// ([`ErrorClasses::class`]), extending the realm's `Error` the
+    /// namespace op held.
+    value EnvError(state; scope) for "@fuzdev/gro/env_error.ts" {
+        let Some(classes) = state.try_borrow::<ErrorClasses>() else {
+            throw_error(scope, NO_ERROR_CLASSES);
+            return None;
+        };
+        classes.class(scope, &ENV_ERROR).map(Into::into)
+    }
+
+    /// `is_env_error(error, kind?)`, whether `error` is an `EnvError`, of
+    /// `kind` when it's given ([`error_class::is_of_family`]).
+    fn is_env_error(state; scope, error, kind) for "@fuzdev/gro/env_error.ts" {
+        let found = error_class::is_of_family(scope, &ENV_ERROR, error, kind).ok()?;
+        Some(v8::Boolean::new(scope, found).into())
     }
 
     /// `pid`, the process's id, asked of the OS when the run first imports
