@@ -42,6 +42,19 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 
 A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
+Each host module's errors are one class, exported by its error module with a guard, typed by `kind` and naming a target
+(`FsError`'s `path`, `SpawnError`'s `program`, the others' `target`).
+Its `message` is exactly `kind: target`, on both runtimes and every filesystem, and its constructor is `new XError(kind, target, options?)`, taking no message.
+What the OS or the module said of a failure is its `cause`, by one rule:
+where the module has an explanation of its own, the `cause` is a plain `Error` holding it,
+like `../x climbs above /p` for an `outside_root` or `tool at /p/tool can't be read` for a `not_executable`,
+whose own `cause` is the error the failure came from, when there is one (Node's error, an abort's reason, the `FsError` a spawn lookup met);
+where the module has nothing to add, the `cause` is that error, unchanged (an fs op's Node error, a stream's error);
+and an error with nothing to say beyond its kind and target has no `cause`, like `env`'s `not_granted`, a walk's `not_found` or `not_a_directory`, and `watch.dir` on a missing directory.
+So a program that prints `message` prints the same text wherever it runs, and one that shows a failure to a person prints the chain of causes too,
+as `format_error_detail` from `@fuzdev/gro/error_detail.ts` does: the message, then each cause's in parentheses, control characters escaped.
+Gro prints the chain when a task fails, a task or genfile module fails to import, a genfile fails, a deploy's build fails, an error goes uncaught, a program can't be started, a path can't be read, and in its warnings, after the stack where it prints one.
+
 ## fs
 
 ```ts
@@ -179,12 +192,12 @@ const result = await check.closed;
 - `spawn.program_in(dir, name, options?)` makes a handle for a program beneath an fs handle's directory,
   for what a run builds outside the project, like a cargo binary under a cache directory.
   `name` is relative and resolves as `dir` resolves any path, so an absolute name, a climb above `dir`,
-  an absolute symlink, or a relative one that climbs out is `not_granted`, the `FsError` (`outside_root`) as its `cause`,
+  an absolute symlink, or a relative one that climbs out is `not_granted`, the `FsError` (`outside_root`) as its cause's `cause`,
   while a relative link that stays inside, like a `.bin` link, is followed.
   The absolute name and the climb are refused before anything on disk is read.
   `spawn.find_in(dir, name, options?)` returns `null` where `program_in` throws `not_found`
   (missing, a path through a file, a directory, a trailing `/`), and a failure to resolve the name another way,
-  like a directory on the way this user can't search, is `not_executable` with the `FsError` as `cause`, never a miss.
+  like a directory on the way this user can't search, is `not_executable` with the `FsError` as its cause's `cause`, never a miss.
   `dir` must be a handle from this copy of `fs`, read-only or not; a forged object or another copy's handle is a `TypeError`.
   A narrowed root refuses both, `not_granted`, since a set of names can't grant a directory.
   The pin, the script rules, and the environment are `program`'s, and `argv[0]`, and a script's `$0`, is the absolute path it was found at,
@@ -263,7 +276,7 @@ const result = await check.closed;
   The result is of kind `timed_out` or `aborted`, with the `code` or `signal` the child then ended by,
   the other `null`, so a child that exits 0 on `SIGTERM` isn't mistaken for one that finished,
   and a call never rejects for it. A `signal` already aborted when the call is made starts nothing
-  and throws `launch_failed`, its reason on `cause`, since a result would claim a child ran.
+  and throws `launch_failed`, its reason on its cause's `cause`, since a result would claim a child ran.
 - A child with no inherited stream leads its own process group, and `timeout_ms`, `signal`, `kill`, and the capture cap reach the group,
   so a stop or a kill sent while it runs reaches what it left in the background, and a stop's `SIGKILL`
   still reaches the group after the leader exits. A captured child leads one unless its `stdin` is `'inherit'`.
@@ -532,9 +545,9 @@ and held by the runtime, so the module exports the class its host module's opera
 An instance is what the Node class's is: an `Error` (`Error.isError`, a stack, `structuredClone` and JSON as an `Error`'s),
 with its own `name`, `kind`, and target, and `cause` when the options give one, whose class and prototype are frozen
 and inherit from the realm's own `Error`, whatever the global of that name has become, and which a class of the program's can extend.
-Its `message` is `kind: target`, as on Node, unless the constructor is given a message, which replaces it on both runtimes;
-the target is what its module's section says (for an `EnvError`, the variable's name, never its value), and the detail of a failure is its `cause`.
-The constructor converts its arguments to strings, and reads its options' `cause`, as the Node class does,
+Its `message` is `kind: target`, as on Node, and the constructor takes no message ([the modules](#the-modules));
+the target is what its module's section says (for an `EnvError`, the variable's name, never its value), and the detail of a failure, when it has one, is its `cause`.
+The constructor converts its kind and target to strings, and reads its options' `cause`, as the Node class does,
 but a `new.target` that is a proxy (from `Reflect.construct`) has its `prototype` read once more, first, before the arguments are converted,
 and a subclass's constructor frames stay in the instance's stack, where Node leaves them out.
 The guard (`is_env_error`) recognizes an instance of the class, or of a class of the same name, by its prototype chain, as on Node,

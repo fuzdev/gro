@@ -6,7 +6,6 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
-import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
 import {
 	GRO_DIRNAME,
@@ -21,6 +20,7 @@ import type { FsPaths } from './fs_paths.ts';
 import { git_check_workspace, git_current_commit_hash, git_workspace_is_clean } from './git.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 import type { SpawnProgram } from './spawn.ts';
+import { format_error_detail } from './error_detail.ts';
 
 // the cache's filename in a repo's `.gro` directory
 const LIBRARY_CACHE_FILENAME = 'library.json';
@@ -212,7 +212,7 @@ export const library_cache_write = async (
 	} catch (error) {
 		log?.warn(
 			st('yellow', 'failed to write library cache'),
-			st('dim', `(${to_error_message(error)})`)
+			st('dim', `(${format_error_detail(error)})`)
 		);
 	}
 };

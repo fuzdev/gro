@@ -1,7 +1,6 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
-import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { relative, resolve } from 'node:path';
@@ -15,6 +14,7 @@ import type { ModuleGraph } from './module_graph.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
 import { is_error_class_named } from './internal/error_class.ts';
+import { print_error_with_causes } from './internal/error_report.ts';
 
 export interface Task<
 	TArgs = Args,
@@ -252,7 +252,7 @@ export const load_task = async (id: PathId, name: string): Promise<LoadTaskResul
 		ok: false,
 		reason:
 			loaded.type === 'failed_import'
-				? `Task module ${print_path(id)} failed to import: ${print_error(loaded.error)}`
+				? `Task module ${print_path(id)} failed to import: ${print_error_with_causes(loaded.error)}`
 				: `Task module ${print_path(id)} has no \`task\` export with a \`run\` function.`
 	};
 };

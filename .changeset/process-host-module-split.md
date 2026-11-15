@@ -20,7 +20,8 @@ feat: split the process host module into nine modules, one per kind of authority
 | `process.runtime_version` | `runtime_version` from `@fuzdev/gro/runtime_version.ts` |
 | `Process` | none: take the narrowest thing a function uses, a stream, a record, a string, or a function |
 | `ProcessError` `not_granted`, from `env` | `EnvError` from `@fuzdev/gro/env_error.ts`, whose message is exactly `not_granted: NAME`, the variable's name with no detail after it |
-| `ProcessError` `io_error`, from a stream | `StdioError` from `@fuzdev/gro/stdio_error.ts` |
+| `ProcessError` `io_error`, from a stream | `StdioError` from `@fuzdev/gro/stdio_error.ts`, whose message is exactly `io_error: STREAM`, the stream's error its `cause` (print the chain with `format_error_detail`) |
+| `new ProcessError(kind, target, message?, options?)` | `new EnvError(kind, target, options?)` or `new StdioError(kind, target, options?)`, which take no message: the message is always `kind: target` |
 | `is_process_error(error, kind?)` | `is_env_error(error, kind?)` or `is_stdio_error(error, kind?)` |
 | `ProcessErrorKind` | `EnvErrorKind` or `StdioErrorKind` |
 

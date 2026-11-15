@@ -19,6 +19,7 @@ export type StdioErrorKind = 'io_error';
 
 /**
  * The error the stdio host modules throw, typed by `kind`.
+ * Its `message` is exactly `kind: target`, and its `cause` is the stream's error, or the module's explanation where it has one.
  * Match it with `is_stdio_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */
@@ -30,8 +31,8 @@ export class StdioError extends Error {
 	 */
 	readonly target: string;
 
-	constructor(kind: StdioErrorKind, target: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${target}`, options);
+	constructor(kind: StdioErrorKind, target: string, options?: ErrorOptions) {
+		super(`${kind}: ${target}`, options);
 		this.kind = kind;
 		this.target = target;
 	}

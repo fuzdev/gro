@@ -135,7 +135,7 @@ describe("a program that can't be reached or started", () => {
 	const LOCAL_TOOL = 'node_modules/.bin/tool';
 
 	const create_spawn_error = (kind: SpawnErrorKind): SpawnError =>
-		new SpawnError(kind, 'tool', `${kind}: the message`);
+		new SpawnError(kind, 'tool', { cause: new Error('the detail', { cause: 'the OS said' }) });
 
 	const capture = async (fn: () => unknown): Promise<unknown> => {
 		try {
@@ -148,7 +148,8 @@ describe("a program that can't be reached or started", () => {
 
 	const assert_task_error = (thrown: unknown, spawn_error: SpawnError): void => {
 		assert.ok(is_task_error(thrown));
-		assert.strictEqual(thrown.message, spawn_error.message);
+		// the message names the program, and the detail of the failure follows from its causes
+		assert.strictEqual(thrown.message, `${spawn_error.kind}: tool (the detail (the OS said))`);
 		assert.strictEqual(thrown.cause, spawn_error);
 	};
 

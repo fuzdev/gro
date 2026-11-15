@@ -14,15 +14,16 @@ import type {
 } from './spawn.ts';
 import { is_spawn_error, type SpawnError } from './spawn_error.ts';
 import { TaskError } from './task.ts';
+import { format_error_detail } from './error_detail.ts';
 
 const LOCAL_BIN_PREFIX = `${NODE_MODULES_DIRNAME}/.bin/`;
 
 /**
- * A program that couldn't be reached or started fails the task with that message,
+ * A program that couldn't be reached or started fails the task with that message and its cause's,
  * a known failure rather than an unexpected error.
  */
 const to_cli_task_error = (error: SpawnError): TaskError =>
-	new TaskError(error.message, { cause: error });
+	new TaskError(format_error_detail(error), { cause: error });
 
 const find_program = (
 	spawn: Spawn,

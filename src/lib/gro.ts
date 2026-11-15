@@ -11,6 +11,7 @@ import { set_exit_code } from './exit.ts';
 import { stderr } from './stderr.ts';
 import { spawn } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
+import { format_error_detail } from './error_detail.ts';
 
 /*
 
@@ -53,6 +54,6 @@ try {
 	const hint = is_spawn_error(error, 'not_found')
 		? ' (Gro needs `node` on an absolute PATH entry)'
 		: '';
-	await stderr.write(`${error.message}${hint}\n`);
+	await stderr.write(`${format_error_detail(error)}${hint}\n`);
 	set_exit_code(1);
 }

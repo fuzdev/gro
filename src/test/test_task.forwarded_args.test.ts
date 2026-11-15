@@ -50,7 +50,7 @@ describe('test task with a missing or broken vitest', () => {
 	});
 
 	test("a vitest that can't run is a `TaskError`", async () => {
-		const spawn_error = new SpawnError('not_executable', 'vitest', 'not_executable: the message');
+		const spawn_error = new SpawnError('not_executable', 'vitest');
 		(await get_mock_spawn()).find_error = () => spawn_error;
 		set_mock_args(['test']);
 		await expect(task.run(create_mock_task_context(CTX_ARGS))).rejects.toSatisfy(

@@ -63,7 +63,7 @@ describe('stdout and stderr', () => {
 		};
 
 		const WRITE_FAILS = `
-			const kind = await stdout.write('x').catch((e) => e.name + ' ' + e.kind);
+			const kind = await stdout.write('x').catch((e) => e.name + ' ' + e.kind + ' ' + e.cause.code);
 			await new Promise((r) => setImmediate(r));
 			const host_stdout = globalThis.process.stdout;
 			await stderr.write(JSON.stringify({ kind, listeners: host_stdout.listenerCount('error') }) + '\\n');
@@ -73,7 +73,7 @@ describe('stdout and stderr', () => {
 			const { status, stderr } = run_on_full(`${WRITE_FAILS} host_stdout.write('bare');`);
 			assert.notStrictEqual(status, 0);
 			assert.deepEqual(JSON.parse(stderr.split('\n')[0]!), {
-				kind: 'StdioError io_error',
+				kind: 'StdioError io_error ENOSPC',
 				listeners: 0
 			});
 			assert.include(stderr, 'ENOSPC');
@@ -90,7 +90,7 @@ describe('stdout and stderr', () => {
 			);
 			assert.strictEqual(status, 0, stderr);
 			assert.deepEqual(stderr.split('\n'), [
-				JSON.stringify({ kind: 'StdioError io_error', listeners: 1 }),
+				JSON.stringify({ kind: 'StdioError io_error ENOSPC', listeners: 1 }),
 				'2'
 			]);
 		});

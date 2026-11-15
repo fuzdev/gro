@@ -11,6 +11,7 @@ import { load_env_file } from './env_files.ts';
 import { resolve_gro_module_path, spawn_with_loader_args } from './gro_helpers.ts';
 import { TaskError } from './task.ts';
 import { start_watched_server, type WatchedServer } from './internal/server_restarts.ts';
+import { format_error_detail } from './error_detail.ts';
 
 const LABEL = '[gro_plugin_server]';
 
@@ -119,7 +120,9 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 					cwd: cwd()
 				});
 			} catch (error) {
-				if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });
+				if (is_spawn_error(error)) {
+					throw new TaskError(format_error_detail(error), { cause: error });
+				}
 				throw error;
 			}
 		},

@@ -48,6 +48,7 @@ import { print_path } from './paths.ts';
 import type { FileInfo } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
+import { format_error_detail } from './error_detail.ts';
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -270,7 +271,7 @@ const stat_path = async (
 		return { ok: true, info: await opened.dir.stat(opened.path) };
 	} catch (error) {
 		if (is_fs_error(error, 'not_a_directory')) return { ok: true, info: null };
-		if (is_fs_error(error)) return { ok: false, message: error.message };
+		if (is_fs_error(error)) return { ok: false, message: format_error_detail(error) };
 		throw error;
 	}
 };
@@ -402,7 +403,7 @@ const list_tasks = async (
 		entries = await task_registry_find(fs_paths, dir_id, config.search_filters);
 	} catch (error) {
 		if (!is_fs_error(error)) throw error;
-		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${error.message}`]);
+		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${format_error_detail(error)}`]);
 		throw new SilentError();
 	}
 	const modules: Array<TaskModuleMeta> = [];

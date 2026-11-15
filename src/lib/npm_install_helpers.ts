@@ -11,6 +11,7 @@ import type { FsReadDir } from './fs.ts';
 import { package_json_load } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ProcessOutput } from './stdout.ts';
+import { format_error_detail } from './error_detail.ts';
 
 /**
  * Env vars that tell npm to skip devDependencies. We strip these from the
@@ -96,7 +97,8 @@ const create_npm_command_runner =
 		try {
 			child = await program.start(args, { ...options, stdio: ['inherit', 'inherit', 'pipe'] });
 		} catch (error) {
-			if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
+			if (is_spawn_error(error))
+				return { ok: false, stderr: '', detail: format_error_detail(error) };
 			throw error;
 		}
 		const decoder = new TextDecoder();
@@ -191,7 +193,7 @@ export const install_with_cache_healing = async (
 	try {
 		program = spawn.program(pm_cli, to_install_program_options());
 	} catch (error) {
-		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: error.message };
+		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: format_error_detail(error) };
 		throw error;
 	}
 	const install_options = { cwd };

@@ -171,11 +171,7 @@ test('invalid inputs are logged once per genfile across changes, naming each', a
 
 test('a gen run that throws logs the error, and the queue keeps working', async () => {
 	const mock = await get_mock_spawn();
-	const spawn_error = new SpawnError(
-		'not_executable',
-		'node_modules/.bin/gro',
-		"not_executable: node_modules/.bin/gro isn't executable"
-	);
+	const spawn_error = new SpawnError('not_executable', 'node_modules/.bin/gro');
 	mock.find_error = () => spawn_error;
 	const on_unhandled = vi.fn();
 	process.on('unhandledRejection', on_unhandled);

@@ -285,14 +285,13 @@ const TRAPPED_INDICES: std::ops::Range<u32> = 0..16;
 /// test, and so does one listed that no run made.
 ///
 /// Only an error class's constructor makes any: it converts its kind and
-/// its target to strings for the message when it's given none, and the
-/// message when it is, and asks its options for a `cause`, as the Node
-/// class does. What it runs is the caller's conversions and the caller's
+/// its target to strings for its message, and asks its options for a
+/// `cause`, as the Node class does. What it runs is the caller's conversions and the caller's
 /// options, and a function exported beside it runs none.
 const ARGUMENT_USES: [(&str, &[&str]); 1] = [(
     "new @fuzdev/gro/env_error.ts EnvError",
     &[
-        // a kind, a target, or a message converted to a string
+        // a kind or a target converted to a string
         "proxy.get Symbol(Symbol.toPrimitive)",
         "proxy.get toString",
         "proxy.get valueOf",

@@ -13,11 +13,12 @@
 //! as the Node module's guard does.
 //!
 //! Neither runs code of a caller's but where the Node class does: the
-//! constructor converts the kind, the target, and the message to strings
-//! and reads its options' `cause`, as `super(message ?? ``${kind}:
-//! ${target}``, options)` does. V8 reads `new.target`'s `prototype` for the
-//! receiver it makes for any native constructor, before the callback runs,
-//! so a proxy given as `new.target` has that read once more, and first.
+//! constructor converts the kind and the target to strings for its
+//! message, `kind: target`, and reads its options' `cause`, as
+//! `super(``${kind}: ${target}``, options)` does; it takes no message.
+//! V8 reads `new.target`'s `prototype` for the receiver it makes for any
+//! native constructor, before the callback runs, so a proxy given as
+//! `new.target` has that read once more, and first.
 //! The guard reads only data properties, and takes a proxy, or an accessor
 //! on the way, for no match, where the Node guard runs the proxy's traps
 //! and the getter.
@@ -279,7 +280,7 @@ fn make<'s>(
     let data: v8::Local<'s, v8::Value> = v8::String::new(scope, family.name)?.into();
     let template = v8::FunctionTemplate::builder(construct)
         .data(data)
-        .length(4)
+        .length(3)
         .build(scope);
     template.set_class_name(v8::String::new(scope, family.name)?);
     let class = template.get_function(scope)?;
@@ -298,12 +299,11 @@ fn make<'s>(
     Some((class, guard))
 }
 
-/// A class's constructor, `new Class(kind, target, message?, options?)`,
-/// as the Node class constructs: the default message `kind: target`, each
-/// converted to a string, when no message is given; the prototype
-/// `new.target`'s, else the realm's `Error.prototype`; the message given,
-/// converted; `cause` from the options, when they have one; then its own
-/// `name`, `kind`, and target, as the class's fields define them.
+/// A class's constructor, `new Class(kind, target, options?)`, as the Node
+/// class constructs: the message `kind: target`, each converted to a
+/// string; the prototype `new.target`'s, else the realm's
+/// `Error.prototype`; `cause` from the options, when they have one; then
+/// its own `name`, `kind`, and target, as the class's fields define them.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "the signature V8 calls a function's callback with"
@@ -343,21 +343,13 @@ fn construct_error<'s>(
     new_target: v8::Local<'s, v8::Object>,
     args: &v8::FunctionCallbackArguments<'s>,
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let (kind, target, message, options) = (args.get(0), args.get(1), args.get(2), args.get(3));
-    let default = if message.is_null_or_undefined() {
-        let kind_text = kind.to_string(scope)?;
-        let target_text = target.to_string(scope)?;
-        let separator = v8::String::new(scope, ": ")?;
-        let head = concat(scope, kind_text, separator)?;
-        Some(concat(scope, head, target_text)?)
-    } else {
-        None
-    };
+    let (kind, target, options) = (args.get(0), args.get(1), args.get(2));
+    let kind_text = kind.to_string(scope)?;
+    let target_text = target.to_string(scope)?;
+    let separator = v8::String::new(scope, ": ")?;
+    let head = concat(scope, kind_text, separator)?;
+    let message = concat(scope, head, target_text)?;
     let prototype = new_target.get(scope, name(scope, "prototype")?.into())?;
-    let message = match default {
-        Some(message) => message,
-        None => message.to_string(scope)?,
-    };
     let error = v8::Local::<v8::Object>::try_from(v8::Exception::error(scope, message)).ok()?;
     if prototype.is_object() {
         error.set_prototype(scope, prototype)?;

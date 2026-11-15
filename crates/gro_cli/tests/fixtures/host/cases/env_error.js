@@ -12,6 +12,12 @@ const describe_error = (value) => {
 };
 
 /**
+ * An error's message and whether it has a `cause`.
+ * @param {Error} error
+ */
+const message_and_cause = (error) => ({ message: error.message, has_cause: 'cause' in error });
+
+/**
  * What an `EnvError` is to a program: the class, an instance, its clone, a subclass, and the
  * guard, each as data.
  * @param {typeof import('../../../../../../src/lib/env_error.ts')} ns
@@ -19,7 +25,7 @@ const describe_error = (value) => {
 export default (ns) => {
 	const { EnvError, is_env_error } = ns;
 	const error = new EnvError('not_granted', 'HOME');
-	const custom = new EnvError('not_granted', 'HOME', 'custom', { cause: 'why' });
+	const custom = new EnvError('not_granted', 'HOME', { cause: 'why' });
 	class Sub extends EnvError {
 		extra = 1;
 	}
@@ -110,20 +116,24 @@ export default (ns) => {
 		custom: describe_error(custom),
 		custom_message: custom.message,
 		custom_cause: custom.cause,
-		null_message: new EnvError('not_granted', 'HOME', /** @type {any} */ (null)).message,
-		empty_message: new EnvError('not_granted', 'HOME', '').message,
-		getter_cause: new EnvError('not_granted', 'HOME', undefined, {
+		// a third argument is the options, never a message
+		string_options: message_and_cause(
+			new EnvError('not_granted', 'HOME', /** @type {any} */ ('custom'))
+		),
+		null_options: message_and_cause(new EnvError('not_granted', 'HOME', /** @type {any} */ (null))),
+		getter_cause: new EnvError('not_granted', 'HOME', {
 			get cause() {
 				return 'got';
 			}
 		}).cause,
-		no_options_cause: 'cause' in new EnvError('not_granted', 'HOME', undefined, {}),
+		no_options_cause: 'cause' in new EnvError('not_granted', 'HOME', {}),
 		converted_message: converted.message,
 		converted_kind_kept: converted.kind === hostile,
 		message_past_the_longest_string: thrown(() => new EnvError(longest, longest)),
 		symbol_kind: thrown(() => new EnvError(/** @type {any} */ (Symbol('x')), 'y')),
-		symbol_message: thrown(
-			() => new EnvError('not_granted', 'y', /** @type {any} */ (Symbol('x')))
+		symbol_target: thrown(() => new EnvError('not_granted', /** @type {any} */ (Symbol('x')))),
+		symbol_options: message_and_cause(
+			new EnvError('not_granted', 'y', /** @type {any} */ (Symbol('x')))
 		),
 		clone: {
 			tag: Object.prototype.toString.call(clone),

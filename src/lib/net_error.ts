@@ -20,6 +20,7 @@ export type NetErrorKind = 'not_granted';
 
 /**
  * The error `net.ts` throws when a request is refused before it's sent, typed by `kind`.
+ * Its `message` is exactly `kind: target`, and why the module refused is its `cause`, an `Error` holding its explanation.
  * Match it with `is_net_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */
@@ -32,8 +33,8 @@ export class NetError extends Error {
 	 */
 	readonly target: string;
 
-	constructor(kind: NetErrorKind, target: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${target}`, options);
+	constructor(kind: NetErrorKind, target: string, options?: ErrorOptions) {
+		super(`${kind}: ${target}`, options);
 		this.kind = kind;
 		this.target = target;
 	}

@@ -1,4 +1,3 @@
-import { print_error } from '@fuzdev/fuz_util/print.ts';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
@@ -37,6 +36,8 @@ import {
 } from './internal/fs_boundary.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
 import { cwd } from './cwd.ts';
+import { format_error_detail } from './error_detail.ts';
+import { print_error_with_causes } from './internal/error_report.ts';
 
 // docs at ../docs/deploy.md
 
@@ -322,7 +323,7 @@ export const task: Task<Args> = {
 				await initial.dir.write(join(initial.path, INITIAL_FILE_PATH), '');
 			} catch (error) {
 				if (!is_fs_error(error)) throw error;
-				log.error(error.message);
+				log.error(format_error_detail(error));
 				throw to_init_error(`writing ${INITIAL_FILE_PATH}`);
 			}
 			await git_init(['add', '--', INITIAL_FILE_PATH]);
@@ -360,7 +361,7 @@ export const task: Task<Args> = {
 							'- nothing was deployed'
 						]),
 				// a `SilentError` means the build's failure is already reported above
-				...(is_silent_error(error) ? [] : [print_error(error)])
+				...(is_silent_error(error) ? [] : [print_error_with_causes(error as Error)])
 			);
 			if (dry) {
 				log.info(st('red', 'dry deploy failed'));

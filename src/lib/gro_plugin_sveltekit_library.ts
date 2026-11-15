@@ -9,6 +9,7 @@ import { fs } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 import { spawn } from './spawn.ts';
+import { format_error_detail } from './error_detail.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -36,7 +37,7 @@ const chmod_bin = async (fs_paths: FsPaths, bin_path: string): Promise<string | 
 		await dir.set_mode(path, (info.mode | 0o111) & 0o777);
 		return null;
 	} catch (error) {
-		if (is_fs_error(error)) return error.message;
+		if (is_fs_error(error)) return format_error_detail(error);
 		throw error;
 	}
 };

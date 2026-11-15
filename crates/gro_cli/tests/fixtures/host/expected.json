@@ -698,7 +698,7 @@
 				}
 			},
 			"class_name": "EnvError",
-			"class_length": 4,
+			"class_length": 3,
 			"prototype": {
 				"type": "object",
 				"prototype": "other",
@@ -796,17 +796,27 @@
 					}
 				}
 			},
-			"custom_message": "custom",
+			"custom_message": "not_granted: HOME",
 			"custom_cause": "why",
-			"null_message": "not_granted: HOME",
-			"empty_message": "",
+			"string_options": {
+				"message": "not_granted: HOME",
+				"has_cause": false
+			},
+			"null_options": {
+				"message": "not_granted: HOME",
+				"has_cause": false
+			},
 			"getter_cause": "got",
 			"no_options_cause": false,
 			"converted_message": "hostile: hostile",
 			"converted_kind_kept": true,
 			"message_past_the_longest_string": "RangeError",
 			"symbol_kind": "TypeError",
-			"symbol_message": "TypeError",
+			"symbol_target": "TypeError",
+			"symbol_options": {
+				"message": "not_granted: y",
+				"has_cause": false
+			},
 			"clone": {
 				"tag": "[object Error]",
 				"name": "Error",

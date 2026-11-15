@@ -206,18 +206,18 @@ export const create_mock_spawn = (): MockSpawn => {
 		find,
 		program: (name, options) => {
 			const program = find(name, options);
-			if (!program) throw new SpawnError('not_found', name, `not_found: no program ${name}`);
+			if (!program) {
+				throw new SpawnError('not_found', name, { cause: new Error(`no program ${name}`) });
+			}
 			return program;
 		},
 		find_in,
 		program_in: (dir, name, options) => {
 			const program = find_in(dir, name, options);
 			if (!program) {
-				throw new SpawnError(
-					'not_found',
-					name,
-					`not_found: no program ${name} beneath ${dir.path}`
-				);
+				throw new SpawnError('not_found', name, {
+					cause: new Error(`no program ${name} beneath ${dir.path}`)
+				});
 			}
 			return program;
 		},

@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { spawn } from '#lib/spawn.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import { is_spawn_error } from '#lib/spawn_error.ts';
 import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
 
@@ -56,8 +57,9 @@ describe('a stat that fails after the lookup', () => {
 				assert.fail('expected not_executable');
 			} catch (error) {
 				assert.ok(is_spawn_error(error, 'not_executable'), String(error));
-				assert.include(error.message, path);
-				assert.strictEqual((error.cause as { code?: unknown }).code, 'EACCES');
+				assert.include(format_error_detail(error), path);
+				assert.strictEqual(((error.cause as Error).cause as { code?: unknown }).code, 'EACCES');
+				assert.match((error.cause as Error).message, / can't be read$/);
 			}
 		}
 	});

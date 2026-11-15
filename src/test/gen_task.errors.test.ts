@@ -55,3 +55,12 @@ test('a genfile failing with any other error keeps its stack', async () => {
 	const output = await run_failing(new Error('unexpected'));
 	assert.match(output, /^\s+at /m);
 });
+
+test('a genfile failing with an error that has a cause prints the cause after the stack, in both reports', async () => {
+	const output = await run_failing(
+		new Error('io_error: /p/x', { cause: new Error('too many symlinks at /p/x') })
+	);
+	assert.match(output, /^\s+at /m);
+	// the table's line and the failure's
+	assert.equal(output.split('\ncause: too many symlinks at /p/x').length - 1, 2, output);
+});

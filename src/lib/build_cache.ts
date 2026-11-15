@@ -5,7 +5,6 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
-import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 
 import type { GroConfig } from './gro_config.ts';
 import {
@@ -21,6 +20,7 @@ import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 import { git_current_commit_hash } from './git.ts';
 import type { SpawnProgram } from './spawn.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
+import { format_error_detail } from './error_detail.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
 export const BUILD_CACHE_VERSION = '4';
@@ -210,7 +210,10 @@ export const save_build_cache_metadata = async (
 		await metadata_file.dir.write(metadata_file.path, JSON.stringify(metadata, null, '\t'));
 	} catch (error) {
 		// Cache writes are optional - log warning but don't fail the build
-		log.warn(st('yellow', 'Failed to save build cache'), st('dim', `(${to_error_message(error)})`));
+		log.warn(
+			st('yellow', 'Failed to save build cache'),
+			st('dim', `(${format_error_detail(error)})`)
+		);
 	}
 };
 
@@ -413,11 +416,9 @@ export const collect_build_outputs = async (
 			// read but not found by the stat before it, so replaced between the two
 			if (info === null) {
 				const target = join(dir.path, path);
-				throw new FsError(
-					'io_error',
-					target,
-					`io_error: ${target} was replaced while it was hashed`
-				);
+				throw new FsError('io_error', target, {
+					cause: new Error(`${target} was replaced while it was hashed`)
+				});
 			}
 			const hash = hash_blake3(contents);
 

@@ -179,6 +179,22 @@ describe('deploy_task build integration', () => {
 			);
 		});
 
+		test("prints a failed build's causes after its stack", async () => {
+			const { exists } = await get_mock_project();
+			vi.mocked(exists).mockResolvedValue(true);
+			const ctx = create_mock_deploy_task_context({ build: true, dry: false });
+			ctx.invoke_task = vi
+				.fn()
+				.mockRejectedValue(new Error('io_error: /p/x', { cause: new Error('too many symlinks') }));
+			await expect(deploy_task.run(ctx)).rejects.toThrow();
+			expect(ctx.log.error).toHaveBeenCalledWith(
+				expect.stringContaining('build failed'),
+				'but',
+				expect.stringContaining('nothing was pushed'),
+				expect.stringMatching(/\n\s+at [^]*\ncause: too many symlinks$/)
+			);
+		});
+
 		test('says the new remote branch was created when the build fails after creating it', async () => {
 			const { exists } = await get_mock_project();
 			vi.mocked(exists).mockResolvedValue(true);

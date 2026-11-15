@@ -33,12 +33,12 @@ const env_error = /** @type {any} */ (
 const EXERCISES = new Map([
 	// takes no argument and no receiver
 	['@fuzdev/gro/cwd.ts cwd', []],
-	// a kind and a target, and with them a message and the options of its cause
+	// a kind and a target, and with them the options of its cause
 	[
 		'@fuzdev/gro/env_error.ts EnvError',
 		[
 			['not_granted', 'HOME'],
-			['not_granted', 'HOME', 'custom', { __proto__: null, cause: 1 }]
+			['not_granted', 'HOME', { __proto__: null, cause: 1 }]
 		]
 	],
 	// an error of the class, of its kind and of another, and one that isn't

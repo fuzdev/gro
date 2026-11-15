@@ -301,6 +301,13 @@ describe('a retyped export fails its check', () => {
 			'options?: { cause?: unknown }',
 			'options?: { cause?: string }'
 		);
+		// a message parameter, which neither class takes
+		assert_mismatch(
+			'env_error',
+			'bootstrap',
+			'target: string,\n\t\t\t\t\toptions?: { cause?: unknown }',
+			'target: string,\n\t\t\t\t\tmessage?: string,\n\t\t\t\t\toptions?: { cause?: unknown }'
+		);
 		const instance =
 			"readonly kind: 'not_granted';\n\t\t\t\t\treadonly target: string;\n\t\t\t\t};\n\t\t\t\treadonly is_env_error";
 		assert_mismatch(
@@ -326,8 +333,8 @@ describe('a retyped export fails its check', () => {
 		assert_mismatch(
 			'env_error',
 			'node',
-			'message?: string, options?: ErrorOptions',
-			'message?: string'
+			'target: string, options?: ErrorOptions',
+			'target: string, message?: string, options?: ErrorOptions'
 		);
 	});
 

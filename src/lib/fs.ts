@@ -417,21 +417,18 @@ const is_not_found = (error: unknown): boolean =>
 	code_of(error) === 'ENOENT' || (is_own_fs_error(error) && error.kind === 'not_found');
 
 /**
- * Classifies a Node error by its code, naming `path`, the path the op reports.
+ * Classifies a Node error by its code, naming `path`, the path the op reports,
+ * the Node error its `cause`.
  * An `FsError` passes through when it already names `path` or is `outside_root`,
  * which names the path as requested; one from inside a walk, naming a path the walk
- * resolved, is rewrapped to name `path`, the resolved one kept in its message and `cause`.
+ * resolved, is rewrapped to name `path`, the one naming the resolved path its `cause`.
  */
 const to_fs_error = (error: unknown, path: string): FsError => {
 	if (is_own_fs_error(error)) {
 		if (error.path === path || error.kind === 'outside_root') return error;
-		return new FsError(error.kind, path, `${error.kind}: ${path} (${error.message})`, {
-			cause: error
-		});
+		return new FsError(error.kind, path, { cause: error });
 	}
-	const kind = to_kind(code_of(error));
-	const detail = error instanceof Error ? error.message : String(error);
-	return new FsError(kind, path, `${kind}: ${path} (${detail})`, { cause: error });
+	return new FsError(to_kind(code_of(error)), path, { cause: error });
 };
 
 const to_file_kind = (s: Stats | Dirent<string | Buffer>): FileKind =>
@@ -574,11 +571,14 @@ const assert_link_target = (target: string): void => {
  */
 const assert_segment = (name: unknown, requested: string): string => {
 	if (typeof name !== 'string') {
-		throw to_outside_error(requested, 'yields a path segment that is not a string');
+		throw to_outside_error(requested, `${requested} yields a path segment that is not a string`);
 	}
 	for (let i = 0; i < name.length; i++) {
 		if (name[i] === '/') {
-			throw to_outside_error(requested, `yields the path segment ${name}, which holds a \`/\``);
+			throw to_outside_error(
+				requested,
+				`${requested} yields the path segment ${name}, which holds a \`/\``
+			);
 		}
 	}
 	return name;
@@ -593,7 +593,7 @@ const assert_segment = (name: unknown, requested: string): string => {
 const to_lexical_path = (root: Root, requested: string): LexicalPath => {
 	assert_path_string(requested);
 	if (requested.startsWith('/')) {
-		throw new FsError('outside_root', requested, `outside_root: absolute path ${requested}`);
+		throw to_outside_error(requested, `absolute path ${requested}`);
 	}
 	const parts = requested.split('/');
 	const segments: Array<string> = [];
@@ -601,11 +601,7 @@ const to_lexical_path = (root: Root, requested: string): LexicalPath => {
 		if (segment === '' || segment === '.') continue;
 		if (segment === '..') {
 			if (segments.length === 0) {
-				throw new FsError(
-					'outside_root',
-					requested,
-					`outside_root: ${requested} climbs above ${root.path}`
-				);
+				throw to_outside_error(requested, `${requested} climbs above ${root.path}`);
 			}
 			segments.pop();
 		} else {
@@ -626,11 +622,9 @@ const to_op_path = (target: string, lexical: LexicalPath): string =>
 	lexical.dir ? target + '/' : target;
 
 const to_root_error = (lexical: LexicalPath, verb: string): FsError =>
-	new FsError(
-		'io_error',
-		lexical.path,
-		`io_error: the handle's own directory can't be ${verb}: ${lexical.path}`
-	);
+	new FsError('io_error', lexical.path, {
+		cause: new Error(`the handle's own directory can't be ${verb}: ${lexical.path}`)
+	});
 
 /*
 
@@ -669,28 +663,32 @@ Reads use `lstatSync` with `throwIfNoEntry: false`, so a missing entry construct
 
 */
 
-const to_outside_error = (requested: string, detail: string): FsError =>
-	new FsError('outside_root', requested, `outside_root: ${requested} ${detail}`);
+// `outside_root` naming the path as requested, `explanation` its `cause`
+const to_outside_error = (requested: string, explanation: string): FsError =>
+	new FsError('outside_root', requested, { cause: new Error(explanation) });
 
 const to_moved_root_error = (root: Root, requested: string, root_real: string): FsError =>
-	to_outside_error(requested, `resolves through the moved ${root.path} to ${root_real}`);
+	to_outside_error(
+		requested,
+		`${requested} resolves through the moved ${root.path} to ${root_real}`
+	);
 
 const to_absolute_link_error = (requested: string, link: string, target: string): FsError =>
 	to_outside_error(
 		requested,
-		`reaches the absolute symlink ${link} -> ${target}, which a handle never follows`
+		`${requested} reaches the absolute symlink ${link} -> ${target}, which a handle never follows`
 	);
 
 const to_climb_error = (root: Root, requested: string, link: string | null): FsError =>
 	to_outside_error(
 		requested,
 		link === null
-			? `climbs above ${root.path}`
-			: `climbs above ${root.path} through the symlink ${link}`
+			? `${requested} climbs above ${root.path}`
+			: `${requested} climbs above ${root.path} through the symlink ${link}`
 	);
 
 const to_symlinks_error = (path: string): FsError =>
-	new FsError('io_error', path, `io_error: too many symlinks at ${path}`);
+	new FsError('io_error', path, { cause: new Error(`too many symlinks at ${path}`) });
 
 /**
  * The state of one walk beneath a root. Segments are popped from the end of `stack`.
@@ -754,11 +752,9 @@ const decode_name = (bytes: Uint8Array, path: string, what: string): string => {
 	try {
 		return utf8_decoder.decode(bytes);
 	} catch {
-		throw new FsError(
-			'io_error',
-			path,
-			`io_error: ${path} ${what} ${to_escaped_bytes(bytes)}, which isn't UTF-8`
-		);
+		throw new FsError('io_error', path, {
+			cause: new Error(`${path} ${what} ${to_escaped_bytes(bytes)}, which isn't UTF-8`)
+		});
 	}
 };
 
@@ -1357,14 +1353,9 @@ const to_two_path_error = async (
 		);
 		if (source_exists) path = to_lexical.path;
 	}
-	const kind = to_kind(code);
-	const detail = error instanceof Error ? error.message : String(error);
-	return new FsError(
-		kind,
-		path,
-		`${kind}: ${path} (${from_lexical.path} -> ${to_lexical.path}: ${detail})`,
-		{ cause: error }
-	);
+	return new FsError(to_kind(code), path, {
+		cause: new Error(`${from_lexical.path} -> ${to_lexical.path}`, { cause: error })
+	});
 };
 
 class NodeFsTempDir extends NodeFsDir implements AsyncDisposable {

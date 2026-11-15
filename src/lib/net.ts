@@ -191,14 +191,18 @@ const parse_host = (value: unknown): { hostname: string; key: string } => {
 const check_url = (allowed: Allowed | null, url: URL): void => {
 	const { protocol, port } = url;
 	if (protocol !== 'http:' && protocol !== 'https:') {
-		throw new NetError('not_granted', protocol, `not_granted: ${protocol} isn't http or https`);
+		throw new NetError('not_granted', protocol, {
+			cause: new Error(`${protocol} isn't http or https`)
+		});
 	}
 	if (allowed === null) return;
 	const hostname = to_hostname(url);
 	const effective_port = port === '' ? (protocol === 'https:' ? '443' : '80') : port;
 	const host = `${hostname}:${effective_port}`;
 	if (allowed[hostname] !== true && allowed[host] !== true) {
-		throw new NetError('not_granted', host, `not_granted: ${host} isn't in this net's hosts`);
+		throw new NetError('not_granted', host, {
+			cause: new Error(`${host} isn't in this net's hosts`)
+		});
 	}
 };
 
@@ -407,11 +411,9 @@ class NodeNet implements Net {
 		for (let i = 0; i < length; i++) {
 			const { hostname, key } = parse_host(hosts[i]);
 			if (parent !== null && parent[key] !== true && parent[hostname] !== true) {
-				throw new NetError(
-					'not_granted',
-					key,
-					`not_granted: ${key} isn't in this net's hosts, and narrow only shrinks`
-				);
+				throw new NetError('not_granted', key, {
+					cause: new Error(`${key} isn't in this net's hosts, and narrow only shrinks`)
+				});
 			}
 			allowed[key] = true;
 		}

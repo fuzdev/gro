@@ -24,7 +24,6 @@ interface Bootstrap {
 				readonly EnvError: new (
 					kind: 'not_granted',
 					target: string,
-					message?: string,
 					options?: { cause?: unknown }
 				) => {
 					name: string;

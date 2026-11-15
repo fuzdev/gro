@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
 import { fs } from '#lib/fs.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import { spawn, type Spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { SpawnError, is_spawn_error, type SpawnErrorKind } from '#lib/spawn_error.ts';
 import {
@@ -209,7 +210,7 @@ describe('resolution', () => {
 			);
 			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
 			assert.include(
-				error.message,
+				format_error_detail(error),
 				`${join(bin, 'tool')} now leads to ${join(bin, 'real_b')}, not the file pinned at ${join(bin, 'real_a')}`
 			);
 		}
@@ -219,7 +220,12 @@ describe('resolution', () => {
 			(error: unknown) => error
 		);
 		assert.ok(is_spawn_error(missing, 'launch_failed'), String(missing));
-		assert.include(missing.message, `${join(bin, 'tool')} no longer resolves`);
+		// what the stat of the pinned path said, its cause
+		assert.strictEqual(((missing.cause as Error).cause as { code?: unknown }).code, 'ENOENT');
+		assert.include(
+			format_error_detail(missing),
+			`${join(bin, 'tool')} no longer resolves, pinned to ${join(bin, 'real_a')}`
+		);
 		symlinkSync(join(bin, 'real_a'), join(bin, 'tool'));
 		assert.strictEqual((await tool.out([])).stdout, 'a\n');
 	});
@@ -241,7 +247,7 @@ describe('resolution', () => {
 				(error: unknown) => error
 			);
 			assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
-			assert.include(error.message, 'not the file pinned at');
+			assert.include(format_error_detail(error), 'not the file pinned at');
 		}
 	});
 
@@ -538,7 +544,10 @@ describe('file formats at the pin', () => {
 		write_bytes('no_shebang', 'echo hi\n');
 		symlinkSync(join(bin, 'no_shebang'), join(bin, 'link'));
 		const error = assert_spawn_error(() => spawn.program('link'), 'not_executable');
-		assert.include(error.message, ` at ${realpathSync(join(bin, 'no_shebang'))} starts`);
+		assert.include(
+			format_error_detail(error),
+			` at ${realpathSync(join(bin, 'no_shebang'))} starts`
+		);
 	});
 
 	test('a shebang script and a real ELF pin', () => {
@@ -662,7 +671,8 @@ describe('file formats at the pin', () => {
 		symlinkSync(real, join(bin, 'tool'));
 		const error = assert_spawn_error(() => spawn.program('tool'), 'not_executable');
 		// the fatal decoder's own refusal, not a lossy name that then fails to open
-		assert.instanceOf(error.cause, TypeError);
+		assert.instanceOf((error.cause as Error).cause, TypeError);
+		assert.match((error.cause as Error).message, / has no real path a string can name$/);
 	});
 });
 

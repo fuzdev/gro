@@ -736,7 +736,9 @@ describe('timeout_ms and signal', () => {
 				assert.fail('expected a launch failure');
 			} catch (error) {
 				assert.ok(is_spawn_error(error, 'launch_failed'), String(error));
-				assert.strictEqual(error.cause, 'why');
+				// the module's explanation, then the signal's reason beneath it
+				assert.match((error.cause as Error).message, /^the signal aborted before /);
+				assert.strictEqual((error.cause as Error).cause, 'why');
 			}
 		}
 		assert.isFalse(existsSync(marker));

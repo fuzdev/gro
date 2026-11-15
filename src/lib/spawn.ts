@@ -705,18 +705,16 @@ const check_runnable_format = (name: string, path: string): FileIdentity | null 
 		closeSync(fd);
 	}
 	if (!is_runnable_magic(bytes, host_platform)) {
-		throw new SpawnError(
-			'not_executable',
-			name,
-			`not_executable: ${name} at ${path} starts with neither #! nor a native binary's magic`
-		);
+		throw new SpawnError('not_executable', name, {
+			cause: new Error(`${name} at ${path} starts with neither #! nor a native binary's magic`)
+		});
 	}
 	return is_shebang(bytes) ? identity : null;
 };
 
 const to_uninspectable_error = (name: string, path: string, error: unknown): SpawnError =>
-	new SpawnError('not_executable', name, `not_executable: ${name} at ${path} can't be read`, {
-		cause: error
+	new SpawnError('not_executable', name, {
+		cause: new Error(`${name} at ${path} can't be read`, { cause: error })
 	});
 
 // `fatal`, so a real path that isn't UTF-8 is refused rather than naming a different file
@@ -756,12 +754,9 @@ const to_resolved = (name: string, path: string, argv0: string): ResolvedProgram
 	try {
 		pin = to_real_path(path);
 	} catch (error) {
-		throw new SpawnError(
-			'not_executable',
-			name,
-			`not_executable: ${name} at ${path} has no real path a string can name`,
-			{ cause: error }
-		);
+		throw new SpawnError('not_executable', name, {
+			cause: new Error(`${name} at ${path} has no real path a string can name`, { cause: error })
+		});
 	}
 	if (is_refused_extension(pin)) throw to_refused_extension_error(name, pin);
 	const script = check_runnable_format(name, pin);
@@ -787,12 +782,11 @@ const check_run_path = (
 	try {
 		info = statSync(run_path, { bigint: true });
 	} catch (error) {
-		throw new SpawnError(
-			'launch_failed',
-			name,
-			`launch_failed: ${name} at ${run_path} no longer resolves, pinned to ${pin}`,
-			{ cause: error }
-		);
+		throw new SpawnError('launch_failed', name, {
+			cause: new Error(`${name} at ${run_path} no longer resolves, pinned to ${pin}`, {
+				cause: error
+			})
+		});
 	}
 	if (info.dev !== script.dev || info.ino !== script.ino) {
 		let leads_to: string;
@@ -802,20 +796,18 @@ const check_run_path = (
 			// gone or renamed again since the stat, so the message names no path
 			leads_to = ' another file,';
 		}
-		throw new SpawnError(
-			'launch_failed',
-			name,
-			`launch_failed: ${name} at ${run_path} now leads to${leads_to} not the file pinned at ${pin}`
-		);
+		throw new SpawnError('launch_failed', name, {
+			cause: new Error(
+				`${name} at ${run_path} now leads to${leads_to} not the file pinned at ${pin}`
+			)
+		});
 	}
 };
 
 const to_refused_extension_error = (name: string, path: string): SpawnError =>
-	new SpawnError(
-		'not_executable',
-		name,
-		`not_executable: ${name} at ${path} is a .bat or .cmd file, which only a shell runs`
-	);
+	new SpawnError('not_executable', name, {
+		cause: new Error(`${name} at ${path} is a .bat or .cmd file, which only a shell runs`)
+	});
 
 /**
  * A path's segments, resolved lexically: empty and `.` segments dropped, and each `..` removing
@@ -875,11 +867,9 @@ const walk_path = (name: string): string | null => {
 		if (probed === 'not_executable') found_not_executable = true;
 	}
 	if (found_not_executable) {
-		throw new SpawnError(
-			'not_executable',
-			name,
-			`not_executable: ${name} is on PATH only without execute permission`
-		);
+		throw new SpawnError('not_executable', name, {
+			cause: new Error(`${name} is on PATH only without execute permission`)
+		});
 	}
 	return null;
 };
@@ -890,19 +880,17 @@ const walk_path = (name: string): string | null => {
  */
 const to_project_path = (name: string): string => {
 	if (name.startsWith('/')) {
-		throw new SpawnError(
-			'not_granted',
-			name,
-			`not_granted: ${name} is absolute, and a program name with / resolves beneath the project`
-		);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(
+				`${name} is absolute, and a program name with / resolves beneath the project`
+			)
+		});
 	}
 	const segments = to_lexical_segments(name, 'refuse');
 	if (segments === null) {
-		throw new SpawnError(
-			'not_granted',
-			name,
-			`not_granted: ${name} climbs above the project ${PROJECT_ROOT}`
-		);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(`${name} climbs above the project ${PROJECT_ROOT}`)
+		});
 	}
 	const prefix = PROJECT_ROOT === '/' ? '/' : PROJECT_ROOT + '/';
 	return prefix + segments.join('/');
@@ -914,7 +902,9 @@ const to_project_path = (name: string): string => {
  */
 const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram | null => {
 	if (allowed !== null && allowed[name] !== true) {
-		throw new SpawnError('not_granted', name, `not_granted: ${name} isn't in this spawn's set`);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(`${name} isn't in this spawn's set`)
+		});
 	}
 	if (is_refused_extension(name)) throw to_refused_extension_error(name, name);
 	if (!name.includes('/')) {
@@ -927,7 +917,9 @@ const resolve_program = (allowed: Allowed | null, name: string): ResolvedProgram
 	const probed = probe_executable(path, read_as_missing);
 	if (probed === 'missing') return null;
 	if (probed === 'not_executable') {
-		throw new SpawnError('not_executable', name, `not_executable: ${path} isn't executable`);
+		throw new SpawnError('not_executable', name, {
+			cause: new Error(`${path} isn't executable`)
+		});
 	}
 	return to_resolved(name, path, path);
 };
@@ -946,23 +938,19 @@ const resolve_program_in = (resolve: FsHandleResolve, name: string): ResolvedPro
 		if (!is_own_fs_error(error)) throw error;
 		switch (error.kind) {
 			case 'outside_root':
-				throw new SpawnError(
-					'not_granted',
-					name,
-					`not_granted: ${name} leads outside its directory handle (${error.message})`,
-					{ cause: error }
-				);
+				throw new SpawnError('not_granted', name, {
+					cause: new Error(`${name} leads outside its directory handle`, { cause: error })
+				});
 			case 'not_found':
 			case 'not_a_directory':
 				return null;
 			default:
 				// a permission or I/O error is never read as missing
-				throw new SpawnError(
-					'not_executable',
-					name,
-					`not_executable: ${name} can't be resolved beneath its directory handle (${error.message})`,
-					{ cause: error }
-				);
+				throw new SpawnError('not_executable', name, {
+					cause: new Error(`${name} can't be resolved beneath its directory handle`, {
+						cause: error
+					})
+				});
 		}
 	}
 	const { found_path, op_path } = resolution;
@@ -973,7 +961,9 @@ const resolve_program_in = (resolve: FsHandleResolve, name: string): ResolvedPro
 	});
 	if (probed === 'missing') return null;
 	if (probed === 'not_executable') {
-		throw new SpawnError('not_executable', name, `not_executable: ${found_path} isn't executable`);
+		throw new SpawnError('not_executable', name, {
+			cause: new Error(`${found_path} isn't executable`)
+		});
 	}
 	return to_resolved(name, found_path, found_path);
 };
@@ -1122,27 +1112,23 @@ const check_narrowed_options = (
 ): void => {
 	if (allowed === null) return;
 	if (options.values !== null) {
-		throw new SpawnError(
-			'not_granted',
-			name,
-			`not_granted: a narrowed spawn can't set env for ${name}: build the program at the root`
-		);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(`a narrowed spawn can't set env for ${name}: build the program at the root`)
+		});
 	}
 	if (options.pass_env === 'all') {
-		throw new SpawnError(
-			'not_granted',
-			name,
-			`not_granted: a narrowed spawn can't pass the whole environment to ${name}`
-		);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(`a narrowed spawn can't pass the whole environment to ${name}`)
+		});
 	}
 	for (let i = 0; i < options.pass_env.length; i++) {
 		const pattern = options.pass_env[i]!;
 		if (pattern.endsWith('*')) {
-			throw new SpawnError(
-				'not_granted',
-				name,
-				`not_granted: a narrowed spawn can't pass the glob ${pattern} to ${name}: name each variable`
-			);
+			throw new SpawnError('not_granted', name, {
+				cause: new Error(
+					`a narrowed spawn can't pass the glob ${pattern} to ${name}: name each variable`
+				)
+			});
 		}
 	}
 };
@@ -1200,12 +1186,10 @@ const to_argv = (args: ReadonlyArray<string>): Array<string> => {
 	return argv;
 };
 
-const to_launch_error = (name: string, path: string, error: unknown): SpawnError => {
-	const detail = error instanceof Error ? error.message : String(error);
-	return new SpawnError('launch_failed', name, `launch_failed: ${name} (${path}): ${detail}`, {
-		cause: error
+const to_launch_error = (name: string, path: string, error: unknown): SpawnError =>
+	new SpawnError('launch_failed', name, {
+		cause: new Error(`${name} at ${path} didn't start`, { cause: error })
 	});
-};
 
 /**
  * Starts the program. The env is a null-prototype copy per call, since Node enumerates it
@@ -1668,12 +1652,11 @@ const dispose_abort_listener = (listener: Disposable | null): void => {
  */
 const check_not_aborted = (name: string, pin: string, signal: AbortSignal | null): void => {
 	if (signal?.aborted !== true) return;
-	throw new SpawnError(
-		'launch_failed',
-		name,
-		`launch_failed: ${name} (${pin}): the signal aborted before it started`,
-		{ cause: signal.reason }
-	);
+	throw new SpawnError('launch_failed', name, {
+		cause: new Error(`the signal aborted before ${name} at ${pin} started`, {
+			cause: signal.reason
+		})
+	});
 };
 
 /**
@@ -2255,11 +2238,11 @@ const to_program_in = (
 	const name = check_name(raw_name);
 	const options = read_program_options(raw_options);
 	if (allowed !== null) {
-		throw new SpawnError(
-			'not_granted',
-			name,
-			`not_granted: a narrowed spawn can't run ${name} beneath a directory: build the program at the root`
-		);
+		throw new SpawnError('not_granted', name, {
+			cause: new Error(
+				`a narrowed spawn can't run ${name} beneath a directory: build the program at the root`
+			)
+		});
 	}
 	const resolved = resolve_program_in(resolve, name);
 	if (resolved === null) return null;
@@ -2276,7 +2259,9 @@ class NodeSpawn implements Spawn {
 
 	program(name: string, options?: SpawnProgramOptions): SpawnProgram {
 		const program = to_program(this.#allowed, name, options);
-		if (program === null) throw new SpawnError('not_found', name, `not_found: no program ${name}`);
+		if (program === null) {
+			throw new SpawnError('not_found', name, { cause: new Error(`no program ${name}`) });
+		}
 		return program;
 	}
 
@@ -2287,7 +2272,9 @@ class NodeSpawn implements Spawn {
 	program_in(dir: FsReadDir, name: string, options?: SpawnProgramOptions): SpawnProgram {
 		const program = to_program_in(this.#allowed, to_fs_handle_resolve(dir), name, options);
 		if (program === null) {
-			throw new SpawnError('not_found', name, `not_found: no program ${name} beneath ${dir.path}`);
+			throw new SpawnError('not_found', name, {
+				cause: new Error(`no program ${name} beneath ${dir.path}`)
+			});
 		}
 		return program;
 	}
@@ -2304,11 +2291,9 @@ class NodeSpawn implements Spawn {
 		for (let i = 0; i < length; i++) {
 			const name = check_name(names[i]);
 			if (parent !== null && parent[name] !== true) {
-				throw new SpawnError(
-					'not_granted',
-					name,
-					`not_granted: ${name} isn't in this spawn's set, and narrow only shrinks`
-				);
+				throw new SpawnError('not_granted', name, {
+					cause: new Error(`${name} isn't in this spawn's set, and narrow only shrinks`)
+				});
 			}
 			allowed[name] = true;
 		}

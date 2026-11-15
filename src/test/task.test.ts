@@ -1,5 +1,7 @@
 import { describe, test, expect, assert } from 'vitest';
 import { join, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { noop } from '@fuzdev/fuz_util/function.ts';
 
 import {
@@ -106,6 +108,25 @@ describe('task', () => {
 		const result = await load_task(id, 'x');
 		assert.ok(!result.ok);
 		assert.include(result.reason, 'has no `task` export with a `run` function');
+	});
+
+	test('load_task reports a module whose import throws with its stack, then its causes', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'gro_task_cause_'));
+		try {
+			const id = join(dir, 'throws.task.mjs');
+			await writeFile(
+				id,
+				"throw new Error('io_error: /p/x', { cause: new Error('too many symlinks at /p/x') });\n"
+			);
+			const result = await load_task(id, 'x');
+			assert.ok(!result.ok);
+			assert.match(
+				result.reason,
+				/failed to import: [^]*Error: io_error: \/p\/x\n\s+at [^]*\ncause: too many symlinks at \/p\/x/
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	test('load_task fails on a missing module', async () => {

@@ -234,7 +234,7 @@ describe('spawn_restartable', () => {
 	test("after a failed restart, `closed` is the previous child's and `child` is null", async () => {
 		const mock = create_spawn();
 		const restartable = await spawn_restartable(mock.program('server'));
-		const error = new SpawnError('launch_failed', 'server', 'launch_failed: server');
+		const error = new SpawnError('launch_failed', 'server');
 		mock.start_error = () => error;
 		await expect(restartable.restart()).rejects.toBe(error);
 		expect(restartable.child).toBeNull();
@@ -257,7 +257,7 @@ describe('spawn_restartable', () => {
 
 	test('a failed start rejects, the first call and a restart alike', async () => {
 		const mock = create_spawn();
-		const error = new SpawnError('launch_failed', 'server', 'launch_failed: server');
+		const error = new SpawnError('launch_failed', 'server');
 		mock.start_error = () => error;
 		await expect(spawn_restartable(mock.program('server'))).rejects.toBe(error);
 

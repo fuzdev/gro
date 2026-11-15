@@ -66,7 +66,12 @@ describe('handles', () => {
 
 	test('`fetch` destructures, and a receiver can never widen it', async () => {
 		const { fetch } = narrowed(['127.0.0.1:1']);
-		await assert_rejects_net_error(fetch('http://example.com/'), 'not_granted');
+		const refused = await assert_rejects_net_error(fetch('http://example.com/'), 'not_granted');
+		assert.strictEqual(refused.message, 'not_granted: example.com:80');
+		assert.strictEqual(
+			(refused.cause as Error).message,
+			"example.com:80 isn't in this net's hosts"
+		);
 		await assert_rejects_net_error(
 			fetch.call({ hosts: ['example.com'] }, 'http://example.com/'),
 			'not_granted'

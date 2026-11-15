@@ -1,4 +1,4 @@
-import { configure_print_colors, print_error } from '@fuzdev/fuz_util/print.ts';
+import { configure_print_colors } from '@fuzdev/fuz_util/print.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 
@@ -10,6 +10,7 @@ import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { print_error_with_causes } from './internal/error_report.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
 import { exit, set_exit_code } from './exit.ts';
@@ -96,7 +97,7 @@ host_process.on('uncaughtException', (err, origin) => {
 		new Logger('TaskError').error(st('red', err.message));
 	} else if (!is_silent_error(err)) {
 		// `print_error` reads properties, so a thrown `undefined` or `null` would throw here
-		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error(err));
+		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error_with_causes(err));
 	}
 	void flush_output().finally(() => exit(to_exit_code(err)));
 });

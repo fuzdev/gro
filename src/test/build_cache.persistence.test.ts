@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { load_build_cache_metadata, save_build_cache_metadata } from '#lib/build_cache.ts';
+import { FsError } from '#lib/fs_error.ts';
 import { GRO_DIR_MARKER_CONTENT, GRO_DIR_MARKER_FILENAME } from '#lib/internal/gro_dir.ts';
 
 import { create_mock_build_cache_metadata } from './build_cache_test_helpers.ts';
@@ -255,6 +256,22 @@ describe('save_build_cache_metadata', () => {
 		expect(log.warn).toHaveBeenCalledWith(
 			expect.stringContaining('Failed to save build cache'),
 			expect.stringContaining('no space left on device')
+		);
+	});
+
+	test("logs an fs error's cause, the OS's detail", async () => {
+		const { write, mkdir } = fs_paths.project;
+		const log = create_mock_logger();
+		vi.mocked(mkdir).mockResolvedValue(undefined);
+		vi.mocked(write).mockRejectedValue(
+			new FsError('io_error', '/p/.gro/build.json', {
+				cause: new Error('ENOSPC: no space left on device')
+			})
+		);
+		await save_build_cache_metadata({ fs_paths, log }, create_mock_build_cache_metadata());
+		expect(log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('Failed to save build cache'),
+			expect.stringContaining('io_error: /p/.gro/build.json (ENOSPC: no space left on device)')
 		);
 	});
 

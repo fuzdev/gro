@@ -30,6 +30,7 @@ let has_brand: (value: unknown) => value is FsError;
 
 /**
  * The error every fs op throws, typed by `kind`.
+ * Its `message` is exactly `kind: path`, and what the OS or the module said of the failure, when there is more to say, is its `cause`.
  * Match it with `is_fs_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */
@@ -47,8 +48,8 @@ export class FsError extends Error {
 			typeof value === 'object' && value !== null && #brand in value;
 	}
 
-	constructor(kind: FsErrorKind, path: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${path}`, options);
+	constructor(kind: FsErrorKind, path: string, options?: ErrorOptions) {
+		super(`${kind}: ${path}`, options);
 		this.kind = kind;
 		this.path = path;
 	}

@@ -11,6 +11,7 @@ import { create_fs_paths } from './fs_paths.ts';
 import { spawn, type SpawnResult } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
+import { format_error_detail } from './error_detail.ts';
 
 /**
  * Runs a TypeScript file with Gro's loader, forwarding all args to the script.
@@ -67,7 +68,7 @@ export const task: Task<Args> = {
 			const node = spawn.program('node', { pass_env: 'all' });
 			spawned = await spawn_with_loader(node, loader_path, path, full_argv, env.get('NODE_ENV'));
 		} catch (error) {
-			if (is_spawn_error(error)) throw new TaskError(error.message, { cause: error });
+			if (is_spawn_error(error)) throw new TaskError(format_error_detail(error), { cause: error });
 			throw error;
 		}
 		if (!spawn_result_is_ok(spawned)) {

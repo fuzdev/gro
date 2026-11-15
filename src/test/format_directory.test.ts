@@ -1,5 +1,6 @@
-import { test, expect, beforeEach, afterEach } from 'vitest';
+import { test, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+	chmodSync,
 	lstatSync,
 	mkdtempSync,
 	mkdirSync,
@@ -326,4 +327,23 @@ test('an existing file is never a glob, even with glob syntax in its name', asyn
 	} finally {
 		process.chdir(cwd);
 	}
+});
+
+test("format_directory logs a file it can't read with the OS's detail", async () => {
+	// unreadable, so `permission_denied`, the OS's text only in the cause
+	writeFileSync(join(root, 'src/lib/locked.ts'), 'const  x=1\n');
+	chmodSync(join(root, 'src/lib/locked.ts'), 0);
+	const log = create_mock_logger();
+	const result = await format_directory(fs_paths, {
+		log,
+		dir: join(root, 'src'),
+		check: true,
+		filter: create_empty_gro_config().search_filters,
+		root
+	});
+	expect(result.ok).toBe(false);
+	const logged = vi.mocked(log.error).mock.calls.flat().join('\n');
+	expect(logged).toContain(
+		`${join(root, 'src/lib/locked.ts')}: permission_denied: ${join(root, 'src/lib/locked.ts')} (EACCES`
+	);
 });

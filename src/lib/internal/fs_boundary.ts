@@ -23,7 +23,7 @@ import { env } from '../env.ts';
 const MAX_SYMLINKS = 40;
 
 const to_loop_error = (path: string): FsError =>
-	new FsError('io_error', path, `io_error: ${path} reaches a symlink loop (ELOOP)`);
+	new FsError('io_error', path, { cause: new Error(`${path} reaches a symlink loop (ELOOP)`) });
 
 // missing, or beneath a file, which the op on the resolved path reports
 const is_missing_error = (error: unknown): boolean =>
@@ -218,11 +218,11 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 		if (opened === null) return;
 		const target = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
 		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
-			throw new FsError(
-				'io_error',
-				to_absolute(path),
-				`io_error: ${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be emptied`
-			);
+			throw new FsError('io_error', to_absolute(path), {
+				cause: new Error(
+					`${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be emptied`
+				)
+			});
 		}
 		const names: Array<string> = [];
 		try {
@@ -242,16 +242,18 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 	const remove_path = async (path: string, options?: FsRemoveOptions): Promise<void> => {
 		const resolved = to_absolute(path);
 		const name = basename(resolved);
-		if (!name) throw new FsError('io_error', resolved, `io_error: the root can't be removed`);
+		if (!name) {
+			throw new FsError('io_error', resolved, { cause: new Error("the root can't be removed") });
+		}
 		const parent = await open_path(dirname(resolved));
 		const entry = parent.path ? parent.path + '/' + name : name;
 		const target = join(parent.dir.path, entry);
 		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
-			throw new FsError(
-				'io_error',
-				resolved,
-				`io_error: ${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be removed`
-			);
+			throw new FsError('io_error', resolved, {
+				cause: new Error(
+					`${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be removed`
+				)
+			});
 		}
 		await parent.dir.remove(path.endsWith('/') ? entry + '/' : entry, options);
 	};

@@ -11,6 +11,7 @@ import type { FsDir } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { fs_search } from './fs_search.ts';
 import type { FsPaths } from './fs_paths.ts';
+import { format_error_detail } from './error_detail.ts';
 
 /**
  * File extensions the format sweep collects. `json` is intentionally omitted
@@ -160,7 +161,10 @@ export const format_directory = async (
 	if (errored.length) {
 		log.error(`${errored.length} file(s) could not be formatted:`);
 		for (const { id, error } of errored) {
-			log.error(`  ${id}: ${error instanceof Error ? error.message : String(error)}`);
+			// an fs failure prints its cause, the OS's detail; a format error's message is its whole report
+			log.error(
+				`  ${id}: ${is_fs_error(error) ? format_error_detail(error) : error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	}
 

@@ -217,6 +217,33 @@ describe('a thrown non-error reaching the uncaught handler', () => {
 	}
 });
 
+test(
+	"an uncaught error prints its stack, then its causes, a host module error's detail",
+	async () => {
+		const dir = await create_project('gro_invoke_cause_');
+		await writeFile(
+			join(dir, 't.task.ts'),
+			`import {FsError} from ${JSON.stringify(resolve('src/lib/fs_error.ts'))};
+			export const task = {run: async () => {
+				setTimeout(() => {
+					throw new FsError('io_error', '/p/x', {cause: new Error('too many symlinks at /p/x', {cause: 'ELOOP'})});
+				}, 0);
+				await new Promise(() => {});
+			}};\n`
+		);
+		const result = spawnSync(process.execPath, invoke_args(['task', 't.task.ts']), {
+			cwd: dir,
+			encoding: 'utf8',
+			env: cli_env()
+		});
+		const output = result.stderr + result.stdout;
+		assert.equal(result.status, 1, output);
+		assert.include(output, 'FsError: io_error: /p/x\n');
+		assert.include(output, '\ncause: too many symlinks at /p/x (ELOOP)');
+	},
+	TEST_TIMEOUT_MD
+);
+
 const BROKEN_STREAMS = [
 	['stdout', '2>/dev/null'],
 	['stderr', '2>&1 >/dev/null']

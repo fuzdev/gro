@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-import { load_module } from '#lib/modules.ts';
+import { load_module, load_modules } from '#lib/modules.ts';
 
 // TODO if we import directly, svelte-package generates types in `src/test/fixtures`
 
@@ -86,6 +86,30 @@ test('load_module imports a path with URL syntax as written, without the loader'
 			{ encoding: 'utf8' }
 		);
 		expect(result.stdout.trim()).toBe('1');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('load_modules reports a module whose import throws with its stack, then its causes', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_modules_cause_'));
+	try {
+		const id = join(dir, 'throws.mjs');
+		await writeFile(
+			id,
+			"throw new Error('io_error: /p/x', { cause: new Error('too many symlinks at /p/x') });\n"
+		);
+		const result = await load_modules(
+			[{ id, input_path: id, resolved_input_path: null as any }],
+			(mod): mod is Record<string, unknown> => !!mod,
+			(_file, mod) => ({ id, mod })
+		);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.reasons).toHaveLength(1);
+		expect(result.reasons[0]).toMatch(
+			/Error: io_error: \/p\/x\n\s+at [^]*\ncause: too many symlinks at \/p\/x/
+		);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

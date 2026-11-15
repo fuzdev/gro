@@ -41,12 +41,20 @@ describe('error kinds', () => {
 		await assert_fs_error_rejects(dir.stat('f.txt/x'), 'not_a_directory');
 	});
 
-	test('an FsError carries its cause and a message naming the path', async () => {
+	test("an FsError's message is exactly `kind: path`, what the OS said its cause", async () => {
 		const error = await assert_fs_error_rejects(dir.read('missing'), 'not_found');
 		assert.instanceOf(error, FsError);
 		assert.strictEqual(error.name, 'FsError');
-		assert.include(error.message, join(sandbox.root, 'missing'));
+		assert.strictEqual(error.message, `not_found: ${join(sandbox.root, 'missing')}`);
 		assert.strictEqual((error.cause as { code?: string }).code, 'ENOENT');
+	});
+
+	test("a refusal of the module's own is `kind: path`, its explanation an `Error` as its cause", async () => {
+		const error = await assert_fs_error_rejects(dir.read('../x'), 'outside_root');
+		assert.strictEqual(error.message, 'outside_root: ../x');
+		assert.instanceOf(error.cause, Error);
+		assert.strictEqual(error.cause.message, `../x climbs above ${sandbox.root}`);
+		assert.isUndefined(error.cause.cause);
 	});
 
 	test('open_dir refuses a relative path and a non-directory', async () => {

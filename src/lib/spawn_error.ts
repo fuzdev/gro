@@ -16,16 +16,18 @@ import { is_error_class_named } from './internal/error_class.ts';
  * `not_found` is a name that resolves to no regular executable; `not_executable` is a regular file
  * without execute permission, or one the module refuses (`.bat`, `.cmd`, a format that's neither
  * `#!` nor ELF); `not_granted` is a name outside what the handle allows, or an environment
- * a narrowed root can't give; `launch_failed` is a pinned program that couldn't start, what
- * stopped it on `cause`, including one that wasn't started because the call's `signal` had
- * already aborted (its reason) or a `#!` script's found path no longer resolves (the stat's
- * error), and a `#!` script whose found path now leads to another file, which has no `cause`.
+ * a narrowed root can't give; `launch_failed` is a pinned program that couldn't start, its
+ * `cause` saying which and why, and that cause's own `cause` what stopped it: Node's error, the
+ * call's `signal`'s reason when it had already aborted, or the stat's error when a `#!` script's
+ * found path no longer resolves; a `#!` script whose found path now leads to another file has
+ * the explanation alone.
  */
 export type SpawnErrorKind = 'not_found' | 'not_executable' | 'not_granted' | 'launch_failed';
 
 /**
  * The error `spawn.ts` throws when a program can't be reached or started, typed by `kind`.
  * A program that started and exited non-zero is a result, not this error.
+ * Its `message` is exactly `kind: program`, and what the OS or the module said of the failure, when there is more to say, is its `cause`.
  * Match it with `is_spawn_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */
@@ -37,8 +39,8 @@ export class SpawnError extends Error {
 	 */
 	readonly program: string;
 
-	constructor(kind: SpawnErrorKind, program: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${program}`, options);
+	constructor(kind: SpawnErrorKind, program: string, options?: ErrorOptions) {
+		super(`${kind}: ${program}`, options);
 		this.kind = kind;
 		this.program = program;
 	}

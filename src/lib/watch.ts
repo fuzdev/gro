@@ -226,9 +226,13 @@ const lstat_quietly = (path: string): BigIntStats | undefined | null => {
 const read_root_stats = (root: string): BigIntStats => {
 	const stats = lstat_quietly(root);
 	if (stats === undefined) throw new FsError('not_found', root);
-	if (stats === null) throw new FsError('io_error', root, `io_error: can't lstat ${root}`);
+	if (stats === null) {
+		throw new FsError('io_error', root, { cause: new Error(`can't lstat ${root}`) });
+	}
 	if (stats.isSymbolicLink()) {
-		throw new FsError('outside_root', root, `outside_root: the watched ${root} is a symlink`);
+		throw new FsError('outside_root', root, {
+			cause: new Error(`the watched ${root} is a symlink`)
+		});
 	}
 	if (!stats.isDirectory()) throw new FsError('not_a_directory', root);
 	return stats;
@@ -507,7 +511,7 @@ const watch_dir = async (dir: FsReadDir, raw_options?: WatchDirOptions): Promise
 	// rejects `watch.dir` while it waits for chokidar's scan, which a root gone meanwhile never ends
 	let reject_start: ((error: FsError) => void) | null = null;
 	const to_root_gone_error = (): FsError =>
-		new FsError('not_found', root, `not_found: the watched ${root} is gone`);
+		new FsError('not_found', root, { cause: new Error(`the watched ${root} is gone`) });
 	const end_root_gone = (): void => {
 		const failure = to_root_gone_error();
 		queue.end(failure);

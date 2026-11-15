@@ -98,11 +98,7 @@ class NodeProcessOutput implements ProcessOutput {
 					// on a later turn, so a write loop past a gone reader can't starve signal handling
 					set_immediate(resolve, false);
 				} else {
-					reject(
-						new StdioError('io_error', target, `io_error: ${target}: ${error.message}`, {
-							cause: error
-						})
-					);
+					reject(new StdioError('io_error', target, { cause: error }));
 				}
 			});
 		});

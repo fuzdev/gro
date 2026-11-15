@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import ts from 'typescript';
 
 import { fs, type FsReadDir } from '#lib/fs.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import { is_fs_error } from '#lib/fs_error.ts';
 import { register_fs_handle, to_fs_handle_resolve } from '#lib/internal/fs_handles.ts';
 import { paths } from '#lib/paths.ts';
@@ -120,7 +121,11 @@ describe('resolution beneath a handle', () => {
 			'a/../../x'
 		]) {
 			const error = assert_both_refuse(sandbox.dir, name, 'not_granted');
-			assert.ok(is_fs_error(error.cause, 'outside_root'), name);
+			assert.ok(is_fs_error((error.cause as Error).cause, 'outside_root'), name);
+			assert.strictEqual(
+				(error.cause as Error).message,
+				`${name} leads outside its directory handle`
+			);
 		}
 		// with the handle's directory gone, a name that reaches the disk is a miss,
 		// while the lexical refusals stand, so they came first
@@ -145,7 +150,11 @@ describe('resolution beneath a handle', () => {
 		symlinkSync(join(sandbox.outside, 'tool'), join(sandbox.root, 'abs_outside'));
 		for (const name of ['abs_inside', 'abs_outside']) {
 			const error = assert_both_refuse(sandbox.dir, name, 'not_granted');
-			assert.ok(is_fs_error(error.cause, 'outside_root'), name);
+			assert.ok(is_fs_error((error.cause as Error).cause, 'outside_root'), name);
+			assert.strictEqual(
+				(error.cause as Error).message,
+				`${name} leads outside its directory handle`
+			);
 			assert.include(error.message, name);
 		}
 	});
@@ -159,7 +168,11 @@ describe('resolution beneath a handle', () => {
 		symlinkSync('../../outside', join(sandbox.root, 'bin/dir_out'));
 		for (const name of ['out', 'back_in', 'bin/dir_out/tool']) {
 			const error = assert_both_refuse(sandbox.dir, name, 'not_granted');
-			assert.ok(is_fs_error(error.cause, 'outside_root'), name);
+			assert.ok(is_fs_error((error.cause as Error).cause, 'outside_root'), name);
+			assert.strictEqual(
+				(error.cause as Error).message,
+				`${name} leads outside its directory handle`
+			);
 		}
 	});
 
@@ -198,7 +211,8 @@ describe('resolution beneath a handle', () => {
 			assert_not_found(sandbox.dir, name);
 		}
 		const error = assert_spawn_error(() => spawn.program_in(sandbox.dir, 'missing'), 'not_found');
-		assert.include(error.message, sandbox.root);
+		assert.strictEqual(error.message, 'not_found: missing');
+		assert.include(format_error_detail(error), sandbox.root);
 	});
 
 	test('a file the kernel would hand to `/bin/sh` is `not_executable`', () => {
@@ -224,7 +238,11 @@ describe('resolution beneath a handle', () => {
 			try {
 				for (const name of ['locked/tool', 'locked/missing']) {
 					const error = assert_both_refuse(sandbox.dir, name, 'not_executable');
-					assert.ok(is_fs_error(error.cause, 'permission_denied'), name);
+					assert.ok(is_fs_error((error.cause as Error).cause, 'permission_denied'), name);
+					assert.strictEqual(
+						(error.cause as Error).message,
+						`${name} can't be resolved beneath its directory handle`
+					);
 				}
 			} finally {
 				chmodSync(join(sandbox.root, 'locked'), 0o755);

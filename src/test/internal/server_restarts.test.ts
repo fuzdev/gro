@@ -224,7 +224,7 @@ describe('start_watched_server', () => {
 		const server = await start_watched_server(to_options({ program, graph: g.graph, log }));
 		const errors = vi.mocked(log.error).mock.calls;
 		const infos = vi.mocked(log.info).mock.calls;
-		mock.start_error = () => new SpawnError('launch_failed', 'node', 'launch_failed: nope');
+		mock.start_error = () => new SpawnError('launch_failed', 'node');
 		g.emit({ type: 'update', id: DEP });
 		await until(() => errors.length === 1);
 		expect(server.process.child).toBe(null);
@@ -250,7 +250,7 @@ describe('start_watched_server', () => {
 		const g = create_graph();
 		const log = create_mock_logger();
 		const server = await start_watched_server(to_options({ program, graph: g.graph, log }));
-		mock.start_error = () => new SpawnError('launch_failed', 'node', 'launch_failed: nope');
+		mock.start_error = () => new SpawnError('launch_failed', 'node');
 		g.emit({ type: 'update', id: DEP });
 		// the restart is in flight once it's announced, its slow stop holding it there
 		await until(() => vi.mocked(log.info).mock.calls.length === 1);
@@ -292,7 +292,7 @@ describe('start_watched_server', () => {
 	test('a launch failure unsubscribes and rejects', async () => {
 		const { mock, program } = create_spawn();
 		const g = create_graph();
-		mock.start_error = () => new SpawnError('launch_failed', 'node', 'launch_failed: nope');
+		mock.start_error = () => new SpawnError('launch_failed', 'node');
 		const error = await start_watched_server(to_options({ program, graph: g.graph })).catch(
 			(e: unknown) => e
 		);
@@ -327,7 +327,7 @@ describe('start_watched_server restarts sharing one in flight', () => {
 		const g = create_graph();
 		const log = create_mock_logger();
 		const server = await start_watched_server(to_options({ program, graph: g.graph, log }));
-		mock.start_error = () => new SpawnError('launch_failed', 'node', 'launch_failed: nope');
+		mock.start_error = () => new SpawnError('launch_failed', 'node');
 		g.emit({ type: 'update', id: DEP });
 		await wait(30);
 		g.emit({ type: 'update', id: DEP });

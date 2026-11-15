@@ -115,6 +115,18 @@ describe('stdin', () => {
 		assert.deepEqual(forged, ['StdioError', 'io_error']);
 	});
 
+	test("a failed read is a `StdioError` `io_error` whose cause is the stream's error", () => {
+		const result = run_fixture_json(
+			`const iterator = stdin[Symbol.asyncIterator]();
+			 globalThis.process.stdin.destroy(new Error('the stream failed'));
+			 let seen = null;
+			 try { await iterator.next(); } catch (e) { seen = [e.message, e.cause?.message]; }
+			 console.log(JSON.stringify(seen));`,
+			{ input: '' }
+		);
+		assert.deepEqual(result, ['io_error: stdin', 'the stream failed']);
+	});
+
 	test('`is_terminal` reports a pipe as no terminal', () => {
 		assert.strictEqual(run_fixture_json('console.log(JSON.stringify(stdin.is_terminal));'), false);
 	});

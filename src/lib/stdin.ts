@@ -84,16 +84,14 @@ class NodeProcessInputIterator implements AsyncIterator<Uint8Array> {
 		try {
 			result = await inner.next();
 		} catch (error) {
-			throw new StdioError('io_error', 'stdin', `io_error: stdin: ${(error as Error).message}`, {
-				cause: error
-			});
+			throw new StdioError('io_error', 'stdin', { cause: error });
 		}
 		if (result.done) return to_chunk_result(null);
 		const { value } = result;
 		// not bytes if something set an encoding on the stream, or forged it to something else through `then`
 		if (!isUint8Array(value)) {
 			await this.#stop();
-			throw new StdioError('io_error', 'stdin', "io_error: stdin: a chunk isn't bytes");
+			throw new StdioError('io_error', 'stdin', { cause: new Error("a chunk isn't bytes") });
 		}
 		// a copy, so a reader never holds a `Buffer` or a view of memory Node reuses
 		return to_chunk_result(new Uint8ArrayClass(value));

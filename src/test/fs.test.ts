@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 
 import { fs, type DirEntry, type FsDir } from '#lib/fs.ts';
 import { FsError } from '#lib/fs_error.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,
@@ -272,7 +273,7 @@ describe('mkdir and remove', () => {
 		for (const path of ['', '.', './', 'sub/..']) {
 			for (const recursive of [false, true]) {
 				const error = await assert_fs_error_rejects(dir.remove(path, { recursive }), 'io_error');
-				assert.include(error.message, "the handle's own directory can't be removed");
+				assert.include(format_error_detail(error), "the handle's own directory can't be removed");
 			}
 		}
 		await assert_fs_error_rejects(dir.remove('', { missing_ok: true }), 'io_error');
@@ -318,7 +319,7 @@ describe('rename and copy', () => {
 		await dir.mkdir('empty');
 		for (const from of ['', '.']) {
 			const error = await assert_fs_error_rejects(dir.rename(from, 'x'), 'io_error');
-			assert.include(error.message, "the handle's own directory can't be renamed");
+			assert.include(format_error_detail(error), "the handle's own directory can't be renamed");
 		}
 		await assert_fs_error_rejects(dir.rename('a.txt', ''), 'io_error');
 		// an empty directory onto the root would replace it
@@ -346,7 +347,13 @@ describe('rename and copy', () => {
 				'not_found'
 			);
 			assert.strictEqual(to_missing.path, join(sandbox.root, 'nodir/b.txt'));
-			assert.include(to_missing.message, join(sandbox.root, 'a.txt'));
+			// both ends are the module's explanation, the OS's error beneath it
+			assert.strictEqual(
+				(to_missing.cause as Error).message,
+				`${join(sandbox.root, 'a.txt')} -> ${join(sandbox.root, 'nodir/b.txt')}`
+			);
+			assert.strictEqual(((to_missing.cause as Error).cause as { code?: unknown }).code, 'ENOENT');
+			assert.include(format_error_detail(to_missing), join(sandbox.root, 'a.txt'));
 			const from_missing = await assert_fs_error_rejects(dir[op]('missing', 'b.txt'), 'not_found');
 			assert.strictEqual(from_missing.path, join(sandbox.root, 'missing'));
 			const to_not_dir = await assert_fs_error_rejects(

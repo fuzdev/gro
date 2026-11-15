@@ -1,12 +1,12 @@
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
-import { print_error } from '@fuzdev/fuz_util/print.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { pathToFileURL } from 'node:url';
 
 import type { ResolvedInputFile } from './input_path.ts';
 import { print_path } from './paths.ts';
+import { print_error_with_causes } from './internal/error_report.ts';
 
 export interface ModuleMeta<TModule extends Record<string, any> = Record<string, any>> {
 	id: PathId;
@@ -82,7 +82,7 @@ export const load_modules = async <
 					reasons.push(
 						`Module import ${print_path(id)} failed from input ${print_path(
 							input_path
-						)}: ${print_error(result.error)}`
+						)}: ${print_error_with_causes(result.error)}`
 					);
 					break;
 				}

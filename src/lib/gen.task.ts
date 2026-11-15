@@ -1,5 +1,5 @@
 import { styleText as st } from 'node:util';
-import { print_ms, print_error } from '@fuzdev/fuz_util/print.ts';
+import { print_ms } from '@fuzdev/fuz_util/print.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
@@ -10,6 +10,7 @@ import { RawInputPath, to_input_paths } from './input_path.ts';
 import { format_file } from './format_file.ts';
 import { print_path } from './paths.ts';
 import { log_error_reasons } from './task_logging.ts';
+import { append_error_causes, print_error_with_causes } from './internal/error_report.ts';
 import {
 	write_gen_results,
 	analyze_gen_results,
@@ -151,7 +152,7 @@ export const task: Task<Args> = {
 					'\n',
 					is_task_error(result.error)
 						? st('yellow', result.error.message)
-						: print_error(result.error)
+						: print_error_with_causes(result.error)
 				);
 			}
 			throw new TaskError(`Failed to generate ${fail_count} file${plural(fail_count)}.`);
@@ -205,7 +206,9 @@ const collect_output_lines = (
 				source: print_path(result.id),
 				target: st(
 					'red',
-					(is_task_error(result.error) ? null : result.error.stack) ||
+					(is_task_error(result.error) || !result.error.stack
+						? null
+						: append_error_causes(result.error.stack, result.error)) ||
 						result.error.message ||
 						'error'
 				),

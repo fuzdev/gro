@@ -728,6 +728,9 @@ Key utilities:
   `src/test/host_module_declarations.test.ts`
   fails if a host module's emitted declarations name a type outside the ES libs
   and its short list of web types (`WEB_TYPES`), such as a Node or DOM-only type
+- Errors: `error_detail.ts`, `format_error_detail` (a message and its chain of causes) and
+  `format_error_causes` (the chain alone, after a stack), grant-free, how Gro and its users print
+  a host module's error, whose `message` is only `kind: target`
 - Spawn: `spawn.ts`, the spawn host module, `program`/`find`/`program_in`/`find_in`/`narrow`
   making pinned `SpawnProgram` handles with an explicit environment; `spawn_error.ts`, its
   `SpawnError` and `is_spawn_error`, grant-free ([docs](src/docs/host_modules.md#spawn))

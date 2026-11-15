@@ -17,6 +17,7 @@ import { env } from './env.ts';
 import { paths, to_root_path } from './paths.ts';
 import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
 import type { FsSearchResult } from './fs_search.ts';
+import { format_error_detail } from './error_detail.ts';
 
 const TEST_FILES_PRINTED_MAX = 5;
 
@@ -186,7 +187,7 @@ const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSear
 		if (!is_fs_error(error)) throw error;
 		throw new TaskError(
 			`failed to search ${to_root_path(paths.source)} for test files, as vitest isn't declared: ` +
-				error.message,
+				format_error_detail(error),
 			{ cause: error }
 		);
 	}

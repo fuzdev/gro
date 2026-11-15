@@ -18,7 +18,7 @@ export type EnvErrorKind = 'not_granted';
 
 /**
  * The error `env.ts` throws, typed by `kind`.
- * Its `message` is `kind: target`, the variable's name and never its value.
+ * Its `message` is exactly `kind: target`, the variable's name and never its value.
  * Match it with `is_env_error`, which also recognizes one from another copy of Gro.
  * The class and its prototype are frozen.
  */
@@ -30,8 +30,8 @@ export class EnvError extends Error {
 	 */
 	readonly target: string;
 
-	constructor(kind: EnvErrorKind, target: string, message?: string, options?: ErrorOptions) {
-		super(message ?? `${kind}: ${target}`, options);
+	constructor(kind: EnvErrorKind, target: string, options?: ErrorOptions) {
+		super(`${kind}: ${target}`, options);
 		this.kind = kind;
 		this.target = target;
 	}

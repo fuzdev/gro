@@ -12,6 +12,7 @@ import {
 import { join } from 'node:path';
 
 import { fs, type FsDir } from '#lib/fs.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
@@ -84,7 +85,8 @@ describe('read_link', () => {
 	test('a target that is not UTF-8 is `io_error`, never decoded lossily', async () => {
 		symlinkSync(Buffer.from([0x61, 0xff]), join(sandbox.root, 'bad'));
 		const error = await assert_fs_error_rejects(dir.read_link('bad'), 'io_error');
-		assert.include(error.message, 'a\\xff');
+		assert.strictEqual(error.message, `io_error: ${join(sandbox.root, 'bad')}`);
+		assert.include(format_error_detail(error), 'a\\xff');
 		assert.strictEqual(error.path, join(sandbox.root, 'bad'));
 	});
 

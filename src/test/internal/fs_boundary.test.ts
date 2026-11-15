@@ -13,6 +13,7 @@ import {
 import { dirname, join, relative } from 'node:path';
 
 import type { FsPaths } from '#lib/fs_paths.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 
 import {
 	assert_fs_error_rejects,
@@ -331,19 +332,19 @@ describe('fs_open_path outside the project', () => {
 			fs_open_path(join(sandbox.root, 'loop')),
 			'io_error'
 		);
-		assert.include(error.message, 'ELOOP');
+		assert.include(format_error_detail(error), 'ELOOP');
 		const nested = await assert_fs_error_rejects(
 			fs_open_path(join(sandbox.root, 'loop/missing')),
 			'io_error'
 		);
-		assert.include(nested.message, 'ELOOP');
+		assert.include(format_error_detail(nested), 'ELOOP');
 		// a cycle the kernel never sees, since a target's `..` resolves lexically here
 		symlinkSync('missing/../lexical/x', join(sandbox.root, 'lexical'));
 		const lexical = await assert_fs_error_rejects(
 			fs_open_path(join(sandbox.root, 'lexical')),
 			'io_error'
 		);
-		assert.include(lexical.message, 'ELOOP');
+		assert.include(format_error_detail(lexical), 'ELOOP');
 	});
 
 	test.skipIf(process.getuid?.() === 0)(
@@ -548,7 +549,10 @@ describe('fs_empty_dir_path', () => {
 			fs_empty_dir_path(join(sandbox.root, 'up')),
 			'io_error'
 		);
-		assert.include(error.message, `${dirname(process.cwd())} (from ${join(sandbox.root, 'up')})`);
+		assert.include(
+			format_error_detail(error),
+			`${dirname(process.cwd())} (from ${join(sandbox.root, 'up')})`
+		);
 		// the root goes through `is_protected_dir` alone, never an op on it
 		assert.ok(existsSync(join(process.cwd(), 'package.json')));
 		assert.ok(existsSync(join(sandbox.outside, 'secret.txt')));

@@ -14,6 +14,7 @@ import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 
 import { fs, type FsDir, type FsReadDir } from '#lib/fs.ts';
+import { format_error_detail } from '#lib/error_detail.ts';
 import {
 	assert_fs_error_rejects,
 	assert_fs_error_throws,
@@ -566,7 +567,7 @@ describe('names that are not UTF-8', () => {
 
 	test('the refusal names the link and its target bytes escaped', async () => {
 		const error = await assert_fs_error_rejects(dir.read_text('L'), 'io_error');
-		assert.include(error.message, '\\xff/secret.txt');
+		assert.include(format_error_detail(error), '\\xff/secret.txt');
 		assert.strictEqual(error.path, join(sandbox.root, 'L'));
 	});
 
@@ -604,7 +605,7 @@ describe('names that are not UTF-8', () => {
 			}
 		};
 		const error = await assert_fs_error_rejects(list(), 'io_error');
-		assert.include(error.message, 'holds an entry named \\xff');
+		assert.include(format_error_detail(error), 'holds an entry named \\xff');
 		assert.strictEqual(readFileSync(join(sandbox.root, '\uFFFD'), 'utf8'), 'replacement');
 	});
 });
