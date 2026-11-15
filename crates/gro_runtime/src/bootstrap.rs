@@ -15,13 +15,15 @@
 //! in two levels ([`to_backing_script`]). The outer level, called with
 //! `deno_core`'s bootstrap object (the ops, `primordials`), makes what
 //! every importer of the builtin shares, the values no scope changes and
-//! the frozen shells that hand a call to an op, and returns the inner
-//! level, which, called with the scope of an importer's grant, makes the
-//! builtin's namespace. A backing script calls both at once, so a run has
-//! one namespace of each builtin; a namespace per importing origin is one
-//! more call of the inner level, over the same shells. Whatever has
-//! identity or state, a class, a brand, a registry, is the host's. No snapshot
-//! holds any of it. `deno_core` compiles and runs a backing script the first
+//! the frozen shells that hand a call to an op, or, for a row with native
+//! members (`host/native.rs`), nothing, and returns the inner level, which,
+//! called with the scope of an importer's grant, makes the builtin's
+//! namespace, or asks the host for it. A backing script calls both at once,
+//! so a run has one namespace of each builtin; a namespace per importing
+//! origin is one more call of the inner level, over the same shells (for a
+//! native row, the host keys its namespace). Whatever has identity or
+//! state, a class, a brand, a registry, is the host's, its functions too
+//! for a native row. No snapshot holds any of it. `deno_core` compiles and runs a backing script the first
 //! time a run imports its facade, after the start, and the facade's exports
 //! are the own properties of what the script returns, with a `default` of
 //! `undefined`. Until then a builtin costs a run its facade's name and its

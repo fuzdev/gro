@@ -2,12 +2,12 @@
 //! is handed, by the `blake3` crate, and the hashers, the first handles
 //! whose state is native Rust.
 //!
-//! An op reads its arguments as the values they are: bytes are a
+//! A member reads its arguments as the values they are: bytes are a
 //! `Uint8Array`, its subclasses included, never a proxy, an array of
 //! numbers, a string, or another view, whose contents it reads natively,
 //! running no code of a caller's; a context is a string, encoded as UTF-8
 //! with each lone surrogate replaced, as `TextEncoder` encodes it; a key is
-//! 32 bytes. A view's contents are read as they are when the op runs: a
+//! 32 bytes. A view's contents are read as they are when the call runs: a
 //! view of a detached buffer is a `TypeError`, as it is to the WASM package
 //! on Node, one tracking a resizable buffer's length is read to the length
 //! it has, and one of a `SharedArrayBuffer` is read as any other, since no
@@ -15,9 +15,14 @@
 //! out of its buffer's bounds reads as empty: V8's API reports a view's
 //! length as zero then and says nothing of its bounds.
 //!
-//! A hasher is a handle of [`BLAKE3_HASHER`]'s kind (`handle.rs`), whose
-//! state is a number naming its `blake3::Hasher` in the run's table, in
-//! `OpState` ([`Blake3State`]). The table holds each hasher beside a weak
+//! The module's members are native (`native.rs`): `hash`, the three
+//! factories, and the hasher's `update` and `finalize`, each declared in
+//! `host/mod.rs` with what it does here.
+//!
+//! A hasher is a handle of [`BLAKE3_HASHER`]'s kind (`handle.rs`), made of
+//! the prototype the host made with the module's namespace, whose state is
+//! a number naming its `blake3::Hasher` in the run's table, in `OpState`
+//! ([`Blake3State`]). The table holds each hasher beside a weak
 //! reference to its handle, whose finalizer takes the hasher out of the
 //! table once the handle is collected, so a hasher lives as long as its
 //! handle can be reached, and no longer, with no call to end it: the
@@ -39,12 +44,12 @@ use std::rc::Rc;
 use deno_core::{OpState, v8};
 
 use super::handle::{self, BLAKE3_HASHER};
-use super::{throw_error, throw_range_error, throw_type_error};
+use super::{native, throw_error, throw_range_error, throw_type_error};
 
-/// What an op throws for bytes that aren't a `Uint8Array`.
+/// What a member throws for bytes that aren't a `Uint8Array`.
 pub const NOT_BYTES: &str = "blake3 hashes a Uint8Array";
 
-/// What an op throws for bytes or a key in a view of a detached buffer.
+/// What a member throws for bytes or a key in a view of a detached buffer.
 pub const DETACHED: &str = "blake3 can't read a view of a detached buffer";
 
 /// What a keyed hasher's factory throws for a key that isn't a
@@ -61,11 +66,11 @@ pub const NOT_A_CONTEXT: &str = "a derive_key hasher's context is a string";
 /// What a hasher's method called on anything but a hasher throws.
 pub const NOT_A_HASHER: &str = "a hasher's methods are called on a hasher, not another object";
 
-/// What a factory throws when the implementation hands it no prototype to
-/// make the hasher of.
-const NOT_A_PROTOTYPE: &str = "a hasher's prototype is an object";
+/// What a factory throws when the run holds no hasher prototype, which
+/// only a factory reached some other way than through the namespace meets.
+const NO_PROTOTYPE: &str = "this run made no blake3 namespace, so it holds no hasher prototype";
 
-/// What an op throws in a runtime started without the module's state,
+/// What a member throws in a runtime started without the module's state,
 /// which only a runtime made outside a run's start is.
 const NO_BLAKE3_STATE: &str = "this runtime was started without blake3's state";
 
@@ -73,16 +78,11 @@ const NO_BLAKE3_STATE: &str = "this runtime was started without blake3's state";
 const LENGTH: usize = 32;
 
 /// The blake3 host module's state, put in every run's `OpState` when it
-/// starts, empty: the table joins when a run makes its first hasher, and
-/// the hashers' prototype when a factory first hands it over.
+/// starts, empty: the table joins when a run makes its first hasher.
 #[derive(Default)]
 pub struct Blake3State {
     /// The hashers, shared with each one's finalizer.
     hashers: OnceCell<Rc<Hashers>>,
-    /// The prototype of every hasher, the record of shells the
-    /// implementation's outer level made, its shells frozen, once a factory
-    /// first handed it over.
-    prototype: RefCell<Option<v8::Global<v8::Object>>>,
 }
 
 impl Blake3State {
@@ -172,15 +172,13 @@ pub enum Mode<'s> {
     DeriveKey(v8::Local<'s, v8::Value>),
 }
 
-/// A new hasher in `mode`, made of `prototype`, the record of shells the
-/// implementation's outer level made, or the one the run holds: a handle
-/// whose state names a new `blake3::Hasher` in the run's table. The
-/// argument is checked first, then the prototype, then the run's state.
+/// A new hasher in `mode`, made of the prototype the run made with the
+/// namespace: a handle whose state names a new `blake3::Hasher` in the
+/// run's table. The argument is checked first, then the run's state.
 /// `None` with an exception pending when a step failed.
 pub fn hasher<'s>(
     state: &OpState,
     scope: &mut v8::PinScope<'s, '_>,
-    prototype: v8::Local<'s, v8::Value>,
     mode: Mode<'s>,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let hasher = match mode {
@@ -202,18 +200,14 @@ pub fn hasher<'s>(
             blake3::Hasher::new_derive_key(&context.to_rust_string_lossy(scope))
         }
     };
-    let Some(prototype) = v8::Local::<v8::Object>::try_from(prototype)
-        .ok()
-        .filter(|prototype| !prototype.is_proxy())
-    else {
-        throw_type_error(scope, NOT_A_PROTOTYPE);
-        return None;
-    };
     let Some(blake3) = state.try_borrow::<Blake3State>() else {
         throw_error(scope, NO_BLAKE3_STATE);
         return None;
     };
-    let prototype = held_prototype(scope, blake3, prototype)?;
+    let Some(prototype) = native::prototype(state, scope, &BLAKE3_HASHER) else {
+        throw_error(scope, NO_PROTOTYPE);
+        return None;
+    };
     let hashers = blake3.hashers.get_or_init(Rc::default);
     let number = hashers.next.get();
     hashers.next.set(number + 1.0);
@@ -292,21 +286,6 @@ fn with_hasher<R>(
         .hashers
         .get()?
         .with(id, step)
-}
-
-/// The prototype the run holds, or `prototype`, its shells frozen, held
-/// now. `None` with an exception pending when freezing failed.
-fn held_prototype<'s>(
-    scope: &v8::PinScope<'s, '_>,
-    blake3: &Blake3State,
-    prototype: v8::Local<'s, v8::Object>,
-) -> Option<v8::Local<'s, v8::Object>> {
-    if let Some(held) = &*blake3.prototype.borrow() {
-        return Some(v8::Local::new(scope, held));
-    }
-    handle::freeze_shells(scope, prototype)?;
-    *blake3.prototype.borrow_mut() = Some(v8::Global::new(scope, prototype));
-    Some(prototype)
 }
 
 /// The number the hasher `receiver` is holds, or `None` with a `TypeError`

@@ -16,6 +16,12 @@
 //! row of the module it serves does, so an op of a module that needs a
 //! grant can't be declared grant-free.
 //!
+//! A row's members can be native functions instead (`native.rs`), declared
+//! through `native_members!`, whose callbacks make the same check first, and
+//! reached through one host op, `op_gro_namespace`, which serves every such
+//! row, the row its calling script's, and checks the row's grant before it
+//! makes anything.
+//!
 //! The loader refuses an ungranted builtin at link time already, and every
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! an op past the loader.
@@ -25,7 +31,8 @@ pub mod env;
 pub mod error_class;
 pub mod exit;
 mod grant;
-mod handle;
+pub mod handle;
+pub mod native;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
@@ -35,6 +42,8 @@ use exit::{ExitState, NOT_A_CODE, to_exit_code};
 #[cfg(test)]
 use grant::Grant;
 use grant::{Granted, require, require_authority};
+use handle::BLAKE3_HASHER;
+use native::native_members;
 
 use crate::loader::RefusalLog;
 #[cfg(test)]
@@ -77,10 +86,23 @@ pub struct HostData {
 pub struct HostOp {
     /// The op's name.
     pub name: &'static str,
-    /// The builtin module it serves, by its specifier in the builtin table.
-    pub module: &'static str,
+    /// What it serves.
+    pub serves: Serves,
     /// The grant it requires, or none for a grant-free module's op.
     pub grant: Option<Capability>,
+}
+
+/// What a host op serves.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Serves {
+    /// One builtin module, by its specifier in the builtin table, whose
+    /// grant the op requires.
+    Row(&'static str),
+    /// Every row with native members (`native.rs`), named by the op's
+    /// argument, whose grant the op checks once it knows the row: the op
+    /// itself is grant-free, refusing only a runtime with no authority.
+    Native,
 }
 
 /// Declares host ops, each an `#[op2]` whose first step is the check of
@@ -95,7 +117,10 @@ pub struct HostOp {
 /// ([`require_authority`]), so it runs in every run and in no eval. The
 /// specifier is the builtin module the op serves, and a test holds what the
 /// op requires to that module's row, so the form that names no grant can't
-/// be written for a module that needs one.
+/// be written for a module that needs one. An op written `for native`
+/// serves every row with native members, the row its argument names: it
+/// names no grant, and checks the row's once it knows it
+/// ([`native::namespace`]).
 ///
 /// An op that takes arguments names them after a `;`, the scope first:
 /// `fn name(state, granted: Grant; scope, value) for "specifier"`. Each
@@ -135,6 +160,12 @@ macro_rules! host_ops {
     };
     (@grant) => {
         None
+    };
+    (@serves native) => {
+        Serves::Native
+    };
+    (@serves $module:literal) => {
+        Serves::Row($module)
     };
     // no scope, and a result or none
     (@op [$($attr:tt)*] $name:ident, $state:ident, [$($granted:tt)*], [], [], $body:block) => {
@@ -178,7 +209,7 @@ macro_rules! host_ops {
             $state:ident $(, $granted:ident: $grant:ty)?
             $(; $(& $mutable:ident)? $scope:ident $(, $arg:ident)*)?
         )
-            for $module:literal
+            for $serves:tt
             $(
                 -> $(#[$ret:ident])? $($out:ident)::+
                 $(<$($out_lt:lifetime,)? $($($out_arg:ident)::+),+>)?
@@ -202,7 +233,7 @@ macro_rules! host_ops {
         #[cfg(test)]
         pub const HOST_OPS: &[HostOp] = &[$(HostOp {
             name: stringify!($name),
-            module: $module,
+            serves: host_ops!(@serves $serves),
             grant: host_ops!(@grant $($grant)?),
         }),*];
 
@@ -387,52 +418,17 @@ host_ops! {
         )
     }
 
-    /// `hash(data)`, the BLAKE3 digest of `data` ([`blake3::hash`]).
-    fn op_gro_blake3_hash(state; scope, data) for "@fuzdev/gro/blake3.ts"
+    /// The namespace of the row whose backing script calls it: the host's,
+    /// its members native functions made the first time the run asks and
+    /// held, so every later ask, a rerun of a first import ended early
+    /// among them, gets the same ones, once the row's grant is checked; the
+    /// script hands over its importer's scope and the realm's `Error`, from
+    /// `primordials` ([`native::namespace`]).
+    fn op_gro_namespace(state; scope, importer_scope, error) for native
         -> v8::Local<'s, v8::Value>
     {
-        blake3::hash(scope, data).unwrap_or_else(|| v8::undefined(scope).into())
-    }
-
-    /// `create_hasher()`, a new hasher made of `prototype`, the record of
-    /// shells the implementation's outer level made ([`blake3::hasher`]).
-    fn op_gro_blake3_hasher(state; &mut scope, prototype) for "@fuzdev/gro/blake3.ts"
-        -> v8::Local<'s, v8::Value>
-    {
-        blake3::hasher(state, scope, prototype, blake3::Mode::Plain)
-            .unwrap_or_else(|| v8::undefined(scope).into())
-    }
-
-    /// `create_keyed_hasher(key)`, a new hasher keyed by `key`, made of
-    /// `prototype` ([`blake3::hasher`]).
-    fn op_gro_blake3_keyed_hasher(state; &mut scope, prototype, key) for "@fuzdev/gro/blake3.ts"
-        -> v8::Local<'s, v8::Value>
-    {
-        blake3::hasher(state, scope, prototype, blake3::Mode::Keyed(key))
-            .unwrap_or_else(|| v8::undefined(scope).into())
-    }
-
-    /// `create_derive_key_hasher(context)`, a new hasher deriving a key in
-    /// `context`, made of `prototype` ([`blake3::hasher`]).
-    fn op_gro_blake3_derive_key_hasher(state; &mut scope, prototype, context)
-        for "@fuzdev/gro/blake3.ts" -> v8::Local<'s, v8::Value>
-    {
-        blake3::hasher(state, scope, prototype, blake3::Mode::DeriveKey(context))
-            .unwrap_or_else(|| v8::undefined(scope).into())
-    }
-
-    /// `hasher.update(data)`, its receiver handed over as `handle`
-    /// ([`blake3::update`]).
-    fn op_gro_blake3_update(state; scope, handle, data) for "@fuzdev/gro/blake3.ts" {
-        blake3::update(state, scope, handle, data);
-    }
-
-    /// `hasher.finalize()`, its receiver handed over as `handle`
-    /// ([`blake3::finalize`]).
-    fn op_gro_blake3_finalize(state; scope, handle) for "@fuzdev/gro/blake3.ts"
-        -> v8::Local<'s, v8::Value>
-    {
-        blake3::finalize(state, scope, handle).unwrap_or_else(|| v8::undefined(scope).into())
+        native::namespace(state, scope, importer_scope, error)
+            .map_or_else(|| v8::undefined(scope).into(), Into::into)
     }
 
     /// The process's id, asked of the OS when called.
@@ -443,5 +439,40 @@ host_ops! {
     /// The runtime's name and version.
     fn op_gro_runtime_version(state) for "@fuzdev/gro/runtime_version.ts" -> #[string] String {
         state.borrow::<HostData>().runtime_version.clone()
+    }
+}
+
+native_members! {
+    /// `hash(data)`, the BLAKE3 digest of `data` ([`blake3::hash`]).
+    fn hash(state; scope, data) for "@fuzdev/gro/blake3.ts" {
+        blake3::hash(scope, data)
+    }
+
+    /// `create_hasher()`, a new hasher ([`blake3::hasher`]).
+    fn create_hasher(state; scope) for "@fuzdev/gro/blake3.ts" {
+        blake3::hasher(state, scope, blake3::Mode::Plain)
+    }
+
+    /// `create_keyed_hasher(key)`, a new hasher keyed by `key`
+    /// ([`blake3::hasher`]).
+    fn create_keyed_hasher(state; scope, key) for "@fuzdev/gro/blake3.ts" {
+        blake3::hasher(state, scope, blake3::Mode::Keyed(key))
+    }
+
+    /// `create_derive_key_hasher(context)`, a new hasher deriving a key in
+    /// `context` ([`blake3::hasher`]).
+    fn create_derive_key_hasher(state; scope, context) for "@fuzdev/gro/blake3.ts" {
+        blake3::hasher(state, scope, blake3::Mode::DeriveKey(context))
+    }
+
+    /// `hasher.update(data)`, called on `hasher` ([`blake3::update`]).
+    fn update(state; scope, data) for "@fuzdev/gro/blake3.ts" on BLAKE3_HASHER(hasher) {
+        blake3::update(state, scope, hasher, data);
+        None
+    }
+
+    /// `hasher.finalize()`, called on `hasher` ([`blake3::finalize`]).
+    fn finalize(state; scope) for "@fuzdev/gro/blake3.ts" on BLAKE3_HASHER(hasher) {
+        blake3::finalize(state, scope, hasher)
     }
 }

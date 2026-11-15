@@ -703,6 +703,8 @@ const streamed = hasher.finalize();
 
 On `fgro` the module is the native `blake3` crate's, and a hasher's state is the host's, dropped once the hasher is collected
 and counted toward V8's external memory while it lives, so collections keep pace with it.
+Its functions, the hasher's methods among them, are the host's, so their source text is native code's,
+and a throw's stack starts at the caller, with no frame of the module's.
 Its digests are the Node module's, held to the official test vectors' inputs by the differential cases.
 
 ## Where to import them
@@ -1085,7 +1087,8 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 What the runtime's builtin module must do that the Node implementation can't.
 Each handle holds a native resource of its own, and every confinement decision is the native op's.
-The builtin module's JS reads nothing and decides nothing: an export that takes arguments is a shell handing them to its op whole, which checks them and raises the errors,
+The builtin module's JS reads nothing and decides nothing: an export that takes arguments is a function the host makes natively,
+which checks them and raises the errors, as `blake3`'s are, or a shell handing them to an op whole, which does,
 and whatever has identity or state, a class, a brand, a registry, is the host's.
 
 That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,

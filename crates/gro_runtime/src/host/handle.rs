@@ -2,20 +2,22 @@
 //! and branded by it, so an op recognizes one it's handed and refuses
 //! anything else.
 //!
-//! A handle is an ordinary object the host makes of a prototype the row's
-//! implementation gave (a frozen null-prototype record of shells, each
-//! handing its receiver and arguments to an op of the row, whole, each of
-//! which the host freezes, since every holder shares them), with the
-//! handle's state under a private symbol of its kind, the brand, and then
-//! frozen. A private symbol made through V8's API is a key no JS can
-//! name, enumerate, or read: `Reflect.ownKeys` doesn't list it, a proxy's
-//! traps never see it, and no program can make one. So a look-alike, an
-//! object of the same prototype, a copy of a handle's own properties, and
-//! a proxy of a handle all lack the brand, and an op refuses each: it
-//! checks the value it's handed is an object, not a proxy, that holds its
-//! kind's brand, and reads the state from there, natively, running no code
-//! of a caller's. A handle's prototype is fixed (it's frozen), so a child
-//! handle takes the prototype its parent has.
+//! A handle is an ordinary object the host makes of a prototype: the frozen
+//! null-prototype record of native methods the host made with the row's
+//! namespace (`native.rs`), or one the row's implementation gave (a frozen
+//! null-prototype record of shells, each handing its receiver and arguments
+//! to an op of the row, whole, each of which the host freezes, since every
+//! holder shares them), with the handle's state under a private symbol of
+//! its kind, the brand, and then frozen. A private symbol made through
+//! V8's API is a key no JS can name, enumerate, or read: `Reflect.ownKeys`
+//! doesn't list it, a proxy's traps never see it, and no program can make
+//! one. So a look-alike, an object of the same prototype, a copy of a
+//! handle's own properties, and a proxy of a handle all lack the brand, and
+//! an op refuses each: it checks the value it's handed is an object, not a
+//! proxy, that holds its kind's brand, and reads the state from there,
+//! natively, running no code of a caller's; a native method checks its
+//! receiver the same way. A handle's prototype is fixed (it's frozen), so a
+//! child handle takes the prototype its parent has.
 //!
 //! The state is a value of the row's choosing, which no JS ever holds:
 //! `env`'s is a record of the names a handle may read and their values,

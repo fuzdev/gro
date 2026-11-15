@@ -12,6 +12,7 @@ use crate::host::blake3::Blake3State;
 use crate::host::env::EnvRoot;
 use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
+use crate::host::native::NativeNamespaces;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
@@ -143,6 +144,7 @@ pub fn start_runtime(
     state.borrow_mut().put(data);
     state.borrow_mut().put(refusals);
     state.borrow_mut().put(ErrorClasses::default());
+    state.borrow_mut().put(NativeNamespaces::default());
     state.borrow_mut().put(Blake3State::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
@@ -261,7 +263,8 @@ mod tests {
     use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::error_class::ErrorClasses;
-    use crate::host::{HOST_OPS, HostOp};
+    use crate::host::native::{self, NativeMember, NativeNamespaces, Place};
+    use crate::host::{HOST_OPS, HostOp, NATIVE_MEMBERS, Serves};
     use crate::loader::graph::Recording;
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
     use crate::resolver::{BUILTINS, Capability, find_builtin};
@@ -401,13 +404,14 @@ mod tests {
     type Probe = fn(Start) -> Value;
 
     /// What the tests below ask of a runtime from either start, by name.
-    const PROBES: [(&str, Probe); 6] = [
+    const PROBES: [(&str, Probe); 7] = [
         ("op_functions", op_functions),
         ("unregistered_reads", unregistered_reads),
         ("host_ops", host_ops_results),
         ("refused_ops", refused_ops_results),
         ("builtin_imports", builtin_imports),
         ("error_classes", error_classes),
+        ("native_members", native_members),
     ];
 
     /// What the run's error classes are across calls of an error row's op
@@ -918,18 +922,25 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
         }
     }
 
-    /// The host ops' grants are the table's: each host op names the row of
-    /// the module it serves and requires exactly that row's grant, none for
-    /// a grant-free row's, so an op of a module that needs a grant can't be
-    /// declared grant-free; and each grant a host op requires is a row's,
-    /// and a table with a grant-free row has a grant-free op, so neither
-    /// list grows a kind the other lacks.
+    /// The host ops' grants are the table's: each host op that serves a
+    /// row names it and requires exactly that row's grant, none for a
+    /// grant-free row's, so an op of a module that needs a grant can't be
+    /// declared grant-free; the op that serves every row with native
+    /// members requires none itself, and checks the row's once it knows it
+    /// (`host::native`'s tests); and each grant a host op requires is a
+    /// row's, and a table with a grant-free row has a grant-free op, so
+    /// neither list grows a kind the other lacks.
     #[test]
     fn the_host_ops_grants_are_the_builtin_table_s() {
         for op in HOST_OPS {
-            let row = find_builtin(op.module)
-                .unwrap_or_else(|| panic!("{}: {} is no row of the table", op.name, op.module));
-            assert_eq!(op.grant, row.grant, "{}", op.name);
+            match op.serves {
+                Serves::Row(module) => {
+                    let row = find_builtin(module)
+                        .unwrap_or_else(|| panic!("{}: {module} is no row of the table", op.name));
+                    assert_eq!(op.grant, row.grant, "{}", op.name);
+                }
+                Serves::Native => assert_eq!(op.grant, None, "{}", op.name),
+            }
         }
         let mut ops: Vec<Option<Capability>> = HOST_OPS.iter().map(|op| op.grant).collect();
         let mut rows: Vec<Option<Capability>> =
@@ -939,96 +950,497 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
             grants.dedup();
         }
         assert_eq!(ops, rows);
+        let row = |name, module, grant| HostOp {
+            name,
+            serves: Serves::Row(module),
+            grant,
+        };
         assert_eq!(
             HOST_OPS,
             [
+                row("op_gro_args", "@fuzdev/gro/args.ts", Some(Capability::Args)),
+                row("op_gro_exit", "@fuzdev/gro/exit.ts", Some(Capability::Exit)),
+                row(
+                    "op_gro_set_exit_code",
+                    "@fuzdev/gro/exit.ts",
+                    Some(Capability::Exit)
+                ),
+                row("op_gro_env_error", "@fuzdev/gro/env_error.ts", None),
+                row(
+                    "op_gro_env_root",
+                    "@fuzdev/gro/env.ts",
+                    Some(Capability::Env)
+                ),
+                row(
+                    "op_gro_env_get",
+                    "@fuzdev/gro/env.ts",
+                    Some(Capability::Env)
+                ),
+                row(
+                    "op_gro_env_get_all",
+                    "@fuzdev/gro/env.ts",
+                    Some(Capability::Env)
+                ),
+                row(
+                    "op_gro_env_narrow",
+                    "@fuzdev/gro/env.ts",
+                    Some(Capability::Env)
+                ),
+                row("op_gro_cwd", "@fuzdev/gro/cwd.ts", None),
                 HostOp {
-                    name: "op_gro_args",
-                    module: "@fuzdev/gro/args.ts",
-                    grant: Some(Capability::Args),
-                },
-                HostOp {
-                    name: "op_gro_exit",
-                    module: "@fuzdev/gro/exit.ts",
-                    grant: Some(Capability::Exit),
-                },
-                HostOp {
-                    name: "op_gro_set_exit_code",
-                    module: "@fuzdev/gro/exit.ts",
-                    grant: Some(Capability::Exit),
-                },
-                HostOp {
-                    name: "op_gro_env_error",
-                    module: "@fuzdev/gro/env_error.ts",
+                    name: "op_gro_namespace",
+                    serves: Serves::Native,
                     grant: None,
                 },
-                HostOp {
-                    name: "op_gro_env_root",
-                    module: "@fuzdev/gro/env.ts",
-                    grant: Some(Capability::Env),
-                },
-                HostOp {
-                    name: "op_gro_env_get",
-                    module: "@fuzdev/gro/env.ts",
-                    grant: Some(Capability::Env),
-                },
-                HostOp {
-                    name: "op_gro_env_get_all",
-                    module: "@fuzdev/gro/env.ts",
-                    grant: Some(Capability::Env),
-                },
-                HostOp {
-                    name: "op_gro_env_narrow",
-                    module: "@fuzdev/gro/env.ts",
-                    grant: Some(Capability::Env),
-                },
-                HostOp {
-                    name: "op_gro_cwd",
-                    module: "@fuzdev/gro/cwd.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_hash",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_hasher",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_keyed_hasher",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_derive_key_hasher",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_update",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_blake3_finalize",
-                    module: "@fuzdev/gro/blake3.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_pid",
-                    module: "@fuzdev/gro/pid.ts",
-                    grant: None,
-                },
-                HostOp {
-                    name: "op_gro_runtime_version",
-                    module: "@fuzdev/gro/runtime_version.ts",
-                    grant: None,
-                },
+                row("op_gro_pid", "@fuzdev/gro/pid.ts", None),
+                row(
+                    "op_gro_runtime_version",
+                    "@fuzdev/gro/runtime_version.ts",
+                    None
+                ),
             ]
         );
+    }
+
+    /// Puts what the blake3 row's namespace and hashers need in `runtime`'s
+    /// `OpState`, in a run that grants nothing, as a run's start does.
+    fn put_blake3_state(runtime: &JsRuntime) {
+        let state = runtime.op_state();
+        state.borrow_mut().put(Authority::default());
+        state.borrow_mut().put(ErrorClasses::default());
+        state.borrow_mut().put(NativeNamespaces::default());
+        state.borrow_mut().put(Blake3State::default());
+    }
+
+    /// The name `deno_core` compiles `row`'s backing script under, which
+    /// the namespace op knows a row's script by.
+    fn backing_script(row: &str) -> &'static str {
+        let at = BUILTINS
+            .iter()
+            .position(|builtin| builtin.specifier == row)
+            .unwrap();
+        bootstrap::IMPLEMENTATIONS[at].script
+    }
+
+    /// `source`'s completion value, a string of JSON, parsed, the script run
+    /// under `name`.
+    fn named_script_json(runtime: &mut JsRuntime, name: &'static str, source: String) -> Value {
+        let value = runtime.execute_script(name, source).unwrap();
+        deno_core::scope!(scope, runtime);
+        let json = v8::Local::new(scope, value).to_rust_string_lossy(scope);
+        serde_json::from_str(&json).unwrap()
+    }
+
+    /// The JS the native members' probe defines first: `thrown`, what a
+    /// call threw, as `Class: message`, or `null`; `shape`, a value's type,
+    /// whether it's frozen, its prototype, and its own keys; `function`,
+    /// a function's shape, name, `length`, whether its source text is native
+    /// code's, and the class of what `new` of it threw; and
+    /// `functions`, the function shape of each of a record's functions,
+    /// each kept in `members` under its member's label for the refusals.
+    const NATIVE_HELPERS: &str = "globalThis.thrown = (call) => {
+	try {
+		call();
+		return null;
+	} catch (error) {
+		return `${error.constructor.name}: ${error.message}`;
+	}
+};
+globalThis.shape = (value) => {
+	const prototype = Object.getPrototypeOf(value);
+	return {
+		type: typeof value,
+		frozen: Object.isFrozen(value),
+		prototype: prototype === null ? null : prototype === Function.prototype ? 'Function.prototype' : 'other',
+		keys: Reflect.ownKeys(value).map(String),
+	};
+};
+globalThis.function_shape = (fn) => ({
+	...shape(fn),
+	name: fn.name,
+	length: fn.length,
+	native_source: Function.prototype.toString.call(fn) === `function ${fn.name}() { [native code] }`,
+	constructed: (() => {
+		try {
+			new fn();
+			return null;
+		} catch (error) {
+			return error.constructor.name;
+		}
+	})(),
+});
+globalThis.members = [];
+globalThis.functions = (record, module) => {
+	const found = {};
+	for (const key of Object.keys(record)) {
+		if (typeof record[key] !== 'function') continue;
+		members.push([`${key} of ${module}`, record[key]]);
+		found[key] = function_shape(record[key]);
+	}
+	return found;
+};";
+
+    /// The rows with native members, each once, in the table's order.
+    fn native_rows() -> Vec<&'static str> {
+        let mut rows: Vec<&str> = Vec::new();
+        for member in NATIVE_MEMBERS {
+            if !rows.contains(&member.module) {
+                rows.push(member.module);
+            }
+        }
+        rows
+    }
+
+    /// The kinds of handle native methods go on, each once, with the row
+    /// each is of.
+    fn native_kinds() -> Vec<(&'static str, &'static crate::host::handle::HandleKind)> {
+        let mut kinds: Vec<(&str, &crate::host::handle::HandleKind)> = Vec::new();
+        for member in NATIVE_MEMBERS {
+            if let Place::Method(kind) = member.place
+                && !kinds.iter().any(|(_, held)| *held == kind)
+            {
+                kinds.push((member.module, kind));
+            }
+        }
+        kinds
+    }
+
+    /// What the native rows' namespaces are on a runtime started as
+    /// `start` says, in a run that grants nothing: what the namespace op
+    /// threw, first, called by a script that is no row's (one that names a
+    /// row's script in a `sourceURL` among them), by the script of a row
+    /// whose grant the run lacks and of a row with no native members, and by
+    /// a row's script with a scope or an `Error` it refuses, and whether a
+    /// trap ran; what each row's namespace op answered its own script,
+    /// twice, and the shapes of its record and its functions; the shapes of
+    /// each kind's prototype the host made with it and its methods; how many
+    /// namespaces the run held before, after the refusals, and after; what a member
+    /// of the probe table, which needs `args`, did in a run that grants
+    /// nothing, one that grants `args`, and a runtime with no authority; and
+    /// what every member threw called in that runtime.
+    fn native_members(start: Start) -> Value {
+        on_runtime("native_members", start, Mode::Run, move |runtime| {
+            put_blake3_state(runtime);
+            let state = runtime.op_state();
+            state.borrow_mut().put(host_data());
+            state.borrow_mut().put(ErrorClasses::default());
+            drop(state);
+            let held = |runtime: &mut JsRuntime| {
+                runtime
+                    .op_state()
+                    .borrow()
+                    .borrow::<NativeNamespaces>()
+                    .len()
+            };
+            let before = held(runtime);
+            runtime.execute_script("<test>", NATIVE_HELPERS).unwrap();
+            // what each caller and each argument the op refuses gets, before
+            // anything is held: the realm's `Error` is the run's once held
+            let call = |scope: &str, error: &str| {
+                format!(
+                    "JSON.stringify(thrown(() => Deno.core.ops.op_gro_namespace({scope}, {error})))"
+                )
+            };
+            let trap = "new Proxy({}, { get() { globalThis.trapped = true; } })";
+            let blake3 = backing_script("@fuzdev/gro/blake3.ts");
+            // code of a caller's a row's script calls, which calls the op
+            runtime
+                .execute_script(
+                    "<test>",
+                    "globalThis.calls_op = () => Deno.core.ops.op_gro_namespace(undefined, Error);",
+                )
+                .unwrap();
+            let mut rows_refused = Vec::new();
+            for (name, source) in [
+                ("<test>", call("undefined", "Error")),
+                (
+                    blake3,
+                    "JSON.stringify(thrown(() => calls_op()))".to_owned(),
+                ),
+                (
+                    "file:///project/node_modules/x/@fuzdev/gro/blake3.ts",
+                    call("undefined", "Error"),
+                ),
+                (
+                    "<test>",
+                    format!("{}\n//# sourceURL={blake3}", call("undefined", "Error")),
+                ),
+                ("ext:gro/builtin/nope.ts", call("undefined", "Error")),
+                (
+                    backing_script("@fuzdev/gro/args.ts"),
+                    call("undefined", "Error"),
+                ),
+                (
+                    backing_script("@fuzdev/gro/pid.ts"),
+                    call("undefined", "Error"),
+                ),
+                (blake3, call("null", "Error")),
+                (blake3, call(trap, "Error")),
+                (blake3, call("undefined", "undefined")),
+                (blake3, call("undefined", "TypeError")),
+                (blake3, call("undefined", "new Proxy(Error, {})")),
+                (blake3, call("undefined", trap)),
+            ] {
+                rows_refused.push(named_script_json(runtime, name, source));
+            }
+            rows_refused.push(script_json(
+                runtime,
+                "JSON.stringify(globalThis.trapped ?? false)",
+            ));
+            let errors_held = runtime
+                .op_state()
+                .borrow()
+                .borrow::<NativeNamespaces>()
+                .len();
+            let mut namespaces = serde_json::Map::new();
+            for row in native_rows() {
+                let source = format!(
+                    "{{
+	const ops = Deno.core.ops;
+	const namespace = ops.op_gro_namespace(undefined, Error);
+	JSON.stringify({{
+		same: namespace === ops.op_gro_namespace(undefined, Error),
+		record: shape(namespace),
+		default: namespace.default === undefined,
+		functions: functions(namespace, '{row}'),
+	}});
+}}"
+                );
+                let made = named_script_json(runtime, backing_script(row), source);
+                namespaces.insert(row.to_owned(), made);
+            }
+            let namespaces = Value::Object(namespaces);
+            let after = held(runtime);
+            {
+                let state = runtime.op_state();
+                let state = state.borrow();
+                deno_core::scope!(scope, runtime);
+                let global = scope.get_current_context().global(scope);
+                let prototypes = v8::Object::new(scope);
+                for (_, kind) in native_kinds() {
+                    // none when the run holds no namespace of its row
+                    if let Some(prototype) = native::prototype(&state, scope, kind) {
+                        let key = v8::String::new(scope, kind.brand).unwrap();
+                        prototypes.set(scope, key.into(), prototype.into()).unwrap();
+                    }
+                }
+                let key = v8::String::new(scope, "prototypes").unwrap();
+                global.set(scope, key.into(), prototypes.into()).unwrap();
+                let probe = native::probe::function(scope).unwrap();
+                let key = v8::String::new(scope, "probe").unwrap();
+                global.set(scope, key.into(), probe.into()).unwrap();
+            }
+            let prototypes = script_json(
+                runtime,
+                "{
+	const result = {};
+	for (const [brand, prototype] of Object.entries(prototypes)) {
+		result[brand] = { record: shape(prototype), functions: functions(prototype, brand.split('#')[0]) };
+	}
+	JSON.stringify(result);
+}",
+            );
+            let probe = "JSON.stringify(thrown(() => { globalThis.probed = probe(); }) ?? probed)";
+            let probe_empty = script_json(runtime, probe);
+            runtime
+                .op_state()
+                .borrow_mut()
+                .put(Authority::Confined(Grants {
+                    args: Some(ArgsGrant {}),
+                    ..Grants::default()
+                }));
+            let probe_granted = script_json(runtime, probe);
+            runtime.op_state().borrow_mut().take::<Authority>();
+            let probe_none = script_json(runtime, probe);
+            let hashers = |runtime: &mut JsRuntime| {
+                runtime
+                    .op_state()
+                    .borrow()
+                    .borrow::<Blake3State>()
+                    .hashers_len()
+            };
+            let hashers_before = hashers(runtime);
+            let refused = script_json(
+                runtime,
+                "JSON.stringify(Object.fromEntries(members.map(([label, fn]) => [label, thrown(() => fn())])))",
+            );
+            let hashers_after = hashers(runtime);
+            let probe_ran = native::probe::RAN.load(std::sync::atomic::Ordering::Relaxed);
+            json!({
+                "namespaces": namespaces,
+                "prototypes": prototypes,
+                "rows_refused": rows_refused,
+                "held": [before, errors_held, after],
+                "probe": [probe_empty, probe_granted, probe_none],
+                "refused": refused,
+                "refused_effects": [hashers_before, hashers_after, probe_ran],
+            })
+        })
+    }
+
+    /// The function shape the probe reads of `member`'s function: frozen,
+    /// of the realm's `Function.prototype`, with its own `length` and `name`
+    /// only, so no `prototype`, its name and `length` the table's, its
+    /// source text native code's, and not a constructor.
+    fn native_function_shape(member: &NativeMember) -> Value {
+        json!({
+            "type": "function",
+            "frozen": true,
+            "prototype": "Function.prototype",
+            "keys": ["length", "name"],
+            "name": member.name,
+            "length": member.length,
+            "native_source": true,
+            "constructed": "TypeError",
+        })
+    }
+
+    /// The native members from either start: each row's namespace is made
+    /// once and held, the same object every ask, a frozen null-prototype
+    /// record of exactly the table's exports and the `default` every
+    /// builtin has, `undefined`; each kind's prototype a frozen
+    /// null-prototype record of exactly the table's methods; each function
+    /// frozen, named and of the `length` the table says, with no
+    /// `prototype`, its source text native code's, and no constructor.
+    #[test]
+    fn a_native_row_s_namespace_is_the_table_s_made_once() {
+        for start in STARTS {
+            let results = probed("native_members", start);
+            let rows = native_rows();
+            assert_eq!(results["held"], json!([0, 0, rows.len()]), "{start:?}");
+            for row in rows {
+                let exports: Vec<&NativeMember> = NATIVE_MEMBERS
+                    .iter()
+                    .filter(|member| member.module == row && member.place == Place::Export)
+                    .collect();
+                let mut keys: Vec<&str> = exports.iter().map(|member| member.name).collect();
+                keys.push("default");
+                let functions: serde_json::Map<String, Value> = exports
+                    .iter()
+                    .map(|member| (member.name.to_owned(), native_function_shape(member)))
+                    .collect();
+                assert_eq!(
+                    results["namespaces"][row],
+                    json!({
+                        "same": true,
+                        "record": {"type": "object", "frozen": true, "prototype": null, "keys": keys},
+                        "default": true,
+                        "functions": functions,
+                    }),
+                    "{start:?} {row}"
+                );
+            }
+            let kinds = native_kinds();
+            assert!(!kinds.is_empty());
+            for (_, kind) in &kinds {
+                let methods: Vec<&NativeMember> = NATIVE_MEMBERS
+                    .iter()
+                    .filter(|member| member.place == Place::Method(kind))
+                    .collect();
+                let keys: Vec<&str> = methods.iter().map(|member| member.name).collect();
+                let functions: serde_json::Map<String, Value> = methods
+                    .iter()
+                    .map(|member| (member.name.to_owned(), native_function_shape(member)))
+                    .collect();
+                assert_eq!(
+                    results["prototypes"][kind.brand],
+                    json!({
+                        "record": {"type": "object", "frozen": true, "prototype": null, "keys": keys},
+                        "functions": functions,
+                    }),
+                    "{start:?} {}",
+                    kind.brand
+                );
+            }
+            assert_eq!(
+                results["prototypes"].as_object().unwrap().len(),
+                kinds.len(),
+                "{start:?}"
+            );
+        }
+    }
+
+    /// The form's check from either start: every native member, called in
+    /// a runtime that holds no authority, throws `not_granted` naming itself
+    /// before its body runs, whatever it's passed; and a member that needs
+    /// a grant (the probe table's) throws it, naming the grant, in a run that
+    /// grants nothing and in a runtime with no authority, and runs in a run
+    /// that grants it. A body that skips its check returns or throws what it
+    /// does instead, and one that runs before its check leaves its effect:
+    /// a refused factory made no hasher, and the probe's body ran only where
+    /// it was granted.
+    #[test]
+    fn every_native_member_refuses_without_its_grant() {
+        for start in STARTS {
+            let results = probed("native_members", start);
+            let refused = results["refused"].as_object().unwrap();
+            assert_eq!(refused.len(), NATIVE_MEMBERS.len(), "{start:?}");
+            for member in NATIVE_MEMBERS {
+                let label = format!("{} of {}", member.name, member.module);
+                assert_eq!(
+                    refused[&label],
+                    format!(
+                        "Error: not_granted: {label} is a host function, and this runtime holds \
+                         no authority, so it runs none"
+                    ),
+                    "{start:?}"
+                );
+            }
+            assert_eq!(
+                results["probe"],
+                json!([
+                    "Error: not_granted: probe of @fuzdev/gro/args.ts needs the grant 'args', \
+                     which this runtime doesn't hold",
+                    "ran",
+                    "Error: not_granted: probe of @fuzdev/gro/args.ts needs the grant 'args', \
+                     which this runtime doesn't hold",
+                ]),
+                "{start:?}"
+            );
+            // no refused call's body ran: no hasher was made, and the
+            // probe's body ran once, in the run that grants it
+            assert_eq!(results["refused_effects"], json!([0, 0, 1]), "{start:?}");
+        }
+    }
+
+    /// The namespace op knows the row by the script that calls it, never by
+    /// what the script says, after its own check of an authority: a caller
+    /// that is no row's backing script is a `TypeError`, one that names a
+    /// row's script in a `sourceURL` and one of a name no row has among
+    /// them; a row whose grant the run lacks is refused naming the grant,
+    /// before anything is made; a row with no native members is an `Error`;
+    /// and a scope that isn't `undefined` or an `Error` that isn't the
+    /// realm's is a `TypeError`, read with no conversion: no trap runs, and
+    /// nothing is held.
+    #[test]
+    fn the_namespace_op_knows_the_row_by_its_script() {
+        let not_a_row = "TypeError: a namespace is asked for by a builtin's own script";
+        let not_a_scope = "TypeError: a row with native members takes no scope";
+        let not_an_error = "TypeError: an error class extends the realm's Error";
+        for start in STARTS {
+            assert_eq!(
+                probed("native_members", start)["rows_refused"],
+                json!([
+                    not_a_row,
+                    not_a_row,
+                    not_a_row,
+                    not_a_row,
+                    not_a_row,
+                    "Error: not_granted: op_gro_namespace needs the grant 'args', which this \
+                     runtime doesn't hold",
+                    "Error: @fuzdev/gro/pid.ts has no native members, so the host makes no \
+                     namespace of it",
+                    not_a_scope,
+                    not_a_scope,
+                    not_an_error,
+                    not_an_error,
+                    not_an_error,
+                    not_an_error,
+                    false,
+                ]),
+                "{start:?}"
+            );
+        }
     }
 
     /// A hasher's native state lives as long as its handle can be reached:
@@ -1040,10 +1452,7 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
     fn a_hashers_native_state_is_dropped_once_its_handle_is_collected() {
         let (made, collected, digest, external) =
             on_runtime("blake3_collected", Start::Source, Mode::Run, |runtime| {
-                let state = runtime.op_state();
-                state.borrow_mut().put(Authority::default());
-                state.borrow_mut().put(Blake3State::default());
-                drop(state);
+                put_blake3_state(runtime);
                 // the external memory V8 counts, read as a change of nothing
                 let external = |runtime: &mut JsRuntime| {
                     runtime
@@ -1055,11 +1464,10 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
                 let before = external(runtime);
                 runtime
                     .execute_script(
-                        "<test>",
-                        "const { op_gro_blake3_hasher } = Deno.core.ops;
-const prototype = Object.freeze({ __proto__: null });
-globalThis.kept = op_gro_blake3_hasher(prototype);
-for (let i = 0; i < 100; i++) op_gro_blake3_hasher(prototype);",
+                        backing_script("@fuzdev/gro/blake3.ts"),
+                        "const { create_hasher } = Deno.core.ops.op_gro_namespace(undefined, Error);
+globalThis.kept = create_hasher();
+for (let i = 0; i < 100; i++) create_hasher();",
                     )
                     .unwrap();
                 let len = |runtime: &mut JsRuntime| {
@@ -1076,9 +1484,8 @@ for (let i = 0; i < 100; i++) op_gro_blake3_hasher(prototype);",
                 let collected_external = external(runtime) - before;
                 let digest = script_json(
                     runtime,
-                    "const { op_gro_blake3_finalize, op_gro_blake3_update } = Deno.core.ops;
-op_gro_blake3_update(globalThis.kept, new Uint8Array([1]));
-JSON.stringify(op_gro_blake3_finalize(globalThis.kept).length)",
+                    "globalThis.kept.update(new Uint8Array([1]));
+JSON.stringify(globalThis.kept.finalize().length)",
                 );
                 (made, collected, digest, (made_external, collected_external))
             });
@@ -1096,37 +1503,31 @@ JSON.stringify(op_gro_blake3_finalize(globalThis.kept).length)",
     #[test]
     fn a_live_hasher_keeps_its_state_across_collections() {
         let kept = on_runtime("blake3_ids", Start::Source, Mode::Run, |runtime| {
-            let state = runtime.op_state();
-            state.borrow_mut().put(Authority::default());
-            state.borrow_mut().put(Blake3State::default());
-            drop(state);
+            put_blake3_state(runtime);
             runtime
                 .execute_script(
-                    "<test>",
-                    "const { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update } = Deno.core.ops;
-globalThis.blake3 = { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update };
-globalThis.prototype = Object.freeze({ __proto__: null });
+                    backing_script("@fuzdev/gro/blake3.ts"),
+                    "globalThis.blake3 = Deno.core.ops.op_gro_namespace(undefined, Error);
 globalThis.live = [];
-for (let i = 0; i < 4; i++) op_gro_blake3_hasher(prototype);
+for (let i = 0; i < 4; i++) blake3.create_hasher();
 for (let i = 0; i < 3; i++) {
-\tconst hasher = op_gro_blake3_hasher(prototype);
-\top_gro_blake3_update(hasher, new Uint8Array([i + 1]));
+\tconst hasher = blake3.create_hasher();
+\thasher.update(new Uint8Array([i + 1]));
 \tlive.push(hasher);
 }
-globalThis.before = live.map((hasher) => op_gro_blake3_finalize(hasher).join());",
+globalThis.before = live.map((hasher) => hasher.finalize().join());",
                 )
                 .unwrap();
             runtime.v8_isolate().low_memory_notification();
             script_json(
                 runtime,
                 "{
-\tconst { op_gro_blake3_finalize, op_gro_blake3_hasher, op_gro_blake3_update } = globalThis.blake3;
 \tfor (let i = 0; i < 8; i++) {
-\t\tconst hasher = op_gro_blake3_hasher(prototype);
-\t\top_gro_blake3_update(hasher, new Uint8Array([200, i]));
+\t\tconst hasher = blake3.create_hasher();
+\t\thasher.update(new Uint8Array([200, i]));
 \t\tlive.push(hasher);
 \t}
-\tJSON.stringify(live.slice(0, 3).map((hasher) => op_gro_blake3_finalize(hasher).join()).join() === before.join());
+\tJSON.stringify(live.slice(0, 3).map((hasher) => hasher.finalize().join()).join() === before.join());
 }",
             )
         });
@@ -1287,6 +1688,7 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                     });
                     state.borrow_mut().put(ErrorClasses::default());
                     state.borrow_mut().put(EnvRoot::default());
+                    state.borrow_mut().put(NativeNamespaces::default());
                     state.borrow_mut().put(Blake3State::default());
                     state.borrow_mut().put(refusals);
                     let mut runtime = super::start(runtime, ConsoleOptions::default(), Mode::Run)?;

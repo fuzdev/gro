@@ -278,14 +278,15 @@ fn the_walk_follows_the_scripts_a_script_names() {
 
 /// A builtin's implementation reads its ops as a web script does, and
 /// reads only its own module's host ops, its scope argument's op among
-/// them: every host op declared for its row and no other op, another row's
-/// or one of `deno_core`'s or `deno_web`'s. So no builtin calls an op a
-/// grant it doesn't need guards, a grant-free one none that needs a grant,
-/// and none an op that compiles code or imports a module. An
+/// them: every host op declared for its row, and the op that serves every
+/// row with native members when it has any, and no other op, another
+/// row's or one of `deno_core`'s or `deno_web`'s. So no builtin calls an
+/// op a grant it doesn't need guards, a grant-free one none that needs a
+/// grant, and none an op that compiles code or imports a module. An
 /// implementation that comes to need a web op names it here.
 #[test]
 fn an_implementation_reads_the_host_ops_of_its_own_module() {
-    use crate::host::HOST_OPS;
+    use crate::host::{HOST_OPS, NATIVE_MEMBERS, Serves};
 
     for implementation in IMPLEMENTATIONS {
         let module = implementation
@@ -294,9 +295,13 @@ fn an_implementation_reads_the_host_ops_of_its_own_module() {
             .unwrap();
         let mut reads = implementation_reads(implementation);
         reads.sort_unstable();
+        let native = NATIVE_MEMBERS.iter().any(|member| member.module == module);
         let mut own: Vec<&str> = HOST_OPS
             .iter()
-            .filter(|op| op.module == module)
+            .filter(|op| match op.serves {
+                Serves::Row(row) => row == module,
+                Serves::Native => native,
+            })
             .map(|op| op.name)
             .collect();
         own.sort_unstable();

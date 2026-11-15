@@ -194,9 +194,14 @@ describe.each(rows)('the $name builtin types', (row) => {
 		const declarations = node_declarations(row.name);
 		const source = read_implementation(row);
 		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
-		// the namespace, made by the script, or by the host, as `bootstrap.d.ts` declares its op
+		// the namespace, made by the script, or by the host, as `bootstrap.d.ts` declares the op
+		// that returns it: the row's own, or the one that serves every row with native members,
+		// under the row's specifier
 		const made = /default: undefined\s*\}/;
-		const host_made = `readonly op_gro_${row.name}: `;
+		const host_made =
+			[`readonly op_gro_${row.name}: `, `readonly '${row.specifier}': {`].find((declared) =>
+				bootstrap.includes(declared)
+			) ?? `readonly op_gro_${row.name}: `;
 		const by_host = !made.test(source);
 		/**
 		 * The check with the namespace's `default: undefined` as `to`, written as the script's
@@ -374,39 +379,29 @@ describe('a retyped export fails its check', () => {
 	});
 
 	test('blake3', () => {
-		// each method of the hasher, claimed by the script, its parameters and results
-		assert_mismatch(
-			'blake3',
-			'builtin',
-			'\t\tupdate(data: Uint8Array): void;\n',
-			'\t\tupdate(data: Uint8Array | string): void;\n'
+		// each member, claimed by the host: a function's parameters and results, and each method of
+		// the hasher a factory returns
+		const claim = (from: string, to: string) => assert_mismatch('blake3', 'bootstrap', from, to);
+		claim(
+			'readonly hash: (data: Uint8Array) => Uint8Array;',
+			'readonly hash: (data: Uint8Array) => ArrayBuffer;'
 		);
-		assert_mismatch(
-			'blake3',
-			'builtin',
-			'\t\tfinalize(): Uint8Array;\n',
-			'\t\tfinalize(): Uint8Array | undefined;\n'
+		claim(
+			'readonly create_derive_key_hasher: (context: string) => {',
+			'readonly create_derive_key_hasher: (context: unknown) => {'
 		);
-		// a function's parameters and results
-		assert_mismatch(
-			'blake3',
-			'builtin',
-			'const create_derive_key_hasher = (context: string): HasherHandle =>',
-			'const create_derive_key_hasher = (context: unknown): HasherHandle =>'
+		claim(
+			'readonly create_hasher: () => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;',
+			'readonly create_hasher: () => {\n\t\t\t\t\t\tupdate(data: Uint8Array | string): void;'
 		);
-		// a hasher not of the hasher's type
-		assert_mismatch(
-			'blake3',
-			'bootstrap',
-			'readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => T;',
-			'readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => object;'
+		claim(
+			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array;',
+			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array | undefined;'
 		);
-		assert_mismatch(
-			'blake3',
-			'bootstrap',
-			'readonly op_gro_blake3_hash: (data: unknown) => Uint8Array;',
-			'readonly op_gro_blake3_hash: (data: unknown) => ArrayBuffer;'
-		);
+		// the namespace typed as another row's, and the realm's `Error` not handed over
+		const call = "op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope, Error)";
+		assert_mismatch('blake3', 'builtin', call, call.replace('blake3.ts', 'args.ts'));
+		assert_mismatch('blake3', 'builtin', call, call.replace(', Error', ''));
 		assert_mismatch('blake3', 'node', 'finalize(): Uint8Array;', 'finalize(): ArrayBuffer;');
 	});
 

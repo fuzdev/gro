@@ -14,24 +14,6 @@ interface Bootstrap {
 		/** Every op, each a function of the runtime the script runs in. */
 		readonly ops: {
 			readonly op_gro_args: () => Array<string>;
-			/** `hash`: the digest, a new array of 32 bytes. */
-			readonly op_gro_blake3_hash: (data: unknown) => Uint8Array;
-			/**
-			 * A hasher's factory: a hasher the host makes of the prototype the implementation gives,
-			 * so of its type, holding the host's own state.
-			 */
-			readonly op_gro_blake3_hasher: <T extends object>(prototype: T) => T;
-			/** A keyed hasher's factory, as `op_gro_blake3_hasher`, of the key it's given. */
-			readonly op_gro_blake3_keyed_hasher: <T extends object>(prototype: T, key: unknown) => T;
-			/** A derive-key hasher's factory, as `op_gro_blake3_hasher`, of the context it's given. */
-			readonly op_gro_blake3_derive_key_hasher: <T extends object>(
-				prototype: T,
-				context: unknown
-			) => T;
-			/** `update`, the receiver handed over. */
-			readonly op_gro_blake3_update: (hasher: unknown, data: unknown) => void;
-			/** `finalize`, the receiver handed over: the digest, a new array of 32 bytes. */
-			readonly op_gro_blake3_finalize: (hasher: unknown) => Uint8Array;
 			readonly op_gro_cwd: () => string;
 			/**
 			 * The env error row's namespace, the host's: the class extending the realm's `Error`,
@@ -75,6 +57,34 @@ interface Bootstrap {
 			readonly op_gro_env_get_all: (handle: unknown) => Readonly<{ [name: string]: string }>;
 			/** `narrow`, the receiver handed over: a handle of the receiver's prototype, its type. */
 			readonly op_gro_env_narrow: <T>(handle: T, names: unknown) => T;
+			/**
+			 * The namespace of the row whose script calls it, the host's: each member a native
+			 * function the host makes the first time the run asks, and holds. The host knows the row
+			 * by the calling script; the type argument names it for the types alone, which are
+			 * claims, held to the Node module's by the types test. The script hands over its scope
+			 * and the realm's `Error`.
+			 */
+			readonly op_gro_namespace: <Row extends '@fuzdev/gro/blake3.ts'>(
+				scope: undefined,
+				error: ErrorConstructor
+			) => {
+				readonly '@fuzdev/gro/blake3.ts': {
+					readonly hash: (data: Uint8Array) => Uint8Array;
+					readonly create_hasher: () => {
+						update(data: Uint8Array): void;
+						finalize(): Uint8Array;
+					};
+					readonly create_keyed_hasher: (key: Uint8Array) => {
+						update(data: Uint8Array): void;
+						finalize(): Uint8Array;
+					};
+					readonly create_derive_key_hasher: (context: string) => {
+						update(data: Uint8Array): void;
+						finalize(): Uint8Array;
+					};
+					readonly default: undefined;
+				};
+			}[Row];
 			readonly op_gro_exit: (code: unknown) => never;
 			readonly op_gro_pid: () => number;
 			readonly op_gro_runtime_version: () => string;
