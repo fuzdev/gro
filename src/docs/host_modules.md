@@ -159,7 +159,9 @@ Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path
   after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node.
   The names before a `..` are looked up beneath the root that holds them, and the `..` takes a name off their real path,
   so no lookup starts outside a root, and a path that climbs above the root and back in reaches what Node's does.
-  One outside every root is `not_granted`, also when nothing is there, and so is one whose symlinks lead out of its root.
+  One outside every root is `not_granted`, also when nothing is there, and so is one through an absolute symlink,
+  even to a path inside its root, or a relative one whose target climbs above its root, even back into it, both of which Node follows.
+  The symlinks before each `..` are counted apart, so a path with more than Linux's 40 across its `..`s resolves where Node's is a loop (`io_error`).
   A root is matched by its real path's text, so a path that reaches it through a symlink outside it, like a symlinked
   home directory, is `not_granted` where Node opens it.
   A `not_granted` is listed and fails the run, caught or not, as `env`'s does.

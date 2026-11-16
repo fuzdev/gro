@@ -28,16 +28,18 @@
 //!
 //! `fs.open_dir` and `fs.real_path` take an absolute path and walk it as
 //! Node's `realpath` does, a `..` after the symlink before it ([`walk`]):
-//! the names before a `..` open as a directory beneath the root that holds
-//! them by their text, the longest, the `..` takes a name off that
+//! the names before a `..` open as a directory beneath the longest root
+//! that holds them by their text, the `..` takes a name off that
 //! directory's real path, and what's left walks on, so a lookup always
 //! starts at a root, and a `..` above one is text. The entry's real path is
 //! always beneath its root: one that left the root while it was opened is
 //! `io_error`, its cause naming no path outside. A path no root holds is
 //! `not_granted`, refused whether or not anything is there, and so is one
-//! whose symlinks lead out of its root. A root holds a path by its own real
-//! path's text, so a path that reaches it through a symlink outside it is
-//! held by none.
+//! through a symlink that leaves its root by its target's text: an absolute
+//! symlink, even to a path inside the root, or a relative one whose target
+//! climbs above the root, even back into it, both of which Node follows. A
+//! root holds a path by its own real path's text, so a path that reaches it
+//! through a symlink outside it is held by none.
 //! Such a refusal is recorded in the run's record of refusals as it's
 //! thrown, which fails the run whatever the program does with the error.
 //!
@@ -831,15 +833,16 @@ fn reach<'r>(
 }
 
 /// The entry at `path`, an absolute path, reached as Node's `realpath`
-/// reaches it, `..` after the symlink before it: the names before the first
-/// `..` that follows a name are opened as a directory beneath the root that
-/// holds them by their text, each `..` after them takes a name off that
-/// directory's real path, and the rest, joined to what's left, is walked
-/// again, until no `..` is left and the whole is opened as `opened`. `open`
-/// opens a path beneath a root as it's told and answers its real path
-/// beneath the root. So a name before a `..` must be a directory, a `..`
-/// above a root is taken off the text of a real path, never looked up, and
-/// every lookup starts at a root that holds its names by their text.
+/// reaches it, `..` after the symlink before it: the names up to each `..`
+/// that follows a name are opened as a directory beneath the root that
+/// holds them by their text, each `..` takes a name off that directory's
+/// real path, and the names after it walk on from what's left, until the
+/// whole is opened as `opened`. `open` opens a path beneath a root as it's
+/// told and answers its real path beneath the root. So a name before a `..`
+/// must be a directory, a `..` above a root is taken off the text of a real
+/// path, never looked up, and every lookup starts at a root that holds its
+/// names by their text. Each step costs the depth of the path it opens,
+/// never the length of what's left of the path.
 ///
 /// The root's place, the root, and the entry's real path beneath it; a
 /// `TypeError` naming `what` for a path that isn't absolute, and
@@ -858,37 +861,38 @@ fn walk<'r>(
     }
     // a trailing `/` or `/.` asks for a directory, as the kernel reads it
     let dir = path.ends_with('/') || path.ends_with("/.");
-    let mut names: Vec<String> = path
+    // the names left to walk, the next one last
+    let mut left: Vec<&str> = path
         .split('/')
+        .rev()
         .filter(|name| !name.is_empty() && *name != ".")
-        .map(ToOwned::to_owned)
         .collect();
-    loop {
-        let Some(up) = names.iter().position(|name| name == "..") else {
-            let (index, root, rel) = find_root(roots, &names, dir, path)?;
-            let beneath = open(root, rel, opened)?;
-            return Ok((index, root, beneath));
-        };
+    // the names walked: a real path's, then those after it, none a `..`
+    let mut names: Vec<String> = Vec::new();
+    while let Some(name) = left.pop() {
+        if name != ".." {
+            names.push(name.to_owned());
+            continue;
+        }
         // `/..` is `/`, as the kernel reads it
-        let mut real: Vec<String> = Vec::new();
-        if up > 0 {
-            let (_, root, rel) = find_root(roots, &names[..up], false, path)?;
+        if !names.is_empty() {
+            let (_, root, rel) = find_root(roots, &names, false, path)?;
             let beneath = open(root, rel, sys::Opened::Directory)?;
-            real.extend(
-                join(&root.path, &beneath)
-                    .split('/')
-                    .filter(|name| !name.is_empty())
-                    .map(ToOwned::to_owned),
-            );
+            names = join(&root.path, &beneath)
+                .split('/')
+                .filter(|name| !name.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
         }
-        let mut rest = up;
-        while names.get(rest).is_some_and(|name| name == "..") {
-            real.pop();
-            rest += 1;
+        names.pop();
+        while left.last() == Some(&"..") {
+            left.pop();
+            names.pop();
         }
-        real.extend(names.drain(rest..));
-        names = real;
     }
+    let (index, root, rel) = find_root(roots, &names, dir, path)?;
+    let beneath = open(root, rel, opened)?;
+    Ok((index, root, beneath))
 }
 
 /// The root of `roots` that holds the path of `names`, none of them `.` or
@@ -1441,8 +1445,8 @@ mod tests {
         use super::super::error_class::{DeclaredFamily, ErrorClasses, FS_ERROR};
         use super::throw;
 
-        // longer than V8's longest string, `2^29 - 24` units
-        let long = || String::from_utf8(vec![0; 1 << 29]).unwrap();
+        // longer than V8's longest string
+        let long = || String::from_utf8(vec![0; v8::String::MAX_LENGTH + 1]).unwrap();
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
         let state = runtime.op_state();
         state.borrow_mut().put(ErrorClasses::default());

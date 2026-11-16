@@ -1367,3 +1367,75 @@ fn fs_handle_refuses_a_symlink_swapped_onto_its_path() {
         })
     );
 }
+
+/// The script [`fs_real_path_refuses_a_root_moved_since_it_opened`] runs:
+/// the root opened, then, once the test has moved the project away, each
+/// reach by the project's old path, as a JSON line.
+const FS_MOVED_ROOT: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const p = fs.project.path;
+console.log('ready');
+for (let waited = 0; !fs.project.exists_sync('go'); waited++) {
+\tif (waited > 3000) throw Error('the test never moved the project');
+\tawait new Promise((resolve) => setTimeout(resolve, 10));
+}
+const how = async (call) => {
+\ttry {
+\t\treturn ['fulfilled', await call()];
+\t} catch (error) {
+\t\treturn ['rejected', error.kind ?? null, String(error.cause?.message).includes('moved_away')];
+\t}
+};
+console.log(JSON.stringify({
+\treal_path: await how(() => fs.real_path(`${p}/sub/a.txt`)),
+\twalked: await how(() => fs.real_path(`${p}/sub/../sub/a.txt`)),
+\topen_dir: await how(async () => (await fs.open_dir(`${p}/sub`)).path),
+}));
+";
+
+/// A root's descriptor follows its directory, so once the project moves
+/// away, an entry reached by the old path has a real path outside the
+/// root's: `io_error`, its cause naming no path outside the root, never a
+/// path made of the outside one.
+#[test]
+fn fs_real_path_refuses_a_root_moved_since_it_opened() {
+    use std::io::BufRead as _;
+    let scratch = Scratch::new(
+        "fs_moved_root",
+        &[
+            (
+                "proj/package.json",
+                "{\"name\": \"fs_moved_root\", \"type\": \"module\"}\n",
+            ),
+            ("proj/main.js", FS_MOVED_ROOT),
+            ("proj/sub/a.txt", ""),
+        ],
+    );
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .env_clear()
+        .current_dir(scratch.0.join("proj"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    std::fs::rename(scratch.0.join("proj"), scratch.0.join("moved_away")).unwrap();
+    std::fs::write(scratch.0.join("moved_away/go"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "real_path": ["rejected", "io_error", false],
+            "walked": ["rejected", "io_error", false],
+            "open_dir": ["rejected", "io_error", false],
+        })
+    );
+}
