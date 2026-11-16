@@ -862,3 +862,84 @@ fn a_bad_last_component_is_refused_before_any_call() {
     assert!(scratch.root("a/f").is_file());
     assert!(!scratch.root("x").exists());
 }
+
+// --- a root's descriptor, an entry named, and the path the kernel holds
+
+/// `open_root` opens a directory by its absolute path, and refuses a
+/// relative one, a symlink anywhere on the path, and anything but a
+/// directory.
+#[test]
+fn open_root_opens_a_real_path_only() {
+    let scratch = Scratch::new("open_root");
+    fs::create_dir(scratch.root("d")).unwrap();
+    fs::write(scratch.root("f"), "").unwrap();
+    symlink("d", scratch.root("to_d")).unwrap();
+    let fd = beneath::open_root(&scratch.root("d")).unwrap();
+    assert!(is_entry(fd.as_fd(), &scratch.root("d")));
+    assert_eq!(code(beneath::open_root(&scratch.root("to_d"))), libc::ELOOP);
+    assert_eq!(
+        code(beneath::open_root(&scratch.root("to_d").join("."))),
+        libc::ELOOP
+    );
+    assert_eq!(code(beneath::open_root(&scratch.root("f"))), libc::ENOTDIR);
+    assert_eq!(
+        code(beneath::open_root(&scratch.root("missing"))),
+        libc::ENOENT
+    );
+    let error = beneath::open_root(p("relative")).unwrap_err();
+    assert_eq!(
+        (error.kind(), error.raw_os_error()),
+        (io::ErrorKind::InvalidInput, None)
+    );
+}
+
+/// `OpenAs::Path` opens an entry of any kind to name, a FIFO without a
+/// writer and a file nobody may read among them, following a final
+/// symlink beneath.
+#[test]
+fn open_as_a_path_names_any_entry() {
+    let scratch = Scratch::new("as_path");
+    fs::write(scratch.root("f"), "").unwrap();
+    fs::set_permissions(scratch.root("f"), fs::Permissions::from_mode(0o000)).unwrap();
+    symlink("f", scratch.root("to_f")).unwrap();
+    let status = std::process::Command::new("mkfifo")
+        .arg(scratch.root("fifo"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let root = scratch.root_fd();
+    for (path, entry) in [("f", "f"), ("to_f", "f"), ("fifo", "fifo")] {
+        let fd = beneath::open(root.as_fd(), p(path), OpenAs::Path, Links::Beneath).unwrap();
+        assert!(is_entry(fd.as_fd(), &scratch.root(entry)), "{path}");
+    }
+    let result = beneath::open(root.as_fd(), p("to_f"), OpenAs::Path, Links::Refused);
+    assert_eq!(code(result), libc::ELOOP);
+}
+
+/// `real_path` is the path the kernel holds for an open entry, through
+/// the symlinks it was opened by, after a rename of its directory, and
+/// `ENOENT` once the entry is removed.
+#[test]
+fn real_path_is_the_kernel_s_and_never_a_stale_name() {
+    let scratch = Scratch::new("real_path");
+    fs::create_dir(scratch.root("d")).unwrap();
+    symlink("d", scratch.root("to_d")).unwrap();
+    let root = scratch.root_fd();
+    let real_root = fs::canonicalize(scratch.root("")).unwrap();
+    let fd = beneath::open(root.as_fd(), p("to_d"), OpenAs::Directory, Links::Beneath).unwrap();
+    assert_eq!(
+        beneath::real_path(fd.as_fd()).unwrap(),
+        real_root.join("d").into_os_string()
+    );
+    fs::rename(scratch.root("d"), scratch.root("moved")).unwrap();
+    assert_eq!(
+        beneath::real_path(fd.as_fd()).unwrap(),
+        real_root.join("moved").into_os_string()
+    );
+    fs::remove_dir(scratch.root("moved")).unwrap();
+    assert_eq!(code(beneath::real_path(fd.as_fd())), libc::ENOENT);
+    // the kernel's name for a removed entry, made a directory of its own,
+    // is another entry
+    fs::create_dir(scratch.root("moved (deleted)")).unwrap();
+    assert_eq!(code(beneath::real_path(fd.as_fd())), libc::ENOENT);
+}

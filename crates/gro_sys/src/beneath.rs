@@ -14,10 +14,14 @@
 //! outside the tree among them.
 //!
 //! - [`open`] opens a path beneath a descriptor, as a directory to hold and
-//!   to resolve beneath ([`OpenAs::Directory`]), a file to read, or a file
-//!   to write, created or replaced ([`OpenAs::Write`]) or only created
-//!   ([`OpenAs::CreateNew`]); [`Links::Refused`] refuses every symlink on
-//!   the way.
+//!   to resolve beneath ([`OpenAs::Directory`]), an entry of any kind to
+//!   name ([`OpenAs::Path`]), a file to read, or a file to write, created or
+//!   replaced ([`OpenAs::Write`]) or only created ([`OpenAs::CreateNew`]);
+//!   [`Links::Refused`] refuses every symlink on the way.
+//! - [`open_root`] opens a directory by its absolute real path, the one
+//!   descriptor the others resolve beneath, refusing any symlink on it.
+//! - [`real_path`] reads the absolute path the kernel holds for what a
+//!   descriptor names.
 //! - [`stat`] reports an entry's kind, size, permission bits, and
 //!   modification time ([`Stat`]), its final symlink followed or not
 //!   ([`FinalLink`]).
@@ -120,6 +124,11 @@ pub enum OpenAs {
     /// parent the calls on a last component act in. Anything else fails
     /// with `ENOTDIR`.
     Directory,
+    /// An entry of any kind to name, readable by nothing (`O_PATH`): its
+    /// real path ([`real_path`]) or its metadata. Nothing is opened for its
+    /// contents, so a FIFO or a device opens at once, and no permission but
+    /// the walk's is needed.
+    Path,
     /// A file to read (`O_RDONLY | O_NOCTTY | O_NONBLOCK`). A directory
     /// opens too, and a read of it fails with `EISDIR`; a FIFO opens at once,
     /// with or without a writer.
@@ -240,6 +249,7 @@ pub struct DirEntry {
 pub fn open(dir: BorrowedFd<'_>, path: &Path, how: OpenAs, links: Links) -> io::Result<OwnedFd> {
     let (flags, mode) = match how {
         OpenAs::Directory => (libc::O_PATH | libc::O_DIRECTORY, 0),
+        OpenAs::Path => (libc::O_PATH, 0),
         OpenAs::Read => (libc::O_RDONLY | NO_WAIT, 0),
         OpenAs::Write { mode } => (
             libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | NO_WAIT,
@@ -255,6 +265,72 @@ pub fn open(dir: BorrowedFd<'_>, path: &Path, how: OpenAs, links: Links) -> io::
         Links::Refused => BENEATH | libc::RESOLVE_NO_SYMLINKS,
     };
     openat2(dir, &to_c_path(path.as_os_str())?, flags, mode, resolve)
+}
+
+/// Opens the directory at `path`, an absolute real path, to resolve beneath.
+///
+/// It's opened as a path only (`O_PATH | O_DIRECTORY`, `O_CLOEXEC`), by one
+/// `openat2` that refuses any symlink on the path (`RESOLVE_NO_SYMLINKS`)
+/// and any magic link: a root's own descriptor, opened by the path its
+/// holder read as real, so a
+/// component swapped for a symlink since then fails rather than opening
+/// where the link leads.
+///
+/// # Errors
+///
+/// Returns an error of kind [`io::ErrorKind::InvalidInput`], with no OS
+/// code, for a relative path, else the kernel's: `ELOOP` for a symlink on
+/// the path, `ENOTDIR` for anything but a directory, `ENOENT` when nothing
+/// is there.
+#[expect(
+    unsafe_code,
+    reason = "`openat2` takes the working directory's marker as its descriptor, which only a raw borrow names"
+)]
+pub fn open_root(path: &Path) -> io::Result<OwnedFd> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a root is opened by its absolute path",
+        ));
+    }
+    // SAFETY: `AT_FDCWD` is a marker the kernel reads as the working
+    // directory, not a descriptor anything here closes or reads, and isn't
+    // `-1`, the one value a `BorrowedFd` can't hold; `openat2` alone takes
+    // it, and ignores it for an absolute path
+    let cwd = unsafe { BorrowedFd::borrow_raw(libc::AT_FDCWD) };
+    openat2(
+        cwd,
+        &to_c_path(path.as_os_str())?,
+        libc::O_PATH | libc::O_DIRECTORY,
+        0,
+        libc::RESOLVE_NO_SYMLINKS | libc::RESOLVE_NO_MAGICLINKS,
+    )
+}
+
+/// The absolute path the kernel holds for what `fd` names.
+///
+/// It's read from `/proc/self/fd`, and held to be that entry: the path's
+/// entry, its last
+/// symlink not followed, has `fd`'s device and inode, so a name the kernel
+/// keeps for an entry removed since it opened, or one a rename made stale,
+/// is never returned.
+///
+/// # Errors
+///
+/// Returns `ENOENT` when the path no longer names `fd`'s entry: it was
+/// removed, or moved where its name can't be read; an error of kind
+/// [`io::ErrorKind::Other`], with no OS code, when `/proc` can't be read
+/// (not mounted, or refused).
+pub fn real_path(fd: BorrowedFd<'_>) -> io::Result<OsString> {
+    let link = std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd()))
+        .map_err(|error| io::Error::other(format!("/proc/self/fd can't be read: {error}")))?;
+    let held = File::from(fd.try_clone_to_owned()?).metadata()?;
+    let gone = || io::Error::from_raw_os_error(libc::ENOENT);
+    let named = std::fs::symlink_metadata(&link).map_err(|_| gone())?;
+    if (named.dev(), named.ino()) != (held.dev(), held.ino()) {
+        return Err(gone());
+    }
+    Ok(link.into_os_string())
 }
 
 /// Reports the entry at `path` beneath `dir`.
