@@ -37,8 +37,8 @@
 //! ([`ErrorFamily::rows`]): its error row, and each row whose members throw
 //! the family's error. The host has no native way to it that a program
 //! can't have replaced, and taking it at every start would cost every
-//! start; and reading it costs a row's first import, so a row whose members
-//! throw no host error hands over nothing. The first handed over is held for
+//! start; and reading it costs a row's first import, so a row of no error
+//! family's hands over nothing. The first handed over is held for
 //! the run ([`ErrorClasses::hand_over`]), and checked to be a function
 //! whose own `prototype` is the realm's `Error.prototype` the first time a
 //! class is made of it, so a run that makes none never pays for the check,
@@ -154,6 +154,12 @@ impl ErrorClasses {
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.made.borrow().len()
+    }
+
+    /// Whether the run holds a realm's `Error`, checked or not.
+    #[cfg(test)]
+    pub fn holds_error(&self) -> bool {
+        self.error.borrow().is_some()
     }
 
     /// Holds `error`, a value a row's implementation handed over from

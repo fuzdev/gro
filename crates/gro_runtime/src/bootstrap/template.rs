@@ -2,11 +2,12 @@
 //! row's needs give, so no script reads, decides, or hands on anything the
 //! template doesn't. A row hands the realm's `Error` over when it's a row of
 //! an error family's, and no other does ([`hands_over_error`]), so there are
-//! two templates, with the `Error` and without. A script that departed from it could return the
-//! bootstrap object, `core`, or `core.ops`, hand on a copy of one, read
-//! another op, or let its inner level escape, and the checks over the
-//! implementations' source (the type program's walk, the reviewed lists,
-//! the op reads) hold what a script may name, never what it does with it.
+//! two templates, with the `Error` and without. A script that departed from
+//! it could return the bootstrap object, `core`, or `core.ops`, hand on a
+//! copy of one, read another op, or let its inner level escape, and the
+//! checks over the implementations' source (the type program's walk, the
+//! reviewed lists, the op reads) hold what a script may name, never what it
+//! does with it.
 //!
 //! The text compared is the backing script, what `deno_core` compiles,
 //! so the strip and the wrapping are held with the source: each is

@@ -391,7 +391,7 @@ Invariants that live in the code:
   - An implementation can run after user code has patched the global
     intrinsics, so it names no global and reads no member of an intrinsic, its
     top level included: each intrinsic comes from `primordials`, each op from
-    `core.ops`. Three checks hold every row to that.
+    `core.ops`. Three checks hold what a script names.
   - The static one (`src/test/builtin_intrinsics.test.ts`, over
     `builtin_constructs.ts`) is one pass over the implementations' own program
     (`js/builtin/tsconfig.json`, with no library but `intrinsics.d.ts`, which
@@ -776,7 +776,8 @@ Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
 - a workload runs under every runtime, or the ones its `runtimes` names when
   it's of one runtime's own API: the baseline's `import_builtins`, a first
   import of a few builtin rows, runs under `fgro` alone, and an A/B runs it
-  under the base copy too, so every A/B reports what a first import costs
+  under the base copy too, so the baseline's A/B reports first imports,
+  against `empty`
 - `cargo xtask bench report` - each row's latest record against the previous
   and the last attested one
 - Record a suite on a quiet machine, after `cargo xtask build --release` (so

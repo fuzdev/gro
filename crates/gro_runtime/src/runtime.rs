@@ -571,7 +571,12 @@ JSON.stringify({
             let refused = make_class(runtime);
             let right = import(runtime, "Error");
             let made = make_class(runtime);
-            json!({"wrong": wrong, "refused": refused, "right": right, "made": made})
+            // the first held is the one checked: a later value is ignored
+            runtime.op_state().borrow_mut().put(ErrorClasses::default());
+            import(runtime, "Error");
+            import(runtime, "TypeError");
+            let first = make_class(runtime);
+            json!({"wrong": wrong, "refused": refused, "right": right, "made": made, "first": first})
         });
         assert_eq!(
             results,
@@ -580,6 +585,7 @@ JSON.stringify({
                 "refused": [false, "an error class extends the realm's Error", 0],
                 "right": ["env", "default"],
                 "made": [true, null, 1],
+                "first": [true, null, 1],
             })
         );
     }
@@ -1175,6 +1181,14 @@ globalThis.namespaces = {};";
                 (blake3, call("undefined, null")),
                 (blake3, call("undefined, new Proxy(Error, {})")),
                 (blake3, call(&format!("undefined, {trap}"))),
+                (
+                    backing_script("@fuzdev/gro/env.ts"),
+                    call("undefined, Error"),
+                ),
+                (
+                    backing_script("@fuzdev/gro/env_error.ts"),
+                    call("null, Error"),
+                ),
             ] {
                 rows_refused.push(named_script_json(runtime, name, source));
             }
@@ -1187,6 +1201,14 @@ globalThis.namespaces = {};";
                 .borrow()
                 .borrow::<NativeNamespaces>()
                 .len();
+            // a refused row's script hands its `Error` over to nothing
+            rows_refused.push(json!(
+                runtime
+                    .op_state()
+                    .borrow()
+                    .borrow::<ErrorClasses>()
+                    .holds_error()
+            ));
             let mut namespaces = serde_json::Map::new();
             // every row's namespace is made in a run that grants each row
             runtime
@@ -1576,7 +1598,7 @@ globalThis.namespaces = {};";
     /// them; a row whose grant the run lacks is refused naming the grant,
     /// before anything is made; and a scope that isn't `undefined`, or
     /// anything but `undefined` handed over as the realm's `Error` by a row
-    /// whose members throw no host error, is a `TypeError`, read with no
+    /// of no error family's, is a `TypeError`, read with no
     /// conversion: no trap runs, and nothing is held.
     #[test]
     fn the_namespace_op_knows_the_row_by_its_script() {
@@ -1600,6 +1622,10 @@ globalThis.namespaces = {};";
                     not_handed,
                     not_handed,
                     not_handed,
+                    "Error: not_granted: op_gro_namespace needs the grant 'env', which this \
+                     runtime doesn't hold",
+                    not_a_scope,
+                    false,
                     false,
                 ]),
                 "{start:?}"

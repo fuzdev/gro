@@ -14,7 +14,7 @@
 //! is the builtin's implementation, `js/builtin/<specifier>`: one function
 //! in two levels ([`to_backing_script`]). The outer level, called with
 //! `deno_core`'s bootstrap object (the ops, `primordials`), takes the one
-//! op, and the realm's `Error` in a row whose members throw a host error,
+//! op, and the realm's `Error` in a row of an error family's,
 //! and returns the inner level, which, called
 //! with the scope of an importer's grant, asks the host for the builtin's
 //! namespace, whose members are native (`host/native.rs`). A backing

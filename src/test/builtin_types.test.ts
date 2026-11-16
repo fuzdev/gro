@@ -408,7 +408,7 @@ describe('a retyped export fails its check', () => {
 			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array | undefined;'
 		);
 		// the namespace typed as another row's, and a second value handed over, where a row
-		// whose members throw no host error hands over its scope alone
+		// of no error family's hands over its scope alone
 		const call = "op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope)";
 		assert_mismatch('blake3', 'builtin', call, call.replace('blake3.ts', 'args.ts'));
 		assert_mismatch('blake3', 'builtin', call, call.replace('(_scope)', '(_scope, _scope)'));

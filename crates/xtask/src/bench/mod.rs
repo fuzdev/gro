@@ -786,7 +786,7 @@ mod tests {
     #[test]
     fn an_a_b_runs_a_workload_of_named_runtimes_under_the_base_copy_too() {
         let suite: Suite = serde_json::from_str(
-            r#"{"name": "s", "version": 1, "samples": 2, "parity": ["node", "fgro"],
+            r#"{"name": "s", "version": 1, "samples": 2,
                 "runtimes": [{"name": "node", "program": "node", "stdout": "envelope"},
                     {"name": "fgro", "program": "fgro", "stdout": "envelope"}],
                 "workloads": [{"name": "all", "script": "all.js"},

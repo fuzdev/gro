@@ -97,7 +97,8 @@ pub struct Suite {
     /// median.
     pub samples: NonZeroU32,
     /// The runtimes the workloads run under. The run's A/A noise row copies
-    /// its first row: the first workload under the first runtime.
+    /// its first row: the first workload under the first runtime it runs
+    /// under.
     pub runtimes: Vec<Runtime>,
     /// The workloads, each run by every runtime, or by the ones it names.
     pub workloads: Vec<Workload>,

@@ -10,8 +10,8 @@
 // A builtin's implementation is a script, one function in two levels, which is in no snapshot:
 // the runtime compiles and calls it the first time a run imports the builtin. The outer level
 // takes deno_core's bootstrap object and runs once a run: it takes the one op, the namespace
-// op, from `core.ops`, and, only in a row whose members throw a host error (`env.ts`,
-// `env_error.ts`), the realm's `Error` from `primordials`, taken when the runtime was made,
+// op, from `core.ops`, and, only in a row of an error family's (its error row, `env_error.ts`,
+// and a row whose members throw its error, `env.ts`), the realm's `Error` from `primordials`, taken when the runtime was made,
 // before any user code ran, for the host to make the error's class of. The outer level returns
 // the inner, a function of the scope of an importer's grant that asks the host for the
 // builtin's namespace, handing over the scope, and `Error` where the outer level took it. The

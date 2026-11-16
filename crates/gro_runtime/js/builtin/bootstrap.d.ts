@@ -21,7 +21,8 @@ interface Bootstrap {
 			 * namespace holds, which only the row's script can name, since a handle's methods
 			 * return its own type, for the types alone, which are claims, held to the Node module's
 			 * by the types test. The script hands over its scope, and the realm's `Error` from a row
-			 * whose members throw a host error, which the host makes the error's class of.
+			 * of an error family's (its error row, or a row whose members throw its error), which the
+			 * host makes the error's class of.
 			 */
 			readonly op_gro_namespace: <
 				Row extends

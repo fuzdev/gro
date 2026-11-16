@@ -62,7 +62,7 @@ traps, and call its functions with hostile arguments (`crates/gro_cli/tests/host
 const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
 	Error: {
 		type: 'ErrorConstructor',
-		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. A row whose members throw a host error also hands it to the namespace op as it is, which the host makes its error classes extend, natively, reading nothing of it but its own `prototype`, a data property, the first time it makes one."
+		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. A row of an error family's (its error row, or a row whose members throw its error) also hands it to the namespace op as it is, which the host makes its error classes extend, natively, reading nothing of it but its own `prototype`, a data property, the first time it makes one."
 	}
 };
 
@@ -91,7 +91,7 @@ const REVIEWED_INTRINSICS: ReviewedIntrinsics = {
 const rows = read_builtin_rows();
 
 // what every implementation starts with, its destructuring of the bootstrap object, where the
-// mutants go: `core`, and `primordials` in a row whose members throw a host error
+// mutants go: `core`, and `primordials` in a row of an error family's
 const TOP_LEVEL = /^\tconst \{ core(?:, primordials)? \} = bootstrap;\n/m;
 
 // what a mutant's start puts in its place: both, each used, so a mutant of any row may use
