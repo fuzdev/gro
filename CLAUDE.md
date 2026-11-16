@@ -480,7 +480,7 @@ Invariants that live in the code:
     its path) when the run first makes the fs namespace (`FsState`, which
     every run's start puts, empty), the table only appended to, a flag's
     root held to the identity its directory had as the run started
-    (`FsGrant`'s `FileId`s, from `fgro run`'s check) or held as why, as a
+    (`FsGrant`'s `GrantedDir`s, from `fgro run`'s check) or held as why, as a
     gone one is; an op opens the handle's directory
     beneath it, refusing a symlink, then its path beneath that by
     `openat2`, its `..` resolved by the text first, so no handle owns a
@@ -498,9 +498,12 @@ Invariants that live in the code:
     flag's, alone resolves an absolute symlink as the kernel does
     (`gro_sys`'s `Links::InRoot`); a
     root's scope joins every root's that holds it: whose real path holds
-    its own and whose descriptor holds its directory at that path, no
-    symlink on the way, as the table is made. An entry's path beneath
-    its root is the kernel's, checked against the root's by its text, then
+    its own, both read as the run starts (`fs_grant` reads a flag's, and
+    the table opens the flag's root by it), and whose descriptor holds its
+    directory at that path, no symlink on the way, as the table is made;
+    nothing is read again after, so a directory moved out of a root later
+    keeps the scope it joined. An entry's path beneath its root is the
+    kernel's, checked against the root's by its text, then
     looked up beneath the root (`gro_sys::beneath::path_beneath`), so no
     lookup leaves a root. Every fs member first checks that the kernel
     serves `openat2` (but `list` and its listing's methods, whose one I/O,
@@ -683,8 +686,9 @@ Invariants that live in the code:
   `RuntimeOptions::env`, and the directories `--allow-read=` and
   `--allow-write=` grant, each resolved against the working directory and
   checked to be a directory as the run starts (`fs_grant`), handed in as
-  the `fs` grant's paths. The host asks the OS for the process's id, `pid`,
-  when a run first imports the module. The `phases` and `prices` features (on
+  the `fs` grant's paths, each with its real path then and the identity
+  of the directory there. The host asks the OS for the process's id,
+  `pid`, when a run first imports the module. The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
 - A run's or an eval's runtime is handed back when it's over

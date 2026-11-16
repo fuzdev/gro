@@ -13,8 +13,8 @@ use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::FileId;
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, Grants, NeededGrant,
-    Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, GrantedDir, Grants,
+    NeededGrant, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -123,11 +123,13 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
 }
 
 /// The fs grant of the directories `dirs` lists, each resolved against
-/// `cwd` when it's relative and held to be a directory now, by one `stat`
-/// that follows symlinks, whose identity the grant keeps: the read ones
-/// first, then the written ones. The runtime opens each when the run first
-/// imports `fs` and holds it to that identity, so a directory replaced
-/// between, like one gone by then, fails every op through it.
+/// `cwd` when it's relative and held to be a directory now: its real path
+/// read, then the identity of the directory there, by one `stat`, which
+/// the grant keeps ([`GrantedDir`]), the read ones first, then the written
+/// ones. The runtime opens each by that real path when the run first
+/// imports `fs` and holds it to that identity, so a directory moved or
+/// replaced between, like one gone by then, fails every op through it, and
+/// the roots nest as these real paths do.
 ///
 /// # Errors
 ///
@@ -136,9 +138,11 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
 fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
     let check = |flag: DirFlag, dir: &String| {
         let path = cwd.join(dir);
-        let fault = match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.is_dir() => match FileId::of(&metadata) {
-                Ok(id) => return Ok((path, id)),
+        let found = std::fs::canonicalize(&path)
+            .and_then(|real| std::fs::metadata(&real).map(|metadata| (real, metadata)));
+        let fault = match found {
+            Ok((real, metadata)) if metadata.is_dir() => match FileId::of(&metadata) {
+                Ok(id) => return Ok((path, GrantedDir { real, id })),
                 Err(error) => DirFault::Unreadable(error),
             },
             Ok(_) => DirFault::NotADirectory,
@@ -371,8 +375,8 @@ mod tests {
     use std::os::unix::ffi::OsStringExt as _;
 
     use super::{
-        EXIT_FAILURE, Ended, Environment, FsGrant, RUNTIME_VERSION, exit_code, exit_now,
-        runtime_options,
+        EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, RUNTIME_VERSION, exit_code,
+        exit_now, runtime_options,
     };
     use crate::cli::{Invocation, RunInvocation, Task, parse};
 
@@ -622,9 +626,13 @@ mod tests {
             ino: 2,
             born: None,
         };
+        let granted = |real: &str| GrantedDir {
+            real: real.into(),
+            id,
+        };
         let fs = FsGrant {
-            read: [("/r".into(), id)].into(),
-            write: [("/w".into(), id)].into(),
+            read: [("/r".into(), granted("/r"))].into(),
+            write: [("/w".into(), granted("/w"))].into(),
         };
         let run = invocation(&["--allow-read=/r", "a.js"]);
         let options = runtime_options(&run, &TestEnvironment::default(), fs.clone());

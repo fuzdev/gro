@@ -1633,7 +1633,7 @@ console.log(JSON.stringify({
 \treplaced: await how(async () => (await fs.open_dir(r)).read_text('f.txt')),
 \tgone: await how(() => fs.open_dir(w)),
 \tunchanged: await how(async () => (await fs.open_dir(u)).read_text('f.txt')),
-\trepointed: await how(async () => (await fs.open_dir(l)).read_text('f.txt')),
+\trepointed: await how(async () => (await fs.open_dir(l)).path),
 }));
 ";
 
@@ -1642,8 +1642,8 @@ console.log(JSON.stringify({
 /// one replaced between, like one gone by then, fails every reach through
 /// it with `io_error`, its cause saying which, which doesn't fail the run,
 /// and one left alone is read. A written symlink pointed since at a
-/// directory granted only read is held as replaced, never joining that
-/// root, which would read and write it.
+/// directory granted only read still names the directory it named, never
+/// joining that root, which would read and write it.
 #[test]
 fn fs_flag_roots_open_at_the_first_import() {
     use std::io::BufRead as _;
@@ -1717,11 +1717,122 @@ fn fs_flag_roots_open_at_the_first_import() {
                 format!("the directory granted as {} is gone, or no longer a directory", text(&w)),
             ],
             "unchanged": ["ok", "kept"],
-            "repointed": [
+            "repointed": ["ok", text(&project.0.join("v"))],
+        })
+    );
+}
+
+/// The script [`fs_a_flag_root_nests_as_the_run_started`] runs: once the
+/// test has moved the written directory beneath the read one, the first
+/// import of `fs` and a handle on the written one, then, once the test has
+/// moved it back out, a read through that handle, as a JSON line.
+const FS_MOVED_IN: &str = "import { args } from '@fuzdev/gro/args.ts';
+const [wl] = args;
+const wait = async (name) => {
+\tfor (let waited = 0; ; waited++) {
+\t\tif (waited > 3000) throw Error('the test never made ' + name);
+\t\ttry {
+\t\t\tawait import(name);
+\t\t\treturn;
+\t\t} catch {}
+\t\tawait new Promise((resolve) => setTimeout(resolve, 10));
+\t}
+};
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message, error.cause?.message ?? null];
+\t}
+};
+console.log('ready');
+await wait('./moved_in.js');
+const { fs } = await import('@fuzdev/gro/fs.ts');
+let held = null;
+const opened = await how(async () => {
+\theld = await fs.open_dir(wl);
+\treturn held.path;
+});
+console.log('opened');
+await wait('./moved_out.js');
+console.log(JSON.stringify({
+\topened,
+\theld: held && (await how(() => held.read_text('f.txt'))),
+}));
+";
+
+/// A granted directory's root nests as its directory did when the run
+/// started: a written directory moved beneath a read one before the first
+/// import, its symlink pointed along, is gone from its real path, so no
+/// handle on it reads it, there or once it's moved back out.
+#[test]
+fn fs_a_flag_root_nests_as_the_run_started() {
+    use std::io::BufRead as _;
+    let project = Scratch::new(
+        "fs_moved_in",
+        &[
+            (
+                "p/package.json",
+                "{\"name\": \"fs_moved_in\", \"type\": \"module\"}\n",
+            ),
+            ("p/main.js", FS_MOVED_IN),
+            ("r/kept.txt", ""),
+            ("fake/w/f.txt", "written only"),
+        ],
+    );
+    let at = |name: &str| project.0.join(name);
+    let text = |path: &Path| path.display().to_string();
+    let point = |target: &str| {
+        std::os::unix::fs::symlink(target, at("wl.new")).unwrap();
+        std::fs::rename(at("wl.new"), at("wl")).unwrap();
+    };
+    point("fake/w");
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-read={}", text(&at("r"))),
+        &format!("--allow-write={}", text(&at("wl"))),
+        "main.js",
+        &text(&at("wl")),
+    ]);
+    command
+        .env_clear()
+        .current_dir(at("p"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    std::fs::rename(at("fake/w"), at("r/w")).unwrap();
+    point("r/w");
+    std::fs::write(at("p/moved_in.js"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "opened\n");
+    std::fs::rename(at("r/w"), at("fake/w")).unwrap();
+    point("fake/w");
+    std::fs::write(at("p/moved_out.js"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{line}");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "opened": [
                 "FsError",
                 "io_error",
-                format!("the directory granted as {} was replaced since the run started", text(&l)),
+                format!(
+                    "the directory granted as {}, {}, is gone, or no longer a directory",
+                    text(&at("wl")),
+                    text(&at("fake/w"))
+                ),
             ],
+            "held": null,
         })
     );
 }

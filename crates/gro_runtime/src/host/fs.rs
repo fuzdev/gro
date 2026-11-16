@@ -101,34 +101,39 @@
 //! and every op through it fails with `io_error` naming that in its
 //! `cause`: a value the namespace holds is made without throwing.
 //!
-//! A granted directory is held to the identity it had when the embedder
-//! checked it ([`FsGrant`]): its root's descriptor's identity, read once it
-//! opens (one `statx`, only for a root a granted path is held to), must be
-//! that one, or the path is a root of its own held as why, replaced since,
-//! as a gone one is, whose grants join no other root's. So a directory
-//! swapped in at a granted path, or at a symlink's target, between the
-//! start and the first import, or between the real path's read and the
-//! open, is never a root. The identity is the device, the inode, and the
-//! birth time where the filesystem records one: a directory removed and
-//! another made at its path can take the inode number, and passes where
-//! the filesystem records no birth time or stamps both within one tick of
-//! its clock. The check holds the root as it opens and nothing
-//! after: the root's descriptor is the directory from then on. The
-//! project's own read is held to none (a flag naming its directory is):
-//! the loader finds it by its path and loads every module from it by its
-//! path, so a directory swapped in there is the run's project for the
-//! loader too.
+//! A granted directory is the one its path named as the run started
+//! ([`FsGrant`]): the embedder reads its real path then, and the identity
+//! of the directory there, and its root opens by that real path, never by
+//! where the granted path leads at the first import. Its descriptor's
+//! identity, read once it opens (one `statx`, only for a root a granted
+//! path is held to), must be that one, or the path is a root of its own
+//! held as why, replaced since, as one gone from its real path is, whose
+//! grants join no other root's. So a directory swapped in at a granted
+//! directory's real path between the start and the first import is never
+//! a root, a granted symlink pointed elsewhere since still names the
+//! directory it named, and a directory moved away since is gone. The
+//! identity is the device, the inode, and the birth time where the
+//! filesystem records one: a directory removed and another made at its
+//! path can take the inode number, and passes where the filesystem records
+//! no birth time or stamps both within one tick of its clock. The check
+//! holds the root as it opens and nothing after: the root's descriptor is
+//! the directory from then on. The project's own read is held to none (a
+//! flag naming its directory is): the loader finds it by its path and
+//! loads every module from it by its path, so a directory swapped in there
+//! is the run's project for the loader too.
 //!
-//! A root holds another's directory when the other's real path lies
-//! beneath its own and, both open, the directory at that path beneath its
-//! descriptor, no symlink on the way, is the other's by its identity, as
-//! the table is made. So a directory whose real path, read before the
-//! opens, lies beneath a root's, but which a move between them put
-//! elsewhere, takes nothing of that root's scope, and a root that isn't
-//! open lends its scope to none. The nesting is read as the table is made,
-//! at the first import, not as the run starts: a flag's directory moved
-//! beneath a root in between, its symlink pointed along, joins that root's
-//! scope, and a directory moved out after keeps the scope it joined.
+//! A root holds another's directory when the other's real path, the
+//! start's, lies beneath its own and, both open, the directory at that path
+//! beneath its descriptor, no symlink on the way, is the other's by its
+//! identity, as the table is made. So the nesting the scopes join by is
+//! the one the run started with, each pair of it still in place at the
+//! first import: a flag's directory moved beneath a root in between, its
+//! symlink pointed along, is gone from its real path and joins nothing, a
+//! directory moved between the opens takes nothing of a root's scope, and
+//! a root that isn't open lends its scope to none. Nothing is read again
+//! once the table is made: a root's directory moved out from beneath
+//! another after that keeps the scope it joined, for every handle on it,
+//! and one moved beneath another takes none of its scope.
 //!
 //! An argument is read as the value it is, as `env`'s are: a path is a
 //! string, never converted, and an options record's `follow` is its data,
@@ -258,8 +263,10 @@ impl Scope {
 #[derive(Debug)]
 struct Root {
     /// Its absolute real path, which the paths of its handles extend; lossy
-    /// only when its path isn't UTF-8, when it isn't open, and empty for a
-    /// runtime given no project, which no path matches.
+    /// only when its path isn't UTF-8, when it isn't open; empty for a
+    /// granted path refused as replaced, which only the path it was granted
+    /// as matches, and for a runtime given no project, which no path
+    /// matches.
     path: String,
     /// The other absolute paths it was granted as, each by its text with no
     /// `.`, `..`, or empty name, which match a path as its real path does.
@@ -308,21 +315,21 @@ impl FsState {
 }
 
 /// A root the table wants, in the order it wants them: its real path, read
-/// as the run opens its roots, none for a granted path gone by then; what
-/// it reads and writes; and the path it was granted as, with the identity
-/// it had when the embedder checked it, none for the project's root and
-/// `/` unconfined.
+/// as the run started, none for a runtime given no project; what it reads
+/// and writes; and the path it was granted as, with the identity its
+/// directory had when the embedder checked it, none for the project's root
+/// and `/` unconfined.
 struct Wanted<'g> {
     real: Option<PathBuf>,
     scope: Scope,
     granted: Option<(&'g Path, &'g FileId)>,
 }
 
-/// A root of the table being made: its real path, none for one held as why
-/// it isn't open; its scope, before it joins the scopes of the roots
-/// holding it; each path it was granted as; and its descriptor with the
-/// identity of its directory, read when a granted path is held to one, or
-/// why it isn't open.
+/// A root of the table being made: its real path, none for a granted path
+/// refused as replaced or a runtime given no project; its scope, before it
+/// joins the scopes of the roots holding it; each path it was granted as;
+/// and its descriptor with the identity of its directory, read when a
+/// granted path is held to one, or why it isn't open.
 struct Joined<'g> {
     real: Option<PathBuf>,
     scope: Scope,
@@ -370,15 +377,17 @@ impl<'g> Joined<'g> {
 
 /// The run's roots: the project's, `project`, a real path, read; then the
 /// directories `authority`'s fs grant reads and writes ([`FsGrant`]), or,
-/// unconfined, `/`, read and written. Each granted path's real path is
-/// read now, and a granted path is held to the identity it had when it
-/// was granted: one whose directory has another, replaced since, is a root
-/// of its own, held as why, as a path gone by now is. Each real path is
+/// unconfined, `/`, read and written. Each granted path's root is the real
+/// path the embedder read as the run started, never read again here, and
+/// a granted path is held to the identity its directory had then: one
+/// whose directory has another, replaced since, is a root of its own, held
+/// as why, as one gone from its real path by now is. Each real path is
 /// opened once ([`opened`]), and again by the next path granted as it when
 /// the path that opened it was refused. The paths of one real path are one
 /// root, the first's place, its scopes joined and each path it was granted
 /// as kept; then each root's scope joins every root's that holds its
-/// directory ([`holds_beneath`]).
+/// directory ([`holds_beneath`]), by these real paths, the start's, and the
+/// descriptors now.
 fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root> {
     let mut wanted = vec![Wanted {
         real: project.map(Path::to_path_buf),
@@ -394,12 +403,11 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root
         Some(Authority::Confined(grants)) => {
             if let Some(FsGrant { read, write }) = &grants.fs {
                 for (dirs, scope) in [(read, Scope::READ), (write, Scope::WRITE)] {
-                    for (dir, id) in dirs {
+                    for (dir, at_start) in dirs {
                         wanted.push(Wanted {
-                            // read as real once, as the run opens it
-                            real: dir.canonicalize().ok(),
+                            real: Some(at_start.real.clone()),
                             scope,
-                            granted: Some((dir.as_path(), id)),
+                            granted: Some((dir.as_path(), &at_start.id)),
                         });
                     }
                 }
@@ -460,11 +468,12 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root
 /// whose real path lies beneath `outer`'s by its text and, both open,
 /// whose directory is, by its identity, the one at that path beneath
 /// `outer`'s descriptor, no symlink on the way ([`sys::dir_metadata`]).
-/// The real paths were read before the roots opened, so a directory moved
-/// between the opens can lie beneath a root's text and not its directory:
-/// the descriptors say where it was as the table was made. A root that
-/// isn't open holds no other; one that isn't open, which reaches nothing,
-/// is held by the text alone.
+/// The real paths are the start's, so the text says where the directories
+/// were as the run started, and a directory moved since, or between the
+/// opens, can lie beneath a root's text and not its directory: the
+/// descriptors say where it is as the table is made, and both must nest. A
+/// root that isn't open holds no other; one that isn't open, which reaches
+/// nothing, is held by the text alone.
 fn holds_beneath(outer: &Joined<'_>, inner: &Joined<'_>) -> bool {
     let (Some(outer_real), Some(real)) = (&outer.real, &inner.real) else {
         return false;
@@ -524,9 +533,9 @@ fn root((joined, scope): (Joined<'_>, Scope)) -> Root {
 /// The descriptor of the directory at `real`, a real path, granted as
 /// `granted`, with its identity when `identify` says so (read from the
 /// descriptor, so it's the directory opened), or why it isn't open: none
-/// given (no project, or a granted path gone before its real path was
-/// read), a path that isn't UTF-8, or a failed open or identity. `project`
-/// says it's the project's, which its reasons name.
+/// given (no project), a path that isn't UTF-8, nothing there or no
+/// directory (gone), or a failed open or identity. `project` says it's the
+/// project's, which its reasons name.
 fn opened(
     project: bool,
     real: Option<&Path>,
@@ -539,11 +548,7 @@ fn opened(
         format!("the directory granted as {}", granted_text(granted))
     };
     let Some(dir) = real else {
-        return Err(if project {
-            NO_PROJECT.to_owned()
-        } else {
-            format!("{what} is gone, or no longer a directory")
-        });
+        return Err(NO_PROJECT.to_owned());
     };
     let path = dir.to_string_lossy();
     // the real path, unless it's the path the root was granted as
@@ -555,7 +560,12 @@ fn opened(
     if dir.to_str().is_none() {
         return Err(format!("{what} isn't UTF-8, so no string names it"));
     }
-    let fd = sys::open_root(dir).map_err(|error| format!("{what} can't be opened: {error}"))?;
+    let fd = sys::open_root(dir).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
+            format!("{what} is gone, or no longer a directory")
+        }
+        _ => format!("{what} can't be opened: {error}"),
+    })?;
     if !identify {
         return Ok((fd, None));
     }
@@ -2888,11 +2898,13 @@ mod tests {
         }
     }
 
-    /// `path` as an embedder grants it: with the identity of the directory
-    /// it names now, or, when nothing is there, one no directory has.
+    /// `path` as an embedder grants it: with its real path now and the
+    /// identity of the directory there, or, when nothing is there, the path
+    /// itself and an identity no directory has.
     #[cfg(target_os = "linux")]
-    fn checked(path: &std::path::PathBuf) -> (std::path::PathBuf, crate::resolver::FileId) {
-        let id = std::fs::metadata(path).map_or(
+    fn checked(path: &std::path::Path) -> (std::path::PathBuf, crate::GrantedDir) {
+        let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let id = std::fs::metadata(&real).map_or(
             crate::resolver::FileId {
                 dev: u64::MAX,
                 ino: u64::MAX,
@@ -2900,18 +2912,19 @@ mod tests {
             },
             |metadata| crate::resolver::FileId::of(&metadata).unwrap(),
         );
-        (path.clone(), id)
+        (path.to_path_buf(), crate::GrantedDir { real, id })
     }
 
-    /// A granted path whose directory isn't the one it named when it was
-    /// granted, replaced since, is a root of its own held as why, as a gone
-    /// one is, in its place, its scope joining no other root's: one
-    /// replaced at its path; one whose symlink now leads to another
-    /// granted directory, which keeps its own grants alone; one naming the
-    /// project's directory by the identity of another, the project's root
-    /// kept; and one whose directory differs from the one it named only by
-    /// its birth time. A path whose directory is the one it named, by its
-    /// real path, through a symlink, or the project's, is its root.
+    /// A granted path whose directory at its real path isn't the one it
+    /// named when it was granted, replaced since, is a root of its own held
+    /// as why, as a gone one is, in its place, its scope joining no other
+    /// root's: one replaced at its path; one naming the project's directory
+    /// by the identity of another, the project's root kept; and one whose
+    /// directory differs from the one it named only by its birth time. A
+    /// path whose directory is the one it named, by its real path, through
+    /// a symlink, or the project's, is its root, and so is one through a
+    /// symlink pointed since at another granted directory, which keeps its
+    /// own grants alone: the root is the real path read at the grant.
     #[cfg(target_os = "linux")]
     #[test]
     fn a_root_replaced_since_its_grant_is_held_as_why() {
@@ -2930,13 +2943,23 @@ mod tests {
             checked(&at("still_w")),
             checked(&at("x")),
         );
-        let p_as_x = (at("p"), x.1);
+        let p_as_x = (
+            at("p"),
+            crate::GrantedDir {
+                real: at("p"),
+                id: x.1.id,
+            },
+        );
         // a birth time no directory made since has
+        let y = checked(&at("y"));
         let y_reborn = (
-            at("y"),
-            crate::resolver::FileId {
-                born: Some(std::time::UNIX_EPOCH),
-                ..checked(&at("y")).1
+            y.0,
+            crate::GrantedDir {
+                id: crate::resolver::FileId {
+                    born: Some(std::time::UNIX_EPOCH),
+                    ..y.1.id
+                },
+                ..y.1
             },
         );
         // the swaps another process makes before the first import
@@ -2978,12 +3001,11 @@ mod tests {
                 (String::new(), vec![path("r")], Scope::READ, replaced("r")),
                 (path("x"), vec![], Scope::READ, None),
                 (String::new(), vec![path("y")], Scope::READ, replaced("y")),
-                (path("w"), vec![path("still_w")], Scope::WRITE, None),
                 (
-                    String::new(),
-                    vec![path("to_w")],
+                    path("w"),
+                    vec![path("still_w"), path("to_w")],
                     Scope::WRITE,
-                    replaced("to_w")
+                    None
                 ),
             ]
         );
@@ -2992,7 +3014,9 @@ mod tests {
     /// A real path whose first granted path was refused, its directory
     /// replaced since, is opened again for the next path granted as it,
     /// which the directory there is the one it named: the refused root is
-    /// held as why, and the reopened one is the later path's alone.
+    /// held as why, and the reopened one is the later path's alone. Two
+    /// paths name one real path by two directories only when the start's
+    /// reads raced a swap, as `b`'s does here.
     #[cfg(target_os = "linux")]
     #[test]
     fn a_real_path_is_opened_again_after_its_first_path_is_refused() {
@@ -3003,15 +3027,21 @@ mod tests {
         for name in ["p", "a", "c"] {
             std::fs::create_dir_all(at(name)).unwrap();
         }
-        std::os::unix::fs::symlink("c", at("b")).unwrap();
-        let read = [checked(&at("a")), checked(&at("b"))].into();
-        // the swaps another process makes before the first import: `c`
-        // moved to `a`, and `b` pointed at it there, so both real paths
-        // are `a`, which is `b`'s directory alone
+        std::os::unix::fs::symlink("a", at("b")).unwrap();
+        // `b`'s real path read as `a`, and its identity `c`'s, a swap of the
+        // two between the reads
+        let b = (
+            at("b"),
+            crate::GrantedDir {
+                real: at("a"),
+                id: checked(&at("c")).1.id,
+            },
+        );
+        let read = [checked(&at("a")), b].into();
+        // the swap another process makes before the first import: `c`
+        // moved to `a`, which is `b`'s directory alone
         std::fs::rename(at("a"), at("a_before")).unwrap();
         std::fs::rename(at("c"), at("a")).unwrap();
-        std::fs::remove_file(at("b")).unwrap();
-        std::os::unix::fs::symlink("a", at("b")).unwrap();
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
                 read,
@@ -3089,6 +3119,81 @@ mod tests {
         assert!(!holds_beneath(&joined("r/in", "r/in", false), &r));
     }
 
+    /// A granted directory nests as it did when it was granted, by its real
+    /// path then, which the descriptors confirm as the table is made: one
+    /// moved since beneath a root, its symlink pointed along, is gone from
+    /// its real path, taking nothing of that root's scope; one moved out
+    /// from beneath a root since is gone too; and one beneath a root then
+    /// and now joins its scope.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_root_nests_as_its_directory_did_when_granted() {
+        use crate::{Authority, FsGrant, Grants};
+
+        let dir = crate::test_support::TestDir::on_disk("root_nests_at_start");
+        let at = |name: &str| dir.path().join(name);
+        for name in ["p", "r/in", "r/out", "fake/w", "away"] {
+            std::fs::create_dir_all(at(name)).unwrap();
+        }
+        std::os::unix::fs::symlink("fake/w", at("wl")).unwrap();
+        let authority = Authority::Confined(Grants {
+            fs: Some(FsGrant {
+                read: [checked(&at("r"))].into(),
+                write: [
+                    checked(&at("wl")),
+                    checked(&at("r/in")),
+                    checked(&at("r/out")),
+                ]
+                .into(),
+            }),
+            ..Grants::default()
+        });
+        // the moves another process makes before the first import: `w`
+        // beneath `r`, `wl` pointed along, and `out` from beneath it
+        std::fs::rename(at("fake/w"), at("r/w")).unwrap();
+        std::fs::remove_file(at("wl")).unwrap();
+        std::os::unix::fs::symlink("r/w", at("wl")).unwrap();
+        std::fs::rename(at("r/out"), at("away/out")).unwrap();
+        let table = root_table(Some(&at("p")), Some(&authority));
+        let path = |name: &str| at(name).display().to_string();
+        let shown: Vec<(String, Vec<String>, Scope, Option<String>)> = table
+            .iter()
+            .map(|root| {
+                (
+                    root.path.clone(),
+                    root.granted.clone(),
+                    root.scope,
+                    root.fd.as_ref().err().cloned(),
+                )
+            })
+            .collect();
+        let gone = |granted: &str, real: &str| {
+            let what = if granted == real {
+                path(granted)
+            } else {
+                format!("{}, {},", path(granted), path(real))
+            };
+            Some(format!(
+                "the directory granted as {what} is gone, or no longer a directory"
+            ))
+        };
+        assert_eq!(
+            shown,
+            [
+                (path("p"), vec![], Scope::READ, None),
+                (path("r"), vec![], Scope::READ, None),
+                (path("r/in"), vec![], Scope::ALL, None),
+                (path("r/out"), vec![], Scope::ALL, gone("r/out", "r/out")),
+                (
+                    path("fake/w"),
+                    vec![path("wl")],
+                    Scope::WRITE,
+                    gone("wl", "fake/w")
+                ),
+            ]
+        );
+    }
+
     /// The table: the project's root first, read; each granted directory a
     /// root of its real path, the paths of one real path one root with its
     /// scopes joined and each spelling kept; each root reading and writing
@@ -3113,8 +3218,8 @@ mod tests {
         let grants = |read: &[PathBuf], write: &[PathBuf]| {
             Authority::Confined(Grants {
                 fs: Some(FsGrant {
-                    read: read.iter().map(checked).collect(),
-                    write: write.iter().map(checked).collect(),
+                    read: read.iter().map(|path| checked(path)).collect(),
+                    write: write.iter().map(|path| checked(path)).collect(),
                 }),
                 ..Grants::default()
             })
@@ -3141,7 +3246,7 @@ mod tests {
             shown,
             [
                 (path("p"), vec![], Scope::READ, true),
-                (String::new(), vec![path("missing")], Scope::READ, false),
+                (path("missing"), vec![], Scope::READ, false),
                 (path("p/out"), vec![], Scope::ALL, true),
                 (path("r"), vec![], Scope::ALL, true),
                 (path("w"), vec![path("to_w")], Scope::WRITE, true),
@@ -3170,9 +3275,13 @@ mod tests {
     }
 
     /// A root that can't be opened is held as why, naming the path it was
-    /// granted as and its real path, once when they're one path.
+    /// granted as and its real path, once when they're one path: gone when
+    /// its real path holds nothing or no directory, else the OS's reason.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_root_that_cant_open_names_its_path_once() {
+        use std::path::Path;
+
         use super::opened;
 
         let dir = crate::test_support::TestDir::on_disk("root_unopened");
@@ -3180,26 +3289,39 @@ mod tests {
         std::fs::write(&file, "").unwrap();
         let link = dir.path().join("to_f");
         std::os::unix::fs::symlink("f", &link).unwrap();
-        let why = |project: bool, granted: &std::path::Path| {
-            opened(project, Some(&file), &[granted], true).unwrap_err()
+        let why = |project: bool, real: &Path, granted: &Path| {
+            opened(project, Some(real), &[granted], true).unwrap_err()
         };
         let (f, l) = (file.display(), link.display());
         for (why, expected) in [
             (
-                why(false, &file),
-                format!("the directory granted as {f} can't be opened: "),
+                why(false, &file, &file),
+                format!("the directory granted as {f} is gone, or no longer a directory"),
             ),
             (
-                why(false, &link),
-                format!("the directory granted as {l}, {f}, can't be opened: "),
+                why(false, &file, &link),
+                format!("the directory granted as {l}, {f}, is gone, or no longer a directory"),
             ),
             (
-                why(true, &file),
-                format!("the project's directory, {f}, can't be opened: "),
+                why(true, &file, &file),
+                format!("the project's directory, {f}, is gone, or no longer a directory"),
+            ),
+            (
+                why(false, &dir.path().join("missing"), &link),
+                format!(
+                    "the directory granted as {l}, {}, is gone, or no longer a directory",
+                    dir.path().join("missing").display()
+                ),
             ),
         ] {
-            assert!(why.starts_with(&expected), "{why}");
+            assert_eq!(why, expected);
         }
+        // a symlink on a real path, one swapped in since it was read
+        let why = why(false, &link, &link);
+        assert!(
+            why.starts_with(&format!("the directory granted as {l} can't be opened: ")),
+            "{why}"
+        );
     }
 
     /// A failure whose text is longer than V8's longest string still throws,

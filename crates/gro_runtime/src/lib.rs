@@ -275,26 +275,43 @@ pub struct EnvGrant {
 /// The fs host module's grant: the directories it reads and writes beside
 /// the project's root, which it always reads and never writes.
 ///
-/// Each is an absolute path, as granted, with the identity of the
-/// directory it named when the embedder checked it, by a `stat` that
-/// followed symlinks. The run opens each when it first imports `fs`, and a
-/// root whose directory has another identity then, one replaced since, is
-/// held as why, as one gone or no longer a directory is, failing every op
-/// through it. The identity is the device, the inode, and the birth time
-/// where the filesystem records one: a directory removed and another made
-/// at its path can take its inode number, and passes where the filesystem
-/// records no birth time or stamps both within one tick of its clock
-/// ([`FileId::born`]). A root matches a path by the path as
-/// granted as well as by its real path. Write doesn't imply read: a
-/// directory only written is read only if a read grant holds it too. An
-/// unconfined run reads and writes everything, one root at `/`, whatever
-/// this holds.
+/// Each is an absolute path, as granted, with the directory it named as
+/// the run started ([`GrantedDir`]): its real path then and the identity
+/// of the directory there. The run opens each by that real path when it
+/// first imports `fs`, never reading where the granted path leads again,
+/// and a root whose directory has another identity then, one replaced
+/// since, is held as why, as one gone or no longer a directory is, failing
+/// every op through it. The identity is the device, the inode, and the
+/// birth time where the filesystem records one: a directory removed and
+/// another made at its path can take its inode number, and passes where
+/// the filesystem records no birth time or stamps both within one tick of
+/// its clock ([`FileId::born`]). A root's scope joins another's only when
+/// its real path lies beneath the other's and the other's descriptor
+/// holds its directory at that path (one that isn't open, which reaches
+/// nothing, by the path alone), so the nesting a root joins by is the one
+/// these real paths name, the start's. A root matches
+/// a path by the path as granted as well as by its real path. Write
+/// doesn't imply read: a directory only written is read only if a read
+/// grant holds it too. An unconfined run reads and writes everything, one
+/// root at `/`, whatever this holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FsGrant {
-    /// The directories read, each with its identity when it was checked.
-    pub read: BTreeMap<PathBuf, FileId>,
-    /// The directories written, each with its identity when it was checked.
-    pub write: BTreeMap<PathBuf, FileId>,
+    /// The directories read, each by the path it was granted as.
+    pub read: BTreeMap<PathBuf, GrantedDir>,
+    /// The directories written, each by the path it was granted as.
+    pub write: BTreeMap<PathBuf, GrantedDir>,
+}
+
+/// The directory a path the fs grant holds named as the run started, as
+/// the embedder found it: its real path, read first, then the identity of
+/// the directory at that real path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedDir {
+    /// Its absolute real path, with no symlink on it, `.`, or `..`.
+    pub real: PathBuf,
+    /// The identity of the directory at `real`, by a `stat` that followed
+    /// symlinks.
+    pub id: FileId,
 }
 
 /// Why a string can't name an environment variable, as the env host
