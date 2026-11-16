@@ -216,11 +216,11 @@ fn new_runtime(
         startup_snapshot: snapshot.map(|snapshot| snapshot.bytes),
         // the scripts no snapshot holds, the builtins' backing scripts among
         // them: a snapshot's own table, made with it, or the one this
-        // process makes, stripping the builtins' TypeScript here
-        residual_lazy_js_sources: match snapshot {
-            Some(snapshot) => snapshot.residual_lazy_js,
-            None => bootstrap::source_backing_scripts()?,
-        },
+        // process makes, once
+        residual_lazy_js_sources: snapshot
+            .map_or_else(bootstrap::source_backing_scripts, |snapshot| {
+                snapshot.residual_lazy_js
+            }),
         // a snapshot holds every op's function already, and each calls this
         // runtime's implementation of its op and reads this runtime's
         // `OpState`: V8 resolves an op's implementation and its context
@@ -230,7 +230,7 @@ fn new_runtime(
         // write it to `Deno.core.ops`, which no code reads: the snapshot's
         // modules hold the functions they took when it was made, so does the
         // bootstrap object a lazy script is called with, a builtin's
-        // implementation included, and the start removes `Deno`
+        // backing script included, and the start removes `Deno`
         skip_op_registration: snapshot.is_some(),
         create_params,
         ..Default::default()
@@ -256,7 +256,8 @@ mod tests {
     use crate::engine::{EngineOptions, init_engine};
     use crate::host::error_class::{DeclaredFamily, ErrorClasses};
     use crate::host::native::{
-        self, Member, NativeMember, NativeNamespaces, Place, Prototypes, hands_over_error,
+        self, Member, NativeMember, NativeNamespaces, Place, Prototypes, ValueKind,
+        hands_over_error,
     };
     use crate::host::{HOST_OPS, NATIVE_MEMBERS};
     use crate::loader::graph::Recording;
@@ -318,7 +319,7 @@ mod tests {
     /// the file [`SNAPSHOT_START`] names, with the scripts in the file
     /// beside it as the residual table: the builtins' backing scripts, which
     /// the process that made the snapshot wrote there, so this process
-    /// strips none, or none at all beside the build's snapshot. It comes
+    /// makes none, or none at all beside the build's snapshot. It comes
     /// with no other residual script, so a runtime started from it loads no
     /// web script the snapshot lacks.
     fn child_snapshot() -> StartupSnapshot {
@@ -1006,7 +1007,7 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
             .iter()
             .position(|builtin| builtin.specifier == row)
             .unwrap();
-        bootstrap::IMPLEMENTATIONS[at].script
+        bootstrap::BACKING_SPECIFIERS[at]
     }
 
     /// `source`'s completion value, a string of JSON, parsed, the script run
@@ -1280,9 +1281,24 @@ globalThis.namespaces = {};";
 	JSON.stringify(result);
 }",
             );
-            let root_of_held = script_json(
+            // each value declared a handle, by its row, name, and kind
+            let handles: Vec<[&str; 3]> = NATIVE_MEMBERS
+                .iter()
+                .filter_map(|member| match member.member {
+                    Member::Value {
+                        kind: ValueKind::Handle(kind),
+                        ..
+                    } => Some([member.module, member.name, kind.brand]),
+                    _ => None,
+                })
+                .collect();
+            let handles_of_held = script_json(
                 runtime,
-                "JSON.stringify(Object.getPrototypeOf(namespaces['@fuzdev/gro/env.ts'].env) === prototypes['@fuzdev/gro/env.ts#handle'])",
+                format!(
+                    "JSON.stringify({}.map(([module, name, brand]) => \
+                     Object.getPrototypeOf(namespaces[module][name]) === prototypes[brand]))",
+                    json!(handles)
+                ),
             );
             let probe = "JSON.stringify(thrown(() => { globalThis.probed = probe(); }) ?? probed)";
             let probe_empty = script_json(runtime, probe);
@@ -1318,7 +1334,7 @@ globalThis.namespaces = {};";
                 deno_core::scope!(scope, runtime);
                 v8::tc_scope!(let tc, scope);
                 for member in NATIVE_MEMBERS {
-                    let Member::Value(make) = member.member else {
+                    let Member::Value { make, .. } = member.member else {
                         continue;
                     };
                     let made = make(&state, tc, &Prototypes::none()).is_some();
@@ -1371,7 +1387,7 @@ globalThis.namespaces = {};";
             json!({
                 "namespaces": namespaces,
                 "values": values,
-                "root_of_held": root_of_held,
+                "handles_of_held": handles_of_held,
                 "prototypes": prototypes,
                 "rows_refused": rows_refused,
                 "held": [before, errors_held, after],
@@ -1540,8 +1556,10 @@ globalThis.namespaces = {};";
     /// A row's values, from either start: each made once with its
     /// namespace in a run that grants its row, of the run's data (the
     /// arguments a frozen array of strings, the runtime's name and version,
-    /// the process's id), with `cwd` returning the run's directory; and each
-    /// value's maker, run in a runtime that holds no authority, throws
+    /// the process's id), with `cwd` returning the run's directory; each
+    /// value the table declares a handle made of the prototype the run
+    /// holds for its kind; and each value's maker, run in a runtime that
+    /// holds no authority, throws
     /// `not_granted` naming the value and makes nothing, a granted row's
     /// naming its grant.
     #[test]
@@ -1569,11 +1587,29 @@ globalThis.namespaces = {};";
             );
             let values: Vec<&NativeMember> = NATIVE_MEMBERS
                 .iter()
-                .filter(|member| matches!(member.member, Member::Value(_)))
+                .filter(|member| matches!(member.member, Member::Value { .. }))
                 .collect();
             assert!(!values.is_empty());
-            // the root is a handle of the prototype the host made, and holds
-            assert_eq!(results["root_of_held"], true, "{start:?}");
+            // each value declared a handle is one of the prototype the host
+            // made for its kind and holds, as the table says (a root)
+            let handles = NATIVE_MEMBERS
+                .iter()
+                .filter(|member| {
+                    matches!(
+                        member.member,
+                        Member::Value {
+                            kind: ValueKind::Handle(_),
+                            ..
+                        }
+                    )
+                })
+                .count();
+            assert!(handles > 0);
+            assert_eq!(
+                results["handles_of_held"],
+                json!(vec![true; handles]),
+                "{start:?}"
+            );
             let refused = results["value_refusals"].as_object().unwrap();
             assert_eq!(refused.len(), values.len(), "{start:?}");
             for member in values {
@@ -1799,14 +1835,11 @@ JSON.stringify(results)",
     /// `start` says, in a run that grants `args`: `ok`, or the report of
     /// what failed. The run's arguments are replaced between the runtime's
     /// start and the module's load, so the module tells a script run by its
-    /// import from one the start ran. With it, how many implementations the
-    /// process had stripped by then, and whether the import made an op's
+    /// import from one the start ran. With it, whether the import made an op's
     /// function again: `deno_core` remakes each op that has a fast call the
     /// first time code calls `core.loadExtScript` for a script the snapshot
     /// lacks, and a builtin's first import doesn't go through that call.
     fn builtin_imports(start: Start) -> Value {
-        use std::sync::atomic::Ordering;
-
         use crate::resolver::DiskTree;
 
         init_engine(Confinement::Unconfined, &engine_options()).unwrap();
@@ -1906,15 +1939,12 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
             .unwrap();
         json!({
             "imported": imported.err().unwrap_or_else(|| "ok".to_owned()),
-            "stripped": bootstrap::STRIPPED.load(Ordering::Relaxed),
         })
     }
 
     /// Every builtin imports from either start with the run's values, its
     /// script run by its first import, never by the start, with the ops the
-    /// runtime's code already holds; and a process whose runtimes start from
-    /// a snapshot strips no implementation, where one that starts a runtime
-    /// from source strips each.
+    /// runtime's code already holds.
     #[test]
     fn a_builtin_s_script_runs_at_its_first_import_from_either_start() {
         for start in STARTS {
@@ -1924,9 +1954,6 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                 "{start:?}"
             );
         }
-        assert_eq!(probed("builtin_imports", Start::Snapshot)["stripped"], 0);
-        let stripped = probed("builtin_imports", Start::Source)["stripped"].as_u64();
-        assert!(stripped.unwrap() >= BUILTINS.len() as u64, "{stripped:?}");
     }
 
     /// The choke point by behavior: every host op, called by a runtime that

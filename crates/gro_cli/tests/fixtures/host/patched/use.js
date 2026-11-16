@@ -4,7 +4,7 @@
 // class constructed, a getter read, a setter given a value, and the same for what each
 // returns, throws, or holds), and reports what each namespace, export, and call's outcome is,
 // as it goes. Loaded by `import()` from an entry that armed the traps first, the builtins'
-// implementations ran armed: this module's imports are their first.
+// backing scripts ran armed: this module's imports are their first.
 //
 // A call that ends the process, as `exit`'s do, ends the run there, short of its end: the
 // test runs the entry again with that call in `skips.js`, which it writes, until a run gets

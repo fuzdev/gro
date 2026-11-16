@@ -1,4 +1,4 @@
-//! The stack a builtin's first import needs to run its implementation on
+//! The stack a builtin's first import needs to run its backing script on
 //! the importer's stack: `deno_core` builds a builtin's module the first
 //! time a run imports it, and an `import()`'s inside the call.
 //!
@@ -6,11 +6,11 @@
 //! lets the native code JS calls run 40 KiB past it; a garbage collection
 //! that starts further down ends the process (V8's check that the heap is
 //! collected on the central stack). A first import started near the limit
-//! would cut the implementation short, and `deno_core`'s report of that
+//! would cut the script short, and `deno_core`'s report of that
 //! failure, native frames that allocate, can run past the 40 KiB. So with
 //! less than [`BUILTIN_IMPORT_STACK`] left above the limit, the loader has
 //! `deno_core` build the module from the event loop, with nearly the whole
-//! stack left, and the `import()` settles then: an implementation runs
+//! stack left, and the `import()` settles then: a backing script runs
 //! whole whatever its importer left it, and no first import of a builtin
 //! is cut short where the limit is read (off glibc nothing is deferred).
 //!
@@ -36,7 +36,7 @@ const V8_STACK_SIZE: usize = 984 * 1024;
 ///
 /// What a first import needs, measured from the frame `deno_core` asks
 /// from, each row imported once from far above the limit: V8 compiles an
-/// implementation's outer function lazily, on its first call, and refuses
+/// backing script's outer function lazily, on its first call, and refuses
 /// to compile with less than 40 KiB left
 /// (`kStackSpaceRequiredForCompilation`), which would cut the import short,
 /// so the need is the frames down to that compile plus 40 KiB. With the
@@ -61,7 +61,7 @@ const V8_STACK_SIZE: usize = 984 * 1024;
 /// `deno_core` converts the error natively, following `cause` and an
 /// aggregate's errors 32 deep, which reached 54 KiB below the limit in a
 /// release build with such a realm, and past V8's 40 KiB margin in a debug
-/// build. An implementation throws nothing at load, so none fails with this
+/// build. A backing script throws nothing at load, so none fails with this
 /// much left, and one built from the event loop would be reported with
 /// nearly the whole stack.
 pub const BUILTIN_IMPORT_STACK: usize = 96 * 1024;

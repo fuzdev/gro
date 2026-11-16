@@ -1,5 +1,5 @@
 // The first import of every builtin, started in each frame from near the stack's limit up, all in
-// one turn. `import()` of a builtin no module has imported yet runs the builtin's implementation
+// one turn. `import()` of a builtin no module has imported yet runs the builtin's backing script
 // on the caller's stack, so with too little stack left the module is built from the event loop
 // instead, and the import settles then; nearest the limit the import's promise rejects with the
 // engine's own `RangeError`, when `deno_core` can't make its handler on the import's promise. For

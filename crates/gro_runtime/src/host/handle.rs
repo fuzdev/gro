@@ -33,18 +33,21 @@ use deno_core::v8;
 #[derive(Debug, PartialEq, Eq)]
 pub struct HandleKind {
     /// The private symbol's name, in V8's one namespace of API private
-    /// symbols, qualified so no other embedder code's collides.
+    /// symbols, qualified so no other embedder code's collides: the row's
+    /// specifier, `#`, and the interface of its Node module that the
+    /// kind's handles implement, which `src/test/builtin_types.test.ts`
+    /// holds the kind's methods to.
     pub brand: &'static str,
 }
 
-/// The env host module's handles.
+/// The env host module's handles, its `Env`.
 pub const ENV_HANDLE: HandleKind = HandleKind {
-    brand: "@fuzdev/gro/env.ts#handle",
+    brand: "@fuzdev/gro/env.ts#Env",
 };
 
-/// The blake3 host module's hashers.
+/// The blake3 host module's hashers, its `Blake3Hasher`.
 pub const BLAKE3_HASHER: HandleKind = HandleKind {
-    brand: "@fuzdev/gro/blake3.ts#hasher",
+    brand: "@fuzdev/gro/blake3.ts#Blake3Hasher",
 };
 
 /// The brand of `kind`: the same private symbol every time, which V8 keeps

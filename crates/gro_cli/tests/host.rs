@@ -7,7 +7,7 @@
 //! and why; everything else, the exit code and stderr included, is equal.
 //!
 //! Then every builtin in a patched realm (`tests/fixtures/host/patched/`):
-//! a builtin's implementation runs at its first import, which can be after
+//! a builtin's backing script runs at its first import, which can be after
 //! user code replaced the intrinsics, so each row of the table is imported
 //! for the first time, and everything it exports or reaches exercised (a
 //! function called, with hostile arguments too, a class constructed, a
@@ -20,7 +20,7 @@
 //! that ended one is held to the code it exited with.
 //!
 //! And every builtin's first import started short of stack
-//! (`tests/fixtures/host/forced/`): an `import()` runs the implementation on
+//! (`tests/fixtures/host/forced/`): an `import()` runs the backing script on
 //! its caller's stack, so one with too little left has the module built
 //! from the event loop instead, whole, and every import of a builtin, in
 //! whatever order its first ones interleave, gets the one module.
@@ -247,14 +247,15 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
 const PER_PROCESS: [(&str, &str); 1] = [("@fuzdev/gro/pid.ts", "pid")];
 
 /// Property names trapped on the prototypes every value shares, beside the
-/// names the implementations write: the ones a promise resolution, a
-/// property definition, an iteration, a serialization, and an error read
-/// from any object given to them, the options a web class or a clone reads
-/// from one, and the formatter the host looks up when an error's stack is
+/// names the builtins' scripts and members have: the ones a promise
+/// resolution, a property definition, an iteration, a serialization, and an
+/// error read from any object given to them, the options a web class or a
+/// clone reads from one, the `prototype` a constructor reads of its
+/// `new.target`, and the formatter the host looks up when an error's stack is
 /// read. No list can hold every name an intrinsic reads from an object it's
-/// given, and nothing can stand beneath `Object.prototype` to catch the
-/// rest, so this is the names known to matter, not a proof.
-const PROTOCOL_NAMES: [&str; 19] = [
+/// given, and nothing can stand beneath `Object.prototype` to catch the rest,
+/// so this is the names known to matter, not a proof.
+const PROTOCOL_NAMES: [&str; 20] = [
     "then",
     "get",
     "set",
@@ -273,6 +274,7 @@ const PROTOCOL_NAMES: [&str; 19] = [
     "fatal",
     "ignoreBOM",
     "transfer",
+    "prototype",
     "prepareStackTrace",
 ];
 
@@ -362,24 +364,66 @@ const ENDING_CALLS: [(&str, i32); 3] = [
     ("@fuzdev/gro/exit.ts exit.call(proxy)", 0),
 ];
 
-/// The names trapped on the shared prototypes: every identifier a
-/// builtin's implementation writes, read from its source, so a property it
-/// reads or writes on an object that lacks it lands on a trap,
-/// [`PROTOCOL_NAMES`], and [`TRAPPED_INDICES`].
+/// The names a builtin's backing script reads: each name the two texts of
+/// `gro_runtime`'s `bootstrap/template.rs` destructure or read with `.`,
+/// read from its source, so a name the template comes to read is trapped.
+/// A destructuring this reader can't take apart, one that renames or
+/// nests, fails here rather than trap a name no script reads.
+fn script_names() -> BTreeSet<String> {
+    let template =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/src/bootstrap/template.rs");
+    let source = std::fs::read_to_string(template).unwrap();
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let mut names = BTreeSet::new();
+    for text in [
+        "const WITH_ERROR: &str = \"",
+        "const WITHOUT_ERROR: &str = \"",
+    ] {
+        let start = source.find(text).unwrap() + text.len();
+        let body = &source[start..start + source[start..].find("\";").unwrap()];
+        for line in body.lines() {
+            if let Some(rest) = line.trim_start().strip_prefix("const {") {
+                let destructured = &rest[..rest.find('}').unwrap()];
+                for name in destructured.split(',').map(str::trim) {
+                    assert!(!name.is_empty() && name.chars().all(word), "{line}");
+                    names.insert(name.to_owned());
+                }
+            }
+            for (at, _) in line.match_indices('.') {
+                let read: String = line[at + 1..].chars().take_while(|&c| word(c)).collect();
+                if !read.is_empty() {
+                    names.insert(read);
+                }
+            }
+        }
+    }
+    assert!(names.contains("op_gro_namespace"), "{names:?}");
+    names
+}
+
+/// The names trapped on the shared prototypes, so a property a builtin
+/// reads or writes on an object that lacks it lands on a trap: the names
+/// its backing script reads ([`script_names`]), every native member's name,
+/// an export's or a method's, as `gro_runtime`'s
+/// `tests/native_members.txt` pins the table, each row's exports and the
+/// `default` every namespace has, [`PROTOCOL_NAMES`], and
+/// [`TRAPPED_INDICES`].
 fn trapped_names() -> BTreeSet<String> {
-    let implementations = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/js/builtin");
+    let members =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/tests/native_members.txt");
+    let members = std::fs::read_to_string(members).unwrap();
     let mut names: BTreeSet<String> = PROTOCOL_NAMES.iter().map(ToString::to_string).collect();
     names.extend(TRAPPED_INDICES.map(|index| index.to_string()));
+    names.extend(script_names());
+    names.extend(
+        members
+            .lines()
+            .map(|line| line.split(' ').nth(1).unwrap().to_owned()),
+    );
     for builtin in BUILTINS {
-        let source = std::fs::read_to_string(implementations.join(builtin.specifier)).unwrap();
-        let words = source.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'));
-        names.extend(
-            words
-                .filter(|word| !word.is_empty() && !word.starts_with(|c: char| c.is_ascii_digit()))
-                .map(ToOwned::to_owned),
-        );
         names.extend(builtin.exports.iter().map(ToString::to_string));
     }
+    names.insert("default".to_owned());
     names
 }
 
@@ -578,8 +622,8 @@ fn run_past_ends(project: &Scratch, entry: &str) -> (Reports, Vec<(String, i32)>
 /// call returns or throws and what an object or a prototype the builtin
 /// made holds), is what it is in a realm nothing patched: the same
 /// namespace, exports, and outcomes, shown property by property. And no
-/// trap reported a use while the implementations ran, at their top level,
-/// which the import runs, or in a call, and no hostile argument a use but
+/// trap reported a use while the backing scripts ran, which the import
+/// runs, or in a call, and no hostile argument a use but
 /// the reviewed ones. The rows come from the table, so a new one is
 /// imported and exercised here without being listed; a function it exports
 /// or reaches fails here until `use.js` has an entry for it, with the
@@ -614,11 +658,7 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     // the intrinsics' own properties alone are thousands
     let replaced = &patched.done()["replaced"];
     assert!(replaced.as_u64().unwrap() > 2000, "{replaced}");
-    assert_eq!(
-        patched.strings("trap"),
-        [""; 0],
-        "the traps an implementation used"
-    );
+    assert_eq!(patched.strings("trap"), [""; 0], "the traps a builtin used");
     let lines = plain.lines(&plain_dir);
     assert_eq!(patched.lines(&patched_dir), lines);
     // the two projects are two directories, which a row that shows one tells apart
@@ -661,28 +701,29 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     }
 }
 
-/// The patched realm reports each thing an implementation must not do,
-/// done once in it while armed: a global read, a method of an intrinsic's
-/// constructor and of its prototype, an iteration, a string made of an
-/// object, `instanceof`, a species lookup, a read and a write of a property
-/// an object lacks, a thenable lookup, a property definition's read of its
-/// descriptor, a read past an array's end, a web class's read of its
-/// options, and the lookup of a stack's formatter. And the exerciser
-/// reaches every place a builtin can do one from: a function only when
-/// it's given an argument, a method, a getter, and a setter of an exported
-/// object, a method of a call's result and of what a call threw, and a
-/// class's constructor, static method, and getter, with a method that
-/// needs its own instance called on one; it reports each call before it
-/// makes it, and skips the ones it's told ended an earlier run; it reports each use made of a
-/// hostile argument, of every kind, a callback's call, a fourth argument's,
-/// and one past a check that only a given argument passes among them, the
-/// functions it was given no entry for, and the entry given for a function
-/// it never reached; and it reads no error's stack, which would use the
-/// realm itself. So a patched run that reports nothing was watched. What a
-/// call leaves to run later, a promise's reaction, runs after the traps are
-/// disarmed: nothing here watches it.
+/// The patched realm reports each thing a builtin must not do, done once in
+/// it while armed: a global read, a method of an intrinsic's constructor and
+/// of its prototype, an iteration, a string made of an object, `instanceof`,
+/// a species lookup, a read and a write of a property an object lacks, a read
+/// of a member's name and of one a backing script reads where an object lacks
+/// it, a thenable lookup, a property definition's read of its descriptor, a
+/// read past an array's end, a web class's read of its options, and the
+/// lookup of a stack's formatter. And the exerciser reaches every place a
+/// builtin can do one from: a function only when it's given an argument, a
+/// method, a getter, and a setter of an exported object, a method of a call's
+/// result and of what a call threw, and a class's constructor, static method,
+/// and getter, with a method that needs its own instance called on one; it
+/// reports each call before it makes it, and skips the ones it's told ended
+/// an earlier run; it reports each use made of a hostile argument, of every
+/// kind, a callback's call, a fourth argument's, and one past a check that
+/// only a given argument passes among them, the functions it was given no
+/// entry for, and the entry given for a function it never reached; and it
+/// reads no error's stack, which would use the realm itself. So a patched run
+/// that reports nothing was watched. What a call leaves to run later, a
+/// promise's reaction, runs after the traps are disarmed: nothing here
+/// watches it.
 #[test]
-fn the_patched_realm_reports_what_an_implementation_must_not_do() {
+fn the_patched_realm_reports_what_a_builtin_must_not_do() {
     let project = patched_project("control");
     let reports = run_whole(&project, "control.js");
     // the reports after each `use`, by what the use is
@@ -707,6 +748,8 @@ fn the_patched_realm_reports_what_an_implementation_must_not_do() {
         "Symbol(Symbol.species)",
         "get Object.prototype.default",
         "set Object.prototype.cwd",
+        "get Object.prototype.narrow",
+        "get Object.prototype.op_gro_namespace",
         "get Object.prototype.then",
         "get Object.prototype.get",
         "get Array.prototype.5",
@@ -945,7 +988,7 @@ fn run_printing(project: &Scratch, entry: &str) -> Value {
 /// A first import short of stack runs whole, for every row of the table, in
 /// a realm nothing patched and in one patched against the host's report of
 /// a failure: an `import()` of a builtin nothing has imported runs its
-/// implementation on the caller's stack, so with less stack left than that
+/// backing script on the caller's stack, so with less stack left than that
 /// needs `deno_core` builds the module from the event loop instead. Swept
 /// up from near the stack's limit a frame at a time, in one turn, every
 /// import gets the module, with the row's exports, the same module a later
@@ -956,8 +999,7 @@ fn run_printing(project: &Scratch, entry: &str) -> Value {
 /// partway, which would fail with the host's report of the `RangeError`.
 /// Nothing is printed on stderr, and the run ends with 0. The sweep starts
 /// the first import with every amount of stack left a frame apart, so a
-/// build whose implementations need more than the loader leaves them fails
-/// here.
+/// build whose builtins need more than the loader leaves them fails here.
 #[test]
 fn a_first_import_short_of_stack_is_built_from_the_event_loop() {
     let project = forced_project("forced");

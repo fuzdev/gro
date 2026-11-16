@@ -68,7 +68,11 @@
 //! or a function or record that isn't frozen; one on a declared family
 //! made anywhere but by the macro, read from the source as the makers of
 //! a native function are; and the table is pinned in
-//! `tests/native_members.txt`.
+//! `tests/native_members.txt`, which `src/test/builtin_types.test.ts`
+//! holds to each row's Node module: the same exports, each the same kind
+//! of member, each kind of handle's methods those of the Node module's
+//! interface the kind is named for, and each function of a `length` its
+//! declaration allows.
 //!
 //! What the form doesn't have yet, each for a row to come (`fs`), and how
 //! each would be declared: a kind of handle whose prototype extends
@@ -91,11 +95,9 @@
 //! which [`make`](super::handle::make) doesn't take; a brand on an error
 //! instance, which the class's constructor sets, for a guard of the
 //! family's own instances (`is_own_fs_error`); a listing whose work waits
-//! for its first `next()`, as an async generator's does; the table of
+//! for its first `next()`, as an async generator's does; and the table of
 //! native state behind a handle (`blake3.rs`'s hashers, with the weak
-//! reference that drops an entry) lifted into `handle.rs` for every kind;
-//! and types for handles whose methods return each other, more than the one
-//! `Handle` type argument the namespace op's declaration carries.
+//! reference that drops an entry) lifted into `handle.rs` for every kind.
 
 use std::cell::RefCell;
 
@@ -105,7 +107,7 @@ use super::error_class::{ErrorClasses, ErrorFamily};
 use super::grant::require_grant;
 use super::handle::HandleKind;
 use super::{NO_ERROR_CLASSES, name, throw_error, throw_type_error};
-use crate::bootstrap::IMPLEMENTATIONS;
+use crate::bootstrap::BACKING_SPECIFIERS;
 #[cfg(test)]
 use crate::resolver::Capability;
 use crate::resolver::{BUILTINS, Builtin};
@@ -197,10 +199,31 @@ pub enum Member {
         /// whose first step is the check.
         callback: fn() -> v8::FunctionCallback,
     },
-    /// A value, made once with the namespace: the data a row exports (the
-    /// script's arguments, the process's id), a handle the host makes (a
-    /// root), or a class the host makes (`error_class.rs`).
-    Value(Maker),
+    /// A value, made once with the namespace.
+    Value {
+        /// What it is, as declared, listed for the tests.
+        #[cfg(test)]
+        kind: ValueKind,
+        /// Its maker, the one `native_members!` wrote, whose first step is
+        /// the check.
+        make: Maker,
+    },
+}
+
+/// What a value member is, as its declaration says.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+    /// Data: the script's arguments, the process's id, the runtime's
+    /// version.
+    Data,
+    /// A handle of a kind of the row's, made of the prototype the
+    /// namespace is being made with (`env`'s root), declared `handle
+    /// KIND(prototype)`.
+    Handle(&'static HandleKind),
+    /// An error family's class, the host's (`error_class.rs`), declared
+    /// `class FAMILY(family)`.
+    Class,
 }
 
 /// A native member, as [`NATIVE_MEMBERS`](super::NATIVE_MEMBERS) lists it.
@@ -258,13 +281,16 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 /// an `Option<v8::Local<'s, v8::Value>>`, `None` leaving it `undefined`,
 /// which is what a member with no result and one that threw return.
 ///
-/// A member written `value name(state[, granted: Grant]; scope[,
-/// prototypes]) for "specifier"` is an export the host makes once, with the
-/// namespace, after the same check: its body is the value, an
+/// A member written `value name(state[, granted: Grant]; scope) for
+/// "specifier"` is an export the host makes once, with the namespace, after
+/// the same check: its body is the value, an
 /// `Option<v8::Local<'s, v8::Value>>`, `None` only when it threw. The scope
-/// is `&v8::PinScope<'s, '_>`, and `prototypes`, when it's named, the
-/// [`Prototypes`] the namespace is being made with, for a value that is a
-/// handle of one of them.
+/// is `&v8::PinScope<'s, '_>`. A value is data unless it says what else it
+/// is: a handle, `handle KIND(prototype)` after `for "specifier"`, its body
+/// given the prototype of the row's handles of `KIND` the namespace is
+/// being made with under `prototype`, to make the handle of; or an error
+/// row's class, `class FAMILY(name)` below. The table lists what each value
+/// is for the tests (`ValueKind`).
 ///
 /// Last, before the body, a function that throws a host error declares its
 /// family, `throws FAMILY(name)`, and an error row's class the family it
@@ -322,16 +348,26 @@ macro_rules! native_members {
     (@receiver $args:ident $receiver:ident) => {
         let $receiver = deno_core::v8::Local::<deno_core::v8::Value>::from($args.this());
     };
-    (@prototypes) => {
-        _
+    (@prototype $scope:ident, $prototypes:ident) => {
+        let _ = $prototypes;
     };
-    (@prototypes $prototypes:ident) => {
-        $prototypes
+    (@prototype $scope:ident, $prototypes:ident $handle:ident($prototype:ident)) => {
+        let $prototype = $prototypes.of($scope, &$handle)?;
+    };
+    (@value_kind [] []) => {
+        $crate::host::native::ValueKind::Data
+    };
+    (@value_kind [$handle:ident] []) => {
+        $crate::host::native::ValueKind::Handle(&$handle)
+    };
+    (@value_kind [] [$class:ident]) => {
+        $crate::host::native::ValueKind::Class
     };
     (
         @member fn [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
         [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
-        [$($kind:ident($receiver:ident))?], [$($family:ident($declared:ident))?], [], $body:block
+        [$($kind:ident($receiver:ident))?], [], [$($family:ident($declared:ident))?], [],
+        $body:block
     ) => {
         $crate::host::native::Member::Function {
             length: <[&str]>::len(&[$(stringify!($arg)),*]),
@@ -372,29 +408,35 @@ macro_rules! native_members {
     };
     (
         @member value [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
-        [$($granted:ident: $grant:ty)?], $scope:ident, [$($prototypes:ident)?], [], [],
-        [$($family:ident($declared:ident))?], $body:block
+        [$($granted:ident: $grant:ty)?], $scope:ident, [], [],
+        [$($handle:ident($prototype:ident))?], [], [$($family:ident($declared:ident))?],
+        $body:block
     ) => {
-        $crate::host::native::Member::Value({
-            $(#[doc = $doc])*
-            fn make<'s>(
-                $state: &deno_core::OpState,
-                $scope: &deno_core::v8::PinScope<'s, '_>,
-                native_members!(@prototypes $($prototypes)?): &$crate::host::native::Prototypes<'s>,
-            ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
-                native_members!(
-                    @require
-                    format!("{} of {}", stringify!($name), $module),
-                    "host value",
-                    $state,
-                    $scope
-                    $(, $granted: $grant)?
-                );
-                native_members!(@declared $($family($declared))?);
-                $body
-            }
-            make
-        })
+        $crate::host::native::Member::Value {
+            #[cfg(test)]
+            kind: native_members!(@value_kind [$($handle)?] [$($family)?]),
+            make: {
+                $(#[doc = $doc])*
+                fn make<'s>(
+                    $state: &deno_core::OpState,
+                    $scope: &deno_core::v8::PinScope<'s, '_>,
+                    prototypes: &$crate::host::native::Prototypes<'s>,
+                ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
+                    native_members!(
+                        @require
+                        format!("{} of {}", stringify!($name), $module),
+                        "host value",
+                        $state,
+                        $scope
+                        $(, $granted: $grant)?
+                    );
+                    native_members!(@prototype $scope, prototypes $($handle($prototype))?);
+                    native_members!(@declared $($family($declared))?);
+                    $body
+                }
+                make
+            },
+        }
     };
     ($(
         $(#[doc = $doc:literal])*
@@ -404,6 +446,7 @@ macro_rules! native_members {
         )
             for $module:literal
             $(on $kind:ident($receiver:ident))?
+            $(handle $handle:ident($prototype:ident))?
             $(throws $thrown:ident($thrower:ident))?
             $(class $class:ident($classer:ident))?
             $body:block
@@ -418,8 +461,8 @@ macro_rules! native_members {
                 member: native_members!(
                     @member $what [$($doc)*] $name, $module, $state,
                     [$($granted: $grant)?], $scope, [$($arg)*],
-                    [$($kind($receiver))?], [$($thrown($thrower))?],
-                    [$($class($classer))?], $body
+                    [$($kind($receiver))?], [$($handle($prototype))?],
+                    [$($thrown($thrower))?], [$($class($classer))?], $body
                 ),
                 family: native_members!(@family $($thrown)? $($class)?),
                 #[cfg(test)]
@@ -532,16 +575,16 @@ pub fn namespace<'s>(
 /// The row whose backing script called the op: the one whose script the
 /// frame on top of the stack runs, by the name `deno_core` compiled it
 /// under, the row's backing specifier from the table
-/// ([`IMPLEMENTATIONS`]), never a name the script gives, so no row's script
-/// can ask for another row's namespace. `None` for any other caller.
+/// ([`BACKING_SPECIFIERS`]), never a name the script gives, so no row's
+/// script can ask for another row's namespace. `None` for any other caller.
 fn calling_row(scope: &v8::PinScope<'_, '_>) -> Option<&'static Builtin> {
     let trace = v8::StackTrace::current_stack_trace(scope, 1)?;
     let frame = trace.get_frame(scope, 0)?;
     let script = frame.get_script_name(scope)?.to_rust_string_lossy(scope);
     BUILTINS
         .iter()
-        .zip(IMPLEMENTATIONS)
-        .find(|(_, implementation)| implementation.script == script)
+        .zip(BACKING_SPECIFIERS)
+        .find(|(_, backing)| **backing == script)
         .map(|(builtin, _)| builtin)
 }
 
@@ -651,7 +694,7 @@ fn record<'s, 'm>(
             Member::Function { length, callback } => {
                 function(scope, member.name, length, callback)?.into()
             }
-            Member::Value(make) => make(state, scope, prototypes)?,
+            Member::Value { make, .. } => make(state, scope, prototypes)?,
         });
     }
     if let Some(key) = undefined_at {
@@ -708,7 +751,7 @@ pub mod probe {
         state: &OpState,
         scope: &v8::PinScope<'s, '_>,
     ) -> Option<v8::Local<'s, v8::Value>> {
-        let super::Member::Value(make) = NATIVE_MEMBERS[1].member else {
+        let super::Member::Value { make, .. } = NATIVE_MEMBERS[1].member else {
             return None;
         };
         make(state, scope, &super::Prototypes::none())
@@ -753,7 +796,7 @@ pub mod probe {
 mod tests {
     use std::path::Path;
 
-    use super::{Member, NativeMember, Place};
+    use super::{Member, NativeMember, Place, ValueKind};
     use crate::host::NATIVE_MEMBERS;
     use crate::resolver::{BUILTINS, find_builtin};
 
@@ -763,30 +806,44 @@ mod tests {
             Place::Export => "export".to_owned(),
             Place::Method(kind) => format!("method of {}", kind.brand),
         };
+        let family = member.family.map_or("", |family| family.name);
         let made = match member.member {
             Member::Function { length, .. } => format!("length {length}"),
-            Member::Value(_) => "value".to_owned(),
+            Member::Value {
+                kind: ValueKind::Data,
+                ..
+            } => "data".to_owned(),
+            Member::Value {
+                kind: ValueKind::Handle(kind),
+                ..
+            } => format!("handle {}", kind.brand),
+            Member::Value {
+                kind: ValueKind::Class,
+                ..
+            } => format!("class {family}"),
         };
         let grant = member
             .grant
             .map_or_else(|| "grant-free".to_owned(), |grant| format!("grant {grant}"));
-        let family = match (member.family, member.member) {
-            (None, _) => String::new(),
-            (Some(family), Member::Function { .. }) => format!(" throws {}", family.name),
-            (Some(family), Member::Value(_)) => format!(" class {}", family.name),
+        let throws = match member.member {
+            Member::Function { .. } if !family.is_empty() => format!(" throws {family}"),
+            _ => String::new(),
         };
         format!(
-            "{} {} {place} {made} {grant}{family}",
+            "{} {} {place} {made} {grant}{throws}",
             member.module, member.name
         )
     }
 
     /// Every native member, pinned in `tests/native_members.txt` in the
     /// table's order, as `tests/op_names.txt` pins the ops: its builtin,
-    /// name, place, a function's `length` or `value`, grant, and the error
-    /// family it declares, so a member added, removed, or changed fails
-    /// here and gets a look. To accept a change deliberately,
-    /// write the list the assertion prints over the file, one member a line.
+    /// name, place, what it is (a function's `length`, or a value's kind:
+    /// `data`, `handle` and the kind of handle, or `class` and the family),
+    /// grant, and the family a function declares it throws, so a member
+    /// added, removed, or changed fails here and gets a look; and
+    /// `src/test/builtin_types.test.ts` holds the file to each row's Node
+    /// module. To accept a change deliberately, write the list the
+    /// assertion prints over the file, one member a line.
     #[test]
     fn the_native_members_are_pinned() {
         let mut listed: String = NATIVE_MEMBERS
@@ -809,7 +866,9 @@ mod tests {
     /// can't be declared grant-free, or one of a grant-free module's need
     /// one; every row's exports are its named exports, each once, so no row
     /// is left without its namespace; each method goes on a kind of handle
-    /// of its own row's, once a kind.
+    /// of its own row's, once a kind; and a value that is a handle is of a
+    /// kind its row puts methods on, whose prototype the namespace is made
+    /// with.
     #[test]
     fn the_native_members_are_their_rows() {
         for member in NATIVE_MEMBERS {
@@ -823,6 +882,22 @@ mod tests {
             if let Place::Method(kind) = member.place {
                 assert!(
                     kind.brand.starts_with(&format!("{}#", member.module)),
+                    "{} of {}: {}",
+                    member.name,
+                    member.module,
+                    kind.brand
+                );
+            }
+            if let Member::Value {
+                kind: ValueKind::Handle(kind),
+                ..
+            } = member.member
+            {
+                assert!(
+                    NATIVE_MEMBERS
+                        .iter()
+                        .any(|other| other.module == member.module
+                            && other.place == Place::Method(kind)),
                     "{} of {}: {}",
                     member.name,
                     member.module,

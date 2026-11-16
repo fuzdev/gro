@@ -1,104 +1,153 @@
 import { describe, test, assert } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import ts from 'typescript';
 
 import { paths } from '#lib/paths.ts';
 
-import {
-	BUILTIN_DIR,
-	read_builtin_rows,
-	read_implementation,
-	read_implementation_specifiers,
-	type BuiltinRow
-} from './builtin_test_helpers.ts';
-
 /*
 
-A builtin module of the runtime declares no type of its own: its exports have one declaration,
-the Node host module's (`src/lib/<name>.ts`). Its implementation
-(`crates/gro_runtime/js/builtin/<specifier>`) is a script, one function in two levels: the
-outer takes the bootstrap object and returns the inner, a function of its grant's scope that
-returns the namespace. This checks, for every row of the runtime's builtin table, the namespace
-the inner level infers against the Node module's exports, exactly and both ways, and each
-level's parameters, in a program with the implementation's own declaration of the bootstrap
-object, the ES library, no Node types, and the Node module as its emitted declarations, which
-name no Node type (`host_module_declarations.test.ts`).
+A builtin module of the runtime has no source or types of its own: the host makes every member
+natively from the native members' table, which `crates/gro_runtime/tests/native_members.txt`
+pins line for line (a Rust test holds the two equal). This holds the table to each row's Node
+module, `src/lib/<name>.ts`, read through the TypeScript compiler, both ways, so a member on one
+side and not the other fails, naming it:
 
-The implementation's own program has no library at all (`builtin_intrinsics.test.ts`), so the
-Node module's types couldn't be written there; the function's types are the same in both.
+- the same exports, each the same kind of member: a function, data, a handle of the same kind,
+  or a class
+- each kind of handle the row makes, named in the table `<specifier>#<Interface>`, is the Node
+  module's exported interface of that name, which the Node module's handles implement: the
+  interface's members are the kind's methods
+- each function and method of a `length` its declaration allows
 
-The rows are read from the table's source, never listed here, so a row can't join the table
-without its Node module being compared, and the implementations on disk are exactly the rows'.
+It holds names, kinds, and arity, never argument or result types: the differential cases
+(`crates/gro_cli/tests/host.rs` against what each Node module printed) hold what each member
+does, the exact `length` of each function on both runtimes among it.
+
+A `length` is JS's: the parameters before the first with a default or the rest parameter. A
+signature with a body, Node's own function, gives its `length` exactly, an optional (`?`)
+parameter without a default counted, as JS counts it. A signature without one, an interface's
+method or an overload, can't say whether its implementation defaults an optional parameter, so
+it allows each `length` from its required parameters to all of them before a rest; overloads
+allow what any of them does.
+
+On the Node side, the kinds of handle are the interfaces the module exports that have a method,
+and a value export is a class when it's declared one or is a constructor, a function when it has
+a call signature, a handle when its type is one of those interfaces, and data otherwise. A
+kind's members are the interface's own and those it inherits from an interface that is no kind
+of the module's (`AsyncDisposable`), never one a kind it extends declares, which that kind's
+prototype holds; a member that isn't a method is the handle's own data, which the table has no
+place for, so it's on Node only. A class is held by its kind alone: its constructor and
+instances are the host's error class's, which the differential cases hold.
+
+The rows are read from the builtin table's source, never listed here, so a row can't join the
+table without its Node module being compared.
 
 */
 
-const JS_DIR = dirname(BUILTIN_DIR);
+const TABLE_PATH = join(paths.root, 'crates/gro_runtime/src/resolver/builtin.rs');
+
+const PINNED_PATH = join(paths.root, 'crates/gro_runtime/tests/native_members.txt');
+
+const SPECIFIER_PREFIX = '@fuzdev/gro/';
+
+interface BuiltinRow {
+	/** The builtin's specifier, like `@fuzdev/gro/args.ts`. */
+	specifier: string;
+	/** The host module's name, like `args`. */
+	name: string;
+}
 
 /**
- * The implementation as a module, so its one function can be named: a script exports nothing.
+ * The builtin table's rows, in its order, read from its source.
  */
-const to_subject = (implementation: string): string =>
-	`export const implementation =\n${implementation}`;
+const read_builtin_rows = (): Array<BuiltinRow> => {
+	const source = readFileSync(TABLE_PATH, 'utf8');
+	const rows = /macro_rules! builtin_rows \{([\s\S]*?)\n\}\n/.exec(source);
+	assert.ok(rows, 'the table has its rows');
+	return Array.from(rows[1]!.matchAll(/\$row!\(\s*"([^"]+)"/g), ([, specifier]) => {
+		assert.ok(specifier!.startsWith(SPECIFIER_PREFIX) && specifier!.endsWith('.ts'), specifier);
+		return {
+			specifier: specifier!,
+			name: specifier!.slice(SPECIFIER_PREFIX.length, -'.ts'.length)
+		};
+	});
+};
 
 /**
- * The check, a module beside the implementation: the namespace's exports are the Node module's
- * and `default`, each export exactly the Node module's, the two namespaces assign both ways,
- * the outer level takes the bootstrap object alone, and the inner level it returns takes one
- * argument, its grant's scope, which no row's grant has.
+ * A row's members, each by where it goes and its name (`export args`,
+ * `method of @fuzdev/gro/env.ts#Env get`, and on the Node side a handle's own data,
+ * `data of <kind> <name>`), with what it is: `function <length>` (the Node side's
+ * `function <least>..<most>` when its declarations allow more than one), `data`,
+ * `handle <kind>`, or `class`.
  */
-const to_check = ({ name }: BuiltinRow): string => `
-import type { implementation } from './${name}.subject.ts';
-import type * as node from './${name}.node_declarations.d.ts';
+type Members = Map<string, string>;
 
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-// a class by its public shape, its constructor's parameters and its instances' members: the
-// host makes a builtin's class, so its type is a claim, which no class type equals
-type Shape<T> = T extends abstract new (...args: infer P) => infer I ? [P, { [K in keyof I]: I[K] }] : T;
-type Inner = ReturnType<typeof implementation>;
-type Namespace = ReturnType<Inner>;
-type Builtin = Omit<Namespace, 'default'>;
-type Node = typeof node;
+/**
+ * The pinned table's members of each row, by the row's specifier.
+ * @param pinned - the pinned table's text, one member a line
+ */
+const read_pinned_members = (pinned: string): Map<string, Members> => {
+	const rows: Map<string, Members> = new Map();
+	for (const line of pinned.split('\n')) {
+		if (line === '') continue;
+		const [module, name, place, ...rest] = line.split(' ');
+		assert.ok(module && name && place, line);
+		// an export, or a member of a kind of handle, `<what> of <kind>` (`method of`)
+		let where = place;
+		if (place !== 'export') {
+			assert.equal(rest.shift(), 'of', line);
+			where = `${place} of ${rest.shift()}`;
+		}
+		const [made, detail] = rest;
+		let what: string;
+		if (made === 'length') {
+			assert.match(detail!, /^\d+$/, line);
+			what = `function ${detail}`;
+		} else if (made === 'data') {
+			what = 'data';
+		} else if (made === 'handle') {
+			assert.ok(detail, line);
+			what = `handle ${detail}`;
+		} else {
+			assert.equal(made, 'class', line);
+			what = 'class';
+		}
+		let members = rows.get(module);
+		if (!members) rows.set(module, (members = new Map()));
+		const key = `${where} ${name}`;
+		assert.ok(!members.has(key), `${line}: pinned once`);
+		members.set(key, what);
+	}
+	return rows;
+};
 
-export const exports: Equal<keyof Namespace, keyof Node | 'default'> = true;
-export const no_default: Equal<Namespace['default'], undefined> = true;
-export const members: Equal<{ [K in keyof Node]: Equal<Shape<Builtin[K]>, Shape<Node[K]>> }[keyof Node], true> = true;
-export const to_node = (builtin: Builtin): Node => builtin;
-export const to_builtin = (node: Node): Builtin => node;
-export const outer_parameters: Equal<Parameters<typeof implementation>, [bootstrap: Bootstrap]> = true;
-export const inner_parameters: Equal<Parameters<Inner>, [_scope: undefined]> = true;
-`;
+/** The compiler options the Node modules are read with: their own, no Node types needed. */
+const OPTIONS: ts.CompilerOptions = {
+	target: ts.ScriptTarget.ESNext,
+	module: ts.ModuleKind.NodeNext,
+	moduleResolution: ts.ModuleResolutionKind.NodeNext,
+	allowImportingTsExtensions: true,
+	noEmit: true,
+	strict: true,
+	types: []
+};
 
-// the files every check reads from disk, parsed once
+// the files every program reads from disk, parsed once
 const source_files: Map<string, ts.SourceFile | undefined> = new Map();
 
 /**
- * Type-checks a row's check beside its implementation, against `declarations` standing in for
- * the Node module's, under the bootstrap's tsconfig, the ES library with no other types.
- * @param row - the builtin's row
- * @param declarations - the Node module's declarations
- * @param implementation - the implementation's source in place of its file, when given
- * @returns the check's diagnostics, each as text
+ * A program of the rows' Node modules, `replaced` standing in for a module's source by its
+ * name, for a check that a mismatch is caught.
  */
-const check_types = (
-	row: BuiltinRow,
-	declarations: string,
-	implementation = read_implementation(row),
-	bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8')
-): Array<string> => {
-	const config_path = join(JS_DIR, 'tsconfig.json');
-	const config = ts.readConfigFile(config_path, ts.sys.readFile);
-	assert.ok(!config.error, 'the bootstrap tsconfig reads');
-	const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, JS_DIR);
-	const dir = dirname(row.path);
-	const check_path = join(dir, `${row.name}.types_check.ts`);
-	const virtual = new Map([
-		[check_path, to_check(row)],
-		[join(dir, `${row.name}.subject.ts`), to_subject(implementation)],
-		[join(dir, `${row.name}.node_declarations.d.ts`), declarations],
-		[join(BUILTIN_DIR, 'bootstrap.d.ts'), bootstrap]
-	]);
-	const host = ts.createCompilerHost(options);
+const create_program = (
+	rows: Array<BuiltinRow>,
+	replaced: Record<string, string> = {}
+): ts.Program => {
+	const virtual = new Map(
+		Object.entries(replaced).map(([name, text]) => [join(paths.lib, `${name}.ts`), text])
+	);
+	const host = ts.createCompilerHost(OPTIONS);
 	const get_source_file = host.getSourceFile.bind(host);
 	host.getSourceFile = (file_name, language_version, ...rest) => {
 		const text = virtual.get(file_name);
@@ -108,43 +157,175 @@ const check_types = (
 		}
 		return source_files.get(file_name);
 	};
-	const file_exists = host.fileExists.bind(host);
-	host.fileExists = (file_name) => virtual.has(file_name) || file_exists(file_name);
-	const program = ts.createProgram(
-		[check_path, join(BUILTIN_DIR, 'bootstrap.d.ts')],
-		{ ...options, allowImportingTsExtensions: true },
+	return ts.createProgram(
+		rows.map((row) => join(paths.lib, `${row.name}.ts`)),
+		OPTIONS,
 		host
 	);
-	return ts
-		.getPreEmitDiagnostics(program)
-		.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
 };
 
-const node_declarations = (name: string): string => {
-	const module_path = join(paths.lib, `${name}.ts`);
-	const result = ts.transpileDeclaration(readFileSync(module_path, 'utf8'), {
-		fileName: module_path,
-		compilerOptions: { module: ts.ModuleKind.NodeNext, target: ts.ScriptTarget.ESNext }
-	});
-	return result.outputText;
+/**
+ * The `length`s a function of `signature` may have, `[least, most]`: its parameters before the
+ * first with a default or the rest parameter, `this` not among them, exactly when the
+ * signature has a body, else from its required parameters to all of them.
+ */
+const to_lengths = (signature: ts.Signature): [number, number] => {
+	const declaration = signature.getDeclaration();
+	const exact = 'body' in declaration && declaration.body !== undefined;
+	let least = 0;
+	let most = 0;
+	for (const parameter of declaration.parameters) {
+		if (ts.isIdentifier(parameter.name) && parameter.name.text === 'this') continue;
+		if (parameter.initializer || parameter.dotDotDotToken) break;
+		most++;
+		if (exact || !parameter.questionToken) least = most;
+	}
+	if (exact) least = most;
+	return [least, most];
+};
+
+/**
+ * What a function of `type` is: `function <length>`, or `function <least>..<most>` when its
+ * declarations allow more than one, over all its call signatures.
+ */
+const to_function = (type: ts.Type): string => {
+	const lengths = type.getCallSignatures().map(to_lengths);
+	const least = Math.min(...lengths.map(([least]) => least));
+	const most = Math.max(...lengths.map(([, most]) => most));
+	return least === most ? `function ${least}` : `function ${least}..${most}`;
+};
+
+/**
+ * The members of `row`'s Node module, read from `program`, in the pinned table's form, a
+ * function's as its lengths allow.
+ */
+const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
+	const checker = program.getTypeChecker();
+	const source = program.getSourceFile(join(paths.lib, `${row.name}.ts`));
+	assert.ok(source, row.name);
+	const module = checker.getSymbolAtLocation(source);
+	assert.ok(module, `${row.name} is a module`);
+	const exports = checker
+		.getExportsOfModule(module)
+		.map((symbol) =>
+			symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
+		);
+	const is_method = (property: ts.Symbol): boolean =>
+		checker.getTypeOfSymbol(property).getCallSignatures().length > 0;
+	// the kinds of handle: each exported interface with a method
+	const kinds: Map<ts.Symbol, string> = new Map();
+	for (const symbol of exports) {
+		if (!(symbol.flags & ts.SymbolFlags.Interface)) continue;
+		if (checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(symbol)).some(is_method)) {
+			kinds.set(symbol, `${row.specifier}#${symbol.name}`);
+		}
+	}
+	const members: Members = new Map();
+	for (const symbol of exports) {
+		if (!(symbol.flags & ts.SymbolFlags.Value)) continue;
+		const type = checker.getTypeOfSymbol(symbol);
+		const type_symbol = type.aliasSymbol ?? type.getSymbol();
+		const kind = type_symbol && kinds.get(type_symbol);
+		let what: string;
+		if (symbol.flags & ts.SymbolFlags.Class || type.getConstructSignatures().length > 0) {
+			what = 'class';
+		} else if (type.getCallSignatures().length > 0) {
+			what = to_function(type);
+		} else if (kind) {
+			what = `handle ${kind}`;
+		} else {
+			what = 'data';
+		}
+		members.set(`export ${symbol.name}`, what);
+	}
+	// the interface that declares `property`, by its symbol
+	const declarer = (property: ts.Symbol): ts.Symbol | undefined => {
+		const parent = property.declarations?.[0]?.parent;
+		return parent && ts.isInterfaceDeclaration(parent)
+			? checker.getSymbolAtLocation(parent.name)
+			: undefined;
+	};
+	for (const [symbol, kind] of kinds) {
+		for (const property of checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(symbol))) {
+			const from = declarer(property);
+			// a member a kind it extends declares is that kind's
+			if (from && from !== symbol && kinds.has(from)) continue;
+			const name = checker.symbolToString(property);
+			if (is_method(property)) {
+				members.set(`method of ${kind} ${name}`, to_function(checker.getTypeOfSymbol(property)));
+			} else {
+				members.set(`data of ${kind} ${name}`, 'data');
+			}
+		}
+	}
+	return members;
+};
+
+/**
+ * Whether the Node module's `theirs` allows the table's `what`: the same, or a function of a
+ * `length` in its range.
+ */
+const allows = (theirs: string, what: string): boolean => {
+	if (theirs === what) return true;
+	const range = /^function (\d+)\.\.(\d+)$/.exec(theirs);
+	const length = /^function (\d+)$/.exec(what);
+	return (
+		!!range &&
+		!!length &&
+		Number(range[1]) <= Number(length[1]) &&
+		Number(length[1]) <= Number(range[2])
+	);
+};
+
+/**
+ * How the table's members of a row differ from its Node module's, each naming the member:
+ * one on one side only, or of another kind or `length`.
+ */
+const compare_members = (fgro: Members, node: Members): Array<string> => {
+	const differences: Array<string> = [];
+	for (const [key, what] of fgro) {
+		const theirs = node.get(key);
+		if (theirs === undefined) differences.push(`${key} (${what}) is on fgro only`);
+		else if (!allows(theirs, what)) {
+			differences.push(`${key} is ${what} on fgro, ${theirs} on Node`);
+		}
+	}
+	for (const [key, what] of node) {
+		if (!fgro.has(key)) differences.push(`${key} (${what}) is on Node only`);
+	}
+	return differences;
 };
 
 const rows = read_builtin_rows();
 
+const read_pinned = (): string => readFileSync(PINNED_PATH, 'utf8');
+
+/**
+ * How `row`'s members differ, the pinned table's text as `pinned` and the Node modules'
+ * sources with `replaced`.
+ */
+const differences_of = (
+	row: BuiltinRow,
+	pinned = read_pinned(),
+	replaced: Record<string, string> = {}
+): Array<string> => {
+	const fgro = read_pinned_members(pinned).get(row.specifier) ?? new Map();
+	const node = read_node_members(create_program(rows, replaced), row);
+	return compare_members(fgro, node);
+};
+
 describe('the builtin table', () => {
-	test("the implementations are the table's rows", () => {
-		assert.deepEqual(read_implementation_specifiers(), rows.map((row) => row.specifier).sort());
-		// each kind of export the checks below mutate is among them
-		for (const name of [
-			'args',
-			'blake3',
-			'cwd',
-			'env',
-			'env_error',
-			'exit',
-			'pid',
-			'runtime_version'
-		]) {
+	test("the pinned members are the table's rows'", () => {
+		const pinned = read_pinned_members(read_pinned());
+		assert.deepEqual(
+			Array.from(pinned.keys()).filter(
+				(specifier) => !rows.some((row) => row.specifier === specifier)
+			),
+			[],
+			'a pinned member of no row'
+		);
+		// each kind of member and of difference the checks below mutate is among them
+		for (const name of ['cwd', 'exit', 'env', 'env_error', 'blake3', 'pid']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -153,107 +334,13 @@ describe('the builtin table', () => {
 	});
 });
 
-describe.each(rows)('the $name builtin types', (row) => {
-	test("the builtin's exports are exactly the Node module's", () => {
-		assert.deepEqual(check_types(row, node_declarations(row.name)), []);
-	});
-
-	test('a mismatch fails the check', () => {
-		const declarations = node_declarations(row.name);
-		// every export of the Node module widened, one at a time
-		const declared = Array.from(declarations.matchAll(/^export declare const (\w+): (.+);$/gm));
-		assert.isAbove(declared.length, 0, 'the declarations to mutate are there');
-		// and every class, each by its constructor's last parameter and by one more member
-		const classes = Array.from(
-			declarations.matchAll(
-				/^export declare class (\w+)[^\n]*\{\n(?:.*\n)*?\s*(constructor\((.*)\);)\n\}$/gm
-			)
-		);
-		// every value the module exports is among them, so none escapes the widening
-		assert.lengthOf(
-			Array.from(declarations.matchAll(/^export declare /gm)),
-			declared.length + classes.length,
-			'every export the check widens is a const declared on one line or a class'
-		);
-		for (const [line, name, type] of declared) {
-			const widened = declarations.replace(
-				line,
-				`export declare const ${name}: (${type}) | undefined;`
-			);
-			assert.notDeepEqual(check_types(row, widened), [], `${name} widened`);
-		}
-		for (const [, name, constructor, parameters] of classes) {
-			assert.ok(name && constructor && parameters !== undefined, 'the class to mutate is read');
-			const widened = declarations.replace(
-				constructor,
-				`constructor(${parameters}, extra?: number);`
-			);
-			assert.notDeepEqual(check_types(row, widened), [], `${name}'s constructor widened`);
-			const grown = declarations.replace(constructor, `extra: number;\n${constructor}`);
-			assert.notDeepEqual(check_types(row, grown), [], `${name}'s instances grown`);
-		}
-		// an export the builtin doesn't have
-		assert.notDeepEqual(
-			check_types(row, `${declarations}\nexport declare const extra: string;\n`),
-			[]
-		);
-	});
-
-	test("a mismatch on the builtin's side fails the check", () => {
-		const declarations = node_declarations(row.name);
-		const source = read_implementation(row);
-		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
-		// the namespace, made by the script, or by the host, as `bootstrap.d.ts` declares the op
-		// that returns it: the row's own, or the one that serves every row with native members,
-		// under the row's specifier
-		const made = /default: undefined\s*\}/;
-		const host_made =
-			[`readonly op_gro_${row.name}: `, `readonly '${row.specifier}': {`].find((declared) =>
-				bootstrap.includes(declared)
-			) ?? `readonly op_gro_${row.name}: `;
-		const by_host = !made.test(source);
-		/**
-		 * The check with the namespace's `default: undefined` as `to`, written as the script's
-		 * literal writes a property, or as the op's declared type does, with `readonly`.
-		 */
-		const check_namespace = (to: string): Array<string> => {
-			if (!by_host) {
-				const property = to.replace(/readonly /g, '');
-				return check_types(row, declarations, source.replace(made, `${property} }`));
-			}
-			const at = bootstrap.indexOf(host_made);
-			assert.isAtLeast(at, 0, 'the op making the namespace is declared');
-			const end = bootstrap.indexOf('readonly default: undefined;', at);
-			assert.isAtLeast(end, 0, 'the namespace to mutate is there');
-			const mutated = `${bootstrap.slice(0, end)}readonly ${to};${bootstrap.slice(end + 28)}`;
-			return check_types(row, declarations, source, mutated);
-		};
-		// an export the Node module doesn't have
-		assert.notDeepEqual(check_namespace("default: undefined, readonly extra: ''"), []);
-		// a `default` that isn't `undefined`
-		assert.notDeepEqual(check_namespace('default: null'), []);
-		/**
-		 * Asserts the check fails once `from` in the implementation is `to`.
-		 */
-		const assert_level_mismatch = (from: string, to: string): void => {
-			assert.include(source, from, 'the level to mutate is there');
-			assert.notDeepEqual(check_types(row, declarations, source.replace(from, to)), [], to);
-		};
-		// an outer level that takes the scope too, and one that takes another bootstrap object
-		const outer = '(function (bootstrap: Bootstrap) {';
-		assert_level_mismatch(outer, '(function (bootstrap: Bootstrap, _scope: undefined) {');
-		assert_level_mismatch(outer, '(function (bootstrap: Bootstrap & { extra: 1 }) {');
-		// an inner level that takes no scope, one that takes another, and one that takes more
-		const inner = 'return (_scope: undefined) =>';
-		assert_level_mismatch(inner, 'return () =>');
-		assert_level_mismatch(inner, 'return (_scope: string) =>');
-		assert_level_mismatch(inner, 'return (_scope: undefined, _extra: undefined) =>');
-		// one level, the namespace made by the function of the bootstrap object
-		assert_level_mismatch(inner, 'return');
+describe.each(rows)('the $name builtin', (row) => {
+	test("its members are the Node module's", () => {
+		assert.deepEqual(differences_of(row), []);
 	});
 });
 
-describe('a retyped export fails its check', () => {
+describe('a mismatch fails, naming the member', () => {
 	const find_row = (name: string): BuiltinRow => {
 		const row = rows.find((row) => row.name === name);
 		assert.ok(row, name);
@@ -261,215 +348,181 @@ describe('a retyped export fails its check', () => {
 	};
 
 	/**
-	 * Asserts the check of `name` fails once `from` in the builtin's source, the declarations
-	 * of its ops (`bootstrap.d.ts`), or the Node module's declarations (`side`) is `to`.
+	 * Asserts the differences of `name` are exactly `expected` once `from` in the pinned table
+	 * (`fgro`) or the Node module's source (`node`) is `to`.
 	 */
-	const assert_mismatch = (
+	const assert_differences = (
 		name: string,
-		side: 'builtin' | 'bootstrap' | 'node',
+		side: 'fgro' | 'node',
 		from: string,
-		to: string
-	) => {
+		to: string,
+		expected: Array<string>
+	): void => {
 		const row = find_row(name);
-		const declarations = node_declarations(name);
-		const source = read_implementation(row);
-		const bootstrap = readFileSync(join(BUILTIN_DIR, 'bootstrap.d.ts'), 'utf8');
-		const text = side === 'builtin' ? source : side === 'bootstrap' ? bootstrap : declarations;
+		const pinned = read_pinned();
+		const source = readFileSync(join(paths.lib, `${name}.ts`), 'utf8');
+		const text = side === 'fgro' ? pinned : source;
 		assert.include(text, from, 'the text to mutate is there');
 		const mutated = text.replace(from, to);
-		const diagnostics =
-			side === 'builtin'
-				? check_types(row, declarations, mutated)
-				: side === 'bootstrap'
-					? check_types(row, declarations, source, mutated)
-					: check_types(row, mutated);
-		assert.notDeepEqual(diagnostics, [], `${name}: ${from} as ${to}`);
+		const differences =
+			side === 'fgro'
+				? differences_of(row, mutated)
+				: differences_of(row, pinned, { [name]: mutated });
+		assert.deepEqual(differences, expected, `${name}: ${from} as ${to}`);
 	};
 
-	test('args', () => {
-		const declared = 'export declare const args: ReadonlyArray<string>;';
-		assert_mismatch('args', 'node', declared, 'export declare const args: Array<string>;');
-		assert_mismatch(
-			'args',
-			'node',
-			declared,
-			'export declare const args: ReadonlyArray<string | number>;'
-		);
-		// the array claimed mutable
-		assert_mismatch(
-			'args',
-			'bootstrap',
-			'readonly args: ReadonlyArray<string>;',
-			'readonly args: Array<string>;'
-		);
-	});
-
-	test('env_error', () => {
-		// the class's constructor, its instances, and its guard, each claimed by the host
-		const claim =
-			"readonly '@fuzdev/gro/env_error.ts': {\n\t\t\t\t\treadonly EnvError: new (\n\t\t\t\t\t\tkind: 'not_granted',";
-		assert_mismatch('env_error', 'bootstrap', claim, claim.replace("'not_granted',", 'string,'));
-		assert_mismatch(
-			'env_error',
-			'bootstrap',
-			'options?: { cause?: unknown }',
-			'options?: { cause?: string }'
-		);
-		// a message parameter, which neither class takes
-		assert_mismatch(
-			'env_error',
-			'bootstrap',
-			'target: string,\n\t\t\t\t\t\toptions?: { cause?: unknown }',
-			'target: string,\n\t\t\t\t\t\tmessage?: string,\n\t\t\t\t\t\toptions?: { cause?: unknown }'
-		);
-		const instance =
-			"readonly kind: 'not_granted';\n\t\t\t\t\t\treadonly target: string;\n\t\t\t\t\t};\n\t\t\t\t\treadonly is_env_error";
-		assert_mismatch(
-			'env_error',
-			'bootstrap',
-			instance,
-			instance.replace('readonly target', 'target')
-		);
-		assert_mismatch(
-			'env_error',
-			'bootstrap',
-			"kind?: 'not_granted'\n\t\t\t\t\t) => error is {",
-			'kind?: string\n\t\t\t\t\t) => error is {'
-		);
-		// the realm's `Error` not handed over
-		const call = "op_gro_namespace<'@fuzdev/gro/env_error.ts'>(_scope, Error)";
-		assert_mismatch('env_error', 'builtin', call, call.replace(', Error', ''));
-		assert_mismatch(
-			'env_error',
-			'node',
-			'readonly target: string;',
-			'readonly target: string | undefined;'
-		);
-		assert_mismatch(
-			'env_error',
-			'node',
-			'target: string, options?: ErrorOptions',
-			'target: string, message?: string, options?: ErrorOptions'
-		);
-	});
-
-	test('env', () => {
-		// each method of the handle, claimed by the script, its parameters and results
-		assert_mismatch(
-			'env',
-			'builtin',
-			'\t\tget(name: string): string | undefined;\n',
-			'\t\tget(name: string): string;\n'
-		);
-		assert_mismatch(
-			'env',
-			'builtin',
-			'\t\tget_all(): Readonly<{ [name: string]: string }>;\n',
-			'\t\tget_all(): { [name: string]: string };\n'
-		);
-		assert_mismatch(
-			'env',
-			'builtin',
-			'\t\tnarrow(names: ReadonlyArray<string>): EnvHandle;\n',
-			'\t\tnarrow(names: Array<string>): EnvHandle;\n'
-		);
-		// the root not of the handle's type, by the host's claim or the script's type argument
-		assert_mismatch('env', 'bootstrap', 'readonly env: Handle;', 'readonly env: object;');
-		// and the realm's `Error`, which `EnvError` extends, not handed over
-		const call = "op_gro_namespace<'@fuzdev/gro/env.ts', EnvHandle>(_scope, Error)";
-		assert_mismatch('env', 'builtin', call, call.replace(', EnvHandle', ''));
-		assert_mismatch('env', 'builtin', call, call.replace(', Error)', ')'));
-		assert_mismatch(
-			'env',
-			'node',
-			'narrow(names: ReadonlyArray<string>): Env;',
-			'narrow(names: ReadonlyArray<string>): object;'
-		);
-	});
-
-	test('blake3', () => {
-		// each member, claimed by the host: a function's parameters and results, and each method of
-		// the hasher a factory returns
-		const claim = (from: string, to: string) => assert_mismatch('blake3', 'bootstrap', from, to);
-		claim(
-			'readonly hash: (data: Uint8Array) => Uint8Array;',
-			'readonly hash: (data: Uint8Array) => ArrayBuffer;'
-		);
-		claim(
-			'readonly create_derive_key_hasher: (context: string) => {',
-			'readonly create_derive_key_hasher: (context: unknown) => {'
-		);
-		claim(
-			'readonly create_hasher: () => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;',
-			'readonly create_hasher: () => {\n\t\t\t\t\t\tupdate(data: Uint8Array | string): void;'
-		);
-		claim(
-			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array;',
-			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array | undefined;'
-		);
-		// the namespace typed as another row's, and a second value handed over, where a row
-		// of no error family's hands over its scope alone
-		const call = "op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope)";
-		assert_mismatch('blake3', 'builtin', call, call.replace('blake3.ts', 'args.ts'));
-		assert_mismatch('blake3', 'builtin', call, call.replace('(_scope)', '(_scope, _scope)'));
-		assert_mismatch('blake3', 'node', 'finalize(): Uint8Array;', 'finalize(): ArrayBuffer;');
-	});
-
-	test('cwd', () => {
-		// a string where the Node module has a function, and a function of a parameter
-		assert_mismatch('cwd', 'bootstrap', 'readonly cwd: () => string;', 'readonly cwd: string;');
-		assert_mismatch(
+	test('a member on one side only', () => {
+		assert_differences(
 			'cwd',
-			'bootstrap',
-			'readonly cwd: () => string;',
-			'readonly cwd: (_a: string) => string;'
+			'fgro',
+			'@fuzdev/gro/cwd.ts cwd export length 0 grant-free\n',
+			'@fuzdev/gro/cwd.ts cwd export length 0 grant-free\n' +
+				'@fuzdev/gro/cwd.ts extra export data grant-free\n',
+			['export extra (data) is on fgro only']
 		);
-		assert_mismatch(
+		assert_differences(
 			'cwd',
 			'node',
-			'export declare const cwd: () => string;',
-			'export declare const cwd: () => string | undefined;'
+			'export const cwd = ',
+			'export const extra = (): string => checked_cwd;\nexport const cwd = ',
+			['export extra (function 0) is on Node only']
+		);
+		// a default export is a member too
+		assert_differences('pid', 'node', 'export const pid', 'export default 1;\nexport const pid', [
+			'export default (data) is on Node only'
+		]);
+		// a method on one side only
+		assert_differences(
+			'env',
+			'fgro',
+			'@fuzdev/gro/env.ts narrow method of @fuzdev/gro/env.ts#Env length 1 grant env throws EnvError\n',
+			'',
+			['method of @fuzdev/gro/env.ts#Env narrow (function 1) is on Node only']
+		);
+		assert_differences(
+			'blake3',
+			'node',
+			'\tfinalize(): Uint8Array;\n',
+			'\tfinalize(): Uint8Array;\n\treset(): void;\n',
+			['method of @fuzdev/gro/blake3.ts#Blake3Hasher reset (function 0) is on Node only']
 		);
 	});
 
-	test('exit', () => {
-		// each function claimed by the host: a code required, and a result
-		assert_mismatch(
+	test('a kind of handle on one side only', () => {
+		// a kind the table names that the Node module has no interface of, and the interface
+		assert_differences('blake3', 'fgro', '#Blake3Hasher length 1', '#Blake3Hashing length 1', [
+			'method of @fuzdev/gro/blake3.ts#Blake3Hashing update (function 1) is on fgro only',
+			'method of @fuzdev/gro/blake3.ts#Blake3Hasher update (function 1) is on Node only'
+		]);
+	});
+
+	test('a length changed', () => {
+		assert_differences(
 			'exit',
-			'bootstrap',
-			'readonly exit: (code?: number) => never;',
-			'readonly exit: (code: number) => never;'
+			'fgro',
+			'set_exit_code export length 1',
+			'set_exit_code export length 2',
+			['export set_exit_code is function 2 on fgro, function 1 on Node']
 		);
-		assert_mismatch(
+		// a default ends the length, as in JS; an optional parameter doesn't
+		assert_differences(
 			'exit',
-			'bootstrap',
-			'readonly set_exit_code: (code: number) => void;',
-			'readonly set_exit_code: (code: number) => number;'
+			'node',
+			'export const set_exit_code = (code: number): void',
+			'export const set_exit_code = (code: number = 0): void',
+			['export set_exit_code is function 1 on fgro, function 0 on Node']
+		);
+		assert_differences(
+			'env_error',
+			'node',
+			'(error: unknown, kind?: EnvErrorKind)',
+			'(error: unknown, ...kind: Array<EnvErrorKind>)',
+			['export is_env_error is function 2 on fgro, function 1 on Node']
+		);
+		// a method's
+		assert_differences(
+			'blake3',
+			'node',
+			'\tupdate(data: Uint8Array): void;\n',
+			'\tupdate(data: Uint8Array, more: number): void;\n',
+			[
+				'method of @fuzdev/gro/blake3.ts#Blake3Hasher update is function 1 on fgro, function 2 on Node'
+			]
 		);
 	});
 
-	test('pid', () => {
-		assert_mismatch('pid', 'bootstrap', 'readonly pid: number;', 'readonly pid: string;');
-		assert_mismatch(
+	test("an interface's optional parameter allows either length", () => {
+		const optional = '\tupdate(data: Uint8Array, more?: number): void;\n';
+		const update = '\tupdate(data: Uint8Array): void;\n';
+		assert_differences('blake3', 'node', update, optional, []);
+		// the same table, the method pinned of the longer length, passes too, and one past it fails
+		const row = find_row('blake3');
+		const source = readFileSync(join(paths.lib, 'blake3.ts'), 'utf8').replace(update, optional);
+		const pinned = read_pinned();
+		const method = '@fuzdev/gro/blake3.ts update method of @fuzdev/gro/blake3.ts#Blake3Hasher';
+		assert.include(pinned, `${method} length 1`);
+		assert.deepEqual(
+			differences_of(row, pinned.replace(`${method} length 1`, `${method} length 2`), {
+				blake3: source
+			}),
+			[]
+		);
+		assert.deepEqual(
+			differences_of(row, pinned.replace(`${method} length 1`, `${method} length 3`), {
+				blake3: source
+			}),
+			[
+				'method of @fuzdev/gro/blake3.ts#Blake3Hasher update is function 3 on fgro, function 1..2 on Node'
+			]
+		);
+	});
+
+	test("a kind's members are its own", () => {
+		// a member a kind it extends declares is that kind's, and data on a handle is Node's only
+		assert_differences(
+			'env',
+			'node',
+			'export const env: Env',
+			'export interface EnvChild extends Env {\n\tchild(): void;\n}\nexport const env: Env',
+			['method of @fuzdev/gro/env.ts#EnvChild child (function 0) is on Node only']
+		);
+		assert_differences(
+			'env',
+			'node',
+			'\tget_all(): Readonly<Record<string, string>>;\n',
+			'\tget_all(): Readonly<Record<string, string>>;\n\treadonly size: number;\n',
+			['data of @fuzdev/gro/env.ts#Env size (data) is on Node only']
+		);
+	});
+
+	test('a kind changed', () => {
+		assert_differences(
+			'env',
+			'fgro',
+			'env export handle @fuzdev/gro/env.ts#Env',
+			'env export data',
+			['export env is data on fgro, handle @fuzdev/gro/env.ts#Env on Node']
+		);
+		assert_differences(
+			'env_error',
+			'fgro',
+			'EnvError export class EnvError',
+			'EnvError export data',
+			['export EnvError is data on fgro, class on Node']
+		);
+		assert_differences(
 			'pid',
 			'node',
-			'export declare const pid: number;',
-			'export declare const pid: bigint;'
+			'export const pid: number = globalThis.process.pid;',
+			'export const pid = (): number => globalThis.process.pid;',
+			['export pid is data on fgro, function 0 on Node']
 		);
-	});
-
-	test('runtime_version', () => {
-		assert_mismatch(
-			'runtime_version',
-			'bootstrap',
-			'readonly runtime_version: string;',
-			'readonly runtime_version: number;'
-		);
-		assert_mismatch(
-			'runtime_version',
+		assert_differences(
+			'cwd',
 			'node',
-			'export declare const runtime_version: string;',
-			'export declare const runtime_version: `${string}/${string}`;'
+			'export const cwd = (): string => checked_cwd;',
+			'export const cwd: string = checked_cwd;',
+			['export cwd is function 0 on fgro, data on Node']
 		);
 	});
 });

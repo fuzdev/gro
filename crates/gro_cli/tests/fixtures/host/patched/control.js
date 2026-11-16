@@ -1,7 +1,7 @@
-// The entry of the control run: in a patched realm it does what a builtin's implementation
-// must not, once each and armed, then exercises a namespace of its own whose exports do the
-// same from every place the exerciser must reach, and reports as it goes. So a patched run
-// that reports no trap, no touch, and no unexercised function was watched.
+// The entry of the control run: in a patched realm it does what a builtin must not, once each
+// and armed, then exercises a namespace of its own whose exports do the same from every place
+// the exerciser must reach, and reports as it goes. So a patched run that reports no trap, no
+// touch, and no unexercised function was watched.
 
 import { NAMES } from './names.js';
 import { create_exerciser } from './exercise.js';
@@ -11,12 +11,12 @@ await null;
 
 class Sub extends Array {}
 
-// made before the realm is patched, as an error a builtin's function returns is made by the
-// implementation's own `Error`, with no use of the realm
+// made before the realm is patched, as the host makes an error a builtin's function throws,
+// natively, with no use of the realm
 const made_error = new Error('made');
 
 /**
- * What a builtin might export, each doing from its own place what an implementation must not:
+ * What a builtin might export, each doing from its own place what a builtin must not:
  * `Object`, read as a global, stands for any use of the realm.
  */
 class Handle {
@@ -112,6 +112,9 @@ const uses = [
 	() => {
 		/** @type {any} */ (record).cwd = 1;
 	},
+	// a method's name and a name a backing script reads, read through `Object.prototype`
+	() => /** @type {any} */ (record).narrow,
+	() => /** @type {any} */ (record).op_gro_namespace,
 	// a thenable lookup, and a descriptor's fields
 	() => Promise.resolve(record),
 	() => Object.defineProperty(record, 'x', { value: 1 }),

@@ -38,12 +38,12 @@
 //! it imports nothing, and the URL imports nothing either, its scheme
 //! refused from source.
 //!
-//! `deno_core` runs a builtin's implementation the first time a run imports
+//! `deno_core` runs a builtin's backing script the first time a run imports
 //! it, and an `import()`'s inside the call, on its caller's stack. So the
 //! loader answers `deno_core`'s `should_load_synthetic_esm` from the stack
 //! left: a first `import()` of a builtin with less than
 //! [`headroom::BUILTIN_IMPORT_STACK`] left has its module built from the
-//! event loop instead, the implementation run whole there, and settles a
+//! event loop instead, the script run whole there, and settles a
 //! turn later (`headroom.rs` has why, and the measurement behind the
 //! amount). The grant is checked as the import resolves, before
 //! `deno_core` asks, so what a rule refuses doesn't depend on the stack.

@@ -4,9 +4,9 @@
 //! The table is the single source of the builtin mechanism. [`builtin_rows!`]
 //! hands each row to a macro of its caller's, so this module holds only
 //! gro's own types (the resolver stays free of `deno_core`'s) while the
-//! bootstrap embeds each builtin's implementation and names its backing
-//! script and synthetic module from the same rows at compile time, and the
-//! loader reads [`BUILTINS`] for each builtin's URL and grant.
+//! bootstrap names each builtin's backing script and synthetic module from
+//! the same rows at compile time, and the loader reads [`BUILTINS`] for each
+//! builtin's URL and grant.
 //!
 //! The table also reserves specifiers it doesn't serve ([`find_reserved`]):
 //! the `.js` spelling of each row's specifier, the host modules not built
@@ -16,7 +16,7 @@
 //! would turn into the same path. The resolver refuses one ahead of any
 //! package lookup, so a host module's specifier never resolves to a
 //! package, and none changes meaning when its builtin lands. A reserved
-//! specifier is data only: it has no implementation, backing script, or
+//! specifier is data only: it has no backing script, members, or
 //! synthetic module.
 //!
 //! A builtin's URL is its specifier in the `builtin:` scheme, which the
@@ -67,8 +67,7 @@ pub struct Builtin {
 
 /// The table's rows, each handed to `$row`, a macro taking
 /// `($specifier:literal, $grant:expr, [$($export:literal),*])`, the results
-/// in an array. A row's specifier is the path of its implementation under
-/// `js/builtin/`, which the bootstrap embeds.
+/// in an array.
 macro_rules! builtin_rows {
     ($row:ident) => {
         [

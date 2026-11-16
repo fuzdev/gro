@@ -9,11 +9,11 @@
 //! snapshot holds no copy: the `deno_web` and `deno_webidl` scripts that
 //! load on demand and weren't loaded while the snapshot was made, each by
 //! its file on the build machine, and the builtins' backing scripts, each by
-//! its text, the builtin's implementation with its TypeScript stripped here,
-//! once (`bootstrap::to_backing_script`). The binary that starts from the
-//! snapshot embeds them as a table ([`StartupSnapshot`]) `deno_core` reads
-//! on a script's first load, so a start registers no script and strips
-//! nothing; the rest of the extensions' JS lives only in the snapshot. The
+//! its text, made here from its row (`bootstrap::backing_scripts`). The
+//! binary that starts from the snapshot embeds them as a table
+//! ([`StartupSnapshot`]) `deno_core` reads on a script's first load, so a
+//! start registers no script and makes none; the rest of the extensions' JS
+//! lives only in the snapshot. The
 //! extension list declares no lazy ES modules (see `bootstrap::extensions`),
 //! so there is no table of those.
 //!
@@ -194,9 +194,6 @@ pub enum SnapshotError {
     /// and silently corrupt.
     #[error("the extension source {0} is not 7-bit ASCII")]
     NotAscii(PathBuf),
-    /// A builtin's implementation made no backing script.
-    #[error("failed to make a builtin's backing script: {0}")]
-    BackingScript(String),
     /// Evaluating the extensions failed.
     #[error("failed to create the snapshot: {0}")]
     Create(#[source] deno_core::error::CoreError),
@@ -334,10 +331,9 @@ pub(crate) fn check_refused_functions(
 /// # Errors
 ///
 /// Returns [`SnapshotError`] when an extension source can't be read or isn't
-/// ASCII, when a builtin's implementation makes no backing script, when
-/// evaluating the extensions fails, or when an op eval refuses is at an
-/// address the snapshot can't tell from another op's, or isn't registered
-/// (`check_refused_functions`).
+/// ASCII, when evaluating the extensions fails, or when an op eval refuses is
+/// at an address the snapshot can't tell from another op's, or isn't
+/// registered (`check_refused_functions`).
 pub fn make_snapshot(engine: Engine) -> Result<Snapshot, SnapshotError> {
     make_snapshot_of(engine, || bootstrap::extensions(Ops::Kept))
 }
@@ -365,8 +361,7 @@ pub(crate) fn make_snapshot_of(
             startup_snapshot: None,
             skip_op_registration: false,
             extensions: listed(),
-            // every embedded source is JS: a builtin's TypeScript is no
-            // extension source, and is stripped below
+            // every embedded source is JS
             extension_transpiler: None,
             // the addresses this runtime's snapshot names its op functions by
             with_runtime_cb: Some(Box::new(move |runtime| {
@@ -393,9 +388,8 @@ pub(crate) fn make_snapshot_of(
             }
             _ => None,
         });
-    // no snapshot holds a builtin's implementation, so each is residual
-    let scripts = bootstrap::backing_scripts().map_err(SnapshotError::BackingScript)?;
-    let scripts = scripts
+    // no snapshot holds a builtin's backing script, so each is residual
+    let scripts = bootstrap::backing_scripts()
         .into_iter()
         .map(|(specifier, script)| ResidualSource {
             specifier: specifier.to_owned(),

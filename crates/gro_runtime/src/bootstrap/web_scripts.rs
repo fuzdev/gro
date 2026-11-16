@@ -6,36 +6,24 @@
 //! `core.ops`, so a name it reads that the runtime doesn't register is
 //! `undefined` there and fails only where the script calls it. The walk
 //! ([`loadable`]) starts from the scripts gro's own sources load (the
-//! bootstrap, and any a builtin's implementation names) and follows every
-//! script a walked one names, at its top level (the snapshot then holds it)
-//! or inside a function (a residual script, loaded when the function first
-//! runs).
-//!
-//! A builtin's implementation is a script the runtime can load too, and
-//! reads its ops the same way, so its reads are held with the web scripts'
-//! ([`loadable_reads`]): each is registered, a web op among them kept, and
-//! each op it reads is a host op, the namespace op that serves every row.
-//! Its backing script reads one more, when its grant has a scope: the op
-//! its scope argument calls ([`scope_op_read`]), which no implementation's
-//! source shows, so it counts among the implementation's reads. And an
-//! implementation takes nothing of the bootstrap object but its ops and
-//! `primordials`
-//! ([`names_past_the_ops`]).
+//! bootstrap) and follows every script a walked one names, at its top level
+//! (the snapshot then holds it) or inside a function (a residual script,
+//! loaded when the function first runs). A builtin's backing script loads
+//! none and reads the one host op, which `template.rs` holds byte for byte.
 
 use std::collections::BTreeMap;
 
 use deno_core::ExtensionFileSourceCode;
 
-use super::{IMPLEMENTATIONS, Implementation, WEB_CLASSES, WEB_OPS, declared_extensions};
+use super::{WEB_CLASSES, WEB_OPS, declared_extensions};
 
 /// The bootstrap's source, the one of gro's that loads web scripts today.
 const BOOTSTRAP: &str = include_str!("../../js/bootstrap.js");
 
 /// Every source of gro's, where the walk starts: its extension's modules,
-/// the bootstrap, and the builtins' implementations, which no extension
-/// declares.
+/// the bootstrap among them.
 fn gro_sources() -> Vec<String> {
-    let mut sources: Vec<String> = declared_extensions()
+    declared_extensions()
         .iter()
         .filter(|extension| extension.name == "gro")
         .flat_map(|extension| {
@@ -43,13 +31,7 @@ fn gro_sources() -> Vec<String> {
             files.chain(extension.lazy_loaded_js_files.iter())
         })
         .map(|file| file.load().unwrap().as_str().to_owned())
-        .collect();
-    sources.extend(
-        IMPLEMENTATIONS
-            .iter()
-            .map(|implementation| implementation.source.to_owned()),
-    );
-    sources
+        .collect()
 }
 
 /// The `ext:` specifiers `source` writes as string literals.
@@ -170,66 +152,8 @@ pub fn core_ops_reads<'a>(specifier: &str, source: &'a str) -> Vec<&'a str> {
     reads
 }
 
-/// The op a backing script's scope argument reads, `expression` being the
-/// argument's text: none when it's `undefined`, and the op of
-/// `__bootstrap.core.ops.<op>()`, a call with no argument, which is the one
-/// way a scope argument asks the host for a scope.
-///
-/// # Panics
-///
-/// Panics on any other expression, which this reader can't follow: one
-/// that reads something else of `__bootstrap`, calls two ops, or passes an
-/// op an argument.
-pub fn scope_op_read<'a>(specifier: &str, expression: &'a str) -> Option<&'a str> {
-    if expression == "undefined" {
-        return None;
-    }
-    let op = expression
-        .strip_prefix("__bootstrap.core.ops.")
-        .and_then(|call| call.strip_suffix("()"))
-        .filter(|op| {
-            !op.is_empty()
-                && op
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-        });
-    assert!(
-        op.is_some(),
-        "{specifier}'s scope argument is neither `undefined` nor one op called with no \
-         argument: {expression}"
-    );
-    op
-}
-
-/// Every name the backing script of `implementation` reads from
-/// `core.ops`: the ones its source destructures, and the op its scope
-/// argument calls.
-pub fn implementation_reads(implementation: &Implementation) -> Vec<&'static str> {
-    let mut reads = core_ops_reads(implementation.script, implementation.source);
-    let scope = super::scope_argument(implementation.grant);
-    reads.extend(scope_op_read(implementation.script, scope));
-    reads
-}
-
-/// The names `source`, a builtin's implementation, writes outside a comment
-/// that reach past `core.ops` and `primordials`: `loadExtScript`, which
-/// runs a script of the residual table and, the first time a run calls it
-/// for a script the snapshot didn't load, makes every op that has a fast
-/// call again, a cost a host op gains nothing from, and `internals`, an
-/// ordinary object every extension script shares, where a property a script
-/// reads or stores passes through `Object.prototype`. A helper two builtins
-/// need is written in each.
-pub fn names_past_the_ops(source: &str) -> Vec<&'static str> {
-    const PAST: [&str; 2] = ["loadExtScript", "internals"];
-    let lines = || source.lines().filter(|line| !is_comment(line));
-    let named = |name: &&str| lines().any(|line| holds_word(line, name));
-    PAST.into_iter().filter(named).collect()
-}
-
-/// Every name a script the runtime can load reads from `core.ops`, with the
-/// scripts that read it: the web extensions' loadable scripts and the
-/// builtins' implementations, each with its backing script's scope
-/// argument.
+/// Every name a web extension's script the runtime can load reads from
+/// `core.ops`, with the scripts that read it.
 pub fn loadable_reads() -> BTreeMap<String, Vec<&'static str>> {
     let mut reads: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
     let web = loadable();
@@ -241,30 +165,16 @@ pub fn loadable_reads() -> BTreeMap<String, Vec<&'static str>> {
             reads.entry(name.to_owned()).or_default().push(specifier);
         }
     }
-    for implementation in IMPLEMENTATIONS {
-        for name in implementation_reads(implementation) {
-            let scripts = reads.entry(name.to_owned()).or_default();
-            scripts.push(implementation.script);
-        }
-    }
     reads
 }
 
-/// The walk starts from every source of gro's, the bootstrap and each
-/// builtin's implementation among them, and reaches more than they name: a
-/// script another loads, and one loaded only inside a function.
+/// The walk starts from every source of gro's, the bootstrap among them,
+/// and reaches more than they name: a script another loads, and one loaded
+/// only inside a function.
 #[test]
 fn the_walk_follows_the_scripts_a_script_names() {
     let sources = gro_sources();
     assert!(sources.iter().any(|source| source == BOOTSTRAP));
-    for implementation in IMPLEMENTATIONS {
-        assert!(
-            sources.iter().any(|source| source == implementation.source),
-            "{}",
-            implementation.script
-        );
-    }
-    assert!(!IMPLEMENTATIONS.is_empty());
     let loadable = loadable();
     for specifier in [
         "ext:deno_web/01_console.js",
@@ -276,79 +186,6 @@ fn the_walk_follows_the_scripts_a_script_names() {
     }
     assert!(!BOOTSTRAP.contains("13_message_port.js"));
     assert!(loadable.len() < declared_scripts().len());
-}
-
-/// Each implementation reads only the host ops, its scope argument's op
-/// among them, and no other op, one of `deno_core`'s or `deno_web`'s: the
-/// namespace op, which serves every row and knows the row by its calling
-/// script, so no builtin calls an op that compiles code or imports a
-/// module. An implementation that comes to need a web op names it here.
-#[test]
-fn an_implementation_reads_only_the_host_ops() {
-    use crate::host::HOST_OPS;
-
-    for implementation in IMPLEMENTATIONS {
-        let mut reads = implementation_reads(implementation);
-        reads.sort_unstable();
-        let mut own = HOST_OPS.to_vec();
-        own.sort_unstable();
-        assert_eq!(reads, own, "{}", implementation.script);
-    }
-}
-
-/// No implementation names `loadExtScript` or `internals`: each takes its
-/// ops and `primordials` from the bootstrap object and nothing else, so no
-/// import of a builtin loads another script or reaches the object the
-/// extension scripts share. A comment may name either.
-#[test]
-fn an_implementation_takes_only_its_ops_and_primordials() {
-    for implementation in IMPLEMENTATIONS {
-        assert_eq!(
-            names_past_the_ops(implementation.source),
-            [""; 0],
-            "{}",
-            implementation.script
-        );
-    }
-    let loads = "const { core } = bootstrap;\n// internals, in a comment\nconst helper = \
-                 core.loadExtScript('ext:gro/helper.js');\n";
-    assert_eq!(names_past_the_ops(loads), ["loadExtScript"]);
-    let stores = "const { internals } = bootstrap;\ninternals.registry = registry;\n";
-    assert_eq!(names_past_the_ops(stores), ["internals"]);
-    assert_eq!(names_past_the_ops("const internals_of = 1;\n"), [""; 0]);
-    // a block comment hides what it holds, never the code after it
-    let after = "/* shared */ const { internals } = bootstrap;\n";
-    assert_eq!(names_past_the_ops(after), ["internals"]);
-    let inside = "/**\n * internals, in a comment\n */\nconst made = 1;\n";
-    assert_eq!(names_past_the_ops(inside), [""; 0]);
-}
-
-/// A scope argument is `undefined` or one op called with no argument, the
-/// op read as the implementation's own: so an op a backing script calls for
-/// a scope is held to the implementation's row and to the registered ops
-/// as the ones its source reads are, and no scope argument reaches past
-/// the ops.
-#[test]
-fn a_scope_argument_reads_one_op_or_none() {
-    assert_eq!(scope_op_read("x", "undefined"), None);
-    assert_eq!(
-        scope_op_read("x", "__bootstrap.core.ops.op_gro_env_scope()"),
-        Some("op_gro_env_scope")
-    );
-    for other in [
-        "null",
-        "__bootstrap",
-        "__bootstrap.internals.scope",
-        "__bootstrap.core.ops.op_a",
-        "__bootstrap.core.ops.op_a(1)",
-        "__bootstrap.core.ops.op_a().b()",
-        "__bootstrap.core.ops.op_a() ?? __bootstrap.core.ops.op_b()",
-        "__bootstrap.core.loadExtScript('ext:gro/x.js')",
-        "__bootstrap.core.ops.()",
-    ] {
-        let read = std::panic::catch_unwind(|| scope_op_read("x", other).is_some());
-        assert!(read.is_err(), "{other}");
-    }
 }
 
 /// The reader takes each destructured name, a renamed one by the name it

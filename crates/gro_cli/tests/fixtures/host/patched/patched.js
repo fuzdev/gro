@@ -1,5 +1,5 @@
 // The entry of the patched run: patches the realm, arms its traps, and only then imports the
-// module that imports the builtins, so each builtin's implementation runs for the first time
+// module that imports the builtins, so each builtin's backing script runs for the first time
 // in a realm where every intrinsic is a trap.
 
 import { NAMES } from './names.js';

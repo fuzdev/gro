@@ -189,7 +189,7 @@ check('assign', threw === 2 && JSON.stringify(args) === '[\"x\",\"y\"]');
 /// `then`, the global `Object`'s functions, `Array.prototype`'s methods
 /// and iterator) changes nothing the builtin
 /// makes, and calls none of the patches; the internals, the ops and the
-/// object a builtin's implementation is called with among them, stay
+/// object a builtin's backing script is called with among them, stay
 /// unreachable before and after the imports, by any own property or
 /// prototype from the global object and from every builtin's namespace,
 /// its exports, and what a function it exports returns or throws or a

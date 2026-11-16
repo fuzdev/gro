@@ -160,7 +160,7 @@ struct Made {
 
 /// The realm's `Error` as the run holds it.
 enum RealmError {
-    /// Handed over by a row's implementation, not yet checked.
+    /// Handed over by a row's backing script, not yet checked.
     Handed(v8::Global<v8::Value>),
     /// Checked, when a class was first made of it.
     Checked(v8::Global<v8::Function>),
@@ -171,7 +171,7 @@ enum RealmError {
 /// first handed over, and a class once it's whole.
 #[derive(Default)]
 pub struct ErrorClasses {
-    /// The realm's `Error`, once a row's implementation handed it over.
+    /// The realm's `Error`, once a row's backing script handed it over.
     error: RefCell<Option<RealmError>>,
     /// The classes made.
     made: RefCell<Vec<Made>>,
@@ -190,7 +190,7 @@ impl ErrorClasses {
         self.error.borrow().is_some()
     }
 
-    /// Holds `error`, a value a row's implementation handed over from
+    /// Holds `error`, a value a row's backing script handed over from
     /// `primordials` as the realm's `Error`, unchecked, when the run holds
     /// none: later values are ignored while one is held. It's checked when
     /// a class is first made of it ([`Self::class`]), so a run that makes
@@ -485,7 +485,7 @@ fn data_property<'s>(
 mod tests {
     use super::FAMILIES;
     use crate::host::NATIVE_MEMBERS;
-    use crate::host::native::Member;
+    use crate::host::native::{Member, ValueKind};
     use crate::resolver::BUILTINS;
 
     /// Every error row's class is a family of [`FAMILIES`], in the table's
@@ -504,7 +504,8 @@ mod tests {
     }
 
     /// Each family is declared by its error row's class, the export named
-    /// for it, a value, and by no other member as its class; and every
+    /// for it, a value declared a class, and by no other member as its
+    /// class; and every
     /// family a member declares, thrown or a class, is one of
     /// [`FAMILIES`], whose class the host can make.
     #[test]
@@ -513,8 +514,13 @@ mod tests {
             let classes: Vec<(&str, &str)> = NATIVE_MEMBERS
                 .iter()
                 .filter(|member| {
-                    matches!(member.member, Member::Value(_))
-                        && member.family.is_some_and(|declared| declared == family)
+                    matches!(
+                        member.member,
+                        Member::Value {
+                            kind: ValueKind::Class,
+                            ..
+                        }
+                    ) && member.family.is_some_and(|declared| declared == family)
                 })
                 .map(|member| (member.module, member.name))
                 .collect();

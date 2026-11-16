@@ -286,9 +286,10 @@ native_members! {
 
     /// `env`, the root handle, made of the env handles' prototype from the
     /// run's grant ([`env::root`]).
-    value env(state, _granted: EnvGrant; scope, prototypes) for "@fuzdev/gro/env.ts" {
-        env::root(state, scope, prototypes.of(scope, &ENV_HANDLE)?)
-            .map(Into::into)
+    value env(state, _granted: EnvGrant; scope) for "@fuzdev/gro/env.ts"
+        handle ENV_HANDLE(prototype)
+    {
+        env::root(state, scope, prototype).map(Into::into)
     }
 
     /// `env.get(name)`, called on `handle` ([`env::get`]).

@@ -1,7 +1,7 @@
 // The realm, patched: every intrinsic a program can reach replaced by a trap that reports its
-// use while armed, so a run can show that a builtin module's implementation, which the runtime
-// compiles and runs at the builtin's first import, uses none of them, at its top level or in
-// what it exports. A trap is transparent: it behaves as what it replaced, armed or not, so the
+// use while armed, so a run can show that a builtin module's backing script, which the runtime
+// compiles and runs at the builtin's first import, uses none of them, nor does what it
+// exports. A trap is transparent: it behaves as what it replaced, armed or not, so the
 // program around it, and the runtime beneath it, keep working, and only the report tells.
 //
 // A run's output is its reports, one line of JSON each, `[kind, value]`, printed as it
@@ -246,7 +246,7 @@ export const patch_realm = (names) => {
 	for (const [owner, path] of reached) {
 		for (const key of ownKeys(owner)) {
 			// the engine reads the limit as data and captures no stack when it's an accessor,
-			// which would leave no stack for an implementation to be seen reading
+			// which would leave no stack for a builtin to be seen reading
 			if (owner === error_constructor && key === 'stackTraceLimit') continue;
 			const descriptor = /** @type {PropertyDescriptor} */ (getOwnPropertyDescriptor(owner, key));
 			if (descriptor.configurable) trap(owner, key, descriptor, `${path}.${to_string(key)}`);

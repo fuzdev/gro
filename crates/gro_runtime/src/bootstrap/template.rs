@@ -1,164 +1,197 @@
-//! What holds each row's backing script to its template: the one text a
-//! row's needs give, so no script reads, decides, or hands on anything the
-//! template doesn't. A row hands the realm's `Error` over when it's a row of
-//! an error family's, and no other does ([`hands_over_error`]), so there are
-//! two templates, with the `Error` and without. A script that departed from
-//! it could return the bootstrap object, `core`, or `core.ops`, hand on a
-//! copy of one, read another op, or let its inner level escape, and the
-//! checks over the implementations' source (the type program's walk, the
-//! reviewed lists, the op reads) hold what a script may name, never what it
-//! does with it.
+//! Each builtin row's backing script, made here from the row: the text
+//! `deno_core` compiles, the first time a run imports the row, as the body
+//! of a function of its bootstrap object, `__bootstrap`. No row has a
+//! script of its own: the namespace, and every member and value in it, are
+//! the host's (`host/native.rs`), so a script only asks for its namespace,
+//! and the row decides one thing of it, whether it hands the realm's
+//! `Error` over ([`hands_over_error`]). So there are two templates, with
+//! the `Error` and without, each called with its row's scope argument
+//! ([`scope_argument`]):
 //!
-//! The text compared is the backing script, what `deno_core` compiles,
-//! so the strip and the wrapping are held with the source: each is
-//! formatted by tsv as the body of a function of `__bootstrap`, as
-//! `deno_core` compiles it, and every line that is blank or a line comment
-//! once formatted is dropped. Formatting gives one text of a program
-//! however its source is spaced; a line the formatter starts with `//` is
-//! a comment, or inside a string, a template, or a block comment whose
-//! start is on a line kept, which the template has none of, so a script
-//! whose kept lines are the template's runs what the template runs.
+//! ```js
+//! "use strict"; return ((function (bootstrap) {
+//! const { core, primordials } = bootstrap;
+//! const { op_gro_namespace } = core.ops;
+//! const { Error } = primordials;
+//! return (_scope) => op_gro_namespace(_scope, Error);
+//! })(__bootstrap)(undefined));
+//! ```
+//!
+//! and the same without the `primordials` and the `Error`. One function in
+//! two levels, both called at once. The outer level takes the one op,
+//! `op_gro_namespace`, from `core.ops`, and, from a row that hands it
+//! over, the realm's `Error` from `primordials`, taken before any user code
+//! ran; `deno_core` gave both before any user code could. The inner level
+//! takes the scope of its importer's grant and asks the host for the
+//! namespace, handing over the scope, and the `Error` where the outer level
+//! took it. Why the shape is safe:
+//!
+//! - A first import can come after user code has patched the global
+//!   intrinsics, so the script names no global but `undefined`, which
+//!   strict code can't have replaced, and reads no member of an intrinsic:
+//!   each read is a destructuring of what `deno_core` handed it, which
+//!   reads a property and calls nothing, iterates nothing, and converts
+//!   nothing.
+//! - It hands on nothing: the script's value is what the op returns, so no
+//!   row's script hands on the bootstrap object, `core`, `core.ops`, or the
+//!   op, reads another op, or lets its inner level escape, and only a row
+//!   that hands it over reads `primordials` at all, a read that costs a
+//!   first import.
+//! - The op knows the row by the script that calls it, the one
+//!   `deno_core` compiled under the row's backing specifier
+//!   ([`BACKING_SPECIFIERS`](super::BACKING_SPECIFIERS)), never by what the
+//!   script passes, so every row's script can be the same text.
+//! - Neither level stores anything outside its own bindings, and the op is
+//!   a get-or-make, so a first import cut short at any call leaves nothing
+//!   half-made and runs the whole script again at the next import.
+//!
+//! Every piece is a literal of this module, 7-bit ASCII, as `deno_core`
+//! takes a residual script's text on trust: the build fails on a piece
+//! that isn't, and a test holds every row's script to the two texts, byte
+//! for byte.
 
-use super::{IMPLEMENTATIONS, Implementation, WRAP_CLOSE, WRAP_OPEN, scope_argument};
 use crate::host::native::hands_over_error;
-use crate::resolver::BUILTINS;
+use crate::resolver::{BUILTINS, Builtin, Capability};
 
-/// The template's backing script for `implementation`'s row: the outer
-/// level takes the one op, and the realm's `Error` when `hands_over_error`,
-/// and the inner returns what the op gives for the scope, and the `Error`,
-/// called with the row's scope argument.
-fn template(implementation: &Implementation, hands_over_error: bool) -> String {
-    let scope = scope_argument(implementation.grant);
-    let body = if hands_over_error {
-        "const { core, primordials } = bootstrap;
-        const { op_gro_namespace } = core.ops;
-        const { Error } = primordials;
-        return (_scope) => op_gro_namespace(_scope, Error);"
+/// What `deno_core` wraps a lazy script in to compile it as a function's
+/// body, and takes a script that starts with [`WRAP_OPEN`] to be wrapped
+/// in already, compiling it as it is, an external string V8 never copies.
+/// A test holds the two to `deno_core`'s own wrapping.
+const WRAP_OPEN: &str = "\"use strict\"; return (";
+
+/// The end of the wrapping [`WRAP_OPEN`] starts.
+const WRAP_CLOSE: &str = ");";
+
+/// The outer level's body in a row that hands the realm's `Error` over.
+const WITH_ERROR: &str = "const { core, primordials } = bootstrap;
+const { op_gro_namespace } = core.ops;
+const { Error } = primordials;
+return (_scope) => op_gro_namespace(_scope, Error);";
+
+/// The outer level's body in every other row.
+const WITHOUT_ERROR: &str = "const { core } = bootstrap;
+const { op_gro_namespace } = core.ops;
+return (_scope) => op_gro_namespace(_scope);";
+
+// `deno_core` takes a residual script's text as ASCII, unchecked, so the
+// pieces every backing script is made of are held to it as the build
+// compiles: the wrapping, both bodies, and the scope argument of every
+// row's grant. The test below holds each whole script to its text.
+const _: () = {
+    assert!(
+        WRAP_OPEN.is_ascii()
+            && WRAP_CLOSE.is_ascii()
+            && WITH_ERROR.is_ascii()
+            && WITHOUT_ERROR.is_ascii()
+    );
+    let mut at = 0;
+    while at < BUILTINS.len() {
+        assert!(scope_argument(BUILTINS[at].grant).is_ascii());
+        at += 1;
+    }
+};
+
+/// What a backing script passes its inner level as the scope of the
+/// importer's grant, a JS expression over the script's `__bootstrap`: the
+/// one place a builtin's scope comes from. Every inner level is called
+/// with `undefined` today. A grant-free module has no grant to scope, and
+/// neither `args` nor `exit` scopes anything. `env` does, but one origin
+/// holds it, the project, every module of a confined run's that may import
+/// it (an unconfined run's are given every grant whole), so the host makes
+/// its root handle from the run's grant, which carries its scope natively,
+/// and every method decides from the handle it's called on, never from the
+/// run's grants. An instance per origin hands the origin's scope here, a
+/// native value the host gives back to the namespace op, which keys the
+/// origin's namespace by it and makes the origin's root from it.
+const fn scope_argument(grant: Option<Capability>) -> &'static str {
+    match grant {
+        None | Some(Capability::Args | Capability::Exit | Capability::Env) => "undefined",
+    }
+}
+
+/// `row`'s backing script: the template its row gives, with the realm's
+/// `Error` when the row hands it over ([`hands_over_error`]), called with
+/// its grant's scope ([`scope_argument`]), and wrapped as `deno_core` wraps
+/// a lazy script, so it compiles the script as it is. `deno_core` keeps
+/// what the script returns, the namespace, only once both levels have
+/// returned.
+pub fn backing_script(row: &Builtin) -> String {
+    let body = if hands_over_error(row.specifier) {
+        WITH_ERROR
     } else {
-        "const { core } = bootstrap;
-        const { op_gro_namespace } = core.ops;
-        return (_scope) => op_gro_namespace(_scope);"
+        WITHOUT_ERROR
     };
+    let scope = scope_argument(row.grant);
     format!("{WRAP_OPEN}(function (bootstrap) {{\n{body}\n}})(__bootstrap)({scope}){WRAP_CLOSE}")
 }
 
-/// `script`, a backing script, as it's compared: formatted by tsv as the
-/// body of a function of `__bootstrap`, each line blank or a line comment
-/// dropped. A comment after code on its line, or a block comment, is kept,
-/// and departs from the template.
-///
-/// # Panics
-///
-/// Panics when tsv can't parse it, naming `specifier`.
-fn normalized(specifier: &str, script: &str) -> Vec<String> {
-    let function = format!("function backing(__bootstrap) {{\n{script}\n}}\n");
-    let formatted =
-        tsv_ts::format_with_goal(&function, tsv_ts::Goal::Script).unwrap_or_else(|error| {
-            panic!("{specifier}: tsv can't format its backing script: {error}")
-        });
-    formatted
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("//"))
-        .map(ToOwned::to_owned)
-        .collect()
-}
+#[cfg(test)]
+mod tests {
+    use super::{WRAP_CLOSE, WRAP_OPEN, backing_script};
+    use crate::resolver::BUILTINS;
 
-/// Where `implementation`'s backing script departs from `template`, the
-/// first line that differs once both are normalized, or `None` when it's
-/// the template.
-fn departure(implementation: &Implementation, template: &str) -> Option<String> {
-    let specifier = implementation.script;
-    let script = super::to_backing_script(implementation)
-        .unwrap_or_else(|refusal| panic!("{specifier} makes no backing script: {refusal}"));
-    let found = normalized(specifier, &script);
-    let expected = normalized(specifier, template);
-    let at = (0..found.len().max(expected.len())).find(|&at| found.get(at) != expected.get(at))?;
-    let line = |lines: &[String]| lines.get(at).map_or("(no line)", String::as_str).to_owned();
-    Some(format!(
-        "{specifier}'s backing script departs from the template at its line {} once \
-         normalized:\n  the template: {}\n  the script:   {}",
-        at + 1,
-        line(&expected),
-        line(&found),
-    ))
-}
+    /// The backing script of a row that hands the realm's `Error` over.
+    const WITH_ERROR: &str = "\"use strict\"; return ((function (bootstrap) {
+const { core, primordials } = bootstrap;
+const { op_gro_namespace } = core.ops;
+const { Error } = primordials;
+return (_scope) => op_gro_namespace(_scope, Error);
+})(__bootstrap)(undefined));";
 
-/// Every row's backing script is the template its row's needs give, so no
-/// row's script hands on anything of the bootstrap object, reads another
-/// op, or lets its inner level escape, and only a row of an error family's
-/// reads the realm's `Error`.
-#[test]
-fn every_row_s_backing_script_is_its_template() {
-    let departures: Vec<String> = BUILTINS
-        .iter()
-        .zip(IMPLEMENTATIONS)
-        .filter_map(|(row, implementation)| {
-            departure(
-                implementation,
-                &template(implementation, hands_over_error(row.specifier)),
-            )
-        })
-        .collect();
-    assert!(departures.is_empty(), "{}", departures.join("\n"));
-    assert!(BUILTINS.iter().any(|row| hands_over_error(row.specifier)));
-    assert!(BUILTINS.iter().any(|row| !hands_over_error(row.specifier)));
-}
+    /// The backing script of every other row.
+    const WITHOUT_ERROR: &str = "\"use strict\"; return ((function (bootstrap) {
+const { core } = bootstrap;
+const { op_gro_namespace } = core.ops;
+return (_scope) => op_gro_namespace(_scope);
+})(__bootstrap)(undefined));";
 
-/// The normalization passes over what isn't the program (types, a comment
-/// on its own line, blank lines, spacing) and over nothing that is: a
-/// script that returns `core`, hands on `ObjectAssign`'s copy, reads
-/// another op, or hides a statement in a template literal's line that
-/// starts `//` departs, named with its line.
-#[test]
-fn a_script_departs_from_the_template_for_its_program_alone() {
-    let probe = |source: &'static str| Implementation {
-        script: "ext:gro/builtin/probe.ts",
-        source,
-        grant: None,
-    };
-    let same = probe(
-        "// a comment\n(function (bootstrap: Bootstrap) {\n\t// another\n\tconst { core, \
-         primordials } = bootstrap;\n\n\tconst {\n\t\top_gro_namespace,\n\t} = core.ops;\n\tconst \
-         { Error } = primordials;\n\t// the realm's\n\tinterface Unused {\n\t\ta: string;\n\t}\n\treturn \
-         (_scope: undefined) =>\n\t\top_gro_namespace<'@fuzdev/gro/pid.ts'>(_scope, Error);\n});\n",
-    );
-    let departs = |source| departure(&probe(source), &template(&probe(source), true));
-    assert_eq!(departs(same.source), None);
-    // the template without the `Error` is another text
-    assert!(departure(&same, &template(&same, false)).is_some());
-    for (source, line) in [
-        // returns `core` by value
-        (
-            "(function (bootstrap: Bootstrap) {\n\tconst { core, primordials } = \
-             bootstrap;\n\tconst { op_gro_namespace } = core.ops;\n\tconst { Error } = \
-             primordials;\n\treturn (_scope: undefined) => core;\n});\n",
-            "return (_scope) => core;",
-        ),
-        // hands on `ObjectAssign`'s copy of the ops
-        (
-            "(function (bootstrap: Bootstrap) {\n\tconst { core, primordials } = \
-             bootstrap;\n\tconst { op_gro_namespace } = core.ops;\n\tconst { Error, ObjectAssign } \
-             = primordials;\n\treturn (_scope: undefined) => ObjectAssign({}, core.ops);\n});\n",
-            "const { Error, ObjectAssign } = primordials;",
-        ),
-        // reads another op
-        (
-            "(function (bootstrap: Bootstrap) {\n\tconst { core, primordials } = \
-             bootstrap;\n\tconst { op_gro_namespace, op_gro_deny } = core.ops;\n\tconst { Error } = \
-             primordials;\n\treturn (_scope: undefined) => op_gro_namespace(_scope, Error);\n});\n",
-            "const { op_gro_namespace, op_gro_deny } = core.ops;",
-        ),
-        // a template whose line starts `//`, which the normalization drops
-        (
-            "(function (bootstrap: Bootstrap) {\n\tconst { core, primordials } = \
-             bootstrap;\n\tconst { op_gro_namespace } = core.ops;\n\tconst { Error } = \
-             primordials;\n\tconst s = `\n// ${(globalThis.core = core)}`;\n\treturn (_scope: \
-             undefined) => op_gro_namespace(_scope, Error);\n});\n",
-            "const s = `",
-        ),
-    ] {
-        let departure = departs(source).unwrap_or_else(|| panic!("{source} departs nowhere"));
-        assert!(departure.contains(line), "{departure}");
+    /// The rows whose members declare an error family, as
+    /// `tests/native_members.txt` pins the table: each line naming one
+    /// has `throws <Family>` or `class <Family>` in it.
+    fn declaring_rows() -> Vec<&'static str> {
+        include_str!("../../tests/native_members.txt")
+            .lines()
+            .filter(|line| line.contains(" throws ") || line.contains(" class "))
+            .filter_map(|line| line.split(' ').next())
+            .collect()
+    }
+
+    /// Every row's backing script is, byte for byte, one of the two texts
+    /// the module's doc shows: with the realm's `Error` exactly for the
+    /// rows whose members the pinned table shows declaring an error family,
+    /// and without it for every other. So a change to what a script reads,
+    /// hands on, or is called with fails here, and only a row that hands
+    /// the `Error` over reads it. Each text is 7-bit ASCII.
+    #[test]
+    fn every_row_s_backing_script_is_its_template() {
+        let declaring = declaring_rows();
+        assert!(!declaring.is_empty(), "a row hands the realm's Error over");
+        for row in BUILTINS {
+            let expected = if declaring.contains(&row.specifier) {
+                WITH_ERROR
+            } else {
+                WITHOUT_ERROR
+            };
+            assert_eq!(backing_script(row), expected, "{}", row.specifier);
+        }
+        assert!(
+            BUILTINS
+                .iter()
+                .any(|row| !declaring.contains(&row.specifier)),
+            "a row hands over no Error"
+        );
+        assert!(WITH_ERROR.is_ascii() && WITHOUT_ERROR.is_ascii());
+    }
+
+    /// The wrapping a backing script is made with is `deno_core`'s own of a
+    /// lazy script, so `deno_core` compiles a backing script as it is and
+    /// never wraps one again.
+    #[test]
+    fn a_backing_script_is_wrapped_as_deno_core_wraps_a_lazy_script() {
+        let function = "(function () {})()";
+        assert_eq!(
+            deno_core::wrap_lazy_ext_script(function),
+            format!("{WRAP_OPEN}{function}{WRAP_CLOSE}")
+        );
     }
 }
