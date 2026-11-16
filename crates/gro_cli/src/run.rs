@@ -170,8 +170,8 @@ const REFUSALS_FAIL: &str = "error: a refusal fails the run, whether or not the 
 /// control characters escaped, since the program chose the specifier or
 /// the name, then one line counting the refusals it doesn't list, then,
 /// when there were any, [`REFUSALS_FAIL`]; then the hints of the flags
-/// that grant what the refused calls needed ([`grant_hints`]), if any
-/// does, which the refusal that is the run's uncaught error, not listed,
+/// that grant what the refused calls needed, and of the handles to open
+/// for what a root already grants ([`grant_hints`]), if any does, which the refusal that is the run's uncaught error, not listed,
 /// has too.
 fn report_refused(refused: &Refusals) {
     for refusal in &refused.listed {
