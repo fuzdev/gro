@@ -575,8 +575,5 @@ env.get('B');
 
 /// The grant an env name refused by the root needed.
 fn needs(name: &str) -> NeededGrant {
-    NeededGrant {
-        grant: Capability::Env,
-        value: name.to_owned(),
-    }
+    NeededGrant::Env(name.to_owned())
 }

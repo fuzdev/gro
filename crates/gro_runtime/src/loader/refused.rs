@@ -55,19 +55,48 @@ impl RefusedBy {
     }
 }
 
-/// The grant that would have allowed a refused call: its host module's
-/// grant, and the value the grant would hold, a variable's name for `env`.
+/// What would have allowed a refused call: a grant, and the value it
+/// would hold, what an embedder's flag names, so a report can say what to
+/// grant; or a handle on a directory the run already grants.
 ///
 /// Recorded only where the refusal is the run's own grant's, so granting
 /// the value lets the call through: a call refused by `env`'s root handle,
 /// which holds what `--allow-env=` granted the project, and never one
-/// refused by a handle the program narrowed, which no grant widens.
+/// refused by a handle the program narrowed, which no grant widens; an fs
+/// reach no root holds, by the directory the step it failed at would open
+/// beneath a root; and an op a handle's scope lacks, by the handle's root,
+/// whose whole scope a handle has (a handle `readonly()` made drops a
+/// write it couldn't do anyway), unless a root the op's target is in
+/// already grants it, since a handle's scope never widens.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NeededGrant {
-    /// The host module's grant, which names it: `env`.
-    pub grant: Capability,
-    /// The value the grant would hold.
-    pub value: String,
+pub enum NeededGrant {
+    /// An environment variable to read, by its name.
+    Env(String),
+    /// A directory to read, by its absolute path.
+    Read(String),
+    /// A directory to read that's reached through a symlink leaving the
+    /// root that holds it: a grant of the path as asked holds it, never a
+    /// grant of its real path, which a root matches by another text.
+    ReadThroughSymlink,
+    /// A directory to write, by its absolute path.
+    Write(String),
+    /// A directory a root already reads or writes as the refused op
+    /// needed, by its absolute path: a handle `fs.open_dir` makes on it
+    /// does the op, where the handle that refused it, made from another
+    /// root's, never gains the scope.
+    OpenDir(String),
+}
+
+impl NeededGrant {
+    /// The value it holds: a name, a path, or none.
+    pub fn value(&self) -> &str {
+        match self {
+            Self::Env(value) | Self::Read(value) | Self::Write(value) | Self::OpenDir(value) => {
+                value
+            }
+            Self::ReadThroughSymlink => "",
+        }
+    }
 }
 
 /// One refusal, as a run's record lists it.
@@ -155,7 +184,7 @@ impl Refusals {
         if self.needed.contains(&needed) {
             return;
         }
-        if self.needed.len() == MAX_LISTED_REFUSALS || needed.value.len() > MAX_LISTED_MESSAGE {
+        if self.needed.len() == MAX_LISTED_REFUSALS || needed.value().len() > MAX_LISTED_MESSAGE {
             self.more_needed = true;
         } else {
             self.needed.push(needed);
@@ -320,10 +349,7 @@ mod tests {
 
     /// The grant a refused call needed, by its name for `env`.
     fn needs(value: &str) -> NeededGrant {
-        NeededGrant {
-            grant: Capability::Env,
-            value: value.to_owned(),
-        }
+        NeededGrant::Env(value.to_owned())
     }
 
     /// The grants refused calls needed are kept distinct, in the order each
@@ -346,7 +372,7 @@ mod tests {
             refused
                 .needed
                 .iter()
-                .map(|needed| needed.value.clone())
+                .map(|needed| needed.value().to_owned())
                 .collect()
         };
         assert_eq!(values(&refused), ["B", "A"]);
@@ -373,6 +399,22 @@ mod tests {
         refused.record(ENV, "not_granted: X", Some(needs("X")));
         assert!(refused.more_needed);
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS);
-        assert_eq!(refused.needed[0].grant, Capability::Env);
+        assert_eq!(refused.needed[0], NeededGrant::Env("N0".to_owned()));
+        // one grant's value is another's only by its kind too
+        let mut refused = Refusals::default();
+        for needed in [
+            NeededGrant::Read("/a".to_owned()),
+            NeededGrant::Write("/a".to_owned()),
+            NeededGrant::Read("/a".to_owned()),
+        ] {
+            refused.record(ENV, "not_granted: /a", Some(needed));
+        }
+        assert_eq!(
+            refused.needed,
+            [
+                NeededGrant::Read("/a".to_owned()),
+                NeededGrant::Write("/a".to_owned())
+            ]
+        );
     }
 }

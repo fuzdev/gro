@@ -264,10 +264,7 @@ fn check_granted<'s>(
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
     let message = format!("{NOT_GRANTED}: {text}");
-    let needed = root.then_some(NeededGrant {
-        grant: Capability::Env,
-        value: text,
-    });
+    let needed = root.then_some(NeededGrant::Env(text));
     log.record(
         RefusedBy::Grant {
             grant: Capability::Env,
