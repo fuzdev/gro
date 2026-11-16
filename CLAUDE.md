@@ -323,8 +323,11 @@ Invariants that live in the code:
   facade's name.
   - An implementation is one function in two levels. The outer takes
     `deno_core`'s bootstrap object, runs once a run, and takes what the
-    inner needs: the one op, `op_gro_namespace`, and the realm's `Error`
-    from `primordials`. It returns the inner, which takes the scope of its
+    inner needs: the one op, `op_gro_namespace`, and, in a row of an error
+    family's (`ErrorFamily::rows`: the family's error row and each row whose
+    members throw its error, `env_error` and `env` today), the realm's
+    `Error` from `primordials`, a read that costs a first import, so no
+    other row takes it. It returns the inner, which takes the scope of its
     importer's grant, an argument the backing script's call passes
     (`bootstrap::scope_argument`; `undefined` while no grant has one) and
     the implementation reads no other way, and asks the host for the
@@ -336,8 +339,10 @@ Invariants that live in the code:
     each method of a kind of handle the row makes, a function or a value
     the host makes from `NATIVE_MEMBERS`, the table `native_members!`
     declares, the first time a run asks for the row's namespace. The inner
-    level calls `op_gro_namespace`, handing over its scope and the realm's
-    `Error`, which the run holds (`ErrorClasses::hold_error`). The op
+    level calls `op_gro_namespace`, handing over its scope, and from a row
+    of an error family's the realm's `Error`, which the run holds unchecked
+    (`ErrorClasses::hand_over`) until a class is first made of it; the op
+    refuses an `Error` from any other row. The op
     serves every row and knows the row by the script that calls it, the
     backing script `deno_core` compiled under the row's name from the
     table, never by an argument, so no row's script can ask for another's;
@@ -437,19 +442,22 @@ Invariants that live in the code:
     host op, `op_gro_namespace`.
   - Those hold what a script names, not what it does with it, so
     `bootstrap/template.rs` holds every row's backing script, stripped and
-    wrapped, to the template its row's needs give, each formatted by tsv
-    with its blank and comment lines dropped: no row's script hands on the
-    bootstrap object, `core`, `core.ops`, or the op, reads another op, or
-    lets its inner level escape.
+    wrapped, to the template its row's needs give, with the realm's `Error`
+    for a row of an error family's and without it for every other, each
+    formatted by tsv with its blank and comment lines dropped: no row's
+    script hands on the bootstrap object, `core`, `core.ops`, or the op,
+    reads another op, or lets its inner level escape.
   - An error row's class and guard are the host's: the class
     (`host/error_class.rs`) made natively the first time a run needs it,
     the realm's `Error.prototype` taken from an error V8 makes and its
-    `Error` handed over from `primordials` by the first implementation of a
-    row whose namespace the host makes, checked and held for the run, and
-    the class held in `OpState` (`ErrorClasses`) once whole, so a first
-    import ended early makes it again and every later need finds the one
-    class; the row's namespace holds it as a native value, and its guard as
-    a native function (`host/native.rs`), and any member throws an
+    `Error` handed over from `primordials` by the first implementation of
+    one of the family's rows a run imports, held for the run, and checked
+    the first time a class is made of it, so a run that makes no class
+    pays for no check, and a value that fails is dropped for the next
+    import's; and the class held in `OpState` (`ErrorClasses`) once whole,
+    so a first import ended early makes it again and every later need finds
+    the one class; the row's namespace holds it as a native value, and its
+    guard as a native function (`host/native.rs`), and any member throws an
     instance with one call (`ErrorClasses::throw`). A family missing from
     `FAMILIES` throws when its class would be made. A start makes none and
     puts the empty holder only. The guard reads data properties only, so it

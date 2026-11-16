@@ -62,7 +62,7 @@ traps, and call its functions with hostile arguments (`crates/gro_cli/tests/host
 const REVIEWED_PRIMORDIALS: Record<string, ReviewedMember> = {
 	Error: {
 		type: 'ErrorConstructor',
-		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. Every row also hands it to the namespace op as it is, which makes it the host's classes' prototype natively and reads nothing of it."
+		why: "constructed with a message, a string, and nothing else: the engine stores the string and captures the stack itself, and reads no option. What it makes is the realm's `Error`, as a caller expects of one thrown. A row whose members throw a host error also hands it to the namespace op as it is, which the host makes its error classes extend, natively, reading nothing of it but its own `prototype`, a data property, the first time it makes one."
 	}
 };
 
@@ -90,18 +90,24 @@ const REVIEWED_INTRINSICS: ReviewedIntrinsics = {
 
 const rows = read_builtin_rows();
 
-// what every implementation starts with, where the mutants go
-const TOP_LEVEL = '\tconst { core, primordials } = bootstrap;\n';
+// what every implementation starts with, its destructuring of the bootstrap object, where the
+// mutants go: `core`, and `primordials` in a row whose members throw a host error
+const TOP_LEVEL = /^\tconst \{ core(?:, primordials)? \} = bootstrap;\n/m;
+
+// what a mutant's start puts in its place: both, each used, so a mutant of any row may use
+// either
+const MUTANT_TOP_LEVEL = '\tconst { core, primordials } = bootstrap;\n\tprimordials;\n';
 
 // what a mutant hands a value to so the value is used: a function of its own, typed for any
 // value, which reads nothing of it
 const KEEP = '\tconst keep = <T>(value: T): T => value;\n\tkeep;\n';
 
 /**
- * An implementation's start with `use` inside a function of its own, in place of `TOP_LEVEL`.
+ * An implementation's start with `use` inside a function of its own, in place of its
+ * `TOP_LEVEL`.
  */
 const in_a_function = (use: string): string =>
-	`${TOP_LEVEL}${KEEP}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
+	`${MUTANT_TOP_LEVEL}${KEEP}\tconst probe = (): unknown => ${use};\n\tprobe;\n`;
 
 /**
  * The diagnostics of the implementations' program, with `implementation` in place of the
@@ -130,6 +136,7 @@ describe("the implementations' program", () => {
 
 describe.each(rows)('the $name implementation', (row) => {
 	const source = read_implementation(row);
+	const top_level = TOP_LEVEL.exec(source)?.[0] ?? '(no destructuring of the bootstrap object)';
 
 	/**
 	 * Asserts the program fails once `from` in the implementation is `to`.
@@ -159,21 +166,21 @@ describe.each(rows)('the $name implementation', (row) => {
 			'console;',
 			'undefined_name;'
 		]) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${global}\n`);
+			assert_refused(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${global}\n`);
 		}
 		// a function that uses only what the implementation was given type-checks, so each
 		// one below is refused for the global it names
 		const allowed = in_a_function("keep(new primordials.Error('made'))");
-		assert.deepEqual(check_program(row, source.replace(TOP_LEVEL, allowed)), []);
-		assert_refused(TOP_LEVEL, in_a_function('Object.assign(core, core)'));
-		assert_refused(TOP_LEVEL, in_a_function('keep(Object.create(null))'));
+		assert.deepEqual(check_program(row, source.replace(top_level, allowed)), []);
+		assert_refused(top_level, in_a_function('Object.assign(core, core)'));
+		assert_refused(top_level, in_a_function('keep(Object.create(null))'));
 	});
 
 	test('a member of an intrinsic is refused', () => {
 		// a function's method and property, at the top level and in a function
-		assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\tprimordials.Error.name;\n`);
-		assert_refused(TOP_LEVEL, in_a_function("primordials.Error.call(undefined, 'made')"));
-		assert_refused(TOP_LEVEL, in_a_function('primordials.Error.bind(undefined)'));
+		assert_refused(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\tprimordials.Error.name;\n`);
+		assert_refused(top_level, in_a_function("primordials.Error.call(undefined, 'made')"));
+		assert_refused(top_level, in_a_function('primordials.Error.bind(undefined)'));
 		// an array's, a string's, and an object's
 		for (const member of [
 			'[core].length;',
@@ -183,13 +190,13 @@ describe.each(rows)('the $name implementation', (row) => {
 			'({ core }).toString();',
 			'({ core }).constructor;'
 		]) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${member}\n`);
+			assert_refused(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${member}\n`);
 		}
 	});
 
 	test('a promise and `this` are refused', () => {
 		for (const use of ['(async () => 1)();', "import('x');", 'this;']) {
-			assert_refused(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
+			assert_refused(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${use}\n`);
 		}
 	});
 
@@ -365,7 +372,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			],
 			["1 + 1 < 3 === ('' + 1 === '1');", [], true]
 		] satisfies Array<[string, Array<string>, boolean]>) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
+			const mutated = source.replace(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${use}\n`);
 			assert.notStrictEqual(mutated, source);
 			const analysis = analyze_implementation(row, mutated);
 			assert.deepEqual(analysis.refused, refused, use);
@@ -375,7 +382,7 @@ describe.each(rows)('the $name implementation', (row) => {
 
 	test('each operator that makes a string or a number of a value that is not one is refused', () => {
 		const refused = (use: string): Array<string> =>
-			analyze_implementation(row, source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`))
+			analyze_implementation(row, source.replace(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${use}\n`))
 				.refused;
 		const binary = ['+', '-', '*', '**', '/', '%', '<<', '>>', '>>>', '&', '|', '^'];
 		for (const operator of [...binary, '==', '!=', '<', '<=', '>', '>=']) {
@@ -401,7 +408,7 @@ describe.each(rows)('the $name implementation', (row) => {
 	});
 
 	test("what turns the program's check off, or adds to its declarations, is refused", () => {
-		const called = source.replace(TOP_LEVEL, `${TOP_LEVEL}\tstructuredClone(core);\n`);
+		const called = source.replace(top_level, `${MUTANT_TOP_LEVEL}\tstructuredClone(core);\n`);
 		// a global the program lacks, called with no member read: the walk refuses the call
 		assert.deepEqual(analyze_implementation(row, called).refused, ['any']);
 		assert.notDeepEqual(analyze_implementation(row, called).diagnostics, []);
@@ -437,7 +444,7 @@ describe.each(rows)('the $name implementation', (row) => {
 			['(async () => {\n\t\tawait 1;\n\t});', ['async', 'await'], false],
 			["import('x');", ['import'], false]
 		] satisfies Array<[string, Array<string>, boolean]>) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
+			const mutated = source.replace(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${use}\n`);
 			const analysis = analyze_implementation(row, mutated, declarations);
 			assert.deepEqual(analysis.refused, refused, use);
 			assert.strictEqual(analysis.diagnostics.length === 0, accepted, `${use}: the program`);
@@ -450,7 +457,7 @@ describe.each(rows)('the $name implementation', (row) => {
 		assert.include(declarations, declared, 'the declaration to mutate is there');
 		// read as a member, and bound by a pattern
 		for (const use of ['bootstrap.maybe;', 'const { maybe } = bootstrap;\n\tkeep(maybe);']) {
-			const mutated = source.replace(TOP_LEVEL, `${TOP_LEVEL}${KEEP}\t${use}\n`);
+			const mutated = source.replace(top_level, `${MUTANT_TOP_LEVEL}${KEEP}\t${use}\n`);
 			for (const [member, refused] of [
 				['readonly maybe: object;', []],
 				['readonly maybe?: object;', ['member']]

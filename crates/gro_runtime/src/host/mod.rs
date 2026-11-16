@@ -203,8 +203,9 @@ host_ops! {
     /// its members native functions and values made the first time the run
     /// asks and held, so every later ask, a rerun of a first import ended
     /// early among them, gets the same ones, once the row's grant is
-    /// checked; the script hands over its importer's scope and the realm's
-    /// `Error`, from `primordials` ([`native::namespace`]).
+    /// checked; the script hands over its importer's scope, and the realm's
+    /// `Error`, from `primordials`, when it's a row of an error family's
+    /// ([`native::namespace`]).
     fn op_gro_namespace(state; scope, importer_scope, error) {
         native::namespace(state, scope, importer_scope, error)
             .map_or_else(|| v8::undefined(scope).into(), Into::into)

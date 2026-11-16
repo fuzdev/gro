@@ -375,8 +375,10 @@ describe('a retyped export fails its check', () => {
 		);
 		// the root not of the handle's type, by the host's claim or the script's type argument
 		assert_mismatch('env', 'bootstrap', 'readonly env: Handle;', 'readonly env: object;');
+		// and the realm's `Error`, which `EnvError` extends, not handed over
 		const call = "op_gro_namespace<'@fuzdev/gro/env.ts', EnvHandle>(_scope, Error)";
 		assert_mismatch('env', 'builtin', call, call.replace(', EnvHandle', ''));
+		assert_mismatch('env', 'builtin', call, call.replace(', Error)', ')'));
 		assert_mismatch(
 			'env',
 			'node',
@@ -405,10 +407,11 @@ describe('a retyped export fails its check', () => {
 			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array;',
 			'readonly create_keyed_hasher: (key: Uint8Array) => {\n\t\t\t\t\t\tupdate(data: Uint8Array): void;\n\t\t\t\t\t\tfinalize(): Uint8Array | undefined;'
 		);
-		// the namespace typed as another row's, and the realm's `Error` not handed over
-		const call = "op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope, Error)";
+		// the namespace typed as another row's, and a second value handed over, where a row
+		// whose members throw no host error hands over its scope alone
+		const call = "op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope)";
 		assert_mismatch('blake3', 'builtin', call, call.replace('blake3.ts', 'args.ts'));
-		assert_mismatch('blake3', 'builtin', call, call.replace(', Error', ''));
+		assert_mismatch('blake3', 'builtin', call, call.replace('(_scope)', '(_scope, _scope)'));
 		assert_mismatch('blake3', 'node', 'finalize(): Uint8Array;', 'finalize(): ArrayBuffer;');
 	});
 

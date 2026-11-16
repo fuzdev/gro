@@ -18,10 +18,9 @@
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 (function (bootstrap: Bootstrap) {
-	const { core, primordials } = bootstrap;
+	const { core } = bootstrap;
 	const { op_gro_namespace } = core.ops;
-	const { Error } = primordials;
 
 	// `cwd`, the host's, and the `default` every builtin has, `undefined`
-	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/cwd.ts'>(_scope, Error);
+	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/cwd.ts'>(_scope);
 });

@@ -19,7 +19,8 @@ interface Bootstrap {
 			 * by the calling script; the type arguments name it, and the type of the handle its
 			 * namespace holds, which only the row's script can name, since a handle's methods
 			 * return its own type, for the types alone, which are claims, held to the Node module's
-			 * by the types test. The script hands over its scope and the realm's `Error`.
+			 * by the types test. The script hands over its scope, and the realm's `Error` from a row
+			 * whose members throw a host error, which the host makes the error's class of.
 			 */
 			readonly op_gro_namespace: <
 				Row extends
@@ -33,8 +34,9 @@ interface Bootstrap {
 					| '@fuzdev/gro/runtime_version.ts',
 				Handle = never
 			>(
-				scope: undefined,
-				error: ErrorConstructor
+				...args: Row extends '@fuzdev/gro/env.ts' | '@fuzdev/gro/env_error.ts'
+					? [scope: undefined, error: ErrorConstructor]
+					: [scope: undefined]
 			) => {
 				readonly '@fuzdev/gro/args.ts': {
 					readonly args: ReadonlyArray<string>;

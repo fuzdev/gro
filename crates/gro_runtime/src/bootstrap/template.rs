@@ -1,6 +1,8 @@
-//! What holds each row's backing script to the template: the one text a
+//! What holds each row's backing script to its template: the one text a
 //! row's needs give, so no script reads, decides, or hands on anything the
-//! template doesn't. A script that departed from it could return the
+//! template doesn't. A row hands the realm's `Error` over when it's a row of
+//! an error family's, and no other does ([`hands_over_error`]), so there are
+//! two templates, with the `Error` and without. A script that departed from it could return the
 //! bootstrap object, `core`, or `core.ops`, hand on a copy of one, read
 //! another op, or let its inner level escape, and the checks over the
 //! implementations' source (the type program's walk, the reviewed lists,
@@ -17,20 +19,26 @@
 //! whose kept lines are the template's runs what the template runs.
 
 use super::{IMPLEMENTATIONS, Implementation, WRAP_CLOSE, WRAP_OPEN, scope_argument};
+use crate::host::error_class::hands_over_error;
+use crate::resolver::BUILTINS;
 
 /// The template's backing script for `implementation`'s row: the outer
-/// level takes the one op and the realm's `Error`, and the inner returns
-/// what the op gives for the scope, called with the row's scope argument.
-fn template(implementation: &Implementation) -> String {
+/// level takes the one op, and the realm's `Error` when `hands_over_error`,
+/// and the inner returns what the op gives for the scope, and the `Error`,
+/// called with the row's scope argument.
+fn template(implementation: &Implementation, hands_over_error: bool) -> String {
     let scope = scope_argument(implementation.grant);
-    format!(
-        "{WRAP_OPEN}(function (bootstrap) {{
-            const {{ core, primordials }} = bootstrap;
-            const {{ op_gro_namespace }} = core.ops;
-            const {{ Error }} = primordials;
-            return (_scope) => op_gro_namespace(_scope, Error);
-        }})(__bootstrap)({scope}){WRAP_CLOSE}"
-    )
+    let body = if hands_over_error {
+        "const { core, primordials } = bootstrap;
+        const { op_gro_namespace } = core.ops;
+        const { Error } = primordials;
+        return (_scope) => op_gro_namespace(_scope, Error);"
+    } else {
+        "const { core } = bootstrap;
+        const { op_gro_namespace } = core.ops;
+        return (_scope) => op_gro_namespace(_scope);"
+    };
+    format!("{WRAP_OPEN}(function (bootstrap) {{\n{body}\n}})(__bootstrap)({scope}){WRAP_CLOSE}")
 }
 
 /// `script`, a backing script, as it's compared: formatted by tsv as the
@@ -77,14 +85,23 @@ fn departure(implementation: &Implementation, template: &str) -> Option<String> 
 
 /// Every row's backing script is the template its row's needs give, so no
 /// row's script hands on anything of the bootstrap object, reads another
-/// op, or lets its inner level escape.
+/// op, or lets its inner level escape, and only a row of an error family's
+/// reads the realm's `Error`.
 #[test]
-fn every_row_s_backing_script_is_the_template() {
-    let departures: Vec<String> = IMPLEMENTATIONS
+fn every_row_s_backing_script_is_its_template() {
+    let departures: Vec<String> = BUILTINS
         .iter()
-        .filter_map(|implementation| departure(implementation, &template(implementation)))
+        .zip(IMPLEMENTATIONS)
+        .filter_map(|(row, implementation)| {
+            departure(
+                implementation,
+                &template(implementation, hands_over_error(row.specifier)),
+            )
+        })
         .collect();
     assert!(departures.is_empty(), "{}", departures.join("\n"));
+    assert!(BUILTINS.iter().any(|row| hands_over_error(row.specifier)));
+    assert!(BUILTINS.iter().any(|row| !hands_over_error(row.specifier)));
 }
 
 /// The normalization passes over what isn't the program (types, a comment
@@ -105,8 +122,10 @@ fn a_script_departs_from_the_template_for_its_program_alone() {
          { Error } = primordials;\n\t// the realm's\n\tinterface Unused {\n\t\ta: string;\n\t}\n\treturn \
          (_scope: undefined) =>\n\t\top_gro_namespace<'@fuzdev/gro/pid.ts'>(_scope, Error);\n});\n",
     );
-    let departs = |source| departure(&probe(source), &template(&probe(source)));
+    let departs = |source| departure(&probe(source), &template(&probe(source), true));
     assert_eq!(departs(same.source), None);
+    // the template without the `Error` is another text
+    assert!(departure(&same, &template(&same, false)).is_some());
     for (source, line) in [
         // returns `core` by value
         (

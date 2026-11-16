@@ -33,15 +33,19 @@
 //! Where it comes from: the realm's `Error.prototype` is the prototype of
 //! an error V8 makes, which no program can replace, and the realm's `Error`,
 //! which the class extends, is handed over from `primordials`, taken before
-//! any program ran, by the implementation of every row whose namespace the
-//! host makes: the host has no native way to it that a program can't have
-//! replaced, and taking it at every start would cost every start. The first
-//! handed over is held for the run ([`ErrorClasses::hold_error`]), once it's
-//! checked to be a function whose own `prototype` is the realm's
-//! `Error.prototype`, so a member that throws a family's error finds it,
-//! whichever row's import came first, and a member is reached only through
-//! a row whose import handed it over. Nothing of the class is in the snapshot,
-//! and a start that needs none makes none. A class is put in
+//! any program ran, by the implementation of each row of a family's
+//! ([`ErrorFamily::rows`]): its error row, and each row whose members throw
+//! the family's error. The host has no native way to it that a program
+//! can't have replaced, and taking it at every start would cost every
+//! start; and reading it costs a row's first import, so a row whose members
+//! throw no host error hands over nothing. The first handed over is held for
+//! the run ([`ErrorClasses::hand_over`]), and checked to be a function
+//! whose own `prototype` is the realm's `Error.prototype` the first time a
+//! class is made of it, so a run that makes none never pays for the check,
+//! and a member that throws a family's error finds it, whichever of the
+//! family's rows was imported first, since a member is reached only through
+//! a row whose import handed it over. Nothing of the class is in the
+//! snapshot, and a start that needs none makes none. A class is put in
 //! [`ErrorClasses`] only once it's whole, so an implementation ended early
 //! while the class was being made finds none, and makes it again, and one
 //! that ran once finds it, as an instance per origin will.
@@ -65,12 +69,18 @@ pub struct ErrorFamily {
     /// The own property naming what the error is about: `target`, the
     /// variable's name for an `EnvError`.
     pub target: &'static str,
+    /// The rows that make the class, by specifier: the family's error row
+    /// first, whose namespace holds it, then each row whose members throw
+    /// it. Each hands the realm's `Error` over to the namespace op, and no
+    /// other row does ([`hands_over_error`]).
+    pub rows: &'static [&'static str],
 }
 
-/// The env host module's errors: `EnvError`.
+/// The env host module's errors: `EnvError`, which `env`'s handles throw.
 pub const ENV_ERROR: ErrorFamily = ErrorFamily {
     name: "EnvError",
     target: "target",
+    rows: &["@fuzdev/gro/env_error.ts", "@fuzdev/gro/env.ts"],
 };
 
 /// Every family the host makes a class of, which a class's native
@@ -82,6 +92,18 @@ const FAMILIES: [&ErrorFamily; 1] = [&ENV_ERROR];
 /// no realm `Error` to make the class from.
 const NO_REALM_ERROR: &str = "the host holds no realm Error to make an error class from: \
                               no row's import handed it over";
+
+/// What making a class throws when the value handed over as the realm's
+/// `Error` isn't it.
+const NOT_REALM_ERROR: &str = "an error class extends the realm's Error";
+
+/// Whether the row `specifier` hands the realm's `Error` over to the
+/// namespace op: whether it's one of a family's [`ErrorFamily::rows`].
+pub fn hands_over_error(specifier: &str) -> bool {
+    FAMILIES
+        .iter()
+        .any(|family| family.rows.contains(&specifier))
+}
 
 /// What a family's class's native function throws when its family isn't
 /// one of [`FAMILIES`], naming it.
@@ -108,13 +130,21 @@ struct Made {
     class: v8::Global<v8::Function>,
 }
 
+/// The realm's `Error` as the run holds it.
+enum RealmError {
+    /// Handed over by a row's implementation, not yet checked.
+    Handed(v8::Global<v8::Value>),
+    /// Checked, when a class was first made of it.
+    Checked(v8::Global<v8::Function>),
+}
+
 /// The error classes made in a run, and the realm's `Error` they extend,
 /// put in its `OpState` when it starts, empty: the `Error` joins when it's
 /// first handed over, and a class once it's whole.
 #[derive(Default)]
 pub struct ErrorClasses {
     /// The realm's `Error`, once a row's implementation handed it over.
-    error: RefCell<Option<v8::Global<v8::Function>>>,
+    error: RefCell<Option<RealmError>>,
     /// The classes made.
     made: RefCell<Vec<Made>>,
 }
@@ -126,21 +156,35 @@ impl ErrorClasses {
         self.made.borrow().len()
     }
 
-    /// The realm's `Error`: the one the run holds, or `error`, a value a
-    /// row's implementation handed over from `primordials`, held now if
-    /// it's a function, not a proxy, whose own data `prototype` is the
-    /// realm's `Error.prototype`, which a script handing over the wrong
-    /// intrinsic fails. Later values are ignored: the first held is the
-    /// run's. `None` with a `TypeError` thrown when the run holds none and
-    /// `error` isn't that, and with what V8 threw when a read failed.
-    pub fn hold_error<'s>(
-        &self,
-        scope: &v8::PinScope<'s, '_>,
-        error: v8::Local<'s, v8::Value>,
-    ) -> Option<v8::Local<'s, v8::Function>> {
-        if let Some(held) = &*self.error.borrow() {
-            return Some(v8::Local::new(scope, held));
+    /// Holds `error`, a value a row's implementation handed over from
+    /// `primordials` as the realm's `Error`, unchecked, when the run holds
+    /// none: later values are ignored while one is held. It's checked when
+    /// a class is first made of it ([`Self::class`]), so a run that makes
+    /// none never pays for the check.
+    pub fn hand_over(&self, scope: &v8::PinScope<'_, '_>, error: v8::Local<'_, v8::Value>) {
+        let mut held = self.error.borrow_mut();
+        if held.is_none() {
+            *held = Some(RealmError::Handed(v8::Global::new(scope, error)));
         }
+    }
+
+    /// The realm's `Error` the run holds, checked now if it wasn't: a
+    /// function, not a proxy, whose own data `prototype` is the realm's
+    /// `Error.prototype`, which a script handing over the wrong intrinsic
+    /// fails. A value that fails is dropped, so the next import of a row
+    /// that hands one over hands over another. `None` with an `Error`
+    /// thrown when the run holds none, a `TypeError` when what it holds
+    /// isn't that, and what V8 threw when a read failed.
+    fn realm_error<'s>(&self, scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Function>> {
+        let handed = match &*self.error.borrow() {
+            None => None,
+            Some(RealmError::Checked(error)) => return Some(v8::Local::new(scope, error)),
+            Some(RealmError::Handed(error)) => Some(v8::Local::new(scope, error)),
+        };
+        let Some(error) = handed else {
+            throw_error(scope, NO_REALM_ERROR);
+            return None;
+        };
         let function = v8::Local::<v8::Function>::try_from(error)
             .ok()
             .filter(|_| !error.is_proxy());
@@ -153,18 +197,20 @@ impl ErrorClasses {
             None => false,
         };
         let Some(function) = function.filter(|_| is_error) else {
-            throw_type_error(scope, "an error class extends the realm's Error");
+            *self.error.borrow_mut() = None;
+            throw_type_error(scope, NOT_REALM_ERROR);
             return None;
         };
-        *self.error.borrow_mut() = Some(v8::Global::new(scope, function));
+        *self.error.borrow_mut() = Some(RealmError::Checked(v8::Global::new(scope, function)));
         Some(function)
     }
 
     /// The class of `family`: the run's, made now if it has none,
-    /// extending the realm's `Error` the run holds. `None` when making it
-    /// threw, the exception pending, an `Error` saying so among them when
-    /// the run holds no `Error`, which no member reached through a row's
-    /// import meets.
+    /// extending the realm's `Error` the run holds, checked now if it
+    /// wasn't ([`Self::realm_error`]). `None` when making it threw, the
+    /// exception pending, an `Error` saying so among them when the run
+    /// holds no `Error`, which no member reached through a row's import
+    /// meets.
     pub fn class<'s>(
         &self,
         scope: &v8::PinScope<'s, '_>,
@@ -173,15 +219,7 @@ impl ErrorClasses {
         if let Some(made) = self.made.borrow().iter().find(|made| made.family == family) {
             return Some(v8::Local::new(scope, &made.class));
         }
-        let Some(error) = self
-            .error
-            .borrow()
-            .as_ref()
-            .map(|error| v8::Local::new(scope, error))
-        else {
-            throw_error(scope, NO_REALM_ERROR);
-            return None;
-        };
+        let error = self.realm_error(scope)?;
         let class = make(scope, family, error)?;
         self.made.borrow_mut().push(Made {
             family,
@@ -426,5 +464,27 @@ mod tests {
         let families: Vec<&str> = FAMILIES.iter().map(|family| family.name).collect();
         assert!(!rows.is_empty(), "the table has an error row");
         assert_eq!(families, rows);
+    }
+
+    /// Each family's rows are the table's, each once, its error row first,
+    /// whose first export is the class: each a row whose implementation
+    /// hands the realm's `Error` over.
+    #[test]
+    fn a_family_s_rows_are_its_error_row_then_the_rows_that_throw_it() {
+        for family in FAMILIES {
+            let mut seen = Vec::new();
+            let first = BUILTINS
+                .iter()
+                .find(|row| Some(&row.specifier) == family.rows.first());
+            assert_eq!(first.map(|row| row.exports[0]), Some(family.name));
+            for specifier in family.rows {
+                assert!(
+                    BUILTINS.iter().any(|row| row.specifier == *specifier),
+                    "{specifier}"
+                );
+                assert!(!seen.contains(specifier), "{specifier}");
+                seen.push(*specifier);
+            }
+        }
     }
 }

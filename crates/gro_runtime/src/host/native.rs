@@ -31,9 +31,10 @@
 //! the row's specifier from the table, never from an argument, so no row's
 //! script can ask for another's ([`calling_row`]). It checks the row's
 //! grant ([`require_grant`]), takes the scope of the importer's grant
-//! (`undefined` while no row has one) and the realm's `Error`, which the
-//! run holds for the error classes, and returns the namespace the run
-//! holds, or makes it and holds it ([`NativeNamespaces`]). Making
+//! (`undefined` while no row has one) and, from a row of an error family's,
+//! the realm's `Error`, which the run holds for the error classes, and
+//! returns the namespace the run holds, or makes it and holds it
+//! ([`NativeNamespaces`]). Making
 //! one makes each kind of handle's prototype, a null-prototype record of its
 //! methods, and then the namespace, a null-prototype record of its exports
 //! and the `default` every builtin has, `undefined`; each function is
@@ -88,7 +89,7 @@ use std::cell::RefCell;
 
 use deno_core::{JsRuntime, OpState, v8};
 
-use super::error_class::ErrorClasses;
+use super::error_class::{ErrorClasses, hands_over_error};
 use super::grant::require_grant;
 use super::handle::HandleKind;
 use super::{NO_ERROR_CLASSES, name, throw_error, throw_type_error};
@@ -108,6 +109,10 @@ const NOT_A_ROW: &str = "a namespace is asked for by a builtin's own script";
 /// What the namespace op throws for a scope that isn't `undefined`: no
 /// row takes one yet.
 const NOT_A_SCOPE: &str = "no row takes a scope yet";
+
+/// What the namespace op throws for a value handed over as the realm's
+/// `Error` by a row that throws no host error.
+const NOT_HANDED: &str = "a row whose members throw no host error hands over no Error";
 
 /// What the namespace op throws in a runtime started without the holder
 /// of the namespaces, which only a runtime made outside a run's start is.
@@ -410,12 +415,14 @@ impl NativeNamespaces {
 /// holds, or one made now, then held, once the row's grant is checked and
 /// what the script hands over is: `importer_scope`, the scope of its
 /// importer's grant, which no row has yet, so it's
-/// `undefined`; and `error`, the realm's `Error`, which the run holds
-/// ([`ErrorClasses::hold_error`]) for the error classes a row throws.
-/// `None` with an exception pending when a step failed: a `TypeError` for
-/// a caller that is no row's backing script, `not_granted` for a row whose
-/// grant the run doesn't hold, and a `TypeError` for a scope or an `Error`
-/// that isn't one.
+/// `undefined`; and `error`, the realm's `Error`, from a row of an error
+/// family's alone ([`hands_over_error`]), which the run holds, checked when
+/// a class is first made of it ([`ErrorClasses::hand_over`]), and
+/// `undefined` from every other row. `None` with an exception pending when
+/// a step failed: a `TypeError` for a caller that is no row's backing
+/// script, `not_granted` for a row whose grant the run doesn't hold, and a
+/// `TypeError` for a scope that isn't one, or an `Error` from a row that
+/// hands over none.
 pub fn namespace<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
@@ -437,11 +444,16 @@ pub fn namespace<'s>(
         throw_type_error(scope, NOT_A_SCOPE);
         return None;
     }
-    let Some(classes) = state.try_borrow::<ErrorClasses>() else {
-        throw_error(scope, NO_ERROR_CLASSES);
+    if hands_over_error(module) {
+        let Some(classes) = state.try_borrow::<ErrorClasses>() else {
+            throw_error(scope, NO_ERROR_CLASSES);
+            return None;
+        };
+        classes.hand_over(scope, error);
+    } else if !error.is_undefined() {
+        throw_type_error(scope, NOT_HANDED);
         return None;
-    };
-    classes.hold_error(scope, error)?;
+    }
     let Some(namespaces) = state.try_borrow::<NativeNamespaces>() else {
         throw_error(scope, NO_NAMESPACES);
         return None;

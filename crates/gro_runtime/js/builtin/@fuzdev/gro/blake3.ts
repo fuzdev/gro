@@ -13,7 +13,7 @@
 // a `TypeError`. A hasher is the host's too: a frozen object of a frozen null-prototype record of
 // the methods, whose state is the host's own `blake3::Hasher`, which the host drops once the
 // hasher is collected. The script reads nothing and decides nothing: it hands the host its
-// scope and the realm's `Error`, taken before any user code ran.
+// scope, and no `Error`, since no member throws a host error.
 //
 // A script the runtime compiles and calls on the builtin's first import, in two levels,
 // reaching intrinsics only through `primordials` (`args.ts` has the rules). A grant-free module
@@ -22,11 +22,10 @@
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 (function (bootstrap: Bootstrap) {
-	const { core, primordials } = bootstrap;
+	const { core } = bootstrap;
 	const { op_gro_namespace } = core.ops;
-	const { Error } = primordials;
 
 	// `hash` and the hashers' factories, the host's, and the `default` every builtin has,
 	// `undefined`
-	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope, Error);
+	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/blake3.ts'>(_scope);
 });

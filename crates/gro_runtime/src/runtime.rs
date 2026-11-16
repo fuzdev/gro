@@ -254,7 +254,7 @@ mod tests {
     use crate::bootstrap::web_scripts;
     use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
-    use crate::host::error_class::ErrorClasses;
+    use crate::host::error_class::{ErrorClasses, hands_over_error};
     use crate::host::native::{self, Member, NativeMember, NativeNamespaces, Place, Prototypes};
     use crate::host::{HOST_OPS, NATIVE_MEMBERS};
     use crate::loader::graph::Recording;
@@ -498,6 +498,7 @@ JSON.stringify({
         static MISSING: ErrorFamily = ErrorFamily {
             name: "MissingError",
             target: "target",
+            rows: &[],
         };
         let (message, made) = on_new_runtime("missing_family", Mode::Run, |runtime| {
             let classes = ErrorClasses::default();
@@ -506,7 +507,7 @@ JSON.stringify({
             let key = v8::String::new(scope, "Error").unwrap();
             let error = global.get(scope, key.into()).unwrap();
             v8::tc_scope!(let tc, scope);
-            assert!(classes.hold_error(tc, error).is_some());
+            classes.hand_over(tc, error);
             assert!(classes.class(tc, &MISSING).is_none());
             let thrown = tc.exception().unwrap();
             let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
@@ -520,6 +521,67 @@ JSON.stringify({
              table"
         );
         assert_eq!(made, 0);
+    }
+
+    /// The realm's `Error` a row hands over is held unchecked until a class
+    /// is first made of it: `env`'s first import, handed the wrong
+    /// intrinsic, makes the namespace and no class; making the class then
+    /// refuses it, as a `TypeError`, and drops it, so the next import's
+    /// `Error` is the one checked and the class is made of it.
+    #[test]
+    fn the_realm_s_error_is_checked_when_a_class_is_first_made() {
+        use crate::host::error_class::ENV_ERROR;
+
+        let results = on_new_runtime("error_checked_at_class", Mode::Run, |runtime| {
+            let state = runtime.op_state();
+            state.borrow_mut().put(crate::test_support::run_authority());
+            state.borrow_mut().put(host_data());
+            state.borrow_mut().put(ErrorClasses::default());
+            state.borrow_mut().put(NativeNamespaces::default());
+            drop(state);
+            let env = backing_script("@fuzdev/gro/env.ts");
+            let import = |runtime: &mut JsRuntime, error: &str| {
+                named_script_json(
+                    runtime,
+                    env,
+                    format!(
+                        "JSON.stringify(Object.keys(Deno.core.ops.op_gro_namespace(undefined, \
+                         {error})))"
+                    ),
+                )
+            };
+            let make_class = |runtime: &mut JsRuntime| {
+                let state = runtime.op_state();
+                let state = state.borrow();
+                let classes = state.borrow::<ErrorClasses>();
+                deno_core::scope!(scope, runtime);
+                v8::tc_scope!(let tc, scope);
+                let made = classes.class(tc, &ENV_ERROR).is_some();
+                let thrown = tc.exception().map(|thrown| {
+                    let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
+                    let message = v8::String::new(tc, "message").unwrap();
+                    thrown
+                        .get(tc, message.into())
+                        .unwrap()
+                        .to_rust_string_lossy(tc)
+                });
+                (made, thrown, classes.len())
+            };
+            let wrong = import(runtime, "TypeError");
+            let refused = make_class(runtime);
+            let right = import(runtime, "Error");
+            let made = make_class(runtime);
+            json!({"wrong": wrong, "refused": refused, "right": right, "made": made})
+        });
+        assert_eq!(
+            results,
+            json!({
+                "wrong": ["env", "default"],
+                "refused": [false, "an error class extends the realm's Error", 0],
+                "right": ["env", "default"],
+                "made": [true, null, 1],
+            })
+        );
     }
 
     /// A refused env name in a runtime with no record of refusals, which no
@@ -1077,11 +1139,9 @@ globalThis.namespaces = {};";
             let before = held(runtime);
             runtime.execute_script("<test>", NATIVE_HELPERS).unwrap();
             // what each caller and each argument the op refuses gets, before
-            // anything is held: the realm's `Error` is the run's once held
-            let call = |scope: &str, error: &str| {
-                format!(
-                    "JSON.stringify(thrown(() => Deno.core.ops.op_gro_namespace({scope}, {error})))"
-                )
+            // anything is held
+            let call = |arguments: &str| {
+                format!("JSON.stringify(thrown(() => Deno.core.ops.op_gro_namespace({arguments})))")
             };
             let trap = "new Proxy({}, { get() { globalThis.trapped = true; } })";
             let blake3 = backing_script("@fuzdev/gro/blake3.ts");
@@ -1089,35 +1149,32 @@ globalThis.namespaces = {};";
             runtime
                 .execute_script(
                     "<test>",
-                    "globalThis.calls_op = () => Deno.core.ops.op_gro_namespace(undefined, Error);",
+                    "globalThis.calls_op = () => Deno.core.ops.op_gro_namespace(undefined);",
                 )
                 .unwrap();
             let mut rows_refused = Vec::new();
             for (name, source) in [
-                ("<test>", call("undefined", "Error")),
+                ("<test>", call("undefined")),
                 (
                     blake3,
                     "JSON.stringify(thrown(() => calls_op()))".to_owned(),
                 ),
                 (
                     "file:///project/node_modules/x/@fuzdev/gro/blake3.ts",
-                    call("undefined", "Error"),
+                    call("undefined"),
                 ),
                 (
                     "<test>",
-                    format!("{}\n//# sourceURL={blake3}", call("undefined", "Error")),
+                    format!("{}\n//# sourceURL={blake3}", call("undefined")),
                 ),
-                ("ext:gro/builtin/nope.ts", call("undefined", "Error")),
-                (
-                    backing_script("@fuzdev/gro/args.ts"),
-                    call("undefined", "Error"),
-                ),
-                (blake3, call("null", "Error")),
-                (blake3, call(trap, "Error")),
-                (blake3, call("undefined", "undefined")),
-                (blake3, call("undefined", "TypeError")),
-                (blake3, call("undefined", "new Proxy(Error, {})")),
-                (blake3, call("undefined", trap)),
+                ("ext:gro/builtin/nope.ts", call("undefined")),
+                (backing_script("@fuzdev/gro/args.ts"), call("undefined")),
+                (blake3, call("null")),
+                (blake3, call(trap)),
+                (blake3, call("undefined, Error")),
+                (blake3, call("undefined, null")),
+                (blake3, call("undefined, new Proxy(Error, {})")),
+                (blake3, call(&format!("undefined, {trap}"))),
             ] {
                 rows_refused.push(named_script_json(runtime, name, source));
             }
@@ -1138,13 +1195,20 @@ globalThis.namespaces = {};";
                 .put(crate::test_support::run_authority());
             for row in native_rows() {
                 let names = function_names(row, Place::Export);
+                // what the row's script hands over, the realm's `Error` from
+                // an error family's row alone
+                let arguments = if hands_over_error(row) {
+                    "undefined, Error"
+                } else {
+                    "undefined"
+                };
                 let source = format!(
                     "{{
 	const ops = Deno.core.ops;
-	const namespace = ops.op_gro_namespace(undefined, Error);
+	const namespace = ops.op_gro_namespace({arguments});
 	namespaces['{row}'] = namespace;
 	JSON.stringify({{
-		same: namespace === ops.op_gro_namespace(undefined, Error),
+		same: namespace === ops.op_gro_namespace({arguments}),
 		record: shape(namespace),
 		default: namespace.default === undefined,
 		functions: functions(namespace, '{row}', {names}),
@@ -1510,14 +1574,15 @@ globalThis.namespaces = {};";
     /// that is no row's backing script is a `TypeError`, one that names a
     /// row's script in a `sourceURL` and one of a name no row has among
     /// them; a row whose grant the run lacks is refused naming the grant,
-    /// before anything is made; and a scope that isn't `undefined` or an `Error` that isn't the
-    /// realm's is a `TypeError`, read with no conversion: no trap runs, and
-    /// nothing is held.
+    /// before anything is made; and a scope that isn't `undefined`, or
+    /// anything but `undefined` handed over as the realm's `Error` by a row
+    /// whose members throw no host error, is a `TypeError`, read with no
+    /// conversion: no trap runs, and nothing is held.
     #[test]
     fn the_namespace_op_knows_the_row_by_its_script() {
         let not_a_row = "TypeError: a namespace is asked for by a builtin's own script";
         let not_a_scope = "TypeError: no row takes a scope yet";
-        let not_an_error = "TypeError: an error class extends the realm's Error";
+        let not_handed = "TypeError: a row whose members throw no host error hands over no Error";
         for start in STARTS {
             assert_eq!(
                 probed("native_members", start)["rows_refused"],
@@ -1531,10 +1596,10 @@ globalThis.namespaces = {};";
                      runtime doesn't hold",
                     not_a_scope,
                     not_a_scope,
-                    not_an_error,
-                    not_an_error,
-                    not_an_error,
-                    not_an_error,
+                    not_handed,
+                    not_handed,
+                    not_handed,
+                    not_handed,
                     false,
                 ]),
                 "{start:?}"
@@ -1564,7 +1629,7 @@ globalThis.namespaces = {};";
                 runtime
                     .execute_script(
                         backing_script("@fuzdev/gro/blake3.ts"),
-                        "const { create_hasher } = Deno.core.ops.op_gro_namespace(undefined, Error);
+                        "const { create_hasher } = Deno.core.ops.op_gro_namespace(undefined);
 globalThis.kept = create_hasher();
 for (let i = 0; i < 100; i++) create_hasher();",
                     )
@@ -1606,7 +1671,7 @@ JSON.stringify(globalThis.kept.finalize().length)",
             runtime
                 .execute_script(
                     backing_script("@fuzdev/gro/blake3.ts"),
-                    "globalThis.blake3 = Deno.core.ops.op_gro_namespace(undefined, Error);
+                    "globalThis.blake3 = Deno.core.ops.op_gro_namespace(undefined);
 globalThis.live = [];
 for (let i = 0; i < 4; i++) blake3.create_hasher();
 for (let i = 0; i < 3; i++) {

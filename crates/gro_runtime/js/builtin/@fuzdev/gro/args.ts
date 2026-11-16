@@ -10,10 +10,12 @@
 // A builtin's implementation is a script, one function in two levels, which is in no snapshot:
 // the runtime compiles and calls it the first time a run imports the builtin. The outer level
 // takes deno_core's bootstrap object and runs once a run: it takes the one op, the namespace
-// op, from `core.ops`, and the realm's `Error` from `primordials`, taken when the runtime was
-// made, before any user code ran. The outer level returns the inner, a function of the scope
-// of an importer's grant that asks the host for the builtin's namespace, handing over the
-// scope and `Error`. The script reads nothing and decides nothing: the namespace, each
+// op, from `core.ops`, and, only in a row whose members throw a host error (`env.ts`,
+// `env_error.ts`), the realm's `Error` from `primordials`, taken when the runtime was made,
+// before any user code ran, for the host to make the error's class of. The outer level returns
+// the inner, a function of the scope of an importer's grant that asks the host for the
+// builtin's namespace, handing over the scope, and `Error` where the outer level took it. The
+// script reads nothing and decides nothing: the namespace, each
 // function and value it holds, and whatever has identity or state, a class, a brand, a
 // registry, are the host's, made natively.
 //
@@ -34,10 +36,9 @@
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 (function (bootstrap: Bootstrap) {
-	const { core, primordials } = bootstrap;
+	const { core } = bootstrap;
 	const { op_gro_namespace } = core.ops;
-	const { Error } = primordials;
 
 	// `args`, the host's, and the `default` every builtin has, `undefined`
-	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/args.ts'>(_scope, Error);
+	return (_scope: undefined) => op_gro_namespace<'@fuzdev/gro/args.ts'>(_scope);
 });

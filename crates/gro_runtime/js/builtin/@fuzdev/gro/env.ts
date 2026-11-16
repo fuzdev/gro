@@ -11,7 +11,9 @@
 // each argument as the value it is, with no conversion, and throws `EnvError`, the host's class,
 // for a name outside the handle's set. `narrow` returns a handle the host makes of the
 // receiver's prototype. The root handle, `env`, is made with the namespace, from the run's
-// grant. The script reads nothing and decides nothing.
+// grant. The script reads nothing and decides nothing: it hands the host its scope and the
+// realm's `Error`, from `primordials`, taken before any user code ran, which `EnvError`
+// extends.
 //
 // A script the runtime compiles and calls on the builtin's first import, in two levels,
 // reaching intrinsics only through `primordials` (`args.ts` has the rules). Its scope is
