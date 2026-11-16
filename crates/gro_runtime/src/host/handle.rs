@@ -46,7 +46,9 @@ pub struct HandleKind {
     /// The private symbol's name, in V8's one namespace of API private
     /// symbols, qualified so no other embedder code's collides: the row's
     /// specifier, `#`, and the interface of its Node module that the
-    /// kind's handles implement, which `src/test/builtin_types.test.ts`
+    /// kind's handles implement, or of TypeScript's own when the module
+    /// exports none of the name (`AsyncIterableIterator`, what `fs`'s
+    /// `list` returns), which `src/test/builtin_types.test.ts`
     /// holds the kind's methods to.
     pub brand: &'static str,
     /// The kind it extends, whose prototype its prototype's is and whose
@@ -91,6 +93,15 @@ pub const FS_READ_DIR: HandleKind = HandleKind {
 pub const FS_DIR: HandleKind = HandleKind {
     brand: "@fuzdev/gro/fs.ts#FsDir",
     parent: Some(&FS_READ_DIR),
+    fields: &[],
+};
+
+/// The fs host module's listings, what `list` returns: an async iterator
+/// of a directory's entries, a TypeScript `AsyncIterableIterator`, as the
+/// Node module's async generator is.
+pub const FS_LISTING: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/fs.ts#AsyncIterableIterator",
+    parent: None,
     fields: &[],
 };
 

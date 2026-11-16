@@ -10,29 +10,67 @@
 // directory, and an environment holding the case's `env` and nothing else, never the
 // developer's. It prints one line of JSON and nothing on stderr. Its `flags` are `fgro run`'s,
 // the grants it runs with, and its `refused` the lines `fgro` prints for what its rules refuse,
-// neither of which Node has.
+// neither of which Node has. Its `sockets` are paths, relative to this directory, where a unix
+// socket listens while it runs, made by its runner here and by `fgro`'s tests alike, since git
+// holds no socket.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 
 const dir = realpathSync(import.meta.dirname);
 const expected_path = join(dir, 'expected.json');
 
-/** @type {Array<{name: string, module: string, args: Array<string>, env?: Record<string, string>}>} */
+/** @typedef {{name: string, module: string, args: Array<string>, env?: Record<string, string>, sockets?: Array<string>}} Case */
+
+/** @type {Array<Case>} */
 const cases = JSON.parse(readFileSync(join(dir, 'cases.json'), 'utf8'));
+
+/** Removes the socket at `path` an earlier run left, and nothing else. */
+const remove_socket = (/** @type {string} */ path) => {
+	if (lstatSync(path, { throwIfNoEntry: false })?.isSocket()) rmSync(path);
+};
+
+/**
+ * Listens on a unix socket at each of `paths`, relative to this directory.
+ * @param {Array<string>} paths
+ * @returns {Promise<() => Promise<void>>} what closes them and removes their files
+ */
+const listen = async (paths) => {
+	/** @type {Array<[string, import('node:net').Server]>} */
+	const servers = [];
+	for (const path of paths) {
+		const at = join(dir, path);
+		remove_socket(at);
+		const server = createServer();
+		await new Promise((resolve, reject) => {
+			server.once('error', reject);
+			server.listen(at, () => resolve(undefined));
+		});
+		servers.push([at, server]);
+	}
+	return async () => {
+		for (const [at, server] of servers) {
+			await new Promise((resolve) => server.close(() => resolve(undefined)));
+			remove_socket(at);
+		}
+	};
+};
 
 /**
  * Runs `test_case` under Node, returning its exit code and what it printed, parsed.
- * @param {{name: string, module: string, args: Array<string>, env?: Record<string, string>}} test_case
+ * @param {Case} test_case
  */
-const run = (test_case) => {
+const run = async (test_case) => {
+	const close = await listen(test_case.sockets ?? []);
 	const args = test_case.args.map((arg) => (arg === '{cwd}' ? dir : arg));
 	const result = spawnSync(process.execPath, ['on_node.js', test_case.module, ...args], {
 		cwd: dir,
 		env: { ...test_case.env },
 		encoding: 'utf8'
 	});
+	await close();
 	if (result.error || result.signal !== null || result.stderr !== '') {
 		throw new Error(
 			`the case ${test_case.name} didn't run cleanly under Node: ${result.error ?? result.signal ?? result.stderr}`
@@ -41,11 +79,11 @@ const run = (test_case) => {
 	return { code: result.status, output: JSON.parse(result.stdout) };
 };
 
-const actual = `${JSON.stringify(
-	Object.fromEntries(cases.map((test_case) => [test_case.name, run(test_case)])),
-	null,
-	'\t'
-)}\n`;
+/** @type {Record<string, unknown>} */
+const results = {};
+for (const test_case of cases) results[test_case.name] = await run(test_case);
+
+const actual = `${JSON.stringify(results, null, '\t')}\n`;
 
 const mode = process.argv[2];
 if (mode === '--write' && process.argv.length === 3) {

@@ -86,18 +86,22 @@
 //! handle of the kind is that record. A member declared `async` returns a
 //! promise the host settles before returning it ([`settle`]).
 //!
-//! What the form doesn't have yet, each for a slice to come, and how each
-//! would be declared: a member keyed by a well-known symbol
-//! (`Symbol.asyncDispose`, on `temp_dir`'s handles), a key written in place
-//! of the name, `fn [async_dispose](..)`, the record keyed by the symbol V8
-//! gives; a `length` short of the arguments a member reads (a defaulted
-//! parameter, `temp_dir(prefix = 'gro-')`), written `fn temp_dir(state;
-//! scope, prefix?)`, the arguments after the first marked `?` left out of
-//! the `length`; a listing whose work waits for its first `next()`, as an
-//! async generator's does (`list`); and the table of native state behind a
+//! A member can be keyed by a well-known symbol in place of a name,
+//! declared `fn [ASYNC_ITERATOR](..)` ([`WellKnownSymbol`]): its record
+//! is keyed by the symbol V8 holds for the isolate, never one a program
+//! can replace, and its function named as JS names a method of that key
+//! (`[Symbol.asyncIterator]`), as the table lists it. And a member can read
+//! arguments past its `length`, each written in brackets after the others,
+//! `fn list(state; scope, [path])`, as a defaulted parameter is left out of
+//! a JS function's `length`; one not passed is `undefined`. An iterator
+//! whose work waits for its first `next()`, as an async generator's does
+//! (`fs`'s `list`), is a handle whose state is a record of the host's that
+//! its methods change, under its brand, which no JS holds.
+//!
+//! What the form doesn't have yet: the table of native state behind a
 //! handle (`blake3.rs`'s hashers, with the weak reference that drops an
 //! entry) lifted into `handle.rs` for every kind that holds native state,
-//! which `fs`'s handles, holding plain data, don't.
+//! which `fs`'s handles and listings, holding plain data, don't.
 
 use std::cell::RefCell;
 
@@ -230,13 +234,52 @@ pub enum ValueKind {
     Class,
 }
 
+/// A well-known symbol a member is keyed by in place of a name, declared
+/// `fn [SYMBOL](..)`: the realm's own, which V8 gives the host, never a
+/// global a program can replace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WellKnownSymbol {
+    /// The name JS gives a method of this key, a member's name and its
+    /// function's `name`.
+    pub name: &'static str,
+    /// Which symbol it is.
+    which: WellKnown,
+}
+
+/// The well-known symbols a member can be keyed by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WellKnown {
+    /// `Symbol.asyncIterator`.
+    AsyncIterator,
+}
+
+/// `Symbol.asyncIterator`, the key of an async iterable's method that
+/// returns its iterator.
+pub const ASYNC_ITERATOR: WellKnownSymbol = WellKnownSymbol {
+    name: "[Symbol.asyncIterator]",
+    which: WellKnown::AsyncIterator,
+};
+
+impl WellKnownSymbol {
+    /// The symbol, as V8 holds it for the isolate.
+    fn get<'s>(self, scope: &v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Symbol> {
+        match self.which {
+            WellKnown::AsyncIterator => v8::Symbol::get_async_iterator(scope),
+        }
+    }
+}
+
 /// A native member, as [`NATIVE_MEMBERS`](super::NATIVE_MEMBERS) lists it.
 #[derive(Debug, Clone, Copy)]
 pub struct NativeMember {
     /// The builtin it's a member of, by its specifier in the builtin table.
     pub module: &'static str,
-    /// Its name, the export's or the method's, and a function's `name`.
+    /// Its name, the export's or the method's, and a function's `name`;
+    /// for a member keyed by a well-known symbol, the name JS gives a
+    /// method of that key (`[Symbol.asyncIterator]`).
     pub name: &'static str,
+    /// The well-known symbol it's keyed by in place of its name, if any.
+    pub symbol: Option<WellKnownSymbol>,
     /// Where it goes.
     pub place: Place,
     /// What the host makes of it.
@@ -282,7 +325,11 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 /// record of functions that take no receiver (`fs`'s root), names the kind
 /// alone, `on KIND`; an export names nothing more. Each
 /// argument is the JS value passed, as `v8::Local<'s, v8::Value>`, and the
-/// member's `length` is how many it declares. The scope is
+/// member's `length` is how many it declares before any written in
+/// brackets, `[name]`, which it reads all the same, as JS leaves a
+/// defaulted parameter out of a function's `length`. A method keyed by a
+/// well-known symbol writes the symbol's const in brackets in place of its
+/// name, `fn [ASYNC_ITERATOR](..)`. The scope is
 /// `&mut v8::PinScope<'s, '_>`. The body's value is the member's result,
 /// an `Option<v8::Local<'s, v8::Value>>`, `None` leaving it `undefined`,
 /// which is what a member with no result and one that threw return.
@@ -376,8 +423,20 @@ macro_rules! native_members {
     (@value_kind [] [$class:ident]) => {
         $crate::host::native::ValueKind::Class
     };
+    (@name $name:ident) => {
+        stringify!($name)
+    };
+    (@name [$symbol:ident]) => {
+        $symbol.name
+    };
+    (@symbol $name:ident) => {
+        None
+    };
+    (@symbol [$symbol:ident]) => {
+        Some($symbol)
+    };
     (
-        @body $name:ident, $module:literal, $state:ident,
+        @body $name:expr, $module:literal, $state:ident,
         [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
         [$($receiver:ident)?], [$($family:ident($declared:ident))?], $body:block
     ) => {{
@@ -393,7 +452,7 @@ macro_rules! native_members {
             let $state: &deno_core::OpState = &state;
             native_members!(
                 @require
-                format!("{} of {}", stringify!($name), $module),
+                format!("{} of {}", $name, $module),
                 "host function",
                 $state,
                 $scope
@@ -407,8 +466,8 @@ macro_rules! native_members {
         body
     }};
     (
-        @member fn [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
-        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
+        @member fn [$($doc:literal)*] $name:expr, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*], [$($optional:ident)*],
         [$($kind:ident $(($receiver:ident))?)?], [], [$($family:ident($declared:ident))?], [],
         $body:block
     ) => {
@@ -425,7 +484,8 @@ macro_rules! native_members {
                 ) {
                     let body = native_members!(
                         @body $name, $module, $state, [$($granted: $grant)?], $scope,
-                        [$($arg)*], [$($($receiver)?)?], [$($family($declared))?], $body
+                        [$($arg)* $($optional)*], [$($($receiver)?)?],
+                        [$($family($declared))?], $body
                     );
                     if let Some(value) = body(scope, &args) {
                         result.set(value);
@@ -436,8 +496,8 @@ macro_rules! native_members {
         }
     };
     (
-        @member async [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
-        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
+        @member async [$($doc:literal)*] $name:expr, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*], [$($optional:ident)*],
         [$($kind:ident $(($receiver:ident))?)?], [], [$($family:ident($declared:ident))?], [],
         $body:block
     ) => {
@@ -454,7 +514,8 @@ macro_rules! native_members {
                 ) {
                     let body = native_members!(
                         @body $name, $module, $state, [$($granted: $grant)?], $scope,
-                        [$($arg)*], [$($($receiver)?)?], [$($family($declared))?], $body
+                        [$($arg)* $($optional)*], [$($($receiver)?)?],
+                        [$($family($declared))?], $body
                     );
                     if let Some(promise) = $crate::host::native::settle(scope, |scope| body(scope, &args)) {
                         result.set(promise.into());
@@ -465,8 +526,8 @@ macro_rules! native_members {
         }
     };
     (
-        @member value [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
-        [$($granted:ident: $grant:ty)?], $scope:ident, [], [$($kind:ident)?],
+        @member value [$($doc:literal)*] $name:expr, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [], [], [$($kind:ident)?],
         [$($handle:ident($prototype:ident))?], [], [$($family:ident($declared:ident))?],
         $body:block
     ) => {
@@ -482,7 +543,7 @@ macro_rules! native_members {
                 ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
                     native_members!(
                         @require
-                        format!("{} of {}", stringify!($name), $module),
+                        format!("{} of {}", $name, $module),
                         "host value",
                         $state,
                         $scope
@@ -498,9 +559,9 @@ macro_rules! native_members {
     };
     ($(
         $(#[doc = $doc:literal])*
-        $what:ident $name:ident(
+        $what:ident $([$symbol:ident])? $($name:ident)? (
             $state:ident $(, $granted:ident: $grant:ty)?;
-            $scope:ident $(, $arg:ident)*
+            $scope:ident $(, $arg:ident)* $(, [$optional:ident])*
         )
             for $module:literal
             $(on $kind:ident $(($receiver:ident))?)?
@@ -514,11 +575,13 @@ macro_rules! native_members {
         pub const NATIVE_MEMBERS: &[$crate::host::native::NativeMember] = &[$(
             $crate::host::native::NativeMember {
                 module: $module,
-                name: stringify!($name),
+                name: native_members!(@name $($name)? $([$symbol])?),
+                symbol: native_members!(@symbol $($name)? $([$symbol])?),
                 place: native_members!(@place $($kind)?),
                 member: native_members!(
-                    @member $what [$($doc)*] $name, $module, $state,
-                    [$($granted: $grant)?], $scope, [$($arg)*],
+                    @member $what [$($doc)*] native_members!(@name $($name)? $([$symbol])?),
+                    $module, $state, [$($granted: $grant)?], $scope, [$($arg)*],
+                    [$($optional)*],
                     [$($kind $(($receiver))?)?], [$($handle($prototype))?],
                     [$($thrown($thrower))?], [$($class($classer))?], $body
                 ),
@@ -776,7 +839,10 @@ fn record<'s, 'm>(
     let mut names: Vec<v8::Local<'s, v8::Name>> = Vec::new();
     let mut values: Vec<v8::Local<'s, v8::Value>> = Vec::new();
     for member in members {
-        names.push(name(scope, member.name)?);
+        names.push(match member.symbol {
+            Some(symbol) => symbol.get(scope).into(),
+            None => name(scope, member.name)?,
+        });
         values.push(match member.member {
             Member::Function {
                 length, callback, ..

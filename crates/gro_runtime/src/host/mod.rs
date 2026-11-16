@@ -38,7 +38,8 @@ use deno_core::{OpDecl, OpState, op2, v8};
 use error_class::{ENV_ERROR, ErrorClasses, FS_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
-use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_READ_DIR, FS_ROOT};
+use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT};
+use native::ASYNC_ITERATOR;
 use native::native_members;
 
 use crate::loader::RefusalLog;
@@ -439,45 +440,79 @@ native_members! {
         fs::exists(state, scope, handle, path, errors)
     }
 
-    /// `dir.read(path)`, not built ([`fs::unbuilt`]).
-    async read(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
-        on FS_READ_DIR(handle)
+    /// `dir.read(path)`, called on `handle` ([`fs::read`]).
+    async read(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::unbuilt(state, scope, "read", Some((&FS_READ_DIR, handle)))
+        fs::read(state, scope, handle, path, fs::Contents::Bytes, false, errors)
     }
 
-    /// `dir.read_text(path)`, not built ([`fs::unbuilt`]).
-    async read_text(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
-        on FS_READ_DIR(handle)
+    /// `dir.read_text(path)`, called on `handle` ([`fs::read`]).
+    async read_text(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::unbuilt(state, scope, "read_text", Some((&FS_READ_DIR, handle)))
+        fs::read(state, scope, handle, path, fs::Contents::Text, false, errors)
     }
 
-    /// `dir.read_if_exists(path)`, not built ([`fs::unbuilt`]).
-    async read_if_exists(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
-        on FS_READ_DIR(handle)
+    /// `dir.read_if_exists(path)`, called on `handle` ([`fs::read`]).
+    async read_if_exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::unbuilt(state, scope, "read_if_exists", Some((&FS_READ_DIR, handle)))
+        fs::read(state, scope, handle, path, fs::Contents::Bytes, true, errors)
     }
 
-    /// `dir.read_text_if_exists(path)`, not built ([`fs::unbuilt`]).
-    async read_text_if_exists(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
-        on FS_READ_DIR(handle)
+    /// `dir.read_text_if_exists(path)`, called on `handle` ([`fs::read`]).
+    async read_text_if_exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::unbuilt(state, scope, "read_text_if_exists", Some((&FS_READ_DIR, handle)))
+        fs::read(state, scope, handle, path, fs::Contents::Text, true, errors)
     }
 
-    /// `dir.list(path?)`, not built, which throws where the Node module's
-    /// returns its iterable ([`fs::unbuilt`]).
-    fn list(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_READ_DIR(handle) {
-        fs::unbuilt(state, scope, "list", Some((&FS_READ_DIR, handle)))
-    }
-
-    /// `dir.read_link(path)`, not built ([`fs::unbuilt`]).
-    async read_link(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+    /// `dir.list(path?)`, called on `handle`, which the listing's first
+    /// `next()` reads ([`fs::list`]).
+    fn list(state, _granted: FsGrant; scope, [path]) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle)
     {
-        fs::unbuilt(state, scope, "read_link", Some((&FS_READ_DIR, handle)))
+        fs::list(state, scope, handle, path)
+    }
+
+    /// A listing's `next()`, called on `listing` ([`fs::listing_next`]).
+    async next(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts"
+        on FS_LISTING(listing) throws FS_ERROR(errors)
+    {
+        fs::listing_next(state, scope, listing, errors)
+    }
+
+    /// A listing's `return(value)`, called on `listing`
+    /// ([`fs::listing_return`]).
+    async return(state, _granted: FsGrant; scope, value) for "@fuzdev/gro/fs.ts"
+        on FS_LISTING(listing)
+    {
+        fs::listing_return(state, scope, listing, value)
+    }
+
+    /// A listing's `throw(error)`, called on `listing`
+    /// ([`fs::listing_throw`]).
+    async throw(state, _granted: FsGrant; scope, error) for "@fuzdev/gro/fs.ts"
+        on FS_LISTING(listing)
+    {
+        fs::listing_throw(state, scope, listing, error)
+    }
+
+    /// A listing's `[Symbol.asyncIterator]()`, which returns its receiver,
+    /// whatever it is, as the realm's async iterators' does, reading
+    /// nothing of it.
+    fn [ASYNC_ITERATOR](state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts"
+        on FS_LISTING(listing)
+    {
+        Some(listing)
+    }
+
+    /// `dir.read_link(path)`, called on `handle` ([`fs::read_link`]).
+    async read_link(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::read_link(state, scope, handle, path, errors)
     }
 
     /// `dir.stat_sync(path, options?)`, called on `handle` ([`fs::stat`]).
@@ -494,11 +529,11 @@ native_members! {
         fs::exists(state, scope, handle, path, errors)
     }
 
-    /// `dir.read_text_sync(path)`, not built ([`fs::unbuilt`]).
-    fn read_text_sync(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
-        on FS_READ_DIR(handle)
+    /// `dir.read_text_sync(path)`, called on `handle` ([`fs::read`]).
+    fn read_text_sync(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::unbuilt(state, scope, "read_text_sync", Some((&FS_READ_DIR, handle)))
+        fs::read(state, scope, handle, path, fs::Contents::Text, false, errors)
     }
 
     /// `dir.dir(path)`, called on `handle`, an `FsDir` ([`fs::dir`]).

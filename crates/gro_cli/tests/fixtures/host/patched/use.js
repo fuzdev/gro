@@ -114,14 +114,20 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/fs.ts fs.project.exists_sync', [['package.json']]],
 	['@fuzdev/gro/fs.ts fs.project.dir', [['.']]],
 	['@fuzdev/gro/fs.ts fs.project.readonly', []],
-	// the reads not built, refused whatever they're given
+	// a file beneath the project, and a path with nothing at it; and a listing of the project
 	['@fuzdev/gro/fs.ts fs.project.read', [['package.json']]],
 	['@fuzdev/gro/fs.ts fs.project.read_text', [['package.json']]],
-	['@fuzdev/gro/fs.ts fs.project.read_if_exists', [['package.json']]],
-	['@fuzdev/gro/fs.ts fs.project.read_text_if_exists', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_if_exists', [['package.json'], ['missing']]],
+	['@fuzdev/gro/fs.ts fs.project.read_text_if_exists', [['package.json'], ['missing']]],
 	['@fuzdev/gro/fs.ts fs.project.read_text_sync', [['package.json']]],
 	['@fuzdev/gro/fs.ts fs.project.read_link', [['package.json']]],
-	['@fuzdev/gro/fs.ts fs.project.list', []],
+	['@fuzdev/gro/fs.ts fs.project.list', [['.']]],
+	// the listing below, its first `next()` reading the project, then a value it settles to
+	// on `return`, and an error it rejects with on `throw`
+	['@fuzdev/gro/fs.ts listing.next', []],
+	['@fuzdev/gro/fs.ts listing.return', [[1]]],
+	['@fuzdev/gro/fs.ts listing.throw', [[1]]],
+	['@fuzdev/gro/fs.ts listing.Symbol(Symbol.asyncIterator)', []],
 	// each write given a path above the handle, refused before the grant it lacks, which
 	// would fail the run
 	['@fuzdev/gro/fs.ts fs.project.write', [[ABOVE, 'data']]],
@@ -149,6 +155,15 @@ for (const [specifier, exports, namespace] of MODULES) {
 		exerciser.exercise(`${specifier} ${name}`, value, undefined, DEPTH);
 	}
 }
+
+// a listing's methods, past the depth the walk reaches through `fs.project.list()`: the
+// iterator `list` returns, made before the realm is armed
+exerciser.exercise(
+	'@fuzdev/gro/fs.ts listing',
+	namespace_of('@fuzdev/gro/fs.ts').fs.project.list(),
+	undefined,
+	DEPTH
+);
 
 const replaced = count_replaced();
 restore_realm();

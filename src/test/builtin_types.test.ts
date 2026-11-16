@@ -16,8 +16,10 @@ side and not the other fails, naming it:
 - the same exports, each the same kind of member: a function, data, a handle of the same kind,
   or a class
 - each kind of handle the row makes, named in the table `<specifier>#<Interface>`, is the Node
-  module's exported interface of that name, which the Node module's handles implement: the
-  interface's members are the kind's methods
+  module's exported interface of that name, which the Node module's handles implement, or, when
+  the module exports none of the name, TypeScript's own of it, from the compiler's lib
+  (`AsyncIterableIterator`, which what `fs`'s `list` returns implements): the interface's
+  members are the kind's methods
 - each function and method of a `length` its declaration allows
 
 It holds names, kinds, and arity, never argument or result types: the differential cases
@@ -32,11 +34,13 @@ it allows each `length` from its required parameters to all of them before a res
 allow what any of them does.
 
 On the Node side, the kinds of handle are the interfaces the module exports that have a method,
-and a value export is a class when it's declared one or is a constructor, a function when it has
+and those of TypeScript's lib the table names, and a value export is a class when it's declared one or is a constructor, a function when it has
 a call signature, a handle when its type is one of those interfaces, and data otherwise. A
 kind's members are the interface's own and those it inherits from an interface that is no kind
 of the module's (`AsyncDisposable`), never one a kind it extends declares, which that kind's
-prototype holds; a member that isn't a method is data of the kind, a handle when its type is one
+prototype holds; an optional method (`AsyncIterator`'s `return?`) is a method, and a member keyed
+by a well-known symbol is named as JS names its method (`[Symbol.asyncIterator]`), as the table
+names it; a member that isn't a method is data of the kind, a handle when its type is one
 of those interfaces (`fs.project`), which the table pins as `data of <kind>`: a value of a
 record kind's one object, or a field each handle of the kind holds (`FsReadDir`'s `path`). A class
 is held by its kind alone: its constructor and instances are the host's error class's, which the
@@ -197,10 +201,29 @@ const to_function = (type: ts.Type): string => {
 };
 
 /**
- * The members of `row`'s Node module, read from `program`, in the pinned table's form, a
- * function's as its lengths allow.
+ * The interfaces the table's kinds of `row` are named for, from its members' keys
+ * (`method of <specifier>#<Interface> <name>`).
  */
-const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
+const to_kind_names = (members: Members, row: BuiltinRow): Set<string> => {
+	const names: Set<string> = new Set();
+	const prefix = ` of ${row.specifier}#`;
+	for (const key of members.keys()) {
+		const at = key.indexOf(prefix);
+		if (at !== -1) names.add(key.slice(at + prefix.length, key.indexOf(' ', at + prefix.length)));
+	}
+	return names;
+};
+
+/**
+ * The members of `row`'s Node module, read from `program`, in the pinned table's form, a
+ * function's as its lengths allow, the interfaces of TypeScript's lib among `kind_names`, the
+ * table's, read as kinds of the row's.
+ */
+const read_node_members = (
+	program: ts.Program,
+	row: BuiltinRow,
+	kind_names: Set<string>
+): Members => {
 	const checker = program.getTypeChecker();
 	const source = program.getSourceFile(join(paths.lib, `${row.name}.ts`));
 	assert.ok(source, row.name);
@@ -211,8 +234,11 @@ const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
 		.map((symbol) =>
 			symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol
 		);
+	// a member's type, an optional method's without its `undefined`
+	const type_of_member = (property: ts.Symbol): ts.Type =>
+		checker.getNonNullableType(checker.getTypeOfSymbol(property));
 	const is_method = (property: ts.Symbol): boolean =>
-		checker.getTypeOfSymbol(property).getCallSignatures().length > 0;
+		type_of_member(property).getCallSignatures().length > 0;
 	// the kinds of handle: each exported interface with a method
 	const kinds: Map<ts.Symbol, string> = new Map();
 	for (const symbol of exports) {
@@ -220,6 +246,21 @@ const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
 		if (checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(symbol)).some(is_method)) {
 			kinds.set(symbol, `${row.specifier}#${symbol.name}`);
 		}
+	}
+	// and each of TypeScript's own interfaces the table names a kind for, the module exporting none
+	const exported = new Set(Array.from(kinds.keys(), (symbol) => symbol.name));
+	const globals = checker.getSymbolsInScope(source, ts.SymbolFlags.Interface);
+	for (const name of kind_names) {
+		if (exported.has(name)) continue;
+		const symbol = globals.find(
+			(global) =>
+				global.name === name &&
+				(global.declarations ?? []).length > 0 &&
+				global.declarations!.every((declaration) =>
+					program.isSourceFileDefaultLibrary(declaration.getSourceFile())
+				)
+		);
+		if (symbol) kinds.set(symbol, `${row.specifier}#${name}`);
 	}
 	const members: Members = new Map();
 	for (const symbol of exports) {
@@ -252,7 +293,7 @@ const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
 			// a member a kind it extends declares is that kind's
 			if (from && from !== symbol && kinds.has(from)) continue;
 			const name = checker.symbolToString(property);
-			const property_type = checker.getTypeOfSymbol(property);
+			const property_type = type_of_member(property);
 			if (is_method(property)) {
 				members.set(`method of ${kind} ${name}`, to_function(property_type));
 			} else {
@@ -314,7 +355,7 @@ const differences_of = (
 	replaced: Record<string, string> = {}
 ): Array<string> => {
 	const fgro = read_pinned_members(pinned).get(row.specifier) ?? new Map();
-	const node = read_node_members(create_program(rows, replaced), row);
+	const node = read_node_members(create_program(rows, replaced), row, to_kind_names(fgro, row));
 	return compare_members(fgro, node);
 };
 
@@ -418,6 +459,33 @@ describe('a mismatch fails, naming the member', () => {
 			'method of @fuzdev/gro/blake3.ts#Blake3Hashing update (function 1) is on fgro only',
 			'method of @fuzdev/gro/blake3.ts#Blake3Hasher update (function 1) is on Node only'
 		]);
+		// a kind of TypeScript's own is found by its name, and one of a name its lib lacks is none
+		const listing = '@fuzdev/gro/fs.ts#AsyncIterableIterator';
+		assert_differences(
+			'fs',
+			'fgro',
+			`[Symbol.asyncIterator] method of ${listing} length 0`,
+			`[Symbol.asyncIterator] method of ${listing}s length 0`,
+			[
+				`method of ${listing}s [Symbol.asyncIterator] (function 0) is on fgro only`,
+				`method of ${listing} [Symbol.asyncIterator] (function 0) is on Node only`
+			]
+		);
+		// its members are held as the module's are, an optional method's among them
+		assert_differences(
+			'fs',
+			'fgro',
+			`next method of ${listing} length 0`,
+			`next method of ${listing} length 1`,
+			[`method of ${listing} next is function 1 on fgro, function 0 on Node`]
+		);
+		assert_differences(
+			'fs',
+			'fgro',
+			`@fuzdev/gro/fs.ts return method of ${listing} length 1 async grant fs\n`,
+			'',
+			[`method of ${listing} return (function 0..1) is on Node only`]
+		);
 	});
 
 	test('a length changed', () => {

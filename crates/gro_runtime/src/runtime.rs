@@ -1041,13 +1041,16 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
 		return `${error.constructor.name}: ${error.message}`;
 	}
 };
+// a key by the name the table gives it: a well-known symbol's as JS names a method of it
+globalThis.name_of = (key) => typeof key === 'symbol' ? `[${key.description}]` : key;
+globalThis.key_of = (name) => name.startsWith('[Symbol.') ? Symbol[name.slice(8, -1)] : name;
 globalThis.shape = (value) => {
 	const prototype = Object.getPrototypeOf(value);
 	return {
 		type: typeof value,
 		frozen: Object.isFrozen(value),
 		prototype: prototype === null ? null : prototype === Function.prototype ? 'Function.prototype' : 'other',
-		keys: Reflect.ownKeys(value).map(String),
+		keys: Reflect.ownKeys(value).map(name_of),
 	};
 };
 globalThis.function_shape = (fn) => ({
@@ -1068,8 +1071,8 @@ globalThis.members = [];
 globalThis.functions = (record, module, names) => {
 	const found = {};
 	for (const key of names) {
-		members.push([`${key} of ${module}`, record[key]]);
-		found[key] = function_shape(record[key]);
+		members.push([`${key} of ${module}`, record[key_of(key)]]);
+		found[key] = function_shape(record[key_of(key)]);
 	}
 	return found;
 };
@@ -1282,7 +1285,7 @@ globalThis.namespaces = {};";
                 "{
 	const result = {};
 	for (const [brand, prototype] of Object.entries(prototypes)) {
-		const names = Object.keys(prototype).filter((key) => typeof prototype[key] === 'function');
+		const names = Reflect.ownKeys(prototype).filter((key) => typeof prototype[key] === 'function').map(name_of);
 		result[brand] = { record: shape(prototype), functions: functions(prototype, brand, names) };
 	}
 	JSON.stringify(result);

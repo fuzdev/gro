@@ -3157,6 +3157,48 @@
 					"frozen": true
 				},
 				{
+					"name": "read",
+					"length": 1,
+					"name_of": "read",
+					"frozen": true
+				},
+				{
+					"name": "read_text",
+					"length": 1,
+					"name_of": "read_text",
+					"frozen": true
+				},
+				{
+					"name": "read_if_exists",
+					"length": 1,
+					"name_of": "read_if_exists",
+					"frozen": true
+				},
+				{
+					"name": "read_text_if_exists",
+					"length": 1,
+					"name_of": "read_text_if_exists",
+					"frozen": true
+				},
+				{
+					"name": "read_text_sync",
+					"length": 1,
+					"name_of": "read_text_sync",
+					"frozen": true
+				},
+				{
+					"name": "read_link",
+					"length": 1,
+					"name_of": "read_link",
+					"frozen": true
+				},
+				{
+					"name": "list",
+					"length": 0,
+					"name_of": "list",
+					"frozen": true
+				},
+				{
 					"name": "dir",
 					"length": 1,
 					"name_of": "dir",
@@ -3178,6 +3220,75 @@
 				"mode"
 			],
 			"info_null_prototype": false,
+			"listing": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {}
+			},
+			"listing_methods": [
+				{
+					"name": "next",
+					"length": 1,
+					"name_of": "next"
+				},
+				{
+					"name": "return",
+					"length": 1,
+					"name_of": "return"
+				},
+				{
+					"name": "throw",
+					"length": 1,
+					"name_of": "throw"
+				}
+			],
+			"listing_iterates_itself": true,
+			"listing_iterator_name": "[Symbol.asyncIterator]",
+			"result_keys": [
+				"value",
+				"done"
+			],
+			"result_null_prototype": false,
+			"entry": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"entry_object_prototype": true,
+			"bytes": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"0": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"1": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
 			"property_write": "TypeError",
 			"fs_write": "TypeError",
 			"method_write": "TypeError",
@@ -4101,6 +4212,166 @@
 						"mode": "number"
 					}
 				}
+			},
+			"empty.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 0,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 0,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 0,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"large.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 70400,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 70400,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 70400,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"mixed.bin": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 29,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 29,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 29,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"order": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"order/link": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 0,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 0,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
 			}
 		}
 	},
@@ -4561,6 +4832,92 @@
 					}
 				}
 			},
+			"empty.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/empty.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/empty.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/empty.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/empty.txt"
+					}
+				}
+			},
+			"large.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/large.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/large.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/large.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/large.txt"
+					}
+				}
+			},
+			"mixed.bin": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/mixed.bin",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/mixed.bin"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/mixed.bin",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/mixed.bin"
+					}
+				}
+			},
+			"order": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs/order",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs/order",
+						"writes": false
+					}
+				}
+			},
+			"order/link": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/order/link",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/order/link"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/order/link",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/order/link"
+					}
+				}
+			},
 			"through_a_link": {
 				"path": {
 					"returned": "{project}/fs/sub"
@@ -4854,6 +5211,30 @@
 						"class": "TypeError",
 						"message": "fs paths are strings"
 					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"list": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
 				}
 			},
 			"undefined": {
@@ -4886,6 +5267,33 @@
 						"class": "TypeError",
 						"message": "fs paths are strings"
 					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"list": {
+					"resolved": {
+						"done": false,
+						"value": {
+							"name": "a.txt",
+							"kind": "file"
+						}
+					}
 				}
 			},
 			"null": {
@@ -4915,6 +5323,30 @@
 				},
 				"dir": {
 					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"list": {
+					"rejected": {
 						"class": "TypeError",
 						"message": "fs paths are strings"
 					}
@@ -4950,6 +5382,30 @@
 						"class": "TypeError",
 						"message": "fs paths are strings"
 					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"list": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
 				}
 			},
 			"a symbol": {
@@ -4979,6 +5435,30 @@
 				},
 				"dir": {
 					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"list": {
+					"rejected": {
 						"class": "TypeError",
 						"message": "fs paths are strings"
 					}
@@ -5014,6 +5494,30 @@
 						"class": "TypeError",
 						"message": "fs paths hold no NUL byte"
 					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"list": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
 				}
 			},
 			"a lone surrogate": {
@@ -5046,6 +5550,30 @@
 						"class": "TypeError",
 						"message": "fs paths are well-formed Unicode"
 					}
+				},
+				"read": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"list": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
 				}
 			}
 		}
@@ -5065,6 +5593,27 @@
 				},
 				"readonly": {
 					"threw": "TypeError"
+				},
+				"read": {
+					"rejected": "TypeError"
+				},
+				"read_text_sync": {
+					"threw": "TypeError"
+				},
+				"read_link": {
+					"rejected": "TypeError"
+				},
+				"list": {
+					"rejected": "TypeError"
+				},
+				"next": {
+					"rejected": "TypeError"
+				},
+				"return": {
+					"rejected": "TypeError"
+				},
+				"throw": {
+					"rejected": "TypeError"
 				}
 			},
 			"an object": {
@@ -5079,6 +5628,27 @@
 				},
 				"readonly": {
 					"threw": "TypeError"
+				},
+				"read": {
+					"rejected": "TypeError"
+				},
+				"read_text_sync": {
+					"threw": "TypeError"
+				},
+				"read_link": {
+					"rejected": "TypeError"
+				},
+				"list": {
+					"rejected": "TypeError"
+				},
+				"next": {
+					"rejected": "TypeError"
+				},
+				"return": {
+					"rejected": "TypeError"
+				},
+				"throw": {
+					"rejected": "TypeError"
 				}
 			},
 			"a look-alike": {
@@ -5093,6 +5663,27 @@
 				},
 				"readonly": {
 					"threw": "TypeError"
+				},
+				"read": {
+					"rejected": "TypeError"
+				},
+				"read_text_sync": {
+					"threw": "TypeError"
+				},
+				"read_link": {
+					"rejected": "TypeError"
+				},
+				"list": {
+					"rejected": "TypeError"
+				},
+				"next": {
+					"rejected": "TypeError"
+				},
+				"return": {
+					"rejected": "TypeError"
+				},
+				"throw": {
+					"rejected": "TypeError"
 				}
 			},
 			"a proxy": {
@@ -5107,6 +5698,27 @@
 				},
 				"readonly": {
 					"threw": "TypeError"
+				},
+				"read": {
+					"rejected": "TypeError"
+				},
+				"read_text_sync": {
+					"threw": "TypeError"
+				},
+				"read_link": {
+					"rejected": "TypeError"
+				},
+				"list": {
+					"rejected": "TypeError"
+				},
+				"next": {
+					"rejected": "TypeError"
+				},
+				"return": {
+					"rejected": "TypeError"
+				},
+				"throw": {
+					"rejected": "TypeError"
 				}
 			},
 			"the prototype": {
@@ -5121,6 +5733,27 @@
 				},
 				"readonly": {
 					"threw": "TypeError"
+				},
+				"read": {
+					"rejected": "TypeError"
+				},
+				"read_text_sync": {
+					"threw": "TypeError"
+				},
+				"read_link": {
+					"rejected": "TypeError"
+				},
+				"list": {
+					"rejected": "TypeError"
+				},
+				"next": {
+					"rejected": "TypeError"
+				},
+				"return": {
+					"rejected": "TypeError"
+				},
+				"throw": {
+					"rejected": "TypeError"
 				}
 			},
 			"read_only": {
@@ -5212,6 +5845,2513 @@
 					"size": "number",
 					"mtime_ms": "number",
 					"mode": "number"
+				}
+			}
+		}
+	},
+	"fs_read": {
+		"code": 0,
+		"output": {
+			"a.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "a\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "a\n"
+				},
+				"read_text_sync": {
+					"returned": "a\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/a.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"sub": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/sub",
+						"kind": "io_error",
+						"path": "{project}/fs/sub"
+					}
+				}
+			},
+			"sub/b.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "bb\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "bb\n"
+				},
+				"read_text_sync": {
+					"returned": "bb\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/sub/b.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				}
+			},
+			"link_file": {
+				"read": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "a\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "a\n"
+				},
+				"read_text_sync": {
+					"returned": "a\n"
+				},
+				"read_link": {
+					"resolved": "a.txt"
+				}
+			},
+			"link_dir": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/link_dir",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/link_dir",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/link_dir",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/link_dir",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/link_dir",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"read_link": {
+					"resolved": "sub"
+				}
+			},
+			"link_dir/b.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "bb\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "bb\n"
+				},
+				"read_text_sync": {
+					"returned": "bb\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/link_dir/b.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/link_dir/b.txt"
+					}
+				}
+			},
+			"link_up": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_link": {
+					"resolved": "../fs/a.txt"
+				}
+			},
+			"escape": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_link": {
+					"resolved": "../../outside.txt"
+				}
+			},
+			"absolute": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_link": {
+					"resolved": "/proc/self/status"
+				}
+			},
+			"dangling": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/dangling",
+						"kind": "not_found",
+						"path": "{project}/fs/dangling"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/dangling",
+						"kind": "not_found",
+						"path": "{project}/fs/dangling"
+					}
+				},
+				"read_if_exists": {
+					"resolved": null
+				},
+				"read_text_if_exists": {
+					"resolved": null
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/dangling",
+						"kind": "not_found",
+						"path": "{project}/fs/dangling"
+					}
+				},
+				"read_link": {
+					"resolved": "missing.txt"
+				}
+			},
+			"missing": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				},
+				"read_if_exists": {
+					"resolved": null
+				},
+				"read_text_if_exists": {
+					"resolved": null
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				}
+			},
+			"missing/x": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				},
+				"read_if_exists": {
+					"resolved": null
+				},
+				"read_text_if_exists": {
+					"resolved": null
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				}
+			},
+			"a.txt/": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"a.txt/x": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				}
+			},
+			"sub/": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/sub",
+						"kind": "io_error",
+						"path": "{project}/fs/sub"
+					}
+				}
+			},
+			"sub/.": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/sub",
+						"kind": "io_error",
+						"path": "{project}/fs/sub"
+					}
+				}
+			},
+			"sub/..": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs",
+						"kind": "io_error",
+						"path": "{project}/fs"
+					}
+				}
+			},
+			"sub/../a.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "a\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "a\n"
+				},
+				"read_text_sync": {
+					"returned": "a\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/a.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"link_dir/..": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs",
+						"kind": "io_error",
+						"path": "{project}/fs"
+					}
+				}
+			},
+			".": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs",
+						"kind": "io_error",
+						"path": "{project}/fs"
+					}
+				}
+			},
+			"": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs",
+						"kind": "is_a_directory",
+						"path": "{project}/fs"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs",
+						"kind": "io_error",
+						"path": "{project}/fs"
+					}
+				}
+			},
+			"..": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				}
+			},
+			"../fs/a.txt": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				}
+			},
+			"sub/../../x": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				}
+			},
+			"/etc/hostname": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				}
+			},
+			"./a.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "a\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 2,
+						"plain": true,
+						"sum": 117,
+						"start": [
+							97,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "a\n"
+				},
+				"read_text_sync": {
+					"returned": "a\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/a.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"sub//b.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "bb\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 3,
+						"plain": true,
+						"sum": 324,
+						"start": [
+							98,
+							98,
+							10
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "bb\n"
+				},
+				"read_text_sync": {
+					"returned": "bb\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/sub/b.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				}
+			},
+			"empty.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 0,
+						"plain": true,
+						"sum": 0,
+						"start": []
+					}
+				},
+				"read_text": {
+					"resolved": ""
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 0,
+						"plain": true,
+						"sum": 0,
+						"start": []
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": ""
+				},
+				"read_text_sync": {
+					"returned": ""
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/empty.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/empty.txt"
+					}
+				}
+			},
+			"large.txt": {
+				"read": {
+					"resolved": {
+						"bytes": 70400,
+						"plain": true,
+						"sum": 915910766,
+						"start": [
+							108,
+							105,
+							110,
+							101
+						]
+					}
+				},
+				"read_text": {
+					"resolved": {
+						"text": 70400,
+						"sum": 915910766,
+						"start": "line 00000\n"
+					}
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 70400,
+						"plain": true,
+						"sum": 915910766,
+						"start": [
+							108,
+							105,
+							110,
+							101
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": {
+						"text": 70400,
+						"sum": 915910766,
+						"start": "line 00000\n"
+					}
+				},
+				"read_text_sync": {
+					"returned": {
+						"text": 70400,
+						"sum": 915910766,
+						"start": "line 00000\n"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/large.txt",
+						"kind": "io_error",
+						"path": "{project}/fs/large.txt"
+					}
+				}
+			},
+			"mixed.bin": {
+				"read": {
+					"resolved": {
+						"bytes": 29,
+						"plain": true,
+						"sum": 64122,
+						"start": [
+							239,
+							187,
+							191,
+							97
+						]
+					}
+				},
+				"read_text": {
+					"resolved": "﻿aé€😀\u0000�b����������c\n"
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 29,
+						"plain": true,
+						"sum": 64122,
+						"start": [
+							239,
+							187,
+							191,
+							97
+						]
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": "﻿aé€😀\u0000�b����������c\n"
+				},
+				"read_text_sync": {
+					"returned": "﻿aé€😀\u0000�b����������c\n"
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/mixed.bin",
+						"kind": "io_error",
+						"path": "{project}/fs/mixed.bin"
+					}
+				}
+			},
+			"order": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/order",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/order"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/order",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/order"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/order",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/order"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/order",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/order"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/order",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/order"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/order",
+						"kind": "io_error",
+						"path": "{project}/fs/order"
+					}
+				}
+			},
+			"order/link": {
+				"read": {
+					"resolved": {
+						"bytes": 0,
+						"plain": true,
+						"sum": 0,
+						"start": []
+					}
+				},
+				"read_text": {
+					"resolved": ""
+				},
+				"read_if_exists": {
+					"resolved": {
+						"bytes": 0,
+						"plain": true,
+						"sum": 0,
+						"start": []
+					}
+				},
+				"read_text_if_exists": {
+					"resolved": ""
+				},
+				"read_text_sync": {
+					"returned": ""
+				},
+				"read_link": {
+					"resolved": "a"
+				}
+			},
+			"links_followed": {
+				"to_a_directory": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/link_dir",
+						"kind": "io_error",
+						"path": "{project}/fs/link_dir"
+					}
+				},
+				"out": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape/",
+						"kind": "outside_root",
+						"path": "escape/"
+					}
+				},
+				"to_a_file": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/link_file",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/link_file"
+					}
+				}
+			},
+			"own_bytes": {
+				"distinct": true,
+				"whole_buffer": true,
+				"second": [
+					97,
+					10
+				]
+			}
+		}
+	},
+	"fs_list": {
+		"code": 0,
+		"output": {
+			"a.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"sub": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "b.txt",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"sub/b.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/sub/b.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/sub/b.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"link_file": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/link_file",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/link_file"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"link_dir": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "b.txt",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"link_dir/b.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/link_dir/b.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/link_dir/b.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"link_up": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: link_up",
+					"kind": "outside_root",
+					"path": "link_up"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"escape": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"absolute": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute",
+					"kind": "outside_root",
+					"path": "absolute"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"dangling": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/dangling",
+					"kind": "not_found",
+					"path": "{project}/fs/dangling"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"missing": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing",
+					"kind": "not_found",
+					"path": "{project}/fs/missing"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"missing/x": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing/x",
+					"kind": "not_found",
+					"path": "{project}/fs/missing/x"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"a.txt/": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"a.txt/x": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt/x"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"sub/": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "b.txt",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"sub/.": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "b.txt",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"sub/..": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"sub/../a.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"link_dir/..": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			".": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"..": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ..",
+					"kind": "outside_root",
+					"path": ".."
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"../fs/a.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../fs/a.txt",
+					"kind": "outside_root",
+					"path": "../fs/a.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"sub/../../x": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: sub/../../x",
+					"kind": "outside_root",
+					"path": "sub/../../x"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"/etc/hostname": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /etc/hostname",
+					"kind": "outside_root",
+					"path": "/etc/hostname"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"./a.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"sub//b.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/sub/b.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/sub/b.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"empty.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/empty.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/empty.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"large.txt": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/large.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/large.txt"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"mixed.bin": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/mixed.bin",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/mixed.bin"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"order": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "B",
+						"kind": "file"
+					},
+					{
+						"name": "Z",
+						"kind": "file"
+					},
+					{
+						"name": "_",
+						"kind": "file"
+					},
+					{
+						"name": "a",
+						"kind": "file"
+					},
+					{
+						"name": "a-b",
+						"kind": "file"
+					},
+					{
+						"name": "ab",
+						"kind": "file"
+					},
+					{
+						"name": "c",
+						"kind": "directory"
+					},
+					{
+						"name": "link",
+						"kind": "symlink"
+					},
+					{
+						"name": "é",
+						"kind": "file"
+					},
+					{
+						"name": "～",
+						"kind": "file"
+					},
+					{
+						"name": "😀",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"order/link": {
+				"returned": "object",
+				"entries": [],
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/order/link",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/order/link"
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"no_path": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"undefined_path": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"for_await": [
+				{
+					"name": "B",
+					"kind": "file"
+				},
+				{
+					"name": "Z",
+					"kind": "file"
+				},
+				{
+					"name": "_",
+					"kind": "file"
+				},
+				{
+					"name": "a",
+					"kind": "file"
+				},
+				{
+					"name": "a-b",
+					"kind": "file"
+				},
+				{
+					"name": "ab",
+					"kind": "file"
+				},
+				{
+					"name": "c",
+					"kind": "directory"
+				},
+				{
+					"name": "link",
+					"kind": "symlink"
+				},
+				{
+					"name": "é",
+					"kind": "file"
+				},
+				{
+					"name": "～",
+					"kind": "file"
+				},
+				{
+					"name": "😀",
+					"kind": "file"
+				}
+			]
+		}
+	},
+	"fs_listing": {
+		"code": 0,
+		"output": {
+			"returned_first": {
+				"returned": {
+					"done": true,
+					"value": 5
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"thrown_first": {
+				"thrown": true,
+				"after": {
+					"done": true
+				}
+			},
+			"returned_midway": {
+				"first": {
+					"done": false,
+					"value": {
+						"name": "b.txt",
+						"kind": "file"
+					}
+				},
+				"returned": {
+					"done": true
+				},
+				"after": {
+					"done": true
+				}
+			},
+			"thrown_midway": {
+				"thrown": true,
+				"after": {
+					"done": true
+				}
+			},
+			"broken": {
+				"before_break": [
+					{
+						"name": "B",
+						"kind": "file"
+					},
+					{
+						"name": "Z",
+						"kind": "file"
+					}
+				],
+				"after": {
+					"done": true
+				}
+			},
+			"thrown_out": {
+				"caught": true,
+				"after": {
+					"done": true
+				}
+			},
+			"raced": [
+				{
+					"done": false,
+					"value": {
+						"name": "b.txt",
+						"kind": "file"
+					}
+				},
+				{
+					"done": true
+				},
+				{
+					"done": true
+				}
+			],
+			"two": [
+				{
+					"done": false,
+					"value": {
+						"name": "b.txt",
+						"kind": "file"
+					}
+				},
+				{
+					"done": false,
+					"value": {
+						"name": "b.txt",
+						"kind": "file"
+					}
+				}
+			]
+		}
+	},
+	"fs_special": {
+		"code": 0,
+		"output": {
+			"reads": {
+				"read": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"read_text": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"read_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"read_text_if_exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"read_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"read_link": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/fs/socket",
+						"kind": "io_error",
+						"path": "{project}/fs/socket"
+					}
+				},
+				"stat": {
+					"resolved": {
+						"kind": "other",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"directory": {
+					"rejected": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				},
+				"directory_text_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "is_a_directory: {project}/fs/sub",
+						"kind": "is_a_directory",
+						"path": "{project}/fs/sub"
+					}
+				}
+			},
+			"listed": {
+				"returned": "object",
+				"entries": [
+					{
+						"name": "a.txt",
+						"kind": "file"
+					},
+					{
+						"name": "absolute",
+						"kind": "symlink"
+					},
+					{
+						"name": "dangling",
+						"kind": "symlink"
+					},
+					{
+						"name": "empty.txt",
+						"kind": "file"
+					},
+					{
+						"name": "escape",
+						"kind": "symlink"
+					},
+					{
+						"name": "large.txt",
+						"kind": "file"
+					},
+					{
+						"name": "link_dir",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_file",
+						"kind": "symlink"
+					},
+					{
+						"name": "link_up",
+						"kind": "symlink"
+					},
+					{
+						"name": "mixed.bin",
+						"kind": "file"
+					},
+					{
+						"name": "order",
+						"kind": "directory"
+					},
+					{
+						"name": "socket",
+						"kind": "other"
+					},
+					{
+						"name": "sub",
+						"kind": "directory"
+					}
+				],
+				"after": {
+					"done": true
 				}
 			}
 		}

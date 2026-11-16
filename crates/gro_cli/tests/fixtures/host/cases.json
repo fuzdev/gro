@@ -541,6 +541,21 @@
 				"why": "stat's record has a null prototype, so a promise settled with it finds no then of the realm's, where the Node module's is a plain object"
 			},
 			{
+				"at": "/listing/frozen",
+				"fgro": true,
+				"why": "a listing is a handle the host made, frozen as every fs handle is, where the Node module's is an async generator"
+			},
+			{
+				"at": "/listing_methods/0/length",
+				"fgro": 0,
+				"why": "a listing's next declares no argument, as TypeScript's AsyncIterator declares it, and reads none, where an async generator's next takes the value it sends"
+			},
+			{
+				"at": "/result_null_prototype",
+				"fgro": true,
+				"why": "a listing's result has a null prototype, so a promise settled with it finds no then of the realm's, where an async generator's is a plain object"
+			},
+			{
 				"at": "/namespace/own/default",
 				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
 				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
@@ -620,5 +635,30 @@
 				"why": "an op runs no code of a caller's, so an option given through a getter or a proxy is a TypeError, where the Node module runs it"
 			}
 		]
+	},
+	{
+		"name": "fs_read",
+		"module": "fs",
+		"args": ["read"],
+		"differs": []
+	},
+	{
+		"name": "fs_list",
+		"module": "fs",
+		"args": ["list"],
+		"differs": []
+	},
+	{
+		"name": "fs_listing",
+		"module": "fs",
+		"args": ["listing"],
+		"differs": []
+	},
+	{
+		"name": "fs_special",
+		"module": "fs",
+		"args": ["special"],
+		"sockets": ["fs/socket"],
+		"differs": []
 	}
 ]

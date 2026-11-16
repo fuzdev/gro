@@ -31,7 +31,10 @@
 //! And `fs`'s confinement, which no Node case can hold: every way out of a
 //! handle and out of the run's roots refused, a special file stat'd without
 //! waiting, a forged or borrowed handle refused, a polluted `then` never
-//! adopted, and each refused reach failing the run, listed.
+//! adopted, and each refused reach failing the run, listed; and what no
+//! committed tree or Node run can show: a FIFO's read refused at once, where
+//! Node's waits, a name that isn't UTF-8, and listings holding no
+//! descriptor.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -70,15 +73,17 @@ fn read_json(file: &str) -> Value {
 
 /// A case of the table: its name, its host module, the arguments it's run
 /// with, `fgro run`'s flags before the entry, the environment it's run in,
-/// which holds nothing else, the values that differ by design on `fgro`,
-/// and the lines `fgro` prints for what its rules refused, which fail the
-/// run there, where Node has no such rule.
+/// which holds nothing else, the unix sockets that listen while it runs, by
+/// path relative to the fixtures, which git can't hold, the values that
+/// differ by design on `fgro`, and the lines `fgro` prints for what its
+/// rules refused, which fail the run there, where Node has no such rule.
 struct Case {
     name: String,
     module: String,
     args: Vec<String>,
     flags: Vec<String>,
     env: Vec<(String, String)>,
+    sockets: Vec<String>,
     differs: Vec<Difference>,
     refused: Vec<String>,
 }
@@ -124,6 +129,10 @@ fn cases() -> Vec<Case> {
             refused: case["refused"]
                 .as_array()
                 .map(|lines| lines.iter().map(text).collect())
+                .unwrap_or_default(),
+            sockets: case["sockets"]
+                .as_array()
+                .map(|paths| paths.iter().map(text).collect())
                 .unwrap_or_default(),
             differs: case["differs"]
                 .as_array()
@@ -193,11 +202,47 @@ fn every_builtin_has_a_case_and_every_difference_is_one() {
     }
 }
 
+/// Unix sockets listening at paths of the fixtures while held, each
+/// removed when dropped, as the oracle makes a case's.
+struct Sockets(Vec<(PathBuf, std::os::unix::net::UnixListener)>);
+
+impl Sockets {
+    /// A socket listening at each of `paths`, relative to `dir`, a socket an
+    /// earlier run left there removed first.
+    fn listen(dir: &Path, paths: &[String]) -> Self {
+        use std::os::unix::fs::FileTypeExt as _;
+        Self(
+            paths
+                .iter()
+                .map(|path| {
+                    let at = dir.join(path);
+                    if std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_socket())
+                    {
+                        std::fs::remove_file(&at).unwrap();
+                    }
+                    let listener = std::os::unix::net::UnixListener::bind(&at)
+                        .unwrap_or_else(|error| panic!("{}: {error}", at.display()));
+                    (at, listener)
+                })
+                .collect(),
+        )
+    }
+}
+
+impl Drop for Sockets {
+    fn drop(&mut self) {
+        for (at, _) in &self.0 {
+            let _ = std::fs::remove_file(at);
+        }
+    }
+}
+
 /// Each case under `fgro run` with its flags, in an environment holding
-/// the case's and nothing else, exits with the code Node's did, prints
-/// nothing on stderr, and prints what Node's did but for the case's named
-/// differences; a case whose calls `fgro`'s rules refuse prints the
-/// refusals it names on stderr instead, and turns Node's 0 into 1.
+/// the case's and nothing else, with its sockets listening, exits with the
+/// code Node's did, prints nothing on stderr, and prints what Node's did but
+/// for the case's named differences; a case whose calls `fgro`'s rules
+/// refuse prints the refusals it names on stderr instead, and turns Node's 0
+/// into 1.
 #[test]
 fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
     let expected = read_json("expected.json");
@@ -218,7 +263,9 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
             .env_clear()
             .envs(case.env.iter().map(|(name, value)| (name, value)))
             .current_dir(&started_in);
+        let sockets = Sockets::listen(&started_in, &case.sockets);
         let output = spawn(command, b"");
+        drop(sockets);
         let stderr = String::from_utf8(output.stderr).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
         let mut refusals = String::new();
@@ -528,6 +575,23 @@ impl Reports {
         lines.map(|line| line.replace(dir, "{project}")).collect()
     }
 
+    /// Each trap the run reported, as `<call>: <trap>`, the call the one
+    /// under way when it fired, the last reported starting before it, or
+    /// none outside every call.
+    fn traps(&self) -> Vec<String> {
+        let mut call = "";
+        let mut traps = Vec::new();
+        for (kind, value) in &self.0 {
+            let value = value.as_str().unwrap_or_default();
+            match kind.as_str() {
+                "call" => call = value,
+                "trap" => traps.push(format!("{call}: {value}")),
+                _ => {}
+            }
+        }
+        traps
+    }
+
     /// The run's last report, `done`, which a run that got to its end makes.
     fn done(&self) -> &Value {
         match self.0.last() {
@@ -554,6 +618,37 @@ impl Reports {
             "{last} returned, so the run ended past it"
         );
         last
+    }
+}
+
+/// The traps a builtin's call may fire, each reviewed, by the call: a
+/// promise fulfilled with an object makes V8 read the object's `then`,
+/// through its prototypes, as the language's promise resolution does, which
+/// no API skips. A read that fulfils with a `Uint8Array`, as the Node
+/// module's does, reads `Object.prototype.then` so, once its work is done
+/// and with none of the host's state borrowed, so a `then` a program set
+/// there runs as it would on Node.
+const SETTLED_THEN_READS: [&str; 2] = [
+    "@fuzdev/gro/fs.ts fs.project.read(arguments 1): get Object.prototype.then",
+    "@fuzdev/gro/fs.ts fs.project.read_if_exists(arguments 1): get Object.prototype.then",
+];
+
+/// Asserts that each of `traps`, as [`Reports::traps`] gives them, is one
+/// [`SETTLED_THEN_READS`] lists, and, with `every`, that each one listed
+/// fired.
+fn assert_reviewed_traps(traps: &[String], every: bool) {
+    let unreviewed: Vec<&String> = traps
+        .iter()
+        .filter(|trap| !SETTLED_THEN_READS.contains(&trap.as_str()))
+        .collect();
+    assert_eq!(unreviewed, [&""; 0], "the traps a builtin used");
+    if every {
+        for reviewed in SETTLED_THEN_READS {
+            assert!(
+                traps.iter().any(|trap| trap == reviewed),
+                "{reviewed} is listed, and no run fired it"
+            );
+        }
     }
 }
 
@@ -631,8 +726,9 @@ fn run_past_ends(project: &Scratch, entry: &str) -> (Reports, Vec<(String, i32)>
 /// made holds), is what it is in a realm nothing patched: the same
 /// namespace, exports, and outcomes, shown property by property. And no
 /// trap reported a use while the backing scripts ran, which the import
-/// runs, or in a call, and no hostile argument a use but
-/// the reviewed ones. The rows come from the table, so a new one is
+/// runs, or in a call, but the reviewed reads of a fulfilled value's `then`
+/// ([`SETTLED_THEN_READS`]), and no hostile argument a use but the
+/// reviewed ones. The rows come from the table, so a new one is
 /// imported and exercised here without being listed; a function it exports
 /// or reaches fails here until `use.js` has an entry for it, with the
 /// arguments it takes or none. A call that ends the process, as `exit`'s
@@ -666,14 +762,14 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     // the intrinsics' own properties alone are thousands
     let replaced = &patched.done()["replaced"];
     assert!(replaced.as_u64().unwrap() > 2000, "{replaced}");
-    assert_eq!(patched.strings("trap"), [""; 0], "the traps a builtin used");
+    assert_reviewed_traps(&patched.traps(), true);
     let lines = plain.lines(&plain_dir);
     assert_eq!(patched.lines(&patched_dir), lines);
     // the two projects are two directories, which a row that shows one tells apart
     assert_ne!(patched.strings("line"), plain.strings("line"));
     // a run a call ended used nothing before it did: its traps reported as they fired
     for run in plain_cut_short.iter().chain(&patched_cut_short) {
-        assert_eq!(run.strings("trap"), [""; 0]);
+        assert_reviewed_traps(&run.traps(), false);
         assert_argument_uses(&run.strings("touch"), false);
         assert_eq!(run.strings("unexercised"), [""; 0]);
     }
@@ -1438,4 +1534,311 @@ fn fs_real_path_refuses_a_root_moved_since_it_opened() {
             "open_dir": ["rejected", "io_error", false],
         })
     );
+}
+
+/// The script [`fs_reads_refuse_a_fifo_at_once`] runs: each whole-file read
+/// of a FIFO no one writes to and of one a writer holds with bytes in it,
+/// their kinds as `stat` and a listing see them, as a JSON line.
+const FS_FIFOS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const how = async (call) => {
+\ttry {
+\t\tconst value = await call();
+\t\treturn ['fulfilled', value instanceof Uint8Array ? Array.from(value) : value];
+\t} catch (error) {
+\t\treturn ['rejected', error.kind ?? null, String(error.cause?.message)];
+\t}
+};
+const ended = {};
+for (const name of ['fifo', 'held']) {
+\tended[name] = {
+\t\tread: await how(() => fs.project.read(name)),
+\t\tread_text: await how(() => fs.project.read_text(name)),
+\t\tread_if_exists: await how(() => fs.project.read_if_exists(name)),
+\t\tread_text_if_exists: await how(() => fs.project.read_text_if_exists(name)),
+\t\tread_text_sync: await how(async () => fs.project.read_text_sync(name)),
+\t\tthrough_a_link: await how(() => fs.project.read(`to_${name}`)),
+\t\tstat: await how(async () => (await fs.project.stat(name)).kind),
+\t};
+}
+const listed = [];
+for await (const entry of fs.project.list()) listed.push(entry);
+ended.listed = listed;
+console.log(JSON.stringify(ended));
+";
+
+/// No whole-file read waits on a FIFO or reads one: one with no writer,
+/// which the kernel would read as an empty file, and one a writer holds with
+/// bytes in it, whose read would take them and then fail with `EAGAIN`, are
+/// each refused at once as no regular file, `io_error`, through a symlink
+/// too; `stat` and a listing see each as `other`. Node's own reads wait on
+/// either until a writer closes it, which no differential case can show.
+#[test]
+fn fs_reads_refuse_a_fifo_at_once() {
+    let project = Scratch::new(
+        "fs_fifos",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_fifos\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_FIFOS),
+        ],
+    );
+    for name in ["fifo", "held"] {
+        let made = std::process::Command::new("mkfifo")
+            .arg(project.0.join(name))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        std::os::unix::fs::symlink(name, project.0.join(format!("to_{name}"))).unwrap();
+    }
+    // a writer, and a reader, on `held`, which `O_RDWR` opens at once, with
+    // bytes in it
+    let mut held = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(project.0.join("held"))
+        .unwrap();
+    std::io::Write::write_all(&mut held, b"bytes").unwrap();
+    let mut command = fgro_command(&["run", "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let started = std::time::Instant::now();
+    let output = spawn(command, b"");
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    drop(held);
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let refused = |name: &str| {
+        let why = "not a regular file (a FIFO or a device), whose contents are neither read nor \
+                   written, since a read or a write of one could wait or never end";
+        serde_json::json!(["rejected", "io_error", why]).to_string() + name
+    };
+    for name in ["fifo", "held"] {
+        for read in [
+            "read",
+            "read_text",
+            "read_if_exists",
+            "read_text_if_exists",
+            "read_text_sync",
+            "through_a_link",
+        ] {
+            assert_eq!(
+                ended[name][read].to_string() + name,
+                refused(name),
+                "{name} {read}"
+            );
+        }
+        assert_eq!(
+            ended[name]["stat"],
+            serde_json::json!(["fulfilled", "other"])
+        );
+    }
+    let listed: Vec<(&str, &str)> = ended["listed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"].as_str().unwrap(),
+                entry["kind"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("fifo", "other"),
+            ("held", "other"),
+            ("main.js", "file"),
+            ("package.json", "file"),
+            ("to_fifo", "symlink"),
+            ("to_held", "symlink"),
+        ]
+    );
+}
+
+/// The script [`fs_list_fails_on_a_name_that_is_not_utf8`] runs: a listing
+/// of a directory holding names that aren't UTF-8, and a read of a symlink
+/// whose target isn't, as a JSON line.
+const FS_NOT_UTF8: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const how = async (call) => {
+\ttry {
+\t\treturn ['fulfilled', await call()];
+\t} catch (error) {
+\t\treturn ['rejected', error.kind ?? null, error.path, String(error.cause?.message)];
+\t}
+};
+const listing = fs.project.list('bytes');
+console.log(JSON.stringify({
+\tfirst: await how(() => listing.next()),
+\tafter: await how(() => listing.next()),
+\tread_link: await how(() => fs.project.read_link('bytes_link')),
+\tthe_rest: await how(async () => {
+\t\tconst names = [];
+\t\tfor await (const entry of fs.project.list('ok')) names.push(entry.name);
+\t\treturn names;
+\t}),
+}));
+";
+
+/// A listing of a directory holding a name that isn't UTF-8 fails whole,
+/// at its first `next()`, before any entry, with `io_error` naming the
+/// directory, its cause the least such name by its bytes (`m\xe2\x82`,
+/// below `z\xfe\x80` and `\xff`), escaped, as the
+/// Node module's does, since no string names what the kernel would reach;
+/// the listing is done after; a symlink whose target isn't UTF-8 reads as
+/// `io_error` the same way. Git holds no such name, and a checkout of one
+/// fails where names are UTF-8 only, so the test makes them.
+#[test]
+fn fs_list_fails_on_a_name_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let project = Scratch::new(
+        "fs_not_utf8",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_not_utf8\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_NOT_UTF8),
+            ("bytes/fine", ""),
+            ("ok/b", ""),
+            ("ok/a", ""),
+        ],
+    );
+    for name in [
+        &b"\xff"[..],
+        b"z\xfe\x80",
+        b"\xfe\x80",
+        b"y\xff",
+        b"\xc3",
+        b"m\xe2\x82",
+        b"\xf0\x9f",
+        b"zz\xff",
+    ] {
+        let path = project
+            .0
+            .join("bytes")
+            .join(std::ffi::OsStr::from_bytes(name));
+        std::fs::write(path, "").unwrap();
+    }
+    std::os::unix::fs::symlink(
+        std::ffi::OsStr::from_bytes(b"to\xff"),
+        project.0.join("bytes_link"),
+    )
+    .unwrap();
+    let mut command = fgro_command(&["run", "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let root = project.0.to_str().unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "first": [
+                "rejected",
+                "io_error",
+                format!("{root}/bytes"),
+                format!("{root}/bytes holds an entry named m\\xe2\\x82, which isn't UTF-8"),
+            ],
+            "after": ["fulfilled", {"done": true}],
+            "read_link": [
+                "rejected",
+                "io_error",
+                format!("{root}/bytes_link"),
+                format!("{root}/bytes_link is a symlink to to\\xff, which isn't UTF-8"),
+            ],
+            "the_rest": ["fulfilled", ["a", "b"]],
+        })
+    );
+}
+
+/// The script [`fs_listings_hold_no_descriptor`] runs: once warmed, ready;
+/// then, once the test has counted its descriptors, listings ended every
+/// way and kept alive, so none is collected; then, once counted again, it
+/// ends.
+const FS_LISTINGS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const wait = async (name) => {
+\tfor (let waited = 0; !fs.project.exists_sync(name); waited++) {
+\t\tif (waited > 3000) throw Error(`the test never made ${name}`);
+\t\tawait new Promise((resolve) => setTimeout(resolve, 10));
+\t}
+};
+for await (const entry of fs.project.list('dir')) void entry;
+await new Promise((resolve) => setTimeout(resolve, 1));
+console.log('ready');
+await wait('go');
+const kept = [];
+for (let i = 0; i < 500; i++) {
+\tconst abandoned = fs.project.list('dir');
+\tawait abandoned.next();
+\tconst returned = fs.project.list('dir');
+\tawait returned.next();
+\tawait returned.return();
+\tconst thrown = fs.project.list('dir');
+\tawait thrown.next();
+\tawait thrown.throw(Error('thrown in')).catch(() => {});
+\tconst broken = fs.project.list('dir');
+\tfor await (const entry of broken) {
+\t\tvoid entry;
+\t\tbreak;
+\t}
+\tconst failed = fs.project.list('missing');
+\tawait failed.next().catch(() => {});
+\tkept.push(abandoned, returned, thrown, broken, failed, fs.project.list('dir'));
+}
+console.log(`listed ${kept.length}`);
+await wait('done');
+";
+
+/// A listing holds no descriptor: its first `next()` reads the whole
+/// directory, its descriptor closed before the call settles, so listings
+/// abandoned after an entry, returned from, thrown into, broken out of,
+/// failed, and never started, each kept alive so nothing is collected,
+/// leave the process's descriptors as they were.
+#[test]
+fn fs_listings_hold_no_descriptor() {
+    use std::io::BufRead as _;
+    let project = Scratch::new(
+        "fs_listings",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_listings\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_LISTINGS),
+            ("dir/a", ""),
+            ("dir/b", ""),
+        ],
+    );
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .env_clear()
+        .current_dir(&project.0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let descriptors = |pid: u32| {
+        std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .unwrap()
+            .count()
+    };
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    let before = descriptors(child.id());
+    std::fs::write(project.0.join("go"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "listed 3000\n");
+    let after = descriptors(child.id());
+    std::fs::write(project.0.join("done"), "").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(after, before, "descriptors before and after the listings");
 }

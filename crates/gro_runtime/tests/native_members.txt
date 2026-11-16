@@ -27,15 +27,19 @@
 @fuzdev/gro/fs.ts dir method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
 @fuzdev/gro/fs.ts stat method of @fuzdev/gro/fs.ts#FsReadDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
-@fuzdev/gro/fs.ts read method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
-@fuzdev/gro/fs.ts read_text method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
-@fuzdev/gro/fs.ts read_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
-@fuzdev/gro/fs.ts read_text_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts read method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts read_text method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts read_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts read_text_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
 @fuzdev/gro/fs.ts list method of @fuzdev/gro/fs.ts#FsReadDir length 0 grant fs
-@fuzdev/gro/fs.ts read_link method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts next method of @fuzdev/gro/fs.ts#AsyncIterableIterator length 0 async grant fs throws FsError
+@fuzdev/gro/fs.ts return method of @fuzdev/gro/fs.ts#AsyncIterableIterator length 1 async grant fs
+@fuzdev/gro/fs.ts throw method of @fuzdev/gro/fs.ts#AsyncIterableIterator length 1 async grant fs
+@fuzdev/gro/fs.ts [Symbol.asyncIterator] method of @fuzdev/gro/fs.ts#AsyncIterableIterator length 0 grant fs
+@fuzdev/gro/fs.ts read_link method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
 @fuzdev/gro/fs.ts stat_sync method of @fuzdev/gro/fs.ts#FsReadDir length 2 grant fs throws FsError
 @fuzdev/gro/fs.ts exists_sync method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
-@fuzdev/gro/fs.ts read_text_sync method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs
+@fuzdev/gro/fs.ts read_text_sync method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
 @fuzdev/gro/fs.ts dir method of @fuzdev/gro/fs.ts#FsDir length 1 grant fs throws FsError
 @fuzdev/gro/fs.ts readonly method of @fuzdev/gro/fs.ts#FsDir length 0 grant fs
 @fuzdev/gro/fs.ts write method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError

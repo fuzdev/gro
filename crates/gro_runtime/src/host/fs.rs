@@ -43,6 +43,21 @@
 //! Such a refusal is recorded in the run's record of refusals as it's
 //! thrown, which fails the run whatever the program does with the error.
 //!
+//! A whole-file read opens its target beneath the handle without waiting
+//! for it, and `gro_sys` refuses anything but a regular file by the opened
+//! descriptor before a byte is read: a directory is `is_a_directory`, as
+//! the Node module's, and a FIFO, a socket, or a device `io_error`, where
+//! the Node module's read would wait on a FIFO or read a device without
+//! end. A regular file is read to its end, whatever size it reports.
+//!
+//! `list` returns a listing at once, reading nothing, not even its
+//! receiver or its path, as the Node module's async generator does: its
+//! first `next()` checks them, reads the whole directory, and sorts it by
+//! the names' bytes, the directory's descriptor closed before that call
+//! settles. So a listing, a handle whose state is the host's record under
+//! its brand, holds no descriptor between calls, only its entries, which
+//! a collection frees with it, however it ends.
+//!
 //! Every member's first step past its grant's check is the check that the
 //! kernel serves `openat2` ([`FsState::ready`]), so a kernel below Linux 5.6
 //! fails every op alike, as a plain `Error`, never only the ones that
@@ -67,14 +82,16 @@
 
 use std::cell::{Cell, OnceCell};
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::os::fd::OwnedFd;
+use std::os::unix::ffi::OsStringExt as _;
 use std::path::Path;
 use std::sync::Arc;
 
 use deno_core::{OpState, v8};
 
 use super::error_class::{DeclaredFamily, ErrorClasses};
-use super::handle::{self, FS_DIR, FS_READ_DIR, HandleKind};
+use super::handle::{self, FS_DIR, FS_LISTING, FS_READ_DIR, HandleKind};
 use super::{HostData, NO_ERROR_CLASSES, name, native, string, throw_error, throw_type_error};
 use crate::RefusedBy;
 use crate::loader::RefusalLog;
@@ -482,26 +499,490 @@ fn find<'s>(
         Some(options) => follow_option(scope, options)?,
         None => true,
     };
-    let roots = fs.roots(data);
+    let op = beneath(fs.roots(data), handle, requested)?;
+    // a trailing `/` follows a final symlink, as in the kernel
+    let follow = follow || op.lexical.dir;
+    let (fd, dir, rel) = op.call();
+    match sys::stat(fd, dir, rel, follow) {
+        Ok(info) => Ok(Found::Entry(info)),
+        Err(error) if is_missing(&error) => Ok(Found::Missing),
+        Err(error) => Err(op.failure(error)),
+    }
+}
+
+/// Whether an op's `error` is nothing at its path, the handle's directory
+/// or the target.
+fn is_missing(error: &sys::OpError) -> bool {
+    matches!(error, sys::OpError::Handle(error) | sys::OpError::Target(error)
+        if error.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// An op on a path beneath a handle, resolved and checked, ready for its
+/// calls.
+struct Beneath {
+    /// The descriptor of the handle's root.
+    fd: Arc<OwnedFd>,
+    /// The handle.
+    handle: Handle,
+    /// The path as requested.
+    requested: String,
+    /// It, resolved by its text beneath the handle.
+    lexical: Lexical,
+    /// The handle's directory's absolute path.
+    handle_path: String,
+    /// The absolute path the op names, which its errors name.
+    target: String,
+}
+
+impl Beneath {
+    /// What the op's call takes, owned: the root's descriptor, the
+    /// handle's directory's real path beneath it, and the path beneath the
+    /// handle the kernel resolves.
+    fn call(&self) -> (Arc<OwnedFd>, String, String) {
+        (
+            Arc::clone(&self.fd),
+            self.handle.beneath.clone(),
+            self.lexical.rel(),
+        )
+    }
+
+    /// What the op's failure, `error`, throws ([`op_failure`]).
+    fn failure(&self, error: sys::OpError) -> Failure {
+        op_failure(error, &self.requested, &self.handle_path, &self.target)
+    }
+}
+
+/// The op on `requested` beneath `handle`, of the run's `roots`: its path
+/// resolved by its text ([`to_lexical`]), `outside_root` for a climb above
+/// the handle, and `io_error` when the handle's root isn't open.
+fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath, Failure> {
     let (root, handle_path) = handle_root(roots, &handle)?;
     let lexical = to_lexical(&requested, &handle_path)?;
     let target = lexical.path_beneath(&handle_path);
     let fd = root_fd(root, &target)?;
-    // a trailing `/` follows a final symlink, as in the kernel
-    match sys::stat(
+    Ok(Beneath {
         fd,
-        handle.beneath.clone(),
-        lexical.rel(),
-        follow || lexical.dir,
-    ) {
-        Ok(info) => Ok(Found::Entry(info)),
-        Err(sys::OpError::Handle(error) | sys::OpError::Target(error))
-            if error.kind() == std::io::ErrorKind::NotFound =>
-        {
-            Ok(Found::Missing)
+        handle,
+        requested,
+        lexical,
+        handle_path,
+        target,
+    })
+}
+
+/// What a whole-file read returns.
+#[derive(Clone, Copy)]
+pub enum Contents {
+    /// The bytes, a `Uint8Array` of a buffer of its own.
+    Bytes,
+    /// The text, decoded from UTF-8 as Node's `readFile` with `'utf8'`
+    /// decodes it: each malformed sequence a U+FFFD, a BOM kept.
+    Text,
+}
+
+/// `read(path)`, `read_text(path)`, and their kin, called on `receiver`:
+/// the contents of the regular file at `path`, read to its end, as
+/// `contents` says; with `if_exists`, `null` when nothing is at `path`,
+/// where any other failure still throws. A directory is `is_a_directory`,
+/// and anything else that isn't a regular file, a FIFO, a socket, or a
+/// device, `io_error`, refused before any byte is read, where the Node
+/// module would wait on a FIFO or read a device without end.
+pub fn read<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+    contents: Contents,
+    if_exists: bool,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let (fs, data) = run_state(state)?;
+        fs.ready()?;
+        let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
+        let requested = path_text(scope, path)?;
+        let op = beneath(fs.roots(data), handle, requested)?;
+        let (fd, dir, rel) = op.call();
+        let bytes = match sys::read(fd, dir, rel) {
+            Ok(bytes) => bytes,
+            Err(error) if if_exists && is_missing(&error) => return Ok(v8::null(scope).into()),
+            Err(error) => return Err(op.failure(error)),
+        };
+        match contents {
+            Contents::Bytes => to_bytes(scope, bytes),
+            Contents::Text => v8::String::new_from_utf8(scope, &bytes, v8::NewStringType::Normal)
+                .map(Into::into)
+                .ok_or_else(|| Failure::Fs {
+                    kind: "io_error",
+                    path: op.target.clone(),
+                    cause: Some(format!(
+                        "{} holds {} bytes, more text than a string holds",
+                        op.target,
+                        bytes.len()
+                    )),
+                }),
         }
-        Err(error) => Err(op_failure(error, &requested, &handle_path, &target)),
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `bytes` as a `Uint8Array` of a buffer of its own, which takes the bytes
+/// over without a copy.
+fn to_bytes<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    bytes: Vec<u8>,
+) -> Result<v8::Local<'s, v8::Value>, Failure> {
+    let length = bytes.len();
+    let buffer = if length == 0 {
+        v8::ArrayBuffer::new(scope, 0)
+    } else {
+        let store = v8::ArrayBuffer::new_backing_store_from_vec(bytes).make_shared();
+        v8::ArrayBuffer::with_backing_store(scope, &store)
+    };
+    v8::Uint8Array::new(scope, buffer, 0, length)
+        .map(Into::into)
+        .ok_or_else(|| Failure::Plain(format!("V8 made no Uint8Array of {length} bytes")))
+}
+
+/// `read_link(path)` called on `receiver`: the target of the symlink at
+/// `path`, as stored, never followed, so it may be absolute or lead out of
+/// the handle, which reading it reaches nothing of; with a trailing `/` the
+/// link is followed, as in the kernel, and what it reaches is no symlink.
+/// An entry that isn't a symlink is `io_error`, and so is a target that
+/// isn't UTF-8, since no string spells it.
+pub fn read_link<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let (fs, data) = run_state(state)?;
+        fs.ready()?;
+        let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
+        let requested = path_text(scope, path)?;
+        let op = beneath(fs.roots(data), handle, requested)?;
+        let (fd, dir, rel) = op.call();
+        let target =
+            sys::read_link(fd, dir, rel, op.lexical.dir).map_err(|error| op.failure(error))?;
+        let target = to_utf8(target.into_vec(), &op.target, "is a symlink to")?;
+        string(scope, &target)
+            .map(Into::into)
+            .ok_or(Failure::Thrown)
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `bytes`, a name the kernel gave for `path`, as text, or `io_error`
+/// about `path` when they aren't UTF-8, its cause saying `what` they are
+/// with each byte that isn't printable ASCII escaped, as the Node module
+/// says it.
+fn to_utf8(bytes: Vec<u8>, path: &str, what: &str) -> Result<String, Failure> {
+    String::from_utf8(bytes).map_err(|error| not_utf8(error.as_bytes(), path, what))
+}
+
+/// `io_error` about `path` for `bytes`, a name the kernel gave for it
+/// that isn't UTF-8, as [`to_utf8`] fails.
+fn not_utf8(bytes: &[u8], path: &str, what: &str) -> Failure {
+    Failure::Fs {
+        kind: "io_error",
+        path: path.to_owned(),
+        cause: Some(format!(
+            "{path} {what} {}, which isn't UTF-8",
+            escaped(bytes)
+        )),
     }
+}
+
+/// `bytes` with printable ASCII as itself and every other byte, a `\`
+/// among them, as `\xNN`.
+fn escaped(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        if (0x20..0x7f).contains(&byte) && byte != b'\\' {
+            text.push(char::from(byte));
+        } else {
+            let _ = write!(text, "\\x{byte:02x}");
+        }
+    }
+    text
+}
+
+/// The keys of a listing's state.
+const LISTED_DIR: &str = "dir";
+const LISTED_PATH: &str = "path";
+const ENTRIES: &str = "entries";
+const AT: &str = "at";
+const DONE: &str = "done";
+
+/// What a listing's method called on anything but a listing throws.
+const NOT_A_LISTING: &str = "a listing's methods are called on a listing `list` returned, not \
+                             another object";
+
+/// `list(path?)` called on `receiver`: a listing, an async iterator of the
+/// entries of the directory at `path`, the handle's own for none, whose
+/// work waits for its first `next()`, as the Node module's async
+/// generator's does: the call reads nothing, not even its receiver or its
+/// path, which the first `next()` checks, then reads the whole directory,
+/// sorted by the names' UTF-8 bytes, before it settles. So a listing holds
+/// no descriptor between calls, only its entries, and one abandoned,
+/// returned from, or thrown into holds nothing a collection doesn't free.
+pub fn list<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let prototype = native::prototype(state, scope, &FS_LISTING).ok_or_else(|| {
+            Failure::Plain("the fs namespace made no listing prototype".to_owned())
+        })?;
+        let keys = [
+            name(scope, LISTED_DIR),
+            name(scope, LISTED_PATH),
+            name(scope, ENTRIES),
+            name(scope, AT),
+            name(scope, DONE),
+        ];
+        let keys = keys
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or(Failure::Thrown)?;
+        let values = [
+            receiver,
+            path,
+            v8::undefined(scope).into(),
+            v8::Integer::new(scope, 0).into(),
+            v8::Boolean::new(scope, false).into(),
+        ];
+        let null = v8::null(scope).into();
+        // the listing's state, which no JS holds, changed by its methods
+        let held = v8::Object::with_prototype_and_properties(scope, null, &keys, &values);
+        handle::make(scope, &FS_LISTING, prototype, held.into(), &[])
+            .map(Into::into)
+            .ok_or(Failure::Thrown)
+    })();
+    finish(state, scope, None, result)
+}
+
+/// A listing's state, as its methods read it from the listing `receiver`,
+/// or a `TypeError` when it's none.
+fn read_listing<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+) -> Result<v8::Local<'s, v8::Object>, Failure> {
+    let not_a_listing = || Failure::Type(NOT_A_LISTING.to_owned());
+    let (_, held) = handle::read(scope, &FS_LISTING, receiver).ok_or_else(not_a_listing)?;
+    // the host's own record, which no JS holds
+    v8::Local::<v8::Object>::try_from(held).map_err(|_| not_a_listing())
+}
+
+/// The value of `key` in a listing's state, `held`, an own data property
+/// of a null-prototype record, read running no code.
+fn held_value<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    held: v8::Local<'s, v8::Object>,
+    key: &str,
+) -> Result<v8::Local<'s, v8::Value>, Failure> {
+    name(scope, key)
+        .and_then(|key| held.get(scope, key.into()))
+        .ok_or(Failure::Thrown)
+}
+
+/// Sets `key` in a listing's state, `held`, to `value`, a definition, which
+/// runs no code.
+fn set_held<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    held: v8::Local<'s, v8::Object>,
+    key: &str,
+    value: v8::Local<'s, v8::Value>,
+) -> Result<(), Failure> {
+    let key = name(scope, key).ok_or(Failure::Thrown)?;
+    held.create_data_property(scope, key, value)
+        .filter(|defined| *defined)
+        .map(|_| ())
+        .ok_or(Failure::Thrown)
+}
+
+/// Ends the listing whose state is `held`: every later `next()` is done,
+/// and what it held, its handle, path, and entries, is let go.
+fn end_listing<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    held: v8::Local<'s, v8::Object>,
+) -> Result<(), Failure> {
+    let undefined = v8::undefined(scope).into();
+    for key in [LISTED_DIR, LISTED_PATH, ENTRIES] {
+        set_held(scope, held, key, undefined)?;
+    }
+    set_held(scope, held, DONE, v8::Boolean::new(scope, true).into())
+}
+
+/// An iterator's result, `{ value, done }`, a null-prototype record, so a
+/// promise settled with it finds no `then` of the realm's.
+fn iterator_result<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    value: v8::Local<'s, v8::Value>,
+    done: bool,
+) -> Result<v8::Local<'s, v8::Value>, Failure> {
+    let keys = [
+        name(scope, "value").ok_or(Failure::Thrown)?,
+        name(scope, "done").ok_or(Failure::Thrown)?,
+    ];
+    let values = [value, v8::Boolean::new(scope, done).into()];
+    let null = v8::null(scope).into();
+    Ok(v8::Object::with_prototype_and_properties(scope, null, &keys, &values).into())
+}
+
+/// `next()` called on `receiver`, a listing: the next entry, `{ value,
+/// done: false }`, the first call reading the whole directory, or `{ value:
+/// undefined, done: true }` once there's none, or once the listing ended;
+/// the first call's failure rejects, and ends the listing, as an async
+/// generator's body throwing ends it.
+pub fn listing_next<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let held = read_listing(scope, receiver)?;
+        if held_value(scope, held, DONE)?.is_true() {
+            return iterator_result(scope, v8::undefined(scope).into(), true);
+        }
+        let entries = held_value(scope, held, ENTRIES)?;
+        let entries = if let Ok(entries) = v8::Local::<v8::Array>::try_from(entries) {
+            entries
+        } else {
+            let dir = held_value(scope, held, LISTED_DIR)?;
+            let path = held_value(scope, held, LISTED_PATH)?;
+            let entries = match listed(state, scope, dir, path) {
+                Ok(entries) => entries,
+                Err(failure) => {
+                    end_listing(scope, held)?;
+                    return Err(failure);
+                }
+            };
+            set_held(scope, held, ENTRIES, entries.into())?;
+            // the handle and the path are read, so they're let go
+            let undefined = v8::undefined(scope).into();
+            set_held(scope, held, LISTED_DIR, undefined)?;
+            set_held(scope, held, LISTED_PATH, undefined)?;
+            entries
+        };
+        let at = held_value(scope, held, AT)?
+            .uint32_value(scope)
+            .ok_or(Failure::Thrown)?;
+        if at >= entries.length() {
+            end_listing(scope, held)?;
+            return iterator_result(scope, v8::undefined(scope).into(), true);
+        }
+        let entry = entries.get_index(scope, at).ok_or(Failure::Thrown)?;
+        set_held(
+            scope,
+            held,
+            AT,
+            v8::Integer::new_from_unsigned(scope, at + 1).into(),
+        )?;
+        iterator_result(scope, entry, false)
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `return(value)` called on `receiver`, a listing: ends it, so every later
+/// `next()` is done, and settles to `{ value, done: true }`, `value` as
+/// given, never awaited, so no `then` of it is read.
+pub fn listing_return<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    value: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = read_listing(scope, receiver).and_then(|held| {
+        end_listing(scope, held)?;
+        iterator_result(scope, value, true)
+    });
+    finish(state, scope, None, result)
+}
+
+/// `throw(error)` called on `receiver`, a listing: ends it, so every later
+/// `next()` is done, and rejects with `error`, as an async generator thrown
+/// into where nothing catches.
+pub fn listing_throw<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    error: v8::Local<'s, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = read_listing(scope, receiver).and_then(|held| {
+        end_listing(scope, held)?;
+        scope.throw_exception(error);
+        Err::<v8::Local<'s, v8::Value>, _>(Failure::Thrown)
+    });
+    finish(state, scope, None, result)
+}
+
+/// The entries of the directory at `path` beneath `dir`, a handle of
+/// `FsReadDir`'s kind or one it extends, the handle's own directory for an
+/// undefined `path`: an array of `{ name, kind }` records of the realm's
+/// `Object.prototype`, as the Node module's are, sorted by the names' UTF-8
+/// bytes, a symlink's kind `symlink`, never followed. A name that isn't
+/// UTF-8 fails the whole listing with `io_error`, naming the least such
+/// name by its bytes in its cause, as the Node module's does.
+fn listed<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    dir: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+) -> Result<v8::Local<'s, v8::Array>, Failure> {
+    let (fs, data) = run_state(state)?;
+    fs.ready()?;
+    let handle = read_handle(scope, &FS_READ_DIR, dir)?;
+    let requested = if path.is_undefined() {
+        String::new()
+    } else {
+        path_text(scope, path)?
+    };
+    let op = beneath(fs.roots(data), handle, requested)?;
+    let (fd, dir, rel) = op.call();
+    let listed = sys::list(fd, dir, rel).map_err(|error| op.failure(error))?;
+    let mut entries = Vec::with_capacity(listed.len());
+    let mut invalid: Option<Vec<u8>> = None;
+    for entry in listed {
+        match String::from_utf8(entry.name.into_vec()) {
+            Ok(name) => entries.push((name, entry.kind)),
+            Err(error) => {
+                let bytes = error.into_bytes();
+                if invalid.as_ref().is_none_or(|least| bytes < *least) {
+                    invalid = Some(bytes);
+                }
+            }
+        }
+    }
+    if let Some(bytes) = invalid {
+        return Err(not_utf8(&bytes, &op.target, "holds an entry named"));
+    }
+    // a `String`'s order is its UTF-8 bytes'
+    entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+    let object_prototype = v8::Object::new(scope)
+        .get_prototype(scope)
+        .ok_or(Failure::Thrown)?;
+    let keys = [
+        name(scope, "name").ok_or(Failure::Thrown)?,
+        name(scope, "kind").ok_or(Failure::Thrown)?,
+    ];
+    let mut records = Vec::with_capacity(entries.len());
+    for (entry_name, kind) in entries {
+        let values = [
+            string(scope, &entry_name).ok_or(Failure::Thrown)?.into(),
+            string(scope, kind).ok_or(Failure::Thrown)?.into(),
+        ];
+        records.push(
+            v8::Object::with_prototype_and_properties(scope, object_prototype, &keys, &values)
+                .into(),
+        );
+    }
+    Ok(v8::Array::new_with_elements(scope, &records))
 }
 
 /// A write op called on `receiver`, an `FsDir`, with `paths`, each checked
@@ -1021,6 +1502,15 @@ mod sys {
         pub mode: u32,
     }
 
+    /// An entry of a listed directory.
+    pub struct Listed {
+        /// Its name, the kernel's bytes.
+        pub name: std::ffi::OsString,
+        /// `file`, `directory`, `symlink`, or `other`, a symlink never
+        /// followed.
+        pub kind: &'static str,
+    }
+
     /// An op's failure: opening the handle's directory beneath its root, or
     /// resolving the target beneath that.
     pub enum OpError {
@@ -1056,7 +1546,7 @@ mod sys {
 
         use gro_sys::beneath::{self, FileKind, FinalLink, Links, OpenAs};
 
-        use super::{Info, OpError, Opened};
+        use super::{Info, Listed, OpError, Opened};
 
         /// That the kernel serves `openat2`.
         pub fn check() -> io::Result<()> {
@@ -1121,16 +1611,87 @@ mod sys {
             )]
             let size = stat.size as f64;
             Ok(Info {
-                kind: match stat.kind {
-                    FileKind::File => "file",
-                    FileKind::Directory => "directory",
-                    FileKind::Symlink => "symlink",
-                    FileKind::Other => "other",
-                },
+                kind: kind_name(stat.kind),
                 size,
                 mtime_ms: stat.mtime_ms(),
                 mode: stat.mode,
             })
+        }
+
+        /// The name of an entry's kind.
+        const fn kind_name(kind: FileKind) -> &'static str {
+            match kind {
+                FileKind::File => "file",
+                FileKind::Directory => "directory",
+                FileKind::Symlink => "symlink",
+                FileKind::Other => "other",
+            }
+        }
+
+        /// The bytes of the regular file at `rel` beneath the handle's
+        /// directory, at `beneath` the root, read to its end; anything else
+        /// is refused before a byte is read.
+        pub fn read(root: Arc<OwnedFd>, beneath: String, rel: String) -> Result<Vec<u8>, OpError> {
+            let held = handle_dir(&root, &beneath)?;
+            let dir = held
+                .as_ref()
+                .map_or_else(|| root.as_fd(), |held| held.as_fd());
+            beneath::read(dir, Path::new(&rel)).map_err(OpError::Target)
+        }
+
+        /// The target of the symlink at `rel` beneath the handle's
+        /// directory, at `beneath` the root, as stored; a final symlink
+        /// followed when `follow` says, which leaves no symlink to read.
+        pub fn read_link(
+            root: Arc<OwnedFd>,
+            beneath: String,
+            rel: String,
+            follow: bool,
+        ) -> Result<OsString, OpError> {
+            let held = handle_dir(&root, &beneath)?;
+            let dir = held
+                .as_ref()
+                .map_or_else(|| root.as_fd(), |held| held.as_fd());
+            let final_link = if follow {
+                FinalLink::Follow
+            } else {
+                FinalLink::Keep
+            };
+            beneath::read_link(dir, Path::new(&rel), final_link).map_err(OpError::Target)
+        }
+
+        /// The entries of the directory at `rel` beneath the handle's
+        /// directory, at `beneath` the root, a final symlink followed, in
+        /// the kernel's order: each one's kind as the directory records it,
+        /// or, where it records none, as its own metadata says, a symlink
+        /// not followed. The directory's descriptor is closed before this
+        /// returns, whatever it returns.
+        pub fn list(
+            root: Arc<OwnedFd>,
+            beneath: String,
+            rel: String,
+        ) -> Result<Vec<Listed>, OpError> {
+            let held = handle_dir(&root, &beneath)?;
+            let dir = held
+                .as_ref()
+                .map_or_else(|| root.as_fd(), |held| held.as_fd());
+            let entries = beneath::read_dir(dir, Path::new(&rel)).map_err(OpError::Target)?;
+            let mut listed = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let kind = if let Some(kind) = entry.kind {
+                    kind
+                } else {
+                    let named = Path::new(&rel).join(&entry.name);
+                    beneath::stat(dir, &named, FinalLink::Keep)
+                        .map_err(OpError::Target)?
+                        .kind
+                };
+                listed.push(Listed {
+                    name: entry.name,
+                    kind: kind_name(kind),
+                });
+            }
+            Ok(listed)
         }
 
         /// The real path of the directory at `rel` beneath the handle's
@@ -1178,7 +1739,7 @@ mod sys {
         use std::path::Path;
         use std::sync::Arc;
 
-        use super::{Info, OpError, Opened};
+        use super::{Info, Listed, OpError, Opened};
 
         fn unsupported() -> io::Error {
             io::Error::new(io::ErrorKind::Unsupported, "fs on fgro takes Linux")
@@ -1214,6 +1775,31 @@ mod sys {
             _beneath: String,
             _rel: String,
         ) -> Result<OsString, OpError> {
+            Err(OpError::Target(unsupported()))
+        }
+
+        pub fn read(
+            _root: Arc<OwnedFd>,
+            _beneath: String,
+            _rel: String,
+        ) -> Result<Vec<u8>, OpError> {
+            Err(OpError::Target(unsupported()))
+        }
+
+        pub fn read_link(
+            _root: Arc<OwnedFd>,
+            _beneath: String,
+            _rel: String,
+            _follow: bool,
+        ) -> Result<OsString, OpError> {
+            Err(OpError::Target(unsupported()))
+        }
+
+        pub fn list(
+            _root: Arc<OwnedFd>,
+            _beneath: String,
+            _rel: String,
+        ) -> Result<Vec<Listed>, OpError> {
             Err(OpError::Target(unsupported()))
         }
 
