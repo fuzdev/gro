@@ -36,8 +36,9 @@
 //!   `deno_web` (console, URL, encoding, timers, streams, `structuredClone`,
 //!   `AbortController`, `performance`, and the rest), serves the builtins
 //!   (the host modules the runtime implements, each a synthetic module over
-//!   a TypeScript script no snapshot holds, run when a run first imports
-//!   it), and removes `Deno` and `__bootstrap` from the global object
+//!   a script made from its row, which no snapshot holds, run when a run
+//!   first imports it), and removes `Deno` and `__bootstrap` from the
+//!   global object
 //! - `host`: the native half of the builtins, their members, each declared
 //!   through the one choke point that checks the run's [`Grants`] first, or,
 //!   for a grant-free builtin's, that the runtime holds an [`Authority`],

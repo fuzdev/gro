@@ -476,13 +476,14 @@ On `fgro`, the process modules [the table](#the-modules) marks built are builtin
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
 `@fuzdev/gro/env_error.ts`, the env module's errors, is one too ([below](#error-classes-on-fgro)).
-A builtin module's implementation is no part of the startup snapshot: it's compiled and run when a run first imports the module,
+A builtin module is no part of the startup snapshot: its exports are made natively, by a script that only asks the host for them,
+compiled and run when a run first imports the module,
 so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
-That first import can come after user code has patched the intrinsics, so the whole implementation, not only what it exports,
-names no global and reads no property of an intrinsic: it takes each one from references the runtime took before any user code ran,
-and code that patched `Object` or the prototypes before the import changes nothing it holds and is never called by it
+That first import can come after user code has patched the intrinsics, so the script
+names no global but `undefined` and reads no property of an intrinsic, taking what it reads from references the runtime took before any user code ran,
+and code that patched `Object` or the prototypes before the import changes nothing the module holds and is never called by it
 ([native requirements](#native-requirements)).
-Each module's exports have the types of the Node module's, checked by a test against that module's declarations for every builtin module.
+A builtin module declares no types of its own: its types are the Node module's, and a test holds each one's exports to that module's declarations, the same names, each the same kind of member (a function, data, a handle, a class), each kind of handle's methods those of the Node interface its handles implement, and each function of a `length` its declaration allows, for every builtin module.
 A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
 their shapes, property descriptors, and what throws, but where a case names a difference by design.
 
@@ -1094,25 +1095,23 @@ a function checking its arguments and raising the errors, as each builtin's are,
 and whatever has identity or state, a class, a brand, a registry, is the host's.
 So a function's source text is native code's, and a throw's stack starts at the caller, with no frame of the module's.
 
-That JS runs when a run first imports the module, which can be after user code has patched the intrinsics,
+That JS is one script the runtime makes from the module's row, the same for every module but whether it hands the host the realm's `Error`,
+and it runs when a run first imports the module, which can be after user code has patched the intrinsics,
 where the Node implementation copies what it needs when it loads and can be loaded first.
-So a builtin module's implementation reaches intrinsics only through the runtime's own references to them, taken before any user code ran,
-and uses none whose work reads a prototype user code can patch:
-it names no global, calls no method and reads no property of an array, string, function, or promise,
-reads no member of a value a caller passed it, makes no string of one, and iterates none,
-and what it hands to user code is made natively: a frozen function, a frozen array, a number or a string, a class, or a frozen null-prototype record.
-It's type-checked with no global value and no member of an intrinsic declared, so either is an error;
-a walk of its syntax refuses a member of anything the runtime didn't hand it and each construct that calls a protocol user code can answer;
+So the script reaches intrinsics only through the runtime's own references to them, taken before any user code ran:
+it names no global, calls nothing but the host, reads only what the runtime handed it, and hands on only what the host returns,
+and what that hands to user code is made natively: a frozen function, a frozen array, a number or a string, a class, or a frozen null-prototype record.
+A test holds every module's script to its template, byte for byte,
 and every builtin module is imported by a test in a realm whose every reachable intrinsic reports its use,
 where each function it exports or reaches is called with hostile arguments: a proxy, a callback that reports its call, an object of getters, a subclassed string and array.
 It shares no source with the Node implementation: the cases run under both runtimes hold the two to one behavior.
-A builtin module's implementation runs the first time a run imports it, and an `import()` runs it on the caller's stack,
-so a first `import()` started with less than 96 KiB of stack left runs the implementation from the event loop instead, with nearly the whole stack,
+A builtin module's script runs the first time a run imports it, and an `import()` runs it on the caller's stack,
+so a first `import()` started with less than 96 KiB of stack left runs the script from the event loop instead, with nearly the whole stack,
 and settles from the event loop, after the current turn's microtasks and before a 0 ms timer, where one started shallower settles in the turn;
 every import of the module gets the one module, however the first ones interleave.
 Nearest the stack's limit, as for any `import()` there, the import can reject with the engine's own `RangeError`,
 which can also leave a promise the program never saw rejected and unhandled, failing the run.
-An implementation throws nothing as it loads, so nothing it does then is left half-done, or done twice to any effect:
+A builtin module throws nothing as it loads, so nothing it does then is left half-done, or done twice to any effect:
 what can fail for a reason of the run's fails in what the module exports, as `cwd` does when called.
 
 ### fs

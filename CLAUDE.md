@@ -296,16 +296,12 @@ Invariants that live in the code:
   allowed by its function's `#[expect]` and explained by a `// SAFETY:`
   comment. `deno_core::scope!` and the `v8` scope macros hide `unsafe` inside
   dependency macros, outside the lint; eval uses them for handle scopes.
-- The embedded sources (`crates/gro_runtime/js/`'s: the bootstrap module,
-  and each builtin's implementation under `js/builtin/`) must be 7-bit
-  ASCII, or the build fails (`ascii_str_include!`, and a constant assertion
-  on each implementation). The implementations are TypeScript, stripped by
-  `bootstrap::to_backing_script` when the snapshot is made, into the
-  residual table the binary embeds, or once a process when a runtime starts
-  without a snapshot, never on a snapshot start, which a runtime test holds
-  by counting the strips. A builtin embeds no module of `src/lib`: what it
-  shares with its Node module is behavior, held by the differential cases,
-  never source.
+- The embedded source (`crates/gro_runtime/js/bootstrap.js`) must be 7-bit
+  ASCII, or the build fails (`ascii_str_include!`). A builtin has no source of
+  its own: each row's backing script is made from the row, of
+  `bootstrap/template.rs`'s literals, which the build holds to ASCII. A
+  builtin embeds no module of `src/lib`: what it shares with its Node module
+  is behavior, held by the differential cases, never source.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
   (`Roots`) and passes them into `resolve_from`. Failures are enums (the
@@ -314,33 +310,42 @@ Invariants that live in the code:
   graph's record.
 - The builtin table (`resolver/builtin.rs`) is the one source of the builtin
   modules: `&'static` data of gro's own types, each row's specifier, grant,
-  and exports. `builtin_rows!` hands the rows to the bootstrap, which embeds
-  each row's implementation, the script at `js/builtin/<specifier>`, and makes
-  its backing script and synthetic module from it. No snapshot holds an
-  implementation, and gro's extension declares no lazy script: `deno_core`
-  reads a backing script from its residual table the first time a run imports
-  the builtin, and runs it then, so an unimported builtin costs a start its
-  facade's name.
-  - An implementation is one function in two levels. The outer takes
-    `deno_core`'s bootstrap object, runs once a run, and takes what the
-    inner needs: the one op, `op_gro_namespace`, and, in a row of an error
-    family's (`ErrorFamily::rows`: the family's error row and each row whose
-    members throw its error, `env_error` and `env` today), the realm's
-    `Error` from `primordials`, a read that costs a first import, so no
-    other row takes it. It returns the inner, which takes the scope of its
-    importer's grant, an argument the backing script's call passes
-    (`bootstrap::scope_argument`; `undefined` while no grant has one) and
-    the implementation reads no other way, and asks the host for the
-    namespace. The backing script calls both at once. A row's script reads
-    nothing and decides nothing; the namespace and whatever has identity or
-    state are the host's (a member, a class, a brand, a table of handles,
-    an exit code), in `OpState`.
+  and exports. `builtin_rows!` hands the rows to the bootstrap, which names
+  each row's backing script and synthetic module from it, and
+  `bootstrap/template.rs` makes the backing script from the row, when the
+  snapshot is made, into the residual table the binary embeds, or once a
+  process when a runtime starts without a snapshot. No snapshot holds a
+  backing script, and gro's extension declares no lazy script: `deno_core`
+  reads a backing script from its residual table the first time a run
+  imports the builtin, and runs it then, so an unimported builtin costs a
+  start its facade's name.
+  - A backing script is one function in two levels, of one of two
+    templates. The outer takes `deno_core`'s bootstrap object, runs once a
+    run, and takes the one op, `op_gro_namespace`, from `core.ops`, and, in
+    a row with a member that declares an error family
+    (`native::hands_over_error`, read from the native members' table:
+    `env_error` and `env` today), the realm's `Error` from `primordials`, a
+    read that costs a first import, so no other row takes it. It returns
+    the inner, which takes the scope of its importer's grant, an argument
+    the script's call passes (`template::scope_argument`; `undefined` while
+    no grant has one), and asks the host for the namespace. The script
+    calls both at once. A first import can come after user code has
+    patched the global intrinsics, and the script names no global but
+    `undefined` and reads no member of an intrinsic: each read is a
+    destructuring of what `deno_core` handed it before any user code ran.
+    It hands on nothing but what the op returns, reads no other op, and
+    lets no level escape. `template.rs`'s test holds every row's script to
+    the two texts byte for byte, the one with `Error` to exactly the rows
+    the pinned table (`tests/native_members.txt`) shows declaring a family.
+    A row's script reads nothing and decides nothing; the namespace and
+    whatever has identity or state are the host's (a member, a class, a
+    brand, a table of handles, an exit code), in `OpState`.
   - Every row's members are native (`host/native.rs`): each export, and
     each method of a kind of handle the row makes, a function or a value
     the host makes from `NATIVE_MEMBERS`, the table `native_members!`
     declares, the first time a run asks for the row's namespace. The inner
     level calls `op_gro_namespace`, handing over its scope, and from a row
-    of an error family's the realm's `Error`, which the run holds unchecked
+    that hands it over the realm's `Error`, which the run holds unchecked
     (`ErrorClasses::hand_over`) until a class is first made of it; the op
     refuses an `Error` from any other row. The op
     serves every row and knows the row by the script that calls it, the
@@ -352,15 +357,16 @@ Invariants that live in the code:
     well, the functions and prototypes made once a row): a frozen
     null-prototype record of the exports and `default`, each function
     frozen, named, of the `length` its declared arguments give, and no
-    constructor, each value made once with it (the arguments' frozen
-    array, the process's id, the runtime's version, `env`'s root handle,
-    `EnvError`), each kind's prototype a frozen null-prototype record of
-    its methods. Nothing is held until the namespace is whole. So a start
-    pays one op for every row, and a first import no shell's compile. A
-    factory makes its handles of the prototype the run holds
-    (`native::prototype`), a value of the one the namespace is being made
-    with (`native::Prototypes`).
-  - An `import()` runs an implementation on the caller's stack, so a first
+    constructor, each value made once with it, data (the arguments'
+    frozen array, the process's id, the runtime's version), a handle
+    (`env`'s root), or a class (`EnvError`), each kind's prototype a frozen
+    null-prototype record of its methods. Nothing is held until the
+    namespace is whole. So a start pays one op for every row, and a first
+    import no shell's compile. A factory makes its handles of the
+    prototype the run holds (`native::prototype`), and a value declared a
+    handle of a kind (`handle KIND(prototype)`) is given the one the
+    namespace is being made with.
+  - An `import()` runs a backing script on the caller's stack, so a first
     `import()` of a builtin with less than `BUILTIN_IMPORT_STACK` left above
     V8's limit has `deno_core` build the module from the event loop instead
     (the loader's `should_load_synthetic_esm`; `loader/headroom.rs`, with
@@ -369,9 +375,9 @@ Invariants that live in the code:
     reported on a stack too short for the report, which could end the
     process. `deno_core` builds one module of a builtin however its loads
     interleave (the `deno_core` patch, `vendor/README.md`), so every import
-    gets the one namespace. An
-    implementation throws nothing at load: what can fail for a reason of the
-    run's fails in what the module exports, as `cwd` does when called.
+    gets the one namespace. A backing script throws nothing at load: what
+    can fail for a reason of the run's fails in what the module exports, as
+    `cwd` does when called.
     Nothing known ends a level early (a first import has the stack it needs,
     an op a level calls throws only for want of stack, and a run never
     terminates V8), and both stay safe to run again all the same: the amount
@@ -388,46 +394,19 @@ Invariants that live in the code:
     apart up from the stack's limit, interleaves deep and shallow first
     imports in a turn, and holds every import to one whole module; nothing
     checks that an op a level calls is safe to repeat.
-  - An implementation can run after user code has patched the global
-    intrinsics, so it names no global and reads no member of an intrinsic, its
-    top level included: each intrinsic comes from `primordials`, each op from
-    `core.ops`. Three checks hold what a script names.
-  - The static one (`src/test/builtin_intrinsics.test.ts`, over
-    `builtin_constructs.ts`) is one pass over the implementations' own program
-    (`js/builtin/tsconfig.json`, with no library but `intrinsics.d.ts`, which
-    declares no value and no member, so either is a type error), whose walk
-    refuses what the program accepts: a member of anything but what the
-    bootstrap object gave (an argument, the scope, a result, `this`; a private
-    name excepted), a property written, each construct that calls a protocol
-    user code can answer (iteration, a string or number made of a value that
-    isn't primitive, `await`, `import()`, `using`, `instanceof`, `in`,
-    `for`-`in`, a tagged template, `extends`, an accessor in an object
-    literal), and what leaves the type check or turns it off (`any`, written
-    or what a call no signature types gives, a type assertion, `globalThis`,
-    a `@ts-` directive, a reference to a file the program's tsconfig doesn't
-    list).
-  - The same test holds the two declaration files to reviewed lists.
-    `bootstrap.d.ts`: the bootstrap object gives `core.ops`, gro's host ops,
-    and the primordials listed there, each with why it's safe after user code
-    ran, and nothing else. So no implementation calls `core.loadExtScript`,
-    which, the first time a run calls it for a script the snapshot didn't
-    load, makes every op that has a fast call again, for nothing a host op
-    gains, or touches `internals`, an ordinary object, where a read or a
-    write passes through `Object.prototype`: a helper two builtins need is
-    written in each. `intrinsics.d.ts`: interfaces
-    with no member, and beside them only the members and the declarations
-    listed there, so it declares no value an implementation could call.
-    Neither file holds an `any` or names another file.
-  - The runtime one (`crates/gro_cli/tests/host.rs`) imports every row of the
-    table in a realm whose every reachable intrinsic is a trap that reports as
-    it's used, and exercises everything the row exports or reaches: each
+  - `crates/gro_cli/tests/host.rs` imports every row of the table in a
+    realm whose every reachable intrinsic is a trap that reports as it's
+    used, and exercises everything the row exports or reaches: each
     function called with no arguments, with hostile ones (a proxy, a proxy of
     a function, an object of getters, a subclassed string and array), with
     each argument the fixture gives for it replaced in turn by a hostile one,
     and with a hostile receiver, each class constructed (one the host made
     among them, told by its `prototype`, which can't be replaced), each
     getter read, each setter given a value, and the same for what a call
-    returns or throws. A hostile argument answers every read made of it,
+    returns or throws. The names a backing script reads, every member's,
+    and each export's are trapped on the shared prototypes too, so a read
+    of one that an object lacks reports. A hostile argument answers every
+    read made of it,
     `cause` included, and what a proxy's trap does by default runs
     unwatched, since it's the caller's code. A function reached fails it
     until the fixture has an entry for it, with the arguments it takes or
@@ -438,31 +417,26 @@ Invariants that live in the code:
     call is reported before it's made, and the run is made again without the
     one it ended in. What a call leaves to run later, a promise's reaction,
     it doesn't watch.
-  - And `bootstrap/web_scripts.rs` holds each implementation's reads of
-    `core.ops`, its backing script's scope argument's among them, to the
-    host op, `op_gro_namespace`.
-  - Those hold what a script names, not what it does with it, so
-    `bootstrap/template.rs` holds every row's backing script, stripped and
-    wrapped, to the template its row's needs give, with the realm's `Error`
-    for a row of an error family's and without it for every other, each
-    formatted by tsv with its blank and comment lines dropped: no row's
-    script hands on the bootstrap object, `core`, `core.ops`, or the op,
-    reads another op, or lets its inner level escape.
   - An error row's class and guard are the host's: the class
     (`host/error_class.rs`) made natively the first time a run needs it,
     the realm's `Error.prototype` taken from an error V8 makes and its
-    `Error` handed over from `primordials` by the first implementation of
-    one of the family's rows a run imports, held for the run, and checked
-    the first time a class is made of it, so a run that makes no class
-    pays for no check, and a value that fails is dropped for the next
+    `Error` handed over from `primordials` by the backing script of the
+    first row a run imports that hands it over, held for the run, and
+    checked the first time a class is made of it, so a run that makes no
+    class pays for no check, and a value that fails is dropped for the next
     import's; and the class held in `OpState` (`ErrorClasses`) once whole,
     so a first import ended early makes it again and every later need finds
     the one class; the row's namespace holds it as a native value, and its
     guard as a native function (`host/native.rs`), and any member throws an
-    instance with one call (`ErrorClasses::throw`). A family missing from
-    `FAMILIES` throws when its class would be made. A start makes none and
-    puts the empty holder only. The guard reads data properties only, so it
-    runs no code of a caller's.
+    instance with one call (`ErrorClasses::throw`). A member declares the
+    family whose error it throws (`throws ENV_ERROR(errors)` in
+    `native_members!`), and the error row's class the family it is
+    (`class ENV_ERROR(family)`); throwing a family's error and making its
+    class take the `DeclaredFamily` only the macro makes, from the
+    declaration, so a member throws no family it didn't declare and its row
+    hands the `Error` over. A family missing from `FAMILIES` throws when its
+    class would be made. A start makes none and puts the empty holder only.
+    The guard reads data properties only, so it runs no code of a caller's.
   - A handle is the host's (`host/handle.rs`): an object the host makes of
     a prototype, the record of native methods the host made with the row's
     namespace, its state under a private symbol of its kind, the brand,
@@ -487,13 +461,22 @@ Invariants that live in the code:
     confined run's (`Authority::Confined`) package module is granted none,
     and a grant-free row links for the project and a package alike; an
     unconfined run (`Authority::Unconfined`, `fgro run -A`) grants every
-    module every row, and lifts no refusal but a grant's. A builtin's
-    implementation keeps no per-importer state.
-  - `src/test/builtin_types.test.ts` holds every row's inferred types to its
-    Node module's, reading the rows from the table and each implementation
-    from its file, a class by its public shape (its constructor's parameters
-    and its instances' members), since a host-made class's type is a claim
-    in `bootstrap.d.ts`, which no class type equals.
+    module every row, and lifts no refusal but a grant's. A builtin keeps
+    no per-importer state.
+  - A builtin declares no types: its types are its Node module's.
+    `src/test/builtin_types.test.ts` holds the native members' table, as
+    `tests/native_members.txt` pins it, to each row's Node module, read
+    through the TypeScript compiler, both ways, naming any member on one
+    side only: the same exports, each the same kind (a function, data, a
+    handle of the same kind, a class), each kind of handle's methods the
+    own members of the Node module's interface it's named for (a kind's
+    brand is `<specifier>#<Interface>`), and each function and method of a
+    `length` its declaration allows: exactly JS's count, to the first
+    defaulted or rest parameter, for a function with a body, and for an
+    interface's method from its required parameters to all of them, since
+    only its implementation says whether an optional one is defaulted.
+    Names, kinds, and arity, never argument or result types, reading the
+    rows from the table.
     `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
     module printed (`tests/fixtures/host/`, whose
     `expected.json` `node oracle.js --write` regenerates under Node and
@@ -573,30 +556,31 @@ Invariants that live in the code:
   ran before its refusal, on a value made with no authority or without its
   grant, on a member of a granted row (a probe table's)
   that runs without its grant, on a member whose grant isn't its row's, on
-  the namespace op answering a script that isn't the row's, and on a
+  the namespace op answering a script that isn't the row's, on a
   namespace or prototype whose records or functions aren't the table's, or
-  aren't frozen; `tests/native_members.txt` pins the table (module, name,
-  place, a function's `length` or a value, grant) as `op_names.txt` pins
-  the ops.
+  aren't frozen, and on a `DeclaredFamily` made anywhere but by the macro
+  (a source scan, by its maker's name, and in its own module by every
+  line that builds one); `tests/native_members.txt` pins the table
+  (module, name, place, a function's `length` or a value's kind, grant,
+  the family declared) as `op_names.txt` pins the ops.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime
-  registers. Of the ops and classes `deno_web` declares, the runtime
-  registers those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the
-  ones a script it can load reads from `core.ops`, and drops the rest before
-  the runtime or the snapshot is made (`bootstrap::extensions`). The tests
-  of `bootstrap/web_scripts.rs` read the scripts, the web extensions' and
-  the builtins' implementations, and fail on a read that
-  isn't kept, on a kept name no script reads, and on a script that reaches
-  `ops` any way but destructuring `core.ops`; a runtime test fails on a read
-  that isn't a function. Tests pin every registered op name in
-  `crates/gro_runtime/tests/op_names.txt` and every dropped one in
-  `tests/dropped_op_names.txt` beside it, so a `deno_core`/`deno_web`
-  upgrade that adds an op fails until it's reviewed, and every refused one
-  in `tests/refused_op_names.txt`, since the tests of the refusals read
-  their names from the list itself.
+  registers. Of the ops and classes `deno_web` declares, the runtime registers
+  those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the ones a
+  script it can load reads from `core.ops`, and drops the rest before the
+  runtime or the snapshot is made (`bootstrap::extensions`). The tests of
+  `bootstrap/web_scripts.rs` read the web extensions' scripts the runtime can
+  load, and fail on a read that isn't kept, on a kept name no script reads,
+  and on a script that reaches `ops` any way but destructuring `core.ops`; a
+  runtime test fails on a read that isn't a function. Tests pin every
+  registered op name in `crates/gro_runtime/tests/op_names.txt` and every
+  dropped one in `tests/dropped_op_names.txt` beside it, so a
+  `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed,
+  and every refused one in `tests/refused_op_names.txt`, since the tests of
+  the refusals read their names from the list itself.
 - A start from the snapshot binds no op again (`skip_op_registration`, set
   in `runtime::new_runtime`): the snapshot's op functions, each without its
-  fast call, are the only ones for the run (a builtin's implementation takes
-  its ops from the bootstrap object, which holds them). `deno_core` would
+  fast call, are the only ones for the run (a builtin's backing script takes
+  its op from the bootstrap object, which holds them). `deno_core` would
   make each op that has a fast call again at the first call of
   `op_load_ext_script` or `op_lazy_load_esm`, and nothing calls either once
   a run has started. Each op function reaches the starting runtime's
@@ -664,8 +648,8 @@ Invariants that live in the code:
   `exit`. `fgro`'s step is `run::exit_now`, which prints what was refused
   and reaches `end`; `run::exit_code` is the one place a run's exit code
   is decided, for a program's code, a failure, and a refusal alike. The
-  exit code a program sets is the run's state in `OpState`, never the
-  implementation's, and so is the run's record of refusals
+  exit code a program sets is the run's state in `OpState`, never a
+  script's, and so is the run's record of refusals
   (`loader::refused::Refusals`), the loader's, which `OpState` holds for
   any op (`loader::RefusalLog`): the `import()`s the loader refuses by
   rule, and each call a native member refuses for a grant its handle

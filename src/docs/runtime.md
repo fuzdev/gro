@@ -231,7 +231,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Svelte, Vite, and SvelteKit stay the project's own dependencies, so the binary owns Gro,
   never the project's compiler or framework.
 - **Startup.** A snapshot of the host (built) and lazy host init,
-  built for the builtin modules: an implementation is outside the snapshot, compiled and run when a run first imports its module,
+  built for the builtin modules: a module's script is outside the snapshot, compiled and run when a run first imports its module,
   so a run pays for the ones it imports.
   A run or an eval that is over exits without tearing its runtime down (built), leaving the OS to reclaim it.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
