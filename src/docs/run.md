@@ -49,6 +49,7 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   Each is repeatable, its directories one set, a path relative to the working directory or absolute,
   and each must be a directory when the run starts, under `-A` too:
   a path missing, a file, or one `fgro` can't look at is a usage error naming it as resolved, before anything runs.
+  `fs` opens each when the run first imports it, and every op through one replaced since the start fails ([host modules](host_modules.md#fs-on-fgro)).
   A bare flag, an empty list, an empty path (`--allow-read=a,`), and a NUL byte are usage errors too, and a path holding a comma can't be listed.
   Write doesn't imply read: a directory only written is read by no read op, though `fs.open_dir`, `dir()`, and a write can still tell whether something is there,
   and a handle's `path`, its real path, where a directory symlink in it leads.

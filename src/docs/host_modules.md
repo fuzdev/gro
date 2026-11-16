@@ -157,10 +157,12 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
 - The run's roots are the directories it reads or writes, each opened once, as a path only, the first time the run imports `fs`:
   the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory;
   each directory `--allow-read=` and `--allow-write=` grant; and under `-A`, `/`, read and written.
-  A flag's directory is checked as the run starts and opened at that first import,
-  so one replaced between is the directory at its path then, and one gone by then fails every op through it with `io_error`, its cause saying so.
-  A program can't rename a root, so only another process can make the swap, as it could swap the project's directory before the first import;
-  `fs` has no defense against that yet.
+  A flag's directory is checked as the run starts and opened at that first import, held to the directory its path named at the start:
+  one replaced between (another directory moved to its path, or its symlink pointed elsewhere) fails every op through it with `io_error`, as one gone by then does, its cause saying which.
+  The check compares the device and inode numbers, and the birth time where the filesystem records one:
+  a directory removed and another made at the same path can reuse the inode number, and passes where the filesystem records no birth time or stamps both within one tick of its clock.
+  It holds a root as the root opens, and the root's descriptor holds the directory from then on.
+  The project's own read isn't checked (a flag naming its directory is): the loader finds it by its path and loads every module from that path, so a directory swapped in there is the run's project for the loader too.
 - Each root reads and writes what its flags grant, joined with what every root holding it does:
   a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
   and, a handle's `path` being its real path, where a directory symlink in it leads),

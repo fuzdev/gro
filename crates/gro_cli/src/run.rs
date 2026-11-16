@@ -11,6 +11,7 @@ use std::path::Path;
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
+use gro_runtime::resolver::FileId;
 use gro_runtime::{
     ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, Grants, NeededGrant,
     Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
@@ -123,10 +124,10 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
 
 /// The fs grant of the directories `dirs` lists, each resolved against
 /// `cwd` when it's relative and held to be a directory now, by one `stat`
-/// that follows symlinks: the read ones first, then the written ones. The
-/// runtime opens each when the run first imports `fs`, so a directory
-/// replaced between is whatever directory is at its path then, and one
-/// gone by then fails every op through it.
+/// that follows symlinks, whose identity the grant keeps: the read ones
+/// first, then the written ones. The runtime opens each when the run first
+/// imports `fs` and holds it to that identity, so a directory replaced
+/// between, like one gone by then, fails every op through it.
 ///
 /// # Errors
 ///
@@ -136,7 +137,10 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
     let check = |flag: DirFlag, dir: &String| {
         let path = cwd.join(dir);
         let fault = match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.is_dir() => return Ok(path),
+            Ok(metadata) if metadata.is_dir() => match FileId::of(&metadata) {
+                Ok(id) => return Ok((path, id)),
+                Err(error) => DirFault::Unreadable(error),
+            },
             Ok(_) => DirFault::NotADirectory,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => DirFault::Missing,
             Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
@@ -613,9 +617,14 @@ mod tests {
     /// reading and writing everything whatever the flags list.
     #[test]
     fn the_fs_grant_reaches_a_confined_run_only() {
+        let id = gro_runtime::resolver::FileId {
+            dev: 1,
+            ino: 2,
+            born: None,
+        };
         let fs = FsGrant {
-            read: ["/r".into()].into(),
-            write: ["/w".into()].into(),
+            read: [("/r".into(), id)].into(),
+            write: [("/w".into(), id)].into(),
         };
         let run = invocation(&["--allow-read=/r", "a.js"]);
         let options = runtime_options(&run, &TestEnvironment::default(), fs.clone());

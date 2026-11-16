@@ -102,10 +102,10 @@ mod stack;
 #[cfg(test)]
 mod test_support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::resolver::Capability;
+use crate::resolver::{Capability, FileId};
 use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
@@ -275,20 +275,26 @@ pub struct EnvGrant {
 /// The fs host module's grant: the directories it reads and writes beside
 /// the project's root, which it always reads and never writes.
 ///
-/// Each is an absolute path, as granted: a directory that existed when the
-/// embedder checked it, opened when the run first imports `fs`, so one
-/// replaced since is whatever directory is at the path then, and one gone
-/// or no longer a directory fails every op through it. A root matches a
-/// path by the path as granted as well as by its real path. Write doesn't
-/// imply read: a directory only written is read only if a read grant holds
-/// it too. An unconfined run reads and writes everything, one root at `/`,
-/// whatever this holds.
+/// Each is an absolute path, as granted, with the identity of the
+/// directory it named when the embedder checked it, by a `stat` that
+/// followed symlinks. The run opens each when it first imports `fs`, and a
+/// root whose directory has another identity then, one replaced since, is
+/// held as why, as one gone or no longer a directory is, failing every op
+/// through it. The identity is the device, the inode, and the birth time
+/// where the filesystem records one: a directory removed and another made
+/// at its path can take its inode number, and passes where the filesystem
+/// records no birth time or stamps both within one tick of its clock
+/// ([`FileId::born`]). A root matches a path by the path as
+/// granted as well as by its real path. Write doesn't imply read: a
+/// directory only written is read only if a read grant holds it too. An
+/// unconfined run reads and writes everything, one root at `/`, whatever
+/// this holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FsGrant {
-    /// The directories read.
-    pub read: BTreeSet<PathBuf>,
-    /// The directories written.
-    pub write: BTreeSet<PathBuf>,
+    /// The directories read, each with its identity when it was checked.
+    pub read: BTreeMap<PathBuf, FileId>,
+    /// The directories written, each with its identity when it was checked.
+    pub write: BTreeMap<PathBuf, FileId>,
 }
 
 /// Why a string can't name an environment variable, as the env host

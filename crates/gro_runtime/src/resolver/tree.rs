@@ -225,12 +225,14 @@ impl SourceTree for DiskTree {
 }
 
 /// A file's identity, its device and inode numbers and its birth time, taken
-/// when the resolver looked it up.
+/// when the resolver looked it up, or, for a directory the fs host module
+/// is granted, when the embedder checked it (`FsGrant`).
 ///
 /// The module loader opens the path and refuses the file when the one it
 /// opened has another, so a file or a directory on its path swapped between
 /// resolving and reading can't substitute another file, except a file remade
-/// with no birth time to tell it apart (see [`FileId::born`]).
+/// with no birth time to tell it apart (see [`FileId::born`]); the fs host
+/// module holds a granted directory's root to it the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId {
     /// The device holding the file.

@@ -1611,7 +1611,7 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
 /// test has changed the granted directories, the first import of `fs` and
 /// a reach through each, as a JSON line.
 const FS_LATE_ROOTS: &str = "import { args } from '@fuzdev/gro/args.ts';
-const [r, w] = args;
+const [r, w, u, l] = args;
 console.log('ready');
 for (let waited = 0; ; waited++) {
 \tif (waited > 3000) throw Error('the test never changed the roots');
@@ -1626,19 +1626,24 @@ const how = async (call) => {
 \ttry {
 \t\treturn ['ok', (await call()) ?? null];
 \t} catch (error) {
-\t\treturn [error.constructor.name, error.kind ?? error.message, String(error.cause?.message).includes('is gone')];
+\t\treturn [error.constructor.name, error.kind ?? error.message, error.cause?.message ?? null];
 \t}
 };
 console.log(JSON.stringify({
 \treplaced: await how(async () => (await fs.open_dir(r)).read_text('f.txt')),
 \tgone: await how(() => fs.open_dir(w)),
+\tunchanged: await how(async () => (await fs.open_dir(u)).read_text('f.txt')),
+\trepointed: await how(async () => (await fs.open_dir(l)).read_text('f.txt')),
 }));
 ";
 
 /// A granted directory is checked as the run starts and opened when the
-/// run first imports `fs`: one replaced between is the directory at its
-/// path then, and one gone by then fails every reach through it with
-/// `io_error`, its cause saying so, which doesn't fail the run.
+/// run first imports `fs`, held to the directory it named at the start:
+/// one replaced between, like one gone by then, fails every reach through
+/// it with `io_error`, its cause saying which, which doesn't fail the run,
+/// and one left alone is read. A written symlink pointed since at a
+/// directory granted only read is held as replaced, never joining that
+/// root, which would read and write it.
 #[test]
 fn fs_flag_roots_open_at_the_first_import() {
     use std::io::BufRead as _;
@@ -1652,17 +1657,27 @@ fn fs_flag_roots_open_at_the_first_import() {
             ("main.js", FS_LATE_ROOTS),
             ("r/f.txt", "before"),
             ("w/f.txt", ""),
+            ("u/f.txt", "kept"),
+            ("v/f.txt", "v"),
         ],
     );
-    let (r, w) = (project.0.join("r"), project.0.join("w"));
+    let l = project.0.join("l");
+    std::os::unix::fs::symlink("v", &l).unwrap();
+    let (r, w, u) = (
+        project.0.join("r"),
+        project.0.join("w"),
+        project.0.join("u"),
+    );
     let text = |path: &Path| path.display().to_string();
     let mut command = fgro_command(&[
         "run",
-        &format!("--allow-read={}", text(&r)),
-        &format!("--allow-write={}", text(&w)),
+        &format!("--allow-read={},{}", text(&r), text(&u)),
+        &format!("--allow-write={},{}", text(&w), text(&l)),
         "main.js",
         &text(&r),
         &text(&w),
+        &text(&u),
+        &text(&l),
     ]);
     command
         .env_clear()
@@ -1679,6 +1694,8 @@ fn fs_flag_roots_open_at_the_first_import() {
     std::fs::create_dir(&r).unwrap();
     std::fs::write(r.join("f.txt"), "after").unwrap();
     std::fs::remove_dir_all(&w).unwrap();
+    std::fs::remove_file(&l).unwrap();
+    std::os::unix::fs::symlink("u", &l).unwrap();
     std::fs::write(project.0.join("go.js"), "").unwrap();
     line.clear();
     stdout.read_line(&mut line).unwrap();
@@ -1689,8 +1706,22 @@ fn fs_flag_roots_open_at_the_first_import() {
     assert_eq!(
         ended,
         serde_json::json!({
-            "replaced": ["ok", "after"],
-            "gone": ["FsError", "io_error", true],
+            "replaced": [
+                "FsError",
+                "io_error",
+                format!("the directory granted as {} was replaced since the run started", text(&r)),
+            ],
+            "gone": [
+                "FsError",
+                "io_error",
+                format!("the directory granted as {} is gone, or no longer a directory", text(&w)),
+            ],
+            "unchanged": ["ok", "kept"],
+            "repointed": [
+                "FsError",
+                "io_error",
+                format!("the directory granted as {} was replaced since the run started", text(&l)),
+            ],
         })
     );
 }

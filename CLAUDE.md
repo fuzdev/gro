@@ -478,7 +478,10 @@ Invariants that live in the code:
     op checks the run's roots.
     Only a root holds a descriptor, opened once (`O_PATH`, no symlink on
     its path) when the run first makes the fs namespace (`FsState`, which
-    every run's start puts, empty), the table only appended to; an op opens the handle's directory
+    every run's start puts, empty), the table only appended to, a flag's
+    root held to the identity its directory had as the run started
+    (`FsGrant`'s `FileId`s, from `fgro run`'s check) or held as why, as a
+    gone one is; an op opens the handle's directory
     beneath it, refusing a symlink, then its path beneath that by
     `openat2`, its `..` resolved by the text first, so no handle owns a
     descriptor or needs a finalizer. A read opens its file without
