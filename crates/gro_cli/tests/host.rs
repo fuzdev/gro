@@ -1854,8 +1854,10 @@ fn fs_hints_name_only_paths_a_shell_passes_as_printed() {
 
 /// The script [`fs_a_scope_a_root_grants_hints_the_handle_to_open`] runs:
 /// a write through `fs.project` to a directory `--allow-write=` grants,
-/// uncaught; or, given a directory only written, that write and a read
-/// through a handle on it of a directory `--allow-read=` grants, caught.
+/// uncaught; or, given a directory only written, that write, a read
+/// through a handle on it of a directory `--allow-read=` grants, and two
+/// copies through `fs.project`, into the directory written and out of it,
+/// caught.
 const FS_PROJECT_WRITE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
 import { args } from '@fuzdev/gro/args.ts';
 const [w] = args;
@@ -1863,6 +1865,8 @@ if (w === undefined) await fs.project.write('dist/x', 'x');
 for (const call of [
 \t() => fs.project.write('dist/x', 'x'),
 \tasync () => (await fs.open_dir(w)).read_text('sub/g.txt'),
+\t() => fs.project.copy('main.js', 'dist/y'),
+\t() => fs.project.copy('dist/.keep', 'x'),
 ]) {
 \ttry {
 \t\tawait call();
@@ -1877,8 +1881,10 @@ for (const call of [
 /// its hint names no grant, which would widen the handle's whole root (the
 /// project, for a write through `fs.project`), but the directory to open a
 /// handle on with `fs.open_dir`, which does the op: a write into a
-/// directory written, and a read through a root only written of a
-/// directory read inside it.
+/// directory written, a copy's into it, judged by the path it writes, and
+/// a read through a root only written of a directory read inside it; a
+/// copy out of the directory written into one no root writes needs the
+/// handle's root written.
 #[test]
 fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
     let project = Scratch::new(
@@ -1931,11 +1937,14 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             &w,
         ]),
         (
-            "not_granted\nnot_granted\n".to_owned(),
+            "not_granted\nnot_granted\nnot_granted\nnot_granted\n".to_owned(),
             format!(
                 "error: fs refused: not_granted: {p}/dist/x\n\
                  error: fs refused: not_granted: {w}/sub/g.txt\n\
-                 error: a refusal fails the run, whether or not the program caught it\n{}{}",
+                 error: fs refused: not_granted: {p}/dist/y\n\
+                 error: fs refused: not_granted: {p}/x\n\
+                 error: a refusal fails the run, whether or not the program caught it\n\
+                 hint: add --allow-write={p} to grant what fs refused\n{}{}",
                 open_dir(&format!("{p}/dist")),
                 open_dir(&w_sub)
             )

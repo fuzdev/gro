@@ -236,7 +236,7 @@ and `some of what fs refused` when it can't show them all;
 with none it can show, the line names the flag alone, `hint: add --allow-read naming the directory to grant what fs refused`.
 The directory a reach outside every root needs is the one its refused step opens in: the names before a `..`, which the walk looks up first, or the whole path,
 and for `fs.real_path`'s last step its parent; a step that leaves its root through a symlink needs a grant of a path through the symlink, which no hint shows, so its line names the flag alone.
-The one an op a handle's scope lacked needs is the handle's root, by its real path: the project's root itself for a write through `fs.project`, since a handle never gains what its root lacked.
+The one an op a handle's scope lacked needs is the handle's root, by its real path: the project's root itself for a write through `fs.project`, since a handle never gains what its root lacked; a copy is judged by the path it writes, its `to`.
 But when a root already grants what was refused, holding the op's target by its text, no flag is hinted, which would widen past it (the whole project, for a write through `fs.project`),
 and the line names the directory to open instead, after the flags' lines: `hint: the run grants what fs refused in /p/dist: open it with fs.open_dir and use that handle`,
 by the same rules (`in a directory not named here` when it can't show it). So `fs.project.write('dist/x')` with `--allow-write=dist` prints that line, not `--allow-write=` of the project.

@@ -850,7 +850,13 @@ fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath,
     let lexical = to_lexical(&requested, &handle_path)?;
     let target = lexical.path_beneath(&handle_path);
     if !handle.scope.read {
-        let needed = scope_needed(roots, root, &target, Scope::READ, NeededGrant::Read);
+        let needed = scope_needed(
+            roots,
+            root,
+            std::slice::from_ref(&target),
+            Scope::READ,
+            NeededGrant::Read,
+        );
         return Err(Failure::NotGranted {
             path: target,
             needed: Some(needed),
@@ -1318,16 +1324,19 @@ fn listed<'s>(
 }
 
 /// The write op `name` called on `receiver`, an `FsDir`, with `paths`, each
-/// checked in order as the op would check it: refused `not_granted` when
-/// the handle may not write, naming the first path, recorded as it's
-/// thrown with what would let it through ([`scope_needed`]); else a plain
-/// `Error` saying the op isn't built on fgro yet.
+/// checked in order as the op would check it, the op writing those from
+/// `written` on (a copy's `to`, every path of the others): refused
+/// `not_granted` when the handle may not write, naming the first path it
+/// writes, recorded as it's thrown with what would let the op write them
+/// all ([`scope_needed`]); else a plain `Error` saying the op isn't built
+/// on fgro yet.
 pub fn write_op<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     name: &str,
     receiver: v8::Local<'s, v8::Value>,
     paths: &[v8::Local<'s, v8::Value>],
+    written: usize,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
@@ -1345,8 +1354,9 @@ pub fn write_op<'s>(
                 "{name} of {MODULE} isn't built on fgro yet"
             )));
         }
-        let first = targets.into_iter().next().unwrap_or(handle_path);
-        let needed = scope_needed(&roots, root, &first, Scope::WRITE, NeededGrant::Write);
+        let written = targets.get(written..).unwrap_or_default();
+        let needed = scope_needed(&roots, root, written, Scope::WRITE, NeededGrant::Write);
+        let first = written.first().cloned().unwrap_or(handle_path);
         Err::<v8::Local<'s, v8::Value>, _>(Failure::NotGranted {
             path: first,
             needed: Some(needed),
@@ -1455,28 +1465,41 @@ fn handle_root<'r>(roots: &'r [Root], handle: &Handle) -> Result<(&'r Root, Stri
     Ok((root, path))
 }
 
-/// What lets through an op on `target`, an absolute path, that a handle
-/// on `root` refused for want of `need`, a handle's scope being its
-/// root's or less: a handle `fs.open_dir` makes on the longest root doing
-/// `need` that holds `target` by its text, when one does, since a grant
+/// What lets through an op on `targets`, absolute paths, that a handle on
+/// `root` refused for want of `need`, a handle's scope being its root's or
+/// less: a handle `fs.open_dir` makes on the longest root doing `need`
+/// that holds every target by its text, when one does, since a grant
 /// wouldn't widen the handle that refused it; else `need` granted to
 /// `root`, by its real path, as `grant` records it.
 fn scope_needed(
     roots: &[Root],
     root: &Root,
-    target: &str,
+    targets: &[String],
     need: Scope,
     grant: fn(String) -> NeededGrant,
 ) -> NeededGrant {
-    let names: Vec<String> = target
-        .split('/')
-        .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
-        .collect();
-    match find_roots(roots, &names, false, need).first() {
-        Some((_, held, _)) => NeededGrant::OpenDir(held.path.clone()),
-        None => grant(root.path.clone()),
-    }
+    // each target's roots doing `need`, the longest first
+    let mut held = targets.iter().map(|target| {
+        let names: Vec<String> = target
+            .split('/')
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        find_roots(roots, &names, false, need)
+            .into_iter()
+            .map(|(index, ..)| index)
+            .collect::<Vec<_>>()
+    });
+    let first = held.next().unwrap_or_default();
+    let rest: Vec<Vec<usize>> = held.collect();
+    first
+        .into_iter()
+        .find(|index| rest.iter().all(|other| other.contains(index)))
+        .and_then(|index| roots.get(index))
+        .map_or_else(
+            || grant(root.path.clone()),
+            |held| NeededGrant::OpenDir(held.path.clone()),
+        )
 }
 
 /// `root`'s descriptor, or `io_error` about `path` naming why it isn't
@@ -2566,11 +2589,32 @@ mod tests {
                 NeededGrant::Read
             };
             assert_eq!(
-                scope_needed(&roots, &roots[root], target, need, grant),
+                scope_needed(&roots, &roots[root], &[target.to_owned()], need, grant),
                 expected,
                 "{target}"
             );
         }
+        // every target held by one root doing the need, the longest that
+        // holds them all, else the handle's root's grant
+        let both = |a: &str, b: &str| {
+            scope_needed(
+                &roots,
+                &roots[0],
+                &[a.to_owned(), b.to_owned()],
+                Scope::WRITE,
+                NeededGrant::Write,
+            )
+        };
+        assert_eq!(both("/p/out/a", "/p/out/b"), open_dir("/p/out"));
+        assert_eq!(both("/p/out/deeper/a", "/p/out/b"), open_dir("/p/out"));
+        assert_eq!(
+            both("/p/src/a", "/p/out/b"),
+            NeededGrant::Write("/p".to_owned())
+        );
+        assert_eq!(
+            scope_needed(&roots, &roots[0], &[], Scope::WRITE, NeededGrant::Write),
+            NeededGrant::Write("/p".to_owned())
+        );
     }
 
     /// A path the kernel named beneath a root is its text, and none is no
