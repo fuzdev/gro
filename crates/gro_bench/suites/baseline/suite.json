@@ -1,6 +1,6 @@
 {
 	"name": "baseline",
-	"version": 6,
+	"version": 7,
 	"samples": 200,
 	"corpora": {"path": "../../../../../corpora", "collections": {"fuz_util": "84315fb37508694b35779f53958ff36dfc3f5665"}},
 	"runtimes": [
@@ -34,6 +34,7 @@
 		{"name": "fuz_util_cold", "script": "fuz_util.js", "warmup": 10, "cold": true, "weight": 1, "collection": "fuz_util"},
 		{"name": "empty", "script": "empty.js", "warmup": 10, "weight": 2},
 		{"name": "console_log", "script": "console_log.js", "warmup": 10, "weight": 2},
-		{"name": "import_one", "script": "import_one.js", "warmup": 10, "weight": 2}
+		{"name": "import_one", "script": "import_one.js", "warmup": 10, "weight": 2},
+		{"name": "import_builtins", "script": "import_builtins.js", "warmup": 10, "weight": 2, "runtimes": ["fgro"]}
 	]
 }

@@ -768,6 +768,10 @@ Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
 - a workload project's `blake3` pins its committed files, and a run refuses
   files that hash otherwise; a change to them bumps the suite's `version` and
   re-pins, which a `gro_bench` test holds against `history.jsonl`
+- a workload runs under every runtime, or the ones its `runtimes` names when
+  it's of one runtime's own API: the baseline's `import_builtins`, a first
+  import of a few builtin rows, runs under `fgro` alone, and an A/B runs it
+  under the base copy too, so every A/B reports what a first import costs
 - `cargo xtask bench report` - each row's latest record against the previous
   and the last attested one
 - Record a suite on a quiet machine, after `cargo xtask build --release` (so

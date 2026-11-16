@@ -91,6 +91,7 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
                 weight: 1,
                 collection: None,
                 project: None,
+                runtimes: None,
             })
             .collect(),
         corpora: None,
@@ -300,6 +301,33 @@ fn a_held_work_dir_is_refused() {
         "{error:?}"
     );
     assert!(error.is_input_error());
+}
+
+#[test]
+fn a_workload_that_names_its_runtimes_gets_only_their_rows() {
+    let dir = scratch("named", &[("a.sh", "true\n"), ("b.sh", "true\n")]);
+    let mut other = sh(Vec::new());
+    other.name = "other".to_owned();
+    let mut suite = suite(vec![other, sh(Vec::new())], &["a.sh", "b.sh"], 2);
+    // the first workload skips the first runtime, so the noise row is the
+    // first row the run has, not one it skips
+    suite.workloads[0].runtimes = Some(vec!["sh".to_owned()]);
+    let record = run_in(&dir, &suite).unwrap();
+    let rows: Vec<(&str, &str)> = record
+        .rows
+        .iter()
+        .map(|row| (row.runtime.as_str(), row.workload.as_str()))
+        .collect();
+    assert_eq!(rows, [("sh", "a"), ("other", "b"), ("sh", "b")]);
+    assert_eq!(
+        (
+            record.noise.runtime.as_str(),
+            record.noise.workload.as_str()
+        ),
+        ("sh", "a")
+    );
+    // it's still probed and sized like every runtime
+    assert_eq!(record.runtimes.len(), 2);
 }
 
 #[test]

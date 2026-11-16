@@ -1,7 +1,8 @@
 //! A suite: the declarative input to a run, read from a JSON file.
 //!
 //! A suite lists runtimes and workloads, and a run measures every pair of the
-//! two, a *row*. Adding a workload or a runtime shim is a change to a suite
+//! two, a *row*, but for a workload that names the runtimes it runs under.
+//! Adding a workload or a runtime shim is a change to a suite
 //! file and the scripts it names, never to the runner.
 //!
 //! ```json
@@ -66,7 +67,9 @@
 //!
 //! Everything runtime-specific (a flag, a variable, a shim file) sits in the
 //! runtime's entry and counts against that runtime; workload scripts are web
-//! standards only, run unmodified by every runtime.
+//! standards only, run unmodified by every runtime, but for a workload of one
+//! runtime's own API (an `fgro` builtin's import), which names the runtimes
+//! it runs under.
 
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
@@ -96,7 +99,7 @@ pub struct Suite {
     /// The runtimes the workloads run under. The run's A/A noise row copies
     /// its first row: the first workload under the first runtime.
     pub runtimes: Vec<Runtime>,
-    /// The workloads, each run by every runtime.
+    /// The workloads, each run by every runtime, or by the ones it names.
     pub workloads: Vec<Workload>,
     /// The corpora checkout the workloads' collections are copied from, each
     /// collection pinned: the run refuses a collection at another tree or
@@ -296,7 +299,8 @@ pub struct FileArg {
     pub file: PathBuf,
 }
 
-/// A workload: a script every runtime runs unmodified.
+/// A workload: a script every runtime runs unmodified, or every one it
+/// names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workload {
@@ -334,6 +338,21 @@ pub struct Workload {
     /// script is a file inside the project's directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<Project>,
+    /// The runtimes it runs under, by name, when it's of one runtime's own
+    /// API (an `fgro` builtin's import) and can't run under every one;
+    /// every runtime when absent. Absent serializes as no key, so the config
+    /// hash of a suite that names none doesn't depend on the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtimes: Option<Vec<String>>,
+}
+
+impl Workload {
+    /// Whether it runs under the runtime named `runtime`.
+    pub fn runs_under(&self, runtime: &str) -> bool {
+        self.runtimes
+            .as_ref()
+            .is_none_or(|names| names.iter().any(|name| name == runtime))
+    }
 }
 
 /// A workload's project, `{"dir": …, "stub_packages": N, "links": {…}}`.
@@ -413,15 +432,20 @@ impl Suite {
     }
 
     /// The rows a run measures, workload by workload, each in runtime order:
-    /// every workload paired with every runtime.
+    /// every workload paired with every runtime it runs under.
     pub fn rows(&self) -> impl Iterator<Item = (&Workload, &Runtime)> {
-        self.workloads
-            .iter()
-            .flat_map(|workload| self.runtimes.iter().map(move |runtime| (workload, runtime)))
+        self.workloads.iter().flat_map(|workload| {
+            self.runtimes
+                .iter()
+                .filter(|runtime| workload.runs_under(&runtime.name))
+                .map(move |runtime| (workload, runtime))
+        })
     }
 
     /// Checks what the types can't: something to run, an even sample count,
-    /// unique names, a `cold` entry on every runtime when a workload is cold,
+    /// unique names, workloads' runtime lists that name runtimes (at least
+    /// one, and every `parity` runtime), a `cold` entry on every runtime
+    /// that runs a cold workload,
     /// workload projects that hold their scripts, workload collections that
     /// the corpora pin names, each with one script per entry file name, a
     /// pin for no collection no workload names, and `parity` and `gate`
@@ -444,8 +468,10 @@ impl Suite {
         }
         unique("runtime", self.runtimes.iter().map(|r| r.name.as_str()))?;
         unique("workload", self.workloads.iter().map(|w| w.name.as_str()))?;
-        if let Some(workload) = self.workloads.iter().find(|w| w.cold)
-            && let Some(runtime) = self.runtimes.iter().find(|r| r.cold.is_none())
+        self.validate_workload_runtimes()?;
+        if let Some((workload, runtime)) = self
+            .rows()
+            .find(|(workload, runtime)| workload.cold && runtime.cold.is_none())
         {
             return Err(BenchError::SuiteInvalid(format!(
                 "the workload `{}` is cold, but the runtime `{}` has no `cold` entry saying how it goes cold (`{{}}` when it has no on-disk cache)",
@@ -456,6 +482,44 @@ impl Suite {
         self.validate_collections()?;
         self.validate_checks()?;
         self.validate_budgets_and_prices()
+    }
+
+    /// Checks each workload's `runtimes`: at least one, each once, each a
+    /// runtime the suite has, and every `parity` runtime among them, since
+    /// parity holds on every workload.
+    fn validate_workload_runtimes(&self) -> Result<(), BenchError> {
+        for workload in &self.workloads {
+            let Some(names) = &workload.runtimes else {
+                continue;
+            };
+            let invalid = |problem: String| {
+                Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` {problem}",
+                    workload.name
+                )))
+            };
+            if names.is_empty() {
+                return invalid("names no runtime to run under".to_owned());
+            }
+            unique(
+                &format!("workload `{}` runtime", workload.name),
+                names.iter().map(String::as_str),
+            )?;
+            if let Some(name) = names
+                .iter()
+                .find(|name| !self.runtimes.iter().any(|r| &r.name == *name))
+            {
+                return invalid(format!(
+                    "names the runtime `{name}`, which the suite doesn't have"
+                ));
+            }
+            if let Some(name) = self.parity.iter().find(|name| !names.contains(name)) {
+                return invalid(format!(
+                    "doesn't run under the parity runtime `{name}`, and parity holds on every workload"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Checks that `budgets` and `prices` name the suite's runtimes, and that
@@ -884,6 +948,71 @@ mod tests {
                     "workloads":[{"name":"x","script":"x.js"}]}"#
             ),
             Err(BenchError::SuiteParse { .. })
+        ));
+    }
+
+    #[test]
+    fn a_workload_that_names_its_runtimes_runs_only_under_them() {
+        let suite = |workloads: &str, extra: &str| {
+            format!(
+                r#"{{"name":"s","version":1,"samples":2,
+                    "runtimes":[{{"name":"a","program":"a","stdout":"envelope"}},{{"name":"b","program":"b","stdout":"envelope"}}],
+                    "workloads":[{workloads}]{extra}}}"#
+            )
+        };
+        let named = parse(&suite(
+            r#"{"name":"x","script":"x.js","runtimes":["b"]},{"name":"y","script":"y.js"}"#,
+            "",
+        ))
+        .unwrap();
+        let rows: Vec<(&str, &str)> = named
+            .rows()
+            .map(|(workload, runtime)| (workload.name.as_str(), runtime.name.as_str()))
+            .collect();
+        assert_eq!(rows, [("x", "b"), ("y", "a"), ("y", "b")]);
+        // absent names no key, so a suite that names none keeps its hash
+        let plain = parse(&suite(r#"{"name":"x","script":"x.js"}"#, "")).unwrap();
+        let json = serde_json::to_string(&plain.workloads[0]).unwrap();
+        assert!(!json.contains("runtimes"), "{json}");
+        for (workloads, extra, message) in [
+            (
+                r#"{"name":"x","script":"x.js","runtimes":[]}"#,
+                "",
+                "the workload `x` names no runtime to run under",
+            ),
+            (
+                r#"{"name":"x","script":"x.js","runtimes":["b","b"]}"#,
+                "",
+                "the workload `x` runtime name `b` is used twice",
+            ),
+            (
+                r#"{"name":"x","script":"x.js","runtimes":["c"]}"#,
+                "",
+                "the workload `x` names the runtime `c`, which the suite doesn't have",
+            ),
+            (
+                r#"{"name":"x","script":"x.js","runtimes":["b"]}"#,
+                r#","parity":["a","b"]"#,
+                "the workload `x` doesn't run under the parity runtime `a`, and parity holds on every workload",
+            ),
+        ] {
+            match parse(&suite(workloads, extra)) {
+                Err(BenchError::SuiteInvalid(found)) => assert_eq!(found, message),
+                other => panic!("{workloads}: {other:?}"),
+            }
+        }
+        // a cold workload needs a `cold` entry only on the runtimes it runs under
+        let cold = |runtimes: &str| {
+            format!(
+                r#"{{"name":"s","version":1,"samples":2,
+                    "runtimes":[{{"name":"a","program":"a"}},{{"name":"b","program":"b","cold":{{}}}}],
+                    "workloads":[{{"name":"x","script":"x.js","cold":true{runtimes}}}]}}"#
+            )
+        };
+        assert!(parse(&cold(r#","runtimes":["b"]"#)).is_ok());
+        assert!(matches!(
+            parse(&cold("")),
+            Err(BenchError::SuiteInvalid(message)) if message.contains("the runtime `a` has no `cold` entry")
         ));
     }
 

@@ -443,20 +443,34 @@ fn measurement_build(
 
 /// The suite an A/B runs: its fgro runtimes (`fgro_names`), each beside a
 /// copy named `<name>_base` running `base_binary`, and nothing else, with no
-/// `parity` or `gate`, since the copies are the comparison.
+/// `parity` or `gate`, since the copies are the comparison. A workload that
+/// names its runtimes runs under the copy of each fgro runtime it names,
+/// and none that names no fgro runtime is left.
 fn base_suite(suite: &Suite, fgro_names: &BTreeSet<String>, base_binary: &Path) -> Suite {
     let mut suite = suite.clone();
+    let base_name = |name: &str| format!("{name}{BASE_SUFFIX}");
     suite.runtimes = suite
         .runtimes
         .iter()
         .filter(|runtime| fgro_names.contains(&runtime.name))
         .flat_map(|runtime| {
             let mut base = runtime.clone();
-            base.name = format!("{}{BASE_SUFFIX}", runtime.name);
+            base.name = base_name(&runtime.name);
             base.program = base_binary.display().to_string();
             [runtime.clone(), base]
         })
         .collect();
+    suite.workloads.retain_mut(|workload| {
+        let Some(names) = &mut workload.runtimes else {
+            return true;
+        };
+        *names = names
+            .iter()
+            .filter(|name| fgro_names.contains(*name))
+            .flat_map(|name| [name.clone(), base_name(name)])
+            .collect();
+        !names.is_empty()
+    });
     suite.parity.clear();
     suite.gate = None;
     suite
@@ -764,6 +778,39 @@ mod tests {
             error.to_string().contains("would take RUSTC and"),
             "{error}"
         );
+    }
+
+    /// An A/B keeps the fgro runtimes, each beside its base copy, and a
+    /// workload that names its runtimes runs under each named fgro's copy
+    /// too, or is left out when it names no fgro runtime.
+    #[test]
+    fn an_a_b_runs_a_workload_of_named_runtimes_under_the_base_copy_too() {
+        let suite: Suite = serde_json::from_str(
+            r#"{"name": "s", "version": 1, "samples": 2, "parity": ["node", "fgro"],
+                "runtimes": [{"name": "node", "program": "node", "stdout": "envelope"},
+                    {"name": "fgro", "program": "fgro", "stdout": "envelope"}],
+                "workloads": [{"name": "all", "script": "all.js"},
+                    {"name": "fgro_only", "script": "f.js", "runtimes": ["fgro"]},
+                    {"name": "node_only", "script": "n.js", "runtimes": ["node"]}]}"#,
+        )
+        .unwrap();
+        let fgro_names = BTreeSet::from(["fgro".to_owned()]);
+        let base = base_suite(&suite, &fgro_names, Path::new("/base/fgro"));
+        base.validate().unwrap();
+        let rows: Vec<(&str, &str)> = base
+            .rows()
+            .map(|(workload, runtime)| (workload.name.as_str(), runtime.name.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("all", "fgro"),
+                ("all", "fgro_base"),
+                ("fgro_only", "fgro"),
+                ("fgro_only", "fgro_base"),
+            ]
+        );
+        assert_eq!(base.runtimes[1].program, "/base/fgro");
     }
 
     #[test]

@@ -39,11 +39,12 @@
 //! - `baseline`: Node (also with its compile cache on), Deno, Bun, and
 //!   `fgro` on startup scripts and on `fuz_util`'s TS module graph, cold and
 //!   warm (`fgro` has no on-disk cache, so its cold and warm graph rows run
-//!   the same command). The graph is `fuz_util`'s collection in a sibling
-//!   `corpora` checkout, pinned by that collection's own tree id, so a
-//!   corpora commit that leaves `fuz_util` alone keeps the suite valid. Its
-//!   workload weights are provisional, and its file holds `fgro`'s size
-//!   budgets, which `cargo xtask build --verify` also checks.
+//!   the same command), and `fgro` alone on a first import of a few builtin
+//!   modules, which no other runtime has. The graph is `fuz_util`'s
+//!   collection in a sibling `corpora` checkout, pinned by that collection's
+//!   own tree id, so a corpora commit that leaves `fuz_util` alone keeps the
+//!   suite valid. Its workload weights are provisional, and its file holds
+//!   `fgro`'s size budgets, which `cargo xtask build --verify` also checks.
 //! - `eval`: `fgro eval --driver -` with zap's own driver, read from a sibling
 //!   zap checkout (the suite holds no zap code), on a committed fixture
 //!   project over zap's recipes and on a sibling `fuz_forge` checkout's
